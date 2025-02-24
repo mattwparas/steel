@@ -203,10 +203,10 @@ impl std::fmt::Display for UserDefinedStruct {
 impl UserDefinedStruct {
     fn new(type_descriptor: StructTypeDescriptor, raw_fields: &[SteelVal]) -> Self {
         // let mut fields: Recycle<Vec<_>> = Recycle::new();
-        let mut fields: Recycle<SmallVec<[SteelVal; 4]>> = Recycle::new();
+        let mut fields: Recycle<SmallVec<[SteelVal; 4]>> =
+            Recycle::new_with_capacity(raw_fields.len());
         // fields.extend_from_slice(raw_fields);
         fields.extend(raw_fields.into_iter().cloned());
-
         // let fields = raw_fields.into_iter().cloned().collect();
 
         Self {
@@ -368,7 +368,7 @@ impl UserDefinedStruct {
             }
 
             // Definitely use interned symbols for these. Otherwise we're going to be doing A LOT of
-            // arc cloning, and we don't want that.
+            // arc cloning, and we don't want that
             let new_struct = UserDefinedStruct::new(type_descriptor, args);
 
             Ok(SteelVal::CustomStruct(Gc::new(new_struct)))
@@ -455,9 +455,9 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => "struct-ref expected one argument");
             }
 
-            let steel_struct = &args[0].clone();
+            let steel_struct = &args[0];
 
-            match &steel_struct {
+            match steel_struct {
                 SteelVal::CustomStruct(s) => {
                     if s.type_descriptor != descriptor {
                         stop!(TypeMismatch => format!("Struct getter expected {}, found {:?}, {:?}", descriptor.name(), &s, &steel_struct));

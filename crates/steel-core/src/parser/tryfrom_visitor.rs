@@ -43,7 +43,10 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         Ok(SteelVal::ListV(expr.into_iter().collect()))
     }
 
-    fn visit_define(&mut self, define: Box<super::ast::Define>) -> Self::Output {
+    fn visit_define(&mut self, mut define: Box<super::ast::Define>) -> Self::Output {
+        // HACK: For some reason, these tokens are incorrect coming in to here
+        define.location.ty = steel_parser::tokens::TokenType::Define;
+
         let expr = [
             // TODO: This needs to get converted into a syntax object,
             // not a symbol?
@@ -56,8 +59,11 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
 
     fn visit_lambda_function(
         &mut self,
-        lambda_function: Box<super::ast::LambdaFunction>,
+        mut lambda_function: Box<super::ast::LambdaFunction>,
     ) -> Self::Output {
+        // HACK: For some reason, these tokens are incorrect coming in to here
+        lambda_function.location.ty = steel_parser::tokens::TokenType::Lambda;
+
         let args = lambda_function
             .args
             .into_iter()
@@ -73,7 +79,10 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
         Ok(SteelVal::ListV(expr.into_iter().collect()))
     }
 
-    fn visit_begin(&mut self, begin: Box<super::ast::Begin>) -> Self::Output {
+    fn visit_begin(&mut self, mut begin: Box<super::ast::Begin>) -> Self::Output {
+        // HACK: For some reason, these tokens are incorrect coming in to here
+        begin.location.ty = steel_parser::tokens::TokenType::Begin;
+
         let mut exprs = vec![SteelVal::try_from(begin.location)?];
         for expr in begin.exprs {
             exprs.push(self.visit(expr)?);
@@ -782,8 +791,31 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         stop!(Generic => "internal compiler error - could not translate require to steel value")
     }
 
-    fn visit_let(&mut self, _l: Box<super::ast::Let>) -> Self::Output {
-        todo!()
+    fn visit_let(&mut self, l: Box<super::ast::Let>) -> Self::Output {
+        let raw: SteelVal =
+            TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::Let(l.clone()))?;
+
+        let span = l.location.span;
+        let let_ident = SteelVal::try_from(l.location)?;
+
+        let bindings = SteelVal::ListV(
+            l.bindings
+                .into_iter()
+                .map(|(binding, expr)| {
+                    let binding = self.visit(binding)?;
+                    let expr = self.visit(expr)?;
+
+                    Ok(SteelVal::ListV([binding, expr].into_iter().collect()))
+                })
+                .collect::<Result<List<_>>>()?,
+        );
+
+        let expr = [
+            Syntax::proto(let_ident.clone(), let_ident, span).into(),
+            Syntax::proto(bindings.clone(), bindings, span).into(),
+            self.visit(l.body_expr)?,
+        ];
+        Ok(Syntax::proto(raw, SteelVal::ListV(expr.into_iter().collect()), span).into())
     }
 
     fn visit_vector(&mut self, v: steel_parser::ast::Vector) -> Self::Output {

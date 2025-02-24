@@ -29,3 +29,6 @@ pub use im_lists::list::List;
 pub use primitives::UnRecoverableResult;
 pub use values::RootToken;
 pub use values::RootedSteelVal;
+
+#[cfg(feature = "jit2")]
+pub mod jit2;

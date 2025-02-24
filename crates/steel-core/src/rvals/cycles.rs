@@ -2,6 +2,7 @@ use crate::gc::shared::{MutableContainer, ShareableMut};
 use crate::steel_vm::{builtin::get_function_name, vm::Continuation, vm::ContinuationMark};
 use crate::values::lists::Pair;
 use num::BigInt;
+use std::thread::ThreadId;
 use std::{cell::Cell, collections::VecDeque};
 
 use super::*;
@@ -682,6 +683,45 @@ pub(crate) mod drop_impls {
                 return;
             }
 
+            #[cfg(feature = "experimental-drop-handler")]
+            {
+                let bg_thread = BG_DROP_THREAD_ID.get();
+
+                if bg_thread.is_none() || *bg_thread.unwrap() != std::thread::current().id() {
+                    // Do the thing?
+                    for value in self.fields.drain(..) {
+                        // Check if the thread it was made on matches the thread
+                        // that we're scheduled on?
+                        BG_DROP_THREAD.send(value).unwrap();
+                    }
+                } else {
+                    // if DROP_BUFFER
+                    //     .try_with(|drop_buffer| {
+                    //         if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
+                    //             // for value in std::mem::take(&mut self.fields) {
+                    //             //     drop_buffer.push_back(value);
+                    //             // }
+
+                    //             drop_buffer.extend(
+                    //                 self.fields.drain(..),
+                    //                 // std::mem::replace(&mut self.fields, Recycle::noop()).into_iter(),
+                    //             );
+
+                    //             // std::mem::replace(&mut self, self.fields.put();
+
+                    //             IterativeDropHandler::bfs(&mut drop_buffer);
+                    //         }
+                    //     })
+                    //     .is_err()
+                    // {
+                    let mut buffer = self.fields.drain(..).collect();
+
+                    IterativeDropHandler::bfs(&mut buffer);
+                    // }
+                }
+            }
+
+            #[cfg(not(feature = "experimental-drop-handler"))]
             if DROP_BUFFER
                 .try_with(|drop_buffer| {
                     if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
@@ -763,6 +803,58 @@ impl<'a> IterativeDropHandler<'a> {
         }
         .visit();
     }
+}
+
+#[cfg(feature = "experimental-drop-handler")]
+#[inline(always)]
+pub fn drop_on_bg(value: SteelVal) {
+    BG_DROP_THREAD.send(value).unwrap()
+}
+
+#[cfg(feature = "experimental-drop-handler")]
+static BG_DROP_THREAD: once_cell::sync::Lazy<crossbeam::channel::Sender<SteelVal>> =
+    once_cell::sync::Lazy::new(start_background_drop_thread);
+
+#[cfg(feature = "experimental-drop-handler")]
+static BG_DROP_THREAD_ID: once_cell::sync::OnceCell<ThreadId> = once_cell::sync::OnceCell::new();
+
+#[cfg(feature = "experimental-drop-handler")]
+fn start_background_drop_thread() -> crossbeam::channel::Sender<SteelVal> {
+    let (sender, receiver) = crossbeam::channel::unbounded::<SteelVal>();
+
+    std::thread::spawn(move || {
+        // Build up a buffer before starting to drop?
+        // while let Ok(value) = receiver.recv() {
+        //     // value.visit();
+        //     drop(value)
+        // }
+
+        BG_DROP_THREAD_ID.set(std::thread::current().id());
+
+        let mut drop_handler = OwnedIterativeDropHandler {
+            drop_buffer: VecDeque::with_capacity(16),
+        };
+
+        loop {
+            // // Grab whatever is ready to go, enqueue that to build up
+            // // a buffer.
+            // while let Ok(value) = receiver.try_recv() {
+            //     drop_handler.push_back(value);
+            // }
+
+            // // Visit these in bulk.
+            // drop_handler.visit();
+
+            while let Ok(value) = receiver.recv() {
+                drop_handler.push_back(value);
+                drop_handler.visit();
+            }
+        }
+
+        // while let Ok(value) = receiver.try_recv()
+    });
+
+    sender
 }
 
 impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
@@ -1054,8 +1146,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
             // Long recursive drops will block the main thread from continuing - we should
             // have another thread pick up the work?
+
+            /*
             #[cfg(feature = "experimental-drop-handler")]
-            if !self.moved_threads && self.drop_buffer.len() > 20 {
+            if !self.moved_threads && self.drop_buffer.len() > 128 {
                 self.moved_threads = true;
 
                 static DROP_THREAD: once_cell::sync::Lazy<
@@ -1081,24 +1175,13 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 // let buffer = VecDeque::new();
                 let original_buffer = std::mem::replace(self.drop_buffer, VecDeque::new());
 
-                // println!("Moving to another thread");
-
                 DROP_THREAD
                     .send(OwnedIterativeDropHandler {
                         drop_buffer: original_buffer,
                     })
                     .ok();
-
-                // std::thread::spawn(move || {
-                //     let mut handler = OwnedIterativeDropHandler {
-                //         drop_buffer: original_buffer,
-                //     };
-
-                //     handler.visit();
-
-                //     drop(handler)
-                // });
             }
+            */
         }
 
         ret
@@ -1305,6 +1388,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
                         }
                     }
                 }
+                ContinuationMark::Barrier => {}
             }
         }
     }

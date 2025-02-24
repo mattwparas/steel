@@ -1243,6 +1243,7 @@ where
     (x, rem)
 }
 
+#[inline(always)]
 fn ensure_args_are_numbers(op: &str, args: &[SteelVal]) -> Result<()> {
     for arg in args {
         if !numberp(arg) {

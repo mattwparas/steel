@@ -1111,6 +1111,32 @@ pub fn lte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     })))
 }
 
+#[inline(always)]
+pub fn lt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "expected at least one argument");
+    }
+
+    Ok(SteelVal::BoolV(args.windows(2).all(|x| {
+        x[0].partial_cmp(&x[1])
+            .map(|x| x == Ordering::Less)
+            .unwrap_or(false)
+    })))
+}
+
+#[inline(always)]
+pub fn gt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "expected at least one argument");
+    }
+
+    Ok(SteelVal::BoolV(args.windows(2).all(|x| {
+        x[0].partial_cmp(&x[1])
+            .map(|x| x == Ordering::Greater)
+            .unwrap_or(false)
+    })))
+}
+
 fn equality_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/equality");
     module
@@ -1876,6 +1902,9 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(ERROR_OBJECT_MESSAGE_DEFINITION)
         .register_fn("steel-home-location", steel_home)
         .register_fn("%#interner-memory-usage", interned_current_memory_usage);
+
+    #[cfg(feature = "jit2")]
+    module.register_native_fn_definition(super::vm::JIT_COMPILE_DEFINITION);
 
     #[cfg(not(feature = "dylibs"))]
     module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);

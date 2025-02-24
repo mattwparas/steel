@@ -129,7 +129,25 @@ pub struct ByteCodeLambda {
 
     #[cfg(not(feature = "sync"))]
     contract: MutContainer<Option<Gc<UserDefinedStruct>>>,
+    // #[cfg(feature = "jit2")]
+    // old_instructions: RefCell<Option<Shared<[DenseInstruction]>>>,
+    #[cfg(feature = "jit2")]
+    pub(crate) super_instructions: Vec<fn(&mut crate::steel_vm::vm::VmCore) -> bool>,
 }
+
+// ... How to embed the super instruction code, in the original, without
+// losing the fact that things are not off by a little bit? Just insert
+// some kind of prelude? What can be done there to fuse the op codes together?
+//
+// Probably just embed the payload into the super instruction itself
+// so it doesn't have to fetch it from the bytecode?
+//
+// Either:
+// So now our handlers actually accept the payload? Or just do that for
+// the first one?
+//
+// Call the function with the payload for the first one, and then the subsequent
+// ones will just use the handler, without the payload
 
 impl PartialEq for ByteCodeLambda {
     fn eq(&self, other: &Self) -> bool {
@@ -248,8 +266,17 @@ impl ByteCodeLambda {
 
             #[cfg(feature = "dynamic")]
             blocks: RefCell::new(Vec::new()),
+            // #[cfg(feature = "jit2")]
+            // old_instructions: RefCell::new(None),
+            #[cfg(feature = "jit2")]
+            super_instructions: Vec::new(),
         }
     }
+
+    // #[cfg(feature = "jit2")]
+    // pub(crate) fn promote_to_super(&self, upgraded: Shared<[DenseInstruction]>) {
+    //     self.old_instructions
+    // }
 
     pub(crate) fn from_serialized(heap: &mut HeapSerializer, value: SerializedLambda) -> Self {
         ByteCodeLambda::new(

@@ -1783,7 +1783,7 @@ where
 {
     value_iter.next();
 
-    let let_pairs = if let ExprKind::List(l) = value_iter.next().ok_or_else(|| {
+    let let_pairs = match value_iter.next().ok_or_else(|| {
         ParseError::SyntaxError(
             "let expected a list of variable bindings pairs in the second position, found none"
                 .to_string(),
@@ -1791,13 +1791,17 @@ where
             None,
         )
     })? {
-        l.args
-    } else {
-        return Err(ParseError::SyntaxError(
-            "let expects a list of variable bindings pairs in the second position".to_string(),
-            syn.span,
-            None,
-        ));
+        // Standard let
+        ExprKind::List(l) => l.args,
+        // Named let
+        name @ ExprKind::Atom(_) => return parse_named_let(value_iter, syn, name),
+        _ => {
+            return Err(ParseError::SyntaxError(
+                "let expects a list of variable bindings pairs in the second position".to_string(),
+                syn.span,
+                None,
+            ));
+        }
     };
 
     let body_exprs: Vec<_> = value_iter.collect();
@@ -1880,7 +1884,7 @@ where
 
     if body_exprs.is_empty() {
         return Err(ParseError::SyntaxError(
-            "let expects an expression, found none".to_string(),
+            "(named) let expects an expression, found none".to_string(),
             syn.span,
             None,
         ));

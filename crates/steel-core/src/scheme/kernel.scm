@@ -143,7 +143,9 @@
                  (define options
                    (let ([raw (cdddr unwrapped)])
                      ; (displayln raw)
-                     (if (empty? raw) raw (map syntax->datum raw))))
+                     (if (empty? raw)
+                         raw
+                         (map syntax->datum raw))))
                  (define result (struct-impl struct-name fields options))
                  (syntax/loc result
                    (syntax-span expr)))
@@ -270,10 +272,13 @@
 
               `(set! ,struct-name constructor-proto))
          ,(new-make-predicate struct-predicate struct-name fields)
-         ,@
-         (if mutable? (mutable-make-getters struct-name fields) (new-make-getters struct-name fields))
+         ,@(if mutable?
+               (mutable-make-getters struct-name fields)
+               (new-make-getters struct-name fields))
          ;; If this is a mutable struct, generate the setters
-         ,@(if mutable? (mutable-make-setters struct-name fields) (list))
+         ,@(if mutable?
+               (mutable-make-setters struct-name fields)
+               (list))
          void)))))
 
 (define (new-make-predicate struct-predicate-name struct-name fields)

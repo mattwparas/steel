@@ -21,6 +21,9 @@ use crate::rvals::number_equality;
 use crate::rvals::BoxedAsyncFunctionSignature;
 use crate::rvals::FromSteelVal as _;
 use crate::rvals::SteelString;
+use crate::steel_vm::primitives::gt_primitive;
+use crate::steel_vm::primitives::gte_primitive;
+use crate::steel_vm::primitives::lt_primitive;
 use crate::steel_vm::primitives::steel_not;
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
@@ -346,6 +349,9 @@ pub struct SteelThread {
     pub(crate) profiler: Vec<usize>,
 
     pub(crate) handler_map: &'static [OpHandler],
+
+    #[cfg(feature = "jit2")]
+    pub(crate) jit: Arc<Mutex<crate::jit2::gen::JIT>>,
 }
 
 #[derive(Clone)]
@@ -379,6 +385,8 @@ pub struct FunctionInterner {
     // reference to the existing thread in which it was created, and if passed in externally by
     // another run time, we can nuke it?
     spans: fxhash::FxHashMap<u32, Shared<[Span]>>,
+
+    jit_funcs: fxhash::FxHashMap<u32, Gc<ByteCodeLambda>>,
 }
 
 #[derive(Clone, Default)]
@@ -617,6 +625,9 @@ impl SteelThread {
             profiler: vec![0; OpCode::LOADINT2POP as usize],
 
             handler_map: &HANDLER_MAP,
+
+            #[cfg(feature = "jit2")]
+            jit: Arc::new(Mutex::new(crate::jit2::gen::JIT::default())),
         }
     }
 
@@ -871,14 +882,14 @@ impl SteelThread {
         // This is our pseudo "dynamic unwind"
         // If we need to, we'll walk back on the stack and find any handlers to pop
         'outer: loop {
-            #[cfg(debug_assertions)]
+            #[cfg(any(debug_assertions, not(feature = "vm-tco")))]
             let result = vm_instance.vm().map_err(|error| {
                 error
                     .set_span_if_none(vm_instance.current_span())
                     .with_stack_trace(vm_instance.snapshot_stack_trace())
             });
 
-            #[cfg(not(debug_assertions))]
+            #[cfg(all(not(debug_assertions), feature = "vm-tco"))]
             let result = vm_instance.vm_tco().map_err(|error| {
                 error
                     .set_span_if_none(vm_instance.current_span())
@@ -1384,275 +1395,289 @@ const _ASSERT_SMALL: () = assert!(std::mem::size_of::<Result<Dispatch>>() <= 8);
 
 pub type OpHandler = for<'a, 'b> fn(&'a mut VmCore<'b>) -> Result<Dispatch>;
 
-// TODO: Replace each of these with the proper handler, and come up
-// with a better way of doing it?
-pub static HANDLER_MAP: [OpHandler; MAX_OPCODE_SIZE] = [
-    // VOID;
-    void_handler_tco,
-    // PUSH;
-    push_handler_tco,
-    // IF;
-    if_handler_tco,
-    // JMP;
-    jmp_handler_tco,
-    // FUNC;
-    func_handler_tco,
-    // SCLOSURE;
-    unhandled_handler_tco,
-    // ECLOSURE;
-    unhandled_handler_tco,
-    // BIND;
-    bind_handler_tco,
-    // SDEF;
-    sdef_handler_tco,
-    // EDEF;
-    edef_handler_tco,
-    // POPPURE;
-    poppure_handler_tco,
-    // POPN;
-    popn_handler_tco,
-    // POPSINGLE;
-    popsingle_handler_tco,
-    // PASS;
-    pass_handler_tco,
-    // PUSHCONST;
-    pushconst_handler_tco,
-    // NDEFS;
-    unhandled_handler_tco,
-    // PANIC;
-    panic_handler_tco,
-    // TAILCALL;
-    tailcall_handler_tco,
-    // SET;
-    set_handler_tco,
-    // READLOCAL;
-    readlocal_handler_tco,
-    // READLOCAL0;
-    readlocal0_handler_tco,
-    // READLOCAL1;
-    readlocal1_handler_tco,
-    // READLOCAL2;
-    readlocal2_handler_tco,
-    // READLOCAL3;
-    readlocal3_handler_tco,
-    // SETLOCAL;
-    setlocal_handler_tco,
-    // COPYCAPTURESTACK;
-    unhandled_handler_tco,
-    // COPYCAPTURECLOSURE;
-    unhandled_handler_tco,
-    // COPYHEAPCAPTURECLOSURE;
-    unhandled_handler_tco,
-    // FIRSTCOPYHEAPCAPTURECLOSURE;
-    unhandled_handler_tco,
-    // TCOJMP;
-    tcojmp_handler_tco,
-    // CALLGLOBAL;
-    callglobal_handler_tco,
-    // CALLGLOBALTAIL;
-    callglobaltail_handler_tco,
-    // LOADINT0; // Load const 0,
-    loadint0_handler_tco,
-    // LOADINT1;
-    loadint1_handler_tco,
-    // LOADINT2;
-    loadint2_handler_tco,
-    // CGLOCALCONST;
-    unhandled_handler_tco,
-    // MOVEREADLOCAL;
-    movereadlocal_handler_tco,
-    // MOVEREADLOCAL0;
-    movereadlocal0_handler_tco,
-    // MOVEREADLOCAL1;
-    movereadlocal1_handler_tco,
-    // MOVEREADLOCAL2;
-    movereadlocal2_handler_tco,
-    // MOVEREADLOCAL3;
-    movereadlocal3_handler_tco,
-    // READCAPTURED;
-    readcaptured_handler_tco,
-    // BEGINSCOPE;
-    beginscope_handler_tco,
-    // LETENDSCOPE;
-    letendscope_handler_tco,
-    // PUREFUNC;
-    purefunc_handler_tco,
-    // ADD;
-    add_handler_tco,
-    // SUB;
-    sub_handler_tco,
-    // MUL;
-    mul_handler_tco,
-    // DIV;
-    div_handler_tco,
-    // EQUAL;
-    equal_handler_tco,
-    // NUMEQUAL;
-    numequal_handler_tco,
-    // NULL;
-    null_handler_tco,
-    // LTE;
-    lte_handler_tco,
-    // CONS; // Cons should be... probably specialized
-    cons_handler_tco,
-    // LIST;
-    list_handler_tco,
-    // CAR;
-    car_handler_tco,
-    // CDR;
-    cdr_handler_tco,
-    // NEWBOX;
-    newbox_handler_tco,
-    // SETBOX;
-    setbox_handler_tco,
-    // UNBOX;
-    unbox_handler_tco,
-    // NEWSCLOSURE;
-    newsclosure_handler_tco,
-    // ADDREGISTER;
-    addregister_handler_tco,
-    // SUBREGISTER;
-    subregister_handler_tco,
-    // LTEREGISTER;
-    lteregister_handler_tco,
-    // SUBREGISTER1;
-    subregister1_handler_tco,
-    // ALLOC;
-    alloc_handler_tco,
-    // READALLOC;
-    readalloc_handler_tco,
-    // SETALLOC;
-    setalloc_handler_tco,
-    // DynSuperInstruction;
-    unhandled_handler_tco,
-    // Arity;
-    unhandled_handler_tco,
-    // LetVar;
-    unhandled_handler_tco,
-    // ADDIMMEDIATE;
-    addimmediate_handler_tco,
-    // SUBIMMEDIATE;
-    subimmediate_handler_tco,
-    // LTEIMMEDIATE;
-    lteimmediate_handler_tco,
-    // BINOPADD;
-    binopadd_handler_tco,
-    // BINOPSUB;
-    // binopsub_handler_tco,
-    unhandled_handler_tco,
-    // LTEIMMEDIATEIF;
-    lteimmediateif_handler_tco,
-    // NOT;
-    not_handler_tco,
-    // VEC;
-    vec_handler_tco,
-    // Apply;
-    unhandled_handler_tco,
-    // POPJMP;
-    popjmp_handler_tco,
-    // CALLGLOBALTAILPOP;
-    // callglobaltailpop_handler_tco,
-    unhandled_handler_tco,
-    // BINOPADDTAIL;
-    binopaddtail_handler_tco,
-    // LOADINT0POP; // Load const 0
-    // loadint0pop_handler_tco,
-    unhandled_handler_tco,
-    // LOADINT1POP;
-    loadint1pop_handler_tco,
-    // LOADINT2POP
-    // loadint2pop_handler_tco
-    unhandled_handler_tco,
-];
+pub type OpHandlerC = extern "C" fn(*mut VmCore) -> bool;
 
-// pub static HANDLER_MAP: [OpHandler; MAX_OPCODE_SIZE] = initialize_handler_map();
+// Use this to set up the handlers that we need?
+pub static C_HANDLERS: [OpHandlerC; MAX_OPCODE_SIZE] = initialize_handlers();
 
-// const fn initialize_handler_map() -> [OpHandler; MAX_OPCODE_SIZE] {
-//     let mut ops = [unhandled_handler_tco as _; MAX_OPCODE_SIZE];
+pub static HANDLER_MAP: [OpHandler; MAX_OPCODE_SIZE] = initialize_handler_map();
 
-//     let mut i = 0;
-//     while i < MAX_OPCODE_SIZE {
-//         let op = OPCODES_ARRAY[i];
-//         ops[i] = match op {
-//             OpCode::VOID => void_handler_tco as _,
-//             OpCode::PUSH => push_handler_tco as _,
-//             OpCode::IF => if_handler_tco as _,
-//             OpCode::JMP => jmp_handler_tco as _,
-//             OpCode::FUNC => func_handler_tco as _,
-//             OpCode::BIND => bind_handler_tco as _,
-//             OpCode::SDEF => sdef_handler_tco as _,
-//             OpCode::EDEF => edef_handler_tco as _,
-//             OpCode::POPPURE => poppure_handler_tco as _,
-//             OpCode::POPN => popn_handler_tco as _,
-//             OpCode::POPSINGLE => popsingle_handler_tco as _,
-//             OpCode::PASS => pass_handler_tco as _,
-//             OpCode::PUSHCONST => pushconst_handler_tco as _,
-//             OpCode::PANIC => panic_handler_tco as _,
-//             OpCode::TAILCALL => tailcall_handler_tco as _,
-//             OpCode::SET => set_handler_tco as _,
-//             OpCode::READLOCAL => readlocal_handler_tco as _,
-//             OpCode::READLOCAL0 => readlocal0_handler_tco as _,
-//             OpCode::READLOCAL1 => readlocal1_handler_tco as _,
-//             OpCode::READLOCAL2 => readlocal2_handler_tco as _,
-//             OpCode::READLOCAL3 => readlocal3_handler_tco as _,
-//             OpCode::SETLOCAL => setlocal_handler_tco as _,
-//             OpCode::TCOJMP => tcojmp_handler_tco as _,
-//             OpCode::CALLGLOBAL => callglobal_handler_tco as _,
-//             OpCode::CALLGLOBALTAIL => callglobaltail_handler_tco as _,
-//             OpCode::LOADINT0 => loadint0_handler_tco as _,
-//             OpCode::LOADINT1 => loadint1_handler_tco as _,
-//             OpCode::LOADINT2 => loadint2_handler_tco as _,
-//             OpCode::MOVEREADLOCAL => movereadlocal_handler_tco as _,
-//             OpCode::MOVEREADLOCAL0 => movereadlocal0_handler_tco as _,
-//             OpCode::MOVEREADLOCAL1 => movereadlocal1_handler_tco as _,
-//             OpCode::MOVEREADLOCAL2 => movereadlocal2_handler_tco as _,
-//             OpCode::MOVEREADLOCAL3 => movereadlocal3_handler_tco as _,
-//             OpCode::READCAPTURED => readcaptured_handler_tco as _,
-//             OpCode::BEGINSCOPE => beginscope_handler_tco as _,
-//             OpCode::LETENDSCOPE => letendscope_handler_tco as _,
-//             OpCode::PUREFUNC => purefunc_handler_tco as _,
-//             OpCode::ADD => add_handler_tco as _,
-//             OpCode::SUB => sub_handler_tco as _,
-//             OpCode::MUL => mul_handler_tco as _,
-//             OpCode::DIV => div_handler_tco as _,
-//             OpCode::EQUAL => equal_handler_tco as _,
-//             OpCode::NUMEQUAL => numequal_handler_tco as _,
-//             OpCode::NULL => null_handler_tco as _,
-//             OpCode::LTE => lte_handler_tco as _,
-//             OpCode::CONS => cons_handler_tco as _,
-//             OpCode::LIST => list_handler_tco as _,
-//             OpCode::CAR => car_handler_tco as _,
-//             OpCode::CDR => cdr_handler_tco as _,
-//             OpCode::NEWBOX => newbox_handler_tco as _,
-//             OpCode::SETBOX => setbox_handler_tco as _,
-//             OpCode::UNBOX => unbox_handler_tco as _,
-//             OpCode::NEWSCLOSURE => newsclosure_handler_tco as _,
-//             OpCode::ADDREGISTER => addregister_handler_tco as _,
-//             OpCode::SUBREGISTER => subregister_handler_tco as _,
-//             OpCode::LTEREGISTER => lteregister_handler_tco as _,
-//             OpCode::SUBREGISTER1 => subregister1_handler_tco as _,
-//             OpCode::ALLOC => alloc_handler_tco as _,
-//             OpCode::READALLOC => readalloc_handler_tco as _,
-//             OpCode::SETALLOC => setalloc_handler_tco as _,
-//             OpCode::Arity => arity_handler_tco as _,
-//             OpCode::ADDIMMEDIATE => addimmediate_handler_tco as _,
-//             OpCode::SUBIMMEDIATE => subimmediate_handler_tco as _,
-//             OpCode::LTEIMMEDIATE => lteimmediate_handler_tco as _,
-//             OpCode::BINOPADD => binopadd_handler_tco as _,
-//             OpCode::LTEIMMEDIATEIF => lteimmediateif_handler_tco as _,
-//             OpCode::NOT => not_handler_tco as _,
-//             OpCode::VEC => vec_handler_tco as _,
-//             OpCode::POPJMP => popjmp_handler_tco as _,
-//             OpCode::BINOPADDTAIL => binopaddtail_handler_tco as _,
-//             OpCode::LOADINT1POP => loadint1pop_handler_tco as _,
-//             _ => unhandled_handler_tco as _,
-//         };
+const fn initialize_handler_map() -> [OpHandler; MAX_OPCODE_SIZE] {
+    let mut ops = [unhandled_handler_tco as _; MAX_OPCODE_SIZE];
 
-//         i += 1;
-//     }
+    let mut i = 0;
+    while i < MAX_OPCODE_SIZE {
+        let op = OPCODES_ARRAY[i];
+        ops[i] = match op {
+            OpCode::VOID => void_handler_tco as _,
+            OpCode::PUSH => push_handler_tco as _,
+            OpCode::IF => if_handler_tco as _,
+            OpCode::JMP => jmp_handler_tco as _,
+            OpCode::FUNC => func_handler_tco as _,
+            OpCode::BIND => bind_handler_tco as _,
+            OpCode::SDEF => sdef_handler_tco as _,
+            OpCode::EDEF => edef_handler_tco as _,
+            OpCode::POPPURE => poppure_handler_tco as _,
+            OpCode::POPN => popn_handler_tco as _,
+            OpCode::POPSINGLE => popsingle_handler_tco as _,
+            OpCode::PASS => pass_handler_tco as _,
+            OpCode::PUSHCONST => pushconst_handler_tco as _,
+            OpCode::PANIC => panic_handler_tco as _,
+            OpCode::TAILCALL => tailcall_handler_tco as _,
+            OpCode::SET => set_handler_tco as _,
+            OpCode::READLOCAL => readlocal_handler_tco as _,
+            OpCode::READLOCAL0 => readlocal0_handler_tco as _,
+            OpCode::READLOCAL1 => readlocal1_handler_tco as _,
+            OpCode::READLOCAL2 => readlocal2_handler_tco as _,
+            OpCode::READLOCAL3 => readlocal3_handler_tco as _,
+            OpCode::SETLOCAL => setlocal_handler_tco as _,
+            OpCode::TCOJMP => tcojmp_handler_tco as _,
+            OpCode::CALLGLOBAL => callglobal_handler_tco as _,
+            OpCode::CALLGLOBALTAIL => callglobaltail_handler_tco as _,
+            OpCode::LOADINT0 => loadint0_handler_tco as _,
+            OpCode::LOADINT1 => loadint1_handler_tco as _,
+            OpCode::LOADINT2 => loadint2_handler_tco as _,
+            OpCode::MOVEREADLOCAL => movereadlocal_handler_tco as _,
+            OpCode::MOVEREADLOCAL0 => movereadlocal0_handler_tco as _,
+            OpCode::MOVEREADLOCAL1 => movereadlocal1_handler_tco as _,
+            OpCode::MOVEREADLOCAL2 => movereadlocal2_handler_tco as _,
+            OpCode::MOVEREADLOCAL3 => movereadlocal3_handler_tco as _,
+            OpCode::READCAPTURED => readcaptured_handler_tco as _,
+            OpCode::BEGINSCOPE => beginscope_handler_tco as _,
+            OpCode::LETENDSCOPE => letendscope_handler_tco as _,
+            OpCode::PUREFUNC => purefunc_handler_tco as _,
+            OpCode::ADD => add_handler_tco as _,
+            OpCode::SUB => sub_handler_tco as _,
+            OpCode::MUL => mul_handler_tco as _,
+            OpCode::DIV => div_handler_tco as _,
+            OpCode::EQUAL => equal_handler_tco as _,
+            OpCode::NUMEQUAL => numequal_handler_tco as _,
+            OpCode::NULL => null_handler_tco as _,
+            OpCode::LTE => lte_handler_tco as _,
+            OpCode::LT => lt_handler_tco as _,
+            OpCode::GT => gt_handler_tco as _,
+            OpCode::GTE => gte_handler_tco as _,
+            OpCode::CONS => cons_handler_tco as _,
+            OpCode::LIST => list_handler_tco as _,
+            OpCode::CAR => car_handler_tco as _,
+            OpCode::CDR => cdr_handler_tco as _,
+            OpCode::NEWBOX => newbox_handler_tco as _,
+            OpCode::SETBOX => setbox_handler_tco as _,
+            OpCode::UNBOX => unbox_handler_tco as _,
+            OpCode::NEWSCLOSURE => newsclosure_handler_tco as _,
+            OpCode::ADDREGISTER => addregister_handler_tco as _,
+            OpCode::SUBREGISTER => subregister_handler_tco as _,
+            OpCode::LTEREGISTER => lteregister_handler_tco as _,
+            OpCode::SUBREGISTER1 => subregister1_handler_tco as _,
+            OpCode::ALLOC => alloc_handler_tco as _,
+            OpCode::READALLOC => readalloc_handler_tco as _,
+            OpCode::SETALLOC => setalloc_handler_tco as _,
+            OpCode::Arity => arity_handler_tco as _,
+            OpCode::ADDIMMEDIATE => addimmediate_handler_tco as _,
+            OpCode::SUBIMMEDIATE => subimmediate_handler_tco as _,
+            OpCode::LTEIMMEDIATE => lteimmediate_handler_tco as _,
+            OpCode::BINOPADD => binopadd_handler_tco as _,
+            OpCode::LTEIMMEDIATEIF => lteimmediateif_handler_tco as _,
+            OpCode::NOT => not_handler_tco as _,
+            OpCode::VEC => vec_handler_tco as _,
+            OpCode::POPJMP => popjmp_handler_tco as _,
+            OpCode::BINOPADDTAIL => binopaddtail_handler_tco as _,
+            OpCode::LOADINT1POP => loadint1pop_handler_tco as _,
+            _ => unhandled_handler_tco as _,
+        };
 
-//     ops
-// }
+        i += 1;
+    }
+
+    ops
+}
+
+macro_rules! extern_c {
+    ($func:expr, $name:tt) => {
+        extern "C" fn $name(ctx: *mut VmCore) -> bool {
+            unsafe { $func(&mut *ctx).is_ok() }
+        }
+    };
+}
+
+// TODO: Do this for all the other handlers,
+// and figure out the return values!
+extern_c!(void_handler_impl, void_handler_impl_c);
+extern_c!(push_handler_impl, push_handler_impl_c);
+extern_c!(if_handler_impl, if_handler_impl_c);
+extern_c!(jmp_handler_impl, jmp_handler_impl_c);
+extern_c!(func_handler_impl, func_handler_impl_c);
+extern_c!(bind_handler_impl, bind_handler_impl_c);
+extern_c!(sdef_handler_impl, sdef_handler_impl_c);
+extern_c!(edef_handler_impl, edef_handler_impl_c);
+extern_c!(poppure_handler_impl, poppure_handler_impl_c);
+extern_c!(popn_handler_impl, popn_handler_impl_c);
+extern_c!(popsingle_handler_impl, popsingle_handler_impl_c);
+extern_c!(pass_handler_impl, pass_handler_impl_c);
+extern_c!(pushconst_handler_impl, pushconst_handler_impl_c);
+extern_c!(panic_handler_impl, panic_handler_impl_c);
+extern_c!(tailcall_handler_impl, tailcall_handler_impl_c);
+extern_c!(set_handler_impl, set_handler_impl_c);
+extern_c!(readlocal_handler_impl, readlocal_handler_impl_c);
+extern_c!(local_handler0, local_handler0_impl_c);
+extern_c!(local_handler1, local_handler1_impl_c);
+extern_c!(local_handler2, local_handler2_impl_c);
+extern_c!(local_handler3, local_handler3_impl_c);
+extern_c!(setlocal_handler_impl, setlocal_handler_impl_c);
+
+extern_c!(tcojmp_handler_impl, tcojmp_handler_impl_c);
+extern_c!(callglobal_handler_impl, callglobal_handler_impl_c);
+// TODO:
+extern_c!(callglobaltail_handler_impl, callglobaltail_handler_impl_c);
+extern_c!(loadint0_handler_impl, loadint0_handler_impl_c);
+extern_c!(loadint1_handler_impl, loadint1_handler_impl_c);
+extern_c!(loadint2_handler_impl, loadint2_handler_impl_c);
+extern_c!(movereadlocal_handler_impl, movereadlocal_handler_impl_c);
+extern_c!(movereadlocal0_handler_impl, movereadlocal0_handler_impl_c);
+extern_c!(movereadlocal1_handler_impl, movereadlocal1_handler_impl_c);
+extern_c!(movereadlocal2_handler_impl, movereadlocal2_handler_impl_c);
+extern_c!(movereadlocal3_handler_impl, movereadlocal3_handler_impl_c);
+extern_c!(readcaptured_handler_impl, readcaptured_handler_impl_c);
+extern_c!(beginscope_handler_impl, beginscope_handler_impl_c);
+extern_c!(let_end_scope_handler, let_end_scope_handler_impl_c);
+extern_c!(purefunc_handler_impl, purefunc_handler_impl_c);
+extern_c!(add_handler_impl, add_handler_impl_c);
+extern_c!(sub_handler_impl, sub_handler_impl_c);
+extern_c!(mul_handler_impl, mul_handler_impl_c);
+extern_c!(div_handler_impl, div_handler_impl_c);
+extern_c!(equal_handler_impl, equal_handler_impl_c);
+extern_c!(numequal_handler_impl, numequal_handler_impl_c);
+extern_c!(null_handler_impl, null_handler_impl_c);
+extern_c!(lte_handler_impl, lte_handler_impl_c);
+extern_c!(lt_handler_impl, lt_handler_impl_c);
+extern_c!(gte_handler_impl, gte_handler_impl_c);
+extern_c!(gt_handler_impl, gt_handler_impl_c);
+extern_c!(cons_handler, cons_handler_impl_c);
+extern_c!(list_handler_impl, list_handler_impl_c);
+extern_c!(car_handler, car_handler_impl_c);
+extern_c!(cdr_handler, cdr_handler_impl_c);
+extern_c!(new_box_handler, newbox_handler_impl_c);
+extern_c!(setbox_handler, setbox_handler_impl_c);
+extern_c!(unbox_handler, unbox_handler_impl_c);
+extern_c!(newsclosure_handler_impl, newsclosure_handler_impl_c);
+extern_c!(addregister_handler_impl, addregister_handler_impl_c);
+extern_c!(subregister_handler_impl, subregister_handler_impl_c);
+extern_c!(lteregister_handler_impl, lteregister_handler_impl_c);
+extern_c!(subregister1_handler_impl, subregister1_handler_impl_c);
+extern_c!(alloc_handler, alloc_handler_impl_c);
+extern_c!(read_alloc_handler, read_alloc_handler_impl_c);
+extern_c!(set_alloc_handler, set_alloc_handler_impl_c);
+extern_c!(arity_handler_impl, arity_handler_impl_c);
+extern_c!(addimmediate_handler_impl, addimmediate_handler_impl_c);
+extern_c!(subimmediate_handler_impl, subimmediate_handler_impl_c);
+extern_c!(lteimmediate_handler_impl, lteimmediate_handler_impl_c);
+extern_c!(binopadd_handler_impl, binopadd_handler_impl_c);
+extern_c!(lteimmediateif_handler_impl, lteimmediateif_handler_impl_c);
+extern_c!(not_handler, not_handler_impl_c);
+extern_c!(vec_handler_impl, vec_handler_impl_c);
+
+// TODO:
+extern_c!(popjmp_handler_tco, popjmp_handler_impl_c);
+// TODO:
+extern_c!(binopaddtail_handler_tco, binopaddtail_handler_impl_c);
+// TODO:
+extern_c!(loadint1pop_handler_tco, loadint1pop_handler_impl_c);
+extern_c!(unhandled_handler_tco, unhandled_handler_impl_c);
+
+const fn initialize_handlers() -> [OpHandlerC; MAX_OPCODE_SIZE] {
+    let mut ops = [unhandled_handler_impl_c as _; MAX_OPCODE_SIZE];
+
+    let mut i = 0;
+    while i < MAX_OPCODE_SIZE {
+        let op = OPCODES_ARRAY[i];
+        ops[i] = match op {
+            OpCode::VOID => void_handler_impl_c as _,
+            OpCode::PUSH => push_handler_impl_c as _,
+            OpCode::IF => if_handler_impl_c as _,
+            OpCode::JMP => jmp_handler_impl_c as _,
+            OpCode::FUNC => func_handler_impl_c as _,
+            OpCode::BIND => bind_handler_impl_c as _,
+            OpCode::SDEF => sdef_handler_impl_c as _,
+            OpCode::EDEF => edef_handler_impl_c as _,
+            OpCode::POPPURE => poppure_handler_impl_c as _,
+            OpCode::POPN => popn_handler_impl_c as _,
+            OpCode::POPSINGLE => popsingle_handler_impl_c as _,
+            OpCode::PASS => pass_handler_impl_c as _,
+            OpCode::PUSHCONST => pushconst_handler_impl_c as _,
+            OpCode::PANIC => panic_handler_impl_c as _,
+            OpCode::TAILCALL => tailcall_handler_impl_c as _,
+            OpCode::SET => set_handler_impl_c as _,
+            OpCode::READLOCAL => readlocal_handler_impl_c as _,
+            OpCode::READLOCAL0 => local_handler0_impl_c as _,
+            OpCode::READLOCAL1 => local_handler1_impl_c as _,
+            OpCode::READLOCAL2 => local_handler2_impl_c as _,
+            OpCode::READLOCAL3 => local_handler3_impl_c as _,
+            OpCode::SETLOCAL => setlocal_handler_impl_c as _,
+            OpCode::TCOJMP => tcojmp_handler_impl_c as _,
+            OpCode::CALLGLOBAL => callglobal_handler_impl_c as _,
+            // TODO:
+            OpCode::CALLGLOBALTAIL => callglobaltail_handler_impl_c as _,
+            OpCode::LOADINT0 => loadint0_handler_impl_c as _,
+            OpCode::LOADINT1 => loadint1_handler_impl_c as _,
+            OpCode::LOADINT2 => loadint2_handler_impl_c as _,
+            OpCode::MOVEREADLOCAL => movereadlocal_handler_impl_c as _,
+            OpCode::MOVEREADLOCAL0 => movereadlocal0_handler_impl_c as _,
+            OpCode::MOVEREADLOCAL1 => movereadlocal1_handler_impl_c as _,
+            OpCode::MOVEREADLOCAL2 => movereadlocal2_handler_impl_c as _,
+            OpCode::MOVEREADLOCAL3 => movereadlocal3_handler_impl_c as _,
+            OpCode::READCAPTURED => readcaptured_handler_impl_c as _,
+            OpCode::BEGINSCOPE => beginscope_handler_impl_c as _,
+            OpCode::LETENDSCOPE => let_end_scope_handler_impl_c as _,
+            OpCode::PUREFUNC => purefunc_handler_impl_c as _,
+            OpCode::ADD => add_handler_impl_c as _,
+            OpCode::SUB => sub_handler_impl_c as _,
+            OpCode::MUL => mul_handler_impl_c as _,
+            OpCode::DIV => div_handler_impl_c as _,
+            OpCode::EQUAL => equal_handler_impl_c as _,
+            OpCode::NUMEQUAL => numequal_handler_impl_c as _,
+            OpCode::NULL => null_handler_impl_c as _,
+            OpCode::LTE => lte_handler_impl_c as _,
+            OpCode::LT => lt_handler_impl_c as _,
+            OpCode::GTE => gte_handler_impl_c as _,
+            OpCode::GT => gt_handler_impl_c as _,
+            OpCode::CONS => cons_handler_impl_c as _,
+            OpCode::LIST => list_handler_impl_c as _,
+            OpCode::CAR => car_handler_impl_c as _,
+            OpCode::CDR => cdr_handler_impl_c as _,
+            OpCode::NEWBOX => newbox_handler_impl_c as _,
+            OpCode::SETBOX => setbox_handler_impl_c as _,
+            OpCode::UNBOX => unbox_handler_impl_c as _,
+            OpCode::NEWSCLOSURE => newsclosure_handler_impl_c as _,
+            OpCode::ADDREGISTER => addregister_handler_impl_c as _,
+            OpCode::SUBREGISTER => subregister_handler_impl_c as _,
+            OpCode::LTEREGISTER => lteregister_handler_impl_c as _,
+            OpCode::SUBREGISTER1 => subregister1_handler_impl_c as _,
+            OpCode::ALLOC => alloc_handler_impl_c as _,
+            OpCode::READALLOC => read_alloc_handler_impl_c as _,
+            OpCode::SETALLOC => set_alloc_handler_impl_c as _,
+            OpCode::Arity => arity_handler_impl_c as _,
+            OpCode::ADDIMMEDIATE => addimmediate_handler_impl_c as _,
+            OpCode::SUBIMMEDIATE => subimmediate_handler_impl_c as _,
+            OpCode::LTEIMMEDIATE => lteimmediate_handler_impl_c as _,
+            OpCode::BINOPADD => binopadd_handler_impl_c as _,
+            OpCode::LTEIMMEDIATEIF => lteimmediateif_handler_impl_c as _,
+            OpCode::NOT => not_handler_impl_c as _,
+            OpCode::VEC => vec_handler_impl_c as _,
+
+            // TODO:
+            OpCode::POPJMP => popjmp_handler_impl_c as _,
+            // TODO:
+            OpCode::BINOPADDTAIL => binopaddtail_handler_impl_c as _,
+            // TODO:
+            OpCode::LOADINT1POP => loadint1pop_handler_impl_c as _,
+            _ => unhandled_handler_impl_c as _,
+        };
+
+        i += 1;
+    }
+
+    ops
+}
 
 macro_rules! dispatch {
     ($ctx:expr) => {{
@@ -1668,6 +1693,12 @@ macro_rules! dispatch {
 // Option... Result... - Some means return, None means
 // continue?
 fn popn_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    popn_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn popn_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let last = ctx.thread.stack.pop().unwrap();
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     ctx.thread
@@ -1675,7 +1706,7 @@ fn popn_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
         .truncate(ctx.thread.stack.len() - payload_size.to_usize());
     ctx.thread.stack.push(last);
     ctx.ip += 1;
-    dispatch!(ctx)
+    Ok(())
 }
 
 #[inline(never)]
@@ -1684,27 +1715,43 @@ fn pop(ctx: &mut VmCore) {
 }
 
 fn popsingle_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    // #[inline(never)]
-    // fn pop(ctx: &mut VmCore) {
-    //     drop(ctx.thread.stack.pop())
-    // }
-    pop(ctx);
-    ctx.ip += 1;
+    popsingle_handler_impl(ctx)?;
     return dispatch!(ctx);
 }
 
+#[inline(always)]
+fn popsingle_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    pop(ctx);
+    ctx.ip += 1;
+    Ok(())
+}
+
 fn poppure_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    if poppure_handler_impl(ctx).is_ok() {
+        return Ok(());
+    };
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn poppure_handler_impl(ctx: &mut VmCore<'_>) -> Result<Dispatch> {
     if let Some(r) = ctx.handle_pop_pure() {
         // return r;
         ctx.return_value = Some(r?);
         return Ok(());
     }
-    dispatch!(ctx)
+
+    Ok(())
 }
 
 fn subregister1_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    let read_local = &ctx.instructions[ctx.ip + 1];
+    subregister1_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
 
+#[inline(always)]
+fn subregister1_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    let read_local = &ctx.instructions[ctx.ip + 1];
     // get the local
     // let offset = frame.index;
     // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
@@ -1719,7 +1766,7 @@ fn subregister1_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     ctx.thread.stack.push(result);
 
     ctx.ip += 2;
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn cons_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
@@ -1728,9 +1775,15 @@ fn cons_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
 }
 
 fn list_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    list_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn list_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     list_handler(ctx, payload_size.to_usize())?;
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn newbox_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
@@ -1764,11 +1817,14 @@ fn cdr_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
 }
 
 fn addregister_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    addregister_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn addregister_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let read_local = &ctx.instructions[ctx.ip];
     let push_const = &ctx.instructions[ctx.ip + 1];
-
-    // get the local
-    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
     let offset = ctx.get_offset();
     let local_value = ctx.thread.stack[read_local.payload_size.to_usize() + offset].clone();
 
@@ -1783,10 +1839,16 @@ fn addregister_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     ctx.thread.stack.push(result);
 
     ctx.ip += 2;
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn subregister_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    subregister_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn subregister_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let read_local = &ctx.instructions[ctx.ip];
     let push_const = &ctx.instructions[ctx.ip + 1];
 
@@ -1806,10 +1868,16 @@ fn subregister_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     ctx.thread.stack.push(result);
 
     ctx.ip += 2;
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn lteregister_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    lteregister_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn lteregister_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let read_local = &ctx.instructions[ctx.ip];
     let push_const = &ctx.instructions[ctx.ip + 1];
 
@@ -1829,41 +1897,58 @@ fn lteregister_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     ctx.thread.stack.push(result);
 
     ctx.ip += 2;
-
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn addimmediate_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    addimmediate_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn addimmediate_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let read_local = &ctx.instructions[ctx.ip];
     let push_const = &ctx.instructions[ctx.ip + 1];
 
     // get the local
     // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
     let offset = ctx.get_offset();
-    let local_value = ctx.thread.stack[read_local.payload_size.to_usize() + offset].clone();
+    let local_value = &ctx.thread.stack[read_local.payload_size.to_usize() + offset];
 
     // get the const value, if it can fit into the value...
-    let const_val = SteelVal::IntV(push_const.payload_size.to_usize() as isize);
+    // let const_val = SteelVal::IntV(push_const.payload_size.to_usize() as isize);
+    let const_val = push_const.payload_size.to_usize() as isize;
 
-    // sub_handler_none_int
-
-    let result = match add_primitive(&[local_value, const_val]) {
-        Ok(value) => value,
-        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    let result = match local_value {
+        SteelVal::IntV(l) => {
+            match l.checked_add(const_val) {
+                Some(r) => SteelVal::IntV(r),
+                // Slow path
+                None => SteelVal::BigNum(Gc::new(BigInt::from(*l) + const_val)),
+            }
+        }
+        _ => {
+            cold();
+            add_slow(ctx, local_value.clone(), SteelVal::IntV(const_val))?
+        }
     };
 
     ctx.thread.stack.push(result);
-
     ctx.ip += 2;
-
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn subimmediate_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    subimmediate_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn subimmediate_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let result = subimmediate_impl(ctx)?;
     ctx.thread.stack.push(result);
     ctx.ip += 2;
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn subimmediate_impl(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
@@ -1902,7 +1987,8 @@ fn subtract_slow(l: &SteelVal, r: isize) -> Result<SteelVal> {
     subtract_primitive(&[l.clone(), SteelVal::IntV(r)])
 }
 
-fn lteimmediate_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+#[inline(always)]
+fn lteimmediate_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     // inline_register_primitive_immediate!(subtract_primitive)
     let read_local = &ctx.instructions[ctx.ip];
     let push_const = &ctx.instructions[ctx.ip + 1];
@@ -1914,11 +2000,6 @@ fn lteimmediate_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
 
     // get the const value, if it can fit into the value...
     let r = push_const.payload_size.to_usize() as isize;
-
-    // sub_handler_none_int
-
-    // TODO: Probably elide the stack push if the next inst is an IF
-    // let result = lte_handler_none_int(ctx, local_value, const_val)?;
 
     let result = match l {
         SteelVal::IntV(_)
@@ -1934,12 +2015,20 @@ fn lteimmediate_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     ctx.thread.stack.push(SteelVal::BoolV(result));
 
     ctx.ip += 2;
+    Ok(())
+}
 
+fn lteimmediate_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    lteimmediate_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
 fn lteimmediateif_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    // inline_register_primitive_immediate!(subtract_primitive)
+    lteimmediateif_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+fn lteimmediateif_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let result = lteimmediateif_function(ctx)?;
 
     ctx.ip += 2;
@@ -1951,7 +2040,7 @@ fn lteimmediateif_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
         ctx.ip = ctx.instructions[ctx.ip].payload_size.to_usize();
     }
 
-    dispatch!(ctx)
+    Ok(())
 }
 
 // #[inline(never)]
@@ -1989,12 +2078,23 @@ fn lte_slow(l: SteelVal, r: isize, ctx: &mut VmCore<'_>) -> Result<bool> {
 }
 
 fn add_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    add_handler_payload(ctx, payload_size.to_usize())?;
+    add_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
+#[inline(always)]
+fn add_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    add_handler_payload(ctx, payload_size.to_usize())
+}
+
 fn binopadd_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    binopadd_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn binopadd_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let right = ctx.thread.stack.pop().unwrap();
     let left = ctx.thread.stack.last_mut().unwrap();
 
@@ -2006,8 +2106,7 @@ fn binopadd_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     *left = result;
 
     ctx.ip += 2;
-
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn binopaddtail_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
@@ -2031,13 +2130,24 @@ fn add_slow(ctx: &mut VmCore, left: SteelVal, right: SteelVal) -> Result<SteelVa
 }
 
 fn sub_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    sub_handler_payload(ctx, payload_size.to_usize())?;
-
+    sub_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
+#[inline(always)]
+fn sub_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    sub_handler_payload(ctx, payload_size.to_usize())?;
+    Ok(())
+}
+
 fn mul_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    mul_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn mul_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     let last_index = ctx.thread.stack.len() - payload_size.to_usize();
 
@@ -2050,11 +2160,16 @@ fn mul_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     *ctx.thread.stack.last_mut().unwrap() = result;
 
     ctx.ip += 2;
-
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn div_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    div_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn div_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     let last_index = ctx.thread.stack.len() - payload_size.to_usize();
 
@@ -2067,11 +2182,11 @@ fn div_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     *ctx.thread.stack.last_mut().unwrap() = result;
 
     ctx.ip += 2;
-
-    dispatch!(ctx)
+    Ok(())
 }
 
-fn equal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+#[inline(always)]
+fn equal_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     let last_index = ctx.thread.stack.len() - payload_size.to_usize();
 
@@ -2084,61 +2199,171 @@ fn equal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     *ctx.thread.stack.last_mut().unwrap() = result;
 
     ctx.ip += 2;
+    Ok(())
+}
+
+fn equal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    equal_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
 fn numequal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    number_equality_handler(ctx)?;
+    numequal_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
+#[inline(always)]
+fn numequal_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    numequal_slow(ctx)?;
+    ctx.ip += 2;
+    Ok(())
+}
+
+#[inline(never)]
+fn numequal_slow(ctx: &mut VmCore<'_>) -> Result<()> {
+    let mut last = ctx.thread.stack.pop().unwrap();
+    let second_last = ctx.thread.stack.last_mut().unwrap();
+    let result = match number_equality(second_last, &mut last) {
+        Ok(value) => value,
+        Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
+    };
+    *second_last = result;
+    Ok(())
+}
+
 fn null_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    null_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn null_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     // Simply fast path case for checking null or empty
     let last = ctx.thread.stack.last_mut().unwrap();
     let result = is_empty(last);
     *last = SteelVal::BoolV(result);
     ctx.ip += 2;
+    Ok(())
+}
+
+fn gte_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    lte_handler_impl(ctx)?;
     dispatch!(ctx)
+}
+
+#[inline(always)]
+fn gte_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    gte_handler_payload(ctx, payload_size.to_usize())?;
+    Ok(())
+}
+
+fn gt_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    lte_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn gt_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    gt_handler_payload(ctx, payload_size.to_usize())?;
+    Ok(())
+}
+
+fn lt_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    lte_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn lt_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    lt_handler_payload(ctx, payload_size.to_usize())?;
+    Ok(())
 }
 
 fn lte_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    lte_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn lte_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     lte_handler_payload(ctx, payload_size.to_usize())?;
-
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn void_handler_tco<'a, 'b>(ctx: &'a mut VmCore<'b>) -> Result<Dispatch> {
+    void_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn void_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     ctx.thread.stack.push(SteelVal::Void);
     ctx.ip += 1;
-
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn set_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_set(payload_size.to_usize())?;
+    set_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
+#[inline(always)]
+fn set_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_set(payload_size.to_usize())?;
+    Ok(())
+}
+
 fn pushconst_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    pushconst_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn pushconst_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     let val = ctx.constants.get_value(payload_size.to_usize());
     ctx.thread.stack.push(val);
     ctx.ip += 1;
-    dispatch!(ctx)
+    Ok(())
+}
+
+// No stack - handlers that just return the value without pushing
+// to the stack.
+#[inline(always)]
+fn pushconst_handler_nostack(ctx: &mut VmCore) -> SteelVal {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let val = ctx.constants.get_value(payload_size.to_usize());
+    ctx.ip += 1;
+    val
 }
 
 fn push_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_push(payload_size.to_usize())?;
+    push_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
+#[inline(always)]
+fn push_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_push(payload_size.to_usize())?;
+    Ok(())
+}
+
 fn readlocal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    readlocal_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn readlocal_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     ctx.handle_local(payload_size.to_usize())?;
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn readlocal0_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
@@ -2162,75 +2387,135 @@ fn readlocal3_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
 }
 
 fn readcaptured_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_read_captures(payload_size.to_usize())?;
+    readcaptured_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
-fn movereadlocal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+#[inline(always)]
+fn readcaptured_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_read_captures(payload_size.to_usize())?;
+    Ok(())
+}
+
+#[inline(always)]
+fn movereadlocal_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     ctx.handle_move_local(payload_size.to_usize())?;
+    Ok(())
+}
+
+fn movereadlocal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    movereadlocal_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
 fn movereadlocal0_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    movereadlocal0_handler_impl(ctx)?;
+
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn movereadlocal0_handler_impl(ctx: &mut VmCore<'_>) -> Result<()> {
     let offset = ctx.get_offset();
     let value = ctx.move_from_stack(offset);
 
     ctx.thread.stack.push(value);
     ctx.ip += 1;
-
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn movereadlocal1_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    let offset = ctx.get_offset();
-    let value = ctx.move_from_stack(offset + 1);
-
-    ctx.thread.stack.push(value);
-    ctx.ip += 1;
+    movereadlocal1_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
+#[inline(always)]
+fn movereadlocal1_handler_impl(ctx: &mut VmCore) -> Result<()> {
+    let offset = ctx.get_offset();
+    let value = ctx.move_from_stack(offset + 1);
+    ctx.thread.stack.push(value);
+    ctx.ip += 1;
+    Ok(())
+}
+
 fn movereadlocal2_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    movereadlocal2_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn movereadlocal2_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let offset = ctx.get_offset();
     let value = ctx.move_from_stack(offset + 2);
 
     ctx.thread.stack.push(value);
     ctx.ip += 1;
-    dispatch!(ctx)
+    Ok(())
 }
 
-fn movereadlocal3_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+#[inline(always)]
+fn movereadlocal3_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let offset = ctx.get_offset();
     let value = ctx.move_from_stack(offset + 3);
 
     ctx.thread.stack.push(value);
     ctx.ip += 1;
+    Ok(())
+}
+
+fn movereadlocal3_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    movereadlocal3_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
 fn setlocal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_set_local(payload_size.to_usize());
+    setlocal_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
-fn loadint0_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+#[inline(always)]
+fn setlocal_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    ctx.handle_set_local(payload_size.to_usize());
+    Ok(())
+}
+
+#[inline(always)]
+fn loadint0_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     ctx.thread.stack.push(SteelVal::INT_ZERO);
     ctx.ip += 1;
+    Ok(())
+}
+
+#[inline(always)]
+fn loadint1_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.thread.stack.push(SteelVal::INT_ONE);
+    ctx.ip += 1;
+    Ok(())
+}
+
+#[inline(always)]
+fn loadint2_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.thread.stack.push(SteelVal::INT_TWO);
+    ctx.ip += 1;
+    Ok(())
+}
+
+fn loadint0_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    loadint0_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
 fn loadint1_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    ctx.thread.stack.push(SteelVal::INT_ONE);
-    ctx.ip += 1;
+    loadint1_handler_impl(ctx)?;
+
     dispatch!(ctx)
 }
 
 fn loadint2_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    ctx.thread.stack.push(SteelVal::INT_TWO);
-    ctx.ip += 1;
+    loadint2_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
@@ -2244,13 +2529,435 @@ fn loadint1pop_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     dispatch!(ctx)
 }
 
-fn callglobal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+pub(crate) extern "C" fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> u8 {
+    unsafe { callglobal_handler_deopt(&mut *ctx) }
+}
+
+// If its 1 -> all good
+// if its 0 -> error
+// if its 2 -> return
+#[inline(always)]
+fn callglobal_handler_deopt(ctx: &mut VmCore) -> u8 {
+    let index = ctx.instructions[ctx.ip].payload_size;
+    ctx.ip += 1;
+    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
+    let func = ctx.thread.global_env.repl_lookup_idx(index.to_usize());
+
+    // Deopt -> Meaning, check the return value if we're done - so we just
+    // will eventually check the stashed error.
+    let ret_value = match &func {
+        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) => 0,
+        _ => 1,
+    };
+    match ctx.handle_global_function_call(func, payload_size) {
+        Ok(_) => return ret_value,
+        Err(_) => return 0,
+    }
+}
+
+pub(crate) extern "C" fn push_const_value_c(ctx: *mut VmCore) -> i128 {
+    unsafe {
+        let value = (&mut *ctx).get_const();
+        std::mem::transmute(value)
+    }
+}
+
+pub(crate) extern "C" fn read_local_0_value_c(ctx: *mut VmCore) -> i128 {
+    unsafe {
+        let value = (&mut *ctx).get_local_value(0);
+        std::mem::transmute(value)
+    }
+}
+
+pub(crate) extern "C" fn read_local_1_value_c(ctx: *mut VmCore) -> i128 {
+    unsafe {
+        let value = (&mut *ctx).get_local_value(1);
+        std::mem::transmute(value)
+    }
+}
+
+pub(crate) extern "C" fn read_local_2_value_c(ctx: *mut VmCore) -> i128 {
+    unsafe {
+        let value = (&mut *ctx).get_local_value(2);
+        std::mem::transmute(value)
+    }
+}
+
+pub(crate) extern "C" fn read_local_3_value_c(ctx: *mut VmCore) -> i128 {
+    unsafe {
+        let value = (&mut *ctx).get_local_value(3);
+        std::mem::transmute(value)
+    }
+}
+
+pub(crate) extern "C" fn push_int_0(ctx: *mut VmCore) -> i128 {
+    unsafe {
+        (&mut *ctx).ip += 1;
+        std::mem::transmute(SteelVal::INT_ZERO)
+    }
+}
+
+pub(crate) extern "C" fn push_int_1(ctx: *mut VmCore) -> i128 {
+    unsafe {
+        (&mut *ctx).ip += 1;
+        std::mem::transmute(SteelVal::INT_ONE)
+    }
+}
+
+pub(crate) extern "C" fn push_int_2(ctx: *mut VmCore) -> i128 {
+    unsafe {
+        (&mut *ctx).ip += 1;
+        std::mem::transmute(SteelVal::INT_TWO)
+    }
+}
+
+// This... is gonna be super suspect - it could really screw up the ref counts
+// on the constants if its a heap allocated value. So probably need a way to make sure
+// the values are only used once.
+pub(crate) extern "C" fn callglobal_handler_deopt_3(
+    ctx: *mut VmCore,
+    arg1: i128,
+    arg2: i128,
+    arg3: i128,
+) -> u8 {
+    unsafe {
+        callglobal_handler_deopt_three_args(
+            &mut *ctx,
+            std::mem::transmute(arg1),
+            std::mem::transmute(arg2),
+            std::mem::transmute(arg3),
+        )
+    }
+}
+
+pub(crate) extern "C" fn callglobal_tail_handler_deopt_3(
+    ctx: *mut VmCore,
+    arg1: i128,
+    arg2: i128,
+    arg3: i128,
+) -> u8 {
+    unsafe {
+        callglobal_tail_handler_deopt(
+            &mut *ctx,
+            &mut [
+                std::mem::transmute(arg1),
+                std::mem::transmute(arg2),
+                std::mem::transmute(arg3),
+            ],
+        )
+    }
+}
+
+// Just... inline the function itself into this?
+// If its a global, its going to be rooted, in theory...
+#[inline(always)]
+fn callglobal_tail_handler_deopt(ctx: &mut VmCore, args: &mut [SteelVal]) -> u8 {
+    let index = ctx.instructions[ctx.ip].payload_size;
+    ctx.ip += 1;
+    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
+    let func = ctx.thread.global_env.repl_lookup_idx(index.to_usize());
+
+    debug_assert!(payload_size == args.len());
+
+    // Deopt -> Meaning, check the return value if we're done - so we just
+    // will eventually check the stashed error.
+    let ret_value = match &func {
+        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => 0,
+        _ => 1,
+    };
+
+    match handle_global_tail_call_deopt_with_args(ctx, func, args) {
+        Ok(v) => {
+            if ret_value == 1 {
+                ctx.thread.stack.push(v);
+                ctx.ip += 1;
+            }
+            return ret_value;
+        }
+        Err(_) => return 0,
+    }
+}
+
+pub(crate) extern "C" fn callglobal_tail_handler_deopt_3_test(
+    ctx: *mut VmCore,
+    func: i128, // This should be an immediate now.
+    arg1: i128,
+    arg2: i128,
+    arg3: i128,
+    prelude_offset: isize,
+) -> u8 {
+    unsafe {
+        callglobal_tail_handler_deopt_test(
+            &mut *ctx,
+            std::mem::transmute(func),
+            &mut [
+                std::mem::transmute(arg1),
+                std::mem::transmute(arg2),
+                std::mem::transmute(arg3),
+            ],
+            prelude_offset as _,
+        )
+    }
+}
+
+// Just... inline the function itself into this?
+// If its a global, its going to be rooted, in theory...
+#[inline(always)]
+fn callglobal_tail_handler_deopt_test(
+    ctx: &mut VmCore,
+    // Eliminate the dispatch cost of looking up the value in the array.
+    // And eliminate the dispatch cost of incrementing the instruction pointer.
+    // The IP should just be rolled up across the board -
+    func: SteelVal,
+    args: &mut [SteelVal],
+    prelude_offset: usize,
+) -> u8 {
+    ctx.ip += prelude_offset;
+
+    // println!("Calling function: {} with args: {:?}", func, args);
+
+    // let index = ctx.instructions[ctx.ip].payload_size;
+    // ctx.ip += 1;
+    // let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
+    // let func = ctx.thread.global_env.repl_lookup_idx(index.to_usize());
+    // debug_assert!(payload_size == args.len());
+
+    // Deopt -> Meaning, check the return value if we're done - so we just
+    // will eventually check the stashed error.
+    let ret_value = match &func {
+        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => 0,
+        _ => 1,
+    };
+
+    match handle_global_tail_call_deopt_with_args(ctx, func, args) {
+        Ok(v) => {
+            if ret_value == 1 {
+                ctx.thread.stack.push(v);
+                ctx.ip += 1;
+            }
+            return ret_value;
+        }
+        Err(_) => return 0,
+    }
+}
+
+#[inline(always)]
+fn handle_global_tail_call_deopt_with_args(
+    ctx: &mut VmCore,
+    stack_func: SteelVal,
+    args: &mut [SteelVal],
+) -> Result<SteelVal> {
+    match stack_func {
+        // Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size),
+        // FuncV(f) => self.call_primitive_func(f, payload_size),
+        // BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
+        // MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
+        // FutureFunc(f) => self.call_future_func(f, payload_size),
+        // ContinuationFunction(cc) => self.call_continuation(cc),
+        // BuiltIn(f) => self.call_builtin_func(f, payload_size),
+        // CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+        SteelVal::FuncV(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
+        SteelVal::BoxedFunction(func) => {
+            // See if this is what I need to do?
+            // unsafe { Arc::increment_strong_count(Arc::as_ptr(&func.0)) };
+
+            let res = func.func()(args).map_err(|x| x.set_span_if_none(ctx.current_span()));
+            std::mem::forget(func);
+            res
+        }
+        SteelVal::MutFunc(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
+
+        SteelVal::Closure(closure) => {
+            // Just put them all on the stack
+            for val in args {
+                ctx.thread
+                    .stack
+                    .push(std::mem::replace(val, SteelVal::Void));
+            }
+
+            // We're going to de-opt in this case - unless we intend to do some fun inlining business
+            ctx.new_handle_tail_call_closure(closure, 3)?;
+            Ok(SteelVal::Void)
+        }
+
+        // This is probably no good here anyway
+        SteelVal::ContinuationFunction(cc) => {
+            ctx.call_continuation(cc)?;
+            Ok(SteelVal::Void)
+        }
+        SteelVal::BuiltIn(f) => {
+            ctx.call_builtin_func(f, args.len())?;
+            Ok(SteelVal::Void)
+        }
+        // CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+
+        // Literaly anything else, just push on to the stack
+        // and fall back to the main loop?
+        _ => {
+            cold();
+            stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); ctx.current_span());
+        }
+    }
+}
+
+#[inline(always)]
+fn handle_global_function_call_with_args(
+    ctx: &mut VmCore,
+    stack_func: SteelVal,
+    args: &mut [SteelVal],
+) -> Result<SteelVal> {
+    match stack_func {
+        // Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size),
+        // FuncV(f) => self.call_primitive_func(f, payload_size),
+        // BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
+        // MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
+        // FutureFunc(f) => self.call_future_func(f, payload_size),
+        // ContinuationFunction(cc) => self.call_continuation(cc),
+        // BuiltIn(f) => self.call_builtin_func(f, payload_size),
+        // CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+        SteelVal::FuncV(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
+        SteelVal::BoxedFunction(func) => {
+            func.func()(args).map_err(|x| x.set_span_if_none(ctx.current_span()))
+        }
+        SteelVal::MutFunc(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
+
+        SteelVal::Closure(closure) => {
+            // Just put them all on the stack
+            for val in args {
+                ctx.thread
+                    .stack
+                    .push(std::mem::replace(val, SteelVal::Void));
+            }
+
+            // We're going to de-opt in this case - unless we intend to do some fun inlining business
+            ctx.handle_function_call_closure_jit(closure, 3)?;
+            Ok(SteelVal::Void)
+        }
+
+        // This is probably no good here anyway
+        SteelVal::ContinuationFunction(cc) => {
+            ctx.call_continuation(cc)?;
+            Ok(SteelVal::Void)
+        }
+        SteelVal::BuiltIn(f) => {
+            ctx.call_builtin_func(f, 3)?;
+            Ok(SteelVal::Void)
+        }
+        // CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+
+        // Literaly anything else, just push on to the stack
+        // and fall back to the main loop?
+        _ => {
+            cold();
+            stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); ctx.current_span());
+        }
+    }
+}
+
+// TODO: Figure this out?
+#[inline(always)]
+fn callglobal_handler_deopt_three_args(
+    ctx: &mut VmCore,
+    arg1: SteelVal,
+    arg2: SteelVal,
+    arg3: SteelVal,
+) -> u8 {
+    let index = ctx.instructions[ctx.ip].payload_size;
+    ctx.ip += 1;
+    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
+    let func = ctx.thread.global_env.repl_lookup_idx(index.to_usize());
+
+    debug_assert!(payload_size == 3);
+
+    // Deopt -> Meaning, check the return value if we're done - so we just
+    // will eventually check the stashed error.
+    let ret_value = match &func {
+        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => 0,
+        _ => 1,
+    };
+
+    match handle_global_function_call_with_args(ctx, func, &mut [arg1, arg2, arg3]) {
+        Ok(_) => return ret_value,
+        Err(_) => return 0,
+    }
+}
+
+#[inline(always)]
+fn callglobal_handler_deopt_two_args(ctx: &mut VmCore, arg1: SteelVal, arg2: SteelVal) -> u8 {
+    let index = ctx.instructions[ctx.ip].payload_size;
+    ctx.ip += 1;
+    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
+    let func = ctx.thread.global_env.repl_lookup_idx(index.to_usize());
+
+    debug_assert!(payload_size == 3);
+
+    // Deopt -> Meaning, check the return value if we're done - so we just
+    // will eventually check the stashed error.
+    let ret_value = match &func {
+        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => 0,
+        _ => 1,
+    };
+
+    match handle_global_function_call_with_args(ctx, func, &mut [arg1, arg2]) {
+        Ok(_) => return ret_value,
+        Err(_) => return 0,
+    }
+}
+
+#[inline(always)]
+fn callglobal_handler_deopt_one_arg(ctx: &mut VmCore, arg1: SteelVal) -> u8 {
+    let index = ctx.instructions[ctx.ip].payload_size;
+    ctx.ip += 1;
+    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
+    let func = ctx.thread.global_env.repl_lookup_idx(index.to_usize());
+
+    debug_assert!(payload_size == 3);
+
+    // Deopt -> Meaning, check the return value if we're done - so we just
+    // will eventually check the stashed error.
+    let ret_value = match &func {
+        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => 0,
+        _ => 1,
+    };
+
+    match handle_global_function_call_with_args(ctx, func, &mut [arg1]) {
+        Ok(_) => return ret_value,
+        Err(_) => return 0,
+    }
+}
+
+#[inline(always)]
+fn callglobal_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     ctx.ip += 1;
     let next_inst = ctx.instructions[ctx.ip];
     ctx.handle_call_global(payload_size.to_usize(), next_inst.payload_size.to_usize())?;
+    Ok(())
+}
 
+fn callglobal_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    callglobal_handler_impl(ctx)?;
     dispatch!(ctx)
+}
+
+// TODO: This needs to have a way to signal that we're not continuing.
+// The API that we return probably needs to change;
+#[inline(always)]
+fn callglobaltail_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let next_inst = ctx.instructions[ctx.ip + 1];
+    let stack_func = ctx
+        .thread
+        .global_env
+        .repl_lookup_idx(payload_size.to_usize());
+    ctx.ip += 1;
+    let payload_size = next_inst.payload_size.to_usize();
+
+    if call_function_tco(stack_func, ctx, payload_size)? {
+        return Ok(());
+    }
+
+    Ok(())
 }
 
 fn callglobaltail_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
@@ -2314,17 +3021,29 @@ fn call_function_tco(
 }
 
 fn func_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    let func = ctx.thread.stack.pop().unwrap();
-    ctx.handle_function_call(func, payload_size.to_usize())?;
+    func_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
+#[inline(always)]
+fn func_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    let payload_size = ctx.instructions[ctx.ip].payload_size;
+    let func = ctx.thread.stack.pop().unwrap();
+    ctx.handle_function_call(func, payload_size.to_usize())?;
+    Ok(())
+}
+
 fn tailcall_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    tailcall_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn tailcall_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     let func = ctx.thread.stack.pop().unwrap();
     ctx.new_handle_tail_call(func, payload_size.to_usize())?;
-    dispatch!(ctx)
+    Ok(())
 }
 
 #[inline(never)]
@@ -2334,6 +3053,28 @@ fn pop_test(ctx: &mut VmCore) -> bool {
 }
 
 fn if_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    if_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+// Pop the value off?
+pub(crate) extern "C" fn if_handler_value(raw_ctx: *mut VmCore) -> bool {
+    let ctx = unsafe { &mut *raw_ctx };
+
+    let test = ctx.thread.stack.pop().unwrap();
+    let result = test.is_truthy();
+
+    if result {
+        ctx.ip += 1;
+    } else {
+        ctx.ip = ctx.instructions[ctx.ip].payload_size.to_usize();
+    }
+
+    result
+}
+
+#[inline(always)]
+fn if_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     // let payload_size = ctx.instructions[ctx.ip].payload_size;
     let result = pop_test(ctx);
     // change to truthy...
@@ -2343,10 +3084,16 @@ fn if_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
         ctx.ip = ctx.instructions[ctx.ip].payload_size.to_usize();
     }
 
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn tcojmp_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    tcojmp_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn tcojmp_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     let mut current_arity = payload_size.to_usize();
     let last_stack_frame = ctx.thread.stack_frames.last().unwrap();
@@ -2360,13 +3107,6 @@ fn tcojmp_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     ctx.sp = last_stack_frame.sp;
     ctx.ip = 0;
 
-    // TODO: Adjust the stack for multiple arity functions
-    // let is_multi_arity = last_stack_frame.function.is_multi_arity;
-    // let original_arity = last_stack_frame.function.arity();
-    // let payload_size = current_arity;
-    // let offset = last_stack_frame.sp;
-    // let new_arity = &mut closure_arity;
-
     // TODO: Reuse the original list allocation, if it exists.
     handle_multi_arity(
         last_stack_frame.function.is_multi_arity,
@@ -2375,14 +3115,6 @@ fn tcojmp_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
         ctx,
         &mut current_arity,
     )?;
-
-    // HACK COME BACK TO THIS
-    // if ctx.ip == 0 && ctx.heap.len() > ctx.heap.limit() {
-    // TODO collect here
-    // ctx.heap.collect_garbage();
-    // }
-    // let offset = ctx.stack_index.last().copied().unwrap_or(0);
-    // let offset = last_stack_frame.sp;
 
     // We should have arity at this point, drop the stack up to this point
     // take the last arity off the stack, go back and replace those in order
@@ -2393,15 +3125,8 @@ fn tcojmp_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     // [... frame-start ... arg1 arg2 arg3]
     //      ^^^^^^~~~~~~~~
     let back = ctx.thread.stack.len() - current_arity;
-    // for i in 0..current_arity {
-    //     ctx.stack[offset + i] = ctx.stack[back + i].clone();
-    // }
-
-    // drop(ctx.thread.stack.drain(offset..back));
-
     drain_back(ctx, ctx.sp, back);
-
-    dispatch!(ctx)
+    Ok(())
 }
 
 #[inline(never)]
@@ -2449,9 +3174,15 @@ fn drain_back(ctx: &mut VmCore, offset: usize, back: usize) {
 }
 
 fn jmp_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    jmp_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn jmp_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     ctx.ip = payload_size.to_usize();
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn popjmp_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
@@ -2465,8 +3196,14 @@ fn popjmp_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
 }
 
 fn beginscope_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    ctx.ip += 1;
+    beginscope_handler_impl(ctx)?;
     dispatch!(ctx)
+}
+
+#[inline(always)]
+fn beginscope_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.ip += 1;
+    Ok(())
 }
 
 fn setalloc_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
@@ -2490,49 +3227,103 @@ fn letendscope_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
 }
 
 fn bind_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    bind_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn bind_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     ctx.handle_bind(payload_size.to_usize());
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn newsclosure_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    newsclosure_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn newsclosure_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     ctx.handle_new_start_closure(payload_size.to_usize())?;
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn purefunc_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    purefunc_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(always)]
+fn purefunc_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     ctx.handle_pure_function(payload_size.to_usize());
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn sdef_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    ctx.handle_start_def();
+    sdef_handler_impl(ctx)?;
     dispatch!(ctx)
+}
+
+#[inline(always)]
+fn sdef_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.handle_start_def();
+    Ok(())
 }
 
 fn edef_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    ctx.ip += 1;
+    edef_handler_impl(ctx)?;
     dispatch!(ctx)
+}
+
+#[inline(always)]
+fn edef_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.ip += 1;
+    Ok(())
 }
 
 fn arity_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    ctx.ip += 1;
+    arity_handler_impl(ctx)?;
     dispatch!(ctx)
+}
+
+#[inline(always)]
+fn arity_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.ip += 1;
+    Ok(())
 }
 
 fn panic_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    ctx.handle_panic(ctx.current_span())?;
+    panic_handler_impl(ctx)?;
     dispatch!(ctx)
+}
+
+#[inline(always)]
+fn panic_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.handle_panic(ctx.current_span())?;
+    Ok(())
 }
 
 fn pass_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
-    ctx.ip += 1;
+    pass_handler_impl(ctx)?;
     dispatch!(ctx)
 }
 
+#[inline(always)]
+fn pass_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
+    ctx.ip += 1;
+    Ok(())
+}
+
 fn vec_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
+    vec_handler_impl(ctx)?;
+    dispatch!(ctx)
+}
+
+#[inline(never)]
+fn vec_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
     let payload = payload_size.to_usize();
     let len = payload / 2;
@@ -2565,8 +3356,7 @@ fn vec_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
 
     ctx.thread.stack.push(val);
     ctx.ip += 1;
-
-    dispatch!(ctx)
+    Ok(())
 }
 
 fn unhandled_handler_tco<'a, 'b>(ctx: &'a mut VmCore<'b>) -> Result<Dispatch> {
@@ -2576,6 +3366,8 @@ fn unhandled_handler_tco<'a, 'b>(ctx: &'a mut VmCore<'b>) -> Result<Dispatch> {
     );
     // Ok(SteelVal::Void)
 }
+
+// -------------- END TCO IMPLS ------------------
 
 // TODO: Delete this entirely, and just have the run function live on top of the SteelThread.
 //
@@ -2904,12 +3696,12 @@ impl<'a> VmCore<'a> {
         let res;
 
         'outer: loop {
-            #[cfg(debug_assertions)]
+            #[cfg(any(debug_assertions, not(feature = "vm-tco")))]
             let result = self
                 .vm()
                 .map_err(|error| error.with_stack_trace(self.snapshot_stack_trace()));
 
-            #[cfg(not(debug_assertions))]
+            #[cfg(all(not(debug_assertions), feature = "vm-tco"))]
             let result = self
                 .vm_tco()
                 .map_err(|error| error.with_stack_trace(self.snapshot_stack_trace()));
@@ -3412,19 +4204,29 @@ impl<'a> VmCore<'a> {
             // self.thread.profiler[instr.op_code as usize] += 1;
 
             match instr {
-                // DenseInstruction {
-                //     op_code: OpCode::DynSuperInstruction,
-                //     payload_size,
-                //     ..
-                // } => {
-                //     self.cut_sequence();
+                #[cfg(feature = "jit2")]
+                DenseInstruction {
+                    op_code: OpCode::DynSuperInstruction,
+                    // payload_size,
+                    ..
+                } => {
+                    // self.cut_sequence();
 
-                //     // TODO: Store in a different spot? So that we can avoid cloning on every iteration?
-                //     let super_instruction =
-                //         { self.thread.super_instructions[payload_size.to_usize()].clone() };
+                    // // TODO: Store in a different spot? So that we can avoid cloning on every iteration?
+                    // let super_instruction =
+                    //     { self.thread.super_instructions[payload_size.to_usize()].clone() };
 
-                //     super_instruction.call(self)?;
-                // }
+                    // super_instruction.call(self)?;
+
+                    self.thread
+                        .stack_frames
+                        .last()
+                        .unwrap()
+                        .function
+                        .super_instructions
+                        .get(self.ip)
+                        .unwrap()(self);
+                }
                 DenseInstruction {
                     op_code: OpCode::POPN,
                     payload_size,
@@ -3794,6 +4596,30 @@ impl<'a> VmCore<'a> {
                     let result = is_empty(last);
                     *last = SteelVal::BoolV(result);
                     self.ip += 2;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::LT,
+                    payload_size,
+                    ..
+                } => {
+                    lt_handler_payload(self, payload_size.to_usize())?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::GT,
+                    payload_size,
+                    ..
+                } => {
+                    gt_handler_payload(self, payload_size.to_usize())?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::GTE,
+                    payload_size,
+                    ..
+                } => {
+                    gte_handler_payload(self, payload_size.to_usize())?;
                 }
 
                 DenseInstruction {
@@ -4611,6 +5437,27 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
+    // Get the local value directly, without having to
+    // push it to the VM stack. This is fine UNTIL we hit a begin scope
+    #[inline(always)]
+    fn get_local_value(&mut self, index: usize) -> SteelVal {
+        let offset = self.get_offset();
+        let value = self.thread.stack[index + offset].clone();
+        self.ip += 1;
+        return value;
+    }
+
+    // Check what the constant is. If it is a non heap allocated constant,
+    // we can inline it as an immediate - and ignore the fetching from the constant
+    // map.
+    #[inline(always)]
+    fn get_const(&mut self) -> SteelVal {
+        let payload_size = self.instructions[self.ip].payload_size;
+        let val = self.constants.get_value(payload_size.to_usize());
+        self.ip += 1;
+        return val;
+    }
+
     #[inline(always)]
     fn handle_local(&mut self, index: usize) -> Result<()> {
         // println!("STACK HERE: {:?}", self.thread.stack);
@@ -5294,7 +6141,6 @@ impl<'a> VmCore<'a> {
             .enter_safepoint(|ctx| func(&ctx.stack[last_index..]))
             .map_err(|x| x.set_span_if_none(self.current_span()))?;
 
-        // TODO: Drain, and push onto another thread to drop?
         self.thread.stack.truncate(last_index);
         self.thread.stack.push(result);
         self.ip += 1;
@@ -5539,15 +6385,32 @@ impl<'a> VmCore<'a> {
 
         #[cfg(feature = "rooted-instructions")]
         {
-            let frame = StackFrame {
+            // let frame = StackFrame {
+            //     sp: self.sp,
+            //     function: closure,
+            //     ip: self.ip + 1,
+            //     instructions: self.instructions,
+            //     attachments: None,
+            // };
+            // self.instructions = frame.function.body_exp();
+            // self.thread.stack_frames.push(frame);
+
+            // let frame = StackFrame {
+            //     sp: self.sp,
+            //     function: closure,
+            //     ip: self.ip + 1,
+            //     instructions: self.instructions,
+            //     attachments: None,
+            // };
+            let next_instructions = closure.body_exp();
+            self.thread.stack_frames.push(StackFrame {
                 sp: self.sp,
                 function: closure,
                 ip: self.ip + 1,
                 instructions: self.instructions,
                 attachments: None,
-            };
-            self.instructions = frame.function.body_exp();
-            self.thread.stack_frames.push(frame);
+            });
+            self.instructions = next_instructions;
         }
 
         self.check_stack_overflow()?;
@@ -5580,7 +6443,7 @@ impl<'a> VmCore<'a> {
         }
     }
 
-    // #[inline(always)]
+    #[inline(never)]
     fn handle_function_call(&mut self, stack_func: SteelVal, payload_size: usize) -> Result<()> {
         use SteelVal::*;
 
@@ -6365,6 +7228,52 @@ pub(crate) fn build_reverse_map(ctx: &mut VmCore, args: &[SteelVal]) -> Option<R
     }
 
     Some(Ok(SteelVal::Void))
+}
+
+#[cfg(feature = "jit2")]
+#[steel_derive::context(name = "#%jit-compile", arity = "Exact(1)")]
+pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let function = &args[0];
+    if let SteelVal::Closure(func) = function {
+        let mut func = func.unwrap();
+
+        let name = func.id.to_string();
+
+        // let mut inner = func.unwrap();
+        let fn_pointer = ctx
+            .thread
+            .jit
+            .lock()
+            .unwrap()
+            .compile_bytecode(
+                name,
+                func.arity,
+                &func.body_exp,
+                &ctx.thread.global_env.thread_local_bindings,
+                &ctx.thread.constant_map,
+            )
+            .unwrap();
+
+        let super_instructions = vec![fn_pointer];
+        func.super_instructions = super_instructions;
+
+        let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
+        instructions[0].op_code = OpCode::DynSuperInstruction;
+
+        func.body_exp = Arc::from(instructions.into_boxed_slice());
+
+        let return_func = Gc::new(func);
+        ctx.thread
+            .function_interner
+            .jit_funcs
+            .insert(return_func.id, return_func.clone());
+
+        // Whatever, we've rooted it somehow?
+
+        Some(Ok(SteelVal::Closure(return_func)))
+    } else {
+        Some(Ok(SteelVal::Void))
+    }
 }
 
 /// Applies the given `function` with arguments as the contents of the `list`.
@@ -7595,87 +8504,36 @@ fn lte_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     Ok(())
 }
 
+fn lt_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, lt_primitive, payload);
+    Ok(())
+}
+
+fn gt_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, gt_primitive, payload);
+    Ok(())
+}
+
+fn gte_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, gte_primitive, payload);
+    Ok(())
+}
+
 // OpCode::ALLOC
 fn alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
     panic!("Deprecated now - this shouldn't be hit");
-
-    /*
-
-    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
-    let offset = ctx.get_offset();
-
-    let allocated_var = ctx.thread.heap.allocate(
-        ctx.thread.stack[offset].clone(), // TODO: Could actually move off of the stack entirely
-        ctx.thread.stack.iter(),
-        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-        ctx.thread.global_env.roots(),
-    );
-
-    ctx.thread
-        .stack_frames
-        .last_mut()
-        .unwrap()
-        .function
-        .heap_allocated
-        .borrow_mut()
-        .push(allocated_var);
-
-    ctx.ip += 1;
-
-    Ok(())
-
-    */
 }
 
 // OpCode::READALLOC
 #[inline(always)]
 fn read_alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
     panic!("Deprecated - this shouldn't be hit")
-
-    /*
-    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
-
-    let value = ctx
-        .thread
-        .stack_frames
-        .last()
-        .unwrap()
-        .function
-        .heap_allocated()
-        .borrow()[payload_size]
-        .get();
-
-    ctx.thread.stack.push(value);
-    ctx.ip += 1;
-
-    Ok(())
-    */
 }
 
 // OpCode::SETALLOC
 #[inline(always)]
 fn set_alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
     panic!("Deprecated - this shouldn't be hit")
-
-    /*
-    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
-    let value_to_assign = ctx.thread.stack.pop().unwrap();
-
-    let old_value = ctx
-        .thread
-        .stack_frames
-        .last()
-        .unwrap()
-        .function
-        .heap_allocated()
-        .borrow_mut()[payload_size]
-        .set(value_to_assign);
-
-    ctx.thread.stack.push(old_value);
-    ctx.ip += 1;
-
-    Ok(())
-    */
 }
 
 #[allow(unused)]

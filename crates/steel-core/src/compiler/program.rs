@@ -421,6 +421,9 @@ define_primitive_symbols! {
     (PRIM_EQUAL, EQUAL) => "equal?",
     (PRIM_NUM_EQUAL, NUM_EQUAL) => "=",
     (PRIM_LTE, LTE) => "<=",
+    (PRIM_GTE, GTE) => ">=",
+    (PRIM_LT, LT) => "<",
+    (PRIM_GT, GT) => ">",
     (PRIM_CAR, CAR_SYMBOL) => "car",
     (PRIM_CDR, CDR_SYMBOL) => "cdr",
     (PRIM_NOT, NOT_SYMBOL) => "not",
@@ -522,6 +525,9 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
                 x if x == *PRIM_NUM_EQUAL && payload_size == 2 => Some(OpCode::NUMEQUAL),
                 x if x == *PRIM_EQUAL && payload_size > 0 => Some(OpCode::EQUAL),
                 x if x == *PRIM_LTE && payload_size > 0 => Some(OpCode::LTE),
+                x if x == *PRIM_GTE && payload_size > 0 => Some(OpCode::GTE),
+                x if x == *PRIM_GT && payload_size > 0 => Some(OpCode::GT),
+                x if x == *PRIM_LT && payload_size > 0 => Some(OpCode::LT),
                 _ => None,
             };
 

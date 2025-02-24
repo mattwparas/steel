@@ -1,0 +1,1424 @@
+// use crate::frontend::*;
+use cranelift::prelude::*;
+use cranelift_jit::{JITBuilder, JITModule};
+use cranelift_module::{DataDescription, Linkage, Module};
+use std::collections::HashMap;
+use std::slice;
+use steel_gen::opcode::OPCODES_ARRAY;
+use steel_gen::OpCode;
+
+use crate::{
+    compiler::constants::ConstantMap,
+    core::instructions::{u24, DenseInstruction},
+    steel_vm::vm::{
+        callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
+        callglobal_tail_handler_deopt_3_test, if_handler_value, push_const_value_c, push_int_0,
+        push_int_1, push_int_2, read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
+        read_local_3_value_c, VmCore,
+    },
+    SteelVal,
+};
+
+/// The basic JIT class.
+pub struct JIT {
+    /// The function builder context, which is reused across multiple
+    /// FunctionBuilder instances.
+    builder_context: FunctionBuilderContext,
+
+    /// The main Cranelift context, which holds the state for codegen. Cranelift
+    /// separates this from `Module` to allow for parallel compilation, with a
+    /// context per thread, though this isn't in the simple demo here.
+    ctx: codegen::Context,
+
+    /// The data description, which is to data objects what `ctx` is to functions.
+    data_description: DataDescription,
+
+    /// The module, with the jit backend, which manages the JIT'd
+    /// functions.
+    module: JITModule,
+}
+
+// Set up ways to deconstruct this value, such that we can use a 16 byte value rather than an 8
+// byte value.
+#[repr(C, u8)]
+enum SValue {
+    Int(i64),
+    Bool(bool),
+    Pointer(Box<SValue>),
+    Void,
+}
+
+// Take a function, if its sufficiently hot, we can jit compile by going
+// through and merging the handlers into one function, avoiding the dispatch
+// cost. After that, we can do even better, but for now that should work.
+// Blindly merging the op codes... that should work actually?
+
+// TODO: This could help.
+// // Forget the destructors.
+// let reconstructed = unsafe { std::mem::transmute::<_, Arc<SValue>>(value.value()) };
+// // If this is dropped, we're bad news bears
+// let ptr = Arc::as_ptr(&reconstructed);
+// unsafe { Arc::increment_strong_count(ptr) };
+// // Horrendously unsafe, but waddya gonna do
+// // let ptr = unsafe { std::mem::transmute::<_, Arc<SValue>>(value.value()) };
+// println!("{:?}", reconstructed);
+// drop(reconstructed);
+
+macro_rules! offset_of {
+    ($($tt:tt)*) => {
+        {
+            let base = $($tt)*(unsafe { ::std::mem::uninitialized() });
+            let offset = match base {
+                $($tt)*(ref inner) => (inner as *const _ as usize) - (&base as *const _ as usize),
+                _ => unreachable!(),
+            };
+            ::std::mem::forget(base);
+            offset
+        }
+    }
+}
+
+impl SValue {
+    fn discriminant(&self) -> u8 {
+        // SAFETY: Because `Self` is marked `repr(u8)`, its layout is a `repr(C)` `union`
+        // between `repr(C)` structs, each of which has the `u8` discriminant as its first
+        // field, so we can read the discriminant without offsetting the pointer.
+        unsafe { *<*const _>::from(self).cast::<u8>() }
+    }
+
+    fn value(&self) -> usize {
+        unsafe { *<*const _>::from(self).byte_add(8).cast::<usize>() }
+    }
+}
+
+// Any allocated values that are not primitives should be boxed, or set aside into some kind of
+// jit compilation nursery, so we can avoid ref counts internally?
+
+// Glue together op codes dynamically at runtime?
+extern "C" fn handle_add(ctx: *mut VmContext) {
+    println!("Calling vm context");
+}
+
+extern "C" fn handle_sub(ctx: *mut VmContext) {
+    println!("Calling vm context");
+}
+
+extern "C" fn handle_pop(ctx: *mut VmContext) {
+    println!("Calling vm context");
+}
+
+// fn handle_pop_test(ctx: &mut VmContext) {
+//     println!("Calling vm context");
+// }
+
+// Set up handlers
+extern "C" fn rustfunc(x: i128) -> i128 {
+    println!("Hello from rustfunc x={}", x);
+    x
+}
+
+// Set up the vm context to be a value
+// when we're calling the function.
+pub struct VmContext {}
+
+impl Default for JIT {
+    fn default() -> Self {
+        let mut flag_builder = settings::builder();
+        flag_builder.set("use_colocated_libcalls", "false").unwrap();
+        flag_builder.set("is_pic", "false").unwrap();
+
+        flag_builder
+            .set("enable_llvm_abi_extensions", "true")
+            .unwrap();
+
+        flag_builder.set("opt_level", "speed").unwrap();
+
+        let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
+            panic!("host machine is not supported: {}", msg);
+        });
+        let isa = isa_builder
+            .finish(settings::Flags::new(flag_builder))
+            .unwrap();
+        let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+
+        // builder.symbol("rustfunc", rustfunc as *const u8);
+        // builder.symbol("test", handle_pop_test as *const u8);
+
+        for op_code in OPCODES_ARRAY {
+            builder.symbol(
+                format!("{:?}", op_code),
+                crate::steel_vm::vm::C_HANDLERS[op_code as usize] as *const u8,
+            );
+        }
+
+        // How to take the if branch - this will return a boolean. 1 = true, 0 = false
+        builder.symbol("if-branch", if_handler_value as *const u8);
+        builder.symbol("call-global", callglobal_handler_deopt_c as *const u8);
+
+        //
+        builder.symbol("push-const", push_const_value_c as *const u8);
+        builder.symbol("read-local-0", read_local_0_value_c as *const u8);
+        builder.symbol("read-local-1", read_local_1_value_c as *const u8);
+        builder.symbol("read-local-2", read_local_2_value_c as *const u8);
+        builder.symbol("read-local-3", read_local_3_value_c as *const u8);
+
+        // Specialize the constant: Just look up the value itself:
+        // This should be used for constants like #f, 1, 2, 3, etc.
+        // Simply inline the value directly onto the stack, rather than
+        // calling a function
+        builder.symbol("push-int-0", push_int_0 as *const u8);
+        builder.symbol("push-int-1", push_int_1 as *const u8);
+        builder.symbol("push-int-2", push_int_2 as *const u8);
+
+        builder.symbol(
+            "call-global-tail-3",
+            callglobal_tail_handler_deopt_3 as *const u8,
+        );
+
+        builder.symbol(
+            "call-global-tail-3-test",
+            callglobal_tail_handler_deopt_3_test as *const u8,
+        );
+
+        let module = JITModule::new(builder);
+        Self {
+            builder_context: FunctionBuilderContext::new(),
+            ctx: module.make_context(),
+            data_description: DataDescription::new(),
+            module,
+        }
+    }
+}
+
+#[test]
+fn load_jit() {
+    let mut jit = JIT::default();
+
+    //     MOVEREADLOCAL0 : 0      ;; x
+    // 1    MOVEREADLOCAL1 : 1      ;; y
+    // 2    MOVEREADLOCAL2 : 2      ;; z
+    // 3    CALLGLOBALTAIL : 260    ;; +
+    // 4    TAILCALL       : 3      ;; +
+    // 5    POPPURE        : 3
+
+    jit.compile(
+        "foo".to_string(),
+        0,
+        &[
+            DenseInstruction {
+                op_code: OpCode::MOVEREADLOCAL0,
+                payload_size: u24::from_u32(0),
+            },
+            DenseInstruction {
+                op_code: OpCode::MOVEREADLOCAL1,
+                payload_size: u24::from_u32(0),
+            },
+            DenseInstruction {
+                op_code: OpCode::MOVEREADLOCAL2,
+                payload_size: u24::from_u32(0),
+            },
+            DenseInstruction {
+                op_code: OpCode::CALLGLOBALTAIL,
+                payload_size: u24::from_u32(0),
+            },
+        ],
+        &[],
+        &ConstantMap::default(),
+    )
+    .unwrap();
+}
+
+// Compile the bytecode assuming that things... work okay?
+unsafe fn compile_bytecode(
+    jit: &mut JIT,
+    name: String,
+    arity: u16,
+    code: &[DenseInstruction],
+    globals: &[SteelVal],
+    constants: &ConstantMap,
+) -> Result<fn(&mut VmCore) -> bool, String> {
+    // Pass the string to the JIT, and it returns a raw pointer to machine code.
+    let code_ptr = jit.compile(name, arity, code, globals, constants)?;
+    // Cast the raw pointer to a typed function pointer. This is unsafe, because
+    // this is the critical point where you have to trust that the generated code
+    // is safe to be called.
+    let code_fn = std::mem::transmute::<*const u8, fn(&mut VmCore) -> bool>(code_ptr);
+    Ok(code_fn)
+}
+
+impl JIT {
+    pub fn compile_bytecode(
+        &mut self,
+        name: String,
+        arity: u16,
+        code: &[DenseInstruction],
+        globals: &[SteelVal],
+        constants: &ConstantMap,
+    ) -> Result<fn(&mut VmCore) -> bool, String> {
+        unsafe { compile_bytecode(self, name, arity, code, globals, constants) }
+    }
+}
+
+// // Compile the code to whatever inputs we want. In this case, I think
+// // its going to follow the pattern that we want
+// unsafe fn compile_code<I, O>(
+//     jit: &mut JIT,
+//     code: &[DenseInstruction],
+// ) -> Result<fn(I) -> O, String> {
+//     // Pass the string to the JIT, and it returns a raw pointer to machine code.
+//     let code_ptr = jit.compile(code)?;
+//     // Cast the raw pointer to a typed function pointer. This is unsafe, because
+//     // this is the critical point where you have to trust that the generated code
+//     // is safe to be called.
+//     let code_fn = std::mem::transmute::<*const u8, fn(I) -> O>(code_ptr);
+//     Ok(code_fn)
+// }
+
+// Supported OpCodes:
+// Lets just start with the basics: Fuse opcodes together, call the handlers
+
+// Just put them in sequence, subtract by the offset?
+// Store them inline with the instructions, just double the size?
+// Isn't that... wasteful? Probably?
+
+impl JIT {
+    /// Compile a string in the toy language into machine code.
+    pub fn compile(
+        &mut self,
+        name: String,
+        arity: u16,
+        instructions: &[DenseInstruction],
+        globals: &[SteelVal],
+        constants: &ConstantMap,
+    ) -> Result<*const u8, String> {
+        self.ctx.set_disasm(true);
+
+        // First, parse the string, producing AST nodes.
+
+        // TODO: Change this - we need to actually pass in the instructions
+        // that we want to jit compile.
+        let (params, the_return, stmts) = (Default::default(), Default::default(), instructions);
+        // parser::function(input).map_err(|e| e.to_string())?;
+
+        // Then, translate the AST nodes into Cranelift IR.
+        self.translate(arity, params, the_return, stmts, globals, constants)?;
+
+        println!("{}", self.ctx.func);
+
+        // Next, declare the function to jit. Functions must be declared
+        // before they can be called, or defined.
+        //
+        // TODO: This may be an area where the API should be streamlined; should
+        // we have a version of `declare_function` that automatically declares
+        // the function?
+        let id = self
+            .module
+            .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
+            .map_err(|e| e.to_string())?;
+
+        // Define the function to jit. This finishes compilation, although
+        // there may be outstanding relocations to perform. Currently, jit
+        // cannot finish relocations until all functions to be called are
+        // defined. For this toy demo for now, we'll just finalize the
+        // function below.
+        self.module
+            .define_function(id, &mut self.ctx)
+            .map_err(|e| e.to_string())?;
+
+        // Now that compilation is finished, we can clear out the context state.
+        self.module.clear_context(&mut self.ctx);
+
+        // Finalize the functions which we just defined, which resolves any
+        // outstanding relocations (patching in addresses, now that they're
+        // available).
+        self.module.finalize_definitions().unwrap();
+
+        // We can now retrieve a pointer to the machine code.
+        let code = self.module.get_finalized_function(id);
+
+        // println!("{:?}", self.ctx.compiled_code());
+
+        Ok(code)
+    }
+
+    /// Create a zero-initialized data section.
+    pub fn create_data(&mut self, name: &str, contents: Vec<u8>) -> Result<&[u8], String> {
+        // The steps here are analogous to `compile`, except that data is much
+        // simpler than functions.
+        self.data_description.define(contents.into_boxed_slice());
+        let id = self
+            .module
+            .declare_data(name, Linkage::Export, true, false)
+            .map_err(|e| e.to_string())?;
+
+        self.module
+            .define_data(id, &self.data_description)
+            .map_err(|e| e.to_string())?;
+        self.data_description.clear();
+        self.module.finalize_definitions().unwrap();
+        let buffer = self.module.get_finalized_data(id);
+        // TODO: Can we move the unsafe into cranelift?
+        Ok(unsafe { slice::from_raw_parts(buffer.0, buffer.1) })
+    }
+
+    // Translate from toy-language AST nodes into Cranelift IR.
+    fn translate(
+        &mut self,
+        arity: u16,
+        params: Vec<String>,
+        the_return: String,
+        bytecode: &[DenseInstruction],
+        globals: &[SteelVal], // stmts: Vec<Expr>,
+        constants: &ConstantMap,
+    ) -> Result<(), String> {
+        // Our toy language currently only supports I64 values, though Cranelift
+        // supports other types.
+        // let int = self.module.target_config().pointer_type();
+
+        // Upgrade to 128 bit?
+        let int = codegen::ir::Type::int(8).unwrap();
+
+        // Set up pointer type to be the first argument.
+        let pointer = self.module.target_config().pointer_type();
+        self.ctx.func.signature.params.push(AbiParam::new(pointer));
+
+        // for _p in &params {
+        //     self.ctx.func.signature.params.push(AbiParam::new(int));
+        // }
+
+        // Our toy language currently only supports one return value, though
+        // Cranelift is designed to support more.
+        self.ctx
+            .func
+            .signature
+            .returns
+            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+
+        // Create the builder to build a function.
+        let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+
+        // Create the entry block, to start emitting code in.
+        let entry_block = builder.create_block();
+
+        // Since this is the entry block, add block parameters corresponding to
+        // the function's parameters.
+        //
+        // TODO: Streamline the API here.
+        builder.append_block_params_for_function_params(entry_block);
+
+        // Tell the builder to emit code in this block.
+        builder.switch_to_block(entry_block);
+
+        // And, tell the builder that this block will have no further
+        // predecessors. Since it's the entry block, it won't have any
+        // predecessors.
+        builder.seal_block(entry_block);
+
+        // The toy language allows variables to be declared implicitly.
+        // Walk the AST and declare all implicitly-declared variables.
+
+        // TODO: Scan the bytecode
+        let variables = declare_variables(
+            int,
+            &mut builder,
+            &params,
+            &the_return,
+            bytecode,
+            entry_block,
+        );
+
+        // Now translate the statements of the function body.
+        let mut trans = FunctionTranslator {
+            int,
+            builder,
+            variables,
+            module: &mut self.module,
+            instructions: bytecode,
+            ip: 0,
+            globals,
+            stack: Vec::new(),
+            arity,
+            constants,
+        };
+
+        trans.translate_instructions();
+
+        // TODO:
+        // for expr in stmts {
+        //     trans.translate_expr(expr);
+        // }
+
+        // Set up the return variable of the function. Above, we declared a
+        // variable to hold the return value. Here, we just do a use of that
+        // variable.
+        // let return_variable = trans.variables.get(&the_return).unwrap();
+        // let return_value = trans.builder.use_var(*return_variable);
+
+        let return_value = trans
+            .builder
+            .ins()
+            .iconst(codegen::ir::Type::int(8).unwrap(), 1);
+
+        // Emit the return instruction.
+        trans.builder.ins().return_(&[return_value]);
+
+        // Tell the builder we're done with this function.
+        trans.builder.finalize();
+        Ok(())
+    }
+}
+
+// Store the function... as the payload?
+
+/// A collection of state used for translating from toy-language AST nodes
+/// into Cranelift IR.
+struct FunctionTranslator<'a> {
+    int: types::Type,
+    builder: FunctionBuilder<'a>,
+    variables: HashMap<String, Variable>,
+    module: &'a mut JITModule,
+
+    // We're gonna use a cursor to understand the before and after implications
+    // of the instructions. For now, we'll compile sequences of hot instructions
+    // together into a dynamic sequence.
+    instructions: &'a [DenseInstruction],
+    ip: usize,
+    globals: &'a [SteelVal],
+
+    // Local values - whenever things are locally read, we can start using them
+    // here.
+    stack: Vec<Value>,
+
+    arity: u16,
+    constants: &'a ConstantMap,
+}
+
+pub fn split_big(a: i128) -> [i64; 2] {
+    [(a >> 64) as i64, a as i64]
+}
+
+// We should be able to read local values off the stack.
+// Functions _will_ be called via reading from the stack, so the locals will be there,
+// but any other values pushed to the stack do not necessarily have to get pushed on
+// to the stack.
+
+fn op_to_name(op: OpCode) -> &'static str {
+    match op {
+        OpCode::IF => "if-branch",
+        OpCode::CALLGLOBAL => "call-global",
+        OpCode::PUSHCONST => "push-const",
+        OpCode::READLOCAL0 => "read-local-0",
+        OpCode::READLOCAL1 => "read-local-1",
+        OpCode::READLOCAL2 => "read-local-2",
+        OpCode::READLOCAL3 => "read-local-3",
+        OpCode::LOADINT0 => "push-int-0",
+        OpCode::LOADINT1 => "push-int-1",
+        OpCode::LOADINT2 => "push-int-2",
+        _ => panic!("couldn't match the name for the op code"),
+    }
+}
+
+impl FunctionTranslator<'_> {
+    fn call_global_handler(&mut self) -> Value {
+        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
+        let mut sig = self.module.make_signature();
+
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        // Add a parameter for each argument.
+        // for _arg in &args {
+        //     sig.params.push(AbiParam::new(self.int));
+        // }
+
+        // For simplicity for now, just make all calls return a single I64.
+        sig.returns
+            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+
+        // TODO: Streamline the API here?
+        let callee = self
+            .module
+            .declare_function("call-global", Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        // let mut arg_values = Vec::new();
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let arg_values = [ctx];
+
+        // for arg in args {
+        //     arg_values.push(self.translate_expr(arg))
+        // }
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+    }
+
+    fn translate_instructions(&mut self) -> bool {
+        // Fuse instructions together to avoid any dispatch cost.
+        loop {
+            // Get a window of 4 instructions just to see if this works:
+            fn is_local_stack_pushable(op: OpCode) -> bool {
+                use OpCode::*;
+                matches!(
+                    op,
+                    PUSHCONST
+                        | LOADINT0
+                        | LOADINT1
+                        | LOADINT2
+                        | READLOCAL0
+                        | READLOCAL1
+                        | READLOCAL2
+                        | READLOCAL3
+                )
+            }
+
+            if self.ip + 4 < self.instructions.len() {
+                let chain = &self.instructions[self.ip..self.ip + 4];
+                match chain {
+                    &[DenseInstruction {
+                        op_code: op1,
+                        payload_size: p1,
+                    }, DenseInstruction {
+                        op_code: op2,
+                        payload_size: p2,
+                    }, DenseInstruction {
+                        op_code: op3,
+                        payload_size: p3,
+                    }, DenseInstruction {
+                        op_code: OpCode::CALLGLOBALTAIL,
+                        payload_size: funcp,
+                    }] if is_local_stack_pushable(op1)
+                        && is_local_stack_pushable(op2)
+                        && is_local_stack_pushable(op3) =>
+                    {
+                        println!("--- Entering the special case ---");
+
+                        let value1 = self.call_func_or_immediate(op1, p1.to_usize());
+                        let value2 = self.call_func_or_immediate(op2, p2.to_usize());
+                        let value3 = self.call_func_or_immediate(op3, p3.to_usize());
+                        self.ip += 3;
+
+                        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
+                        let mut sig = self.module.make_signature();
+                        let name = "call-global-tail-3-test";
+
+                        sig.params
+                            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+                        // Function
+                        sig.params
+                            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+
+                        // Three args
+                        sig.params
+                            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+                        sig.params
+                            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+                        sig.params
+                            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+
+                        // offset
+                        sig.params
+                            .push(AbiParam::new(codegen::ir::Type::int(64).unwrap()));
+
+                        // For simplicity for now, just make all calls return a single I64.
+                        sig.returns
+                            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+
+                        // TODO: Streamline the API here?
+                        let callee = self
+                            .module
+                            .declare_function(&name, Linkage::Import, &sig)
+                            .expect("problem declaring function");
+                        let local_callee =
+                            self.module.declare_func_in_func(callee, self.builder.func);
+
+                        // let mut arg_values = Vec::new();
+
+                        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+                        let ctx = self.builder.use_var(*variable);
+
+                        let func = self.globals.get(funcp.to_usize()).unwrap().clone();
+
+                        // Keep alive, forever?
+                        let clone = func.clone();
+                        std::mem::forget(clone);
+
+                        let func_var = self.create_i128(unsafe { std::mem::transmute(func) });
+
+                        let offset = self
+                            .builder
+                            .ins()
+                            .iconst(codegen::ir::Type::int(64).unwrap(), 3);
+
+                        let arg_values = [ctx, func_var, value1, value2, value3, offset];
+
+                        // for arg in args {
+                        //     arg_values.push(self.translate_expr(arg))
+                        // }
+                        let call = self.builder.ins().call(local_callee, &arg_values);
+                        let result = self.builder.inst_results(call)[0];
+                        break;
+                        // result
+
+                        // Call global tail:
+                        // "call-global-tail-3"
+                    }
+
+                    _ => {}
+                }
+            }
+
+            match self.instructions[self.ip].op_code {
+                OpCode::CALLGLOBALTAIL
+                | OpCode::POPJMP
+                | OpCode::POPPURE
+                | OpCode::LOADINT1POP
+                | OpCode::BINOPADDTAIL
+                | OpCode::NEWSCLOSURE
+                | OpCode::TAILCALL => {
+                    return true;
+                }
+
+                // TODO: Figure out how to seamlessly
+                // use either the local stack values, or the VM stack values,
+                // or both. Calling a function should attempt to prefer
+                // to use the local stack values instead - that way
+                // we can avoid writing to the stack?
+                /*
+
+                OpCode::PUSHCONST => {
+                    // Read off of the stack... where relevant?
+                    let value = self.call_function_returns_value("push-const");
+                    self.stack.push(value);
+                    self.ip += 1;
+                }
+
+                OpCode::LOADINT0 => {
+                    let value = self.call_function_returns_value("push-int-0");
+                    self.stack.push(value);
+                    self.ip += 1;
+                }
+
+                OpCode::LOADINT1 => {
+                    let value = self.call_function_returns_value("push-int-1");
+                    self.stack.push(value);
+                    self.ip += 1;
+                }
+
+                OpCode::LOADINT2 => {
+                    let value = self.call_function_returns_value("push-int-2");
+                    self.stack.push(value);
+                    self.ip += 1;
+                }
+
+                OpCode::READLOCAL0 => {
+                    let value = self.call_function_returns_value("read-local-0");
+                    self.stack.push(value);
+                    self.ip += 1;
+                }
+
+                OpCode::READLOCAL1 => {
+                    let value = self.call_function_returns_value("read-local-1");
+                    self.stack.push(value);
+                    self.ip += 1;
+                }
+
+                OpCode::READLOCAL2 => {
+                    let value = self.call_function_returns_value("read-local-2");
+                    self.stack.push(value);
+                    self.ip += 1;
+                }
+
+                OpCode::READLOCAL3 => {
+                    let value = self.call_function_returns_value("read-local-3");
+                    self.stack.push(value);
+                    self.ip += 1;
+                }
+
+                */
+                OpCode::CALLGLOBAL => {
+                    println!("{:?}", OpCode::CALLGLOBAL);
+                    // Check if the function we're going to call is actually
+                    // the right value first.
+
+                    // Just... close the value over here?
+                    // Grab the function, embed it, register the symbol, call it a day.
+                    // Would save a lot of hassle with calling the function since we literally
+                    // have the pointer right here?
+                    let func = self
+                        .globals
+                        .get(self.instructions[self.ip].payload_size.to_usize())
+                        .unwrap();
+
+                    // Just bail out if its _not_ a native function.
+                    match func {
+                        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) => break,
+                        _ => {}
+                    };
+
+                    // Call the global, but actually check the return value?
+                    let result = self.call_global_handler();
+                    self.ip += OpCode::CALLGLOBAL.width().unwrap();
+
+                    // Return early otherwise:
+
+                    let then_block = self.builder.create_block();
+                    let else_block = self.builder.create_block();
+                    let merge_block = self.builder.create_block();
+
+                    // // If-else constructs in the toy language have a return value.
+                    // // In traditional SSA form, this would produce a PHI between
+                    // // the then and else bodies. Cranelift uses block parameters,
+                    // // so set up a parameter in the merge block, and we'll pass
+                    // // the return values to it from the branches.
+                    self.builder.append_block_param(merge_block, self.int);
+
+                    // 0 return value -> continue?
+                    // let compare = self
+                    //     .builder
+                    //     .ins()
+                    //     .iconst(codegen::ir::Type::int(8).unwrap(), 1);
+
+                    // let test = self.builder.ins().icmp(IntCC::Equal, compare, result);
+
+                    // // Test the if condition and conditionally branch.
+                    self.builder
+                        .ins()
+                        .brif(result, then_block, &[], else_block, &[]);
+
+                    self.builder.switch_to_block(then_block);
+                    self.builder.seal_block(then_block);
+
+                    // // Update with the proper return value
+                    let mut then_return = self
+                        .builder
+                        .ins()
+                        .iconst(codegen::ir::Type::int(8).unwrap(), 1);
+
+                    // // Set the ip to the right spot:
+                    // self.ip = then_start;
+                    self.translate_instructions();
+
+                    // Jump to the merge block, passing it the block return value.
+                    self.builder.ins().jump(merge_block, &[then_return]);
+
+                    self.builder.switch_to_block(else_block);
+                    self.builder.seal_block(else_block);
+
+                    // // TODO: Update with the proper return value
+                    let mut else_return = self
+                        .builder
+                        .ins()
+                        .iconst(codegen::ir::Type::int(8).unwrap(), 1);
+
+                    self.builder.ins().return_(&[else_return]);
+
+                    // self.ip = else_start;
+                    // self.translate_instructions();
+
+                    // // Jump to the merge block, passing it the block return value.
+
+                    // // Switch to the merge block for subsequent statements.
+                    self.builder.switch_to_block(merge_block);
+
+                    // // We've now seen all the predecessors of the merge block.
+                    self.builder.seal_block(merge_block);
+
+                    // // Read the value of the if-else by reading the merge block
+                    // // parameter.
+                    let phi = self.builder.block_params(merge_block)[0];
+
+                    // phi
+                }
+
+                // OpCode::JMP => {
+                //     todo!()
+                // }
+
+                // Figure out... how to handle branching?
+                OpCode::IF => {
+                    // Make the block for each case, somehow figuring out which
+                    // is true / false
+                    let false_instr = self.instructions[self.ip].payload_size;
+                    let true_instr = self.ip + 1;
+
+                    let value = self.call_branch_handler();
+                    self.translate_if_else(value, true_instr, false_instr.to_usize());
+
+                    break;
+                }
+
+                op => {
+                    let result = self.call_handler(op);
+                    // Move forward by whatever the offset is:
+                    let width = op.width();
+
+                    println!("{:?}", op);
+
+                    if let Some(width) = width {
+                        self.ip += width;
+                    } else {
+                        panic!("Can't translate the width for: {:?}", op);
+                    }
+                    // Offset the instructions:
+                    // match op {
+                    // }
+                    // todo!()
+                    // }
+
+                    // Lookup the associated handler function via the name
+
+                    // Insert a call to the handler function, pass the handler in
+                    // continue on with our lives?
+                }
+            }
+        }
+
+        return false;
+    }
+
+    fn call_func_or_immediate(&mut self, op1: OpCode, payload: usize) -> Value {
+        match op1 {
+            OpCode::LOADINT0 => {
+                self.create_i128(unsafe { std::mem::transmute(SteelVal::INT_ZERO) })
+            }
+            OpCode::LOADINT1 => self.create_i128(unsafe { std::mem::transmute(SteelVal::INT_ONE) }),
+            OpCode::LOADINT2 => self.create_i128(unsafe { std::mem::transmute(SteelVal::INT_TWO) }),
+            OpCode::PUSHCONST => {
+                // Attempt to inline the constant, if it is something that can be inlined.
+                // Assuming we know the type of it, we can get really fancy here since
+                // we _should_ be able to do something with it if there are other types
+                // in play - we can avoid the unboxing / boxing of the type if we know
+                // what we're dealing with.
+
+                let constant = self.constants.get(payload);
+
+                println!("Embedding immediate: {}", constant);
+
+                match &constant {
+                    SteelVal::BoolV(_) | SteelVal::IntV(_) => {
+                        self.create_i128(unsafe { std::mem::transmute(constant) })
+                    }
+                    _ => self.call_function_returns_value(op_to_name(op1)),
+                }
+            }
+            _ => self.call_function_returns_value(op_to_name(op1)),
+        }
+    }
+
+    // Just... store as a i128, and hope for the best. Don't need to encode
+    // it directly as anything really?
+    fn create_i128(&mut self, value: i128) -> Value {
+        let [left, right] = split_big(value);
+        let int = codegen::ir::Type::int(64).unwrap();
+
+        let lhs = self.builder.ins().iconst(int, left);
+        let rhs = self.builder.ins().iconst(int, right);
+
+        // TODO:
+        self.builder.ins().iconcat(rhs, lhs)
+    }
+
+    fn translate_if_else(
+        &mut self,
+        condition_value: Value,
+        then_start: usize,
+        else_start: usize,
+    ) -> Value {
+        let then_block = self.builder.create_block();
+        let else_block = self.builder.create_block();
+        let merge_block = self.builder.create_block();
+
+        // If-else constructs in the toy language have a return value.
+        // In traditional SSA form, this would produce a PHI between
+        // the then and else bodies. Cranelift uses block parameters,
+        // so set up a parameter in the merge block, and we'll pass
+        // the return values to it from the branches.
+        self.builder.append_block_param(merge_block, self.int);
+
+        // Test the if condition and conditionally branch.
+        self.builder
+            .ins()
+            .brif(condition_value, then_block, &[], else_block, &[]);
+
+        self.builder.switch_to_block(then_block);
+        self.builder.seal_block(then_block);
+
+        // Update with the proper return value
+        let mut then_return = self
+            .builder
+            .ins()
+            .iconst(codegen::ir::Type::int(8).unwrap(), 1);
+
+        // Set the ip to the right spot:
+        self.ip = then_start;
+        self.translate_instructions();
+
+        // Jump to the merge block, passing it the block return value.
+        self.builder.ins().jump(merge_block, &[then_return]);
+
+        self.builder.switch_to_block(else_block);
+        self.builder.seal_block(else_block);
+
+        // TODO: Update with the proper return value
+        let mut else_return = self
+            .builder
+            .ins()
+            .iconst(codegen::ir::Type::int(8).unwrap(), 1);
+
+        self.ip = else_start;
+        self.translate_instructions();
+
+        // Jump to the merge block, passing it the block return value.
+        self.builder.ins().jump(merge_block, &[else_return]);
+
+        // Switch to the merge block for subsequent statements.
+        self.builder.switch_to_block(merge_block);
+
+        // We've now seen all the predecessors of the merge block.
+        self.builder.seal_block(merge_block);
+
+        // Read the value of the if-else by reading the merge block
+        // parameter.
+        let phi = self.builder.block_params(merge_block)[0];
+
+        phi
+    }
+
+    fn call_function_returns_value(&mut self, name: &str) -> Value {
+        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
+        let mut sig = self.module.make_signature();
+
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        // For simplicity for now, just make all calls return a single I64.
+        sig.returns
+            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+
+        // TODO: Streamline the API here?
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        // let mut arg_values = Vec::new();
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let arg_values = [ctx];
+
+        // for arg in args {
+        //     arg_values.push(self.translate_expr(arg))
+        // }
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+    }
+
+    // TODO: Call the branch handler, get the return value,
+    // jump to where we need to go.
+    fn call_branch_handler(&mut self) -> Value {
+        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
+        let mut sig = self.module.make_signature();
+        let name = "if-branch";
+
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        // For simplicity for now, just make all calls return a single I64.
+        sig.returns
+            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+
+        // TODO: Streamline the API here?
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        // let mut arg_values = Vec::new();
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let arg_values = [ctx];
+
+        // for arg in args {
+        //     arg_values.push(self.translate_expr(arg))
+        // }
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+    }
+
+    fn call_handler(&mut self, op: OpCode) -> Value {
+        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
+        let mut sig = self.module.make_signature();
+
+        let name = format!("{:?}", op);
+
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        // Add a parameter for each argument.
+        // for _arg in &args {
+        //     sig.params.push(AbiParam::new(self.int));
+        // }
+
+        // For simplicity for now, just make all calls return a single I64.
+        sig.returns
+            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+
+        // TODO: Streamline the API here?
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        // let mut arg_values = Vec::new();
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let arg_values = [ctx];
+
+        // for arg in args {
+        //     arg_values.push(self.translate_expr(arg))
+        // }
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+    }
+}
+
+// impl FunctionTranslator<'_> {
+//     /// When you write out instructions in Cranelift, you get back `Value`s. You
+//     /// can then use these references in other instructions.
+//     fn translate_expr(&mut self, expr: Expr) -> Value {
+//         match expr {
+//             Expr::Literal(literal) => {
+//                 // TODO: Can we get this working?
+//                 let imm: i32 = literal.parse().unwrap();
+//                 let value: i64 = imm as _;
+//                 self.create_i128_immediate(value)
+//             }
+
+//             Expr::Add(lhs, rhs) => {
+//                 let lhs = self.translate_expr(*lhs);
+//                 let rhs = self.translate_expr(*rhs);
+//                 self.builder.ins().iadd(lhs, rhs)
+//             }
+
+//             Expr::Sub(lhs, rhs) => {
+//                 let lhs = self.translate_expr(*lhs);
+//                 let rhs = self.translate_expr(*rhs);
+//                 self.builder.ins().isub(lhs, rhs)
+//             }
+
+//             Expr::Mul(lhs, rhs) => {
+//                 let lhs = self.translate_expr(*lhs);
+//                 let rhs = self.translate_expr(*rhs);
+//                 self.builder.ins().imul(lhs, rhs)
+//             }
+
+//             Expr::Div(lhs, rhs) => {
+//                 let lhs = self.translate_expr(*lhs);
+//                 let rhs = self.translate_expr(*rhs);
+//                 self.builder.ins().udiv(lhs, rhs)
+//             }
+
+//             Expr::Eq(lhs, rhs) => self.translate_icmp(IntCC::Equal, *lhs, *rhs),
+//             Expr::Ne(lhs, rhs) => self.translate_icmp(IntCC::NotEqual, *lhs, *rhs),
+//             Expr::Lt(lhs, rhs) => self.translate_icmp(IntCC::SignedLessThan, *lhs, *rhs),
+//             Expr::Le(lhs, rhs) => self.translate_icmp(IntCC::SignedLessThanOrEqual, *lhs, *rhs),
+//             Expr::Gt(lhs, rhs) => self.translate_icmp(IntCC::SignedGreaterThan, *lhs, *rhs),
+//             Expr::Ge(lhs, rhs) => self.translate_icmp(IntCC::SignedGreaterThanOrEqual, *lhs, *rhs),
+//             Expr::Call(name, args) => self.translate_call(name, args),
+//             Expr::GlobalDataAddr(name) => self.translate_global_data_addr(name),
+//             Expr::Identifier(name) => {
+//                 // `use_var` is used to read the value of a variable.
+//                 let variable = self.variables.get(&name).expect("variable not defined");
+//                 self.builder.use_var(*variable)
+//             }
+//             Expr::Assign(name, expr) => self.translate_assign(name, *expr),
+//             Expr::IfElse(condition, then_body, else_body) => {
+//                 self.translate_if_else(*condition, then_body, else_body)
+//             }
+//             Expr::WhileLoop(condition, loop_body) => {
+//                 self.translate_while_loop(*condition, loop_body)
+//             }
+//         }
+//     }
+
+//     fn translate_assign(&mut self, name: String, expr: Expr) -> Value {
+//         // `def_var` is used to write the value of a variable. Note that
+//         // variables can have multiple definitions. Cranelift will
+//         // convert them into SSA form for itself automatically.
+//         let new_value = self.translate_expr(expr);
+//         let variable = self.variables.get(&name).unwrap();
+//         self.builder.def_var(*variable, new_value);
+//         new_value
+//     }
+
+//     fn translate_icmp(&mut self, cmp: IntCC, lhs: Expr, rhs: Expr) -> Value {
+//         let lhs = self.translate_expr(lhs);
+//         let rhs = self.translate_expr(rhs);
+//         self.builder.ins().icmp(cmp, lhs, rhs)
+//     }
+
+//     // Unbox integer from enum - Grab the discriminant from the function
+//     // fn discriminant(&mut self, value: Value) -> Value {
+//     //     // let shift = self.builder.ins().iconst(Type::int(32).unwrap(), 32);
+//     //     // let shifted = self.builder.ins().rotr(value, shift);
+//     //     self.builder.ins().ireduce(Type::int(8).unwrap(), value)
+//     // }
+
+//     fn create_i128_immediate(&mut self, value: i64) -> Value {
+//         // let [left, right] = split_big(value);
+//         // let int = codegen::ir::Type::int(64).unwrap();
+
+//         // let lhs = self.builder.ins().iconst(int, left);
+//         // let rhs = self.builder.ins().iconst(int, right);
+
+//         // // TODO:
+//         // self.builder.ins().iconcat(lhs, rhs)
+//         let value = self.builder.ins().iconst(Type::int(64).unwrap(), value);
+//         self.builder.ins().sextend(Type::int(128).unwrap(), value)
+//     }
+
+//     fn translate_if_else(
+//         &mut self,
+//         condition: Expr,
+//         then_body: Vec<Expr>,
+//         else_body: Vec<Expr>,
+//     ) -> Value {
+//         let condition_value = self.translate_expr(condition);
+
+//         let then_block = self.builder.create_block();
+//         let else_block = self.builder.create_block();
+//         let merge_block = self.builder.create_block();
+
+//         // If-else constructs in the toy language have a return value.
+//         // In traditional SSA form, this would produce a PHI between
+//         // the then and else bodies. Cranelift uses block parameters,
+//         // so set up a parameter in the merge block, and we'll pass
+//         // the return values to it from the branches.
+//         self.builder.append_block_param(merge_block, self.int);
+
+//         // Test the if condition and conditionally branch.
+//         self.builder
+//             .ins()
+//             .brif(condition_value, then_block, &[], else_block, &[]);
+
+//         self.builder.switch_to_block(then_block);
+//         self.builder.seal_block(then_block);
+
+//         // We're assuming this is 128, it should be 64?
+//         // let mut then_return = self.builder.ins().iconst(self.int, 0);
+//         let mut then_return = self.create_i128_immediate(0);
+
+//         for expr in then_body {
+//             then_return = self.translate_expr(expr);
+//         }
+
+//         // Jump to the merge block, passing it the block return value.
+//         self.builder.ins().jump(merge_block, &[then_return]);
+
+//         self.builder.switch_to_block(else_block);
+//         self.builder.seal_block(else_block);
+//         // let mut else_return = self.builder.ins().iconst(self.int, 0);
+//         let mut else_return = self.create_i128_immediate(0);
+//         for expr in else_body {
+//             else_return = self.translate_expr(expr);
+//         }
+
+//         // Jump to the merge block, passing it the block return value.
+//         self.builder.ins().jump(merge_block, &[else_return]);
+
+//         // Switch to the merge block for subsequent statements.
+//         self.builder.switch_to_block(merge_block);
+
+//         // We've now seen all the predecessors of the merge block.
+//         self.builder.seal_block(merge_block);
+
+//         // Read the value of the if-else by reading the merge block
+//         // parameter.
+//         let phi = self.builder.block_params(merge_block)[0];
+
+//         phi
+//     }
+
+//     fn translate_while_loop(&mut self, condition: Expr, loop_body: Vec<Expr>) -> Value {
+//         let header_block = self.builder.create_block();
+//         let body_block = self.builder.create_block();
+//         let exit_block = self.builder.create_block();
+
+//         self.builder.ins().jump(header_block, &[]);
+//         self.builder.switch_to_block(header_block);
+
+//         let condition_value = self.translate_expr(condition);
+//         self.builder
+//             .ins()
+//             .brif(condition_value, body_block, &[], exit_block, &[]);
+
+//         self.builder.switch_to_block(body_block);
+//         self.builder.seal_block(body_block);
+
+//         for expr in loop_body {
+//             self.translate_expr(expr);
+//         }
+//         self.builder.ins().jump(header_block, &[]);
+
+//         self.builder.switch_to_block(exit_block);
+
+//         // We've reached the bottom of the loop, so there will be no
+//         // more backedges to the header to exits to the bottom.
+//         self.builder.seal_block(header_block);
+//         self.builder.seal_block(exit_block);
+
+//         // Just return 0 for now.
+//         // self.builder.ins().iconst(self.int, 0)
+
+//         self.create_i128_immediate(0)
+//     }
+
+//     fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
+//         let mut sig = self.module.make_signature();
+
+//         // Add a parameter for each argument.
+//         for _arg in &args {
+//             sig.params.push(AbiParam::new(self.int));
+//         }
+
+//         // For simplicity for now, just make all calls return a single I64.
+//         sig.returns.push(AbiParam::new(self.int));
+
+//         // TODO: Streamline the API here?
+//         let callee = self
+//             .module
+//             .declare_function(&name, Linkage::Import, &sig)
+//             .expect("problem declaring function");
+//         let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+//         let mut arg_values = Vec::new();
+//         for arg in args {
+//             arg_values.push(self.translate_expr(arg))
+//         }
+//         let call = self.builder.ins().call(local_callee, &arg_values);
+//         self.builder.inst_results(call)[0]
+//     }
+
+//     fn translate_global_data_addr(&mut self, name: String) -> Value {
+//         let sym = self
+//             .module
+//             .declare_data(&name, Linkage::Export, true, false)
+//             .expect("problem declaring data object");
+//         let local_id = self.module.declare_data_in_func(sym, self.builder.func);
+
+//         // let pointer = self.module.target_config().pointer_type();
+//         let int = codegen::ir::Type::int(128).unwrap();
+//         self.builder.ins().symbol_value(int, local_id)
+//     }
+// }
+
+fn declare_variables(
+    int: types::Type,
+    builder: &mut FunctionBuilder,
+    params: &[String],
+    the_return: &str,
+    instructions: &[DenseInstruction],
+    entry_block: Block,
+) -> HashMap<String, Variable> {
+    let mut variables = HashMap::new();
+    let mut index = 0;
+
+    // Leave the first one in place to pass the context in.
+    {
+        let ctx = builder.block_params(entry_block)[0];
+        let var = declare_variable(
+            Type::int(64).unwrap(),
+            builder,
+            &mut variables,
+            &mut index,
+            "vm-ctx",
+        );
+        builder.def_var(var, ctx);
+    }
+
+    for (i, name) in params.iter().enumerate() {
+        // TODO: cranelift_frontend should really have an API to make it easy to set
+        // up param variables.
+        let val = builder.block_params(entry_block)[i + 1];
+        dbg!(int);
+        let var = declare_variable(int, builder, &mut variables, &mut index, name);
+        builder.def_var(var, val);
+    }
+
+    // let zero = builder.ins().iconst(Type::int(64).unwrap(), 0);
+    // let zero = builder.ins().sextend(Type::int(128).unwrap(), zero);
+
+    // let one = builder.ins().iconst(Type::int(8).unwrap(), 1);
+
+    // let return_variable = declare_variable(int, builder, &mut variables, &mut index, the_return);
+    // builder.def_var(return_variable, one);
+
+    // TODO:
+    // for expr in stmts {
+    //     declare_variables_in_stmt(int, builder, &mut variables, &mut index, expr);
+    // }
+
+    variables
+}
+
+// TODO: Stack2SSA here
+/// Recursively descend through the AST, translating all implicit
+/// variable declarations.
+// fn declare_variables_in_stmt(
+//     int: types::Type,
+//     builder: &mut FunctionBuilder,
+//     variables: &mut HashMap<String, Variable>,
+//     index: &mut usize,
+//     expr: &Expr,
+// ) {
+//     match *expr {
+//         Expr::Assign(ref name, _) => {
+//             declare_variable(int, builder, variables, index, name);
+//         }
+//         Expr::IfElse(ref _condition, ref then_body, ref else_body) => {
+//             for stmt in then_body {
+//                 declare_variables_in_stmt(int, builder, variables, index, stmt);
+//             }
+//             for stmt in else_body {
+//                 declare_variables_in_stmt(int, builder, variables, index, stmt);
+//             }
+//         }
+//         Expr::WhileLoop(ref _condition, ref loop_body) => {
+//             for stmt in loop_body {
+//                 declare_variables_in_stmt(int, builder, variables, index, stmt);
+//             }
+//         }
+//         _ => (),
+//     }
+// }
+
+/// Declare a single variable declaration.
+fn declare_variable(
+    int: types::Type,
+    builder: &mut FunctionBuilder,
+    variables: &mut HashMap<String, Variable>,
+    index: &mut usize,
+    name: &str,
+) -> Variable {
+    let var = Variable::new(*index);
+    if !variables.contains_key(name) {
+        variables.insert(name.into(), var);
+        builder.declare_var(var, int);
+        *index += 1;
+    }
+    var
+}

@@ -58,10 +58,12 @@ termimad = { version = "0.31.1", optional = true }
 # FFI for dylibs
 abi_stable = { version = "0.11.2", optional = true }
 async-ffi = { version = "0.5.0", features = ["abi_stable"], optional = true }
+
 # Cranelift JIT
-cranelift = { version = "0.84.0", optional = true }
-cranelift-module = { version = "0.84.0", optional = true }
-cranelift-jit = { version = "0.84.0", optional = true }
+cranelift = { version = "0.116.1", optional = true }
+cranelift-module = { version = "0.116.1", optional = true }
+cranelift-jit = { version = "0.116.1", optional = true }
+cranelift-native = { version = "0.116.1", optional = true }
 
 anyhow = { version = "1", optional = true }
 
@@ -108,6 +110,8 @@ steel-gen = { path = "../steel-gen", version = "0.2.0" }
 default = ["modules"]
 modules = []
 jit = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit"]
+# New and improved JIT experience
+jit2 = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit", "dep:cranelift-native"]
 sandbox = []
 dynamic = []
 profiling = []
@@ -129,6 +133,7 @@ experimental-drop-handler = []
 unsandboxed-kernel = []
 inline-captures = []
 experimental = []
+vm-tco = []
 
 [[bench]]
 name = "my_benchmark"

@@ -105,7 +105,7 @@ impl VisitorMutRef for CheckDefinesAreInLegalPositions {
 
     #[inline]
     fn visit_quote(&mut self, quote: &mut Quote) -> Self::Output {
-        self.visit(&mut quote.expr)?;
+        // self.visit(&mut quote.expr)?;
         Ok(())
     }
 
@@ -317,6 +317,19 @@ impl Folder for ConvertDefinesToLets {
 
         ExprKind::Let(l)
     }
+
+    // #[inline]
+    // fn visit_define(&mut self, mut define: Box<Define>) -> ExprKind {
+    //     if self.depth != 0 {
+    //         let location = define.location.clone();
+    //         // Convert to a begin?
+    //         let begin = Begin::new(vec![ExprKind::Define(define)], location);
+    //         return convert_exprs_to_let(Box::new(begin));
+    //     } else {
+    //         define.body = self.visit(define.body);
+    //         ExprKind::Define(define)
+    //     }
+    // }
 
     // TODO
     #[inline]

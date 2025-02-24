@@ -4,6 +4,7 @@
 ;; return an int - we should be able to do
 ;; ADDINT... Or also could do loop unrolling?
 (define (fib n)
+  ;; Loop unrolling would do so much, assuming we can do that easily
   (if (<= n 2)
       1
       (+ (fib (- n 1)) (fib (- n 2)))))
@@ -30,4 +31,4 @@
 ;;
 ;; What that looks like -> Inlining a function call?
 
-(fib 40)
+; (fib 40)

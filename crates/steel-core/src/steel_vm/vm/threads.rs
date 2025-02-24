@@ -469,6 +469,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
                     .into_iter()
                     .map(|(k, v)| (k, v.into()))
                     .collect(),
+                jit_funcs: Default::default()
             }
         );
 
@@ -520,6 +521,9 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
             profiler: vec![0; OpCode::LOADINT2POP as usize],
 
             handler_map: &HANDLER_MAP,
+
+            #[cfg(feature = "jit2")]
+            jit: Arc::new(Mutex::new(crate::jit2::gen::JIT::default())),
         };
 
         #[cfg(feature = "profiling")]
