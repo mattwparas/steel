@@ -1,7 +1,8 @@
 extern crate rustyline;
 use colored::*;
+use steel::SteelErr;
 use steel_parser::interner::InternedString;
-use steel_parser::parser::SourceId;
+use steel_parser::parser::{Parser, SourceId};
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -67,6 +68,11 @@ impl Validator for RustylineHelper {
 
         if balance > 0 || unfinished {
             Ok(ValidationResult::Incomplete)
+        } else if let Some(parse_err) = Parser::new(ctx.input(), None).find_map(|r| r.err()) {
+            Ok(ValidationResult::Invalid(Some(format!(
+                "\n{}",
+                SteelErr::from(parse_err).emit_result_to_string("", "", true)
+            ))))
         } else {
             Ok(ValidationResult::Valid(None))
         }
