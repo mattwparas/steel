@@ -34,7 +34,7 @@ fn display_help() {
         "
         :time       -- toggles the timing of expressions
         :? | :help  -- displays help dialog
-        :quit       -- exits the REPL
+        :q | :quit       -- exits the REPL
         :pwd        -- displays the current working directory
         :load       -- loads a file
         "
@@ -256,7 +256,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
             Ok(line) => {
                 rl.add_history_entry(line.as_str()).ok();
                 match line.as_str() {
-                    ":quit" => return Ok(()),
+                    ":q" | ":quit" => return Ok(()),
                     ":time" => {
                         print_time = !print_time;
                         println!(
