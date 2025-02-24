@@ -236,7 +236,7 @@ pub fn eval(program: String) -> List<SteelVal> {
         ]
         .into(),
         Err(e) => {
-            let report = e.emit_result_to_string("input.stl", &program);
+            let report = e.emit_result_to_string("input.stl", &program, false);
 
             vec![
                 SteelVal::ListV(List::new()),

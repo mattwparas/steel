@@ -6,8 +6,8 @@ use std::{convert::Infallible, fmt::Formatter};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::SimpleFile;
-use codespan_reporting::term;
 use codespan_reporting::term::termcolor::{ColorChoice, NoColor, StandardStream};
+use codespan_reporting::term::{self, termcolor};
 use steel_parser::parser::SourceId;
 
 use crate::parser::span::Span;
@@ -262,10 +262,17 @@ impl SteelErr {
         // }
     }
 
-    pub fn emit_result_to_string(&self, file_name: &str, file_content: &str) -> String {
-        // let writer = StandardStream::from(String::new());
-        // let mut writer = String::new();
-        let mut writer = NoColor::new(Vec::<u8>::new());
+    pub fn emit_result_to_string(
+        &self,
+        file_name: &str,
+        file_content: &str,
+        color: bool,
+    ) -> String {
+        let mut writer = if color {
+            termcolor::Buffer::ansi()
+        } else {
+            termcolor::Buffer::no_color()
+        };
         let config = codespan_reporting::term::Config::default();
 
         let file = SimpleFile::new(file_name, file_content);
