@@ -2555,6 +2555,19 @@ fn callglobal_handler_deopt(ctx: &mut VmCore) -> u8 {
     }
 }
 
+// Equality... via the usual scheme?
+pub(crate) extern "C" fn num_equal_value(ctx: *mut VmCore, left: i128, right: i128) -> bool {
+    unsafe {
+        if let Ok(SteelVal::BoolV(b)) =
+            number_equality(&std::mem::transmute(left), &std::mem::transmute(right))
+        {
+            b
+        } else {
+            unreachable!()
+        }
+    }
+}
+
 pub(crate) extern "C" fn push_const_value_c(ctx: *mut VmCore) -> i128 {
     unsafe {
         let value = (&mut *ctx).get_const();

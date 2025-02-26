@@ -12,9 +12,9 @@ use crate::{
     core::instructions::{u24, DenseInstruction},
     steel_vm::vm::{
         callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
-        callglobal_tail_handler_deopt_3_test, if_handler_value, push_const_value_c, push_int_0,
-        push_int_1, push_int_2, read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
-        read_local_3_value_c, VmCore,
+        callglobal_tail_handler_deopt_3_test, if_handler_value, num_equal_value,
+        push_const_value_c, push_int_0, push_int_1, push_int_2, read_local_0_value_c,
+        read_local_1_value_c, read_local_2_value_c, read_local_3_value_c, VmCore,
     },
     SteelVal,
 };
@@ -179,6 +179,9 @@ impl Default for JIT {
             "call-global-tail-3-test",
             callglobal_tail_handler_deopt_3_test as *const u8,
         );
+
+        // Value functions:
+        builder.symbol("num-equal-value", num_equal_value as *const u8);
 
         let module = JITModule::new(builder);
         Self {
@@ -468,7 +471,13 @@ impl JIT {
     }
 }
 
-// Store the function... as the payload?
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum InferredType {
+    Int,
+    Bool,
+    List,
+    Any,
+}
 
 /// A collection of state used for translating from toy-language AST nodes
 /// into Cranelift IR.
@@ -487,7 +496,7 @@ struct FunctionTranslator<'a> {
 
     // Local values - whenever things are locally read, we can start using them
     // here.
-    stack: Vec<Value>,
+    stack: Vec<(Value, InferredType)>,
 
     arity: u16,
     constants: &'a ConstantMap,
@@ -554,6 +563,29 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
+    }
+
+    // Read values off of the stack - push them on to wherever they need to go.
+    // Assuming the whole instruction set is translated and we also confirm that _only_
+    // native functions get used, we can probably just rewrite the function
+    // into a function pointer, and we don't need to thread the context through at all.
+    fn stack_to_ssa(&mut self) {
+        loop {
+            match self.instructions[self.ip].op_code {
+                OpCode::CALLGLOBALTAIL
+                | OpCode::POPJMP
+                | OpCode::POPPURE
+                | OpCode::LOADINT1POP
+                | OpCode::BINOPADDTAIL
+                | OpCode::NEWSCLOSURE
+                | OpCode::TAILCALL => {
+                    return;
+                }
+                _ => {
+                    todo!()
+                }
+            }
+        }
     }
 
     fn translate_instructions(&mut self) -> bool {
