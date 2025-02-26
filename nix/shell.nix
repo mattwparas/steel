@@ -1,31 +1,24 @@
 {
-  lib,
-  stdenv,
   mkShell,
-  steel,
   cargo,
-  rustc,
-  libiconv,
-  CoreServices,
-  SystemConfiguration,
+  clippy,
   rust-analyzer,
+  rustc,
   rustfmt,
+  steel,
 }:
 mkShell {
-  shellHook = ''
-    export STEEL_HOME="${steel}/lib/"
-  '';
+  inputsFrom = steel;
+
   packages =
     [
       cargo
+      clippy
       rustc
       rust-analyzer
       rustfmt
-      libiconv
-    ]
-    ++ lib.optionals stdenv.isDarwin [
-      CoreServices
-      SystemConfiguration
+      steel
     ];
-    inputsFrom = steel;
+
+  strictDeps = true;
 }
