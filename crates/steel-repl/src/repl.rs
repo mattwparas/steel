@@ -34,7 +34,7 @@ fn display_help() {
         "
         :time       -- toggles the timing of expressions
         :? | :help  -- displays help dialog
-        :q | :quit       -- exits the REPL
+        :q | :quit  -- exits the REPL
         :pwd        -- displays the current working directory
         :load       -- loads a file
         "
