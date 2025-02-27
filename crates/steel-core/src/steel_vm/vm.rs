@@ -2642,6 +2642,15 @@ pub(crate) extern "C" fn push_int_2(ctx: *mut VmCore) -> i128 {
     }
 }
 
+// Read the global value at the registered index
+pub(crate) extern "C" fn push_global(ctx: *mut VmCore, index: usize) -> i128 {
+    unsafe {
+        let mut this = &mut *ctx;
+        let value = this.thread.global_env.repl_lookup_idx(index);
+        std::mem::transmute(value)
+    }
+}
+
 // This... is gonna be super suspect - it could really screw up the ref counts
 // on the constants if its a heap allocated value. So probably need a way to make sure
 // the values are only used once.

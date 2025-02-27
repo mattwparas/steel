@@ -600,6 +600,7 @@ impl FunctionTranslator<'_> {
                     self.stack.push((value, InferredType::Void));
                     self.ip += 1;
                 }
+                // Handle global value
                 OpCode::PUSH => {
                     todo!()
                 }
