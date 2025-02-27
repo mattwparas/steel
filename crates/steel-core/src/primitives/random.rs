@@ -1,4 +1,4 @@
-use rand::prelude::*;
+use rand::{prelude::*, rng};
 
 use crate::steel_vm::register_fn::RegisterFn;
 use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
@@ -26,11 +26,9 @@ pub fn random_module() -> BuiltInModule {
     module
         // .register_fn("thread-rng!", thread_rng)
         // .register_doc("thread-rng!", THREAD_RNG_DOC)
-        .register_fn("rng->gen-usize", || thread_rng().gen::<usize>())
+        .register_fn("rng->gen-usize", || rng().random::<u64>())
         // .register_doc("rng->gen-usize", RNG_GEN_USIZE)
-        .register_fn("rng->gen-range", |x: isize, y: isize| {
-            thread_rng().gen_range(x..y)
-        });
+        .register_fn("rng->gen-range", |x: i64, y: i64| rng().random_range(x..y));
 
     module
 }
