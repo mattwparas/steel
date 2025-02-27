@@ -2568,6 +2568,24 @@ pub(crate) extern "C" fn num_equal_value(ctx: *mut VmCore, left: i128, right: i1
     }
 }
 
+macro_rules! extern_binop {
+    ($name:tt, $func:tt) => {
+        pub(crate) extern "C" fn $name(ctx: *mut VmCore, a: i128, b: i128) -> i128 {
+            unsafe { std::mem::transmute($func(&[std::mem::transmute(a), std::mem::transmute(b)])) }
+        }
+    };
+}
+
+// Set up these for doing each of the handlers
+extern_binop!(extern_c_add_two, add_primitive);
+extern_binop!(extern_c_sub_two, subtract_primitive);
+extern_binop!(extern_c_lt_two, lt_primitive);
+extern_binop!(extern_c_lte_two, lte_primitive);
+extern_binop!(extern_c_gt_two, gt_primitive);
+extern_binop!(extern_c_gte_two, gte_primitive);
+extern_binop!(extern_c_mult_two, multiply_primitive);
+extern_binop!(extern_c_div_two, divide_primitive);
+
 pub(crate) extern "C" fn push_const_value_c(ctx: *mut VmCore) -> i128 {
     unsafe {
         let value = (&mut *ctx).get_const();

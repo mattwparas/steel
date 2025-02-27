@@ -442,6 +442,7 @@ impl JIT {
             stack: Vec::new(),
             arity,
             constants,
+            local_count: 0,
         };
 
         trans.translate_instructions();
@@ -477,6 +478,8 @@ enum InferredType {
     Bool,
     List,
     Any,
+    Box,
+    Void,
 }
 
 /// A collection of state used for translating from toy-language AST nodes
@@ -500,6 +503,8 @@ struct FunctionTranslator<'a> {
 
     arity: u16,
     constants: &'a ConstantMap,
+
+    local_count: usize,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -525,6 +530,10 @@ fn op_to_name(op: OpCode) -> &'static str {
         OpCode::LOADINT2 => "push-int-2",
         _ => panic!("couldn't match the name for the op code"),
     }
+}
+
+fn encode(value: SteelVal) -> i128 {
+    unsafe { std::mem::transmute(value) }
 }
 
 impl FunctionTranslator<'_> {
@@ -571,7 +580,10 @@ impl FunctionTranslator<'_> {
     // into a function pointer, and we don't need to thread the context through at all.
     fn stack_to_ssa(&mut self) {
         loop {
-            match self.instructions[self.ip].op_code {
+            let instr = self.instructions[self.ip];
+            let op = instr.op_code;
+            let payload = instr.payload_size.to_usize();
+            match op {
                 OpCode::CALLGLOBALTAIL
                 | OpCode::POPJMP
                 | OpCode::POPPURE
@@ -581,9 +593,140 @@ impl FunctionTranslator<'_> {
                 | OpCode::TAILCALL => {
                     return;
                 }
-                _ => {
+                OpCode::VOID => {
+                    // Push void onto stack?
+                    let void = SteelVal::Void;
+                    let value = self.create_i128(encode(void));
+                    self.stack.push((value, InferredType::Void));
+                    self.ip += 1;
+                }
+                OpCode::PUSH => {
                     todo!()
                 }
+                // Translate if? Correct the stack accordingly?
+                OpCode::IF => {
+                    todo!()
+                }
+                // Just... jump to that instruction?
+                OpCode::JMP => todo!(),
+
+                // Insert guards against the things.
+                OpCode::FUNC => todo!(),
+                OpCode::SCLOSURE => todo!(),
+                OpCode::ECLOSURE => todo!(),
+                OpCode::BIND => todo!(),
+                OpCode::SDEF => todo!(),
+                OpCode::EDEF => todo!(),
+                OpCode::POPN => todo!(),
+                OpCode::POPSINGLE => todo!(),
+                OpCode::PASS => todo!(),
+                OpCode::NDEFS => todo!(),
+                OpCode::PANIC => todo!(),
+                OpCode::SET => todo!(),
+                OpCode::READLOCAL => todo!(),
+
+                // Read a local from the local stack.
+                OpCode::READLOCAL0
+                | OpCode::READLOCAL1
+                | OpCode::READLOCAL2
+                | OpCode::READLOCAL3
+                | OpCode::PUSHCONST
+                | OpCode::LOADINT0
+                | OpCode::LOADINT1
+                | OpCode::LOADINT2 => {
+                    let payload = self.instructions[self.ip].payload_size.to_usize();
+                    let value = self.call_func_or_immediate(op, payload);
+                    self.ip += 1;
+                    self.stack.push((value, InferredType::Any));
+                }
+
+                OpCode::SETLOCAL => todo!(),
+                OpCode::COPYCAPTURESTACK => todo!(),
+                OpCode::COPYCAPTURECLOSURE => todo!(),
+                OpCode::COPYHEAPCAPTURECLOSURE => todo!(),
+                OpCode::FIRSTCOPYHEAPCAPTURECLOSURE => todo!(),
+
+                // TODO: This _should_ be changed to be a while loop probably.
+                // We can get clever with this to avoid a lot of headache.
+                OpCode::TCOJMP => todo!(),
+
+                OpCode::CALLGLOBAL => todo!(),
+                OpCode::CGLOCALCONST => todo!(),
+
+                // Moving the value through to the function call means
+                // just invalidating the previous reference on the stack.
+                //
+                // So move off of the stack.
+                OpCode::MOVEREADLOCAL => todo!(),
+
+                OpCode::MOVEREADLOCAL0
+                | OpCode::MOVEREADLOCAL1
+                | OpCode::MOVEREADLOCAL2
+                | OpCode::MOVEREADLOCAL3 => todo!(),
+
+                OpCode::READCAPTURED => todo!(),
+
+                // Enter a let scope - This is unfortunately important.
+                // This just lets us know now that the local variables from this
+                // point onwards can be references _after_ whatever value we think
+                // it is at.
+                OpCode::BEGINSCOPE => {
+                    // Next n values should stick around on the stack.
+                    let local_count = payload;
+                    self.local_count += local_count;
+                    self.ip += 1;
+                }
+
+                // Drop the previous values from the scope.
+                OpCode::LETENDSCOPE => {
+                    // TODO: Drain the values that are left on the stack
+                    self.local_count -= payload;
+                    self.ip -= 1;
+                }
+                OpCode::PUREFUNC => todo!(),
+
+                // TODO: Roll up the bin ops into a function to make things easier
+                OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {}
+                OpCode::EQUAL => todo!(),
+                OpCode::NUMEQUAL => todo!(),
+                OpCode::NULL => todo!(),
+                OpCode::LTE => todo!(),
+                OpCode::GTE => todo!(),
+                OpCode::GT => todo!(),
+                OpCode::LT => todo!(),
+
+                // Figure out how to handle heap allocated values like lists.
+                OpCode::CONS => todo!(),
+                OpCode::LIST => todo!(),
+                OpCode::CAR => todo!(),
+                OpCode::CDR => todo!(),
+                OpCode::NEWBOX => todo!(),
+                OpCode::SETBOX => todo!(),
+                OpCode::UNBOX => todo!(),
+                OpCode::ADDREGISTER => todo!(),
+                OpCode::SUBREGISTER => todo!(),
+                OpCode::LTEREGISTER => todo!(),
+                OpCode::SUBREGISTER1 => todo!(),
+                OpCode::ALLOC => todo!(),
+                OpCode::READALLOC => todo!(),
+                OpCode::SETALLOC => todo!(),
+                OpCode::DynSuperInstruction => todo!(),
+                OpCode::Arity => todo!(),
+                OpCode::LetVar => todo!(),
+                OpCode::ADDIMMEDIATE => todo!(),
+                OpCode::SUBIMMEDIATE => todo!(),
+                OpCode::LTEIMMEDIATE => todo!(),
+                OpCode::BINOPADD => todo!(),
+                OpCode::BINOPSUB => todo!(),
+                OpCode::LTEIMMEDIATEIF => todo!(),
+                // If the type is bool, just negate it
+                OpCode::NOT => todo!(),
+                OpCode::VEC => todo!(),
+                OpCode::Apply => todo!(),
+                OpCode::CALLGLOBALTAILPOP => todo!(),
+                OpCode::LOADINT0POP => todo!(),
+                OpCode::LOADINT2POP => todo!(),
+                OpCode::CaseLambdaDispatch => todo!(),
             }
         }
     }
