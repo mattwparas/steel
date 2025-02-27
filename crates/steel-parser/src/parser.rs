@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     path::PathBuf,
     rc::Rc,
     result,
@@ -269,8 +270,8 @@ impl ParseError {
 pub struct InternString;
 
 impl ToOwnedString<InternedString> for InternString {
-    fn own(&self, s: &str) -> InternedString {
-        s.into()
+    fn own(&self, s: Cow<str>) -> InternedString {
+        (&*s).into()
     }
 }
 
