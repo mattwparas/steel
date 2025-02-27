@@ -1,61 +1,103 @@
 {
   lib,
   stdenv,
-  Security,
-  openssl,
-  pkg-config,
   rustPlatform,
-}: let
+  curl,
+  pkg-config,
+  makeBinaryWrapper,
+  libgit2,
+  oniguruma,
+  openssl,
+  sqlite,
+  zlib,
+  darwin,
+
+  includeLSP ? true,
+  includeForge ? true,
+}:
+let
   manifest = lib.importTOML ../Cargo.toml;
-  fs = lib.fileset;
 in
-  rustPlatform.buildRustPackage {
-    pname = manifest.package.name;
-    version = manifest.workspace.package.version;
+rustPlatform.buildRustPackage {
+  pname = "steel";
+  inherit (manifest.workspace.package) version;
 
-    src = fs.toSource {
-      root = ../.;
-      fileset =
-        fs.intersection
-        (fs.gitTracked ../.)
-        (fs.fileFilter
-          (f:
-            f.name
-            == "Cargo.lock"
-            || f.hasExt "rkt"
-            || f.hasExt "rs"
-            || f.hasExt "scm"
-            || f.hasExt "toml")
-          ../.);
-    };
+  src = lib.fileset.toSource {
+    root = ../.;
+    fileset = lib.fileset.gitTracked ../.;
+  };
 
-    cargoLock = {
-      lockFile = ../Cargo.lock;
-    };
-    cargoBuildFlags = "-p cargo-steel-lib -p steel-interpreter";
+  useFetchCargoVendor = true;
+  cargoHash = "sha256-8S/CJFXv89lS3Gyd/TgHUrMxmvYQZvbXCiPQcQtL3Jo=";
 
-    buildInputs = [openssl] ++ lib.optionals stdenv.isDarwin [Security];
-    nativeBuildInputs = [
-      pkg-config
+  nativeBuildInputs = [
+    curl
+    makeBinaryWrapper
+    pkg-config
+    rustPlatform.bindgenHook
+  ];
+
+  buildInputs = [
+    curl
+    libgit2
+    oniguruma
+    openssl
+    sqlite
+    zlib
+  ] ++ lib.optionals stdenv.hostPlatform.isDarwin [ darwin.apple_sdk.frameworks.Security ];
+
+  cargoBuildFlags =
+    [
+      "--package"
+      "steel-interpreter"
+      "--package"
+      "cargo-steel-lib"
+    ]
+    ++ lib.optionals includeLSP [
+      "--package"
+      "steel-language-server"
+    ]
+    ++ lib.optionals includeForge [
+      "--package"
+      "forge"
     ];
 
-    # Test failing
-    doCheck = false;
-    postInstall = ''
-      substituteInPlace cogs/installer/download.scm --replace-warn "cargo-steel-lib" "$out/bin/cargo-steel-lib"
-      mkdir $out/lib
-      export STEEL_HOME="$out/lib"
-      pushd cogs
-      $out/bin/steel install.scm
-      popd
-      rm "$out/bin/cargo-steel-lib"
-    '';
+  doCheck = false;
 
-    meta = {
-      description = "An embedded scheme interpreter in Rust";
-      homepage = "https://github.com/mattwparas/steel";
-      license = with lib.licenses; [asl20 mit];
-      platforms = lib.platforms.unix;
-      mainProgram = "steel";
-    };
-  }
+  postInstall = ''
+    mkdir -p $out/lib/steel
+
+    substituteInPlace cogs/installer/download.scm \
+      --replace-fail '"cargo-steel-lib"' '"$out/bin/cargo-steel-lib"'
+
+    pushd cogs
+    $out/bin/steel install.scm
+    popd
+
+    mv $out/lib/steel/bin/repl-connect $out/bin
+    rm -rf $out/lib/steel/bin
+  '';
+
+  postFixup = ''
+    wrapProgram $out/bin/steel --set-default STEEL_HOME "$out/lib/steel"
+  '';
+
+  env = {
+    OPENSSL_NO_VENDOR = true;
+    RUSTONIG_SYSTEM_LIBONIG = true;
+    STEEL_HOME = "${placeholder "out"}/lib/steel";
+  };
+
+  meta = {
+    description = "Embedded scheme interpreter in Rust";
+    homepage = "https://github.com/mattwparas/steel";
+    license = with lib.licenses; [
+      asl20
+      mit
+    ];
+    maintainers = with lib.maintainers; [ HeitorAugustoLN ];
+    mainProgram = "steel";
+    platforms = lib.platforms.unix;
+    sourceProvenance = [ lib.sourceTypes.fromSource ];
+  };
+}
