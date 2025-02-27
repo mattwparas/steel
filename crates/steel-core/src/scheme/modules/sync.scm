@@ -27,7 +27,8 @@
 
 ;;@doc
 ;; Check if the given task is done
-(define task-done? Task-done)
+(define (task-done? t)
+  (eq? (Task-done t) 'done))
 
 ;;@doc
 ;; Get the err object (if any) from the given task
@@ -60,7 +61,7 @@
                            ;; This should be fine, we're updating the task to be finished,
                            ;; so we can check the progress of it
                            (set-Task-func-or-result! next-task (func))
-                           (set-Task-done! next-task #t))))
+                           (set-Task-done! next-task 'done))))
 
     (listen-for-tasks))
 
@@ -92,14 +93,13 @@
   ;; block on it
   (define (loop task)
     (cond
+      [(equal? (Task-done task) *waiting*) (loop task)]
 
-      [(eq? (Task-done task) *waiting*) (loop task)]
-
-      [(eq? (Task-done task) *running*)
+      [(equal? (Task-done task) *running*)
        (try-block task)
        (loop task)]
 
-      [(Task-done task)
+      [(equal? (Task-done task) 'done)
        (if (Task-err task)
            (Task-err task)
            (Task-func-or-result task))]
