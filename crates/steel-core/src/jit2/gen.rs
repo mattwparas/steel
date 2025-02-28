@@ -12,9 +12,11 @@ use crate::{
     core::instructions::{u24, DenseInstruction},
     steel_vm::vm::{
         callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
-        callglobal_tail_handler_deopt_3_test, if_handler_value, num_equal_value,
-        push_const_value_c, push_int_0, push_int_1, push_int_2, read_local_0_value_c,
-        read_local_1_value_c, read_local_2_value_c, read_local_3_value_c, VmCore,
+        callglobal_tail_handler_deopt_3_test, extern_c_add_two, extern_c_div_two, extern_c_gt_two,
+        extern_c_gte_two, extern_c_lt_two, extern_c_lte_two, extern_c_mult_two, extern_c_sub_two,
+        if_handler_value, num_equal_value, push_const_value_c, push_global, push_int_0, push_int_1,
+        push_int_2, read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
+        read_local_3_value_c, VmCore,
     },
     SteelVal,
 };
@@ -182,6 +184,16 @@ impl Default for JIT {
 
         // Value functions:
         builder.symbol("num-equal-value", num_equal_value as *const u8);
+
+        builder.symbol("push-global-value", push_global as *const u8);
+        builder.symbol("add-binop", extern_c_add_two as *const u8);
+        builder.symbol("sub-binop", extern_c_sub_two as *const u8);
+        builder.symbol("lt-binop", extern_c_lt_two as *const u8);
+        builder.symbol("lte-binop", extern_c_lte_two as *const u8);
+        builder.symbol("gt-binop", extern_c_gt_two as *const u8);
+        builder.symbol("gte-binop", extern_c_gte_two as *const u8);
+        builder.symbol("mult-two", extern_c_mult_two as *const u8);
+        builder.symbol("div-two", extern_c_div_two as *const u8);
 
         let module = JITModule::new(builder);
         Self {
@@ -528,6 +540,38 @@ fn op_to_name(op: OpCode) -> &'static str {
         OpCode::LOADINT0 => "push-int-0",
         OpCode::LOADINT1 => "push-int-1",
         OpCode::LOADINT2 => "push-int-2",
+        OpCode::ADD => "add-binop",
+        OpCode::SUB => "sub-binop",
+        OpCode::LT => "lt-binop",
+        OpCode::LTE => "lte-binop",
+        OpCode::GT => "gt-binop",
+        OpCode::GTE => "gte-binop",
+        OpCode::MUL => "mult-two",
+        OpCode::DIV => "div-two",
+        _ => panic!("couldn't match the name for the op code"),
+    }
+}
+
+fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
+    match (op, payload) {
+        (OpCode::IF, _) => "if-branch",
+        (OpCode::CALLGLOBAL, _) => "call-global",
+        (OpCode::PUSHCONST, _) => "push-const",
+        (OpCode::READLOCAL0, _) => "read-local-0",
+        (OpCode::READLOCAL1, _) => "read-local-1",
+        (OpCode::READLOCAL2, _) => "read-local-2",
+        (OpCode::READLOCAL3, _) => "read-local-3",
+        (OpCode::LOADINT0, _) => "push-int-0",
+        (OpCode::LOADINT1, _) => "push-int-1",
+        (OpCode::LOADINT2, _) => "push-int-2",
+        (OpCode::ADD, 2) => "add-binop",
+        (OpCode::SUB, 2) => "sub-binop",
+        (OpCode::LT, 2) => "lt-binop",
+        (OpCode::LTE, 2) => "lte-binop",
+        (OpCode::GT, 2) => "gt-binop",
+        (OpCode::GTE, 2) => "gte-binop",
+        (OpCode::MUL, 2) => "mult-two",
+        (OpCode::DIV, 2) => "div-two",
         _ => panic!("couldn't match the name for the op code"),
     }
 }
@@ -687,6 +731,12 @@ impl FunctionTranslator<'_> {
                 OpCode::PUREFUNC => todo!(),
 
                 // TODO: Roll up the bin ops into a function to make things easier
+                OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV if payload == 2 => {
+                    // Call the func
+
+                    todo!()
+                }
+
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {}
                 OpCode::EQUAL => todo!(),
                 OpCode::NUMEQUAL => todo!(),
