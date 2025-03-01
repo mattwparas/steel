@@ -2923,6 +2923,7 @@ fn handle_global_function_call_with_args(
 }
 
 // Either... return a value, or deopt and yield control back to the runtime.
+// How do we signal to yield back to the runtime?
 #[inline(always)]
 fn call_global_function_deopt(
     ctx: &mut VmCore,
