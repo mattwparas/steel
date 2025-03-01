@@ -2922,6 +2922,36 @@ fn handle_global_function_call_with_args(
     }
 }
 
+// Either... return a value, or deopt and yield control back to the runtime.
+#[inline(always)]
+fn call_global_function_deopt(
+    ctx: &mut VmCore,
+    fallback_ip: usize,
+    args: &mut [SteelVal],
+) -> SteelVal {
+    // TODO: Only do this if we have to
+    ctx.ip = fallback_ip;
+
+    let index = ctx.instructions[ctx.ip].payload_size;
+    ctx.ip += 1;
+    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
+    let func = ctx.thread.global_env.repl_lookup_idx(index.to_usize());
+
+    debug_assert!(payload_size == 3);
+
+    // Deopt -> Meaning, check the return value if we're done - so we just
+    // will eventually check the stashed error.
+    // let should_yield = match &func {
+    //     SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
+    //     _ => false,
+    // };
+
+    match handle_global_function_call_with_args(ctx, func, args) {
+        Ok(v) => return v,
+        Err(_) => return SteelVal::Void,
+    }
+}
+
 // TODO: Figure this out?
 #[inline(always)]
 fn callglobal_handler_deopt_three_args(
