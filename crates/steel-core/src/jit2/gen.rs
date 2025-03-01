@@ -2,6 +2,7 @@
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, Linkage, Module};
+use num::ToPrimitive;
 use std::collections::HashMap;
 use std::slice;
 use steel_gen::opcode::OPCODES_ARRAY;
@@ -14,9 +15,11 @@ use crate::{
         callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
         callglobal_tail_handler_deopt_3_test, extern_c_add_two, extern_c_div_two, extern_c_gt_two,
         extern_c_gte_two, extern_c_lt_two, extern_c_lte_two, extern_c_mult_two, extern_c_sub_two,
-        if_handler_value, num_equal_value, push_const_value_c, push_global, push_int_0, push_int_1,
-        push_int_2, read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
-        read_local_3_value_c, VmCore,
+        if_handler_raw_value, if_handler_value, move_read_local_0_value_c,
+        move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
+        num_equal_value, push_const_value_c, push_global, push_int_0, push_int_1, push_int_2,
+        read_local_0_value_c, read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
+        VmCore,
     },
     SteelVal,
 };
@@ -155,14 +158,23 @@ impl Default for JIT {
 
         // How to take the if branch - this will return a boolean. 1 = true, 0 = false
         builder.symbol("if-branch", if_handler_value as *const u8);
+
+        builder.symbol("if-branch-value", if_handler_raw_value as *const u8);
+
         builder.symbol("call-global", callglobal_handler_deopt_c as *const u8);
 
         //
         builder.symbol("push-const", push_const_value_c as *const u8);
+
         builder.symbol("read-local-0", read_local_0_value_c as *const u8);
         builder.symbol("read-local-1", read_local_1_value_c as *const u8);
         builder.symbol("read-local-2", read_local_2_value_c as *const u8);
         builder.symbol("read-local-3", read_local_3_value_c as *const u8);
+
+        builder.symbol("move-read-local-0", move_read_local_0_value_c as *const u8);
+        builder.symbol("move-read-local-1", move_read_local_1_value_c as *const u8);
+        builder.symbol("move-read-local-2", move_read_local_2_value_c as *const u8);
+        builder.symbol("move-read-local-3", move_read_local_3_value_c as *const u8);
 
         // Specialize the constant: Just look up the value itself:
         // This should be used for constants like #f, 1, 2, 3, etc.
@@ -487,6 +499,7 @@ impl JIT {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum InferredType {
     Int,
+    Number,
     Bool,
     List,
     Any,
@@ -537,6 +550,12 @@ fn op_to_name(op: OpCode) -> &'static str {
         OpCode::READLOCAL1 => "read-local-1",
         OpCode::READLOCAL2 => "read-local-2",
         OpCode::READLOCAL3 => "read-local-3",
+
+        OpCode::MOVEREADLOCAL0 => "move-read-local-0",
+        OpCode::MOVEREADLOCAL1 => "move-read-local-1",
+        OpCode::MOVEREADLOCAL2 => "move-read-local-2",
+        OpCode::MOVEREADLOCAL3 => "move-read-local-3",
+
         OpCode::LOADINT0 => "push-int-0",
         OpCode::LOADINT1 => "push-int-1",
         OpCode::LOADINT2 => "push-int-2",
@@ -554,7 +573,7 @@ fn op_to_name(op: OpCode) -> &'static str {
 
 fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
     match (op, payload) {
-        (OpCode::IF, _) => "if-branch",
+        (OpCode::IF, _) => "if-branch-value",
         (OpCode::CALLGLOBAL, _) => "call-global",
         (OpCode::PUSHCONST, _) => "push-const",
         (OpCode::READLOCAL0, _) => "read-local-0",
@@ -572,7 +591,11 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::GTE, 2) => "gte-binop",
         (OpCode::MUL, 2) => "mult-two",
         (OpCode::DIV, 2) => "div-two",
-        _ => panic!("couldn't match the name for the op code"),
+        (OpCode::PUSH, _) => "push-global-value",
+        other => panic!(
+            "couldn't match the name for the op code + payload: {:?}",
+            other
+        ),
     }
 }
 
@@ -628,6 +651,7 @@ impl FunctionTranslator<'_> {
             let op = instr.op_code;
             let payload = instr.payload_size.to_usize();
             match op {
+                // Exit points aren't handled quite yet
                 OpCode::CALLGLOBALTAIL
                 | OpCode::POPJMP
                 | OpCode::POPPURE
@@ -646,14 +670,45 @@ impl FunctionTranslator<'_> {
                 }
                 // Handle global value
                 OpCode::PUSH => {
-                    todo!()
+                    // Let value to push:
+                    let abi_type = AbiParam::new(codegen::ir::Type::int(64).unwrap());
+
+                    let index = self
+                        .builder
+                        .ins()
+                        .iconst(codegen::ir::Type::int(64).unwrap(), payload as i64);
+
+                    // TODO: We could instead call it directly instead of pushing on to the stack!
+
+                    // Push on to the stack to call
+                    self.stack.push((index, InferredType::Int));
+
+                    // Just...
+
+                    // TODO: If we know what the global is, and we know that its not mutated, we probably can do something
+                    // interesting here.
+                    self.func_ret_val(OpCode::PUSH, payload, 1, InferredType::Any, abi_type);
                 }
                 // Translate if? Correct the stack accordingly?
                 OpCode::IF => {
-                    todo!()
+                    // A boolean or some value should really just be on the top.
+                    // We can avoid any kind of handler call, assuming that the value
+                    // returned is a boolean. We can inline a check if its a bool as well,
+                    // but for now we're just going to call a function.
+
+                    // TODO: Type inference here!
+                    let test = self.stack.pop().unwrap().0;
+                    let false_instr = self.instructions[self.ip].payload_size;
+                    let true_instr = self.ip + 1;
+                    let res =
+                        self.translate_if_else_value(test, true_instr, false_instr.to_usize());
+
+                    self.stack.push((res, InferredType::Any));
                 }
                 // Just... jump to that instruction?
-                OpCode::JMP => todo!(),
+                OpCode::JMP => {
+                    self.ip = payload;
+                }
 
                 // Insert guards against the things.
                 OpCode::FUNC => todo!(),
@@ -678,7 +733,11 @@ impl FunctionTranslator<'_> {
                 | OpCode::PUSHCONST
                 | OpCode::LOADINT0
                 | OpCode::LOADINT1
-                | OpCode::LOADINT2 => {
+                | OpCode::LOADINT2
+                | OpCode::MOVEREADLOCAL0
+                | OpCode::MOVEREADLOCAL1
+                | OpCode::MOVEREADLOCAL2
+                | OpCode::MOVEREADLOCAL3 => {
                     let payload = self.instructions[self.ip].payload_size.to_usize();
                     let value = self.call_func_or_immediate(op, payload);
                     self.ip += 1;
@@ -692,22 +751,31 @@ impl FunctionTranslator<'_> {
                 OpCode::FIRSTCOPYHEAPCAPTURECLOSURE => todo!(),
 
                 // TODO: This _should_ be changed to be a while loop probably.
-                // We can get clever with this to avoid a lot of headache.
+                // We can get clever with this to avoid a lot of headache, but it will depend
+                // on destructors getting run during the while loop. Probably just inline a call to drop?
+                // Then can run a while loop no problem?
+                // Something like:
+                //
+                // (define (loop x)
+                //     (...)
+                //     (loop (+ x 1))
+                //
+                // Would translate to:
+                // while true:
+                //    (...) - with explicit ret's at the tails?
+                //
+                // And each iteration of the loop prior to the jump back would
+                // just call `drop(...)` on each of the args?
                 OpCode::TCOJMP => todo!(),
 
+                // Call global value, with deopt down to auto adjust the stack?
                 OpCode::CALLGLOBAL => todo!(),
-                OpCode::CGLOCALCONST => todo!(),
 
                 // Moving the value through to the function call means
                 // just invalidating the previous reference on the stack.
                 //
                 // So move off of the stack.
                 OpCode::MOVEREADLOCAL => todo!(),
-
-                OpCode::MOVEREADLOCAL0
-                | OpCode::MOVEREADLOCAL1
-                | OpCode::MOVEREADLOCAL2
-                | OpCode::MOVEREADLOCAL3 => todo!(),
 
                 OpCode::READCAPTURED => todo!(),
 
@@ -731,20 +799,24 @@ impl FunctionTranslator<'_> {
                 OpCode::PUREFUNC => todo!(),
 
                 // TODO: Roll up the bin ops into a function to make things easier
-                OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV if payload == 2 => {
+                OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
+                    let abi_type = AbiParam::new(codegen::ir::Type::int(128).unwrap());
                     // Call the func
-
-                    todo!()
+                    self.func_ret_val(op, payload, 2, InferredType::Number, abi_type);
                 }
 
-                OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {}
-                OpCode::EQUAL => todo!(),
-                OpCode::NUMEQUAL => todo!(),
+                OpCode::EQUAL
+                | OpCode::NUMEQUAL
+                | OpCode::LTE
+                | OpCode::GTE
+                | OpCode::GT
+                | OpCode::LT => {
+                    let abi_type = AbiParam::new(codegen::ir::Type::int(128).unwrap());
+
+                    self.func_ret_val(op, payload, 2, InferredType::Bool, abi_type);
+                }
+                // OpCode::NUMEQUAL => todo!(),
                 OpCode::NULL => todo!(),
-                OpCode::LTE => todo!(),
-                OpCode::GTE => todo!(),
-                OpCode::GT => todo!(),
-                OpCode::LT => todo!(),
 
                 // Figure out how to handle heap allocated values like lists.
                 OpCode::CONS => todo!(),
@@ -780,6 +852,30 @@ impl FunctionTranslator<'_> {
                 OpCode::CaseLambdaDispatch => todo!(),
             }
         }
+    }
+
+    fn func_ret_val(
+        &mut self,
+        op: OpCode,
+        payload: usize,
+        ip_inc: usize,
+        inferred_type: InferredType,
+        abi_param_type: AbiParam,
+    ) {
+        let function_name = op_to_name_payload(op, payload);
+        let args = self.stack.split_off(self.stack.len() - payload);
+
+        // TODO: Use the type hints! For now we're not going to for the sake
+        // of getting something running
+        let args = args
+            .into_iter()
+            .map(|x| (x.0, abi_param_type))
+            .collect::<Vec<_>>();
+        let result = self.call_function_returns_value_args(function_name, &args);
+
+        // Check the inferred type, if we know of it
+        self.stack.push((result, inferred_type));
+        self.ip += ip_inc;
     }
 
     fn translate_instructions(&mut self) -> bool {
@@ -1129,10 +1225,10 @@ impl FunctionTranslator<'_> {
                     SteelVal::BoolV(_) | SteelVal::IntV(_) => {
                         self.create_i128(unsafe { std::mem::transmute(constant) })
                     }
-                    _ => self.call_function_returns_value(op_to_name(op1)),
+                    _ => self.call_function_returns_value(op_to_name_payload(op1, payload)),
                 }
             }
-            _ => self.call_function_returns_value(op_to_name(op1)),
+            _ => self.call_function_returns_value(op_to_name_payload(op1, payload)),
         }
     }
 
@@ -1147,6 +1243,78 @@ impl FunctionTranslator<'_> {
 
         // TODO:
         self.builder.ins().iconcat(rhs, lhs)
+    }
+
+    fn translate_if_else_value(
+        &mut self,
+        condition_value: Value,
+        then_start: usize,
+        else_start: usize,
+    ) -> Value {
+        let then_block = self.builder.create_block();
+        let else_block = self.builder.create_block();
+        let merge_block = self.builder.create_block();
+
+        // If-else constructs in the toy language have a return value.
+        // In traditional SSA form, this would produce a PHI between
+        // the then and else bodies. Cranelift uses block parameters,
+        // so set up a parameter in the merge block, and we'll pass
+        // the return values to it from the branches.
+        self.builder.append_block_param(merge_block, self.int);
+
+        // Test the if condition and conditionally branch.
+        self.builder
+            .ins()
+            .brif(condition_value, then_block, &[], else_block, &[]);
+
+        self.builder.switch_to_block(then_block);
+        self.builder.seal_block(then_block);
+
+        // Update with the proper return value
+        // let mut then_return = self
+        //     .builder
+        //     .ins()
+        //     .iconst(codegen::ir::Type::int(128).unwrap(), 1);
+
+        // Set the ip to the right spot:
+        self.ip = then_start;
+
+        self.stack_to_ssa();
+
+        let then_return = self.stack.pop().unwrap().0;
+
+        // Jump to the merge block, passing it the block return value.
+        self.builder.ins().jump(merge_block, &[then_return]);
+
+        self.builder.switch_to_block(else_block);
+        self.builder.seal_block(else_block);
+
+        // TODO: Update with the proper return value
+        // let mut else_return; = self
+        //     .builder
+        //     .ins()
+        //     .iconst(codegen::ir::Type::int(8).unwrap(), 128);
+
+        self.ip = else_start;
+
+        self.stack_to_ssa();
+
+        let else_return = self.stack.pop().unwrap().0;
+
+        // Jump to the merge block, passing it the block return value.
+        self.builder.ins().jump(merge_block, &[else_return]);
+
+        // Switch to the merge block for subsequent statements.
+        self.builder.switch_to_block(merge_block);
+
+        // We've now seen all the predecessors of the merge block.
+        self.builder.seal_block(merge_block);
+
+        // Read the value of the if-else by reading the merge block
+        // parameter.
+        let phi = self.builder.block_params(merge_block)[0];
+
+        phi
     }
 
     fn translate_if_else(
@@ -1238,6 +1406,52 @@ impl FunctionTranslator<'_> {
         let variable = self.variables.get("vm-ctx").expect("variable not defined");
         let ctx = self.builder.use_var(*variable);
         let arg_values = [ctx];
+
+        // for arg in args {
+        //     arg_values.push(self.translate_expr(arg))
+        // }
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+    }
+
+    fn call_function_returns_value_args(
+        &mut self,
+        name: &str,
+        args: &[(Value, AbiParam)],
+    ) -> Value {
+        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
+        let mut sig = self.module.make_signature();
+
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        //
+        for (_, p) in args {
+            // AbiParam::new(codegen::ir::Type::int(128).unwrap())
+            sig.params.push(*p);
+        }
+
+        // For simplicity for now, just make all calls return a single I64.
+        sig.returns
+            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+
+        // TODO: Streamline the API here?
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        // let mut arg_values = Vec::new();
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let mut arg_values = vec![ctx];
+
+        // let args = args.iter().map(|x| )
+
+        arg_values.extend(args.iter().map(|x| x.0));
 
         // for arg in args {
         //     arg_values.push(self.translate_expr(arg))

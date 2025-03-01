@@ -82,7 +82,6 @@ declare_opcodes! {
         LOADINT0; // Load const 0
         LOADINT1;
         LOADINT2;
-        CGLOCALCONST;
         MOVEREADLOCAL;
         MOVEREADLOCAL0;
         MOVEREADLOCAL1;
@@ -271,7 +270,6 @@ impl OpCode {
             "LOADINT0" => LOADINT0, // Load const 0
             "LOADINT1" => LOADINT1,
             "LOADINT2" => LOADINT2,
-            "CGLOCALCONST" => CGLOCALCONST,
             "MOVEREADLOCAL" => MOVEREADLOCAL,
             "BEGINSCOPE" => BEGINSCOPE,
             "ADD" => ADD,
@@ -339,7 +337,6 @@ impl OpCode {
             OpCode::LOADINT0 => Some(1),
             OpCode::LOADINT1 => Some(1),
             OpCode::LOADINT2 => Some(1),
-            OpCode::CGLOCALCONST => todo!(),
             OpCode::MOVEREADLOCAL => Some(1),
             OpCode::MOVEREADLOCAL0 => Some(1),
             OpCode::MOVEREADLOCAL1 => Some(1),

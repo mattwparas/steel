@@ -2593,6 +2593,34 @@ pub(crate) extern "C" fn push_const_value_c(ctx: *mut VmCore) -> i128 {
     }
 }
 
+pub(crate) extern "C" fn move_read_local_0_value_c(ctx: *mut VmCore) -> i128 {
+    unsafe {
+        let value = (&mut *ctx).move_local_value(0);
+        std::mem::transmute(value)
+    }
+}
+
+pub(crate) extern "C" fn move_read_local_1_value_c(ctx: *mut VmCore) -> i128 {
+    unsafe {
+        let value = (&mut *ctx).move_local_value(1);
+        std::mem::transmute(value)
+    }
+}
+
+pub(crate) extern "C" fn move_read_local_2_value_c(ctx: *mut VmCore) -> i128 {
+    unsafe {
+        let value = (&mut *ctx).move_local_value(2);
+        std::mem::transmute(value)
+    }
+}
+
+pub(crate) extern "C" fn move_read_local_3_value_c(ctx: *mut VmCore) -> i128 {
+    unsafe {
+        let value = (&mut *ctx).move_local_value(3);
+        std::mem::transmute(value)
+    }
+}
+
 pub(crate) extern "C" fn read_local_0_value_c(ctx: *mut VmCore) -> i128 {
     unsafe {
         let value = (&mut *ctx).get_local_value(0);
@@ -2645,7 +2673,7 @@ pub(crate) extern "C" fn push_int_2(ctx: *mut VmCore) -> i128 {
 // Read the global value at the registered index
 pub(crate) extern "C" fn push_global(ctx: *mut VmCore, index: usize) -> i128 {
     unsafe {
-        let mut this = &mut *ctx;
+        let this = &mut *ctx;
         let value = this.thread.global_env.repl_lookup_idx(index);
         std::mem::transmute(value)
     }
@@ -3095,6 +3123,11 @@ fn pop_test(ctx: &mut VmCore) -> bool {
 fn if_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
     if_handler_impl(ctx)?;
     dispatch!(ctx)
+}
+
+pub(crate) extern "C" fn if_handler_raw_value(_: *mut VmCore, value: i128) -> bool {
+    let test: SteelVal = unsafe { std::mem::transmute(value) };
+    test.is_truthy()
 }
 
 // Pop the value off?
@@ -5483,6 +5516,14 @@ impl<'a> VmCore<'a> {
     fn get_local_value(&mut self, index: usize) -> SteelVal {
         let offset = self.get_offset();
         let value = self.thread.stack[index + offset].clone();
+        self.ip += 1;
+        return value;
+    }
+
+    #[inline(always)]
+    fn move_local_value(&mut self, index: usize) -> SteelVal {
+        let offset = self.get_offset();
+        let value = std::mem::replace(&mut self.thread.stack[index + offset], SteelVal::Void);
         self.ip += 1;
         return value;
     }
