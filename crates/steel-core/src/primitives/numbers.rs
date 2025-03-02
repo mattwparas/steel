@@ -382,7 +382,7 @@ pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-/// Returns the remainder of the division of the first number by the second
+/// Returns the euclidean remainder of the division of the first number by the second
 ///
 /// (modulo n m) -> integer?
 ///
@@ -407,6 +407,21 @@ pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+/// Returns the arithmetic remainder of the division of the first number by the second.
+/// This differs from the modulo operator when using negative numbers.
+///
+/// (remainder n m) -> integer?
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (remainder 10 3) ;; => 1
+/// > (remainder -10 3) ;; => -1
+/// > (remainder 10 -3) ;; => 1
+/// > (remainder -10 -3) ;; => -1
+/// ```
 #[steel_derive::native(name = "remainder", constant = true, arity = "Exact(2)")]
 pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
     match &args {
