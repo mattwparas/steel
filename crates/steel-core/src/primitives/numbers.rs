@@ -655,6 +655,7 @@ pub fn exactp(value: &SteelVal) -> bool {
     }
 }
 
+/// TODO ?
 #[steel_derive::function(name = "exact", constant = true)]
 pub fn exact(value: &SteelVal) -> Result<SteelVal> {
     match value {
