@@ -12,14 +12,15 @@ use crate::{
     compiler::constants::ConstantMap,
     core::instructions::{u24, DenseInstruction},
     steel_vm::vm::{
-        callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
+        call_global_function_deopt_0, call_global_function_deopt_1, call_global_function_deopt_2,
+        call_global_function_deopt_3, callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
         callglobal_tail_handler_deopt_3_test, extern_c_add_two, extern_c_div_two, extern_c_gt_two,
         extern_c_gte_two, extern_c_lt_two, extern_c_lte_two, extern_c_mult_two, extern_c_sub_two,
         if_handler_raw_value, if_handler_value, move_read_local_0_value_c,
         move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
         num_equal_value, push_const_value_c, push_global, push_int_0, push_int_1, push_int_2,
         read_local_0_value_c, read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
-        VmCore,
+        should_continue, VmCore,
     },
     SteelVal,
 };
@@ -207,6 +208,28 @@ impl Default for JIT {
         builder.symbol("mult-two", extern_c_mult_two as *const u8);
         builder.symbol("div-two", extern_c_div_two as *const u8);
 
+        builder.symbol(
+            "call-global-function-deopt-0",
+            call_global_function_deopt_0 as *const u8,
+        );
+
+        builder.symbol(
+            "call-global-function-deopt-1",
+            call_global_function_deopt_1 as *const u8,
+        );
+
+        builder.symbol(
+            "call-global-function-deopt-2",
+            call_global_function_deopt_2 as *const u8,
+        );
+
+        builder.symbol(
+            "call-global-function-deopt-3",
+            call_global_function_deopt_3 as *const u8,
+        );
+
+        builder.symbol("vm-should-continue?", should_continue as *const u8);
+
         let module = JITModule::new(builder);
         Self {
             builder_context: FunctionBuilderContext::new(),
@@ -343,6 +366,44 @@ impl JIT {
             .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
             .map_err(|e| e.to_string())?;
 
+        if let Err(e) = cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
+            println!("codegen error");
+
+            // let mut s = String::new();
+
+            // SsirWriter::new(self.ssir, &mut s)
+            //     .fn_(&self.ssir.values[r].path, f)
+            //     .unwrap();
+            // println!("SSIR:\n{}", s);
+
+            // s.clear();
+
+            // codegen::write_function(&mut s, &func).unwrap();
+            // println!("CLIF:\n{}", s);
+
+            panic!("errors: {:#?}", e);
+        }
+
+        // cranelift::codegen::verify_function(func, )
+
+        // if let Err(e) = codegen::verify_function(&func, &self.flags) {
+        //     println!("codegen error");
+
+        //     let mut s = String::new();
+
+        //     SsirWriter::new(self.ssir, &mut s)
+        //         .fn_(&self.ssir.values[r].path, f)
+        //         .unwrap();
+        //     println!("SSIR:\n{}", s);
+
+        //     s.clear();
+
+        //     codegen::write_function(&mut s, &func).unwrap();
+        //     println!("CLIF:\n{}", s);
+
+        //     panic!("errors: {:#?}", e);
+        // }
+
         // Define the function to jit. This finishes compilation, although
         // there may be outstanding relocations to perform. Currently, jit
         // cannot finish relocations until all functions to be called are
@@ -350,7 +411,10 @@ impl JIT {
         // function below.
         self.module
             .define_function(id, &mut self.ctx)
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| {
+                println!("error in defining function");
+                e.to_string()
+            })?;
 
         // Now that compilation is finished, we can clear out the context state.
         self.module.clear_context(&mut self.ctx);
@@ -403,7 +467,7 @@ impl JIT {
         // let int = self.module.target_config().pointer_type();
 
         // Upgrade to 128 bit?
-        let int = codegen::ir::Type::int(8).unwrap();
+        let int = codegen::ir::Type::int(128).unwrap();
 
         // Set up pointer type to be the first argument.
         let pointer = self.module.target_config().pointer_type();
@@ -469,7 +533,9 @@ impl JIT {
             local_count: 0,
         };
 
-        trans.translate_instructions();
+        // trans.translate_instructions();
+
+        trans.stack_to_ssa();
 
         // TODO:
         // for expr in stmts {
@@ -486,6 +552,8 @@ impl JIT {
             .builder
             .ins()
             .iconst(codegen::ir::Type::int(8).unwrap(), 1);
+
+        // let return_value = trans.create_i128(1);
 
         // Emit the return instruction.
         trans.builder.ins().return_(&[return_value]);
@@ -580,6 +648,12 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::READLOCAL1, _) => "read-local-1",
         (OpCode::READLOCAL2, _) => "read-local-2",
         (OpCode::READLOCAL3, _) => "read-local-3",
+
+        (OpCode::MOVEREADLOCAL0, _) => "move-read-local-0",
+        (OpCode::MOVEREADLOCAL1, _) => "move-read-local-1",
+        (OpCode::MOVEREADLOCAL2, _) => "move-read-local-2",
+        (OpCode::MOVEREADLOCAL3, _) => "move-read-local-3",
+
         (OpCode::LOADINT0, _) => "push-int-0",
         (OpCode::LOADINT1, _) => "push-int-1",
         (OpCode::LOADINT2, _) => "push-int-2",
@@ -592,6 +666,9 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::MUL, 2) => "mult-two",
         (OpCode::DIV, 2) => "div-two",
         (OpCode::PUSH, _) => "push-global-value",
+
+        // TODO!()
+        (OpCode::NUMEQUAL, 2) => "num-equal-value",
         other => panic!(
             "couldn't match the name for the op code + payload: {:?}",
             other
@@ -769,7 +846,151 @@ impl FunctionTranslator<'_> {
                 OpCode::TCOJMP => todo!(),
 
                 // Call global value, with deopt down to auto adjust the stack?
-                OpCode::CALLGLOBAL => todo!(),
+                OpCode::CALLGLOBAL => {
+                    // break;
+
+                    // First - find the index that we have to lookup.
+                    let function_index = payload;
+                    self.ip += 1;
+                    let arity = self.instructions[self.ip].payload_size.to_usize();
+
+                    // This is the call global `call_global_function_deopt`
+                    let mut sig = self.module.make_signature();
+
+                    let name = match arity {
+                        0 => "call-global-function-deopt-0",
+                        1 => "call-global-function-deopt-1",
+                        2 => "call-global-function-deopt-2",
+                        3 => "call-global-function-deopt-3",
+                        other => todo!("{}", other),
+                    };
+
+                    // VmCore pointer
+                    sig.params
+                        .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+                    // lookup index
+                    sig.params
+                        .push(AbiParam::new(codegen::ir::Type::int(64).unwrap()));
+
+                    // instruction pointer
+                    sig.params
+                        .push(AbiParam::new(codegen::ir::Type::int(64).unwrap()));
+
+                    for _ in 0..arity {
+                        sig.params
+                            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+                    }
+
+                    // Return value
+                    sig.returns
+                        .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+
+                    let callee = self
+                        .module
+                        .declare_function(&name, Linkage::Import, &sig)
+                        .expect("problem declaring function");
+                    let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+                    let variable = self.variables.get("vm-ctx").expect("variable not defined");
+                    let ctx = self.builder.use_var(*variable);
+
+                    let lookup_index = self
+                        .builder
+                        .ins()
+                        .iconst(codegen::ir::Type::int(64).unwrap(), function_index as i64);
+
+                    let fallback_ip = self
+                        .builder
+                        .ins()
+                        .iconst(codegen::ir::Type::int(64).unwrap(), self.ip as i64);
+
+                    // Advance to the next thing
+                    self.ip += 1;
+
+                    let mut arg_values = vec![ctx, lookup_index, fallback_ip];
+
+                    arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
+                    let call = self.builder.ins().call(local_callee, &arg_values);
+                    let result = self.builder.inst_results(call)[0];
+
+                    // Assuming this worked, we'll want to push this result on to the stack.
+                    self.stack.push((result, InferredType::Any));
+
+                    // Then, we're gonna check the result and see if we should deopt
+                    {
+                        let mut sig = self.module.make_signature();
+                        let name = "vm-should-continue?";
+
+                        // VmCore pointer
+                        sig.params
+                            .push(AbiParam::new(self.module.target_config().pointer_type()));
+                        sig.returns
+                            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+                        let callee = self
+                            .module
+                            .declare_function(&name, Linkage::Import, &sig)
+                            .expect("problem declaring function");
+                        let local_callee =
+                            self.module.declare_func_in_func(callee, self.builder.func);
+
+                        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+                        let ctx = self.builder.use_var(*variable);
+
+                        let call = self.builder.ins().call(local_callee, &[ctx]);
+                        let result = self.builder.inst_results(call)[0];
+
+                        let then_block = self.builder.create_block();
+                        let else_block = self.builder.create_block();
+                        let merge_block = self.builder.create_block();
+
+                        self.builder
+                            .append_block_param(merge_block, codegen::ir::Type::int(8).unwrap());
+
+                        // Do the thing.
+                        self.builder
+                            .ins()
+                            .brif(result, then_block, &[], else_block, &[]);
+
+                        self.builder.switch_to_block(then_block);
+                        self.builder.seal_block(then_block);
+
+                        let then_return = self
+                            .builder
+                            .ins()
+                            .iconst(codegen::ir::Type::int(8).unwrap(), 1);
+
+                        // Just... translate instructions?
+                        self.stack_to_ssa();
+
+                        // Jump to the merge block, passing it the block return value.
+                        self.builder.ins().jump(merge_block, &[then_return]);
+
+                        self.builder.switch_to_block(else_block);
+                        self.builder.seal_block(else_block);
+
+                        // // TODO: Update with the proper return value
+                        let else_return = self
+                            .builder
+                            .ins()
+                            .iconst(codegen::ir::Type::int(8).unwrap(), 1);
+
+                        // let else_return = self.create_i128(0);
+
+                        self.builder.ins().return_(&[else_return]);
+
+                        self.builder.switch_to_block(merge_block);
+
+                        // // We've now seen all the predecessors of the merge block.
+                        self.builder.seal_block(merge_block);
+
+                        // // Read the value of the if-else by reading the merge block
+                        // // parameter.
+                        let phi = self.builder.block_params(merge_block)[0];
+
+                        // self.builder
+                    }
+                }
 
                 // Moving the value through to the function call means
                 // just invalidating the previous reference on the stack.
@@ -837,6 +1058,8 @@ impl FunctionTranslator<'_> {
                 OpCode::Arity => todo!(),
                 OpCode::LetVar => todo!(),
                 OpCode::ADDIMMEDIATE => todo!(),
+                // Sub immediate:
+                // What the heck is this op code?
                 OpCode::SUBIMMEDIATE => todo!(),
                 OpCode::LTEIMMEDIATE => todo!(),
                 OpCode::BINOPADD => todo!(),

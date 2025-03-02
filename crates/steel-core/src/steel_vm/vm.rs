@@ -1367,6 +1367,7 @@ impl<'a> VmContext for VmCore<'a> {
 //     }
 // }
 
+#[repr(C)]
 pub struct VmCore<'a> {
     pub(crate) instructions: RootedInstructions,
 
@@ -1382,6 +1383,11 @@ pub struct VmCore<'a> {
     pub(crate) root_spans: &'a [Span],
 
     pub(crate) return_value: Option<SteelVal>,
+
+    // TODO: This means we've entered the native section of the code
+    pub(crate) is_native: bool,
+
+    pub(crate) err: Option<SteelErr>,
 }
 
 pub type Dispatch = ();
@@ -2555,13 +2561,11 @@ fn callglobal_handler_deopt(ctx: &mut VmCore) -> u8 {
     }
 }
 
-// Equality... via the usual scheme?
-pub(crate) extern "C" fn num_equal_value(ctx: *mut VmCore, left: i128, right: i128) -> bool {
+// Equality... via the usual scheme? Otherwise this is gonna be an issue?
+pub(crate) extern "C" fn num_equal_value(ctx: *mut VmCore, left: i128, right: i128) -> i128 {
     unsafe {
-        if let Ok(SteelVal::BoolV(b)) =
-            number_equality(&std::mem::transmute(left), &std::mem::transmute(right))
-        {
-            b
+        if let Ok(b) = number_equality(&std::mem::transmute(left), &std::mem::transmute(right)) {
+            std::mem::transmute(b)
         } else {
             unreachable!()
         }
@@ -2922,30 +2926,109 @@ fn handle_global_function_call_with_args(
     }
 }
 
+#[inline(always)]
+pub(crate) extern "C" fn should_continue(ctx: *mut VmCore) -> bool {
+    unsafe { &mut *ctx }.is_native
+}
+
+pub(crate) extern "C" fn call_global_function_deopt_0(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+) -> i128 {
+    unsafe {
+        std::mem::transmute(call_global_function_deopt(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [],
+        ))
+    }
+}
+
+pub(crate) extern "C" fn call_global_function_deopt_1(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: i128,
+) -> i128 {
+    unsafe {
+        std::mem::transmute(call_global_function_deopt(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [std::mem::transmute(arg0)],
+        ))
+    }
+}
+
+pub(crate) extern "C" fn call_global_function_deopt_2(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: i128,
+    arg1: i128,
+) -> i128 {
+    unsafe {
+        std::mem::transmute(call_global_function_deopt(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [std::mem::transmute(arg0), std::mem::transmute(arg1)],
+        ))
+    }
+}
+
+pub(crate) extern "C" fn call_global_function_deopt_3(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: i128,
+    arg1: i128,
+    arg2: i128,
+) -> i128 {
+    unsafe {
+        std::mem::transmute(call_global_function_deopt(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [
+                std::mem::transmute(arg0),
+                std::mem::transmute(arg1),
+                std::mem::transmute(arg2),
+            ],
+        ))
+    }
+}
+
 // Either... return a value, or deopt and yield control back to the runtime.
 // How do we signal to yield back to the runtime?
 #[inline(always)]
 fn call_global_function_deopt(
     ctx: &mut VmCore,
+    lookup_index: usize,
     fallback_ip: usize,
     args: &mut [SteelVal],
 ) -> SteelVal {
-    // TODO: Only do this if we have to
-    ctx.ip = fallback_ip;
+    // TODO: Only do this if we have to deopt
+    // ctx.ip = fallback_ip;
 
-    let index = ctx.instructions[ctx.ip].payload_size;
-    ctx.ip += 1;
-    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
-    let func = ctx.thread.global_env.repl_lookup_idx(index.to_usize());
-
-    debug_assert!(payload_size == 3);
+    // let index = ctx.instructions[ctx.ip].payload_size;
+    // ctx.ip += 1;
+    // let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
+    let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
-    // let should_yield = match &func {
-    //     SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
-    //     _ => false,
-    // };
+    let should_yield = match &func {
+        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
+        _ => false,
+    };
+
+    if should_yield {
+        ctx.ip = fallback_ip + 1;
+        ctx.is_native = !should_yield;
+    }
 
     match handle_global_function_call_with_args(ctx, func, args) {
         Ok(v) => return v,
@@ -3492,6 +3575,8 @@ impl<'a> VmCore<'a> {
             thread,
             root_spans,
             return_value: None,
+            is_native: false,
+            err: None,
         }
     }
 
@@ -3515,6 +3600,8 @@ impl<'a> VmCore<'a> {
             thread,
             root_spans,
             return_value: None,
+            is_native: false,
+            err: None,
         })
     }
 
@@ -4314,13 +4401,11 @@ impl<'a> VmCore<'a> {
                     // payload_size,
                     ..
                 } => {
-                    // self.cut_sequence();
-
-                    // // TODO: Store in a different spot? So that we can avoid cloning on every iteration?
-                    // let super_instruction =
-                    //     { self.thread.super_instructions[payload_size.to_usize()].clone() };
-
-                    // super_instruction.call(self)?;
+                    // Entering the context of the native code.
+                    // If at any point we deopt, we should check this flag on the
+                    // runtime, which tells the function to just return and let
+                    // the runtime do the thing now.
+                    self.is_native = true;
 
                     self.thread
                         .stack_frames
@@ -4330,6 +4415,12 @@ impl<'a> VmCore<'a> {
                         .super_instructions
                         .get(self.ip)
                         .unwrap()(self);
+
+                    self.is_native = false;
+
+                    if let Some(err) = self.err.take() {
+                        return Err(err);
+                    }
                 }
                 DenseInstruction {
                     op_code: OpCode::POPN,

@@ -128,9 +128,9 @@ impl<'a> CodeGenerator<'a> {
             if let Some(info) = self.analysis.get(function.atom_syntax_object()?) {
                 if info.kind == Free || info.kind == Global {
                     return match function.atom_identifier().unwrap().resolve() {
-                        "+" | "#%prim.+" => Some(OpCode::ADDIMMEDIATE),
-                        "-" | "#%prim.-" => Some(OpCode::SUBIMMEDIATE),
-                        "<=" | "#%prim.<=" => Some(OpCode::LTEIMMEDIATE),
+                        // "+" | "#%prim.+" => Some(OpCode::ADDIMMEDIATE),
+                        // "-" | "#%prim.-" => Some(OpCode::SUBIMMEDIATE),
+                        // "<=" | "#%prim.<=" => Some(OpCode::LTEIMMEDIATE),
                         _ => None,
                     };
                 }
