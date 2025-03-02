@@ -383,6 +383,7 @@ pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 /// Returns the euclidean remainder of the division of the first number by the second
+/// This differs from the remainder operator when using negative numbers.
 ///
 /// (modulo n m) -> integer?
 ///
@@ -433,7 +434,19 @@ pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-// TODO: Do this for sin, cos, tan, asin, acos, atan
+/// Returns the sine value of the input angle, measured in radians.
+///
+/// (sin n) -> number?
+///
+/// * n : number? - The input angle, in radians.
+///
+/// # Examples
+/// ```scheme
+/// > (sin 0) ;; => 0
+/// > (sin 1) ;; => 0.8414709848078965
+/// > (sin 2.0) ;; => 0.9092974268256817
+/// > (sin 3.14) ;; => 0.0015926529164868282
+/// ```
 #[steel_derive::function(name = "sin", constant = true)]
 pub fn sin(arg: &SteelVal) -> Result<SteelVal> {
     match arg {
@@ -446,6 +459,19 @@ pub fn sin(arg: &SteelVal) -> Result<SteelVal> {
     .into_steelval()
 }
 
+/// Returns the cosine value of the input angle, measured in radians.
+///
+/// (cos n) -> number?
+///
+/// * n : number? - The input angle, in radians.
+///
+/// # Examples
+/// ```scheme
+/// > (cos 0) ;; => 1
+/// > (cos 1) ;; => 0.5403023058681398
+/// > (cos 2.0) ;; => -0.4161468365471424
+/// > (cos 3.14) ;; => -0.9999987317275395
+/// ```
 #[steel_derive::function(name = "cos", constant = true)]
 pub fn cos(arg: &SteelVal) -> Result<SteelVal> {
     match arg {
@@ -458,6 +484,19 @@ pub fn cos(arg: &SteelVal) -> Result<SteelVal> {
     .into_steelval()
 }
 
+/// Returns the tangent value of the input angle, measured in radians.
+///
+/// (tan n) -> number?
+///
+/// * n : number? - The input angle, in radians.
+///
+/// # Examples
+/// ```scheme
+/// > (tan 0) ;; => 0
+/// > (tan 1) ;; => 1.557407724654902
+/// > (tan 2.0) ;; => -2.185039863261519
+/// > (tan 3.14) ;; => -0.0015926549364072232
+/// ```
 #[steel_derive::function(name = "tan", constant = true)]
 pub fn tan(arg: &SteelVal) -> Result<SteelVal> {
     match arg {
@@ -470,6 +509,19 @@ pub fn tan(arg: &SteelVal) -> Result<SteelVal> {
     .into_steelval()
 }
 
+/// Returns the arcsine, or inverse sine, of a value; output is in radians.
+///
+/// (asin n) -> number?
+///
+/// * n : number? - The input value is the sine of the angle you want and must be from -1 to 1.
+///
+/// # Examples
+/// ```scheme
+/// > (asin -1) ;; => -1.5707963267948966
+/// > (asin 0) ;; => 0
+/// > (asin 0.5) ;; => 0.5235987755982988
+/// > (asin 2) ;; => +nan.0
+/// ```
 #[steel_derive::function(name = "asin", constant = true)]
 pub fn asin(arg: &SteelVal) -> Result<SteelVal> {
     match arg {
@@ -482,6 +534,19 @@ pub fn asin(arg: &SteelVal) -> Result<SteelVal> {
     .into_steelval()
 }
 
+/// Returns the arccosine, or inverse cosine, of a value; output is in radians.
+///
+/// (acos n) -> number?
+///
+/// * n : number? - The input value is the cosine of the angle you want and must be from -1 to 1.
+///
+/// # Examples
+/// ```scheme
+/// > (acos -1) ;; => 3.141592653589793
+/// > (acos 0) ;; => 1.5707963267948966
+/// > (acos 0.5) ;; => 1.0471975511965976
+/// > (acos 2) ;; => +nan.0
+/// ```
 #[steel_derive::function(name = "acos", constant = true)]
 pub fn acos(arg: &SteelVal) -> Result<SteelVal> {
     match arg {
@@ -494,6 +559,19 @@ pub fn acos(arg: &SteelVal) -> Result<SteelVal> {
     .into_steelval()
 }
 
+/// Returns the arctangent, or inverse tangent, of a value; output is in radians.
+///
+/// (atan n) -> number?
+///
+/// * n : number? - The input value is the tangent of the angle you want.
+///
+/// # Examples
+/// ```scheme
+/// > (atan -1) ;; => -0.7853981633974483
+/// > (atan 0) ;; => 0
+/// > (atan 0.5) ;; => 0.46364760900080615
+/// > (atan 2) ;; => 1.1071487177940906
+/// ```
 #[steel_derive::function(name = "atan", constant = true)]
 pub fn atan(arg: &SteelVal) -> Result<SteelVal> {
     match arg {
