@@ -65,6 +65,15 @@ pub fn fs_module_sandbox() -> BuiltInModule {
 }
 
 /// Deletes the directory
+///
+/// (delete-directory! dir) -> void?
+///
+/// * dir : (string?) - The directory name to delete.
+///
+/// # Examples
+/// ```scheme
+/// > (delete-directory! "logs") ;;
+/// ```
 #[steel_derive::function(name = "delete-directory!")]
 pub fn delete_directory(directory: &SteelString) -> Result<SteelVal> {
     std::fs::remove_dir_all(directory.as_str())?;
@@ -72,6 +81,15 @@ pub fn delete_directory(directory: &SteelString) -> Result<SteelVal> {
 }
 
 /// Creates the directory
+///
+/// (create-directory! dir) -> void?
+///
+/// * dir : (string?) - The directory name to create.
+///
+/// # Examples
+/// ```scheme
+/// > (create-directory! "logs") ;;
+/// ```
 #[steel_derive::function(name = "create-directory!")]
 pub fn create_directory(directory: &SteelString) -> Result<SteelVal> {
     std::fs::create_dir_all(directory.as_str())?;
@@ -80,6 +98,16 @@ pub fn create_directory(directory: &SteelString) -> Result<SteelVal> {
 }
 
 /// Recursively copies the directory from source to destination
+///
+/// (copy-directory-recursively! dir destination) -> void?
+///
+/// * dir : (string?) - The directory to copy.
+/// * destination : (string?) - The destination directory into which to copy.
+///
+/// # Examples
+/// ```scheme
+/// > (copy-directory-recursively! "logs" "backup") ;;
+/// ```
 #[steel_derive::function(name = "copy-directory-recursively!")]
 pub fn copy_directory_recursively(
     source: &SteelString,
