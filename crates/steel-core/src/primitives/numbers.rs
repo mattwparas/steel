@@ -655,7 +655,17 @@ pub fn exactp(value: &SteelVal) -> bool {
     }
 }
 
-/// TODO ?
+/// Returns the input value if it is an exact number, otherwise raises an error.
+///
+/// (exact n) -> number?
+///
+/// * n : number? - The value to check for exactness.
+///
+/// # Examples
+/// ```scheme
+/// > (exact 5) ;; => 5
+/// > (exact 5/3) ;; => 5/3
+/// ```
 #[steel_derive::function(name = "exact", constant = true)]
 pub fn exact(value: &SteelVal) -> Result<SteelVal> {
     match value {
