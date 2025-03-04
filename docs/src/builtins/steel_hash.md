@@ -129,6 +129,21 @@ Gets the `key` from the given `map`. Raises an error if the key does not exist. 
 ```scheme
 > (hash-ref (hash 'a 10 'b 20) 'b) ;; => 20
 ```
+### **hash-remove**
+Returns a new hashmap with the given key removed. Performs a functional
+update, so the old hash map is still available with the original key value pair.
+
+(hash-remove map key) -> hash?
+
+* map : hash?
+* key : any/c
+
+#### Examples
+```scheme
+> (hash-remove (hash 'a 10 'b 20) 'a)
+
+=> '#hash(('b . 20))
+```
 ### **hash-try-get**
 Gets the `key` from the given `map`. Returns #false if the key does not exist.
 

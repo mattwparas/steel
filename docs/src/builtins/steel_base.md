@@ -133,6 +133,20 @@ Computes the absolute value of the given number.
 > (abs -42) ;; => 42
 > (abs 0) ;; => 0
 ```
+### **acos**
+Returns the arccosine, or inverse cosine, of a value; output is in radians.
+
+(acos n) -> number?
+
+* n : number? - The input value is the cosine of the angle you want and must be from -1 to 1.
+
+#### Examples
+```scheme
+> (acos -1) ;; => 3.141592653589793
+> (acos 0) ;; => 1.5707963267948966
+> (acos 0.5) ;; => 1.0471975511965976
+> (acos 2) ;; => +nan.0
+```
 ### **append**
 Appends the given lists together. If provided with no lists, will return the empty list.
 
@@ -157,6 +171,34 @@ Applies the given `function` with arguments as the contents of the `list`.
 ```scheme
 > (apply + (list 1 2 3 4)) ;; => 10
 > (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
+```
+### **asin**
+Returns the arcsine, or inverse sine, of a value; output is in radians.
+
+(asin n) -> number?
+
+* n : number? - The input value is the sine of the angle you want and must be from -1 to 1.
+
+#### Examples
+```scheme
+> (asin -1) ;; => -1.5707963267948966
+> (asin 0) ;; => 0
+> (asin 0.5) ;; => 0.5235987755982988
+> (asin 2) ;; => +nan.0
+```
+### **atan**
+Returns the arctangent, or inverse tangent, of a value; output is in radians.
+
+(atan n) -> number?
+
+* n : number? - The input value is the tangent of the angle you want.
+
+#### Examples
+```scheme
+> (atan -1) ;; => -0.7853981633974483
+> (atan 0) ;; => 0
+> (atan 0.5) ;; => 0.46364760900080615
+> (atan 2) ;; => 1.1071487177940906
 ```
 ### **byte?**
 Returns `#t` if the given value is a byte, meaning an exact
@@ -418,6 +460,20 @@ Returns a newly allocated list whose first element is `a` and second element is 
 ```
 ### **copy-directory-recursively!**
 Recursively copies the directory from source to destination
+### **cos**
+Returns the cosine value of the input angle, measured in radians.
+
+(cos n) -> number?
+
+* n : number? - The input angle, in radians.
+
+#### Examples
+```scheme
+> (cos 0) ;; => 1
+> (cos 1) ;; => 0.5403023058681398
+> (cos 2.0) ;; => -0.4161468365471424
+> (cos 3.14) ;; => -0.9999987317275395
+```
 ### **create-directory!**
 Creates the directory
 ### **current-directory**
@@ -504,6 +560,18 @@ Returns `#t` if the value is an EOF object.
 Returns the message of an error object.
 
 (error-object-message error?) -> string?
+### **exact**
+Returns the input value if it is an exact number, otherwise raises an error.
+
+(exact n) -> number?
+
+* n : number? - The value to check for exactness.
+
+#### Examples
+```scheme
+> (exact 5) ;; => 5
+> (exact 5/3) ;; => 5/3
+```
 ### **exact->inexact**
 Converts an exact number to an inexact number.
 
@@ -777,6 +845,21 @@ Gets the `key` from the given `map`. Raises an error if the key does not exist. 
 #### Examples
 ```scheme
 > (hash-ref (hash 'a 10 'b 20) 'b) ;; => 20
+```
+### **hash-remove**
+Returns a new hashmap with the given key removed. Performs a functional
+update, so the old hash map is still available with the original key value pair.
+
+(hash-remove map key) -> hash?
+
+* map : hash?
+* key : any/c
+
+#### Examples
+```scheme
+> (hash-remove (hash 'a 10 'b 20) 'a)
+
+=> '#hash(('b . 20))
 ```
 ### **hash-try-get**
 Gets the `key` from the given `map`. Returns #false if the key does not exist.
@@ -1129,7 +1212,8 @@ Creates a thread local storage slot. These slots are static, and will _not_ be r
 When spawning a new thread, the value inside will be shared into that slot, however
 future updates to the slot will be local to that thread.
 ### **modulo**
-Returns the remainder of the division of the first number by the second
+Returns the euclidean remainder of the division of the first number by the second
+This differs from the remainder operator when using negative numbers.
 
 (modulo n m) -> integer?
 
@@ -1404,6 +1488,22 @@ Blocks until one of the channels passed in is ready to receive.
 Returns the index of the channel arguments passed in which is ready.
 
 Using this directly is not recommended.
+### **remainder**
+Returns the arithmetic remainder of the division of the first number by the second.
+This differs from the modulo operator when using negative numbers.
+
+(remainder n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+```scheme
+> (remainder 10 3) ;; => 1
+> (remainder -10 3) ;; => -1
+> (remainder 10 -3) ;; => 1
+> (remainder -10 -3) ;; => -1
+```
 ### **rest**
 Returns the rest of the list. Will raise an error if the list is empty.
 
@@ -1467,6 +1567,20 @@ error[E11]: Generic
 ### **set-tls!**
 Set the value in the the thread local storage. Only this thread will see the updates associated
 with this TLS.
+### **sin**
+Returns the sine value of the input angle, measured in radians.
+
+(sin n) -> number?
+
+* n : number? - The input angle, in radians.
+
+#### Examples
+```scheme
+> (sin 0) ;; => 0
+> (sin 1) ;; => 0.8414709848078965
+> (sin 2.0) ;; => 0.9092974268256817
+> (sin 3.14) ;; => 0.0015926529164868282
+```
 ### **spawn-native-thread**
 Spawns the given `func` on another thread. It is required that the arity of the
 given function be 0. If the arity of the given function cannot be checked until runtime,
@@ -1818,6 +1932,20 @@ Returns the first n elements of the list l as a new list.
 > (take '(1 2 3 4) 2) ;; => '(0 1)
 > (take (range 0 10) 4) ;; => '(0 1 2 3)
 ```
+### **tan**
+Returns the tangent value of the input angle, measured in radians.
+
+(tan n) -> number?
+
+* n : number? - The input angle, in radians.
+
+#### Examples
+```scheme
+> (tan 0) ;; => 0
+> (tan 1) ;; => 1.557407724654902
+> (tan 2.0) ;; => -2.185039863261519
+> (tan 3.14) ;; => -0.0015926549364072232
+```
 ### **third**
 Get the third element of the list. Raises an error if the list does not have an element in the third position.
 
@@ -1987,13 +2115,10 @@ Checks if the given real number is zero.
 ### **Some->value**
 ### **Some?**
 ### **TypeId?**
-### **acos**
 ### **active-object-count**
 ### **arithmetic-shift**
 ### **arity?**
-### **asin**
 ### **assert!**
-### **atan**
 ### **atom?**
 ### **attach-contract-struct!**
 ### **block-on**
@@ -2027,7 +2152,6 @@ Checks if the given real number is zero.
 ### **compose**
 ### **concat-symbols**
 ### **continuation?**
-### **cos**
 ### **current-function-span**
 ### **current-os!**
 ### **current-thread-id**
@@ -2047,7 +2171,6 @@ Checks if the given real number is zero.
 ### **eval!**
 ### **eval-string**
 ### **even?**
-### **exact**
 ### **expand!**
 ### **extending**
 ### **f+**
@@ -2088,6 +2211,7 @@ Checks if the given real number is zero.
 ### **kill**
 ### **list->string**
 ### **list->vector**
+### **list-chunks**
 ### **list-drop**
 ### **list-tail**
 ### **list?**
@@ -2138,7 +2262,6 @@ Checks if the given real number is zero.
 ### **read!**
 ### **read-line-from-port**
 ### **read-to-string**
-### **remainder**
 ### **run!**
 ### **set-box!**
 ### **set-current-dir!**
@@ -2147,7 +2270,6 @@ Checks if the given real number is zero.
 ### **set-strong-box!**
 ### **set-test-mode!**
 ### **set?**
-### **sin**
 ### **span-file-id**
 ### **spawn-process**
 ### **spawn-thread!**
@@ -2170,7 +2292,6 @@ Checks if the given real number is zero.
 ### **syntax/loc**
 ### **syntax?**
 ### **taking**
-### **tan**
 ### **thread/available-parallelism**
 ### **thread::current/id**
 ### **transduce**
