@@ -12,9 +12,12 @@
 (require "steel/time/time.scm")
 
 (provide make
-         check)
+         check
+         ; jit-make
+         ; jit-check
+         )
 
-(struct node (left val right))
+(struct node (left val right) #:transparent)
 
 ;; Instead of (define-struct leaf (val)):
 (define (leaf val)
@@ -38,7 +41,17 @@
         (node (make (- item2 1) d2) item (make item2 d2)))))
 
 ; (inspect make)
-; (set! make (#%jit-compile make))
+(set! make (#%jit-compile make))
+
+; (define (jit-make item d)
+;   (if (= d 0)
+;       ; (leaf item)
+;       (node #f item #f)
+;       (let ([item2 (* item 2)]
+;             [d2 (- d 1)])
+;         (node (jit-make (- item2 1) d2) item (jit-make item2 d2)))))
+
+; (set! jit-make (#%jit-compile jit-make))
 
 ; (define (check t)
 ;   (if (leaf? t)
@@ -50,7 +63,15 @@
       1
       (+ 1 (+ (check (node-left t)) (check (node-right t))))))
 
-; (set! check (#%jit-compile check))
+; (define (jit-check t)
+;   (if (not (node-left t))
+;       1
+;       (+ 1 (+ (jit-check (node-left t)) (jit-check (node-right t))))))
+
+; (inspect jit-check)
+
+; (set! jit-check (#%jit-compile jit-check))
+(set! check (#%jit-compile check))
 
 (define (iterate n m d sum)
   ; (displayln "calling iterate")
@@ -86,12 +107,12 @@
 
       (displayln "long lived tree of depth " max-depth " check: " (check long-lived-tree)))))
 
-; (time! (main 12))
-; (time! (main 14))
-; (time! (main 14))
-; (time! (main 14))
-; (time! (main 12))
-; (time! (main 12))
+(time! (main 12))
+(time! (main 14))
+(time! (main 14))
+(time! (main 14))
+(time! (main 12))
+(time! (main 12))
 
 ; (main 21)
 ; (main 21)

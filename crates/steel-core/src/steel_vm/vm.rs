@@ -2572,6 +2572,24 @@ pub(crate) extern "C" fn num_equal_value(ctx: *mut VmCore, left: i128, right: i1
     }
 }
 
+pub(crate) extern "C" fn num_equal_value_unboxed(
+    ctx: *mut VmCore,
+    left: i128,
+    right: i128,
+) -> bool {
+    // println!("Calling num equal value");
+
+    unsafe {
+        if let Ok(SteelVal::BoolV(b)) =
+            number_equality(&std::mem::transmute(left), &std::mem::transmute(right))
+        {
+            b
+        } else {
+            unreachable!()
+        }
+    }
+}
+
 macro_rules! extern_binop {
     ($name:tt, $func:tt) => {
         pub(crate) extern "C" fn $name(ctx: *mut VmCore, a: i128, b: i128) -> i128 {
@@ -2772,6 +2790,41 @@ pub(crate) extern "C" fn callglobal_tail_handler_deopt_3_test(
     }
 }
 
+#[inline(always)]
+fn new_callglobal_tail_handler_deopt_test(
+    ctx: &mut VmCore,
+    index: usize,
+    fallback_ip: usize,
+    args: &mut [SteelVal],
+) -> SteelVal {
+    let func = ctx.thread.global_env.repl_lookup_idx(index);
+    // Deopt -> Meaning, check the return value if we're done - so we just
+    // will eventually check the stashed error.
+    let should_yield = match &func {
+        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
+        _ => false,
+    };
+
+    if should_yield {
+        ctx.ip = fallback_ip + 1;
+        ctx.is_native = !should_yield;
+    }
+
+    // println!("Calling global tail - should yield: {}", should_yield);
+
+    match handle_global_tail_call_deopt_with_args(ctx, func, args) {
+        Ok(v) => {
+            // ctx.thread.stack.push(v);
+            // return SteelVal::Void;
+            return v;
+        }
+        Err(_) => {
+            panic!("error");
+            return SteelVal::Void;
+        }
+    }
+}
+
 // Just... inline the function itself into this?
 // If its a global, its going to be rooted, in theory...
 #[inline(always)]
@@ -2840,6 +2893,7 @@ fn handle_global_tail_call_deopt_with_args(
         SteelVal::MutFunc(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
 
         SteelVal::Closure(closure) => {
+            let arity = args.len();
             // Just put them all on the stack
             for val in args {
                 ctx.thread
@@ -2848,7 +2902,7 @@ fn handle_global_tail_call_deopt_with_args(
             }
 
             // We're going to de-opt in this case - unless we intend to do some fun inlining business
-            ctx.new_handle_tail_call_closure(closure, 3)?;
+            ctx.new_handle_tail_call_closure(closure, arity)?;
             Ok(SteelVal::Void)
         }
 
@@ -2894,6 +2948,7 @@ fn handle_global_function_call_with_args(
         SteelVal::MutFunc(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
 
         SteelVal::Closure(closure) => {
+            let arity = args.len();
             // Just put them all on the stack
             for val in args {
                 ctx.thread
@@ -2902,7 +2957,7 @@ fn handle_global_function_call_with_args(
             }
 
             // We're going to de-opt in this case - unless we intend to do some fun inlining business
-            ctx.handle_function_call_closure_jit(closure, 3)?;
+            ctx.handle_function_call_closure_jit(closure, arity)?;
             Ok(SteelVal::Void)
         }
 
@@ -2912,7 +2967,7 @@ fn handle_global_function_call_with_args(
             Ok(SteelVal::Void)
         }
         SteelVal::BuiltIn(f) => {
-            ctx.call_builtin_func(f, 3)?;
+            ctx.call_builtin_func(f, args.len())?;
             Ok(SteelVal::Void)
         }
         // CustomStruct(s) => self.call_custom_struct(&s, payload_size),
@@ -2929,6 +2984,93 @@ fn handle_global_function_call_with_args(
 #[inline(always)]
 pub(crate) extern "C" fn should_continue(ctx: *mut VmCore) -> bool {
     unsafe { &mut *ctx }.is_native
+}
+
+pub(crate) extern "C" fn push_to_vm_stack(ctx: *mut VmCore, value: i128) {
+    unsafe {
+        let value: SteelVal = std::mem::transmute(value);
+        (&mut *ctx).thread.stack.push(value);
+    }
+}
+
+pub(crate) extern "C" fn set_ctx_ip(ctx: *mut VmCore, value: usize) {
+    unsafe { &mut *ctx }.ip = value;
+}
+
+pub(crate) extern "C" fn let_end_scope_c(ctx: *mut VmCore, beginning_scope: usize) {
+    unsafe {
+        let_end_scope_handler_with_payload(&mut *ctx, beginning_scope).ok();
+    }
+}
+
+pub(crate) extern "C" fn call_global_function_tail_deopt_0(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+) -> i128 {
+    unsafe {
+        std::mem::transmute(new_callglobal_tail_handler_deopt_test(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [],
+        ))
+    }
+}
+
+pub(crate) extern "C" fn call_global_function_tail_deopt_1(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: i128,
+) -> i128 {
+    unsafe {
+        std::mem::transmute(new_callglobal_tail_handler_deopt_test(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [std::mem::transmute(arg0)],
+        ))
+    }
+}
+
+pub(crate) extern "C" fn call_global_function_tail_deopt_2(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: i128,
+    arg1: i128,
+) -> i128 {
+    unsafe {
+        std::mem::transmute(new_callglobal_tail_handler_deopt_test(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [std::mem::transmute(arg0), std::mem::transmute(arg1)],
+        ))
+    }
+}
+
+pub(crate) extern "C" fn call_global_function_tail_deopt_3(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: i128,
+    arg1: i128,
+    arg2: i128,
+) -> i128 {
+    unsafe {
+        std::mem::transmute(new_callglobal_tail_handler_deopt_test(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [
+                std::mem::transmute(arg0),
+                std::mem::transmute(arg1),
+                std::mem::transmute(arg2),
+            ],
+        ))
+    }
 }
 
 pub(crate) extern "C" fn call_global_function_deopt_0(
@@ -3010,6 +3152,8 @@ fn call_global_function_deopt(
     fallback_ip: usize,
     args: &mut [SteelVal],
 ) -> SteelVal {
+    // println!("Calling global function, with args: {:?}", args);
+
     // TODO: Only do this if we have to deopt
     // ctx.ip = fallback_ip;
 
@@ -3025,14 +3169,29 @@ fn call_global_function_deopt(
         _ => false,
     };
 
+    // println!("Calling global function, deopt: {}", should_yield);
+
     if should_yield {
-        ctx.ip = fallback_ip + 1;
+        // ctx.ip = dbg!(fallback_ip + 1);
+        ctx.ip = fallback_ip;
         ctx.is_native = !should_yield;
     }
 
     match handle_global_function_call_with_args(ctx, func, args) {
-        Ok(v) => return v,
-        Err(_) => return SteelVal::Void,
+        Ok(v) => {
+            v
+            // if !should_yield {
+            //     // ctx.thread.stack.push(v);
+            //     return v;
+            // } else {
+            //     v
+            // }
+        }
+        Err(e) => {
+            dbg!(e);
+            panic!("Stopping");
+            return SteelVal::Void;
+        }
     }
 }
 
@@ -3242,6 +3401,11 @@ fn if_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
 pub(crate) extern "C" fn if_handler_raw_value(_: *mut VmCore, value: i128) -> bool {
     let test: SteelVal = unsafe { std::mem::transmute(value) };
     test.is_truthy()
+}
+
+pub(crate) extern "C" fn not_handler_raw_value(_: *mut VmCore, value: i128) -> i128 {
+    let test: SteelVal = unsafe { std::mem::transmute(value) };
+    unsafe { std::mem::transmute(SteelVal::BoolV(!test.is_truthy())) }
 }
 
 // Pop the value off?
@@ -4407,6 +4571,8 @@ impl<'a> VmCore<'a> {
                     // the runtime do the thing now.
                     self.is_native = true;
 
+                    // println!("Entering jit context");
+
                     self.thread
                         .stack_frames
                         .last()
@@ -4421,6 +4587,11 @@ impl<'a> VmCore<'a> {
                     if let Some(err) = self.err.take() {
                         return Err(err);
                     }
+
+                    // println!("Exiting jit context");
+                    // println!("{}", self.ip);
+                    // println!("{:?}", self.instructions[self.ip]);
+                    // dbg!(&self.thread.stack);
                 }
                 DenseInstruction {
                     op_code: OpCode::POPN,

@@ -1,4 +1,5 @@
-(provide fib)
+(provide fib
+         jit-fib)
 
 ;; This should return an int, and should always
 ;; return an int - we should be able to do
@@ -8,6 +9,14 @@
   (if (<= n 2)
       1
       (+ (fib (- n 1)) (fib (- n 2)))))
+
+(define (jit-fib n)
+  ;; Loop unrolling would do so much, assuming we can do that easily
+  (if (<= n 2)
+      1
+      (+ (jit-fib (- n 1)) (jit-fib (- n 2)))))
+
+(set! jit-fib (#%jit-compile jit-fib))
 
 ; (fib 41)
 
