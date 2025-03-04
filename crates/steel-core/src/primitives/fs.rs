@@ -97,7 +97,7 @@ pub fn create_directory(directory: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::Void)
 }
 
-/// Recursively copies the directory from source to destination
+/// Recursively copies the contents of the source directory to the destination
 ///
 /// (copy-directory-recursively! dir destination) -> void?
 ///
@@ -119,24 +119,64 @@ pub fn copy_directory_recursively(
 }
 
 /// Checks if a path exists
+///
+/// (path-exists? path) -> bool?
+///
+/// * path : (string?) - The path to check
+///
+/// # Examples
+/// ```scheme
+/// > (path-exists? "logs") ;; => #true
+/// > (path-exists? "backup/logs") ;; => #false
+/// ```
 #[steel_derive::function(name = "path-exists?")]
 pub fn path_exists(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(Path::new(path.as_ref()).exists()))
 }
 
 /// Checks if a path is a file
+///
+/// (is-file? path) -> bool?
+///
+/// * path : (string?) - The path to check
+///
+/// # Examples
+/// ```scheme
+/// > (is-file? "logs") ;; => #false
+/// > (is-file? "logs/today.json") ;; => #true
+/// ```
 #[steel_derive::function(name = "is-file?")]
 pub fn is_file(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(Path::new(path.as_ref()).is_file()))
 }
 
 /// Checks if a path is a directory
+///
+/// (is-dir? path) -> bool?
+///
+/// * path : (string?) - The path to check
+///
+/// # Examples
+/// ```scheme
+/// > (is-dir? "logs") ;; => #true
+/// > (is-dir? "logs/today.json") ;; => #false
+/// ```
 #[steel_derive::function(name = "is-dir?")]
 pub fn is_dir(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(Path::new(path.as_ref()).is_dir()))
 }
 
 /// Gets the extension from a path
+///
+/// (path->extension path) -> (or/c string? void?)
+///
+/// * path : (string?) - The path to check
+///
+/// # Examples
+/// ```scheme
+/// > (path->extension "logs") ;; => void
+/// > (path->extension "logs/today.json") ;; => ".json"
+/// ```
 #[steel_derive::function(name = "path->extension")]
 pub fn get_extension(path: &SteelString) -> Result<SteelVal> {
     if let Some(ext) = get_extension_from_filename(path) {
