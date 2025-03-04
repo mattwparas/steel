@@ -99,9 +99,9 @@ pub fn create_directory(directory: &SteelString) -> Result<SteelVal> {
 
 /// Recursively copies the contents of the source directory to the destination
 ///
-/// (copy-directory-recursively! dir destination) -> void?
+/// (copy-directory-recursively! source destination) -> void?
 ///
-/// * dir : (string?) - The directory to copy.
+/// * source : (string?) - The directory to copy.
 /// * destination : (string?) - The destination directory into which to copy.
 ///
 /// # Examples
@@ -187,6 +187,16 @@ pub fn get_extension(path: &SteelString) -> Result<SteelVal> {
 }
 
 /// Gets the filename for a given path
+///
+/// (file-name path) -> string?
+///
+/// * path : (string?) - The path to check
+///
+/// # Examples
+/// ```scheme
+/// > (file-name "logs") ;; => "logs"
+/// > (file-name "logs/today.json") ;; => "today.json"
+/// ```
 #[steel_derive::function(name = "file-name")]
 pub fn file_name(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::StringV(
@@ -199,6 +209,16 @@ pub fn file_name(path: &SteelString) -> Result<SteelVal> {
 }
 
 /// Gets the parent directory name for a given path
+///
+/// (parent-name path) -> string?
+///
+/// * path : (string?) - The path to check
+///
+/// # Examples
+/// ```scheme
+/// > (parent-name "logs") ;; => ""
+/// > (parent-name "logs/today.json") ;; => "logs"
+/// ```
 #[steel_derive::function(name = "parent-name")]
 pub fn parent_name(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::StringV(
@@ -211,6 +231,16 @@ pub fn parent_name(path: &SteelString) -> Result<SteelVal> {
 }
 
 /// Returns canonical path with all components normalized
+///
+/// (canonicalize-path path) -> string?
+///
+/// * path : (string?) - The path to canonicalize
+///
+/// # Examples
+/// ```scheme
+/// > (canonicalize-path "logs") ;; => "/Users/me/Desktop/programming/logs"
+/// > (canonicalize-path "logs/today.json") ;; => "/Users/me/Desktop/programming/logs/today.json"
+/// ```
 #[steel_derive::function(name = "canonicalize-path")]
 pub fn canonicalize_path(path: &SteelString) -> Result<SteelVal> {
     let path = path.as_str();
@@ -237,6 +267,16 @@ pub fn canonicalize_path(path: &SteelString) -> Result<SteelVal> {
 }
 
 /// Returns the contents of the directory as a list
+///
+/// (read-dir path) -> list?
+///
+/// * path : (string?) - The path to check
+///
+/// # Examples
+/// ```scheme
+/// > (read-dir "logs") ;; => '("logs/today.json" "logs/yesterday.json")
+/// > (read-dir "empty_dir") ;; => '()
+/// ```
 #[steel_derive::function(name = "read-dir")]
 pub fn read_dir(path: &SteelString) -> Result<SteelVal> {
     let p = Path::new(path.as_ref());
@@ -258,7 +298,14 @@ pub fn read_dir(path: &SteelString) -> Result<SteelVal> {
     }
 }
 
-/// Check the current working directory
+/// Outputs the current working directory as a string
+///
+/// (current-directory) -> string?
+///
+/// # Examples
+/// ```scheme
+/// > (current-directory) ;; => "/Users/me/Desktop/programming"
+/// ```
 #[steel_derive::function(name = "current-directory")]
 pub fn current_directory() -> Result<SteelVal> {
     let path = current_dir()?;
@@ -266,6 +313,16 @@ pub fn current_directory() -> Result<SteelVal> {
 }
 
 /// Change the current working directory
+///
+/// (change-current-directory! path) -> void?
+///
+/// * path : (string?) - The directory to switch to
+///
+/// # Examples
+/// ```scheme
+/// > (change-current-directory! "logs") ;;
+/// > (change-current-directory! "..") ;;
+/// ```
 #[steel_derive::function(name = "change-current-directory!")]
 pub fn change_current_directory(path: &SteelString) -> Result<SteelVal> {
     let path = Path::new(path.as_ref());
@@ -275,6 +332,15 @@ pub fn change_current_directory(path: &SteelString) -> Result<SteelVal> {
 }
 
 /// Deletes the file
+///
+/// (delete-file! path) -> void?
+///
+/// * path : (string?) - The file to delete
+///
+/// # Examples
+/// ```scheme
+/// > (delete-file! "logs/today.json") ;;
+/// ```
 #[steel_derive::function(name = "delete-file!")]
 pub fn delete_file(file: &SteelString) -> Result<SteelVal> {
     std::fs::remove_file(file.as_str())?;
