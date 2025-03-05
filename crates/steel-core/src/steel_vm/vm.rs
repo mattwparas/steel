@@ -1387,7 +1387,7 @@ pub struct VmCore<'a> {
     // TODO: This means we've entered the native section of the code
     pub(crate) is_native: bool,
 
-    pub(crate) err: Option<SteelErr>,
+    pub(crate) result: Option<Result<SteelVal>>,
 }
 
 pub type Dispatch = ();
@@ -2537,6 +2537,14 @@ fn loadint1pop_handler_tco(ctx: &mut VmCore) -> Result<Dispatch> {
 
 pub(crate) extern "C" fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> u8 {
     unsafe { callglobal_handler_deopt(&mut *ctx) }
+}
+
+pub(crate) extern "C" fn extern_handle_pop(ctx: *mut VmCore, value: i128) {
+    unsafe {
+        let this = &mut *ctx;
+        let res = this.handle_pop_pure_value(std::mem::transmute(value));
+        this.result = res;
+    }
 }
 
 // If its 1 -> all good
@@ -3740,7 +3748,7 @@ impl<'a> VmCore<'a> {
             root_spans,
             return_value: None,
             is_native: false,
-            err: None,
+            result: None,
         }
     }
 
@@ -3765,7 +3773,7 @@ impl<'a> VmCore<'a> {
             root_spans,
             return_value: None,
             is_native: false,
-            err: None,
+            result: None,
         })
     }
 
@@ -4584,14 +4592,9 @@ impl<'a> VmCore<'a> {
 
                     self.is_native = false;
 
-                    if let Some(err) = self.err.take() {
-                        return Err(err);
+                    if let Some(res) = self.result.take() {
+                        return res;
                     }
-
-                    // println!("Exiting jit context");
-                    // println!("{}", self.ip);
-                    // println!("{:?}", self.instructions[self.ip]);
-                    // dbg!(&self.thread.stack);
                 }
                 DenseInstruction {
                     op_code: OpCode::POPN,

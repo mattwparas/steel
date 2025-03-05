@@ -865,6 +865,8 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
 
         // We just assume these will live on the stack at whatever position we're entering now
         for expr in l.expression_arguments() {
+            // TODO: Insert the fact that this is the assignment.
+            // Otherwise, we won't know which values are the right ones?
             self.visit(expr)?;
             // For the JIT -> push the last instruction to the internal scope
             // TODO: Rename from BEGINSCOPE to something like MARKLETVAR

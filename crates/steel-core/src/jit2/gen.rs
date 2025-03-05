@@ -1,8 +1,6 @@
-// use crate::frontend::*;
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, Linkage, Module};
-use num::ToPrimitive;
 use std::collections::HashMap;
 use std::slice;
 use steel_gen::opcode::OPCODES_ARRAY;
@@ -18,8 +16,8 @@ use crate::{
         call_global_function_tail_deopt_3, callglobal_handler_deopt_c,
         callglobal_tail_handler_deopt_3, callglobal_tail_handler_deopt_3_test, extern_c_add_two,
         extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
-        extern_c_mult_two, extern_c_sub_two, if_handler_raw_value, if_handler_value,
-        let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
+        extern_c_mult_two, extern_c_sub_two, extern_handle_pop, if_handler_raw_value,
+        if_handler_value, let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
         move_read_local_2_value_c, move_read_local_3_value_c, not_handler_raw_value,
         num_equal_value, num_equal_value_unboxed, push_const_value_c, push_global, push_int_0,
         push_int_1, push_int_2, push_to_vm_stack, read_local_0_value_c, read_local_1_value_c,
@@ -259,6 +257,8 @@ impl Default for JIT {
 
         builder.symbol("let-end-scope-c", let_end_scope_c as *const u8);
         builder.symbol("set-ctx-ip!", set_ctx_ip as *const u8);
+
+        builder.symbol("handle-pop!", extern_handle_pop as *const u8);
 
         let module = JITModule::new(builder);
         Self {
@@ -598,6 +598,8 @@ impl JIT {
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum InferredType {
     Int,
+    // Is just straight up, unboxed
+    UnboxedBool,
     Number,
     Bool,
     List,
@@ -723,6 +725,12 @@ impl FunctionTranslator<'_> {
         sig.params
             .push(AbiParam::new(self.module.target_config().pointer_type()));
 
+        // This
+        // sig.params.push(AbiParam::special(
+        //     self.module.target_config().pointer_type(),
+        //     codegen::ir::ArgumentPurpose::VMContext,
+        // ));
+
         // Add a parameter for each argument.
         // for _arg in &args {
         //     sig.params.push(AbiParam::new(self.int));
@@ -776,15 +784,14 @@ impl FunctionTranslator<'_> {
                     // Push the remaining value back on to the stack.
                     let value = self.stack.pop().unwrap();
 
-                    // Should break here.
-                    self.push_to_vm_stack(value.0);
-                    self.set_ctx_ip(self.ip);
+                    // Should break here - just call `handle_pop_pure_value` and handle the return value / updating
+                    // of various things here.
+                    // self.push_to_vm_stack(value.0);
+                    // self.set_ctx_ip(self.ip);
+
+                    self.vm_pop(value.0);
 
                     self.ip += 1;
-                    // dbg!(&self.stack);
-
-                    // TODO: Wipe out the stack here?
-                    // self.stack.push(value);
 
                     return false;
                 }
@@ -902,8 +909,7 @@ impl FunctionTranslator<'_> {
                 | OpCode::MOVEREADLOCAL1
                 | OpCode::MOVEREADLOCAL2
                 | OpCode::MOVEREADLOCAL3 => {
-                    // println!("{:?} - payload: {} - arity: {}", op, payload, self.arity);
-
+                    // these are gonna get spilled anyway?
                     if payload + 1 > self.arity as _ && !self.patched_locals {
                         let locals_to_patch = self.local_count;
                         println!("Patching locals: {}", locals_to_patch);
@@ -1152,6 +1158,7 @@ impl FunctionTranslator<'_> {
         result
     }
 
+    // Let end scope handler - should instead pass the values in directly.
     fn call_end_scope_handler(&mut self, amount: usize) {
         // This is the call global `call_global_function_deopt`
         let mut sig = self.module.make_signature();
@@ -1235,6 +1242,7 @@ impl FunctionTranslator<'_> {
         let mut arg_values = vec![ctx, lookup_index, fallback_ip];
         arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
 
+        // Check if this is a native function before deopting?
         if let SteelVal::Closure(_) = func {
             println!("Deopting...");
             for value in self.stack.clone() {
@@ -1889,6 +1897,39 @@ impl FunctionTranslator<'_> {
         let variable = self.variables.get("vm-ctx").expect("variable not defined");
         let ctx = self.builder.use_var(*variable);
         let arg_values = [ctx, ip];
+
+        // for arg in args {
+        //     arg_values.push(self.translate_expr(arg))
+        // }
+        let call = self.builder.ins().call(local_callee, &arg_values);
+    }
+
+    fn vm_pop(&mut self, value: Value) {
+        let mut sig = self.module.make_signature();
+        let name = "handle-pop!";
+
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        sig.params
+            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+
+        // For simplicity for now, just make all calls return a single I64.
+        // sig.returns
+        //     .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+
+        // TODO: Streamline the API here?
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        // let mut arg_values = Vec::new();
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let arg_values = [ctx, value];
 
         // for arg in args {
         //     arg_values.push(self.translate_expr(arg))
