@@ -44,7 +44,11 @@ rustPlatform.buildRustPackage {
     openssl
     sqlite
     zlib
-  ] ++ lib.optionals stdenv.hostPlatform.isDarwin [ darwin.apple_sdk.frameworks.Security ];
+  ];
+
+  postPatch = ''
+    rm .cargo/config.toml
+  '';
 
   cargoBuildFlags =
     [
