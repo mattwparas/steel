@@ -655,7 +655,7 @@ pub fn exactp(value: &SteelVal) -> bool {
     }
 }
 
-/// Returns the input value if it is an exact number, otherwise raises an error.
+/// Returns an exact representation of the input number, coerces an inexact number to an exact form.
 ///
 /// (exact n) -> number?
 ///
@@ -663,8 +663,9 @@ pub fn exactp(value: &SteelVal) -> bool {
 ///
 /// # Examples
 /// ```scheme
-/// > (exact 5) ;; => 5
+/// > (exact 5.0) ;; => 5
 /// > (exact 5/3) ;; => 5/3
+/// > (exact 2) ;; => 2
 /// ```
 #[steel_derive::function(name = "exact", constant = true)]
 pub fn exact(value: &SteelVal) -> Result<SteelVal> {
