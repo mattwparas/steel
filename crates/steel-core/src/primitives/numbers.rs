@@ -1243,6 +1243,65 @@ where
     (x, rem)
 }
 
+///COMMENT THIS
+#[steel_derive::native(name = "arithmetic-shift", constant = true, arity = "Exact(2)")]
+pub fn arithmetic_shift(args: &[SteelVal]) -> Result<SteelVal> {
+    match &args {
+        [n, m] => match (n, m) {
+            (SteelVal::IntV(n), SteelVal::IntV(m)) => {
+                if *m >= 0 {
+                    Ok(SteelVal::IntV(n << m))
+                } else {
+                    Ok(SteelVal::IntV(n >> -m))
+                }
+            }
+            _ => stop!(TypeMismatch => "arithmetic-shift expected 2 integers"),
+        },
+        _ => stop!(ArityMismatch => "arithmetic-shift takes 2 arguments"),
+    }
+}
+
+///COMMENT THIS
+#[steel_derive::function(name = "even?", constant = true)]
+pub fn even(arg: &SteelVal) -> Result<SteelVal> {
+    match arg {
+        SteelVal::IntV(n) => Ok(SteelVal::BoolV(n & 1 == 0)),
+        SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_even())),
+        SteelVal::NumV(n) if n.fract() == 0.0 => (*n as i64).is_even().into_steelval(),
+        _ => steelerr!(TypeMismatch => "even? requires an integer, found: {:?}", arg),
+    }
+}
+
+#[steel_derive::function(name = "odd?", constant = true)]
+pub fn odd(arg: &SteelVal) -> Result<SteelVal> {
+    match arg {
+        SteelVal::IntV(n) => Ok(SteelVal::BoolV(n & 1 == 1)),
+        SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_odd())),
+        SteelVal::NumV(n) if n.fract() == 0.0 => (*n as i64).is_odd().into_steelval(),
+        _ => {
+            steelerr!(TypeMismatch => "odd? requires an integer, found: {:?}", arg)
+        }
+    }
+}
+
+#[steel_derive::native(name = "f+", constant = true, arity = "AtLeast(1)")]
+pub fn float_add(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "f+ requires at least one argument")
+    }
+    let mut sum = 0.0;
+
+    for arg in args {
+        if let SteelVal::NumV(n) = arg {
+            sum += n;
+        } else {
+            stop!(TypeMismatch => "f+ expected a float, found {:?}", arg);
+        }
+    }
+
+    Ok(SteelVal::NumV(sum))
+}
+
 fn ensure_args_are_numbers(op: &str, args: &[SteelVal]) -> Result<()> {
     for arg in args {
         if !numberp(arg) {
@@ -1512,65 +1571,6 @@ fn negate_complex(x: &SteelComplex) -> Result<SteelVal> {
 fn add_complex(x: &SteelComplex, y: &SteelComplex) -> Result<SteelVal> {
     // TODO: Optimize the implementation if needed.
     SteelComplex::new(add_two(&x.re, &y.re)?, add_two(&x.im, &y.im)?).into_steelval()
-}
-
-///COMMENT THIS
-#[steel_derive::native(name = "arithmetic-shift", constant = true, arity = "Exact(2)")]
-pub fn arithmetic_shift(args: &[SteelVal]) -> Result<SteelVal> {
-    match &args {
-        [n, m] => match (n, m) {
-            (SteelVal::IntV(n), SteelVal::IntV(m)) => {
-                if *m >= 0 {
-                    Ok(SteelVal::IntV(n << m))
-                } else {
-                    Ok(SteelVal::IntV(n >> -m))
-                }
-            }
-            _ => stop!(TypeMismatch => "arithmetic-shift expected 2 integers"),
-        },
-        _ => stop!(ArityMismatch => "arithmetic-shift takes 2 arguments"),
-    }
-}
-
-///COMMENT THIS
-#[steel_derive::function(name = "even?", constant = true)]
-pub fn even(arg: &SteelVal) -> Result<SteelVal> {
-    match arg {
-        SteelVal::IntV(n) => Ok(SteelVal::BoolV(n & 1 == 0)),
-        SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_even())),
-        SteelVal::NumV(n) if n.fract() == 0.0 => (*n as i64).is_even().into_steelval(),
-        _ => steelerr!(TypeMismatch => "even? requires an integer, found: {:?}", arg),
-    }
-}
-
-#[steel_derive::function(name = "odd?", constant = true)]
-pub fn odd(arg: &SteelVal) -> Result<SteelVal> {
-    match arg {
-        SteelVal::IntV(n) => Ok(SteelVal::BoolV(n & 1 == 1)),
-        SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_odd())),
-        SteelVal::NumV(n) if n.fract() == 0.0 => (*n as i64).is_odd().into_steelval(),
-        _ => {
-            steelerr!(TypeMismatch => "odd? requires an integer, found: {:?}", arg)
-        }
-    }
-}
-
-#[steel_derive::native(name = "f+", constant = true, arity = "AtLeast(1)")]
-pub fn float_add(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.is_empty() {
-        stop!(ArityMismatch => "f+ requires at least one argument")
-    }
-    let mut sum = 0.0;
-
-    for arg in args {
-        if let SteelVal::NumV(n) = arg {
-            sum += n;
-        } else {
-            stop!(TypeMismatch => "f+ expected a float, found {:?}", arg);
-        }
-    }
-
-    Ok(SteelVal::NumV(sum))
 }
 
 #[cfg(test)]
