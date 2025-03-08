@@ -593,6 +593,8 @@ pub fn native(
 ) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
     let input = parse_macro_input!(input as ItemFn);
+    println!("Parameter name: {:#?}", input);
+    let function_name = &input.sig.ident.to_string();
 
     //This is to account for the parameter sometimes being "args", other times "values"
     let parameter_name = if let FnArg::Typed(pat_type) = input.sig.inputs.first().unwrap() {
@@ -605,7 +607,6 @@ pub fn native(
     } else {
         panic!()
     };
-    println!("Parameter name: {:#?}", parameter_name);
 
     let keyword_map = parse_key_value_pairs(&args);
 
@@ -638,7 +639,7 @@ pub fn native(
             _ => {
                 quote! {
                     if #parameter_name.len() < #numb {
-                           stop!(ArityMismatch => "THIS FUNCTION expects {} arguments, found: {}", #numb ,#parameter_name.len());
+                           stop!(ArityMismatch => "{} expects {} arguments, found: {}",#function_name, #numb ,#parameter_name.len());
                        }
                 }
             }
