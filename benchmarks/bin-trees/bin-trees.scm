@@ -41,7 +41,7 @@
         (node (make (- item2 1) d2) item (make item2 d2)))))
 
 ; (inspect make)
-; (set! make (#%jit-compile make))
+(set! make (#%jit-compile make))
 
 ; (define (jit-make item d)
 ;   (if (= d 0)
@@ -71,7 +71,7 @@
 ; (inspect jit-check)
 
 ; (set! jit-check (#%jit-compile jit-check))
-; (set! check (#%jit-compile check))
+(set! check (#%jit-compile check))
 
 (define (iterate n m d sum)
   ; (displayln "calling iterate")
@@ -109,10 +109,10 @@
 
 (time! (main 12))
 (time! (main 14))
-(time! (main 14))
-(time! (main 14))
-(time! (main 12))
-(time! (main 12))
+; (time! (main 14))
+; (time! (main 14))
+; (time! (main 12))
+; (time! (main 12))
 
 ; (main 21)
 ; (main 21)

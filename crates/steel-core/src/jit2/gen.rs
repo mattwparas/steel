@@ -14,14 +14,15 @@ use crate::{
         call_global_function_deopt_3, call_global_function_tail_deopt_0,
         call_global_function_tail_deopt_1, call_global_function_tail_deopt_2,
         call_global_function_tail_deopt_3, callglobal_handler_deopt_c,
-        callglobal_tail_handler_deopt_3, callglobal_tail_handler_deopt_3_test, extern_c_add_two,
-        extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
-        extern_c_mult_two, extern_c_sub_two, extern_handle_pop, if_handler_raw_value,
-        if_handler_value, let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
-        move_read_local_2_value_c, move_read_local_3_value_c, not_handler_raw_value,
-        num_equal_value, num_equal_value_unboxed, push_const_value_c, push_global, push_int_0,
-        push_int_1, push_int_2, push_to_vm_stack, read_local_0_value_c, read_local_1_value_c,
-        read_local_2_value_c, read_local_3_value_c, set_ctx_ip, should_continue, VmCore,
+        callglobal_tail_handler_deopt_3, callglobal_tail_handler_deopt_3_test, check_callable,
+        extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
+        extern_c_lte_two, extern_c_mult_two, extern_c_sub_two, extern_handle_pop,
+        if_handler_raw_value, if_handler_value, let_end_scope_c, move_read_local_0_value_c,
+        move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
+        not_handler_raw_value, num_equal_value, num_equal_value_unboxed, push_const_value_c,
+        push_global, push_int_0, push_int_1, push_int_2, push_to_vm_stack, read_local_0_value_c,
+        read_local_1_value_c, read_local_2_value_c, read_local_3_value_c, set_ctx_ip,
+        should_continue, VmCore,
     },
     SteelVal,
 };
@@ -259,6 +260,9 @@ impl Default for JIT {
         builder.symbol("set-ctx-ip!", set_ctx_ip as *const u8);
 
         builder.symbol("handle-pop!", extern_handle_pop as *const u8);
+
+        // Check if the function at the global location is in fact the right one.
+        builder.symbol("check-callable", check_callable as *const u8);
 
         let module = JITModule::new(builder);
         Self {
@@ -1237,22 +1241,93 @@ impl FunctionTranslator<'_> {
         // Advance to the next thing
         self.ip += 1;
 
+        // TODO: Embed the function itself into the generated code?
+        // How to tell if this slot is mutable?
         let func = self.globals.get(function_index).unwrap();
 
         let mut arg_values = vec![ctx, lookup_index, fallback_ip];
         arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
 
-        // Check if this is a native function before deopting?
-        if let SteelVal::Closure(_) = func {
-            println!("Deopting...");
+        // Check if its a function - otherwise, just spill the values to the stack.
+        let is_function = self.check_function(lookup_index);
+
+        {
+            let then_block = self.builder.create_block();
+            let else_block = self.builder.create_block();
+            let merge_block = self.builder.create_block();
+
+            self.builder.append_block_param(merge_block, self.int);
+
+            self.builder
+                .ins()
+                .brif(is_function, then_block, &[], else_block, &[]);
+
+            self.builder.switch_to_block(then_block);
+            self.builder.seal_block(then_block);
+
+            // Do nothing
+            let then_return = self.create_i128(0);
+
+            self.builder.ins().jump(merge_block, &[then_return]);
+
+            self.builder.switch_to_block(else_block);
+            self.builder.seal_block(else_block);
+
             for value in self.stack.clone() {
                 self.push_to_vm_stack(value.0);
             }
+
+            let else_return = self.create_i128(0);
+
+            self.builder.ins().jump(merge_block, &[else_return]);
+
+            // Switch to the merge block for subsequent statements.
+            self.builder.switch_to_block(merge_block);
+
+            // We've now seen all the predecessors of the merge block.
+            self.builder.seal_block(merge_block);
+
+            // Read the value of the if-else by reading the merge block
+            // parameter.
+            // let phi = self.builder.block_params(merge_block)[0];
         }
+
+        // TODO:
+        // Check if this is a native function before deopting? This _has_ to be encoded into the
+        // function to call, otherwise we might not deopt correctly.
+        // if let SteelVal::Closure(_) = func {
+        //     println!("Deopting...");
+        //     for value in self.stack.clone() {
+        //         self.push_to_vm_stack(value.0);
+        //     }
+        // }
 
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
+    }
+
+    fn check_function(&mut self, index: Value) -> Value {
+        let mut sig = self.module.make_signature();
+        let name = "check-callable";
+        // VmCore pointer
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+        sig.params
+            .push(AbiParam::new(codegen::ir::Type::int(64).unwrap()));
+        sig.returns
+            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let call = self.builder.ins().call(local_callee, &[ctx, index]);
+        let result = self.builder.inst_results(call)[0];
+
+        return result;
     }
 
     fn check_deopt(&mut self) -> Value {

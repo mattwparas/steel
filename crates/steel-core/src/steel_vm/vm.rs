@@ -3059,6 +3059,22 @@ pub(crate) extern "C" fn call_global_function_tail_deopt_2(
     }
 }
 
+// Just check if this thing is callable. If its not, just spill everything up to the args
+// to the stack, and otherwise don't continue?
+pub(crate) extern "C" fn check_callable(ctx: *mut VmCore, lookup_index: usize) -> bool {
+    // Check that the function we're calling is in fact something callable via native code.
+    // We'll want to spill the stack otherwise.
+    unsafe {
+        let this = &mut *ctx;
+        let func = this.thread.global_env.repl_lookup_idx(lookup_index);
+        // Builtins can yield control in a funky way.
+        !matches!(
+            func,
+            SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_)
+        )
+    }
+}
+
 pub(crate) extern "C" fn call_global_function_tail_deopt_3(
     ctx: *mut VmCore,
     lookup_index: usize,
