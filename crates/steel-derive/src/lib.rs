@@ -9,7 +9,8 @@ use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
     punctuated::Punctuated, spanned::Spanned, Attribute, Data, DeriveInput, Expr, ExprGroup,
-    ExprLit, FnArg, Ident, ItemFn, Lit, LitStr, Meta, ReturnType, Signature, Type, TypeReference,
+    ExprLit, FnArg, Ident, ItemFn, Lit, LitStr, Meta, Pat, ReturnType, Signature, Type,
+    TypeReference,
 };
 
 fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> TokenStream {
@@ -591,6 +592,20 @@ pub fn native(
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
+    let input = parse_macro_input!(input as ItemFn);
+
+    //This is to account for the parameter sometimes being "args", other times "values"
+    let parameter_name = if let FnArg::Typed(pat_type) = input.sig.inputs.first().unwrap() {
+        let pat_type = pat_type.clone();
+        if let Pat::Ident(ident) = *pat_type.pat {
+            ident.ident
+        } else {
+            panic!()
+        }
+    } else {
+        panic!()
+    };
+    println!("Parameter name: {:#?}", parameter_name);
 
     let keyword_map = parse_key_value_pairs(&args);
 
@@ -609,7 +624,8 @@ pub fn native(
         .and_then(|(name, rest)| {
             Some((
                 name,
-                rest.parse::<i32>().expect("Arity value must be an integer"),
+                rest.parse::<usize>()
+                    .expect("Arity value must be an integer"),
             ))
         })
         .expect("Arity header is wrongly formatted");
@@ -617,13 +633,13 @@ pub fn native(
     let injected_code = match name {
         "AtLeast" => match numb {
             0 => {
-                quote! {
-                    println!("blah blah");
-                }
+                quote! {true;}
             }
             _ => {
                 quote! {
-                    println!("blah blah");
+                    if #parameter_name.len() < #numb {
+                           stop!(ArityMismatch => "THIS FUNCTION expects {} arguments, found: {}", #numb ,#parameter_name.len());
+                       }
                 }
             }
         },
@@ -651,9 +667,6 @@ pub fn native(
 
     let arity_number: syn::Expr =
         syn::parse_str(arity_number).expect("Unable to parse arity definition");
-
-    let input = parse_macro_input!(input as ItemFn);
-    // Create new statements to inject
 
     let mut modified_input = input.clone();
     // Inject the new statements at the beginning of the function
@@ -709,7 +722,7 @@ pub fn native(
     };
 
     // Uncomment this to see the generated code
-    // eprintln!("{}", output.to_string());
+    eprintln!("{}", output.to_string());
 
     output.into()
 }
