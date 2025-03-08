@@ -1243,7 +1243,7 @@ where
     (x, rem)
 }
 
-/// Performs a bitwise arithmetic shift on the given 2 numbers
+/// Performs a bitwise arithmetic shift using the given 2 numbers
 ///
 /// (arithmetic-shift n m) -> integer?
 ///
