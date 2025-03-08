@@ -1043,7 +1043,7 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::SUBTRACT_PRIMITIVE_DEFINITION)
         .register_value("even?", NumOperations::even())
         .register_value("odd?", NumOperations::odd())
-        .register_value("arithmetic-shift", NumOperations::arithmetic_shift())
+        .register_native_fn_definition(numbers::ARITHMETIC_SHIFT_DEFINITION)
         .register_native_fn_definition(numbers::ABS_DEFINITION)
         .register_native_fn_definition(numbers::NANP_DEFINITION)
         .register_native_fn_definition(numbers::ZEROP_DEFINITION)

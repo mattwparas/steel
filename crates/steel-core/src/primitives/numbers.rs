@@ -1514,29 +1514,26 @@ fn add_complex(x: &SteelComplex, y: &SteelComplex) -> Result<SteelVal> {
     SteelComplex::new(add_two(&x.re, &y.re)?, add_two(&x.im, &y.im)?).into_steelval()
 }
 
+///COMMENT THIS
+#[steel_derive::native(name = "arithmetic-shift", constant = true, arity = "Exact(2)")]
+pub fn arithmetic_shift(args: &[SteelVal]) -> Result<SteelVal> {
+    match &args {
+        [n, m] => match (n, m) {
+            (SteelVal::IntV(n), SteelVal::IntV(m)) => {
+                if *m >= 0 {
+                    Ok(SteelVal::IntV(n << m))
+                } else {
+                    Ok(SteelVal::IntV(n >> -m))
+                }
+            }
+            _ => stop!(TypeMismatch => "arithmetic-shift expected 2 integers"),
+        },
+        _ => stop!(ArityMismatch => "arithmetic-shift takes 2 arguments"),
+    }
+}
+
 pub struct NumOperations {}
 impl NumOperations {
-    pub fn arithmetic_shift() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => "arithmetic-shift takes 2 arguments")
-            }
-            let n = args[0].clone();
-            let m = args[1].clone();
-
-            match (n, m) {
-                (SteelVal::IntV(n), SteelVal::IntV(m)) => {
-                    if m >= 0 {
-                        Ok(SteelVal::IntV(n << m))
-                    } else {
-                        Ok(SteelVal::IntV(n >> -m))
-                    }
-                }
-                _ => steelerr!(TypeMismatch => "arithmetic-shift expected 2 integers"),
-            }
-        })
-    }
-
     pub fn even() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
