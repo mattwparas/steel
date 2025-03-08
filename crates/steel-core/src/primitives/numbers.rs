@@ -1543,44 +1543,34 @@ pub fn even(arg: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-pub struct NumOperations {}
-impl NumOperations {
-    pub fn odd() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 1 {
-                stop!(ArityMismatch => "odd? takes one argument")
-            }
+#[steel_derive::function(name = "odd?", constant = true)]
+pub fn odd(arg: &SteelVal) -> Result<SteelVal> {
+    match arg {
+        SteelVal::IntV(n) => Ok(SteelVal::BoolV(n & 1 == 1)),
+        SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_odd())),
+        SteelVal::NumV(n) if n.fract() == 0.0 => (*n as i64).is_odd().into_steelval(),
+        _ => {
+            steelerr!(TypeMismatch => "odd? requires an integer, found: {:?}", arg)
+        }
+    }
+}
 
-            match &args[0] {
-                SteelVal::IntV(n) => Ok(SteelVal::BoolV(n & 1 == 1)),
-                SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_odd())),
-                SteelVal::NumV(n) if n.fract() == 0.0 => (*n as i64).is_odd().into_steelval(),
-                _ => {
-                    steelerr!(TypeMismatch => format!("odd? requires an integer, found: {:?}", &args[0]))
-                }
-            }
-        })
+#[steel_derive::native(name = "f+", constant = true, arity = "AtLeast(1)")]
+pub fn float_add(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "f+ requires at least one argument")
+    }
+    let mut sum = 0.0;
+
+    for arg in args {
+        if let SteelVal::NumV(n) = arg {
+            sum += n;
+        } else {
+            stop!(TypeMismatch => "f+ expected a float, found {:?}", arg);
+        }
     }
 
-    pub fn float_add() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.is_empty() {
-                stop!(ArityMismatch => "+ requires at least one argument")
-            }
-
-            let mut sum = 0.0;
-
-            for arg in args {
-                if let SteelVal::NumV(n) = arg {
-                    sum += n;
-                } else {
-                    stop!(TypeMismatch => "+ expected a number, found {:?}", arg);
-                }
-            }
-
-            Ok(SteelVal::NumV(sum))
-        })
-    }
+    Ok(SteelVal::NumV(sum))
 }
 
 #[cfg(test)]

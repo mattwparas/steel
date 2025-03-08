@@ -41,8 +41,8 @@ use crate::{
             MUT_VEC_LENGTH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_TO_LIST_DEFINITION,
             VECTOR_FILL_DEFINITION, VEC_LENGTH_DEFINITION,
         },
-        ControlOperations, IoFunctions, MetaOperations, NumOperations, StreamOperations,
-        SymbolOperations, VectorOperations,
+        ControlOperations, IoFunctions, MetaOperations, StreamOperations, SymbolOperations,
+        VectorOperations,
     },
     rerrs::ErrorKind,
     rvals::{
@@ -1037,12 +1037,12 @@ fn number_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/numbers");
     module
         .register_native_fn_definition(numbers::ADD_PRIMITIVE_DEFINITION)
-        .register_value("f+", NumOperations::float_add())
+        .register_native_fn_definition(numbers::FLOAT_ADD_DEFINITION)
         .register_native_fn_definition(numbers::MULTIPLY_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::DIVIDE_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::SUBTRACT_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::EVEN_DEFINITION)
-        .register_value("odd?", NumOperations::odd())
+        .register_native_fn_definition(numbers::ODD_DEFINITION)
         .register_native_fn_definition(numbers::ARITHMETIC_SHIFT_DEFINITION)
         .register_native_fn_definition(numbers::ABS_DEFINITION)
         .register_native_fn_definition(numbers::NANP_DEFINITION)

@@ -52,9 +52,7 @@ pub use io::IoFunctions;
 pub use lists::UnRecoverableResult;
 pub use meta_ops::MetaOperations;
 use num::{BigInt, BigRational, Rational32, ToPrimitive};
-pub use numbers::{
-    add_primitive, divide_primitive, multiply_primitive, subtract_primitive, NumOperations,
-};
+pub use numbers::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 pub use ports::port_module;
 use std::convert::TryFrom;
 use std::result;
