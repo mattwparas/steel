@@ -594,7 +594,7 @@ pub fn native(
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
     let input = parse_macro_input!(input as ItemFn);
     println!("Parameter name: {:#?}", input);
-    let function_name = &input.sig.ident.to_string();
+    let function_name = input.sig.ident.to_string();
 
     //This is to account for the parameter sometimes being "args", other times "values"
     let parameter_name = if let FnArg::Typed(pat_type) = input.sig.inputs.first().unwrap() {
@@ -631,35 +631,21 @@ pub fn native(
         })
         .expect("Arity header is wrongly formatted");
 
+    //Determines which line of code to inject into the beginning of the function as an Arity check
     let injected_code = match name {
-        "AtLeast" => match numb {
-            0 => {
-                quote! {true;}
-            }
-            _ => {
-                quote! {
-                    if #parameter_name.len() < #numb {
-                           stop!(ArityMismatch => "{} expects {} arguments, found: {}",#function_name, #numb ,#parameter_name.len());
-                       }
-                }
-            }
+        "AtLeast" => quote! {
+            if #parameter_name.len() < #numb {
+                   stop!(ArityMismatch => "{} expects {} arguments, found: {}",#function_name, #numb ,#parameter_name.len());
+               }
         },
 
-        "Exact" => match numb {
-            0 => {
-                quote! {
-                    println!("blah blah");
-                }
-            }
-            _ => {
-                quote! {
-                    println!("blah blah");
-                }
-            }
+        "Exact" => quote! {
+            if #parameter_name.len() != #numb {
+                   stop!(ArityMismatch => "{} expects exactly {} arguments, found: {}",#function_name, #numb ,#parameter_name.len());
+               }
         },
         _ => panic!("Unsupported Arity Type"),
     };
-    println!("arity number RAW IS {:#?} {:#?}", name, numb);
 
     let is_const = keyword_map
         .get("constant")
