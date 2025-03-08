@@ -1532,25 +1532,19 @@ pub fn arithmetic_shift(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+///COMMENT THIS
+#[steel_derive::function(name = "even?", constant = true)]
+pub fn even(arg: &SteelVal) -> Result<SteelVal> {
+    match arg {
+        SteelVal::IntV(n) => Ok(SteelVal::BoolV(n & 1 == 0)),
+        SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_even())),
+        SteelVal::NumV(n) if n.fract() == 0.0 => (*n as i64).is_even().into_steelval(),
+        _ => steelerr!(TypeMismatch => "even? requires an integer, found: {:?}", arg),
+    }
+}
+
 pub struct NumOperations {}
 impl NumOperations {
-    pub fn even() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 1 {
-                stop!(ArityMismatch => "even? takes one argument")
-            }
-
-            match &args[0] {
-                SteelVal::IntV(n) => Ok(SteelVal::BoolV(n & 1 == 0)),
-                SteelVal::BigNum(n) => Ok(SteelVal::BoolV(n.is_even())),
-                SteelVal::NumV(n) if n.fract() == 0.0 => (*n as i64).is_even().into_steelval(),
-                _ => {
-                    steelerr!(TypeMismatch => format!("even? requires an integer, found: {:?}", &args[0]))
-                }
-            }
-        })
-    }
-
     pub fn odd() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {

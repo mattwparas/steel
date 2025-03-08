@@ -1041,7 +1041,7 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::MULTIPLY_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::DIVIDE_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::SUBTRACT_PRIMITIVE_DEFINITION)
-        .register_value("even?", NumOperations::even())
+        .register_native_fn_definition(numbers::EVEN_DEFINITION)
         .register_value("odd?", NumOperations::odd())
         .register_native_fn_definition(numbers::ARITHMETIC_SHIFT_DEFINITION)
         .register_native_fn_definition(numbers::ABS_DEFINITION)
