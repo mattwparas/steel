@@ -635,7 +635,7 @@ pub fn native(
     let injected_code = match name {
         "AtLeast" => quote! {
             if #parameter_name.len() < #numb {
-                   stop!(ArityMismatch => "{} expects {} arguments, found: {}",#func_name, #numb ,#parameter_name.len());
+                   stop!(ArityMismatch => "{} expects at least {} arguments, found: {}",#func_name, #numb ,#parameter_name.len());
                }
         },
 
