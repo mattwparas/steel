@@ -1243,7 +1243,19 @@ where
     (x, rem)
 }
 
-///COMMENT THIS
+/// Performs a bitwise arithmetic shift on the given 2 numbers
+///
+/// (arithmetic-shift n m) -> integer?
+///
+/// * n : integer? - The number to shift.
+/// * m : integer? - The number by which to shift.
+///
+/// # Examples
+/// ```scheme
+/// > (arithmetic-shift 10 1) ;; => 20
+/// > (arithmetic-shift 20 1) ;; => 40
+/// > (arithmetic-shift 40 -2) ;; => 10
+/// ```
 #[steel_derive::native(name = "arithmetic-shift", constant = true, arity = "Exact(2)")]
 pub fn arithmetic_shift(args: &[SteelVal]) -> Result<SteelVal> {
     match &args {
@@ -1261,7 +1273,18 @@ pub fn arithmetic_shift(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-///COMMENT THIS
+/// Checks if the given number is even
+///
+/// (even? n) -> bool?
+///
+/// * n : number? - The number to check for evenness.
+///
+/// # Examples
+/// ```scheme
+/// > (even? 2) ;; => #true
+/// > (even? 3) ;; => #false
+/// > (even? 4.0) ;; => #true
+/// ```
 #[steel_derive::function(name = "even?", constant = true)]
 pub fn even(arg: &SteelVal) -> Result<SteelVal> {
     match arg {
@@ -1272,6 +1295,18 @@ pub fn even(arg: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Checks if the given number is odd
+///
+/// (odd? n) -> bool?
+///
+/// * n : number? - The number to check for oddness.
+///
+/// # Examples
+/// ```scheme
+/// > (odd? 2) ;; => #false
+/// > (odd? 3) ;; => #true
+/// > (odd? 5.0) ;; => #true
+/// ```
 #[steel_derive::function(name = "odd?", constant = true)]
 pub fn odd(arg: &SteelVal) -> Result<SteelVal> {
     match arg {
@@ -1284,6 +1319,18 @@ pub fn odd(arg: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Sums all given floats
+///
+/// (f+ nums) -> number?
+///
+/// * nums : float? - The floats to sum up.
+///
+/// # Examples
+/// ```scheme
+/// > (f+ 5.5) ;; => 5.5
+/// > (f+ 1.1 2.2) ;; => 3.3
+/// > (f+ 3.3 3.3 3.3) ;; => 9.9
+/// ```
 #[steel_derive::native(name = "f+", constant = true, arity = "AtLeast(1)")]
 pub fn float_add(args: &[SteelVal]) -> Result<SteelVal> {
     if args.is_empty() {
