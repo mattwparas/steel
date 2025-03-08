@@ -602,6 +602,32 @@ pub fn native(
         .get("arity")
         .expect("native definition requires an arity");
 
+    // This function extracts the Arity type and integer value
+    if let Some((name, numb)) = arity_number
+        .strip_suffix(')')
+        .and_then(|(stripped)| stripped.split_once('('))
+        .and_then(|(name, rest)| {
+            Some((
+                name,
+                rest.parse::<i32>().expect("Arity value must be an integer"),
+            ))
+        })
+    {
+        match name {
+            "AtLeast" => match numb {
+                0 => {}
+                _ => {}
+            },
+
+            "Exact" => match numb {
+                0 => {}
+                _ => {}
+            },
+            _ => panic!("Unsupported Arity Type"),
+        }
+        println!("arity number RAW IS {:#?} {:#?}", name, numb);
+    };
+
     let is_const = keyword_map
         .get("constant")
         .map(|x| x == "true")
@@ -611,12 +637,22 @@ pub fn native(
         syn::parse_str(arity_number).expect("Unable to parse arity definition");
 
     let input = parse_macro_input!(input as ItemFn);
+    // Create new statements to inject
+    let injected_code = quote! {
+        println!("Function a is starting!");
+    };
 
-    let modified_input = input.clone();
+    let mut modified_input = input.clone();
+    // Inject the new statements at the beginning of the function
+    modified_input
+        .block
+        .stmts
+        .insert(0, syn::parse_quote!(#injected_code));
     let sign: Signature = input.clone().sig;
 
     let maybe_doc_comments = parse_doc_comment(input);
     let function_name = sign.ident.clone();
+    // println!("FUCNTION NAME IS {:#?}", modified_input);
 
     let doc_name = Ident::new(
         &(function_name.to_string().to_uppercase() + "_DEFINITION"),
