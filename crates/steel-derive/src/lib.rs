@@ -665,7 +665,6 @@ pub fn native(
 
     let maybe_doc_comments = parse_doc_comment(input);
     let function_name = sign.ident.clone();
-    // println!("FUCNTION NAME IS {:#?}", modified_input);
 
     let doc_name = Ident::new(
         &(function_name.to_string().to_uppercase() + "_DEFINITION"),
