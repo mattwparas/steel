@@ -603,7 +603,7 @@ pub fn native(
         .expect("native definition requires an arity");
 
     // This function extracts the Arity type and integer value
-    if let Some((name, numb)) = arity_number
+    let (name, numb) = arity_number
         .strip_suffix(')')
         .and_then(|(stripped)| stripped.split_once('('))
         .and_then(|(name, rest)| {
@@ -612,21 +612,37 @@ pub fn native(
                 rest.parse::<i32>().expect("Arity value must be an integer"),
             ))
         })
-    {
-        match name {
-            "AtLeast" => match numb {
-                0 => {}
-                _ => {}
-            },
+        .expect("Arity header is wrongly formatted");
 
-            "Exact" => match numb {
-                0 => {}
-                _ => {}
-            },
-            _ => panic!("Unsupported Arity Type"),
-        }
-        println!("arity number RAW IS {:#?} {:#?}", name, numb);
+    let injected_code = match name {
+        "AtLeast" => match numb {
+            0 => {
+                quote! {
+                    println!("blah blah");
+                }
+            }
+            _ => {
+                quote! {
+                    println!("blah blah");
+                }
+            }
+        },
+
+        "Exact" => match numb {
+            0 => {
+                quote! {
+                    println!("blah blah");
+                }
+            }
+            _ => {
+                quote! {
+                    println!("blah blah");
+                }
+            }
+        },
+        _ => panic!("Unsupported Arity Type"),
     };
+    println!("arity number RAW IS {:#?} {:#?}", name, numb);
 
     let is_const = keyword_map
         .get("constant")
@@ -638,9 +654,6 @@ pub fn native(
 
     let input = parse_macro_input!(input as ItemFn);
     // Create new statements to inject
-    let injected_code = quote! {
-        println!("Function a is starting!");
-    };
 
     let mut modified_input = input.clone();
     // Inject the new statements at the beginning of the function
