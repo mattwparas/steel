@@ -709,7 +709,7 @@ pub fn native(
     };
 
     // Uncomment this to see the generated code
-    eprintln!("{}", output.to_string());
+    // eprintln!("{}", output.to_string());
 
     output.into()
 }
