@@ -1754,6 +1754,7 @@ impl SteelVal {
             (IntV(l), IntV(r)) => l == r,
             (NumV(l), NumV(r)) => l == r,
             (BoolV(l), BoolV(r)) => l == r,
+            (CharV(l), CharV(r)) => l == r,
             (VectorV(l), VectorV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (Void, Void) => true,
             (StringV(l), StringV(r)) => crate::gc::Shared::ptr_eq(l, r),
