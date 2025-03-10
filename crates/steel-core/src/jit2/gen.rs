@@ -10,19 +10,21 @@ use crate::{
     compiler::constants::ConstantMap,
     core::instructions::{u24, DenseInstruction},
     steel_vm::vm::{
-        call_global_function_deopt_0, call_global_function_deopt_1, call_global_function_deopt_2,
-        call_global_function_deopt_3, call_global_function_tail_deopt_0,
-        call_global_function_tail_deopt_1, call_global_function_tail_deopt_2,
-        call_global_function_tail_deopt_3, callglobal_handler_deopt_c,
-        callglobal_tail_handler_deopt_3, callglobal_tail_handler_deopt_3_test, check_callable,
-        extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
-        extern_c_lte_two, extern_c_mult_two, extern_c_sub_two, extern_handle_pop,
-        if_handler_raw_value, if_handler_value, let_end_scope_c, move_read_local_0_value_c,
-        move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
-        not_handler_raw_value, num_equal_value, num_equal_value_unboxed, push_const_value_c,
-        push_global, push_int_0, push_int_1, push_int_2, push_to_vm_stack, read_local_0_value_c,
-        read_local_1_value_c, read_local_2_value_c, read_local_3_value_c, set_ctx_ip,
-        should_continue, VmCore,
+        call_global_function_deopt_0, call_global_function_deopt_0_func,
+        call_global_function_deopt_1, call_global_function_deopt_1_func,
+        call_global_function_deopt_2, call_global_function_deopt_2_func,
+        call_global_function_deopt_3, call_global_function_deopt_3_func,
+        call_global_function_tail_deopt_0, call_global_function_tail_deopt_1,
+        call_global_function_tail_deopt_2, call_global_function_tail_deopt_3,
+        callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
+        callglobal_tail_handler_deopt_3_test, check_callable, extern_c_add_two, extern_c_div_two,
+        extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two, extern_c_mult_two,
+        extern_c_sub_two, extern_handle_pop, if_handler_raw_value, if_handler_value,
+        let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
+        move_read_local_2_value_c, move_read_local_3_value_c, not_handler_raw_value,
+        num_equal_value, num_equal_value_unboxed, push_const_value_c, push_global, push_int_0,
+        push_int_1, push_int_2, push_to_vm_stack, read_local_0_value_c, read_local_1_value_c,
+        read_local_2_value_c, read_local_3_value_c, set_ctx_ip, should_continue, VmCore,
     },
     SteelVal,
 };
@@ -129,6 +131,9 @@ extern "C" fn rustfunc(x: i128) -> i128 {
 // when we're calling the function.
 pub struct VmContext {}
 
+// TODO: Implement some kind of handler -> signature generator?
+// Maybe via macros?
+
 impl Default for JIT {
     fn default() -> Self {
         let mut flag_builder = settings::builder();
@@ -234,6 +239,26 @@ impl Default for JIT {
         builder.symbol(
             "call-global-function-deopt-3",
             call_global_function_deopt_3 as *const u8,
+        );
+
+        builder.symbol(
+            "call-global-function-deopt-0-func",
+            call_global_function_deopt_0_func as *const u8,
+        );
+
+        builder.symbol(
+            "call-global-function-deopt-1-func",
+            call_global_function_deopt_1_func as *const u8,
+        );
+
+        builder.symbol(
+            "call-global-function-deopt-2-func",
+            call_global_function_deopt_2_func as *const u8,
+        );
+
+        builder.symbol(
+            "call-global-function-deopt-3-func",
+            call_global_function_deopt_3_func as *const u8,
         );
 
         builder.symbol(

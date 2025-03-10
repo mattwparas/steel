@@ -3167,6 +3167,76 @@ pub(crate) extern "C" fn call_global_function_deopt_3(
     }
 }
 
+pub(crate) extern "C" fn call_global_function_deopt_0_func(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+) -> i128 {
+    unsafe {
+        std::mem::transmute(call_global_function_deopt(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [],
+        ))
+    }
+}
+
+pub(crate) extern "C" fn call_global_function_deopt_1_func(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: i128,
+) -> i128 {
+    unsafe {
+        std::mem::transmute(call_global_function_deopt(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [std::mem::transmute(arg0)],
+        ))
+    }
+}
+
+pub(crate) extern "C" fn call_global_function_deopt_2_func(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: i128,
+    arg1: i128,
+) -> i128 {
+    unsafe {
+        std::mem::transmute(call_global_function_deopt(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [std::mem::transmute(arg0), std::mem::transmute(arg1)],
+        ))
+    }
+}
+
+pub(crate) extern "C" fn call_global_function_deopt_3_func(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: i128,
+    arg1: i128,
+    arg2: i128,
+) -> i128 {
+    unsafe {
+        std::mem::transmute(call_global_function_deopt(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [
+                std::mem::transmute(arg0),
+                std::mem::transmute(arg1),
+                std::mem::transmute(arg2),
+            ],
+        ))
+    }
+}
+
 // Either... return a value, or deopt and yield control back to the runtime.
 // How do we signal to yield back to the runtime?
 #[inline(always)]
