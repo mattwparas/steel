@@ -470,6 +470,14 @@ impl Analysis {
         Some(id)
     }
 
+    pub fn resolve_reference(&self, mut id: SyntaxObjectId) -> SyntaxObjectId {
+        while let Some(next) = self.info.get(&id).and_then(|x| x.refers_to) {
+            id = next;
+        }
+
+        id
+    }
+
     pub fn visit_top_level_define_function_without_body(
         &mut self,
         define: &crate::parser::ast::Define,
@@ -4816,6 +4824,10 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn resolve_alias(&self, id: SyntaxObjectId) -> Option<SyntaxObjectId> {
         self.analysis.resolve_alias(id)
+    }
+
+    pub fn resolve_reference(&self, id: SyntaxObjectId) -> SyntaxObjectId {
+        self.analysis.resolve_reference(id)
     }
 
     pub fn flatten_anonymous_functions(&mut self) {
