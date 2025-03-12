@@ -18,7 +18,7 @@ use steel::{
     compiler::{
         modules::{steel_home, MANGLER_PREFIX, MODULE_PREFIX},
         passes::analysis::{
-            query_top_level_define, query_top_level_define_on_condition,
+            query_top_level_define, query_top_level_define_on_condition, IdentifierStatus,
             RequiredIdentifierInformation, SemanticAnalysis,
         },
     },
@@ -610,8 +610,59 @@ impl LanguageServer for Backend {
         Ok(completions.map(CompletionResponse::Array))
     }
 
-    async fn rename(&self, _params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        Ok(None)
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+
+        let changes = || -> Option<Vec<TextEdit>> {
+            let rope = self.document_map.get(uri.as_str())?;
+            let mut ast = self.ast_map.get_mut(uri.as_str())?;
+
+            let offset = position_to_offset(position, &rope)?;
+            let semantic = SemanticAnalysis::new(&mut ast);
+            let (syntax_object_id, semantic_information) =
+                semantic.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
+
+            // it should probaby not be possible to rename builtins ...
+            if semantic_information.builtin {
+                return None;
+            }
+
+            let syntax_object_id = semantic.analysis.resolve_reference(*syntax_object_id);
+            let semantic_information = semantic.get_identifier(syntax_object_id).unwrap();
+
+            // it might make sense to be able to rename other things as well,
+            // but i think this is at least good start
+            if !matches!(
+                semantic_information.kind,
+                IdentifierStatus::Local | IdentifierStatus::LetVar,
+            ) {
+                return None;
+            }
+
+            let identifier_info = semantic.analysis.identifier_info();
+            let identifiers = identifier_info
+                .iter()
+                .filter(|(&id, _)| semantic.analysis.resolve_reference(id) == syntax_object_id)
+                .map(|(_, information)| (information.span.start, information.span.end))
+                .filter_map(|(start, end)| {
+                    Some(Range::new(
+                        offset_to_position(start, &rope)?,
+                        offset_to_position(end, &rope)?,
+                    ))
+                })
+                .map(|range| TextEdit::new(range, params.new_name.clone()))
+                .collect::<Vec<_>>();
+
+            Some(identifiers)
+        }();
+
+        let Some(changes) = changes else {
+            return Ok(None);
+        };
+
+        let changes = HashMap::from_iter([(uri, changes)]);
+        Ok(Some(WorkspaceEdit::new(changes)))
     }
 
     async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
