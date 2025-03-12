@@ -992,9 +992,15 @@ fn configure_lints() -> std::result::Result<UserDefinedLintEngine, Box<dyn Error
 }
 
 pub fn offset_to_position(offset: usize, rope: &Rope) -> Option<Position> {
-    let line = rope.try_char_to_line(offset).ok()?;
-    let first_char_of_line = rope.try_line_to_char(line).ok()?;
-    let column = offset - first_char_of_line;
+    let line_idx = rope.try_byte_to_line(offset).ok()?;
+    let line = rope.line(line_idx);
 
-    Some(Position::new(line as u32, column as u32))
+    let line_byte_offset = rope.line_to_byte(line_idx);
+    let column_byte_offset = offset - line_byte_offset;
+
+    // lsp by default expects offsets in utf16 encoding
+    let column_char_offset = line.byte_to_char(column_byte_offset);
+    let column = line.char_to_utf16_cu(column_char_offset);
+
+    Some(Position::new(line_idx as u32, column as u32))
 }
