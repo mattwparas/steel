@@ -29,7 +29,7 @@ use steel::{
     rvals::{FromSteelVal, SteelString},
     steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn},
 };
-use tower_lsp::jsonrpc::Result;
+use tower_lsp::jsonrpc::{self, Result};
 use tower_lsp::lsp_types::notification::Notification;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
@@ -135,7 +135,12 @@ impl LanguageServer for Backend {
                 ),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
-                rename_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: WorkDoneProgressOptions {
+                        work_done_progress: None,
+                    },
+                })),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 ..ServerCapabilities::default()
             },
@@ -608,6 +613,49 @@ impl LanguageServer for Backend {
         }();
 
         Ok(completions.map(CompletionResponse::Array))
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        let position = params.position;
+
+        let Some((identifier, range)) = || -> Option<_> {
+            let rope = self.document_map.get(uri.as_str())?;
+            let mut ast = self.ast_map.get_mut(uri.as_str())?;
+
+            let offset = position_to_offset(position, &rope)?;
+            let semantic = SemanticAnalysis::new(&mut ast);
+            let (_, identifier) =
+                semantic.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
+
+            let range = Range::new(
+                offset_to_position(identifier.span.start, &rope)?,
+                offset_to_position(identifier.span.end, &rope)?,
+            );
+
+            Some((identifier.clone(), range))
+        }() else {
+            return Ok(None);
+        };
+
+        if identifier.builtin {
+            return Err(jsonrpc::Error::invalid_params("cannot rename builtin"));
+        }
+
+        if !matches!(
+            identifier.kind,
+            IdentifierStatus::Local | IdentifierStatus::LetVar
+        ) {
+            return Err(jsonrpc::Error::invalid_params(format!(
+                "cannot rename symbol of kind {:?}",
+                identifier.kind
+            )));
+        }
+
+        Ok(Some(PrepareRenameResponse::Range(range)))
     }
 
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
