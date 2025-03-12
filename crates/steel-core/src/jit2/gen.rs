@@ -134,6 +134,85 @@ pub struct VmContext {}
 // TODO: Implement some kind of handler -> signature generator?
 // Maybe via macros?
 
+// Turn functions from function signature, into cranelift signature for backend usage.
+// TODO: Rename to an intrinsic map?
+// Wire up with function signatures as well for automated unboxing?
+struct FunctionMap<'a> {
+    map: HashMap<&'static str, Box<dyn FunctionToCranelift>>,
+    builder: &'a mut JITBuilder,
+}
+
+impl<'a> FunctionMap<'a> {
+    // Do the thing?
+    pub fn add_func(&mut self, name: &'static str, func: impl FunctionToCranelift + 'static) {
+        self.builder.symbol(name, func.as_pointer());
+        self.map.insert(name, Box::new(func));
+    }
+
+    pub fn get_signature(&self, name: &'static str, module: &JITModule) -> Signature {
+        self.map.get(name).unwrap().to_cranelift(module)
+    }
+}
+
+trait FunctionToCranelift {
+    fn to_cranelift(&self, module: &JITModule) -> Signature;
+    fn as_pointer(&self) -> *const u8;
+}
+
+// TODO: How to set up the right args here?
+impl<T> FunctionToCranelift for extern "C" fn() -> T {
+    fn to_cranelift(&self, module: &JITModule) -> Signature {
+        todo!()
+    }
+    fn as_pointer(&self) -> *const u8 {
+        *self as _
+    }
+}
+
+macro_rules! register_function_pointers_return {
+    ($($typ:ident),*) => {
+        impl<RET, $($typ),*> FunctionToCranelift for extern "C" fn(*mut VmCore, $($typ),*) -> RET {
+            fn to_cranelift(&self, module: &JITModule) -> Signature {
+                let mut sig = module.make_signature();
+
+                // VmCore pointer
+                sig.params
+                    .push(AbiParam::new(module.target_config().pointer_type()));
+
+                $(
+                    sig.params.push(AbiParam::new(type_to_ir_type::<$typ>()));
+                )*
+
+                let return_size = std::mem::size_of::<RET>();
+
+                if return_size != 0 {
+                    sig.returns.push(AbiParam::new(type_to_ir_type::<RET>()));
+                }
+
+                sig
+            }
+
+            fn as_pointer(&self) -> *const u8 {
+                *self as _
+            }
+        }
+    };
+}
+
+register_function_pointers_return!();
+register_function_pointers_return!(A);
+register_function_pointers_return!(A, B);
+register_function_pointers_return!(A, B, C);
+register_function_pointers_return!(A, B, C, D);
+register_function_pointers_return!(A, B, C, D, E);
+register_function_pointers_return!(A, B, C, D, E, F);
+register_function_pointers_return!(A, B, C, D, E, F, G);
+register_function_pointers_return!(A, B, C, D, E, F, G, H);
+
+fn type_to_ir_type<T>() -> codegen::ir::Type {
+    codegen::ir::Type::int(std::mem::size_of::<T>() as u16 * 8).unwrap()
+}
+
 impl Default for JIT {
     fn default() -> Self {
         let mut flag_builder = settings::builder();
@@ -175,16 +254,6 @@ impl Default for JIT {
 
         //
         builder.symbol("push-const", push_const_value_c as *const u8);
-
-        builder.symbol("read-local-0", read_local_0_value_c as *const u8);
-        builder.symbol("read-local-1", read_local_1_value_c as *const u8);
-        builder.symbol("read-local-2", read_local_2_value_c as *const u8);
-        builder.symbol("read-local-3", read_local_3_value_c as *const u8);
-
-        builder.symbol("move-read-local-0", move_read_local_0_value_c as *const u8);
-        builder.symbol("move-read-local-1", move_read_local_1_value_c as *const u8);
-        builder.symbol("move-read-local-2", move_read_local_2_value_c as *const u8);
-        builder.symbol("move-read-local-3", move_read_local_3_value_c as *const u8);
 
         // Specialize the constant: Just look up the value itself:
         // This should be used for constants like #f, 1, 2, 3, etc.
@@ -288,6 +357,54 @@ impl Default for JIT {
 
         // Check if the function at the global location is in fact the right one.
         builder.symbol("check-callable", check_callable as *const u8);
+
+        let mut map = FunctionMap {
+            map: HashMap::new(),
+            builder: &mut builder,
+        };
+
+        // TODO: Pick up from here!
+        map.add_func(
+            "read-local-0",
+            read_local_0_value_c as extern "C" fn(*mut VmCore) -> i128,
+        );
+
+        map.add_func(
+            "read-local-1",
+            read_local_1_value_c as extern "C" fn(*mut VmCore) -> i128,
+        );
+
+        map.add_func(
+            "read-local-2",
+            read_local_2_value_c as extern "C" fn(*mut VmCore) -> i128,
+        );
+
+        map.add_func(
+            "read-local-3",
+            read_local_3_value_c as extern "C" fn(*mut VmCore) -> i128,
+        );
+
+        map.add_func(
+            "move-read-local-0",
+            move_read_local_0_value_c as extern "C" fn(*mut VmCore) -> i128,
+        );
+
+        map.add_func(
+            "move-read-local-1",
+            move_read_local_1_value_c as extern "C" fn(*mut VmCore) -> i128,
+        );
+
+        map.add_func(
+            "move-read-local-2",
+            move_read_local_2_value_c as extern "C" fn(*mut VmCore) -> i128,
+        );
+
+        map.add_func(
+            "move-read-local-3",
+            move_read_local_3_value_c as extern "C" fn(*mut VmCore) -> i128,
+        );
+
+        drop(map);
 
         let module = JITModule::new(builder);
         Self {
