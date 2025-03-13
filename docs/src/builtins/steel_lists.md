@@ -268,6 +268,7 @@ error[E11]: Generic
 ### **cdr-null?**
 ### **list->string**
 ### **list->vector**
+### **list-chunks**
 ### **list-drop**
 ### **list-tail**
 ### **plist-get**
