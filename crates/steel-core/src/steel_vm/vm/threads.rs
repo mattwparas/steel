@@ -50,28 +50,37 @@ impl crate::rvals::Custom for ThreadHandle {}
 
 pub struct SteelMutex {
     mutex: Arc<parking_lot::Mutex<()>>,
-    guard: AtomicCell<Option<parking_lot::ArcMutexGuard<parking_lot::RawMutex, ()>>>,
 }
 
 impl crate::rvals::Custom for SteelMutex {}
+
+pub struct MutexGuard {
+    guard: AtomicCell<Option<parking_lot::ArcMutexGuard<parking_lot::RawMutex, ()>>>,
+}
+
+impl crate::rvals::Custom for MutexGuard {}
 
 impl SteelMutex {
     pub fn new() -> Self {
         Self {
             mutex: Arc::new(parking_lot::Mutex::new(())),
-            guard: AtomicCell::new(None),
         }
     }
 
     // Attempt to lock it before killing the other one
-    pub fn lock(&self) {
+    pub fn lock(&self) -> SteelVal {
         // Acquire the lock first
-        let guard = self.mutex.lock_arc();
-        self.guard.store(Some(guard));
+        MutexGuard {
+            guard: AtomicCell::new(Some(self.mutex.lock_arc())),
+        }
+        .into_steelval()
+        .unwrap()
     }
+}
 
+impl MutexGuard {
     pub fn unlock(&self) {
-        self.guard.store(None);
+        drop(self.guard.take());
     }
 }
 
@@ -85,14 +94,13 @@ pub fn new_mutex() -> Result<SteelVal> {
 /// with the `lock!` function.
 #[steel_derive::function(name = "lock-acquire!")]
 pub fn mutex_lock(mutex: &SteelVal) -> Result<SteelVal> {
-    SteelMutex::as_ref(mutex)?.lock();
-    Ok(SteelVal::Void)
+    Ok(SteelMutex::as_ref(mutex)?.lock())
 }
 
 /// Unlock the given mutex.
 #[steel_derive::function(name = "lock-release!")]
 pub fn mutex_unlock(mutex: &SteelVal) -> Result<SteelVal> {
-    SteelMutex::as_ref(mutex)?.unlock();
+    MutexGuard::as_ref(mutex)?.unlock();
     Ok(SteelVal::Void)
 }
 

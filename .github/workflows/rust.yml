@@ -50,14 +50,14 @@ jobs:
           echo $STEEL_HOME
           mkdir -p .steel/cogs
           cd cogs/
-          cargo run --no-default-features -- install.scm
+          cargo run -- install.scm
 
       - uses: actions-rs/cargo@v1
         env:
           STEEL_HOME: ${{ env.STEEL_HOME }}
         with:
           command: test
-          args: --all --no-default-features
+          args: --all
 
       - name: install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --force
