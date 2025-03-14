@@ -58,7 +58,7 @@ use std::convert::TryFrom;
 use std::result;
 pub use streams::StreamOperations;
 pub use strings::string_module;
-pub use symbols::SymbolOperations;
+pub use symbols::symbol_module;
 pub use vectors::VectorOperations;
 
 macro_rules! try_from_impl {
