@@ -18,7 +18,7 @@ use steel::{
     compiler::{
         modules::{steel_home, MANGLER_PREFIX, MODULE_PREFIX},
         passes::analysis::{
-            query_top_level_define, query_top_level_define_on_condition,
+            query_top_level_define, query_top_level_define_on_condition, IdentifierStatus,
             RequiredIdentifierInformation, SemanticAnalysis,
         },
     },
@@ -29,7 +29,7 @@ use steel::{
     rvals::{FromSteelVal, SteelString},
     steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn},
 };
-use tower_lsp::jsonrpc::Result;
+use tower_lsp::jsonrpc::{self, Result};
 use tower_lsp::lsp_types::notification::Notification;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
@@ -135,7 +135,12 @@ impl LanguageServer for Backend {
                 ),
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
-                rename_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: WorkDoneProgressOptions {
+                        work_done_progress: None,
+                    },
+                })),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 ..ServerCapabilities::default()
             },
@@ -613,8 +618,102 @@ impl LanguageServer for Backend {
         Ok(completions.map(CompletionResponse::Array))
     }
 
-    async fn rename(&self, _params: RenameParams) -> Result<Option<WorkspaceEdit>> {
-        Ok(None)
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        let position = params.position;
+
+        let Some((identifier, range)) = || -> Option<_> {
+            let rope = self.document_map.get(uri.as_str())?;
+            let mut ast = self.ast_map.get_mut(uri.as_str())?;
+
+            let offset = position_to_offset(position, &rope)?;
+            let semantic = SemanticAnalysis::new(&mut ast);
+            let (_, identifier) =
+                semantic.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
+
+            let range = Range::new(
+                offset_to_position(identifier.span.start, &rope)?,
+                offset_to_position(identifier.span.end, &rope)?,
+            );
+
+            Some((identifier.clone(), range))
+        }() else {
+            return Ok(None);
+        };
+
+        if identifier.builtin {
+            return Err(jsonrpc::Error::invalid_params("cannot rename builtin"));
+        }
+
+        if !matches!(
+            identifier.kind,
+            IdentifierStatus::Local | IdentifierStatus::LetVar
+        ) {
+            return Err(jsonrpc::Error::invalid_params(format!(
+                "cannot rename symbol of kind {:?}",
+                identifier.kind
+            )));
+        }
+
+        Ok(Some(PrepareRenameResponse::Range(range)))
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+
+        let changes = || -> Option<Vec<TextEdit>> {
+            let rope = self.document_map.get(uri.as_str())?;
+            let mut ast = self.ast_map.get_mut(uri.as_str())?;
+
+            let offset = position_to_offset(position, &rope)?;
+            let semantic = SemanticAnalysis::new(&mut ast);
+            let (syntax_object_id, semantic_information) =
+                semantic.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
+
+            // it should probaby not be possible to rename builtins ...
+            if semantic_information.builtin {
+                return None;
+            }
+
+            let syntax_object_id = semantic.analysis.resolve_reference(*syntax_object_id);
+            let semantic_information = semantic.get_identifier(syntax_object_id).unwrap();
+
+            // it might make sense to be able to rename other things as well,
+            // but i think this is at least good start
+            if !matches!(
+                semantic_information.kind,
+                IdentifierStatus::Local | IdentifierStatus::LetVar,
+            ) {
+                return None;
+            }
+
+            let identifier_info = semantic.analysis.identifier_info();
+            let identifiers = identifier_info
+                .iter()
+                .filter(|(&id, _)| semantic.analysis.resolve_reference(id) == syntax_object_id)
+                .map(|(_, information)| (information.span.start, information.span.end))
+                .filter_map(|(start, end)| {
+                    Some(Range::new(
+                        offset_to_position(start, &rope)?,
+                        offset_to_position(end, &rope)?,
+                    ))
+                })
+                .map(|range| TextEdit::new(range, params.new_name.clone()))
+                .collect::<Vec<_>>();
+
+            Some(identifiers)
+        }();
+
+        let Some(changes) = changes else {
+            return Ok(None);
+        };
+
+        let changes = HashMap::from_iter([(uri, changes)]);
+        Ok(Some(WorkspaceEdit::new(changes)))
     }
 
     async fn did_change_configuration(&self, _: DidChangeConfigurationParams) {
@@ -989,6 +1088,17 @@ fn configure_lints() -> std::result::Result<UserDefinedLintEngine, Box<dyn Error
     }
 
     Ok(UserDefinedLintEngine { engine, lints })
+}
+
+pub fn position_to_offset(position: Position, rope: &Rope) -> Option<usize> {
+    let line_start = rope.try_line_to_byte(position.line as usize).ok()?;
+    let line = rope.get_line(position.line as usize)?;
+
+    // lsp positions are in utf16 code units by default
+    let line_char_offset = line.utf16_cu_to_char(position.character as usize);
+    let line_byte_offset = line.char_to_byte(line_char_offset);
+
+    Some(line_start + line_byte_offset)
 }
 
 pub fn offset_to_position(offset: usize, rope: &Rope) -> Option<Position> {
