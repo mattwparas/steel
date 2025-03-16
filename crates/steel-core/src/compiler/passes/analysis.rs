@@ -5757,6 +5757,35 @@ mod analysis_pass_tests {
     }
 
     #[test]
+    fn resolve_reference() {
+        let script = r#"
+            (define (double number)
+                (+ number number))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let analysis = SemanticAnalysis::new(&mut exprs);
+
+        let identifiers = analysis
+            .analysis
+            .identifier_info()
+            .iter()
+            .filter(|(_, semantic_info)| semantic_info.kind == IdentifierStatus::Local)
+            .map(|(id, _)| analysis.resolve_reference(*id))
+            .collect::<Vec<_>>();
+
+        assert_eq!(identifiers.len(), 3);
+
+        for window in identifiers.windows(2) {
+            let [left, right] = window else {
+                unreachable!()
+            };
+
+            assert_eq!(left, right);
+        }
+    }
+
+    #[test]
     fn test_capture() {
         let script = r#"
 
