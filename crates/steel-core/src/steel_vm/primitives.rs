@@ -30,7 +30,7 @@ use crate::{
         ports::{port_module_without_filesystem, EOF_OBJECTP_DEFINITION},
         process::process_module,
         random::random_module,
-        string_module,
+        string_module, symbol_module,
         tcp::tcp_module,
         time::time_module,
         vectors::{
@@ -41,8 +41,7 @@ use crate::{
             MUT_VEC_LENGTH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_TO_LIST_DEFINITION,
             VECTOR_FILL_DEFINITION, VEC_LENGTH_DEFINITION,
         },
-        ControlOperations, IoFunctions, MetaOperations, StreamOperations, SymbolOperations,
-        VectorOperations,
+        ControlOperations, IoFunctions, MetaOperations, StreamOperations, VectorOperations,
     },
     rerrs::ErrorKind,
     rvals::{
@@ -1300,14 +1299,6 @@ pub fn transducer_module() -> BuiltInModule {
         .register_value("into-for-each", crate::values::transducers::FOR_EACH)
         .register_value("into-nth", crate::values::transducers::NTH)
         .register_value("into-reducer", crate::values::transducers::REDUCER);
-    module
-}
-
-fn symbol_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/symbols");
-    module
-        .register_value("concat-symbols", SymbolOperations::concat_symbols())
-        .register_value("symbol->string", SymbolOperations::symbol_to_string());
     module
 }
 
