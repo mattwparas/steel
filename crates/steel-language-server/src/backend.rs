@@ -23,8 +23,12 @@ use steel::{
         },
     },
     parser::{
-        ast::ExprKind, expander::SteelMacro, interner::InternedString, parser::SourceId,
-        span::Span, tryfrom_visitor::SyntaxObjectFromExprKindRef,
+        ast::ExprKind,
+        expander::SteelMacro,
+        interner::InternedString,
+        parser::{Parser, SourceId},
+        span::Span,
+        tryfrom_visitor::SyntaxObjectFromExprKindRef,
     },
     rvals::{FromSteelVal, SteelString},
     steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn},
@@ -70,6 +74,7 @@ pub const LEGEND_TYPE: &[SemanticTokenType] = &[
 pub struct Backend {
     pub client: Client,
     pub ast_map: DashMap<String, Vec<ExprKind>>,
+    pub lowered_ast_map: DashMap<String, Vec<ExprKind>>,
     pub document_map: DashMap<String, Rope>,
     // TODO: This needs to hold macros to help with resolving definitions
     pub _macro_map: DashMap<String, HashMap<InternedString, SteelMacro>>,
@@ -624,7 +629,7 @@ impl LanguageServer for Backend {
 
         let Some((identifier, range)) = || -> Option<_> {
             let rope = self.document_map.get(uri.as_str())?;
-            let mut ast = self.ast_map.get_mut(uri.as_str())?;
+            let mut ast = self.lowered_ast_map.get_mut(uri.as_str())?;
 
             let offset = position_to_offset(position, &rope)?;
             let semantic = SemanticAnalysis::new(&mut ast);
@@ -647,7 +652,9 @@ impl LanguageServer for Backend {
 
         if !matches!(
             identifier.kind,
-            IdentifierStatus::Local | IdentifierStatus::LetVar
+            IdentifierStatus::Local
+                | IdentifierStatus::LetVar
+                | IdentifierStatus::LocallyDefinedFunction
         ) {
             return Err(jsonrpc::Error::invalid_params(format!(
                 "cannot rename symbol of kind {:?}",
@@ -664,7 +671,7 @@ impl LanguageServer for Backend {
 
         let changes = || -> Option<Vec<TextEdit>> {
             let rope = self.document_map.get(uri.as_str())?;
-            let mut ast = self.ast_map.get_mut(uri.as_str())?;
+            let mut ast = self.lowered_ast_map.get_mut(uri.as_str())?;
 
             let offset = position_to_offset(position, &rope)?;
             let semantic = SemanticAnalysis::new(&mut ast);
@@ -683,7 +690,9 @@ impl LanguageServer for Backend {
             // but i think this is at least good start
             if !matches!(
                 semantic_information.kind,
-                IdentifierStatus::Local | IdentifierStatus::LetVar,
+                IdentifierStatus::Local
+                    | IdentifierStatus::LetVar
+                    | IdentifierStatus::LocallyDefinedFunction,
             ) {
                 return None;
             }
@@ -692,6 +701,7 @@ impl LanguageServer for Backend {
             let identifiers = identifier_info
                 .iter()
                 .filter(|(&id, _)| semantic.analysis.resolve_reference(id) == syntax_object_id)
+                .filter(|(_, info)| info.kind == semantic_information.kind)
                 .map(|(_, information)| (information.span.start, information.span.end))
                 .filter_map(|(start, end)| {
                     Some(Range::new(
@@ -912,6 +922,17 @@ impl Backend {
             };
 
             self.ast_map.insert(params.uri.to_string(), ast);
+
+            // the ast that is parsed for the `ast_map` is parsed with the `.without_lowering`
+            // argument to the `Parser`. but for things like `rename` (and `prepare_rename`),
+            // i need an ast that is parsed without that argument, so instead of having to recalculate it on-demand,
+            // just do it here, once.
+            if let Ok(lowered_ast) =
+                Parser::new(&expression, id).collect::<std::result::Result<Vec<_>, _>>()
+            {
+                self.lowered_ast_map
+                    .insert(params.uri.to_string(), lowered_ast);
+            }
 
             diagnostics
         };
