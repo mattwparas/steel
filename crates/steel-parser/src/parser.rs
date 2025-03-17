@@ -1134,7 +1134,11 @@ impl<'a> Parser<'a> {
 
                         // println!("Collecting line: {}", doc_line);
 
-                        self.comment_buffer.push(doc_line.trim_start());
+                        let line = doc_line
+                            .strip_prefix(" ")
+                            .unwrap_or(doc_line)
+                            .trim_end_matches(['\n', '\r']);
+                        self.comment_buffer.push(line);
                     }
 
                     continue;
