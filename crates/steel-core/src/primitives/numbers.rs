@@ -922,16 +922,46 @@ fn denominator(number: &SteelVal) -> Result<SteelVal> {
 #[steel_derive::function(name = "expt", constant = true)]
 fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     match (left, right) {
-        (SteelVal::IntV(l), SteelVal::IntV(r)) => match u32::try_from(*r) {
-            Ok(r) => l.pow(r).into_steelval(),
-            Err(_) => (*l as f64).powf(*r as f64).into_steelval(),
-        },
+        (SteelVal::IntV(l), SteelVal::IntV(r)) if *r >= 0 => {
+            match u32::try_from(*r).ok().and_then(|r| l.checked_pow(r)) {
+                Some(val) => val.into_steelval(),
+                None => BigInt::from(*l).pow(*r as usize).into_steelval(),
+            }
+        }
+        // r is negative here
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => {
+            if l.is_zero() {
+                stop!(Generic => "expt: 0 cannot be raised to a negative power");
+            }
+
+            let r = r.unsigned_abs();
+            // a^-b = 1/(a^b)
+            match (u32::try_from(r).ok())
+                .and_then(|r| l.checked_pow(r))
+                .and_then(|l| i32::try_from(l).ok())
+            {
+                Some(val) => Rational32::new_raw(1, val).into_steelval(),
+                None => {
+                    BigRational::new_raw(BigInt::from(1), BigInt::from(*l).pow(r)).into_steelval()
+                }
+            }
+        }
         (SteelVal::IntV(l), SteelVal::NumV(r)) => (*l as f64).powf(*r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::Rational(r)) => {
             (*l as f64).powf(r.to_f64().unwrap()).into_steelval()
         }
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => {
-            (*l as f64).powf(r.to_f64().unwrap()).into_steelval()
+            if l.is_zero() {
+                stop!(Generic => "expt: 0 cannot be raised to a negative power");
+            }
+
+            let expt = BigInt::from(*l).pow(r.magnitude());
+            match r.sign() {
+                num::bigint::Sign::Plus | num::bigint::Sign::NoSign => expt.into_steelval(),
+                num::bigint::Sign::Minus => {
+                    BigRational::new_raw(BigInt::from(1), expt).into_steelval()
+                }
+            }
         }
         (SteelVal::IntV(l), SteelVal::BigRational(r)) => {
             (*l as f64).powf(r.to_f64().unwrap()).into_steelval()
@@ -970,21 +1000,21 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
             .unwrap()
             .powf(r.to_f64().unwrap())
             .into_steelval(),
-        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => match r.as_ref().sign() {
-            num::bigint::Sign::NoSign | num::bigint::Sign::Plus => l
-                .as_ref()
-                .clone()
-                .pow(r.as_ref().magnitude())
-                .into_steelval(),
-            num::bigint::Sign::Minus => Ok(SteelVal::NumV(
-                l.to_f64().unwrap().powf(r.to_f64().unwrap()),
-            )),
-        },
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => {
+            let expt = l.as_ref().clone().pow(r.magnitude());
+            match r.sign() {
+                num::bigint::Sign::NoSign | num::bigint::Sign::Plus => expt.into_steelval(),
+                num::bigint::Sign::Minus => {
+                    BigRational::new_raw(BigInt::from(1), expt).into_steelval()
+                }
+            }
+        }
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => match *r {
             0 => 1.into_steelval(),
-            r if r < 0 => Ok(SteelVal::NumV(
-                l.to_f64().unwrap().powf(r.to_f64().unwrap()),
-            )),
+            r if r < 0 => {
+                BigRational::new_raw(BigInt::from(1), l.as_ref().clone().pow(r.unsigned_abs()))
+                    .into_steelval()
+            }
             r => l.as_ref().clone().pow(r as usize).into_steelval(),
         },
         (SteelVal::BigNum(l), SteelVal::NumV(r)) => l.to_f64().unwrap().powf(*r).into_steelval(),
