@@ -1173,6 +1173,35 @@ Computes the natural logarithm of the given number.
 > (log 100 10) ;; => 2
 > (log 27 3) ;; => 3
 ```
+
+### **real-part**
+
+Returns the real part of a number
+
+(real-part number) -> number?
+
+* number: number? - The numbers to get the real part of.
+
+#### Examples
+```scheme
+> (real-part 3+4i) ;; => 3
+> (real-part 42) ;; => 42
+```
+
+### **imag-part**
+
+Returns the imaginary part of a number
+
+(imag-part number) -> number?
+
+* number: number? - The numbers to get the imaginary part of.
+
+# Examples
+```scheme
+> (imag-part 3+4i) ;; => 4
+> (imag-part 42) ;; => 0
+```
+
 ### **magnitude**
 Computes the magnitude of the given number.
 
