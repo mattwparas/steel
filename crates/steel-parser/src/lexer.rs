@@ -1222,7 +1222,7 @@ mod lexer_tests {
     #[test]
     fn test_real_numbers() {
         let got: Vec<_> = TokenStream::new(
-            "0 -0 -1.2 +2.3 999 1. 1e2 1E2 1.2e2 1.2E2 +inf.0 -inf.0",
+            "0 -0 -1.2 +2.3 999 1. 1e2 1E2 1.2e2 1.2E2 +inf.0 -inf.0 2e-4 2e+10",
             true,
             SourceId::none(),
         )
@@ -1290,6 +1290,16 @@ mod lexer_tests {
                     source: "-inf.0",
                     span: Span::new(49, 55, SourceId::none()),
                 },
+                Token {
+                    ty: RealLiteral::Float(2e-4).into(),
+                    source: "2e-4",
+                    span: Span::new(56, 60, SourceId::none()),
+                },
+                Token {
+                    ty: RealLiteral::Float(2e+10).into(),
+                    source: "2e+10",
+                    span: Span::new(61, 66, SourceId::none())
+                }
             ]
         );
     }
@@ -1416,7 +1426,7 @@ mod lexer_tests {
     #[test]
     fn test_complex_numbers() {
         let got: Vec<_> = TokenStream::new(
-            "1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i",
+            "1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i 2e+4+inf.0i -inf.0i-2e-4",
             true,
             SourceId::none(),
         )
@@ -1487,6 +1497,24 @@ mod lexer_tests {
                     source: "+1.0i",
                     span: Span::new(36, 41, SourceId::none()),
                 },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        RealLiteral::Float(2e+4),
+                        RealLiteral::Float(f64::INFINITY),
+                    )
+                    .into(),
+                    source: "2e+4+inf.0i",
+                    span: Span::new(42, 53, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        RealLiteral::Float(-2e-4),
+                        RealLiteral::Float(f64::NEG_INFINITY)
+                    )
+                    .into(),
+                    source: "-inf.0i-2e-4",
+                    span: Span::new(54, 66, SourceId::none()),
+                }
             ]
         );
     }
