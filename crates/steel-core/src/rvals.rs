@@ -1356,6 +1356,14 @@ impl SteelComplex {
             _ => unreachable!(),
         }
     }
+
+    fn imaginary_is_finite(&self) -> bool {
+        match &self.im {
+            NumV(x) => x.is_finite(),
+            IntV(_) | Rational(_) | BigNum(_) | SteelVal::BigRational(_) => true,
+            _ => unreachable!(),
+        }
+    }
 }
 
 impl IntoSteelVal for SteelComplex {
@@ -1371,7 +1379,7 @@ impl IntoSteelVal for SteelComplex {
 
 impl fmt::Display for SteelComplex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.imaginary_is_negative() {
+        if self.imaginary_is_negative() || !self.imaginary_is_finite() {
             write!(f, "{re}{im}i", re = self.re, im = self.im)
         } else {
             write!(f, "{re}+{im}i", re = self.re, im = self.im)
