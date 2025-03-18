@@ -195,11 +195,10 @@ impl LanguageServer for Backend {
         let definition = || -> Option<Hover> {
             let uri = params.text_document_position_params.text_document.uri;
             let mut ast = self.ast_map.get_mut(uri.as_str())?;
+            let rope = self.document_map.get(uri.as_str())?;
 
             let position = params.text_document_position_params.position;
-            let rope = self.document_map.get(uri.as_str())?;
-            let char = rope.try_line_to_char(position.line as usize).ok()?;
-            let offset = char + position.character as usize;
+            let offset = position_to_offset(position, &rope)?;
 
             let analysis = SemanticAnalysis::new(&mut ast);
 
@@ -358,8 +357,7 @@ impl LanguageServer for Backend {
             let mut rope = self.document_map.get(uri.as_str())?.clone();
 
             let position = params.text_document_position_params.position;
-            let char = rope.try_line_to_char(position.line as usize).ok()?;
-            let offset = char + position.character as usize;
+            let offset = position_to_offset(position, &rope)?;
 
             let analysis = SemanticAnalysis::new(&mut ast);
 
@@ -498,9 +496,8 @@ impl LanguageServer for Backend {
         let completions = || -> Option<Vec<CompletionItem>> {
             let rope = self.document_map.get(&uri.to_string())?;
             let mut ast = self.ast_map.get_mut(&uri.to_string())?;
-            let char = rope.try_line_to_char(position.line as usize).ok()?;
 
-            let offset = char + position.character as usize;
+            let offset = position_to_offset(position, &rope)?;
 
             if offset > 0 {
                 let previously_typed = rope.get_char(offset - 1);
@@ -989,6 +986,17 @@ fn configure_lints() -> std::result::Result<UserDefinedLintEngine, Box<dyn Error
     }
 
     Ok(UserDefinedLintEngine { engine, lints })
+}
+
+pub fn position_to_offset(position: Position, rope: &Rope) -> Option<usize> {
+    let line_start = rope.try_line_to_byte(position.line as usize).ok()?;
+    let line = rope.get_line(position.line as usize)?;
+
+    // lsp positions are in utf16 code units by default
+    let line_char_offset = line.utf16_cu_to_char(position.character as usize);
+    let line_byte_offset = line.char_to_byte(line_char_offset);
+
+    Some(line_start + line_byte_offset)
 }
 
 pub fn offset_to_position(offset: usize, rope: &Rope) -> Option<Position> {
