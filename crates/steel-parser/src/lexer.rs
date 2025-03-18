@@ -354,7 +354,7 @@ impl<'a> Lexer<'a> {
                 c if c.is_ascii_digit() => {
                     self.eat();
                 }
-                '+' | '-' | '.' | '/' | 'e' | 'E' | 'i' => {
+                '+' | '-' | '.' | '/' | 'e' | 'E' | 'i' | 'n' | 'a' | 'f' => {
                     self.eat();
                 }
                 '(' | ')' | '[' | ']' => {
@@ -452,10 +452,6 @@ impl<'a> Lexer<'a> {
             "set!" => TokenType::Set,
             "require" => TokenType::Require,
             "if" => TokenType::If,
-            INFINITY => RealLiteral::Float(f64::INFINITY).into(),
-            NEG_INFINITY => RealLiteral::Float(f64::NEG_INFINITY).into(),
-            NAN => RealLiteral::Float(f64::NAN).into(),
-            NEG_NAN => RealLiteral::Float(f64::NAN).into(),
             identifier => {
                 debug_assert!(!identifier.is_empty());
 
@@ -744,10 +740,7 @@ impl<'a> Iterator for Lexer<'a> {
             }
             Some('+') | Some('-') => {
                 self.eat();
-                match self.chars.peek() {
-                    Some(&c) if c.is_ascii_digit() => Some(self.read_number()),
-                    _ => Some(self.read_word()),
-                }
+                Some(self.read_number())
             }
             Some('#') => {
                 self.eat();
@@ -783,12 +776,23 @@ fn split_into_complex<'a>(s: &'a str) -> Option<SmallVec<[NumPart<'a>; 2]>> {
             _ => NumPart::Real(s),
         }
     };
-    let idxs: SmallVec<[usize; 3]> = s
-        .char_indices()
-        .filter(|(_, ch)| *ch == '+' || *ch == '-')
-        .map(|(idx, _)| idx)
-        .take(3)
-        .collect();
+
+    let mut idxs = SmallVec::<[usize; 3]>::new();
+
+    let mut chars = s.char_indices();
+    while let Some((idx, ch)) = chars.next() {
+        if ch == '+' || ch == '-' {
+            if idxs.len() == 2 {
+                return None;
+            } else {
+                idxs.push(idx);
+            }
+        } else if ch == 'e' || ch == 'E' {
+            // ignore any + or - after an e
+            let _ = chars.next();
+        }
+    }
+
     let parts = match idxs.as_slice() {
         [] | [0] => SmallVec::from_iter(std::iter::once(s).map(classify_num_part)),
         [idx] | [0, idx] => {
@@ -806,21 +810,19 @@ enum NumPart<'a> {
 }
 
 fn parse_real(s: &str) -> Option<RealLiteral> {
+    if s == NEG_INFINITY {
+        return Some(RealLiteral::Float(f64::NEG_INFINITY));
+    } else if s == INFINITY {
+        return Some(RealLiteral::Float(f64::INFINITY));
+    } else if s == NAN || s == NEG_NAN {
+        return Some(RealLiteral::Float(f64::NAN));
+    }
+
     let mut has_e = false;
     let mut has_dot = false;
     let mut frac_position = None;
     for (idx, ch) in s.chars().enumerate() {
         match ch {
-            '+' => {
-                if idx != 0 {
-                    return None;
-                }
-            }
-            '-' => {
-                if idx != 0 {
-                    return None;
-                }
-            }
             'e' | 'E' => {
                 if has_e {
                     return None;
@@ -842,6 +844,7 @@ fn parse_real(s: &str) -> Option<RealLiteral> {
             _ => {}
         }
     }
+
     if has_e || has_dot {
         s.parse().map(|f| RealLiteral::Float(f)).ok()
     } else if let Some(p) = frac_position {
