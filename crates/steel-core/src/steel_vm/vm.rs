@@ -3098,8 +3098,7 @@ impl<'a> VmCore<'a> {
                 todo!()
             }
         } else {
-            dbg!(self
-                .thread
+            self.thread
                 .stack_frames
                 .last()
                 .and_then(|frame| {
@@ -3109,7 +3108,7 @@ impl<'a> VmCore<'a> {
                         None
                     }
                 })
-                .copied())
+                .copied()
         }
     }
 
