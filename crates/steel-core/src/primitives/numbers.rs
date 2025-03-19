@@ -1269,6 +1269,50 @@ fn sqrt(number: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Returns the real part of a number
+///
+/// (real-part number) -> number?
+///
+/// # Examples
+/// ```scheme
+/// > (real-part 3+4i) ;; => 3
+/// > (real-part 42) ;; => 42
+/// ```
+#[steel_derive::function(name = "real-part", constant = true)]
+pub fn real_part(value: &SteelVal) -> Result<SteelVal> {
+    match value {
+        val @ SteelVal::IntV(_)
+        | val @ SteelVal::BigNum(_)
+        | val @ SteelVal::Rational(_)
+        | val @ SteelVal::BigRational(_)
+        | val @ SteelVal::NumV(_) => Ok(val.clone()),
+        SteelVal::Complex(complex) => Ok(complex.re.clone()),
+        _ => steelerr!(TypeMismatch => "real-part expected number"),
+    }
+}
+
+/// Returns the imaginary part of a number
+///
+/// (imag-part number) -> number?
+///
+/// # Examples
+/// ```scheme
+/// > (imag-part 3+4i) ;; => 4
+/// > (imag-part 42) ;; => 0
+/// ```
+#[steel_derive::function(name = "imag-part", constant = true)]
+pub fn imag_part(value: &SteelVal) -> Result<SteelVal> {
+    match value {
+        SteelVal::IntV(_)
+        | SteelVal::BigNum(_)
+        | SteelVal::Rational(_)
+        | SteelVal::BigRational(_)
+        | SteelVal::NumV(_) => Ok(SteelVal::IntV(0)),
+        SteelVal::Complex(complex) => Ok(complex.im.clone()),
+        _ => steelerr!(TypeMismatch => "imag-part expected number"),
+    }
+}
+
 /// Computes the magnitude of the given number.
 ///
 /// (magnitude number) -> number?
