@@ -2243,8 +2243,11 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
 
                 let resolved_file_name = file_name.unwrap_or_default();
 
-                let final_error = error
-                    .emit_result_to_string(resolved_file_name.to_str().unwrap(), &file_content);
+                let final_error = error.emit_result_to_string(
+                    resolved_file_name.to_str().unwrap(),
+                    &file_content,
+                    false,
+                );
 
                 back_traces.push(final_error);
 
