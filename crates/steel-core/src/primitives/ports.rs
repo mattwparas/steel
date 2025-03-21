@@ -43,6 +43,7 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(DEFAULT_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(CLOSE_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(CLOSE_INPUT_PORT_DEFINITION)
+        .register_native_fn_definition(CLOSE_PORT_DEFINITION)
         .register_native_fn_definition(DEFAULT_ERROR_PORT_DEFINITION)
         .register_native_fn_definition(EOF_OBJECT_DEFINITION)
         .register_native_fn_definition(OPEN_INPUT_STRING_DEFINITION)
@@ -80,6 +81,8 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
         .register_native_fn_definition(DEFAULT_INPUT_PORT_DEFINITION)
         .register_native_fn_definition(DEFAULT_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(CLOSE_OUTPUT_PORT_DEFINITION)
+        .register_native_fn_definition(CLOSE_INPUT_PORT_DEFINITION)
+        .register_native_fn_definition(CLOSE_PORT_DEFINITION)
         .register_native_fn_definition(DEFAULT_ERROR_PORT_DEFINITION)
         .register_native_fn_definition(EOF_OBJECT_DEFINITION)
         .register_native_fn_definition(OPEN_INPUT_STRING_DEFINITION)
@@ -376,6 +379,12 @@ pub fn default_output_port() -> SteelVal {
 #[function(name = "#%default-error-port")]
 pub fn default_error_port() -> SteelVal {
     SteelVal::PortV(SteelPort::default_current_error_port())
+}
+
+#[function(name = "close-port")]
+pub fn close_port(port: &SteelPort) -> SteelVal {
+    port.close_port();
+    SteelVal::Void
 }
 
 #[function(name = "close-output-port")]

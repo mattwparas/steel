@@ -398,6 +398,10 @@ impl SteelPortRepr {
         Ok(Some(buf.clone()))
     }
 
+    pub fn close_port(&mut self) {
+        *self = SteelPortRepr::Closed;
+    }
+
     pub fn close_output_port(&mut self) -> Result<()> {
         if self.is_output() {
             *self = SteelPortRepr::Closed;
@@ -606,12 +610,24 @@ impl SteelPort {
         self.port.write().get_output()
     }
 
+    pub fn close_port(&self) {
+        self.port.write().close_port()
+    }
+
     pub fn close_output_port(&self) -> Result<()> {
         self.port.write().close_output_port()
     }
 
     pub fn close_input_port(&self) -> Result<()> {
         self.port.write().close_input_port()
+    }
+
+    pub fn is_output_port_open(&self) -> bool {
+        todo!();
+    }
+
+    pub fn is_input_port_open(&self) -> bool {
+        todo!();
     }
 }
 

@@ -2664,6 +2664,7 @@ Checks if the given real number is zero.
 ### **child-stdout**
 ### **close-input-port**
 ### **close-output-port**
+### **close-port**
 ### **command**
 ### **compose**
 ### **concat-symbols**
