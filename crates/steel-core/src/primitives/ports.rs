@@ -416,17 +416,26 @@ pub fn default_error_port() -> SteelVal {
     SteelVal::PortV(SteelPort::default_current_error_port())
 }
 
+/// Close a port. If the port is a file, the file will be closed.
+///
+/// (close-port port?) -> void
 #[function(name = "close-port")]
 pub fn close_port(port: &SteelPort) -> SteelVal {
     port.close_port();
     SteelVal::Void
 }
 
+/// Close an output port. If the port is a file, the file will be closed.
+///
+/// (close-port output-port?) -> void
 #[function(name = "close-output-port")]
 pub fn close_output_port(port: &SteelPort) -> Result<SteelVal> {
     port.close_output_port().map(|_| SteelVal::Void)
 }
 
+/// Close an input port. If the port is a file, the file will be closed.
+///
+/// (close-port input-port?) -> void
 #[function(name = "close-input-port")]
 pub fn close_input_port(port: &SteelPort) -> Result<SteelVal> {
     port.close_input_port().map(|_| SteelVal::Void)

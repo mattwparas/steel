@@ -1,4 +1,16 @@
 # steel/ports
+### **close-input-port**
+Close an input port. If the port is a file, the file will be closed.
+
+(close-port input-port?) -> void
+### **close-output-port**
+Close an output port. If the port is a file, the file will be closed.
+
+(close-port output-port?) -> void
+### **close-port**
+Close a port. If the port is a file, the file will be closed.
+
+(close-port port?) -> void
 ### **eof-object**
 Returns an EOF object.
 
@@ -165,9 +177,6 @@ Writes the contents of a bytevector into an output port.
 
 * buf : bytes?
 * port : output-port? = (current-output-port)
-### **close-input-port**
-### **close-output-port**
-### **close-port**
 ### **flush-output-port**
 ### **read-line-from-port**
 ### **stdout**
