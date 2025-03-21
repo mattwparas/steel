@@ -4,6 +4,8 @@
 (provide call-with-port
          call-with-output-file
          call-with-input-file
+         with-output-to-file
+         with-input-from-file
          call-with-output-string
          with-output-to-string)
 
@@ -41,6 +43,34 @@
 ;; - proc : procedure?
 (define (call-with-input-file file proc)
   (call-with-port (open-input-file file) proc))
+
+;;@doc
+;; Similar to `call-with-output-file`, but installs the newly opened port as the `current-output-port` instead of passing it as an argument.
+;; If *thunk* returns, then the temporary port will be closed and the return value of *thunk* returned.
+;;
+;; (with-output-to-file file proc) > any/c
+;;
+;; - file : string?
+;; - thunk : procedure?
+(define (with-output-to-file file thunk)
+  (call-with-output-file file
+                         (lambda (port)
+                           (parameterize ([current-output-port port])
+                             (thunk)))))
+
+;;@doc
+;; Similar to `call-with-input-file`, but installs the newly opened port as the `current-input-port` instead of passing it as an argument.
+;; If *thunk* returns, then the temporary port will be closed and the return value of *thunk* returned.
+;;
+;; (with-input-from-file file proc) > any/c
+;;
+;; - file : string?
+;; - thunk : procedure?
+(define (with-input-from-file file thunk)
+  (call-with-input-file file
+                           (lambda (port)
+                             (parameterize ([current-input-port port])
+                               (thunk)))))
 
 (define (call-with-output-string proc)
   (define output-string (open-output-string))
