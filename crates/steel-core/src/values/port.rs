@@ -621,14 +621,6 @@ impl SteelPort {
     pub fn close_input_port(&self) -> Result<()> {
         self.port.write().close_input_port()
     }
-
-    pub fn is_output_port_open(&self) -> bool {
-        todo!();
-    }
-
-    pub fn is_input_port_open(&self) -> bool {
-        todo!();
-    }
 }
 
 #[cfg(not(feature = "sync"))]
