@@ -14,7 +14,7 @@ rustyline = { version = "14.0.0", features = ["derive"] }
 colored = "2.0.0"
 steel-core = { workspace = true }
 steel-parser = { path = "../steel-parser", version = "0.6.0"}
-dirs = "5.0.1"
+env_home = "0.1.0"
 ctrlc = "3.4.4"
 crossbeam = "0.8.4"
 

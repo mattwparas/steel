@@ -29,8 +29,6 @@ use std::env;
 
 use std::fs::File;
 
-use dirs;
-
 use crate::highlight::RustylineHelper;
 
 fn display_help() {
@@ -73,7 +71,7 @@ fn get_repl_history_path() -> String {
             parsed_path.to_string_lossy().into_owned()
         }
         None => {
-            let mut default_path = dirs::home_dir().unwrap_or_default();
+            let mut default_path = env_home::env_home_dir().unwrap_or_default();
             default_path.push(".steel/history");
             default_path.to_string_lossy().into_owned()
         }
