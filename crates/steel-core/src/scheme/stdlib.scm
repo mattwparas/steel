@@ -1042,3 +1042,16 @@
     [(_ dylib-name (only-in name ...))
      (begin
        (define name (%module-get% (#%get-dylib dylib-name) (quote name))) ...)]))
+
+(define-syntax define/jit
+  (syntax-rules ()
+    [(define/jit (a args ...) body ...)
+     (begin
+       (define (a args ...)
+         body ...)
+       (set! a (#%jit-compile a)))]
+
+    [(define/jit a b)
+     (begin
+       (define a b)
+       (set! a (#%jit-compile a)))]))

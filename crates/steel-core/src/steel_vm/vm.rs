@@ -2600,8 +2600,9 @@ pub(crate) extern "C" fn num_equal_value_unboxed(
 
 macro_rules! extern_binop {
     ($name:tt, $func:tt) => {
-        pub(crate) extern "C" fn $name(ctx: *mut VmCore, a: i128, b: i128) -> i128 {
-            unsafe { std::mem::transmute($func(&[std::mem::transmute(a), std::mem::transmute(b)])) }
+        #[allow(improper_ctypes_definitions)]
+        pub(crate) extern "C" fn $name(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
+            unsafe { $func(&[a, b]).unwrap() }
         }
     };
 }
@@ -2616,67 +2617,49 @@ extern_binop!(extern_c_gte_two, gte_primitive);
 extern_binop!(extern_c_mult_two, multiply_primitive);
 extern_binop!(extern_c_div_two, divide_primitive);
 
-pub(crate) extern "C" fn push_const_value_c(ctx: *mut VmCore) -> i128 {
-    unsafe {
-        let value = (&mut *ctx).get_const();
-        std::mem::transmute(value)
-    }
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn push_const_value_c(ctx: *mut VmCore) -> SteelVal {
+    unsafe { (&mut *ctx).get_const() }
 }
 
-pub(crate) extern "C" fn move_read_local_0_value_c(ctx: *mut VmCore) -> i128 {
-    unsafe {
-        let value = (&mut *ctx).move_local_value(0);
-        std::mem::transmute(value)
-    }
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn move_read_local_0_value_c(ctx: *mut VmCore) -> SteelVal {
+    unsafe { (&mut *ctx).move_local_value(0) }
 }
 
-pub(crate) extern "C" fn move_read_local_1_value_c(ctx: *mut VmCore) -> i128 {
-    unsafe {
-        let value = (&mut *ctx).move_local_value(1);
-        std::mem::transmute(value)
-    }
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn move_read_local_1_value_c(ctx: *mut VmCore) -> SteelVal {
+    unsafe { (&mut *ctx).move_local_value(1) }
 }
 
-pub(crate) extern "C" fn move_read_local_2_value_c(ctx: *mut VmCore) -> i128 {
-    unsafe {
-        let value = (&mut *ctx).move_local_value(2);
-        std::mem::transmute(value)
-    }
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn move_read_local_2_value_c(ctx: *mut VmCore) -> SteelVal {
+    unsafe { (&mut *ctx).move_local_value(2) }
 }
 
-pub(crate) extern "C" fn move_read_local_3_value_c(ctx: *mut VmCore) -> i128 {
-    unsafe {
-        let value = (&mut *ctx).move_local_value(3);
-        std::mem::transmute(value)
-    }
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn move_read_local_3_value_c(ctx: *mut VmCore) -> SteelVal {
+    unsafe { (&mut *ctx).move_local_value(3) }
 }
 
-pub(crate) extern "C" fn read_local_0_value_c(ctx: *mut VmCore) -> i128 {
-    unsafe {
-        let value = (&mut *ctx).get_local_value(0);
-        std::mem::transmute(value)
-    }
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn read_local_0_value_c(ctx: *mut VmCore) -> SteelVal {
+    unsafe { (&mut *ctx).get_local_value(0) }
 }
 
-pub(crate) extern "C" fn read_local_1_value_c(ctx: *mut VmCore) -> i128 {
-    unsafe {
-        let value = (&mut *ctx).get_local_value(1);
-        std::mem::transmute(value)
-    }
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn read_local_1_value_c(ctx: *mut VmCore) -> SteelVal {
+    unsafe { (&mut *ctx).get_local_value(1) }
 }
 
-pub(crate) extern "C" fn read_local_2_value_c(ctx: *mut VmCore) -> i128 {
-    unsafe {
-        let value = (&mut *ctx).get_local_value(2);
-        std::mem::transmute(value)
-    }
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn read_local_2_value_c(ctx: *mut VmCore) -> SteelVal {
+    unsafe { (&mut *ctx).get_local_value(2) }
 }
 
-pub(crate) extern "C" fn read_local_3_value_c(ctx: *mut VmCore) -> i128 {
-    unsafe {
-        let value = (&mut *ctx).get_local_value(3);
-        std::mem::transmute(value)
-    }
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn read_local_3_value_c(ctx: *mut VmCore) -> SteelVal {
+    unsafe { (&mut *ctx).get_local_value(3) }
 }
 
 pub(crate) extern "C" fn push_int_0(ctx: *mut VmCore) -> i128 {
@@ -2994,9 +2977,9 @@ pub(crate) extern "C" fn should_continue(ctx: *mut VmCore) -> bool {
     unsafe { &mut *ctx }.is_native
 }
 
-pub(crate) extern "C" fn push_to_vm_stack(ctx: *mut VmCore, value: i128) {
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn push_to_vm_stack(ctx: *mut VmCore, value: SteelVal) {
     unsafe {
-        let value: SteelVal = std::mem::transmute(value);
         (&mut *ctx).thread.stack.push(value);
     }
 }
@@ -3011,51 +2994,42 @@ pub(crate) extern "C" fn let_end_scope_c(ctx: *mut VmCore, beginning_scope: usiz
     }
 }
 
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C" fn call_global_function_tail_deopt_0(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
-) -> i128 {
-    unsafe {
-        std::mem::transmute(new_callglobal_tail_handler_deopt_test(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [],
-        ))
-    }
+) -> SteelVal {
+    unsafe { new_callglobal_tail_handler_deopt_test(&mut *ctx, lookup_index, fallback_ip, &mut []) }
 }
 
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C" fn call_global_function_tail_deopt_1(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
-    arg0: i128,
-) -> i128 {
+    arg0: SteelVal,
+) -> SteelVal {
     unsafe {
-        std::mem::transmute(new_callglobal_tail_handler_deopt_test(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [std::mem::transmute(arg0)],
-        ))
+        new_callglobal_tail_handler_deopt_test(&mut *ctx, lookup_index, fallback_ip, &mut [arg0])
     }
 }
 
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C" fn call_global_function_tail_deopt_2(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
-    arg0: i128,
-    arg1: i128,
-) -> i128 {
+    arg0: SteelVal,
+    arg1: SteelVal,
+) -> SteelVal {
     unsafe {
-        std::mem::transmute(new_callglobal_tail_handler_deopt_test(
+        new_callglobal_tail_handler_deopt_test(
             &mut *ctx,
             lookup_index,
             fallback_ip,
-            &mut [std::mem::transmute(arg0), std::mem::transmute(arg1)],
-        ))
+            &mut [arg0, arg1],
+        )
     }
 }
 
@@ -3075,25 +3049,22 @@ pub(crate) extern "C" fn check_callable(ctx: *mut VmCore, lookup_index: usize) -
     }
 }
 
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C" fn call_global_function_tail_deopt_3(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
-    arg0: i128,
-    arg1: i128,
-    arg2: i128,
-) -> i128 {
+    arg0: SteelVal,
+    arg1: SteelVal,
+    arg2: SteelVal,
+) -> SteelVal {
     unsafe {
-        std::mem::transmute(new_callglobal_tail_handler_deopt_test(
+        new_callglobal_tail_handler_deopt_test(
             &mut *ctx,
             lookup_index,
             fallback_ip,
-            &mut [
-                std::mem::transmute(arg0),
-                std::mem::transmute(arg1),
-                std::mem::transmute(arg2),
-            ],
-        ))
+            &mut [arg0, arg1, arg2],
+        )
     }
 }
 

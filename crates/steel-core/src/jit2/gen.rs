@@ -139,6 +139,7 @@ pub struct VmContext {}
 // Wire up with function signatures as well for automated unboxing?
 struct FunctionMap<'a> {
     map: HashMap<&'static str, Box<dyn FunctionToCranelift>>,
+    return_type_hints: HashMap<&'static str, InferredType>,
     builder: &'a mut JITBuilder,
 }
 
@@ -147,6 +148,16 @@ impl<'a> FunctionMap<'a> {
     pub fn add_func(&mut self, name: &'static str, func: impl FunctionToCranelift + 'static) {
         self.builder.symbol(name, func.as_pointer());
         self.map.insert(name, Box::new(func));
+    }
+
+    pub fn add_func_hint(
+        &mut self,
+        name: &'static str,
+        func: impl FunctionToCranelift + 'static,
+        return_type: InferredType,
+    ) {
+        self.add_func(name, func);
+        self.return_type_hints.insert(name, return_type);
     }
 
     pub fn get_signature(&self, name: &'static str, module: &JITModule) -> Signature {
@@ -183,7 +194,7 @@ macro_rules! register_function_pointers_return {
                     sig.params.push(AbiParam::new(type_to_ir_type::<$typ>()));
                 )*
 
-                let return_size = std::mem::size_of::<RET>();
+                let return_size = std::mem::size_of::<RET>().min(1);
 
                 if return_size != 0 {
                     sig.returns.push(AbiParam::new(type_to_ir_type::<RET>()));
@@ -252,9 +263,6 @@ impl Default for JIT {
 
         builder.symbol("call-global", callglobal_handler_deopt_c as *const u8);
 
-        //
-        builder.symbol("push-const", push_const_value_c as *const u8);
-
         // Specialize the constant: Just look up the value itself:
         // This should be used for constants like #f, 1, 2, 3, etc.
         // Simply inline the value directly onto the stack, rather than
@@ -281,14 +289,6 @@ impl Default for JIT {
         );
 
         builder.symbol("push-global-value", push_global as *const u8);
-        builder.symbol("add-binop", extern_c_add_two as *const u8);
-        builder.symbol("sub-binop", extern_c_sub_two as *const u8);
-        builder.symbol("lt-binop", extern_c_lt_two as *const u8);
-        builder.symbol("lte-binop", extern_c_lte_two as *const u8);
-        builder.symbol("gt-binop", extern_c_gt_two as *const u8);
-        builder.symbol("gte-binop", extern_c_gte_two as *const u8);
-        builder.symbol("mult-two", extern_c_mult_two as *const u8);
-        builder.symbol("div-two", extern_c_div_two as *const u8);
 
         builder.symbol(
             "call-global-function-deopt-0",
@@ -330,79 +330,117 @@ impl Default for JIT {
             call_global_function_deopt_3_func as *const u8,
         );
 
-        builder.symbol(
-            "call-global-function-tail-deopt-0",
-            call_global_function_tail_deopt_0 as *const u8,
-        );
-        builder.symbol(
-            "call-global-function-tail-deopt-1",
-            call_global_function_tail_deopt_1 as *const u8,
-        );
-        builder.symbol(
-            "call-global-function-tail-deopt-2",
-            call_global_function_tail_deopt_2 as *const u8,
-        );
-        builder.symbol(
-            "call-global-function-tail-deopt-3",
-            call_global_function_tail_deopt_3 as *const u8,
-        );
-
-        builder.symbol("vm-should-continue?", should_continue as *const u8);
-        builder.symbol("push-to-vm-stack", push_to_vm_stack as *const u8);
-
         builder.symbol("let-end-scope-c", let_end_scope_c as *const u8);
         builder.symbol("set-ctx-ip!", set_ctx_ip as *const u8);
 
         builder.symbol("handle-pop!", extern_handle_pop as *const u8);
 
-        // Check if the function at the global location is in fact the right one.
-        builder.symbol("check-callable", check_callable as *const u8);
-
         let mut map = FunctionMap {
             map: HashMap::new(),
             builder: &mut builder,
+            return_type_hints: HashMap::new(),
         };
 
+        // Check if the function at the global location is in fact the right one.
+        map.add_func(
+            "check-callable",
+            check_callable as extern "C" fn(ctx: *mut VmCore, index: usize) -> bool,
+        );
+
+        map.add_func(
+            "push-to-vm-stack",
+            push_to_vm_stack as extern "C" fn(ctx: *mut VmCore, value: SteelVal),
+        );
+
+        #[allow(improper_ctypes_definitions)]
+        type Vm01 = extern "C" fn(*mut VmCore) -> SteelVal;
+
+        #[allow(improper_ctypes_definitions)]
+        type Vm0b = extern "C" fn(*mut VmCore) -> bool;
+
+        #[allow(improper_ctypes_definitions)]
+        type VmBinOp = extern "C" fn(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal;
+
+        map.add_func("push-const", push_const_value_c as Vm01);
+
+        map.add_func_hint(
+            "add-binop",
+            extern_c_add_two as VmBinOp,
+            InferredType::Number,
+        );
+        map.add_func_hint(
+            "sub-binop",
+            extern_c_sub_two as VmBinOp,
+            InferredType::Number,
+        );
+        map.add_func_hint("lt-binop", extern_c_lt_two as VmBinOp, InferredType::Bool);
+        map.add_func_hint("lte-binop", extern_c_lte_two as VmBinOp, InferredType::Bool);
+        map.add_func_hint("gt-binop", extern_c_gt_two as VmBinOp, InferredType::Bool);
+        map.add_func_hint("gte-binop", extern_c_gte_two as VmBinOp, InferredType::Bool);
+        map.add_func_hint(
+            "mult-two",
+            extern_c_mult_two as VmBinOp,
+            InferredType::Number,
+        );
+        map.add_func_hint("div-two", extern_c_div_two as VmBinOp, InferredType::Number);
+
+        map.add_func(
+            "call-global-function-tail-deopt-0",
+            call_global_function_tail_deopt_0
+                as extern "C" fn(
+                    ctx: *mut VmCore,
+                    lookup_index: usize,
+                    fallback_ip: usize,
+                ) -> SteelVal,
+        );
+
+        map.add_func(
+            "call-global-function-tail-deopt-1",
+            call_global_function_tail_deopt_1
+                as extern "C" fn(
+                    ctx: *mut VmCore,
+                    lookup_index: usize,
+                    fallback_ip: usize,
+                    arg0: SteelVal,
+                ) -> SteelVal,
+        );
+
+        map.add_func(
+            "call-global-function-tail-deopt-2",
+            call_global_function_tail_deopt_2
+                as extern "C" fn(
+                    ctx: *mut VmCore,
+                    lookup_index: usize,
+                    fallback_ip: usize,
+                    arg0: SteelVal,
+                    arg1: SteelVal,
+                ) -> SteelVal,
+        );
+
+        map.add_func(
+            "call-global-function0-tail-deopt-3",
+            call_global_function_tail_deopt_3
+                as extern "C" fn(
+                    ctx: *mut VmCore,
+                    lookup_index: usize,
+                    fallback_ip: usize,
+                    arg0: SteelVal,
+                    arg1: SteelVal,
+                    arg2: SteelVal,
+                ) -> SteelVal,
+        );
+
         // TODO: Pick up from here!
-        map.add_func(
-            "read-local-0",
-            read_local_0_value_c as extern "C" fn(*mut VmCore) -> i128,
-        );
+        map.add_func("read-local-0", read_local_0_value_c as Vm01);
+        map.add_func("read-local-1", read_local_1_value_c as Vm01);
+        map.add_func("read-local-2", read_local_2_value_c as Vm01);
+        map.add_func("read-local-3", read_local_3_value_c as Vm01);
+        map.add_func("move-read-local-0", move_read_local_0_value_c as Vm01);
+        map.add_func("move-read-local-1", move_read_local_1_value_c as Vm01);
+        map.add_func("move-read-local-2", move_read_local_2_value_c as Vm01);
+        map.add_func("move-read-local-3", move_read_local_3_value_c as Vm01);
 
-        map.add_func(
-            "read-local-1",
-            read_local_1_value_c as extern "C" fn(*mut VmCore) -> i128,
-        );
-
-        map.add_func(
-            "read-local-2",
-            read_local_2_value_c as extern "C" fn(*mut VmCore) -> i128,
-        );
-
-        map.add_func(
-            "read-local-3",
-            read_local_3_value_c as extern "C" fn(*mut VmCore) -> i128,
-        );
-
-        map.add_func(
-            "move-read-local-0",
-            move_read_local_0_value_c as extern "C" fn(*mut VmCore) -> i128,
-        );
-
-        map.add_func(
-            "move-read-local-1",
-            move_read_local_1_value_c as extern "C" fn(*mut VmCore) -> i128,
-        );
-
-        map.add_func(
-            "move-read-local-2",
-            move_read_local_2_value_c as extern "C" fn(*mut VmCore) -> i128,
-        );
-
-        map.add_func(
-            "move-read-local-3",
-            move_read_local_3_value_c as extern "C" fn(*mut VmCore) -> i128,
-        );
+        map.add_func("vm-should-continue?", should_continue as Vm0b);
 
         drop(map);
 
