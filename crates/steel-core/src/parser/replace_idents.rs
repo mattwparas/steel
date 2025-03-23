@@ -2,7 +2,7 @@ use fxhash::FxHashMap;
 use smallvec::SmallVec;
 
 use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutRefUnit};
-use crate::compiler::program::SYNTAX_SPAN;
+use crate::compiler::program::{ELLIPSES_SYMBOL, SYNTAX_SPAN};
 use crate::parser::parser::SyntaxObject;
 use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
@@ -68,7 +68,12 @@ fn check_ellipses(expr: &ExprKind) -> bool {
                 ..
             },
         })
-    )
+    ) || matches!(expr, ExprKind::Atom(Atom {
+            syn: SyntaxObject {
+                ty: TokenType::Identifier(t),
+                ..
+            }
+        }) if *t == *ELLIPSES_SYMBOL)
 }
 
 struct EllipsesExpanderVisitor<'a> {

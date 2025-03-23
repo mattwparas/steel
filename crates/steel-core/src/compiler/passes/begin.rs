@@ -104,7 +104,7 @@ impl VisitorMutRef for CheckDefinesAreInLegalPositions {
     }
 
     #[inline]
-    fn visit_quote(&mut self, quote: &mut Quote) -> Self::Output {
+    fn visit_quote(&mut self, _quote: &mut Quote) -> Self::Output {
         // self.visit(&mut quote.expr)?;
         Ok(())
     }

@@ -11,20 +11,24 @@
 ;; Lock the given lock during the duration
 ;; of the thunk.
 (define (lock! lock thunk)
-  (dynamic-wind (lambda () (lock-acquire! lock))
-                (lambda () (thunk))
-                (lambda () (lock-release! lock))))
+  (let ([lock-guard (lock-acquire! lock)])
+    (dynamic-wind (lambda () void) (lambda () (thunk)) (lambda () (lock-release! lock-guard)))))
 
 (struct ThreadPool (task-sender capacity thread-handles))
 
 (struct Task (lock done func-or-result err) #:mutable)
 
+(define *running* 'running)
+(define *waiting* 'waiting)
+(define *done* 'done)
+
 (define (task func)
-  (Task (mutex) #f func #f))
+  (Task (mutex) *waiting* func #f))
 
 ;;@doc
 ;; Check if the given task is done
-(define task-done? Task-done)
+(define (task-done? t)
+  (eq? (Task-done t) 'done))
 
 ;;@doc
 ;; Get the err object (if any) from the given task
@@ -48,15 +52,16 @@
 
     ;; Does this work?
     (with-handler (lambda (err)
-                    (set-Task-done! next-task #t)
+                    (set-Task-done! next-task *done*)
                     (set-Task-err! next-task err))
                   ;; Capture exception, if it exists. Store it in the task
                   (lock! (Task-lock next-task)
                          (lambda ()
+                           (set-Task-done! next-task *running*)
                            ;; This should be fine, we're updating the task to be finished,
                            ;; so we can check the progress of it
                            (set-Task-func-or-result! next-task (func))
-                           (set-Task-done! next-task #t))))
+                           (set-Task-done! next-task *done*))))
 
     (listen-for-tasks))
 
@@ -88,15 +93,15 @@
   ;; block on it
   (define (loop task)
     (cond
-      ;; If its an error, we don't immediately raise
-      ;; the exception for now
-      [(Task-done task)
+      [(equal? (Task-done task) *waiting*) (loop task)]
+      [(equal? (Task-done task) *running*)
+       (try-block task)
+       (loop task)]
+      [(equal? (Task-done task) *done*)
        (if (Task-err task)
            (Task-err task)
            (Task-func-or-result task))]
-      [else
-       (try-block task)
-       (loop task)]))
+      [else (loop task)]))
 
   (loop task))
 

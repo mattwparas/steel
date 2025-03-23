@@ -30,7 +30,7 @@ use crate::{
         ports::{port_module_without_filesystem, EOF_OBJECTP_DEFINITION},
         process::process_module,
         random::random_module,
-        string_module,
+        string_module, symbol_module,
         tcp::tcp_module,
         time::time_module,
         vectors::{
@@ -41,8 +41,7 @@ use crate::{
             MUT_VEC_LENGTH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_TO_LIST_DEFINITION,
             VECTOR_FILL_DEFINITION, VEC_LENGTH_DEFINITION,
         },
-        ControlOperations, IoFunctions, MetaOperations, NumOperations, StreamOperations,
-        SymbolOperations, VectorOperations,
+        ControlOperations, IoFunctions, MetaOperations, StreamOperations, VectorOperations,
     },
     rerrs::ErrorKind,
     rvals::{
@@ -1037,13 +1036,13 @@ fn number_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/numbers");
     module
         .register_native_fn_definition(numbers::ADD_PRIMITIVE_DEFINITION)
-        .register_value("f+", NumOperations::float_add())
+        .register_native_fn_definition(numbers::FLOAT_ADD_DEFINITION)
         .register_native_fn_definition(numbers::MULTIPLY_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::DIVIDE_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::SUBTRACT_PRIMITIVE_DEFINITION)
-        .register_value("even?", NumOperations::even())
-        .register_value("odd?", NumOperations::odd())
-        .register_value("arithmetic-shift", NumOperations::arithmetic_shift())
+        .register_native_fn_definition(numbers::EVEN_DEFINITION)
+        .register_native_fn_definition(numbers::ODD_DEFINITION)
+        .register_native_fn_definition(numbers::ARITHMETIC_SHIFT_DEFINITION)
         .register_native_fn_definition(numbers::ABS_DEFINITION)
         .register_native_fn_definition(numbers::NANP_DEFINITION)
         .register_native_fn_definition(numbers::ZEROP_DEFINITION)
@@ -1064,6 +1063,8 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::INFINITEP_DEFINITION)
         .register_native_fn_definition(numbers::LOG_DEFINITION)
         .register_native_fn_definition(numbers::MAGNITUDE_DEFINITION)
+        .register_native_fn_definition(numbers::REAL_PART_DEFINITION)
+        .register_native_fn_definition(numbers::IMAG_PART_DEFINITION)
         .register_native_fn_definition(numbers::NUMERATOR_DEFINITION)
         .register_native_fn_definition(numbers::QUOTIENT_DEFINITION)
         .register_native_fn_definition(numbers::MODULO_DEFINITION)
@@ -1326,14 +1327,6 @@ pub fn transducer_module() -> BuiltInModule {
         .register_value("into-for-each", crate::values::transducers::FOR_EACH)
         .register_value("into-nth", crate::values::transducers::NTH)
         .register_value("into-reducer", crate::values::transducers::REDUCER);
-    module
-}
-
-fn symbol_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/symbols");
-    module
-        .register_value("concat-symbols", SymbolOperations::concat_symbols())
-        .register_value("symbol->string", SymbolOperations::symbol_to_string());
     module
 }
 

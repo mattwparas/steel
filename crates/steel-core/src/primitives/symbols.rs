@@ -1,5 +1,53 @@
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::{PrimitiveAsRef, RestArgsIter, Result, SteelString, SteelVal};
+use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
+
+pub fn symbol_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("steel/symbols");
+    module
+        .register_value("concat-symbols", SymbolOperations::concat_symbols())
+        .register_value("symbol->string", SymbolOperations::symbol_to_string())
+        .register_native_fn_definition(SYMBOL_EQUALS_DEFINITION);
+    module
+}
+
+pub struct SteelSymbol<'a>(&'a SteelString);
+
+impl<'a> PrimitiveAsRef<'a> for SteelSymbol<'a> {
+    fn primitive_as_ref(val: &'a SteelVal) -> Result<Self> {
+        if let SteelVal::SymbolV(sym) = val {
+            Ok(SteelSymbol(sym))
+        } else {
+            stop!(ConversionError => format!("Cannot convert steel value: {} to steel symbol", val))
+        }
+    }
+
+    fn maybe_primitive_as_ref(val: &'a SteelVal) -> Option<Self> {
+        if let SteelVal::SymbolV(sym) = val {
+            Some(SteelSymbol(sym))
+        } else {
+            None
+        }
+    }
+}
+
+#[steel_derive::function(name = "symbol=?", constant = true)]
+pub fn symbol_equals(mut iter: RestArgsIter<SteelSymbol<'_>>) -> Result<SteelVal> {
+    let Some(mut prev) = iter.next().transpose()? else {
+        stop!(ArityMismatch => "expected at least one argument");
+    };
+
+    for item in iter {
+        let item = item?;
+        if crate::gc::Shared::ptr_eq(&**item.0, &**prev.0) {
+            prev = item;
+        } else {
+            return Ok(SteelVal::BoolV(false));
+        }
+    }
+
+    Ok(SteelVal::BoolV(true))
+}
 
 pub struct SymbolOperations {}
 impl SymbolOperations {

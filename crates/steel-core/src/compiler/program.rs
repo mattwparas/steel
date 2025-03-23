@@ -486,6 +486,7 @@ define_symbols! {
     PRIM_SETBOX => "#%prim.set-box!",
     DEFMACRO => "defmacro",
     BEGIN_FOR_SYNTAX => "begin-for-syntax",
+    ELLIPSES_SYMBOL => "...",
 }
 
 pub fn inline_num_operations(instructions: &mut [Instruction]) {

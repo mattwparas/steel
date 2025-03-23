@@ -100,11 +100,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
     // like this: '(a b c) => '(a b c)
     // '(a b 'c) => '(a b 'c) --- currently this ends up as '(a b c)
     fn visit_quote(&mut self, quote: Box<super::ast::Quote>) -> Self::Output {
-        // dbg!(self.inside_quote);
-
         if self.inside_quote {
-            // self.visit(quote.expr)
-
             Ok(SteelVal::ListV(
                 vec![SteelVal::SymbolV("quote".into()), self.visit(quote.expr)?].into(),
             ))

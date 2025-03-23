@@ -17,3 +17,33 @@
 (define res #`(list 10 20 30 #,@test))
 
 (assert! (equal? (map syntax-e (syntax-e res)) '(list 10 20 30 40 50 60)))
+
+(define-syntax (loop x)
+  (syntax-case x ()
+    [(k e ...)
+     (with-syntax ([break #'k])
+       #'(call-with-current-continuation (lambda (break)
+                                           (let f ()
+                                             e
+                                             ...
+                                             (f)))))]))
+
+(define (func)
+  (displayln "Hello world!"))
+
+(define (test-compile)
+  (loop (func)))
+
+(define-syntax loop2
+  (lambda (x)
+    (syntax-case x ()
+      [(k e ...)
+       (with-syntax ([break #'k])
+         #'(call-with-current-continuation (lambda (break)
+                                             (let f ()
+                                               e
+                                               ...
+                                               (f)))))])))
+
+(define (test-compile2)
+  (loop2 (func)))

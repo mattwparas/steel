@@ -169,6 +169,11 @@
 (assert-equal! 10.0 (magnitude -10.0))
 (assert-equal! 5 (magnitude -3+4i))
 
+(assert-equal! 3 (real-part 3+4i))
+(assert-equal! 42 (real-part 42))
+(assert-equal! 4 (imag-part 3+4i))
+(assert-equal! 0 (imag-part 42))
+
 (assert-equal! 10.0 (ceiling 9.1))
 (assert-equal! 9.0 (floor 9.1))
 (assert-equal! 10.0 (ceiling 10.0))

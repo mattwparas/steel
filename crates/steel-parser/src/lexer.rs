@@ -1,7 +1,9 @@
 use super::parser::SourceId;
-use crate::tokens::{parse_unicode_str, NumberLiteral, Paren, ParenMod, RealLiteral};
 use crate::tokens::{IntLiteral, Token, TokenType};
+use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
 use smallvec::SmallVec;
+use std::borrow::Cow;
+use std::char;
 use std::iter::Iterator;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -15,13 +17,13 @@ pub const NEG_NAN: &str = "-nan.0";
 pub struct OwnedString;
 
 impl ToOwnedString<String> for OwnedString {
-    fn own(&self, s: &str) -> String {
+    fn own(&self, s: Cow<str>) -> String {
         s.to_string()
     }
 }
 
 pub trait ToOwnedString<T> {
-    fn own(&self, s: &str) -> T;
+    fn own(&self, s: Cow<str>) -> T;
 }
 
 pub type Span = core::ops::Range<usize>;
@@ -32,7 +34,7 @@ pub struct Lexer<'a> {
     /// An iterator over the characters.
     chars: Peekable<Chars<'a>>,
     /// The  next token to return or `None` if it should be parsed.
-    queued: Option<TokenType<&'a str>>,
+    queued: Option<TokenType<Cow<'a, str>>>,
     token_start: usize,
     token_end: usize,
 }
@@ -70,114 +72,192 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_string(&mut self) -> Result<TokenType<&'a str>> {
+    fn read_string(&mut self) -> Result<TokenType<Cow<'a, str>>> {
         // Skip the opening quote.
         self.eat();
 
         let mut buf = String::new();
+
         while let Some(&c) = self.chars.peek() {
             self.eat();
             match c {
                 '"' => return Ok(TokenType::StringLiteral(Arc::new(buf))),
-                '\\' => match self.chars.peek() {
-                    Some('"') => {
-                        self.eat();
-                        buf.push('"');
+                '\\' => {
+                    if let Some(c) = self.read_string_escape()? {
+                        buf.push(c);
                     }
-
-                    Some('\\') => {
-                        self.eat();
-                        buf.push('\\')
-                    }
-
-                    Some('t') => {
-                        self.eat();
-                        buf.push('\t');
-                    }
-
-                    Some('n') => {
-                        self.eat();
-                        buf.push('\n');
-                    }
-
-                    Some('r') => {
-                        self.eat();
-                        buf.push('\r');
-                    }
-
-                    Some('0') => {
-                        self.eat();
-                        buf.push('\0');
-                    }
-
-                    Some('x') => {
-                        self.eat();
-
-                        let digit1 = self.eat().ok_or_else(|| TokenError::MalformedByteEscape)?;
-                        let digit2 = self.eat().ok_or_else(|| TokenError::MalformedByteEscape)?;
-
-                        let mut chars = String::new();
-                        chars.push(digit1);
-                        chars.push(digit2);
-
-                        let byte = u8::from_str_radix(&chars, 16)
-                            .map_err(|_| TokenError::MalformedByteEscape)?;
-
-                        let char = char::from_u32(byte as u32)
-                            .ok_or_else(|| TokenError::MalformedByteEscape)?;
-
-                        buf.push(char);
-                    }
-
-                    _ => return Err(TokenError::InvalidEscape),
-                },
+                }
                 _ => buf.push(c),
             }
         }
 
-        buf.insert(0, '"');
         Err(TokenError::IncompleteString)
     }
 
-    fn read_hash_value(&mut self) -> Result<TokenType<&'a str>> {
+    fn read_string_escape(&mut self) -> Result<Option<char>> {
+        let c = match self.chars.peek() {
+            Some('"') => {
+                self.eat();
+                '"'
+            }
+
+            Some('a') => {
+                self.eat();
+                '\x07'
+            }
+
+            Some('b') => {
+                self.eat();
+                '\x08'
+            }
+
+            Some('\\') => {
+                self.eat();
+                '\\'
+            }
+
+            Some('|') => {
+                self.eat();
+                '|'
+            }
+
+            Some('t') => {
+                self.eat();
+                '\t'
+            }
+
+            Some('n') => {
+                self.eat();
+                '\n'
+            }
+
+            Some('r') => {
+                self.eat();
+                '\r'
+            }
+
+            Some('0') => {
+                self.eat();
+                '\0'
+            }
+
+            Some(&code @ ('x' | 'u')) => {
+                self.eat();
+
+                let mut digits = String::new();
+
+                let braces = match self.chars.peek().copied() {
+                    Some('{') if code == 'u' => {
+                        self.eat();
+                        true
+                    }
+                    _ => false,
+                };
+
+                loop {
+                    let Some(c) = self.eat() else {
+                        return Err(TokenError::MalformedByteEscape);
+                    };
+
+                    match c {
+                        ';' if !braces => break,
+                        '}' if braces => break,
+                        c if c.is_ascii_digit() => {
+                            digits.push(c);
+                        }
+                        'a'..='f' | 'A'..='F' => {
+                            digits.push(c);
+                        }
+                        _ => return Err(TokenError::MalformedByteEscape),
+                    }
+                }
+
+                let codepoint = u32::from_str_radix(&digits, 16)
+                    .map_err(|_| TokenError::MalformedByteEscape)?;
+                let char = char::from_u32(codepoint).ok_or(TokenError::MalformedByteEscape)?;
+
+                char
+            }
+
+            Some(&start @ (' ' | '\t' | '\n')) => {
+                self.eat();
+
+                let mut trimming = start == '\n';
+
+                loop {
+                    let Some(c) = self.chars.peek() else {
+                        return Err(TokenError::IncompleteString);
+                    };
+
+                    match c {
+                        ' ' | '\t' => {
+                            self.eat();
+                        }
+                        '\n' if !trimming => {
+                            self.eat();
+                            trimming = true;
+                        }
+                        _ if trimming => return Ok(None),
+
+                        _ => return Err(TokenError::InvalidEscape),
+                    }
+                }
+            }
+
+            Some(_) => return Err(TokenError::InvalidEscape),
+
+            None => return Err(TokenError::IncompleteString),
+        };
+
+        Ok(Some(c))
+    }
+
+    fn read_hash_value(&mut self) -> Result<TokenType<Cow<'a, str>>> {
         fn parse_char(slice: &str) -> Option<char> {
             use std::str::FromStr;
 
-            match slice {
-                "#\\SPACE" => Some(' '),
-                "#\\space" => Some(' '),
-                "#\\\\" => Some('\\'),
-                "#\\tab" => Some('\t'),
-                "#\\TAB" => Some('\t'),
-                "#\\NEWLINE" => Some('\n'),
-                "#\\newline" => Some('\n'),
-                "#\\return" => Some('\r'),
-                "#\\RETURN" => Some('\r'),
-                "#\\NULL" => Some('\0'),
-                "#\\null" => Some('\0'),
-                "#\\ALARM" => Some('\x07'),
-                "#\\alarm" => Some('\x07'),
-                "#\\BACKSPACE" => Some('\x08'),
-                "#\\backspace" => Some('\x08'),
-                "#\\DELETE" => Some('\x7F'),
-                "#\\delete" => Some('\x7F'),
-                "#\\ESCAPE" => Some('\x1B'),
-                "#\\escape" => Some('\x1B'),
-                "#\\)" => Some(')'),
-                "#\\]" => Some(']'),
-                "#\\[" => Some('['),
-                "#\\(" => Some('('),
-                "#\\^" => Some('^'),
+            debug_assert!(slice.len() > 2);
 
-                character if character.starts_with("#\\") => {
-                    let parsed_unicode = parse_unicode_str(character);
+            match &slice[2..] {
+                "alarm" | "ALARM" => Some('\x07'),
+                "backspace" | "BACKSPACE" => Some('\x08'),
+                "delete" | "DELETE" => Some('\x7F'),
+                "escape" | "ESCAPE" => Some('\x1B'),
+                "newline" | "NEWLINE" => Some('\n'),
+                "null" | "NULL" => Some('\0'),
+                "return" | "RETURN" => Some('\r'),
+                "space" | "SPACE" => Some(' '),
+                "tab" | "TAB" => Some('\t'),
+                "\\" => Some('\\'),
+                ")" => Some(')'),
+                "]" => Some(']'),
+                "[" => Some('['),
+                "(" => Some('('),
+                "^" => Some('^'),
 
-                    if parsed_unicode.is_some() {
-                        return parsed_unicode;
+                character => {
+                    let first = character.as_bytes()[0];
+
+                    let escape = (first == b'u' || first == b'x') && slice.len() > 3;
+
+                    if !escape {
+                        return char::from_str(character).ok();
                     }
-                    char::from_str(character.trim_start_matches("#\\")).ok()
+
+                    let payload = if first == b'u' && character.as_bytes().get(1) == Some(&b'{') {
+                        if character.as_bytes().last() != Some(&b'}') {
+                            return None;
+                        }
+
+                        &character[2..(character.len() - 1)]
+                    } else {
+                        &character[1..]
+                    };
+
+                    let code = u32::from_str_radix(payload, 16).ok()?;
+
+                    char::from_u32(code)
                 }
-                _ => None,
             }
         }
 
@@ -240,9 +320,13 @@ impl<'a> Lexer<'a> {
                 Ok(IntLiteral::Small(hex).into())
             }
 
-            keyword if keyword.starts_with("#:") => Ok(TokenType::Keyword(self.slice())),
+            keyword if keyword.starts_with("#:") => Ok(TokenType::Keyword(self.slice().into())),
 
             character if character.starts_with("#\\") => {
+                if character.len() <= 2 {
+                    return Err(TokenError::InvalidCharacter);
+                }
+
                 if let Some(parsed_character) = parse_char(character) {
                     Ok(TokenType::CharacterLiteral(parsed_character))
                 } else {
@@ -260,14 +344,14 @@ impl<'a> Lexer<'a> {
                 Ok(TokenType::OpenParen(Paren::Round, Some(ParenMod::Bytes)))
             }
 
-            _ => Ok(self.read_word()),
+            _ => self.read_word(),
         }
     }
 
-    fn read_number(&mut self) -> TokenType<&'a str> {
+    fn read_number(&mut self) -> Result<TokenType<Cow<'a, str>>> {
         while let Some(&c) = self.chars.peek() {
             match c {
-                c if c.is_numeric() => {
+                c if c.is_ascii_digit() => {
                     self.eat();
                 }
                 '+' | '-' | '.' | '/' | 'e' | 'E' | 'i' => {
@@ -275,14 +359,14 @@ impl<'a> Lexer<'a> {
                 }
                 '(' | ')' | '[' | ']' => {
                     return if let Some(t) = parse_number(self.slice()) {
-                        t.into()
+                        Ok(t.into())
                     } else {
                         self.read_word()
                     }
                 }
                 c if c.is_whitespace() => {
                     return if let Some(t) = parse_number(self.slice()) {
-                        t.into()
+                        Ok(t.into())
                     } else {
                         self.read_word()
                     }
@@ -291,7 +375,7 @@ impl<'a> Lexer<'a> {
             }
         }
         match parse_number(self.slice()) {
-            Some(n) => n.into(),
+            Some(n) => Ok(n.into()),
             None => self.read_word(),
         }
     }
@@ -304,9 +388,36 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_word(&mut self) -> TokenType<&'a str> {
+    fn read_word(&mut self) -> Result<TokenType<Cow<'a, str>>> {
+        let escaped_identifier = self.chars.peek().copied() == Some('|');
+
+        if escaped_identifier {
+            self.eat();
+        }
+
+        let mut ident_buffer = IdentBuffer::new(self.chars.clone());
+
         while let Some(&c) = self.chars.peek() {
             match c {
+                '|' if escaped_identifier => {
+                    self.eat();
+
+                    break;
+                }
+                '\\' if escaped_identifier => {
+                    self.eat();
+
+                    let escaped = self.read_string_escape().map_err(|err| match err {
+                        TokenError::IncompleteString => TokenError::IncompleteIdentifier,
+                        err => err,
+                    })?;
+
+                    ident_buffer.push_escape(escaped);
+                }
+                c if escaped_identifier => {
+                    ident_buffer.push(c);
+                    self.eat();
+                }
                 '(' | '[' | ')' | ']' | '{' | '}' => break,
                 c if c.is_whitespace() => break,
                 '\'' | '"' | '`' | ';' | ',' => {
@@ -325,7 +436,7 @@ impl<'a> Lexer<'a> {
             };
         }
 
-        match self.slice() {
+        let token = match self.slice() {
             "." => TokenType::Dot,
             "define" | "defn" | "#%define" => TokenType::Define,
             "let" => TokenType::Let,
@@ -345,19 +456,33 @@ impl<'a> Lexer<'a> {
             NEG_INFINITY => RealLiteral::Float(f64::NEG_INFINITY).into(),
             NAN => RealLiteral::Float(f64::NAN).into(),
             NEG_NAN => RealLiteral::Float(f64::NAN).into(),
-            "|.|" => TokenType::Identifier("."),
             identifier => {
-                if identifier.len() > 1 && identifier.starts_with('+') && self.queued.is_none() {
-                    self.queued = Some(TokenType::Identifier(&identifier[1..]));
-                    TokenType::Identifier("+")
-                } else {
-                    TokenType::Identifier(identifier)
+                debug_assert!(!identifier.is_empty());
+
+                match identifier.as_bytes() {
+                    [b'+', _, ..] if self.queued.is_none() => {
+                        self.queued = Some(TokenType::Identifier((&identifier[1..]).into()));
+                        TokenType::Identifier("+".into())
+                    }
+                    [b'|', .., b'|'] if escaped_identifier => {
+                        if ident_buffer.ident.is_empty() {
+                            TokenType::Identifier((&identifier[1..identifier.len() - 1]).into())
+                        } else {
+                            TokenType::Identifier(ident_buffer.ident.into())
+                        }
+                    }
+                    _ if escaped_identifier => {
+                        return Err(TokenError::IncompleteIdentifier);
+                    }
+                    _ => TokenType::Identifier(identifier.into()),
                 }
             }
-        }
+        };
+
+        Ok(token)
     }
 
-    fn read_nestable_comment(&mut self) -> Result<TokenType<&'a str>> {
+    fn read_nestable_comment(&mut self) -> Result<TokenType<Cow<'a, str>>> {
         self.eat();
 
         let mut depth = 1;
@@ -385,6 +510,44 @@ impl<'a> Lexer<'a> {
         }
 
         Err(TokenError::IncompleteComment)
+    }
+}
+
+struct IdentBuffer<'a> {
+    chars: Peekable<Chars<'a>>,
+    ident: String,
+    // works as Either:
+    //  - Ok: saw a non-trivial escape, buffering into ident
+    //  - Err: "trivial" string, keeping count of its len
+    mode: std::result::Result<(), usize>,
+}
+
+impl<'a> IdentBuffer<'a> {
+    fn new(chars: Peekable<Chars<'a>>) -> Self {
+        Self {
+            chars,
+            ident: Default::default(),
+            mode: Err(0),
+        }
+    }
+
+    fn push(&mut self, c: char) {
+        if let Err(len) = self.mode.as_mut() {
+            *len += 1;
+        } else {
+            self.ident.push(c);
+        }
+    }
+
+    fn push_escape(&mut self, c: Option<char>) {
+        if let Err(len) = self.mode {
+            self.ident.extend(self.chars.clone().take(len));
+            self.mode = Ok(());
+        }
+
+        if let Some(c) = c {
+            self.ident.push(c);
+        }
     }
 }
 
@@ -480,7 +643,7 @@ impl<'a, T, F: ToOwnedString<T>> OwnedTokenStream<'a, T, F> {
     }
 }
 impl<'a> Iterator for TokenStream<'a> {
-    type Item = Token<'a, &'a str>;
+    type Item = Token<'a, Cow<'a, str>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.lexer.next().and_then(|token| {
@@ -506,6 +669,7 @@ pub type Result<T> = std::result::Result<T, TokenError>;
 pub enum TokenError {
     UnexpectedChar(char),
     IncompleteString,
+    IncompleteIdentifier,
     IncompleteComment,
     InvalidEscape,
     InvalidCharacter,
@@ -516,7 +680,7 @@ pub enum TokenError {
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<TokenType<&'a str>>;
+    type Item = Result<TokenType<Cow<'a, str>>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(t) = self.queued.take() {
@@ -581,8 +745,8 @@ impl<'a> Iterator for Lexer<'a> {
             Some('+') | Some('-') => {
                 self.eat();
                 match self.chars.peek() {
-                    Some(&c) if c.is_numeric() => Some(Ok(self.read_number())),
-                    _ => Some(Ok(self.read_word())),
+                    Some(&c) if c.is_ascii_digit() => Some(self.read_number()),
+                    _ => Some(self.read_word()),
                 }
             }
             Some('#') => {
@@ -601,10 +765,10 @@ impl<'a> Iterator for Lexer<'a> {
                 Some(token)
             }
 
-            Some(c) if !c.is_whitespace() && !c.is_numeric() || *c == '_' => {
-                Some(Ok(self.read_word()))
+            Some(c) if !c.is_whitespace() && !c.is_ascii_digit() || *c == '_' => {
+                Some(self.read_word())
             }
-            Some(c) if c.is_numeric() => Some(Ok(self.read_number())),
+            Some(c) if c.is_ascii_digit() => Some(self.read_number()),
             Some(_) => self.eat().map(|e| Err(TokenError::UnexpectedChar(e))),
             None => None,
         }
@@ -718,6 +882,10 @@ mod lexer_tests {
     use crate::tokens::{IntLiteral, TokenType::*};
     use pretty_assertions::assert_eq;
 
+    fn identifier(ident: &str) -> TokenType<Cow<str>> {
+        Identifier(ident.into())
+    }
+
     // TODO: Figure out why this just cause an infinite loop when parsing it?
     #[test]
     fn test_identifier_with_quote_end() {
@@ -803,6 +971,115 @@ mod lexer_tests {
     }
 
     #[test]
+    fn test_unicode_escapes() {
+        let mut s = TokenStream::new(
+            r#"  #\xAb #\u{0D300} #\u0540 "\x00D;" "\u1044;" "\u{045}"  "#,
+            true,
+            SourceId::none(),
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: CharacterLiteral('«'),
+                source: r#"#\xAb"#,
+                span: Span::new(2, 7, SourceId::none())
+            }
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: CharacterLiteral('팀'),
+                source: r#"#\u{0D300}"#,
+                span: Span::new(8, 18, SourceId::none())
+            }
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: CharacterLiteral('Հ'),
+                source: r#"#\u0540"#,
+                span: Span::new(19, 26, SourceId::none())
+            }
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: StringLiteral(Arc::from("\r".to_string())),
+                source: r#""\x00D;""#,
+                span: Span::new(27, 35, SourceId::none())
+            }
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: StringLiteral(Arc::from("၄".to_string())),
+                source: r#""\u1044;""#,
+                span: Span::new(36, 45, SourceId::none())
+            }
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: StringLiteral(Arc::from("E".to_string())),
+                source: r#""\u{045}""#,
+                span: Span::new(46, 55, SourceId::none())
+            }
+        );
+    }
+
+    #[test]
+    fn test_invalid_unicode_escapes() {
+        let tokens = [
+            r#" #\xd820 "#,
+            r#" #\u{1 "#,
+            r#" "\xabx" "#,
+            r#" "\u0045" "#,
+            r#" #\xaaaaaaaa " "#,
+            r#" "\u{ffffffff}" "#,
+            r#" #\u{} "#,
+        ];
+
+        for token in tokens {
+            let mut s = TokenStream::new(token, true, SourceId::none());
+
+            assert_eq!(s.next().unwrap().ty, Error, "{:?} should be invalid", token);
+        }
+    }
+
+    #[test]
+    fn test_string_newlines() {
+        let mut s = TokenStream::new(
+            " \"foo\nbar\" \"foo \\  \n   bar\" ",
+            true,
+            SourceId::none(),
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: StringLiteral(Arc::from("foo\nbar".to_string())),
+                source: "\"foo\nbar\"",
+                span: Span::new(1, 10, SourceId::none())
+            }
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: StringLiteral(Arc::from("foo bar".to_string())),
+                source: "\"foo \\  \n   bar\"",
+                span: Span::new(11, 27, SourceId::none())
+            }
+        );
+    }
+
+    #[test]
     fn test_unexpected_char() {
         let mut s = TokenStream::new("($)", true, SourceId::none());
         assert_eq!(
@@ -816,7 +1093,7 @@ mod lexer_tests {
         assert_eq!(
             s.next(),
             Some(Token {
-                ty: Identifier("$"),
+                ty: identifier("$"),
                 source: "$",
                 span: Span::new(1, 2, SourceId::none())
             })
@@ -838,7 +1115,7 @@ mod lexer_tests {
         assert_eq!(
             s.next(),
             Some(Token {
-                ty: Identifier("foo"),
+                ty: identifier("foo"),
                 source: "foo",
                 span: Span::new(0, 3, SourceId::none())
             })
@@ -847,7 +1124,7 @@ mod lexer_tests {
         assert_eq!(
             s.next(),
             Some(Token {
-                ty: Identifier("FOO"),
+                ty: identifier("FOO"),
                 source: "FOO",
                 span: Span::new(4, 7, SourceId::none())
             })
@@ -856,7 +1133,7 @@ mod lexer_tests {
         assert_eq!(
             s.next(),
             Some(Token {
-                ty: Identifier("_123_"),
+                ty: identifier("_123_"),
                 source: "_123_",
                 span: Span::new(8, 13, SourceId::none())
             })
@@ -865,7 +1142,7 @@ mod lexer_tests {
         assert_eq!(
             s.next(),
             Some(Token {
-                ty: Identifier("Nil"),
+                ty: identifier("Nil"),
                 source: "Nil",
                 span: Span::new(14, 17, SourceId::none())
             })
@@ -901,37 +1178,37 @@ mod lexer_tests {
             got.as_slice(),
             &[
                 Token {
-                    ty: Identifier("1e"),
+                    ty: identifier("1e"),
                     source: "1e",
                     span: Span::new(0, 2, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("1ee"),
+                    ty: identifier("1ee"),
                     source: "1ee",
                     span: Span::new(3, 6, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("1.2e5.4"),
+                    ty: identifier("1.2e5.4"),
                     source: "1.2e5.4",
                     span: Span::new(7, 14, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("1E10/4"),
+                    ty: identifier("1E10/4"),
                     source: "1E10/4",
                     span: Span::new(15, 21, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("1.45#"),
+                    ty: identifier("1.45#"),
                     source: "1.45#",
                     span: Span::new(22, 27, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("3-"),
+                    ty: identifier("3-"),
                     source: "3-",
                     span: Span::new(28, 30, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("e10"),
+                    ty: identifier("e10"),
                     source: "e10",
                     span: Span::new(31, 34, SourceId::none()),
                 },
@@ -1095,22 +1372,22 @@ mod lexer_tests {
                     span: Span::new(63, 104, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("/"),
+                    ty: identifier("/"),
                     source: "/",
                     span: Span::new(121, 122, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("1/"),
+                    ty: identifier("1/"),
                     source: "1/",
                     span: Span::new(139, 141, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("1/4.0"),
+                    ty: identifier("1/4.0"),
                     source: "1/4.0",
                     span: Span::new(158, 163, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("1//4"),
+                    ty: identifier("1//4"),
                     source: "1//4",
                     span: Span::new(180, 184, SourceId::none()),
                 },
@@ -1120,7 +1397,7 @@ mod lexer_tests {
                     span: Span::new(201, 202, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("/"),
+                    ty: identifier("/"),
                     source: "/",
                     span: Span::new(203, 204, SourceId::none()),
                 },
@@ -1219,27 +1496,27 @@ mod lexer_tests {
             got.as_slice(),
             &[
                 Token {
-                    ty: Identifier("i"),
+                    ty: identifier("i"),
                     source: "i",
                     span: Span::new(0, 1, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("-i"),
+                    ty: identifier("-i"),
                     source: "-i",
                     span: Span::new(2, 4, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("1i+1i"),
+                    ty: identifier("1i+1i"),
                     source: "1i+1i",
                     span: Span::new(5, 10, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("4+i"),
+                    ty: identifier("4+i"),
                     source: "4+i",
                     span: Span::new(11, 14, SourceId::none()),
                 },
                 Token {
-                    ty: Identifier("-4+-2i"),
+                    ty: identifier("-4+-2i"),
                     source: "-4+-2i",
                     span: Span::new(15, 21, SourceId::none()),
                 },
@@ -1286,7 +1563,7 @@ mod lexer_tests {
             true,
             SourceId::none(),
         );
-        let res: Vec<Token<&str>> = s.collect();
+        let res: Vec<Token<Cow<str>>> = s.collect();
 
         println!("{:#?}", res);
     }
@@ -1294,23 +1571,23 @@ mod lexer_tests {
     #[test]
     fn lex_string_with_escape_chars() {
         let s = TokenStream::new("\"\0\0\0\"", true, SourceId::none());
-        let res: Vec<Token<&str>> = s.collect();
+        let res: Vec<Token<Cow<str>>> = s.collect();
         println!("{:#?}", res);
     }
 
     #[test]
     fn scheme_statement() {
         let s = TokenStream::new("(apples (function a b) (+ a b))", true, SourceId::none());
-        let res: Vec<Token<&str>> = s.collect();
+        let res: Vec<Token<Cow<str>>> = s.collect();
 
-        let expected: Vec<Token<&str>> = vec![
+        let expected: Vec<Token<Cow<str>>> = vec![
             Token {
                 ty: OpenParen(Paren::Round, None),
                 source: "(",
                 span: Span::new(0, 1, SourceId::none()),
             },
             Token {
-                ty: Identifier("apples"),
+                ty: identifier("apples"),
                 source: "apples",
                 span: Span::new(1, 7, SourceId::none()),
             },
@@ -1320,17 +1597,17 @@ mod lexer_tests {
                 span: Span::new(8, 9, SourceId::none()),
             },
             Token {
-                ty: Identifier("function"),
+                ty: identifier("function"),
                 source: "function",
                 span: Span::new(9, 17, SourceId::none()),
             },
             Token {
-                ty: Identifier("a"),
+                ty: identifier("a"),
                 source: "a",
                 span: Span::new(18, 19, SourceId::none()),
             },
             Token {
-                ty: Identifier("b"),
+                ty: identifier("b"),
                 source: "b",
                 span: Span::new(20, 21, SourceId::none()),
             },
@@ -1345,17 +1622,17 @@ mod lexer_tests {
                 span: Span::new(23, 24, SourceId::none()),
             },
             Token {
-                ty: Identifier("+"),
+                ty: identifier("+"),
                 source: "+",
                 span: Span::new(24, 25, SourceId::none()),
             },
             Token {
-                ty: Identifier("a"),
+                ty: identifier("a"),
                 source: "a",
                 span: Span::new(26, 27, SourceId::none()),
             },
             Token {
-                ty: Identifier("b"),
+                ty: identifier("b"),
                 source: "b",
                 span: Span::new(28, 29, SourceId::none()),
             },
@@ -1377,11 +1654,11 @@ mod lexer_tests {
     #[test]
     fn test_bigint() {
         let s = TokenStream::new("9223372036854775808", true, SourceId::none()); // isize::MAX + 1
-        let res: Vec<Token<&str>> = s.collect();
+        let res: Vec<Token<Cow<str>>> = s.collect();
 
         let expected_bigint = Box::new("9223372036854775808".parse().unwrap());
 
-        let expected: Vec<Token<&str>> = vec![Token {
+        let expected: Vec<Token<Cow<str>>> = vec![Token {
             ty: IntLiteral::Big(expected_bigint).into(),
             source: "9223372036854775808",
             span: Span::new(0, 19, SourceId::none()),
@@ -1393,11 +1670,11 @@ mod lexer_tests {
     #[test]
     fn negative_test_bigint() {
         let s = TokenStream::new("-9223372036854775809", true, SourceId::none()); // isize::MIN - 1
-        let res: Vec<Token<&str>> = s.collect();
+        let res: Vec<Token<Cow<str>>> = s.collect();
 
         let expected_bigint = Box::new("-9223372036854775809".parse().unwrap());
 
-        let expected: Vec<Token<&str>> = vec![Token {
+        let expected: Vec<Token<Cow<str>>> = vec![Token {
             ty: IntLiteral::Big(expected_bigint).into(),
             source: "-9223372036854775809",
             span: Span::new(0, 20, SourceId::none()),
@@ -1410,27 +1687,27 @@ mod lexer_tests {
     fn identifier_test() {
         let s = TokenStream::new("a b(c`d'e\"www\"f,g;", true, SourceId::none());
 
-        let tokens: Vec<(TokenType<&str>, &str)> =
+        let tokens: Vec<(TokenType<Cow<str>>, &str)> =
             s.map(|token| (token.ty, token.source)).collect();
 
-        assert_eq!(tokens[0], (TokenType::Identifier("a"), "a"));
-        assert_eq!(tokens[1], (TokenType::Identifier("b"), "b"));
-        assert_eq!(tokens[3], (TokenType::Identifier("c"), "c"));
-        assert_eq!(tokens[5], (TokenType::Identifier("d"), "d"));
-        assert_eq!(tokens[7], (TokenType::Identifier("e"), "e"));
-        assert_eq!(tokens[9], (TokenType::Identifier("f"), "f"));
-        assert_eq!(tokens[11], (TokenType::Identifier("g"), "g"));
+        assert_eq!(tokens[0], (identifier("a"), "a"));
+        assert_eq!(tokens[1], (identifier("b"), "b"));
+        assert_eq!(tokens[3], (identifier("c"), "c"));
+        assert_eq!(tokens[5], (identifier("d"), "d"));
+        assert_eq!(tokens[7], (identifier("e"), "e"));
+        assert_eq!(tokens[9], (identifier("f"), "f"));
+        assert_eq!(tokens[11], (identifier("g"), "g"));
     }
 
     #[test]
     fn vector_test() {
         let s = TokenStream::new("a b #(c d)", true, None);
 
-        let tokens: Vec<(TokenType<&str>, &str)> =
+        let tokens: Vec<(TokenType<Cow<str>>, &str)> =
             s.map(|token| (token.ty, token.source)).collect();
 
-        assert_eq!(tokens[0], (TokenType::Identifier("a"), "a"));
-        assert_eq!(tokens[1], (TokenType::Identifier("b"), "b"));
+        assert_eq!(tokens[0], (identifier("a"), "a"));
+        assert_eq!(tokens[1], (identifier("b"), "b"));
         assert_eq!(
             tokens[2],
             (
@@ -1438,19 +1715,19 @@ mod lexer_tests {
                 "#("
             )
         );
-        assert_eq!(tokens[3], (TokenType::Identifier("c"), "c"));
-        assert_eq!(tokens[4], (TokenType::Identifier("d"), "d"));
+        assert_eq!(tokens[3], (identifier("c"), "c"));
+        assert_eq!(tokens[4], (identifier("d"), "d"));
     }
 
     #[test]
     fn bytevector_test() {
         let s = TokenStream::new("a b #u8(1 2)", true, None);
 
-        let tokens: Vec<(TokenType<&str>, &str)> =
+        let tokens: Vec<(TokenType<Cow<str>>, &str)> =
             s.map(|token| (token.ty, token.source)).collect();
 
-        assert_eq!(tokens[0], (TokenType::Identifier("a"), "a"));
-        assert_eq!(tokens[1], (TokenType::Identifier("b"), "b"));
+        assert_eq!(tokens[0], (identifier("a"), "a"));
+        assert_eq!(tokens[1], (identifier("b"), "b"));
         assert_eq!(
             tokens[2],
             (
@@ -1459,22 +1736,6 @@ mod lexer_tests {
             )
         );
         assert_eq!(tokens[5], (TokenType::CloseParen(Paren::Round), ")"));
-    }
-
-    #[test]
-    fn escaped_identifier_test() {
-        let token = TokenStream::new("|.|", true, SourceId::none())
-            .next()
-            .unwrap();
-
-        assert_eq!(
-            token,
-            Token {
-                ty: TokenType::Identifier("."),
-                source: "|.|",
-                span: Span::new(0, 3, SourceId::none())
-            }
-        )
     }
 
     #[test]
@@ -1500,5 +1761,57 @@ mod lexer_tests {
         let mut lexer = Lexer::new("#|");
 
         assert_eq!(lexer.next().unwrap(), Err(TokenError::IncompleteComment));
+    }
+
+    #[test]
+    fn escaped_identifier_test() {
+        let mut s = TokenStream::new(r#"|a| |a b| |\x61;| |.|"#, true, SourceId::none());
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: identifier("a"),
+                source: "|a|",
+                span: Span::new(0, 3, None),
+            },
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: identifier("a b"),
+                source: "|a b|",
+                span: Span::new(4, 9, None),
+            },
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: identifier("a"),
+                source: r#"|\x61;|"#,
+                span: Span::new(10, 17, None),
+            },
+        );
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: identifier("."),
+                source: "|.|",
+                span: Span::new(18, 21, None),
+            },
+        );
+
+        let mut s = TokenStream::new("|a\\\nb|", true, SourceId::none());
+
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: identifier("ab"),
+                source: "|a\\\nb|",
+                span: Span::new(0, 6, None),
+            },
+        );
     }
 }
