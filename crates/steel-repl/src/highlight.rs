@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use rustyline::highlight::Highlighter;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 
+use rustyline::Helper;
 use rustyline::{hint::Hinter, Context};
-use rustyline_derive::Helper;
 
 use steel_parser::lexer::TokenStream;
 
