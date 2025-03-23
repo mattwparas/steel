@@ -1,7 +1,6 @@
 use crate::rvals::{Custom, Result, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::{steelerr, stop, throw};
-use dirs;
 use std::env::{current_dir, set_current_dir};
 use std::path::{Path, PathBuf};
 
@@ -248,7 +247,7 @@ pub fn canonicalize_path(path: &SteelString) -> Result<SteelVal> {
         if path.len() > 1 && !path.starts_with("~/") {
             steelerr!(Generic => "references to other users home directories are not supported")?
         } else {
-            let mut expanded = dirs::home_dir()
+            let mut expanded = env_home::env_home_dir()
                 .ok_or_else(throw!(Generic => "could not determine user home directory"))?;
             if path.len() > 2 {
                 expanded.push(&path[2..]);
