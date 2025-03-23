@@ -3221,6 +3221,7 @@ dependencies = [
  "memchr",
  "nix 0.28.0",
  "radix_trie",
+ "rustyline-derive",
  "unicode-segmentation",
  "unicode-width",
  "utf8parse",
@@ -3229,13 +3230,13 @@ dependencies = [
 
 [[package]]
 name = "rustyline-derive"
-version = "0.7.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "107c3d5d7f370ac09efa62a78375f94d94b8a33c61d8c278b96683fb4dbf2d8d"
+checksum = "e5af959c8bf6af1aff6d2b463a57f71aae53d1332da58419e30ad8dc7011d951"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 1.0.109",
+ "syn 2.0.98",
 ]
 
 [[package]]
@@ -3687,7 +3688,6 @@ dependencies = [
  "ctrlc",
  "dirs",
  "rustyline",
- "rustyline-derive",
  "steel-core",
  "steel-parser",
 ]
