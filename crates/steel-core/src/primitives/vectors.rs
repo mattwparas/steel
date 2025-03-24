@@ -62,11 +62,22 @@ fn immutable_vector_rest(vector: &mut SteelVal) -> Result<SteelVal> {
         },
 
         _ => {
-            stop!(TypeMismatch => "immutable-vector-rest expected either a mutable or immutable vector, found: {:?}", vector);
+            stop!(TypeMismatch => "immutable-vector-rest expected either an immutable vector, found: {:?}", vector);
         }
     }
 }
 
+/// Converts an immutable vector into a list.
+///
+/// (immutable-vector->list vec) -> list?
+///
+/// * vec : immutable-vector?
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 1 2 3))
+/// > (immutable-vector->list A) ;; => '(1 2 3)
+/// ```
 #[steel_derive::function(name = "immutable-vector->list")]
 fn immutable_vector_to_list(
     vector: &SteelVector,
@@ -79,6 +90,17 @@ fn immutable_vector_to_list(
     Ok(SteelVal::ListV(items.collect()))
 }
 
+/// Converts a vector of characters into a string.
+///
+/// (vector->string vec) -> string?
+///
+/// * vec : vector?
+///
+/// # Examples
+/// ```scheme
+/// > (define A (vector #\a #\b #\c))
+/// > (vector->string A) ;; => "abc"
+/// ```
 #[steel_derive::function(name = "vector->string")]
 fn vector_to_string(
     vector: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>,
@@ -104,6 +126,17 @@ fn vector_to_string(
     }
 }
 
+/// Converts an immutable vector of characters into a string.
+///
+/// (immutable-vector->string vec) -> string?
+///
+/// * vec : immutable-vector?
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector #\a #\b #\c))
+/// > (immutable-vector->string A) ;; => "abc"
+/// ```
 #[steel_derive::function(name = "immutable-vector->string")]
 fn immutable_vector_to_string(
     vector: &SteelVector,
@@ -122,6 +155,17 @@ fn immutable_vector_to_string(
         .map(SteelVal::StringV)
 }
 
+/// Returns a new copy of the given vector.
+///
+/// (vector-copy vec) -> vector?
+///
+/// * vec : vector?
+///
+/// # Examples
+/// ```scheme
+/// > (define A (vector 1 2 3))
+/// > (vector-copy A) ;; => '#(1 2 3)
+/// ```
 #[steel_derive::context(name = "vector-copy", arity = "AtLeast(1)")]
 fn vector_copy(
     ctx: &mut crate::steel_vm::vm::VmCore,
@@ -167,6 +211,17 @@ fn vector_copy(
     Some(vector_copy_impl(ctx, args))
 }
 
+/// Returns a new copy of the given immutable vector.
+///
+/// (immutable-vector-copy vec) -> immutable-vector?
+///
+/// * vec : immutable-vector?
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 1 2 3))
+/// > (immutable-vector-copy A) ;; => '#(1 2 3)
+/// ```
 #[steel_derive::function(name = "immutable-vector-copy")]
 fn immutable_vector_copy(vector: &SteelVector, rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let (start, end) = bounds(rest, "immutable-vector-copy", 3, vector)?;
@@ -215,6 +270,18 @@ fn vector_append(
     Some(vector_copy_impl(ctx, args))
 }
 
+/// Combines the given immutable vectors.
+///
+/// (immutable-vector-append vecs) -> immutable-vector?
+///
+/// * vecs : immutable-vector? - The vectors to combine.
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 1 2 3))
+/// > (define B (immutable-vector 4 5 6))
+/// > (immutable-vector-append A B) ;; => '#(1 2 3 4 5 6)
+/// ```
 #[steel_derive::function(name = "immutable-vector-append")]
 fn immutable_vector_append(mut rest: RestArgsIter<'_, &SteelVector>) -> Result<SteelVal> {
     let mut vector = Vector::new();
@@ -226,6 +293,19 @@ fn immutable_vector_append(mut rest: RestArgsIter<'_, &SteelVector>) -> Result<S
     Ok(SteelVal::VectorV(Gc::new(vector).into()))
 }
 
+/// Creates an immutable vector of a given length, filled with an optional value.
+/// (which defaults to '#<void>')
+///
+/// (make-immutable-vector len [val]) -> immutable-vector?
+///
+/// * len : integer?
+/// * val : any? = #<void>
+///
+/// # Examples
+/// ```scheme
+/// > (make-immutable-vector 3 5) ;; => '#(5 5 5)
+/// > (make-immutable-vector 2) ;; => '#(#<void> #<void>)
+/// ```
 #[steel_derive::function(name = "make-immutable-vector")]
 fn make_immutable_vector(mut rest: RestArgsIter<'_, &SteelVal>) -> Result<SteelVal> {
     if rest.len() > 2 {
@@ -253,6 +333,17 @@ fn make_immutable_vector(mut rest: RestArgsIter<'_, &SteelVal>) -> Result<SteelV
 }
 
 /// Pushes a value to the back of the vector, returning a new vector.
+///
+/// (immutable-vector-push vec val) -> immutable-vector?
+///
+/// * vec : immutable-vector?
+/// * val : any?
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 1 2 3))
+/// > (immutable-vector-push A 5) ;; => '#(1 2 3 5)
+/// ```
 #[steel_derive::function(name = "immutable-vector-push")]
 fn immutable_vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
     match vector {
