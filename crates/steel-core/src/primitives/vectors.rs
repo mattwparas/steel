@@ -365,7 +365,7 @@ fn immutable_vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<Steel
     }
 }
 
-/// Pushes a value to the back of the vector, returning a new vector.
+// TODO: Register this function?
 #[steel_derive::function(name = "vector-push")]
 fn vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
     match vector {
@@ -392,6 +392,18 @@ fn vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Pushes a value to the front of the vector, returning a new vector.
+///
+/// (vector-push-front vec val) -> immutable-vector?
+///
+/// * vec : immutable-vector?
+/// * val : any?
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 1 2 3))
+/// > (vector-push-front A 5) ;; => '#(5 1 2 3)
+/// ```
 #[steel_derive::function(name = "vector-push-front")]
 fn immutable_vector_push_front(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
     match vector {
@@ -901,6 +913,18 @@ pub fn vec_construct_iter_normal<I: Iterator<Item = SteelVal>>(arg: I) -> Result
     ))
 }
 
+/// Combines the given vectors.
+///
+/// (vec-append . vecs) -> immutable-vector?
+///
+/// * vecs : immutable-vector? - The vectors to combine.
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 1 2 3))
+/// > (define B (immutable-vector 4 5))
+/// > (vec-append A B) ;; => '#(1 2 3 4 5)
+/// ```
 #[steel_derive::native(name = "vec-append", constant = true, arity = "AtLeast(0)")]
 pub fn vec_append(args: &[SteelVal]) -> Result<SteelVal> {
     let lsts: Vector<SteelVal> = unwrap_list_of_lists(args.to_vec())?
