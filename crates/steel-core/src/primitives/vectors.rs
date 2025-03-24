@@ -799,179 +799,173 @@ pub fn vec_construct_iter_normal<I: Iterator<Item = SteelVal>>(arg: I) -> Result
     ))
 }
 
-pub struct VectorOperations {}
-impl VectorOperations {
-    pub fn vec_append() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            let lsts: Vector<SteelVal> = unwrap_list_of_lists(args.to_vec())?
-                .into_iter()
-                .flatten()
-                .collect();
-            Ok(SteelVal::VectorV(Gc::new(lsts).into()))
-        })
+#[steel_derive::native(name = "vec-append", constant = true, arity = "AtLeast(0)")]
+pub fn vec_append(args: &[SteelVal]) -> Result<SteelVal> {
+    let lsts: Vector<SteelVal> = unwrap_list_of_lists(args.to_vec())?
+        .into_iter()
+        .flatten()
+        .collect();
+    Ok(SteelVal::VectorV(Gc::new(lsts).into()))
+}
+
+#[steel_derive::native(name = "vector-ref", constant = true, arity = "Exact(2)")]
+pub fn vec_ref(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() != 2 {
+        stop!(ArityMismatch => "vector-ref takes two arguments");
     }
-
-    pub fn vec_ref() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => "vector-ref takes two arguments");
-            }
-            let mut args = args.iter();
-            match (args.next(), args.next()) {
-                (Some(vec), Some(idx)) => {
-                    if let SteelVal::MutableVector(v) = &vec {
-                        if let SteelVal::IntV(i) = idx.clone() {
-                            if i < 0 {
-                                stop!(Generic => "vector-ref expects a positive integer, found: {:?}", vec);
-                            }
-
-                            let ptr = v.strong_ptr();
-
-                            let guard = &mut ptr.write().value;
-
-                            if i as usize >= guard.len() {
-                                stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
-                            }
-
-                            // Grab the value out of the vector
-                            return Ok(guard[i as usize].clone());
-                        } else {
-                            stop!(TypeMismatch => "vector-ref expects an integer, found: {:?}", idx);
-                        }
+    let mut args = args.iter();
+    match (args.next(), args.next()) {
+        (Some(vec), Some(idx)) => {
+            if let SteelVal::MutableVector(v) = &vec {
+                if let SteelVal::IntV(i) = idx.clone() {
+                    if i < 0 {
+                        stop!(Generic => "vector-ref expects a positive integer, found: {:?}", vec);
                     }
 
-                    if let (VectorV(vec), IntV(idx)) = (vec, idx) {
-                        if idx < &0 {
-                            stop!(TypeMismatch => "vector-ref expected a positive integer");
-                        }
+                    let ptr = v.strong_ptr();
 
-                        let idx: usize = *idx as usize;
+                    let guard = &mut ptr.write().value;
 
-                        if idx < vec.len() {
-                            Ok(vec[idx].clone())
-                        } else {
-                            let e = format!("Index out of bounds - attempted to access index: {} with length: {}", idx, vec.len());
-                            stop!(Generic => e);
-                        }
-                    } else {
-                        stop!(TypeMismatch => format!("vector-ref expected a vector and a number, found: {vec} and {idx}"))
+                    if i as usize >= guard.len() {
+                        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
                     }
+
+                    // Grab the value out of the vector
+                    return Ok(guard[i as usize].clone());
+                } else {
+                    stop!(TypeMismatch => "vector-ref expects an integer, found: {:?}", idx);
                 }
-                _ => stop!(ArityMismatch => "vector-ref takes two arguments"),
             }
-        })
-    }
 
-    pub fn vec_push() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => "push takes two arguments");
-            }
-            let mut args = args.iter();
-            match (args.next(), args.next()) {
-                (Some(elem), Some(lst)) => {
-                    if let SteelVal::VectorV(l) = lst {
-                        let mut l = l.0.unwrap();
-                        l.push_back(elem.clone());
-                        Ok(SteelVal::VectorV(Gc::new(l).into()))
-                    } else {
-                        let mut new = Vector::new();
-                        new.push_front(elem.clone());
-                        new.push_front(lst.clone());
-                        Ok(SteelVal::VectorV(Gc::new(new).into()))
-                    }
+            if let (VectorV(vec), IntV(idx)) = (vec, idx) {
+                if idx < &0 {
+                    stop!(TypeMismatch => "vector-ref expected a positive integer");
                 }
-                _ => stop!(ArityMismatch => "push takes two arguments"),
-            }
-        })
-    }
 
-    pub fn vec_cons() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => "cons takes two arguments")
-            }
-            let mut args = args.iter();
-            match (args.next(), args.next()) {
-                (Some(elem), Some(lst)) => {
-                    if let SteelVal::VectorV(l) = lst {
-                        let mut l = l.0.unwrap();
-                        l.push_front(elem.clone());
-                        Ok(SteelVal::VectorV(Gc::new(l).into()))
-                    } else {
-                        let mut new = Vector::new();
-                        new.push_front(lst.clone());
-                        new.push_front(elem.clone());
-                        Ok(SteelVal::VectorV(Gc::new(new).into()))
-                    }
-                }
-                _ => stop!(ArityMismatch => "cons takes two arguments"),
-            }
-        })
-    }
+                let idx: usize = *idx as usize;
 
-    pub fn vec_car() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 1 {
-                stop!(ArityMismatch => "car takes one argument");
-            }
-            if let Some(first) = args.iter().next() {
-                match first {
-                    SteelVal::VectorV(e) => {
-                        let mut e = e.0.unwrap();
-                        match e.pop_front() {
-                            Some(e) => Ok(e),
-                            None => stop!(ContractViolation => "car expects a non empty list"),
-                        }
-                    }
-                    e => {
-                        stop!(TypeMismatch => "car takes a list, given: {}", e);
-                    }
+                if idx < vec.len() {
+                    Ok(vec[idx].clone())
+                } else {
+                    let e = format!(
+                        "Index out of bounds - attempted to access index: {} with length: {}",
+                        idx,
+                        vec.len()
+                    );
+                    stop!(Generic => e);
                 }
             } else {
-                stop!(ArityMismatch => "car takes one argument");
+                stop!(TypeMismatch => format!("vector-ref expected a vector and a number, found: {vec} and {idx}"))
             }
-        })
+        }
+        _ => stop!(ArityMismatch => "vector-ref takes two arguments"),
     }
+}
 
-    pub fn vec_cdr() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 1 {
-                stop!(ArityMismatch => "cdr takes one argument");
-            }
-            if let Some(first) = args.iter().next() {
-                match first {
-                    SteelVal::VectorV(e) => {
-                        let mut e = e.0.unwrap();
-                        if !e.is_empty() {
-                            e.pop_front();
-                            Ok(SteelVal::VectorV(Gc::new(e).into()))
-                        } else {
-                            stop!(ContractViolation => "cdr expects a non empty list")
-                        }
-                    }
-                    e => {
-                        stop!(TypeMismatch => "cdr takes a list, given: {}", e);
-                    }
-                }
-            } else {
-                stop!(ArityMismatch => "cdr takes one argument");
-            }
-        })
+#[steel_derive::native(name = "push", constant = true, arity = "Exact(2)")]
+pub fn vec_push(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() != 2 {
+        stop!(ArityMismatch => "push takes two arguments");
     }
-
-    pub fn list_vec_null() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 1 {
-                match &args[0] {
-                    SteelVal::ListV(l) => Ok(l.is_empty().into()),
-                    SteelVal::VectorV(v) => Ok(v.is_empty().into()),
-                    _ => Ok(SteelVal::BoolV(false)),
-                }
+    let mut args = args.iter();
+    match (args.next(), args.next()) {
+        (Some(elem), Some(lst)) => {
+            if let SteelVal::VectorV(l) = lst {
+                let mut l = l.0.unwrap();
+                l.push_back(elem.clone());
+                Ok(SteelVal::VectorV(Gc::new(l).into()))
             } else {
-                stop!(ArityMismatch => "null? takes one argument");
+                let mut new = Vector::new();
+                new.push_front(elem.clone());
+                new.push_front(lst.clone());
+                Ok(SteelVal::VectorV(Gc::new(new).into()))
             }
-        })
+        }
+        _ => stop!(ArityMismatch => "push takes two arguments"),
+    }
+}
+
+#[steel_derive::native(name = "push-front", constant = true, arity = "Exact(2)")]
+pub fn vec_cons(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() != 2 {
+        stop!(ArityMismatch => "cons takes two arguments")
+    }
+    let mut args = args.iter();
+    match (args.next(), args.next()) {
+        (Some(elem), Some(lst)) => {
+            if let SteelVal::VectorV(l) = lst {
+                let mut l = l.0.unwrap();
+                l.push_front(elem.clone());
+                Ok(SteelVal::VectorV(Gc::new(l).into()))
+            } else {
+                let mut new = Vector::new();
+                new.push_front(lst.clone());
+                new.push_front(elem.clone());
+                Ok(SteelVal::VectorV(Gc::new(new).into()))
+            }
+        }
+        _ => stop!(ArityMismatch => "cons takes two arguments"),
+    }
+}
+
+#[steel_derive::native(name = "pop-front", constant = true, arity = "Exact(1)")]
+pub fn vec_car(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() != 1 {
+        stop!(ArityMismatch => "car takes one argument");
+    }
+    if let Some(first) = args.iter().next() {
+        match first {
+            SteelVal::VectorV(e) => {
+                let mut e = e.0.unwrap();
+                match e.pop_front() {
+                    Some(e) => Ok(e),
+                    None => stop!(ContractViolation => "car expects a non empty list"),
+                }
+            }
+            e => {
+                stop!(TypeMismatch => "car takes a list, given: {}", e);
+            }
+        }
+    } else {
+        stop!(ArityMismatch => "car takes one argument");
+    }
+}
+
+#[steel_derive::native(name = "vec-rest", constant = true, arity = "Exact(1)")]
+pub fn vec_cdr(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() != 1 {
+        stop!(ArityMismatch => "cdr takes one argument");
+    }
+    if let Some(first) = args.iter().next() {
+        match first {
+            SteelVal::VectorV(e) => {
+                let mut e = e.0.unwrap();
+                if !e.is_empty() {
+                    e.pop_front();
+                    Ok(SteelVal::VectorV(Gc::new(e).into()))
+                } else {
+                    stop!(ContractViolation => "cdr expects a non empty list")
+                }
+            }
+            e => {
+                stop!(TypeMismatch => "cdr takes a list, given: {}", e);
+            }
+        }
+    } else {
+        stop!(ArityMismatch => "cdr takes one argument");
+    }
+}
+
+#[steel_derive::native(name = "null?", constant = true, arity = "Exact(1)")]
+pub fn list_vec_null(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() == 1 {
+        match &args[0] {
+            SteelVal::ListV(l) => Ok(l.is_empty().into()),
+            SteelVal::VectorV(v) => Ok(v.is_empty().into()),
+            _ => Ok(SteelVal::BoolV(false)),
+        }
+    } else {
+        stop!(ArityMismatch => "null? takes one argument");
     }
 }
 
@@ -1080,7 +1074,7 @@ mod vector_prim_tests {
             vector![SteelVal::IntV(1), SteelVal::IntV(2), SteelVal::IntV(3)].into(),
         ];
 
-        let res = apply_function(VectorOperations::vec_append(), args);
+        let res = vec_append(&args);
         let expected = vector![
             SteelVal::IntV(1),
             SteelVal::IntV(2),
@@ -1103,7 +1097,7 @@ mod vector_prim_tests {
             SteelVal::StringV("foo".into()),
             vector![SteelVal::IntV(1), SteelVal::IntV(2), SteelVal::IntV(3)].into(),
         ];
-        let res = apply_function(VectorOperations::vec_append(), args);
+        let res = vec_append(&args);
         assert!(res.is_err());
     }
 
@@ -1149,7 +1143,7 @@ mod vector_prim_tests {
     #[test]
     fn vec_push_arity_too_few() {
         let args = vec![SteelVal::StringV("foo".into())];
-        let res = apply_function(VectorOperations::vec_push(), args);
+        let res = vec_push(&args);
         assert!(res.is_err());
     }
 
@@ -1160,7 +1154,7 @@ mod vector_prim_tests {
             SteelVal::StringV("foo".into()),
             SteelVal::StringV("foo".into()),
         ];
-        let res = apply_function(VectorOperations::vec_push(), args);
+        let res = vec_push(&args);
         assert!(res.is_err());
     }
 
@@ -1170,7 +1164,7 @@ mod vector_prim_tests {
             SteelVal::StringV("baz".into()),
             SteelVal::StringV("bar".into()),
         ];
-        let res = apply_function(VectorOperations::vec_push(), args);
+        let res = vec_push(&args);
         let expected = vector![
             SteelVal::StringV("bar".into()),
             SteelVal::StringV("baz".into()),
@@ -1189,7 +1183,7 @@ mod vector_prim_tests {
             ]
             .into(),
         ];
-        let res = apply_function(VectorOperations::vec_push(), args);
+        let res = vec_push(&args);
         let expected = vector![
             SteelVal::StringV("foo".into()),
             SteelVal::StringV("bar".into()),
@@ -1202,7 +1196,7 @@ mod vector_prim_tests {
     #[test]
     fn vec_cons_test_arity_too_few() {
         let args = vec![];
-        let res = apply_function(VectorOperations::vec_cons(), args);
+        let res = vec_cons(&args);
         assert!(res.is_err());
     }
 
@@ -1213,7 +1207,7 @@ mod vector_prim_tests {
             SteelVal::StringV("foo".into()),
             SteelVal::StringV("foo".into()),
         ];
-        let res = apply_function(VectorOperations::vec_cons(), args);
+        let res = vec_cons(&args);
         assert!(res.is_err());
     }
 
@@ -1223,7 +1217,7 @@ mod vector_prim_tests {
             SteelVal::StringV("foo".into()),
             SteelVal::StringV("bar".into()),
         ];
-        let res = apply_function(VectorOperations::vec_cons(), args);
+        let res = vec_cons(&args);
         let expected = vector![
             SteelVal::StringV("foo".into()),
             SteelVal::StringV("bar".into())
@@ -1242,7 +1236,7 @@ mod vector_prim_tests {
             ]
             .into(),
         ];
-        let res = apply_function(VectorOperations::vec_cons(), args);
+        let res = vec_cons(&args);
         let expected = vector![
             SteelVal::StringV("foo".into()),
             SteelVal::StringV("bar".into()),
@@ -1255,7 +1249,7 @@ mod vector_prim_tests {
     #[test]
     fn vec_car_arity_too_few() {
         let args = vec![];
-        let res = apply_function(VectorOperations::vec_car(), args);
+        let res = vec_car(&args);
         assert!(res.is_err());
     }
 
@@ -1265,14 +1259,14 @@ mod vector_prim_tests {
             SteelVal::StringV("foo".into()),
             SteelVal::StringV("bar".into()),
         ];
-        let res = apply_function(VectorOperations::vec_car(), args);
+        let res = vec_car(&args);
         assert!(res.is_err());
     }
 
     #[test]
     fn vec_car_bad_input() {
         let args = vec![SteelVal::StringV("foo".into())];
-        let res = apply_function(VectorOperations::vec_car(), args);
+        let res = vec_car(&args);
         assert!(res.is_err());
     }
 
@@ -1283,7 +1277,7 @@ mod vector_prim_tests {
             SteelVal::StringV("bar".into())
         ]
         .into()];
-        let res = apply_function(VectorOperations::vec_car(), args);
+        let res = vec_car(&args);
         let expected = SteelVal::StringV("foo".into());
         assert_eq!(res.unwrap(), expected);
     }
@@ -1291,7 +1285,7 @@ mod vector_prim_tests {
     #[test]
     fn vec_cdr_arity_too_few() {
         let args = vec![];
-        let res = apply_function(VectorOperations::vec_cdr(), args);
+        let res = vec_cdr(&args);
         assert!(res.is_err());
     }
 
@@ -1301,14 +1295,14 @@ mod vector_prim_tests {
             SteelVal::StringV("foo".into()),
             SteelVal::StringV("bar".into()),
         ];
-        let res = apply_function(VectorOperations::vec_cdr(), args);
+        let res = vec_cdr(&args);
         assert!(res.is_err());
     }
 
     #[test]
     fn vec_cdr_bad_input() {
         let args = vec![SteelVal::NumV(1.0)];
-        let res = apply_function(VectorOperations::vec_cdr(), args);
+        let res = vec_cdr(&args);
         assert!(res.is_err());
     }
 
@@ -1319,7 +1313,7 @@ mod vector_prim_tests {
             SteelVal::StringV("bar".into())
         ]
         .into()];
-        let res = apply_function(VectorOperations::vec_cdr(), args);
+        let res = vec_cdr(&args);
         let expected = vector![SteelVal::StringV("bar".into())].into();
         assert_eq!(res.unwrap(), expected);
     }
@@ -1327,21 +1321,21 @@ mod vector_prim_tests {
     #[test]
     fn vec_cdr_empty_list() {
         let args = vec![Vector::new().into()];
-        let res = apply_function(VectorOperations::vec_cdr(), args);
+        let res = vec_cdr(&args);
         assert!(res.is_err());
     }
 
     #[test]
     fn list_vec_arity() {
         let args = vec![];
-        let res = apply_function(VectorOperations::list_vec_null(), args);
+        let res = list_vec_null(&args);
         assert!(res.is_err());
     }
 
     #[test]
     fn list_vec_anything_but_null() {
         let args = vec![SteelVal::StringV("foo".into())];
-        let res = apply_function(VectorOperations::list_vec_null(), args);
+        let res = list_vec_null(&args);
         let expected = SteelVal::BoolV(false);
         assert_eq!(res.unwrap(), expected);
     }
@@ -1353,7 +1347,7 @@ mod vector_prim_tests {
             SteelVal::StringV("bar".into())
         ]
         .into()];
-        let res = apply_function(VectorOperations::list_vec_null(), args);
+        let res = list_vec_null(&args);
         let expected = SteelVal::BoolV(false);
         assert_eq!(res.unwrap(), expected);
     }
@@ -1361,7 +1355,7 @@ mod vector_prim_tests {
     #[test]
     fn list_vec_empty_vec() {
         let args = vec![Vector::new().into()];
-        let res = apply_function(VectorOperations::list_vec_null(), args);
+        let res = list_vec_null(&args);
         let expected = SteelVal::BoolV(true);
         assert_eq!(res.unwrap(), expected);
     }
