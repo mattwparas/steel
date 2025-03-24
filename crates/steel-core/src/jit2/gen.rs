@@ -1029,11 +1029,11 @@ impl FunctionTranslator<'_> {
                             .ins()
                             .iconst(codegen::ir::Type::int(64).unwrap(), 64);
 
-                        println!("Handling if with inferred type bool");
-                        println!(
-                            "Split big: {:?}",
-                            split_big(unsafe { std::mem::transmute(SteelVal::IntV(1)) })
-                        );
+                        // println!("Handling if with inferred type bool");
+                        // println!(
+                        //     "Split big: {:?}",
+                        //     split_big(unsafe { std::mem::transmute(SteelVal::IntV(1)) })
+                        // );
 
                         //
                         // self.builder.ins().ireduce(Type::int(8).unwrap(), test)
@@ -1453,6 +1453,7 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(else_block);
             self.builder.seal_block(else_block);
 
+            // Only spill what hasn't been spilled already?
             for value in self.stack.clone() {
                 self.push_to_vm_stack(value.0);
             }
