@@ -680,19 +680,7 @@ pub fn vec_length(v: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>) -> SteelVal 
     }
 }
 
-/// Subtracts the given numbers.
-///
-/// (- . nums) -> number?
-///
-/// * nums : number? - The numbers to subtract. Must have at least one number.
-///
-/// # Examples
-/// ```scheme
-/// > (- 5 3) ;; => 2
-/// > (- 10 3 2) ;; => 5
-/// > (- -5) ;; => 5
-/// ```
-#[steel_derive::native(name = "range-vec", constant = true, arity = "AtLeast(1)")]
+#[steel_derive::native(name = "range-vec", constant = true, arity = "Exact(2)")]
 pub fn vec_range(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
         stop!(ArityMismatch => "range takes two arguments");
@@ -718,104 +706,101 @@ pub fn vec_range(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+#[steel_derive::native(name = "mut-vector-ref", constant = true, arity = "Exact(2)")]
+pub fn mut_vec_get(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() != 2 {
+        stop!(ArityMismatch => "mut-vector-ref takes two arguments, found: {:?}", args.len())
+    }
+
+    let vec = args[0].clone();
+    let pos = args[1].clone();
+
+    if let SteelVal::MutableVector(v) = &vec {
+        if let SteelVal::IntV(i) = pos {
+            if i < 0 {
+                stop!(Generic => "mut-vector-ref expects a positive integer, found: {:?}", vec);
+            }
+
+            let ptr = v.strong_ptr();
+
+            let guard = &mut ptr.write().value;
+
+            if i as usize >= guard.len() {
+                stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
+            }
+
+            // Grab the value out of the vector
+            Ok(guard[i as usize].clone())
+        } else {
+            stop!(TypeMismatch => "mut-vector-ref expects an integer, found: {:?}", pos);
+        }
+    } else {
+        stop!(TypeMismatch => "mut-vector-ref expects a vector, found: {:?}", vec);
+    }
+}
+
+// TODO: This _should_ increase the size count on the maybe_memory_size on the heap
+// since it is a growable structure, we'll need to know to rerun the GC when that size
+// increases past a certain amount
+#[steel_derive::native(name = "vector-push!", constant = true, arity = "Exact(2)")]
+pub fn mut_vec_push(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() != 2 {
+        stop!(ArityMismatch => "vector-push! takes two arguments, found: {:?}", args.len())
+    }
+
+    let vec = &args[0];
+
+    if let SteelVal::MutableVector(v) = vec {
+        // TODO -> make sure this is the correct thing
+        // if vec.other_contains_self(&args[1]) {
+        //     stop!(Generic => "vector push would create a cyclical reference, which would cause a memory leak")
+        // }
+
+        // TODO: disallow cyclical references on construction
+        v.strong_ptr().write().value.push(args[1].clone());
+        Ok(SteelVal::Void)
+    } else {
+        stop!(TypeMismatch => "vector-push! expects a vector, found: {:?}", vec);
+    }
+}
+
+#[steel_derive::native(name = "vector-append!", constant = true, arity = "Exact(2)")]
+pub fn mut_vec_append(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() != 2 {
+        stop!(ArityMismatch => "vector-append! takes two arguments, found: {:?}", args.len())
+    }
+
+    let vec = args[0].clone();
+    let other_vec = args[1].clone();
+
+    if let SteelVal::MutableVector(left) = vec {
+        if let SteelVal::MutableVector(right) = other_vec {
+            left.strong_ptr()
+                .write()
+                .value
+                .append(&mut right.strong_ptr().write().value);
+            Ok(SteelVal::Void)
+        } else {
+            stop!(TypeMismatch => "vector-append! expects a vector in the second position, found: {:?}", other_vec);
+        }
+    } else {
+        stop!(TypeMismatch => "vector-append! expects a vector in the first position, found: {:?}", vec);
+    }
+}
+
+pub fn vec_construct_iter<I: Iterator<Item = Result<SteelVal>>>(arg: I) -> Result<SteelVal> {
+    let res: Result<Vector<SteelVal>> = arg.collect();
+    Ok(SteelVal::VectorV(Gc::new(res?).into()))
+}
+
+pub fn vec_construct_iter_normal<I: Iterator<Item = SteelVal>>(arg: I) -> Result<SteelVal> {
+    Ok(SteelVal::VectorV(
+        Gc::new(arg.collect::<Vector<SteelVal>>()).into(),
+    ))
+}
+
 pub struct VectorOperations {}
 impl VectorOperations {
-    pub fn mut_vec_get() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => "mut-vector-ref takes two arguments, found: {:?}", args.len())
-            }
-
-            let vec = args[0].clone();
-            let pos = args[1].clone();
-
-            if let SteelVal::MutableVector(v) = &vec {
-                if let SteelVal::IntV(i) = pos {
-                    if i < 0 {
-                        stop!(Generic => "mut-vector-ref expects a positive integer, found: {:?}", vec);
-                    }
-
-                    let ptr = v.strong_ptr();
-
-                    let guard = &mut ptr.write().value;
-
-                    if i as usize >= guard.len() {
-                        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
-                    }
-
-                    // Grab the value out of the vector
-                    Ok(guard[i as usize].clone())
-                } else {
-                    stop!(TypeMismatch => "mut-vector-ref expects an integer, found: {:?}", pos);
-                }
-            } else {
-                stop!(TypeMismatch => "mut-vector-ref expects a vector, found: {:?}", vec);
-            }
-        })
-    }
-
-    // TODO: This _should_ increase the size count on the maybe_memory_size on the heap
-    // since it is a growable structure, we'll need to know to rerun the GC when that size
-    // increases past a certain amount
-    pub fn mut_vec_push() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => "vector-push! takes two arguments, found: {:?}", args.len())
-            }
-
-            let vec = &args[0];
-
-            if let SteelVal::MutableVector(v) = vec {
-                // TODO -> make sure this is the correct thing
-                // if vec.other_contains_self(&args[1]) {
-                //     stop!(Generic => "vector push would create a cyclical reference, which would cause a memory leak")
-                // }
-
-                // TODO: disallow cyclical references on construction
-                v.strong_ptr().write().value.push(args[1].clone());
-                Ok(SteelVal::Void)
-            } else {
-                stop!(TypeMismatch => "vector-push! expects a vector, found: {:?}", vec);
-            }
-        })
-    }
-
-    pub fn mut_vec_append() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => "vector-append! takes two arguments, found: {:?}", args.len())
-            }
-
-            let vec = args[0].clone();
-            let other_vec = args[1].clone();
-
-            if let SteelVal::MutableVector(left) = vec {
-                if let SteelVal::MutableVector(right) = other_vec {
-                    left.strong_ptr()
-                        .write()
-                        .value
-                        .append(&mut right.strong_ptr().write().value);
-                    Ok(SteelVal::Void)
-                } else {
-                    stop!(TypeMismatch => "vector-append! expects a vector in the second position, found: {:?}", other_vec);
-                }
-            } else {
-                stop!(TypeMismatch => "vector-append! expects a vector in the first position, found: {:?}", vec);
-            }
-        })
-    }
-
-    pub fn vec_construct_iter<I: Iterator<Item = Result<SteelVal>>>(arg: I) -> Result<SteelVal> {
-        let res: Result<Vector<SteelVal>> = arg.collect();
-        Ok(SteelVal::VectorV(Gc::new(res?).into()))
-    }
-
-    pub fn vec_construct_iter_normal<I: Iterator<Item = SteelVal>>(arg: I) -> Result<SteelVal> {
-        Ok(SteelVal::VectorV(
-            Gc::new(arg.collect::<Vector<SteelVal>>()).into(),
-        ))
-    }
-
     pub fn vec_append() -> SteelVal {
         SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
             let lsts: Vector<SteelVal> = unwrap_list_of_lists(args.to_vec())?
