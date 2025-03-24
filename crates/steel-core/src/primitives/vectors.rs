@@ -35,6 +35,17 @@ pub fn immutable_vectors_module() -> BuiltInModule {
     module
 }
 
+/// Pops the first element of an immutable vector, then returns the rest.
+///
+/// (immutable-vector-rest vec) -> immutable-vector?
+///
+/// * vec : immutable-vector?
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 1 2 3))
+/// > (immutable-vector-rest A) ;; => '#(2 3)
+/// ```
 #[steel_derive::function(name = "immutable-vector-rest")]
 fn immutable_vector_rest(vector: &mut SteelVal) -> Result<SteelVal> {
     match vector {
