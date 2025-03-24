@@ -7,7 +7,7 @@ use crate::{
     steel_vm::builtin::BuiltInModule,
 };
 
-use crate::primitives::VectorOperations;
+use crate::primitives::vectors::vec_construct_iter_normal;
 
 use steel_derive::function;
 
@@ -314,7 +314,7 @@ pub fn values_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<Steel
 /// ```
 #[steel_derive::function(name = "hash-keys->vector")]
 pub fn keys_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
-    VectorOperations::vec_construct_iter_normal(hashmap.keys().cloned())
+    vec_construct_iter_normal(hashmap.keys().cloned())
 }
 
 /// Returns the values of the given hash map as an immutable vector
@@ -330,7 +330,7 @@ pub fn keys_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<Steel
 /// ```
 #[steel_derive::function(name = "hash-values->vector")]
 pub fn values_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
-    VectorOperations::vec_construct_iter_normal(hashmap.values().cloned())
+    vec_construct_iter_normal(hashmap.values().cloned())
 }
 
 /// Clears the entries out of the existing hashmap.
