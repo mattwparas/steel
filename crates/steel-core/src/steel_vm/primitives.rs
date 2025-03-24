@@ -39,7 +39,7 @@ use crate::{
             MUTABLE_VECTOR_TO_STRING_DEFINITION, MUT_VECTOR_COPY_DEFINITION,
             MUT_VEC_CONSTRUCT_DEFINITION, MUT_VEC_CONSTRUCT_VEC_DEFINITION,
             MUT_VEC_LENGTH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_TO_LIST_DEFINITION,
-            VECTOR_FILL_DEFINITION, VEC_LENGTH_DEFINITION,
+            VECTOR_FILL_DEFINITION, VEC_LENGTH_DEFINITION, VEC_RANGE_DEFINITION,
         },
         ControlOperations, IoFunctions, MetaOperations, NumOperations, StreamOperations,
         SymbolOperations, VectorOperations,
@@ -843,7 +843,7 @@ fn vector_module() -> BuiltInModule {
         .register_value("vec-rest", VectorOperations::vec_cdr())
         .register_value("null?", VectorOperations::list_vec_null())
         .register_value("push", VectorOperations::vec_push())
-        .register_value("range-vec", VectorOperations::vec_range())
+        .register_native_fn_definition(VEC_RANGE_DEFINITION)
         .register_value("vec-append", VectorOperations::vec_append())
         // TODO: This has to be cleaned up
         .register_value("vector-ref", VectorOperations::vec_ref())

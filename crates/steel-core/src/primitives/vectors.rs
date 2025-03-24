@@ -83,7 +83,7 @@ fn vector_to_string(
                 .skip(start)
                 .take(end - start)
                 .map(|x| {
-                    x.char_or_else(throw!(TypeMismatch => "vector->string 
+                    x.char_or_else(throw!(TypeMismatch => "vector->string
                 expected a succession of characters"))
                 })
                 .collect::<Result<String>>()
@@ -538,7 +538,7 @@ pub fn mut_vector_copy(
                 let dest_guard = &mut dest_ptr.write().value;
 
                 if dest_start > dest_guard.len() {
-                    stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. 
+                    stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector.
                         Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
                 }
 
@@ -562,7 +562,7 @@ pub fn mut_vector_copy(
                 let dest_guard = &mut dest_ptr.write().value;
 
                 if dest_start > dest_guard.len() {
-                    stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. 
+                    stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector.
                         Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
                 }
 
@@ -584,7 +584,7 @@ pub fn mut_vector_copy(
             let dest_guard = &mut dest_ptr.write().value;
 
             if dest_start > dest_guard.len() {
-                stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector. 
+                stop!(Generic => "vector-copy!: dest-start must be within the range of the destination vector.
                     Destination vector length: {}, index: {}", dest_guard.len(), dest_start);
             }
 
@@ -677,6 +677,44 @@ pub fn vec_length(v: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>) -> SteelVal 
     match v {
         Either::Left(v) => SteelVal::IntV(v.len() as _),
         Either::Right(v) => SteelVal::IntV(v.get().len() as _),
+    }
+}
+
+/// Subtracts the given numbers.
+///
+/// (- . nums) -> number?
+///
+/// * nums : number? - The numbers to subtract. Must have at least one number.
+///
+/// # Examples
+/// ```scheme
+/// > (- 5 3) ;; => 2
+/// > (- 10 3 2) ;; => 5
+/// > (- -5) ;; => 5
+/// ```
+#[steel_derive::native(name = "range-vec", constant = true, arity = "AtLeast(1)")]
+pub fn vec_range(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() != 2 {
+        stop!(ArityMismatch => "range takes two arguments");
+    }
+    let mut args = args.iter();
+    match (args.next(), args.next()) {
+        (Some(elem), Some(lst)) => {
+            if let (IntV(lower), IntV(upper)) = (elem, lst) {
+                Ok(SteelVal::VectorV(
+                    Gc::new(
+                        (*lower as usize..*upper as usize)
+                            .into_iter()
+                            .map(|x| SteelVal::IntV(x as isize))
+                            .collect::<Vector<_>>(),
+                    )
+                    .into(),
+                ))
+            } else {
+                stop!(TypeMismatch => "range expected number")
+            }
+        }
+        _ => stop!(ArityMismatch => "range takes two arguments"),
     }
 }
 
@@ -835,33 +873,6 @@ impl VectorOperations {
                     }
                 }
                 _ => stop!(ArityMismatch => "vector-ref takes two arguments"),
-            }
-        })
-    }
-
-    pub fn vec_range() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 2 {
-                stop!(ArityMismatch => "range takes two arguments");
-            }
-            let mut args = args.iter();
-            match (args.next(), args.next()) {
-                (Some(elem), Some(lst)) => {
-                    if let (IntV(lower), IntV(upper)) = (elem, lst) {
-                        Ok(SteelVal::VectorV(
-                            Gc::new(
-                                (*lower as usize..*upper as usize)
-                                    .into_iter()
-                                    .map(|x| SteelVal::IntV(x as isize))
-                                    .collect::<Vector<_>>(),
-                            )
-                            .into(),
-                        ))
-                    } else {
-                        stop!(TypeMismatch => "range expected number")
-                    }
-                }
-                _ => stop!(ArityMismatch => "range takes two arguments"),
             }
         })
     }
@@ -1115,7 +1126,7 @@ mod vector_prim_tests {
     fn vec_range_test_arity_too_few() {
         let args = vec![SteelVal::NumV(1.0)];
 
-        let res = apply_function(VectorOperations::vec_range(), args);
+        let res = vec_range(&args);
         assert!(res.is_err());
     }
 
@@ -1123,7 +1134,7 @@ mod vector_prim_tests {
     fn vec_range_test_arity_too_many() {
         let args = vec![SteelVal::IntV(1), SteelVal::IntV(1), SteelVal::IntV(1)];
 
-        let res = apply_function(VectorOperations::vec_range(), args);
+        let res = vec_range(&args);
         assert!(res.is_err());
     }
 
@@ -1131,7 +1142,7 @@ mod vector_prim_tests {
     fn vec_range_test_bad_input() {
         let args = vec![SteelVal::StringV("1".into()), SteelVal::NumV(1.0)];
 
-        let res = apply_function(VectorOperations::vec_range(), args);
+        let res = vec_range(&args);
         assert!(res.is_err());
     }
 
@@ -1139,7 +1150,7 @@ mod vector_prim_tests {
     fn vec_range_test_normal() {
         let args = vec![SteelVal::IntV(0), SteelVal::IntV(4)];
 
-        let res = apply_function(VectorOperations::vec_range(), args);
+        let res = vec_range(&args);
         let expected = vector![
             SteelVal::IntV(0),
             SteelVal::IntV(1),
