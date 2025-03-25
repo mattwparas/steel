@@ -3568,7 +3568,6 @@ dependencies = [
  "log",
  "mimalloc",
  "once_cell",
- "serde",
  "steel-core",
  "steel-derive",
  "steel-doc",
