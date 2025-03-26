@@ -35,7 +35,7 @@ pub fn immutable_vectors_module() -> BuiltInModule {
     module
 }
 
-/// Pops the first element of an immutable vector, then returns the rest.
+/// Returns the vector with the first value removed.
 ///
 /// (immutable-vector-rest vec) -> immutable-vector?
 ///
@@ -270,9 +270,9 @@ fn vector_append(
     Some(vector_copy_impl(ctx, args))
 }
 
-/// Combines the given immutable vectors.
+/// Returns the combination of the given immutable vectors.
 ///
-/// (immutable-vector-append vecs) -> immutable-vector?
+/// (immutable-vector-append . vecs) -> immutable-vector?
 ///
 /// * vecs : immutable-vector? - The vectors to combine.
 ///
@@ -299,7 +299,7 @@ fn immutable_vector_append(mut rest: RestArgsIter<'_, &SteelVector>) -> Result<S
 /// (make-immutable-vector len [val]) -> immutable-vector?
 ///
 /// * len : integer?
-/// * val : any? = #<void>
+/// * val : any? - defaults to #<void>
 ///
 /// # Examples
 /// ```scheme
@@ -621,7 +621,8 @@ fn immutable_vector_drop(vector: &mut SteelVal, count: usize) -> Result<SteelVal
 /// # Examples
 /// ```scheme
 /// > (define A (vector 1 2 3 4)) ;;
-/// > (mutable-vector->clear A) ;; => '#()
+/// > (mutable-vector->clear A) ;;
+/// > A ;; => '#()
 /// ```
 #[steel_derive::function(name = "mutable-vector->clear")]
 fn mutable_vector_clear(vec: &HeapRef<Vec<SteelVal>>) {
