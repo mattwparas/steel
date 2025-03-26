@@ -911,7 +911,7 @@ pub fn mut_vec_to_list(
 ///
 /// # Examples
 /// ```scheme
-/// > (define A (mutable-vector 1 2 3 4 5))
+/// > (define A (mutable-vector 1 2 3 4 5)) ;;
 /// > (mut-vec-len A) ;; => 5
 /// ```
 #[steel_derive::function(name = "mut-vec-len")]
@@ -929,8 +929,8 @@ pub fn mut_vec_length(vec: &HeapRef<Vec<SteelVal>>) -> SteelVal {
 ///
 /// # Examples
 /// ```scheme
-/// > (define A (mutable-vector 1 2 3))
-/// > (vector-set! A 1 42)
+/// > (define A (mutable-vector 1 2 3)) ;;
+/// > (vector-set! A 1 42) ;;
 /// > A ;; => '#(1 42 3)
 /// ```
 #[steel_derive::function(name = "vector-set!")]
@@ -949,6 +949,17 @@ pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> R
     Ok(SteelVal::Void)
 }
 
+/// Constructs an immutable vector from the given arguments.
+///
+/// (immutable-vector . vals) -> vector?
+///
+/// * vals : any? - The values to store in the immutable vector.
+///
+/// # Examples
+/// ```scheme
+/// > (define V (immutable-vector 1 2 3)) ;;
+/// > V ;; => '#(1 2 3)
+/// ```
 #[steel_derive::native(name = "immutable-vector", arity = "AtLeast(0)")]
 pub fn immutable_vector_construct(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::VectorV(
@@ -964,6 +975,17 @@ pub fn immutable_vector_construct_alternate(args: &[SteelVal]) -> Result<SteelVa
     ))
 }
 
+/// Returns the length of the given vector.
+///
+/// (vector-length vec) -> integer?
+///
+/// * vec : vector? - The vector whose length is to be determined.
+///
+/// # Examples
+/// ```scheme
+/// > (define V (immutable-vector 1 2 3 4)) ;;
+/// > (vector-length V) ;; => 4
+/// ```
 #[steel_derive::function(name = "vector-length")]
 pub fn vec_length(v: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>) -> SteelVal {
     match v {
@@ -972,6 +994,17 @@ pub fn vec_length(v: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>) -> SteelVal 
     }
 }
 
+/// Constructs a vector containing a range of integers from `start` to `end` (exclusive).
+///
+/// (range-vec start end) -> immutable-vector?
+///
+/// * start : integer? - The starting value of the range (inclusive).
+/// * end : integer? - The ending value of the range (exclusive).
+///
+/// # Examples
+/// ```scheme
+/// > (range-vec 1 5) ;; => '#(1 2 3 4)
+/// ```
 #[steel_derive::native(name = "range-vec", constant = true, arity = "Exact(2)")]
 pub fn vec_range(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
@@ -998,6 +1031,18 @@ pub fn vec_range(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+/// Retrieves the value at a specified index in a mutable vector.
+///
+/// (mut-vector-ref vec index) -> any?
+///
+/// * vec : vector? - The mutable vector from which to retrieve a value.
+/// * index : integer? - The position in `vec` to access (must be within bounds).
+///
+/// # Examples
+/// ```scheme
+/// > (define A (mutable-vector 10 20 30)) ;;
+/// > (mut-vector-ref A 1) ;; => 20
+/// ```
 #[steel_derive::native(name = "mut-vector-ref", constant = true, arity = "Exact(2)")]
 pub fn mut_vec_get(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
@@ -1056,6 +1101,21 @@ pub fn mut_vec_push(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+/// Appends the contents of one mutable vector to another.
+///
+/// (vector-append! vec1 vec2) -> void?
+///
+/// * vec1 : vector? - The mutable vector to which elements will be appended.
+/// * vec2 : vector? - The mutable vector whose elements will be appended to `vec1`.
+///
+/// # Examples
+/// ```scheme
+/// > (define A (mutable-vector 1 2)) ;;
+/// > (define B (mutable-vector 3 4)) ;;
+/// > (vector-append! A B) ;;
+/// > A ;; => '#(1 2 3 4)
+/// > B ;; => '#()
+/// ```
 #[steel_derive::native(name = "vector-append!", constant = true, arity = "Exact(2)")]
 pub fn mut_vec_append(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
@@ -1099,8 +1159,8 @@ pub fn vec_construct_iter_normal<I: Iterator<Item = SteelVal>>(arg: I) -> Result
 ///
 /// # Examples
 /// ```scheme
-/// > (define A (immutable-vector 1 2 3))
-/// > (define B (immutable-vector 4 5))
+/// > (define A (immutable-vector 1 2 3)) ;;
+/// > (define B (immutable-vector 4 5)) ;;
 /// > (vec-append A B) ;; => '#(1 2 3 4 5)
 /// ```
 #[steel_derive::native(name = "vec-append", constant = true, arity = "AtLeast(0)")]
@@ -1112,6 +1172,20 @@ pub fn vec_append(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::VectorV(Gc::new(lsts).into()))
 }
 
+/// Retrieves the value at a specified index in an immutable or mutable vector.
+///
+/// (vector-ref vec index) -> any?
+///
+/// * vec : vector? - The vector from which to retrieve a value.
+/// * index : integer? - The position in `vec` to access (must be within bounds).
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 10 20 30)) ;;
+/// > (vector-ref A 1) ;; => 20
+/// > (define B (mutable-vector 5 15 25)) ;;
+/// > (vector-ref B 2) ;; => 25
+/// ```
 #[steel_derive::native(name = "vector-ref", constant = true, arity = "Exact(2)")]
 pub fn vec_ref(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
