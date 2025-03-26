@@ -56,8 +56,10 @@ impl ConstantMap {
     }
 
     pub fn flush(&self) {
-        let values = self.values.read().clone();
-        self.reified_values.store(Arc::new(values));
+        let values = self.values.read();
+        if values.len() != self.reified_values.load().len() {
+            self.reified_values.store(Arc::new(values.clone()));
+        }
     }
 
     pub fn deep_clone(&self) -> ConstantMap {
