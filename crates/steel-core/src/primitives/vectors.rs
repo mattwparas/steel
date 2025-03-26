@@ -633,7 +633,7 @@ fn mutable_vector_clear(vec: &HeapRef<Vec<SteelVal>>) {
 ///
 /// (mutable-vector->string vec) -> string?
 ///
-/// * `vec` : vector? (must contain only characters)
+/// * vec : vector? - (must contain only characters)
 ///
 /// # Examples
 /// ```scheme
@@ -656,6 +656,18 @@ fn mutable_vector_to_string(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
     Ok(buf.into())
 }
 
+/// Removes and returns the last element of the vector.
+///
+/// (mutable-vector-pop! vec) -> any?
+///
+/// * vec : vector? - the vector to modify
+///
+/// # Examples
+/// ```scheme
+/// > (define A (vector 1 2 3))
+/// > (mutable-vector-pop! A) ;; => 3
+/// > A ;; => '#(1 2)
+/// ```
 #[steel_derive::function(name = "mutable-vector-pop!")]
 fn mutable_vector_pop(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
     let last = vec.strong_ptr().write().value.pop();
