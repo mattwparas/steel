@@ -172,6 +172,20 @@ Applies the given `function` with arguments as the contents of the `list`.
 > (apply + (list 1 2 3 4)) ;; => 10
 > (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
 ```
+### **arithmetic-shift**
+Performs a bitwise arithmetic shift using the given 2 numbers
+
+(arithmetic-shift n m) -> integer?
+
+* n : integer? - The number to shift.
+* m : integer? - The number by which to shift.
+
+#### Examples
+```scheme
+> (arithmetic-shift 10 1) ;; => 20
+> (arithmetic-shift 20 1) ;; => 40
+> (arithmetic-shift 40 -2) ;; => 10
+```
 ### **asin**
 Returns the arcsine, or inverse sine, of a value; output is in radians.
 
@@ -333,6 +347,16 @@ Creates a copy of a bytevector.
 ```
 ### **canonicalize-path**
 Returns canonical path with all components normalized
+
+(canonicalize-path path) -> string?
+
+* path : (string?) - The path to canonicalize
+
+#### Examples
+```scheme
+> (canonicalize-path "logs") ;; => "/Users/me/Desktop/programming/logs"
+> (canonicalize-path "logs/today.json") ;; => "/Users/me/Desktop/programming/logs/today.json"
+```
 ### **car**
 Returns the first element of the list l.
 
@@ -379,6 +403,16 @@ Rounds the given number up to the nearest integer not less than it.
 ```
 ### **change-current-directory!**
 Change the current working directory
+
+(change-current-directory! path) -> void?
+
+* path : (string?) - The directory to switch to
+
+#### Examples
+```scheme
+> (change-current-directory! "logs") ;;
+> (change-current-directory! "..") ;;
+```
 ### **char->integer**
 Returns the Unicode codepoint of a given character.
 
@@ -459,7 +493,17 @@ Returns a newly allocated list whose first element is `a` and second element is 
 > (cons 1 '()) ;; => '(1)
 ```
 ### **copy-directory-recursively!**
-Recursively copies the directory from source to destination
+Recursively copies the contents of the source directory to the destination
+
+(copy-directory-recursively! source destination) -> void?
+
+* source : (string?) - The directory to copy.
+* destination : (string?) - The destination directory into which to copy.
+
+#### Examples
+```scheme
+> (copy-directory-recursively! "logs" "backup") ;;
+```
 ### **cos**
 Returns the cosine value of the input angle, measured in radians.
 
@@ -476,8 +520,24 @@ Returns the cosine value of the input angle, measured in radians.
 ```
 ### **create-directory!**
 Creates the directory
+
+(create-directory! dir) -> void?
+
+* dir : (string?) - The directory name to create.
+
+#### Examples
+```scheme
+> (create-directory! "logs") ;;
+```
 ### **current-directory**
-Check the current working directory
+Outputs the current working directory as a string
+
+(current-directory) -> string?
+
+#### Examples
+```scheme
+> (current-directory) ;; => "/Users/me/Desktop/programming"
+```
 ### **current-inexact-milliseconds**
 Returns the number of milliseconds since the Unix epoch as an inexact number.
 
@@ -492,8 +552,26 @@ Returns the number of seconds since the Unix epoch as an integer.
 (current-second) -> int?
 ### **delete-directory!**
 Deletes the directory
+
+(delete-directory! dir) -> void?
+
+* dir : (string?) - The directory name to delete.
+
+#### Examples
+```scheme
+> (delete-directory! "logs") ;;
+```
 ### **delete-file!**
 Deletes the file
+
+(delete-file! path) -> void?
+
+* path : (string?) - The file to delete
+
+#### Examples
+```scheme
+> (delete-file! "logs/today.json") ;;
+```
 ### **denominator**
 Retrieves the denominator of the given rational number.
 
@@ -560,8 +638,21 @@ Returns `#t` if the value is an EOF object.
 Returns the message of an error object.
 
 (error-object-message error?) -> string?
+### **even?**
+Checks if the given number is even
+
+(even? n) -> bool?
+
+* n : number? - The number to check for evenness.
+
+#### Examples
+```scheme
+> (even? 2) ;; => #true
+> (even? 3) ;; => #false
+> (even? 4.0) ;; => #true
+```
 ### **exact**
-Returns the input value if it is an exact number, otherwise raises an error.
+Returns an exact representation of the input number, coerces an inexact number to an exact form.
 
 (exact n) -> number?
 
@@ -569,8 +660,9 @@ Returns the input value if it is an exact number, otherwise raises an error.
 
 #### Examples
 ```scheme
-> (exact 5) ;; => 5
+> (exact 5.0) ;; => 5
 > (exact 5/3) ;; => 5/3
+> (exact 2) ;; => 2
 ```
 ### **exact->inexact**
 Converts an exact number to an inexact number.
@@ -650,8 +742,31 @@ Raises the left operand to the power of the right operand.
 > (expt 2.0 0.5) ;; => 1.4142135623730951
 > (expt 9 0.5) ;; => 3
 ```
+### **f+**
+Sums all given floats
+
+(f+ nums) -> number?
+
+* nums : float? - The floats to sum up.
+
+#### Examples
+```scheme
+> (f+ 5.5) ;; => 5.5
+> (f+ 1.1 2.2) ;; => 3.3
+> (f+ 3.3 3.3 3.3) ;; => 9.9
+```
 ### **file-name**
 Gets the filename for a given path
+
+(file-name path) -> string?
+
+* path : (string?) - The path to check
+
+#### Examples
+```scheme
+> (file-name "logs") ;; => "logs"
+> (file-name "logs/today.json") ;; => "today.json"
+```
 ### **finite?**
 Returns `#t` if the given number is finite.
 
@@ -981,6 +1096,28 @@ Check if the left set is a subset of the right set
 (hashset-subset? (hash 10) (hashset 10 20)) ;; => #true
 (hashset-subset? (hash 100) (hashset 30)) ;; => #false
 ```
+### **imag-part**
+Returns the imaginary part of a number
+
+(imag-part number) -> number?
+
+#### Examples
+```scheme
+> (imag-part 3+4i) ;; => 4
+> (imag-part 42) ;; => 0
+```
+### **immutable-vector**
+Constructs an immutable vector from the given arguments.
+
+(immutable-vector . vals) -> vector?
+
+* vals : any? - The values to store in the immutable vector.
+
+#### Examples
+```scheme
+> (define V (immutable-vector 1 2 3)) ;;
+> V ;; => '#(1 2 3)
+```
 ### **inexact->exact**
 Converts an inexact number to an exact number.
 
@@ -1072,8 +1209,28 @@ Checks if the given value is an integer, an alias for `int?`
 ```
 ### **is-dir?**
 Checks if a path is a directory
+
+(is-dir? path) -> bool?
+
+* path : (string?) - The path to check
+
+#### Examples
+```scheme
+> (is-dir? "logs") ;; => #true
+> (is-dir? "logs/today.json") ;; => #false
+```
 ### **is-file?**
 Checks if a path is a file
+
+(is-file? path) -> bool?
+
+* path : (string?) - The path to check
+
+#### Examples
+```scheme
+> (is-file? "logs") ;; => #false
+> (is-file? "logs/today.json") ;; => #true
+```
 ### **last**
 Returns the last element in the list. Takes time proportional to the length of the list.
 
@@ -1173,35 +1330,6 @@ Computes the natural logarithm of the given number.
 > (log 100 10) ;; => 2
 > (log 27 3) ;; => 3
 ```
-
-### **real-part**
-
-Returns the real part of a number
-
-(real-part number) -> number?
-
-* number: number? - The numbers to get the real part of.
-
-#### Examples
-```scheme
-> (real-part 3+4i) ;; => 3
-> (real-part 42) ;; => 42
-```
-
-### **imag-part**
-
-Returns the imaginary part of a number
-
-(imag-part number) -> number?
-
-* number: number? - The numbers to get the imaginary part of.
-
-# Examples
-```scheme
-> (imag-part 3+4i) ;; => 4
-> (imag-part 42) ;; => 0
-```
-
 ### **magnitude**
 Computes the magnitude of the given number.
 
@@ -1240,6 +1368,19 @@ Creates a thread local storage slot. These slots are static, and will _not_ be r
 
 When spawning a new thread, the value inside will be shared into that slot, however
 future updates to the slot will be local to that thread.
+### **make-vector**
+Creates a mutable vector of a given size, optionally initialized with a specified value.
+
+(make-vector size [value]) -> vector?
+
+* size : integer? - The number of elements in the vector (must be non-negative).
+* value : any? - The value to fill the vector with (defaults to `0` if omitted).
+
+#### Examples
+```scheme
+> (make-vector 3) ;; => '#(0 0 0)
+> (make-vector 3 42) ;; => '#(42 42 42)
+```
 ### **modulo**
 Returns the euclidean remainder of the division of the first number by the second
 This differs from the remainder operator when using negative numbers.
@@ -1255,6 +1396,95 @@ This differs from the remainder operator when using negative numbers.
 > (modulo -10 3) ;; => 2
 > (modulo 10 -3) ;; => -2
 > (module -10 -3) ;; => -1
+```
+### **mut-vec-len**
+Returns the length of a mutable vector.
+
+(mut-vec-len vec) -> integer?
+
+* vec : vector? - The mutable vector to retrieve the length of.
+
+#### Examples
+```scheme
+> (define A (mutable-vector 1 2 3 4 5)) ;;
+> (mut-vec-len A) ;; => 5
+```
+### **mut-vector-ref**
+Retrieves the value at a specified index in a mutable vector.
+
+(mut-vector-ref vec index) -> any?
+
+* vec : vector? - The mutable vector from which to retrieve a value.
+* index : integer? - The position in `vec` to access (must be within bounds).
+
+#### Examples
+```scheme
+> (define A (mutable-vector 10 20 30)) ;;
+> (mut-vector-ref A 1) ;; => 20
+```
+### **mutable-vector**
+Constructs a new mutable vector from the provided arguments.
+
+(mutable-vector . args) -> vector?
+
+* args : any? - Elements to initialize the mutable vector.
+
+#### Examples
+```scheme
+> (mutable-vector 1 2 3) ;; => '#(1 2 3)
+```
+### **mutable-vector->clear**
+Removes all elements from a mutable vector.
+
+(mutable-vector->clear vec) -> void?
+
+* vec : vector?
+
+#### Examples
+```scheme
+> (define A (vector 1 2 3 4)) ;;
+> (mutable-vector->clear A) ;;
+> A ;; => '#()
+```
+### **mutable-vector->list**
+Converts a mutable vector into a list, optionally over a specified range.
+
+(mutable-vector->list vec [start end]) -> list?
+
+* vec : vector? - The mutable vector to convert.
+* start : integer? - The starting index of the range (defaults to `0`).
+* end : integer? - The exclusive ending index of the range (defaults to the length of `vec`).
+
+#### Examples
+```scheme
+> (define A (mutable-vector 1 2 3 4 5)) ;;
+> (mutable-vector->list A) ;; => '(1 2 3 4 5)
+> (mutable-vector->list A 1 4) ;; => '(2 3 4)
+```
+### **mutable-vector->string**
+Converts a vector of characters into a string.
+
+(mutable-vector->string vec) -> string?
+
+* vec : vector? - (must contain only characters)
+
+#### Examples
+```scheme
+> (define A (vector #\H #\e #\l #\l #\o))
+> (mutable-vector->string A) ;; => "Hello"
+```
+### **mutable-vector-pop!**
+Removes and returns the last element of the vector.
+
+(mutable-vector-pop! vec) -> any?
+
+* vec : vector? - the vector to modify
+
+#### Examples
+```scheme
+> (define A (vector 1 2 3))
+> (mutable-vector-pop! A) ;; => 3
+> A ;; => '#(1 2)
 ```
 ### **mutex**
 Construct a new mutex
@@ -1281,6 +1511,20 @@ Checks if the given real number is negative.
 > (negative? 0) ;; => #f
 > (negative? 1) ;; => #f
 > (negative? -1) ;; => #t
+```
+### **null?**
+Checks if the given list or vector is empty.
+
+(null? obj) -> boolean?
+
+* obj : (or/c list? vector?) - The list or vector to check.
+
+#### Examples
+```scheme
+> (null? (vector)) ;; => #t
+> (null? (immutable-vector 1 2 3)) ;; => #f
+> (null? '()) ;; => #t
+> (null? '(1 2 3)) ;; => #f
 ```
 ### **number->string**
 Converts the given number to a string.
@@ -1309,6 +1553,19 @@ Retrieves the numerator of the given rational number.
 > (numerator 3/4) ;; => 3
 > (numerator 5/2) ;; => 5
 > (numerator -2) ;; => -2
+```
+### **odd?**
+Checks if the given number is odd
+
+(odd? n) -> bool?
+
+* n : number? - The number to check for oddness.
+
+#### Examples
+```scheme
+> (odd? 2) ;; => #false
+> (odd? 3) ;; => #true
+> (odd? 5.0) ;; => #true
 ```
 ### **open-input-bytevector**
 Creates an input port from a bytevector, that will return the bytevector contents.
@@ -1400,16 +1657,58 @@ Checks if the given value can be treated as a pair.
 ```
 ### **parent-name**
 Gets the parent directory name for a given path
+
+(parent-name path) -> string?
+
+* path : (string?) - The path to check
+
+#### Examples
+```scheme
+> (parent-name "logs") ;; => ""
+> (parent-name "logs/today.json") ;; => "logs"
+```
 ### **path->extension**
 Gets the extension from a path
+
+(path->extension path) -> (or/c string? void?)
+
+* path : (string?) - The path to check
+
+#### Examples
+```scheme
+> (path->extension "logs") ;; => void
+> (path->extension "logs/today.json") ;; => ".json"
+```
 ### **path-exists?**
 Checks if a path exists
+
+(path-exists? path) -> bool?
+
+* path : (string?) - The path to check
+
+#### Examples
+```scheme
+> (path-exists? "logs") ;; => #true
+> (path-exists? "backup/logs") ;; => #false
+```
 ### **peek-byte**
 Peeks the next byte from an input port.
 
 (peek-byte [port]) -> byte?
 
 * port : input-port? = (current-input-port)
+### **pop-front**
+Returns the first element of the given vector.
+
+(pop-front vec) -> any?
+
+* vec : immutable-vector? - The vector from which the first element will be returned.
+
+#### Examples
+```scheme
+> (define A (immutable-vector 1 2 3)) ;;
+> (pop-front A) ;; => 1
+```
 ### **positive?**
 Checks if the given real number is positive.
 
@@ -1422,6 +1721,32 @@ Checks if the given real number is positive.
 > (positive? 0) ;; => #f
 > (positive? 1) ;; => #t
 > (positive? -1) ;; => #f
+```
+### **push**
+Appends an element to the given vector.
+
+(push elem vec) -> immutable-vector?
+
+* elem : any - The element to append.
+* vec : immutable-vector? - The vector to which the element will be appended.
+
+#### Examples
+```scheme
+> (define A (immutable-vector 1 2 3)) ;;
+> (push 4 A) ;; => '#(1 2 3 4)
+```
+### **push-front**
+Prepends an element to the given vector.
+
+(push-front elem vec) -> immutable-vector?
+
+* elem : any - The element to prepend.
+* vec : immutable-vector? - The vector to which the element will be prepended.
+
+#### Examples
+```scheme
+> (define A (immutable-vector 2 3 4)) ;;
+> (push-front 1 A) ;; => '#(1 2 3 4)
 ```
 ### **quotient**
 Returns quotient of dividing numerator by denomintator.
@@ -1447,6 +1772,18 @@ Returns a newly allocated list of the elements in the range (n, m]
 
 ```scheme
 > (range 0 10) ;; => '(0 1 2 3 4 5 6 7 8 9)
+```
+### **range-vec**
+Constructs a vector containing a range of integers from `start` to `end` (exclusive).
+
+(range-vec start end) -> immutable-vector?
+
+* start : integer? - The starting value of the range (inclusive).
+* end : integer? - The ending value of the range (exclusive).
+
+#### Examples
+```scheme
+> (range-vec 1 5) ;; => '#(1 2 3 4)
 ```
 ### **rational?**
 Returns #t if obj is a rational number, #f otherwise.
@@ -1493,12 +1830,32 @@ Reads the next character from an input port.
 * port : input-port? = (current-input-port)
 ### **read-dir**
 Returns the contents of the directory as a list
+
+(read-dir path) -> list?
+
+* path : (string?) - The path to check
+
+#### Examples
+```scheme
+> (read-dir "logs") ;; => '("logs/today.json" "logs/yesterday.json")
+> (read-dir "empty_dir") ;; => '()
+```
 ### **read-port-to-string**
 Takes a port and reads the entire content into a string
 
 (read-port-to-string port) -> string?
 
 * port : input-port?
+### **real-part**
+Returns the real part of a number
+
+(real-part number) -> number?
+
+#### Examples
+```scheme
+> (real-part 3+4i) ;; => 3
+> (real-part 42) ;; => 42
+```
 ### **real?**
 Checks if the given value is a real number
 
@@ -2090,6 +2447,137 @@ Serializes a Steel value into a string.
 ```scheme
 (value->jsexpr-string `(,(hash "foo" #t))) ;; => "[{\"foo\":true}]"
 ```
+### **vec-append**
+Combines the given vectors.
+
+(vec-append . vecs) -> immutable-vector?
+
+* vecs : immutable-vector? - The vectors to combine.
+
+#### Examples
+```scheme
+> (define A (immutable-vector 1 2 3)) ;;
+> (define B (immutable-vector 4 5)) ;;
+> (vec-append A B) ;; => '#(1 2 3 4 5)
+```
+### **vec-rest**
+Returns a new vector with the first element removed.
+
+(vec-rest vec) -> immutable-vector?
+
+* vec : immutable-vector? - The vector from which the first element will be removed.
+
+#### Examples
+```scheme
+> (define A (immutable-vector 1 2 3)) ;;
+> (vec-rest A) ;; => '#(2 3)
+```
+### **vector**
+Constructs a new mutable vector from the provided arguments.
+
+(vector . args) -> vector?
+
+* args : any? - Elements to initialize the mutable vector.
+
+#### Examples
+```scheme
+> (vector 1 2 3) ;; => '#(1 2 3)
+```
+### **vector-append!**
+Appends the contents of one mutable vector to another.
+
+(vector-append! vec1 vec2) -> void?
+
+* vec1 : vector? - The mutable vector to which elements will be appended.
+* vec2 : vector? - The mutable vector whose elements will be appended to `vec1`.
+
+#### Examples
+```scheme
+> (define A (mutable-vector 1 2)) ;;
+> (define B (mutable-vector 3 4)) ;;
+> (vector-append! A B) ;;
+> A ;; => '#(1 2 3 4)
+> B ;; => '#()
+```
+### **vector-copy!**
+Copies a range of elements from a source vector into a destination mutable vector.
+Overwrites elements in `dest`, starting at `dest-start`, with elements from `src`
+within the range `[src-start, src-end)`.
+
+(vector-copy! dest dest-start src [src-start src-end]) -> void?
+
+* dest : vector? - The destination mutable vector.
+* dest-start : integer? - The starting index in the destination vector.
+* src : vector? - The source vector.
+* src-start : integer? - The starting index in the source vector (defaults to `0`).
+* src-end : integer? - The exclusive ending index in the source vector (defaults to the length of `src`).
+
+
+#### Examples
+```scheme
+> (define A (mutable-vector 1 2 3 4 5)) ;;
+> (define B (mutable-vector 10 20 30 40 50)) ;;
+> (vector-copy! B 1 A 2 4) ;;
+> B ;; => '#(10 3 4 40 50)
+```
+### **vector-fill!**
+Fills a mutable vector with a specified value over a given range.
+
+(vector-fill! vec value [start end]) -> void?
+
+* vec : vector? - The mutable vector to modify.
+* value : any? - The value to fill the vector with.
+* start : integer? - The starting index of the fill range (defaults to `0`).
+* end : integer? - The exclusive ending index of the fill range (defaults to the length of `vec`).
+
+#### Examples
+```scheme
+> (define A (mutable-vector 1 2 3 4 5)) ;;
+> (vector-fill! A 9 1 4) ;;
+> A ;; => '#(1 9 9 9 5)
+```
+### **vector-length**
+Returns the length of the given vector.
+
+(vector-length vec) -> integer?
+
+* vec : vector? - The vector whose length is to be determined.
+
+#### Examples
+```scheme
+> (define V (immutable-vector 1 2 3 4)) ;;
+> (vector-length V) ;; => 4
+```
+### **vector-ref**
+Retrieves the value at a specified index in an immutable or mutable vector.
+
+(vector-ref vec index) -> any?
+
+* vec : vector? - The vector from which to retrieve a value.
+* index : integer? - The position in `vec` to access (must be within bounds).
+
+#### Examples
+```scheme
+> (define A (immutable-vector 10 20 30)) ;;
+> (vector-ref A 1) ;; => 20
+> (define B (mutable-vector 5 15 25)) ;;
+> (vector-ref B 2) ;; => 25
+```
+### **vector-set!**
+Sets the value at a specified index in a mutable vector.
+
+(vector-set! vec index value) -> void?
+
+* vec : vector? - The mutable vector to modify.
+* index : integer? - The position in `vec` to update (must be within bounds).
+* value : any? - The new value to store at `index`.
+
+#### Examples
+```scheme
+> (define A (mutable-vector 1 2 3)) ;;
+> (vector-set! A 1 42) ;;
+> A ;; => '#(1 42 3)
+```
 ### **void**
 The void value, returned by many forms with side effects, such as `define`.
 ### **would-block-object?**
@@ -2145,7 +2633,6 @@ Checks if the given real number is zero.
 ### **Some?**
 ### **TypeId?**
 ### **active-object-count**
-### **arithmetic-shift**
 ### **arity?**
 ### **assert!**
 ### **atom?**
@@ -2199,10 +2686,8 @@ Checks if the given real number is zero.
 ### **eval**
 ### **eval!**
 ### **eval-string**
-### **even?**
 ### **expand!**
 ### **extending**
-### **f+**
 ### **feature-dylib-build?**
 ### **filtering**
 ### **flat-mapping**
@@ -2215,7 +2700,6 @@ Checks if the given real number is zero.
 ### **get-test-mode**
 ### **hash-get**
 ### **hash?**
-### **immutable-vector**
 ### **immutable-vector?**
 ### **inspect**
 ### **instant/elapsed**
@@ -2249,18 +2733,10 @@ Checks if the given real number is zero.
 ### **local-executor/block-on**
 ### **make-channels**
 ### **make-struct-type**
-### **make-vector**
 ### **mapping**
 ### **maybe-get-env-var**
 ### **memory-address**
 ### **multi-arity?**
-### **mut-vec-len**
-### **mut-vector-ref**
-### **mutable-vector**
-### **mutable-vector->clear**
-### **mutable-vector->list**
-### **mutable-vector->string**
-### **mutable-vector-pop!**
 ### **mutable-vector?**
 ### **naive-current-date-local**
 ### **naive-date-and-hms**
@@ -2269,8 +2745,6 @@ Checks if the given real number is zero.
 ### **naive-date-year**
 ### **naive-date-ymd**
 ### **not**
-### **null?**
-### **odd?**
 ### **plist-get**
 ### **plist-get-kwarg**
 ### **plist-get-positional-arg**
@@ -2279,15 +2753,11 @@ Checks if the given real number is zero.
 ### **plist-try-get-positional-arg**
 ### **plist-validate-args**
 ### **poll!**
-### **pop-front**
 ### **port?**
 ### **procedure?**
-### **push**
 ### **push-back**
-### **push-front**
 ### **raise-error**
 ### **raise-error-with-span**
-### **range-vec**
 ### **read!**
 ### **read-line-from-port**
 ### **read-to-string**
@@ -2312,6 +2782,7 @@ Checks if the given real number is zero.
 ### **struct->list**
 ### **struct?**
 ### **symbol->string**
+### **symbol=?**
 ### **symbol?**
 ### **syntax->datum**
 ### **syntax-e**
@@ -2329,16 +2800,7 @@ Checks if the given real number is zero.
 ### **unbox-strong**
 ### **value->iterator**
 ### **value->string**
-### **vec-append**
-### **vec-rest**
-### **vector**
-### **vector-append!**
-### **vector-copy!**
-### **vector-fill!**
-### **vector-length**
 ### **vector-push!**
-### **vector-ref**
-### **vector-set!**
 ### **vector?**
 ### **void?**
 ### **wait**
