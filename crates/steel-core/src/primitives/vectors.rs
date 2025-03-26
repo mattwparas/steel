@@ -1240,6 +1240,18 @@ pub fn vec_ref(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+/// Appends an element to the given vector.
+///
+/// (push elem vec) -> immutable-vector?
+///
+/// * elem : any - The element to append.
+/// * vec : immutable-vector? - The vector to which the element will be appended.
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 1 2 3)) ;;
+/// > (push 4 A) ;; => '#(1 2 3 4)
+/// ```
 #[steel_derive::native(name = "push", constant = true, arity = "Exact(2)")]
 pub fn vec_push(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
@@ -1263,6 +1275,18 @@ pub fn vec_push(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+/// Prepends an element to the given vector.
+///
+/// (push-front elem vec) -> immutable-vector?
+///
+/// * elem : any - The element to prepend.
+/// * vec : immutable-vector? - The vector to which the element will be prepended.
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 2 3 4)) ;;
+/// > (push-front 1 A) ;; => '#(1 2 3 4)
+/// ```
 #[steel_derive::native(name = "push-front", constant = true, arity = "Exact(2)")]
 pub fn vec_cons(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 2 {
@@ -1286,6 +1310,17 @@ pub fn vec_cons(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+/// Returns the first element of the given vector.
+///
+/// (pop-front vec) -> any?
+///
+/// * vec : immutable-vector? - The vector from which the first element will be returned.
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 1 2 3)) ;;
+/// > (pop-front A) ;; => 1
+/// ```
 #[steel_derive::native(name = "pop-front", constant = true, arity = "Exact(1)")]
 pub fn vec_car(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 1 {
@@ -1309,6 +1344,17 @@ pub fn vec_car(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+/// Returns a new vector with the first element removed.
+///
+/// (vec-rest vec) -> immutable-vector?
+///
+/// * vec : immutable-vector? - The vector from which the first element will be removed.
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 1 2 3)) ;;
+/// > (vec-rest A) ;; => '#(2 3)
+/// ```
 #[steel_derive::native(name = "vec-rest", constant = true, arity = "Exact(1)")]
 pub fn vec_cdr(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() != 1 {
@@ -1334,6 +1380,19 @@ pub fn vec_cdr(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
+/// Checks if the given list or vector is empty.
+///
+/// (null? obj) -> boolean?
+///
+/// * obj : (or/c list? vector?) - The list or vector to check.
+///
+/// # Examples
+/// ```scheme
+/// > (null? (vector)) ;; => #t
+/// > (null? (immutable-vector 1 2 3)) ;; => #f
+/// > (null? '()) ;; => #t
+/// > (null? '(1 2 3)) ;; => #f
+/// ```
 #[steel_derive::native(name = "null?", constant = true, arity = "Exact(1)")]
 pub fn list_vec_null(args: &[SteelVal]) -> Result<SteelVal> {
     if args.len() == 1 {
