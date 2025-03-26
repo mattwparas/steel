@@ -29,6 +29,7 @@ use std::{
     collections::{HashMap, HashSet},
     io::Read,
     path::PathBuf,
+    sync::Arc,
 };
 
 use crate::parser::expander::SteelMacro;
@@ -795,11 +796,8 @@ impl ModuleManager {
             .provides_for_syntax
             .iter()
             // Chain with just the normal provides!
-            // .chain(module.provides)
-            // .filter_map(|x| module.macro_map.get(x).map(|m| (*x, m.clone()))) // TODO -> fix this unwrap
-            // .filter_map(|x| module.macro_map.get_mut(x).map(|m| (*x, m))) // TODO -> fix this unwrap
             .filter_map(|x| {
-                let smacro = module.macro_map.get_mut(x);
+                let smacro = Arc::make_mut(&mut module.macro_map).get_mut(x);
 
                 if let Some(smacro) = smacro {
                     if !smacro.special_mangled {
@@ -916,7 +914,7 @@ pub struct CompiledModule {
     provides: Vec<ExprKind>,
     require_objects: Vec<RequireObject>,
     provides_for_syntax: Vec<InternedString>,
-    pub(crate) macro_map: FxHashMap<InternedString, SteelMacro>,
+    pub(crate) macro_map: Arc<FxHashMap<InternedString, SteelMacro>>,
     ast: Vec<ExprKind>,
     emitted: bool,
     cached_prefix: CompactString,
@@ -959,7 +957,7 @@ impl CompiledModule {
         provides: Vec<ExprKind>,
         require_objects: Vec<RequireObject>,
         provides_for_syntax: Vec<InternedString>,
-        macro_map: FxHashMap<InternedString, SteelMacro>,
+        macro_map: Arc<FxHashMap<InternedString, SteelMacro>>,
         ast: Vec<ExprKind>,
     ) -> Self {
         let mut base = CompactString::new(MANGLER_PREFIX);
@@ -1659,7 +1657,7 @@ struct ModuleBuilder<'a> {
     name: PathBuf,
     main: bool,
     source_ast: Vec<ExprKind>,
-    macro_map: FxHashMap<InternedString, SteelMacro>,
+    macro_map: Arc<FxHashMap<InternedString, SteelMacro>>,
     // TODO: Change the requires / requires_for_syntax to just be a require enum?
     require_objects: Vec<RequireObject>,
 
@@ -2313,7 +2311,8 @@ impl<'a> ModuleBuilder<'a> {
                 .iter()
                 .map(|x| *x.atom_identifier().unwrap())
                 .collect(),
-            std::mem::take(&mut self.macro_map),
+            // std::mem::take(&mut self.macro_map),
+            self.macro_map.clone(),
             mangled_asts,
         );
 
@@ -2375,7 +2374,8 @@ impl<'a> ModuleBuilder<'a> {
                     match SteelMacro::parse_from_ast_macro(m) {
                         Ok(generated_macro) => {
                             let name = generated_macro.name();
-                            self.macro_map.insert(*name, generated_macro);
+
+                            Arc::make_mut(&mut self.macro_map).insert(*name, generated_macro);
                         }
                         Err(e) => {
                             if error.is_none() {
@@ -2920,7 +2920,6 @@ impl<'a> ModuleBuilder<'a> {
             source_ast: Vec::new(),
             // TODO: This used to be empty
             macro_map: default_prelude_macros(),
-            // macro_map: global_macro_map.clone(),
             require_objects: Vec::new(),
             provides: Vec::new(),
             provides_for_syntax: Vec::new(),
