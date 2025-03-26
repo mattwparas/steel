@@ -118,7 +118,7 @@ impl Display for NumberLiteral {
         match self {
             NumberLiteral::Real(r) => r.fmt(f),
             NumberLiteral::Complex(re, im) => {
-                if im.is_negative() {
+                if im.is_negative() || !im.is_finite() {
                     write!(f, "{re}{im}i")
                 } else {
                     write!(f, "{re}+{im}i")
@@ -147,6 +147,14 @@ impl RealLiteral {
             RealLiteral::Int(i) => i.is_negative(),
             RealLiteral::Rational(n, _) => n.is_negative(),
             RealLiteral::Float(f) => f.is_sign_negative(),
+        }
+    }
+
+    fn is_finite(&self) -> bool {
+        match self {
+            RealLiteral::Int(_) => true,
+            RealLiteral::Rational(_, _) => true,
+            RealLiteral::Float(f) => f.is_finite(),
         }
     }
 }
