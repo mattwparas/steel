@@ -675,16 +675,48 @@ fn mutable_vector_pop(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
     last.into_steelval()
 }
 
+/// Constructs a new mutable vector from the provided arguments.
+///
+/// (mutable-vector . args) -> vector?
+///
+/// * args : any? - Elements to initialize the mutable vector.
+///
+/// # Examples
+/// ```scheme
+/// > (mutable-vector 1 2 3) ;; => '#(1 2 3)
+/// ```
 #[steel_derive::context(name = "mutable-vector", arity = "AtLeast(0)")]
 pub fn mut_vec_construct(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(ctx.make_mutable_vector(args.to_vec())))
 }
 
+/// Constructs a new mutable vector from the provided arguments.
+///
+/// (vector . args) -> vector?
+///
+/// * args : any? - Elements to initialize the mutable vector.
+///
+/// # Examples
+/// ```scheme
+/// > (vector 1 2 3) ;; => '#(1 2 3)
+/// ```
 #[steel_derive::context(name = "vector", arity = "AtLeast(0)")]
 pub fn mut_vec_construct_vec(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(Ok(ctx.make_mutable_vector(args.to_vec())))
 }
 
+/// Creates a mutable vector of a given size, optionally initialized with a specified value.
+///
+/// (make-vector size [value]) -> vector?
+///
+/// * size : integer? - The number of elements in the vector (must be non-negative).
+/// * value : any? - The value to fill the vector with (defaults to `0` if omitted).
+///
+/// # Examples
+/// ```scheme
+/// > (make-vector 3) ;; => '#(0 0 0)
+/// > (make-vector 3 42) ;; => '#(42 42 42)
+/// ```
 #[steel_derive::context(name = "make-vector", arity = "AtLeast(1)")]
 pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn make_vector_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
@@ -703,6 +735,26 @@ pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVa
     Some(make_vector_impl(ctx, args))
 }
 
+/// Copies a range of elements from a source vector into a destination mutable vector.
+/// Overwrites elements in `dest`, starting at `dest-start`, with elements from `src`
+/// within the range `[src-start, src-end)`.
+///
+/// (vector-copy! dest dest-start src [src-start src-end]) -> void?
+///
+/// * dest : vector? - The destination mutable vector.
+/// * dest-start : integer? - The starting index in the destination vector.
+/// * src : vector? - The source vector.
+/// * src-start : integer? - The starting index in the source vector (defaults to `0`).
+/// * src-end : integer? - The exclusive ending index in the source vector (defaults to the length of `src`).
+///
+///
+/// # Examples
+/// ```scheme
+/// > (define A (mutable-vector 1 2 3 4 5)) ;;
+/// > (define B (mutable-vector 10 20 30 40 50)) ;;
+/// > (vector-copy! B 1 A 2 4) ;;
+/// > B ;; => '#(10 3 4 40 50)
+/// ```
 #[steel_derive::function(name = "vector-copy!")]
 pub fn mut_vector_copy(
     dest: &HeapRef<Vec<SteelVal>>,
@@ -787,6 +839,21 @@ pub fn mut_vector_copy(
     Ok(SteelVal::Void)
 }
 
+/// Fills a mutable vector with a specified value over a given range.
+///
+/// (vector-fill! vec value [start end]) -> void?
+///
+/// * vec : vector? - The mutable vector to modify.
+/// * value : any? - The value to fill the vector with.
+/// * start : integer? - The starting index of the fill range (defaults to `0`).
+/// * end : integer? - The exclusive ending index of the fill range (defaults to the length of `vec`).
+///
+/// # Examples
+/// ```scheme
+/// > (define A (mutable-vector 1 2 3 4 5)) ;;
+/// > (vector-fill! A 9 1 4) ;;
+/// > A ;; => '#(1 9 9 9 5)
+/// ```
 #[steel_derive::function(name = "vector-fill!")]
 pub fn vector_fill(
     vec: &HeapRef<Vec<SteelVal>>,
@@ -807,6 +874,20 @@ pub fn vector_fill(
     Ok(SteelVal::Void)
 }
 
+/// Converts a mutable vector into a list, optionally over a specified range.
+///
+/// (mutable-vector->list vec [start end]) -> list?
+///
+/// * vec : vector? - The mutable vector to convert.
+/// * start : integer? - The starting index of the range (defaults to `0`).
+/// * end : integer? - The exclusive ending index of the range (defaults to the length of `vec`).
+///
+/// # Examples
+/// ```scheme
+/// > (define A (mutable-vector 1 2 3 4 5)) ;;
+/// > (mutable-vector->list A) ;; => '(1 2 3 4 5)
+/// > (mutable-vector->list A 1 4) ;; => '(2 3 4)
+/// ```
 #[steel_derive::function(name = "mutable-vector->list")]
 pub fn mut_vec_to_list(
     vec: &HeapRef<Vec<SteelVal>>,
@@ -822,11 +903,36 @@ pub fn mut_vec_to_list(
     Ok(SteelVal::ListV(items.collect()))
 }
 
+/// Returns the length of a mutable vector.
+///
+/// (mut-vec-len vec) -> integer?
+///
+/// * vec : vector? - The mutable vector to retrieve the length of.
+///
+/// # Examples
+/// ```scheme
+/// > (define A (mutable-vector 1 2 3 4 5))
+/// > (mut-vec-len A) ;; => 5
+/// ```
 #[steel_derive::function(name = "mut-vec-len")]
 pub fn mut_vec_length(vec: &HeapRef<Vec<SteelVal>>) -> SteelVal {
     SteelVal::IntV(vec.get().len() as isize)
 }
 
+/// Sets the value at a specified index in a mutable vector.
+///
+/// (vector-set! vec index value) -> void?
+///
+/// * vec : vector? - The mutable vector to modify.
+/// * index : integer? - The position in `vec` to update (must be within bounds).
+/// * value : any? - The new value to store at `index`.
+///
+/// # Examples
+/// ```scheme
+/// > (define A (mutable-vector 1 2 3))
+/// > (vector-set! A 1 42)
+/// > A ;; => '#(1 42 3)
+/// ```
 #[steel_derive::function(name = "vector-set!")]
 pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> Result<SteelVal> {
     let ptr = vec.strong_ptr();
