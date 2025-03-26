@@ -43,7 +43,7 @@ pub fn immutable_vectors_module() -> BuiltInModule {
 ///
 /// # Examples
 /// ```scheme
-/// > (define A (immutable-vector 1 2 3))
+/// > (define A (immutable-vector 1 2 3)) ;;
 /// > (immutable-vector-rest A) ;; => '#(2 3)
 /// ```
 #[steel_derive::function(name = "immutable-vector-rest")]
@@ -75,7 +75,7 @@ fn immutable_vector_rest(vector: &mut SteelVal) -> Result<SteelVal> {
 ///
 /// # Examples
 /// ```scheme
-/// > (define A (immutable-vector 1 2 3))
+/// > (define A (immutable-vector 1 2 3)) ;;
 /// > (immutable-vector->list A) ;; => '(1 2 3)
 /// ```
 #[steel_derive::function(name = "immutable-vector->list")]
@@ -98,7 +98,7 @@ fn immutable_vector_to_list(
 ///
 /// # Examples
 /// ```scheme
-/// > (define A (vector #\a #\b #\c))
+/// > (define A (vector #\a #\b #\c)) ;;
 /// > (vector->string A) ;; => "abc"
 /// ```
 #[steel_derive::function(name = "vector->string")]
@@ -134,7 +134,7 @@ fn vector_to_string(
 ///
 /// # Examples
 /// ```scheme
-/// > (define A (immutable-vector #\a #\b #\c))
+/// > (define A (immutable-vector #\a #\b #\c)) ;;
 /// > (immutable-vector->string A) ;; => "abc"
 /// ```
 #[steel_derive::function(name = "immutable-vector->string")]
@@ -163,7 +163,7 @@ fn immutable_vector_to_string(
 ///
 /// # Examples
 /// ```scheme
-/// > (define A (vector 1 2 3))
+/// > (define A (vector 1 2 3)) ;;
 /// > (vector-copy A) ;; => '#(1 2 3)
 /// ```
 #[steel_derive::context(name = "vector-copy", arity = "AtLeast(1)")]
@@ -219,7 +219,7 @@ fn vector_copy(
 ///
 /// # Examples
 /// ```scheme
-/// > (define A (immutable-vector 1 2 3))
+/// > (define A (immutable-vector 1 2 3)) ;;
 /// > (immutable-vector-copy A) ;; => '#(1 2 3)
 /// ```
 #[steel_derive::function(name = "immutable-vector-copy")]
@@ -278,8 +278,8 @@ fn vector_append(
 ///
 /// # Examples
 /// ```scheme
-/// > (define A (immutable-vector 1 2 3))
-/// > (define B (immutable-vector 4 5 6))
+/// > (define A (immutable-vector 1 2 3)) ;;
+/// > (define B (immutable-vector 4 5 6)) ;;
 /// > (immutable-vector-append A B) ;; => '#(1 2 3 4 5 6)
 /// ```
 #[steel_derive::function(name = "immutable-vector-append")]
@@ -341,7 +341,7 @@ fn make_immutable_vector(mut rest: RestArgsIter<'_, &SteelVal>) -> Result<SteelV
 ///
 /// # Examples
 /// ```scheme
-/// > (define A (immutable-vector 1 2 3))
+/// > (define A (immutable-vector 1 2 3)) ;;
 /// > (immutable-vector-push A 5) ;; => '#(1 2 3 5)
 /// ```
 #[steel_derive::function(name = "immutable-vector-push")]
@@ -401,7 +401,7 @@ fn vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
 ///
 /// # Examples
 /// ```scheme
-/// > (define A (immutable-vector 1 2 3))
+/// > (define A (immutable-vector 1 2 3)) ;;
 /// > (vector-push-front A 5) ;; => '#(5 1 2 3)
 /// ```
 #[steel_derive::function(name = "vector-push-front")]
@@ -429,6 +429,19 @@ fn immutable_vector_push_front(vector: &mut SteelVal, value: SteelVal) -> Result
     }
 }
 
+/// Returns a new vector with the specified index updated to the given value.
+///
+/// (immutable-vector-set vec index val) -> immutable-vector?
+///
+/// * vec : immutable-vector?
+/// * index : integer?
+/// * val : any?
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 1 2 3)) ;;
+/// > (immutable-vector-set A 0 5) ;; => '#(5 2 3)
+/// ```
 #[steel_derive::function(name = "immutable-vector-set")]
 fn immutable_vector_set(vector: &mut SteelVal, index: usize, value: SteelVal) -> Result<SteelVal> {
     match vector {
@@ -458,6 +471,7 @@ fn immutable_vector_set(vector: &mut SteelVal, index: usize, value: SteelVal) ->
     }
 }
 
+// TODO: Register function
 #[steel_derive::function(name = "immutable-vector-pop-back")]
 fn immutable_vector_pop_back(vector: &mut SteelVal) -> Result<SteelVal> {
     match vector {
@@ -496,6 +510,18 @@ fn immutable_vector_pop_back(vector: &mut SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Returns a new vector containing only the first `n` elements of the original vector.
+///
+/// (immutable-vector-take vec n) -> immutable-vector?
+///
+/// * vec : immutable-vector?
+/// * n : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 1 2 3 4)) ;;
+/// > (immutable-vector-take A 2) ;; => '#(1 2)
+/// ```
 #[steel_derive::function(name = "immutable-vector-take")]
 fn immutable_vector_take(vector: &mut SteelVal, count: usize) -> Result<SteelVal> {
     match vector {
@@ -532,6 +558,18 @@ fn immutable_vector_take(vector: &mut SteelVal, count: usize) -> Result<SteelVal
 //     }
 // }
 
+/// Returns a new vector with the first `n` elements removed from the original vector.
+///
+/// (immutable-vector-drop vec n) -> immutable-vector?
+///
+/// * vec : immutable-vector?
+/// * n : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (define A (immutable-vector 1 2 3 4)) ;;
+/// > (immutable-vector-drop A 2) ;; => '#(3 4)
+/// ```
 #[steel_derive::function(name = "immutable-vector-drop")]
 fn immutable_vector_drop(vector: &mut SteelVal, count: usize) -> Result<SteelVal> {
     match vector {
@@ -574,12 +612,34 @@ fn immutable_vector_drop(vector: &mut SteelVal, count: usize) -> Result<SteelVal
 //     }
 // }
 
+/// Removes all elements from a mutable vector.
+///
+/// (mutable-vector->clear vec) -> void?
+///
+/// * vec : vector?
+///
+/// # Examples
+/// ```scheme
+/// > (define A (vector 1 2 3 4)) ;;
+/// > (mutable-vector->clear A) ;; => '#()
+/// ```
 #[steel_derive::function(name = "mutable-vector->clear")]
 fn mutable_vector_clear(vec: &HeapRef<Vec<SteelVal>>) {
     // Snag the interior value
     vec.strong_ptr().write().value.clear()
 }
 
+/// Converts a vector of characters into a string.
+///
+/// (mutable-vector->string vec) -> string?
+///
+/// * `vec` : vector? (must contain only characters)
+///
+/// # Examples
+/// ```scheme
+/// > (define A (vector #\H #\e #\l #\l #\o))
+/// > (mutable-vector->string A) ;; => "Hello"
+/// ```
 #[steel_derive::function(name = "mutable-vector->string")]
 fn mutable_vector_to_string(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
     let guard = vec.strong_ptr();
