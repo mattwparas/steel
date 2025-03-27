@@ -1,5 +1,5 @@
 extern crate rustyline;
-use colored::*;
+use colored::Colorize;
 use rustyline::history::FileHistory;
 use rustyline::{
     Cmd, ConditionalEventHandler, Event, EventContext, EventHandler, KeyEvent, RepeatCount,

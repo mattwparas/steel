@@ -1,5 +1,5 @@
 extern crate rustyline;
-use colored::*;
+use colored::Colorize;
 use steel_parser::interner::InternedString;
 use steel_parser::parser::SourceId;
 use steel_parser::tokens::TokenType;

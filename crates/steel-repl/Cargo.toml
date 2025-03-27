@@ -11,7 +11,7 @@ description = "REPL library for steel"
 
 [dependencies]
 rustyline = { version = "14.0.0", features = ["derive"] }
-colored = "2.0.0"
+colored = "3.0.0"
 steel-core = { workspace = true }
 steel-parser = { path = "../steel-parser", version = "0.6.0"}
 env_home = "0.1.0"
