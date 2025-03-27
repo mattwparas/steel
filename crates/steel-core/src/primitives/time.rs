@@ -109,7 +109,7 @@ fn current_milliseconds() -> SteelVal {
             let ms = n.as_millis();
             match isize::try_from(ms) {
                 Ok(inner) => SteelVal::IntV(inner),
-                _ => SteelVal::BigNum(Gc::new(num::BigInt::from(ms))),
+                _ => SteelVal::BigNum(Gc::new(num_bigint::BigInt::from(ms))),
             }
         }
         Err(_) => panic!("SystemTime before UNIX EPOCH!"),
@@ -128,7 +128,7 @@ fn current_seconds() -> SteelVal {
             let ms = n.as_secs();
             match isize::try_from(ms) {
                 Ok(inner) => SteelVal::IntV(inner),
-                _ => SteelVal::BigNum(Gc::new(num::BigInt::from(ms))),
+                _ => SteelVal::BigNum(Gc::new(num_bigint::BigInt::from(ms))),
             }
         }
         Err(_) => panic!("SystemTime before UNIX EPOCH!"),
