@@ -62,8 +62,8 @@ use super::engine::EngineId;
 use crossbeam::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
-use num::BigInt;
-use num::CheckedSub;
+use num_bigint::BigInt;
+use num_traits::CheckedSub;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
 #[cfg(feature = "profiling")]
@@ -6901,7 +6901,7 @@ mod handlers {
                 if let Some(res) = l.checked_mul(n) {
                     Ok(SteelVal::IntV(res))
                 } else {
-                    let mut res = num::BigInt::from(l);
+                    let mut res = BigInt::from(l);
                     res *= n;
                     Ok(SteelVal::BigNum(Gc::new(res)))
                 }

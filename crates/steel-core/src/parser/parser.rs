@@ -1,7 +1,7 @@
 use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
-use num::BigRational;
+use num_rational::BigRational;
 use std::borrow::Cow;
 use std::str;
 use std::sync::{Arc, Mutex};
