@@ -11,12 +11,12 @@ description = "REPL library for steel"
 
 [dependencies]
 rustyline = { version = "14.0.0", default-features = false, features = ["with-dirs", "with-file-history", "derive"] }
-colored = "2.0.0"
 steel-core = { workspace = true }
 steel-parser = { path = "../steel-parser", version = "0.6.0"}
 home = "0.5.9"
 ctrlc = "3.4.4"
 crossbeam = "0.8.4"
+owo-colors = "4.2.0"
 
 [features]
 interrupt = ["steel-core/interrupt"]

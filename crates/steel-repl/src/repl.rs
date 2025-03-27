@@ -1,5 +1,5 @@
 extern crate rustyline;
-use colored::*;
+use owo_colors::OwoColorize;
 use rustyline::history::FileHistory;
 use steel::compiler::modules::steel_home;
 use steel::rvals::{Custom, SteelString};

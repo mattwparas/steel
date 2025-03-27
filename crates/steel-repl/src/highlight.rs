@@ -1,5 +1,5 @@
 extern crate rustyline;
-use colored::*;
+use owo_colors::OwoColorize;
 use steel_parser::interner::InternedString;
 use steel_parser::parser::SourceId;
 
