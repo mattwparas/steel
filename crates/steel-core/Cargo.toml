@@ -80,7 +80,6 @@ bigdecimal = "0.4.5"
 crossbeam = "0.8.4"
 
 httparse = "1.9.4"
-http = "1.1.0"
 
 compact_str = { version = "0.8.0", features = ["serde"] }
 
