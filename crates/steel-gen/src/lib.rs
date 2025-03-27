@@ -1026,7 +1026,7 @@ impl SuperInstructionMap {
     }
 }
 
-pub(crate) static DYNAMIC_SUPER_PATTERNS: once_cell::sync::Lazy<SuperInstructionMap> = once_cell::sync::Lazy::new(|| generate_dynamic_op_codes());
+pub(crate) static DYNAMIC_SUPER_PATTERNS: std::sync::LazyLock<SuperInstructionMap> = std::sync::LazyLock::new(|| generate_dynamic_op_codes());
 
 pub(crate) fn generate_dynamic_op_codes() -> SuperInstructionMap {
     SuperInstructionMap::new()

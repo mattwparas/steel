@@ -1057,9 +1057,9 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
             if !self.moved_threads && self.drop_buffer.len() > 20 {
                 self.moved_threads = true;
 
-                static DROP_THREAD: once_cell::sync::Lazy<
+                static DROP_THREAD: std::sync::LazyLock<
                     crossbeam::channel::Sender<OwnedIterativeDropHandler>,
-                > = once_cell::sync::Lazy::new(start_background_drop_thread);
+                > = std::sync::LazyLock::new(start_background_drop_thread);
 
                 fn start_background_drop_thread(
                 ) -> crossbeam::channel::Sender<OwnedIterativeDropHandler> {

@@ -397,9 +397,9 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 macro_rules! define_primitive_symbols {
     ($(($prim_name:tt, $name:tt) => $str:expr,) * ) => {
         $(
-            pub static $name: once_cell::sync::Lazy<InternedString> = once_cell::sync::Lazy::new(|| InternedString::from_static($str));
+            pub static $name: std::sync::LazyLock<InternedString> = std::sync::LazyLock::new(|| InternedString::from_static($str));
 
-            pub static $prim_name: once_cell::sync::Lazy<InternedString> = once_cell::sync::Lazy::new(|| InternedString::from_static(concat!("#%prim.", $str)));
+            pub static $prim_name: std::sync::LazyLock<InternedString> = std::sync::LazyLock::new(|| InternedString::from_static(concat!("#%prim.", $str)));
         )*
     };
 }
@@ -408,7 +408,7 @@ macro_rules! define_primitive_symbols {
 macro_rules! define_symbols {
     ($($name:tt => $str:expr,) * ) => {
         $(
-            pub static $name: once_cell::sync::Lazy<InternedString> = once_cell::sync::Lazy::new(|| InternedString::from_static($str));
+            pub static $name: std::sync::LazyLock<InternedString> = std::sync::LazyLock::new(|| InternedString::from_static($str));
         )*
     };
 }

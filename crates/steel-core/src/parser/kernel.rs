@@ -6,7 +6,7 @@ use std::{
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 #[cfg(feature = "sync")]
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use steel_parser::tokens::TokenType;
 
 use crate::{
@@ -38,9 +38,11 @@ thread_local! {
 }
 
 #[cfg(feature = "sync")]
-pub static STATIC_KERNEL_IMAGE: Lazy<Engine> = Lazy::new(|| Engine::new_bootstrap_kernel(false));
+pub static STATIC_KERNEL_IMAGE: LazyLock<Engine> =
+    LazyLock::new(|| Engine::new_bootstrap_kernel(false));
 #[cfg(feature = "sync")]
-pub static STATIC_KERNEL_IMAGE_SB: Lazy<Engine> = Lazy::new(|| Engine::new_bootstrap_kernel(true));
+pub static STATIC_KERNEL_IMAGE_SB: LazyLock<Engine> =
+    LazyLock::new(|| Engine::new_bootstrap_kernel(true));
 
 pub(crate) fn fresh_kernel_image(sandbox: bool) -> Engine {
     // Just deep clone the env coming out

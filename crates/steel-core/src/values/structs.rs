@@ -3,9 +3,9 @@
 
 use crate::steel_vm::primitives::{steel_unbox_mutable, unbox_mutable};
 use crate::values::HashMap;
-use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
+use std::sync::LazyLock;
 
 use crate::compiler::map::SymbolMap;
 use crate::parser::interner::InternedString;
@@ -799,17 +799,17 @@ impl VTable {
     // fn define_trait()
 }
 
-pub static OK_RESULT_LABEL: Lazy<InternedString> = Lazy::new(|| "Ok".into());
-pub static SOME_OPTION_LABEL: Lazy<InternedString> = Lazy::new(|| "Some".into());
-pub static ERR_RESULT_LABEL: Lazy<InternedString> = Lazy::new(|| "Err".into());
-pub static NONE_OPTION_LABEL: Lazy<InternedString> = Lazy::new(|| "None".into());
-pub static TYPE_ID: Lazy<InternedString> = Lazy::new(|| "TypeId".into());
+pub static OK_RESULT_LABEL: LazyLock<InternedString> = LazyLock::new(|| "Ok".into());
+pub static SOME_OPTION_LABEL: LazyLock<InternedString> = LazyLock::new(|| "Some".into());
+pub static ERR_RESULT_LABEL: LazyLock<InternedString> = LazyLock::new(|| "Err".into());
+pub static NONE_OPTION_LABEL: LazyLock<InternedString> = LazyLock::new(|| "None".into());
+pub static TYPE_ID: LazyLock<InternedString> = LazyLock::new(|| "TypeId".into());
 
-pub static STRUCT_DEFINITIONS: Lazy<Arc<std::sync::RwLock<SymbolMap>>> =
-    Lazy::new(|| Arc::new(std::sync::RwLock::new(SymbolMap::default())));
+pub static STRUCT_DEFINITIONS: LazyLock<Arc<std::sync::RwLock<SymbolMap>>> =
+    LazyLock::new(|| Arc::new(std::sync::RwLock::new(SymbolMap::default())));
 
 #[cfg(feature = "sync")]
-pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {
+pub static STATIC_VTABLE: LazyLock<RwLock<VTable>> = LazyLock::new(|| {
     let mut map = fxhash::FxHashMap::default();
 
     #[cfg(feature = "sync")]
@@ -831,23 +831,23 @@ pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {
 });
 
 #[cfg(feature = "sync")]
-pub static STATIC_TRANSPARENT_KEY: Lazy<SteelVal> =
-    Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
+pub static STATIC_TRANSPARENT_KEY: LazyLock<SteelVal> =
+    LazyLock::new(|| SteelVal::SymbolV("#:transparent".into()));
 #[cfg(feature = "sync")]
-pub static STATIC_MUTABLE_KEY: Lazy<SteelVal> =
-    Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
+pub static STATIC_MUTABLE_KEY: LazyLock<SteelVal> =
+    LazyLock::new(|| SteelVal::SymbolV("#:transparent".into()));
 #[cfg(feature = "sync")]
-pub static STATIC_FIELDS_KEY: Lazy<SteelVal> =
-    Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
+pub static STATIC_FIELDS_KEY: LazyLock<SteelVal> =
+    LazyLock::new(|| SteelVal::SymbolV("#:transparent".into()));
 
-pub static STATIC_OK_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*OK_RESULT_LABEL, None));
-pub static STATIC_ERR_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*ERR_RESULT_LABEL, None));
-pub static STATIC_SOME_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*SOME_OPTION_LABEL, None));
-pub static STATIC_NONE_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*NONE_OPTION_LABEL, None));
+pub static STATIC_OK_DESCRIPTOR: LazyLock<StructTypeDescriptor> =
+    LazyLock::new(|| VTable::new_entry(*OK_RESULT_LABEL, None));
+pub static STATIC_ERR_DESCRIPTOR: LazyLock<StructTypeDescriptor> =
+    LazyLock::new(|| VTable::new_entry(*ERR_RESULT_LABEL, None));
+pub static STATIC_SOME_DESCRIPTOR: LazyLock<StructTypeDescriptor> =
+    LazyLock::new(|| VTable::new_entry(*SOME_OPTION_LABEL, None));
+pub static STATIC_NONE_DESCRIPTOR: LazyLock<StructTypeDescriptor> =
+    LazyLock::new(|| VTable::new_entry(*NONE_OPTION_LABEL, None));
 
 // TODO: Just make these Arc'd and lazy static instead of thread local.
 thread_local! {

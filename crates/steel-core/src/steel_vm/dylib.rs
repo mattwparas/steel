@@ -4,7 +4,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{Arc, LazyLock, Mutex},
 };
 
 use abi_stable::{
@@ -14,7 +14,6 @@ use abi_stable::{
     std_types::RBox,
     StableAbi,
 };
-use once_cell::sync::Lazy;
 
 use crate::{
     compiler::modules::steel_home,
@@ -24,16 +23,16 @@ use crate::{
 use super::{builtin::BuiltInModule, ffi::FFIModule};
 
 // The new and improved loading of modules
-static LOADED_MODULES: Lazy<Arc<Mutex<Vec<(String, GenerateModule_Ref)>>>> =
-    Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
+static LOADED_MODULES: LazyLock<Arc<Mutex<Vec<(String, GenerateModule_Ref)>>>> =
+    LazyLock::new(|| Arc::new(Mutex::new(Vec::new())));
 
 thread_local! {
     static BUILT_DYLIBS: Rc<RefCell<HashMap<String, BuiltInModule>>> = Rc::new(RefCell::new(HashMap::new()));
 }
 
 #[cfg(feature = "sync")]
-static STATIC_BUILT_DYLIBS: Lazy<Mutex<HashMap<String, BuiltInModule>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static STATIC_BUILT_DYLIBS: LazyLock<Mutex<HashMap<String, BuiltInModule>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[repr(C)]
 #[derive(StableAbi)]

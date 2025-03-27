@@ -2,8 +2,8 @@ use compact_str::CompactString;
 use fxhash::FxBuildHasher;
 use lasso::Key;
 use lasso::Spur;
-use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 use std::{fmt, sync::Arc};
 
 // TODO: Serialize and Deserialize should resolve() -> Otherwise we're in for deep trouble
@@ -126,7 +126,7 @@ impl fmt::Display for InternedString {
 
 use lasso::ThreadedRodeo;
 
-static INTERNER: OnceCell<Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>> = OnceCell::new();
+static INTERNER: OnceLock<Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>> = OnceLock::new();
 
 pub fn interned_current_memory_usage() -> usize {
     INTERNER.get().unwrap().current_memory_usage()

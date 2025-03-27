@@ -17,7 +17,7 @@ use crate::{
 };
 use compact_str::CompactString;
 use fxhash::FxBuildHasher;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 #[cfg(feature = "sync")]
 use parking_lot::RwLock;
@@ -124,11 +124,11 @@ impl RegisterValue for BuiltInModule {
     }
 }
 
-pub static MODULE_GET: Lazy<InternedString> = Lazy::new(|| "%module-get%".into());
-pub static VOID: Lazy<InternedString> = Lazy::new(|| "void".into());
-pub static GET_DYLIB: Lazy<InternedString> = Lazy::new(|| "#%get-dylib".into());
-pub static VOID_MODULE: Lazy<InternedString> =
-    Lazy::new(|| "%-builtin-module-steel/constants".into());
+pub static MODULE_GET: LazyLock<InternedString> = LazyLock::new(|| "%module-get%".into());
+pub static VOID: LazyLock<InternedString> = LazyLock::new(|| "void".into());
+pub static GET_DYLIB: LazyLock<InternedString> = LazyLock::new(|| "#%get-dylib".into());
+pub static VOID_MODULE: LazyLock<InternedString> =
+    LazyLock::new(|| "%-builtin-module-steel/constants".into());
 
 // Global function table
 thread_local! {
@@ -136,9 +136,9 @@ thread_local! {
 }
 
 #[cfg(feature = "sync")]
-pub static STATIC_FUNCTION_TABLE: Lazy<
+pub static STATIC_FUNCTION_TABLE: LazyLock<
     RwLock<HashMap<BuiltInFunctionType, FunctionSignatureMetadata>>,
-> = Lazy::new(|| RwLock::new(HashMap::new()));
+> = LazyLock::new(|| RwLock::new(HashMap::new()));
 
 pub fn get_function_name(function: FunctionSignature) -> Option<FunctionSignatureMetadata> {
     #[cfg(feature = "sync")]

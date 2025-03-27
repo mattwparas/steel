@@ -17,7 +17,7 @@ use super::{interner::InternedString, parser::SyntaxObjectId, span::Span};
 macro_rules! define_symbols {
     ($($name:tt => $str:expr,) * ) => {
         $(
-            pub static $name: once_cell::sync::Lazy<InternedString> = once_cell::sync::Lazy::new(|| $str.into());
+            pub static $name: std::sync::LazyLock<InternedString> = std::sync::LazyLock::new(|| $str.into());
         )*
     };
 }

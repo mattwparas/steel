@@ -16,7 +16,7 @@ use crate::{
 use num::{BigInt, BigRational, Rational32};
 
 #[cfg(feature = "sync")]
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 
 use steel_gen::OpCode;
 
@@ -430,7 +430,7 @@ thread_local! {
 
 // stash roots in the global area
 #[cfg(feature = "sync")]
-static GLOBAL_ROOTS: Lazy<Mutex<Roots>> = Lazy::new(|| Mutex::new(Roots::default()));
+static GLOBAL_ROOTS: LazyLock<Mutex<Roots>> = LazyLock::new(|| Mutex::new(Roots::default()));
 
 #[derive(Default)]
 pub struct Roots {

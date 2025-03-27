@@ -657,28 +657,28 @@ pub fn channel_try_recv(receiver: &SteelVal) -> Result<SteelVal> {
 
 #[cfg(not(feature = "sync"))]
 thread_local! {
-    static EMPTY_CHANNEL_OBJECT: once_cell::unsync::Lazy<(SteelVal, crate::values::structs::StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
+    static EMPTY_CHANNEL_OBJECT: std::cell::LazyCell<(SteelVal, crate::values::structs::StructTypeDescriptor)> = std::cell::LazyCell::new(|| {
         crate::values::structs::make_struct_singleton("#%empty-channel".into())
     });
 
-    static DISCONNECTED_CHANNEL_OBJECT: once_cell::unsync::Lazy<(SteelVal, crate::values::structs::StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
+    static DISCONNECTED_CHANNEL_OBJECT: std::cell::LazyCell<(SteelVal, crate::values::structs::StructTypeDescriptor)> = std::cell::LazyCell::new(|| {
         crate::values::structs::make_struct_singleton("#%disconnected-channel".into())
     });
 }
 
 #[cfg(feature = "sync")]
-pub static EMPTY_CHANNEL_OBJECT: once_cell::sync::Lazy<(
+pub static EMPTY_CHANNEL_OBJECT: std::sync::LazyLock<(
     SteelVal,
     crate::values::structs::StructTypeDescriptor,
-)> = once_cell::sync::Lazy::new(|| {
+)> = std::sync::LazyLock::new(|| {
     crate::values::structs::make_struct_singleton("#%empty-channel".into())
 });
 
 #[cfg(feature = "sync")]
-pub static DISCONNECTED_CHANNEL_OBJECT: once_cell::sync::Lazy<(
+pub static DISCONNECTED_CHANNEL_OBJECT: std::sync::LazyLock<(
     SteelVal,
     crate::values::structs::StructTypeDescriptor,
-)> = once_cell::sync::Lazy::new(|| {
+)> = std::sync::LazyLock::new(|| {
     crate::values::structs::make_struct_singleton("#%empty-channel".into())
 });
 
