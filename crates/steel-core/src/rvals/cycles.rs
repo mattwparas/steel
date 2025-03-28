@@ -1068,13 +1068,13 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 self.moved_threads = true;
 
                 static DROP_THREAD: once_cell::sync::Lazy<
-                    crossbeam::channel::Sender<OwnedIterativeDropHandler>,
+                    crossbeam_channel::Sender<OwnedIterativeDropHandler>,
                 > = once_cell::sync::Lazy::new(start_background_drop_thread);
 
                 fn start_background_drop_thread(
-                ) -> crossbeam::channel::Sender<OwnedIterativeDropHandler> {
+                ) -> crossbeam_channel::Sender<OwnedIterativeDropHandler> {
                     let (sender, receiver) =
-                        crossbeam::channel::unbounded::<OwnedIterativeDropHandler>();
+                        crossbeam_channel::unbounded::<OwnedIterativeDropHandler>();
 
                     std::thread::spawn(move || {
                         while let Ok(mut value) = receiver.recv() {

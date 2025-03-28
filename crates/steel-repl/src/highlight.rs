@@ -23,14 +23,14 @@ use std::borrow::Cow;
 #[derive(Helper)]
 pub struct RustylineHelper {
     globals: Arc<Mutex<HashSet<InternedString>>>,
-    bracket: crossbeam::atomic::AtomicCell<Option<(u8, usize)>>, // keywords: HashSet<&'static str>,
+    bracket: crossbeam_utils::atomic::AtomicCell<Option<(u8, usize)>>, // keywords: HashSet<&'static str>,
 }
 
 impl RustylineHelper {
     pub fn new(globals: Arc<Mutex<HashSet<InternedString>>>) -> Self {
         Self {
             globals,
-            bracket: crossbeam::atomic::AtomicCell::new(None),
+            bracket: crossbeam_utils::atomic::AtomicCell::new(None),
         }
     }
 }
