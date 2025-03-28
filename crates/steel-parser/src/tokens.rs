@@ -364,10 +364,10 @@ impl<'a> TokenType<Cow<'a, str>> {
 
 fn character_special_display(c: char, f: &mut fmt::Formatter) -> fmt::Result {
     match c {
-        ' ' => write!(f, "#\\SPACE"),
-        '\t' => write!(f, "#\\TAB"),
-        '\n' => write!(f, "#\\NEWLINE"),
-        '\r' => write!(f, "#\\RETURN"),
+        ' ' => write!(f, "#\\space"),
+        '\t' => write!(f, "#\\tab"),
+        '\n' => write!(f, "#\\newline"),
+        '\r' => write!(f, "#\\return"),
         _ => {
             let escape = c.escape_debug();
             if escape.len() <= 2 {
@@ -375,7 +375,7 @@ fn character_special_display(c: char, f: &mut fmt::Formatter) -> fmt::Result {
                 write!(f, "#\\{}", c)
             } else {
                 // escape char as #\uNNNN
-                write!(f, "#\\u{:04X}", c as u32)
+                write!(f, "#\\u{:04x}", c as u32)
             }
         }
     }
