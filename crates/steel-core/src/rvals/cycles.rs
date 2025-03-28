@@ -156,13 +156,22 @@ impl CycleDetector {
 
                 write!(f, ")")
             }
-            CharV(c) => {
-                if c.is_ascii_control() {
-                    write!(f, "{}", c)
-                } else {
-                    write!(f, "#\\{c}")
+            CharV(c) => match c {
+                ' ' => write!(f, "#\\SPACE"),
+                '\t' => write!(f, "#\\TAB"),
+                '\n' => write!(f, "#\\NEWLINE"),
+                '\r' => write!(f, "#\\RETURN"),
+                _ => {
+                    let escape = c.escape_debug();
+                    if escape.len() <= 2 {
+                        // char does not need escaping
+                        write!(f, "#\\{}", c)
+                    } else {
+                        // escape char as #\uNNNN
+                        write!(f, "#\\u{:04X}", *c as u32)
+                    }
                 }
-            }
+            },
             Pair(p) => {
                 write!(f, "(")?;
                 self.format_with_cycles(&p.car, f, FormatType::Normal)?;

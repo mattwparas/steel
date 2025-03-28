@@ -368,13 +368,16 @@ fn character_special_display(c: char, f: &mut fmt::Formatter) -> fmt::Result {
         '\t' => write!(f, "#\\TAB"),
         '\n' => write!(f, "#\\NEWLINE"),
         '\r' => write!(f, "#\\RETURN"),
-        c if c.is_control() || c.is_whitespace() => {
-            write!(f, "#\\{}", c.escape_unicode())
+        _ => {
+            let escape = c.escape_debug();
+            if escape.len() <= 2 {
+                // char does not need escaping
+                write!(f, "#\\{}", c)
+            } else {
+                // escape char as #\uNNNN
+                write!(f, "#\\u{:04X}", c as u32)
+            }
         }
-        // '\"' => write!(f, "#\\DOUBLE-QUOTE"),
-        // '\'' => write!(f, "#\\QUOTE"),
-        // '\\' => write!(f, "#\\BACKSLASH"),
-        _ => write!(f, "#\\{c}"),
     }
 }
 
