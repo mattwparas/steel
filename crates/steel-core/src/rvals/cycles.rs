@@ -158,6 +158,7 @@ impl CycleDetector {
             }
             CharV(c) => match c {
                 ' ' => write!(f, "#\\space"),
+                '\0' => write!(f, "#\\null"),
                 '\t' => write!(f, "#\\tab"),
                 '\n' => write!(f, "#\\newline"),
                 '\r' => write!(f, "#\\return"),

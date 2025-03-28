@@ -365,6 +365,7 @@ impl<'a> TokenType<Cow<'a, str>> {
 fn character_special_display(c: char, f: &mut fmt::Formatter) -> fmt::Result {
     match c {
         ' ' => write!(f, "#\\space"),
+        '\0' => write!(f, "#\\null"),
         '\t' => write!(f, "#\\tab"),
         '\n' => write!(f, "#\\newline"),
         '\r' => write!(f, "#\\return"),
