@@ -59,7 +59,7 @@ use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
 
 use super::engine::EngineId;
 
-use crossbeam::atomic::AtomicCell;
+use crossbeam_utils::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
 use num_bigint::BigInt;
