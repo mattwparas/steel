@@ -3449,7 +3449,8 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "criterion",
- "crossbeam",
+ "crossbeam-channel",
+ "crossbeam-utils",
  "env_home",
  "env_logger",
  "futures-executor",
@@ -3586,7 +3587,7 @@ name = "steel-repl"
 version = "0.6.0"
 dependencies = [
  "colored",
- "crossbeam",
+ "crossbeam-utils",
  "ctrlc",
  "env_home",
  "rustyline",
@@ -3652,7 +3653,7 @@ version = "0.1.0"
 dependencies = [
  "abi_stable",
  "axum",
- "crossbeam",
+ "crossbeam-channel",
  "serde_json",
  "steel-core",
  "tokio",

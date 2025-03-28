@@ -79,7 +79,8 @@ parking_lot = { version = "0.12", features = ["arc_lock", "send_guard"] }
 bigdecimal = "0.4.5"
 
 # Also for sync stuff
-crossbeam = "0.8.4"
+crossbeam-channel = "0.5.14"
+crossbeam-utils = "0.8.21"
 
 httparse = "1.9.4"
 
