@@ -3422,7 +3422,6 @@ dependencies = [
  "criterion",
  "crossbeam-channel",
  "crossbeam-utils",
- "env_logger",
  "futures-executor",
  "futures-task",
  "futures-util",
