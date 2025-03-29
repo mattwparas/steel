@@ -79,6 +79,20 @@ Returns the arccosine, or inverse cosine, of a value; output is in radians.
 > (acos 0.5) ;; => 1.0471975511965976
 > (acos 2) ;; => +nan.0
 ```
+### **arithmetic-shift**
+Performs a bitwise arithmetic shift using the given 2 numbers
+
+(arithmetic-shift n m) -> integer?
+
+* n : integer? - The number to shift.
+* m : integer? - The number by which to shift.
+
+#### Examples
+```scheme
+> (arithmetic-shift 10 1) ;; => 20
+> (arithmetic-shift 20 1) ;; => 40
+> (arithmetic-shift 40 -2) ;; => 10
+```
 ### **asin**
 Returns the arcsine, or inverse sine, of a value; output is in radians.
 
@@ -147,8 +161,21 @@ Retrieves the denominator of the given rational number.
 > (denominator 3/4) ;; => 4
 > (denominator 4) ;; => 1
 ```
+### **even?**
+Checks if the given number is even
+
+(even? n) -> bool?
+
+* n : number? - The number to check for evenness.
+
+#### Examples
+```scheme
+> (even? 2) ;; => #true
+> (even? 3) ;; => #false
+> (even? 4.0) ;; => #true
+```
 ### **exact**
-Returns the input value if it is an exact number, otherwise raises an error.
+Returns an exact representation of the input number, coerces an inexact number to an exact form.
 
 (exact n) -> number?
 
@@ -156,8 +183,9 @@ Returns the input value if it is an exact number, otherwise raises an error.
 
 #### Examples
 ```scheme
-> (exact 5) ;; => 5
+> (exact 5.0) ;; => 5
 > (exact 5/3) ;; => 5/3
+> (exact 2) ;; => 2
 ```
 ### **exact->inexact**
 Converts an exact number to an inexact number.
@@ -224,6 +252,19 @@ Raises the left operand to the power of the right operand.
 > (expt 2.0 0.5) ;; => 1.4142135623730951
 > (expt 9 0.5) ;; => 3
 ```
+### **f+**
+Sums all given floats
+
+(f+ nums) -> number?
+
+* nums : float? - The floats to sum up.
+
+#### Examples
+```scheme
+> (f+ 5.5) ;; => 5.5
+> (f+ 1.1 2.2) ;; => 3.3
+> (f+ 3.3 3.3 3.3) ;; => 9.9
+```
 ### **finite?**
 Returns `#t` if the given number is finite.
 
@@ -251,6 +292,16 @@ Computes the largest integer less than or equal to the given number.
 > (floor 3.14) ;; => 3
 > (floor 4.99) ;; => 4
 > (floor -2.5) ;; => -3
+```
+### **imag-part**
+Returns the imaginary part of a number
+
+(imag-part number) -> number?
+
+#### Examples
+```scheme
+> (imag-part 3+4i) ;; => 4
+> (imag-part 42) ;; => 0
 ```
 ### **inexact->exact**
 Converts an inexact number to an exact number.
@@ -304,35 +355,6 @@ Computes the natural logarithm of the given number.
 > (log 100 10) ;; => 2
 > (log 27 3) ;; => 3
 ```
-
-### **real-part**
-
-Returns the real part of a number
-
-(real-part number) -> number?
-
-* number: number? - The numbers to get the real part of.
-
-#### Examples
-```scheme
-> (real-part 3+4i) ;; => 3
-> (real-part 42) ;; => 42
-```
-
-### **imag-part**
-
-Returns the imaginary part of a number
-
-(imag-part number) -> number?
-
-* number: number? - The numbers to get the real part of.
-
-# Examples
-```scheme
-> (imag-part 3+4i) ;; => 4
-> (imag-part 42) ;; => 0
-```
-
 ### **magnitude**
 Computes the magnitude of the given number.
 
@@ -399,6 +421,19 @@ Retrieves the numerator of the given rational number.
 > (numerator 5/2) ;; => 5
 > (numerator -2) ;; => -2
 ```
+### **odd?**
+Checks if the given number is odd
+
+(odd? n) -> bool?
+
+* n : number? - The number to check for oddness.
+
+#### Examples
+```scheme
+> (odd? 2) ;; => #false
+> (odd? 3) ;; => #true
+> (odd? 5.0) ;; => #true
+```
 ### **positive?**
 Checks if the given real number is positive.
 
@@ -425,6 +460,16 @@ Returns quotient of dividing numerator by denomintator.
 > (quotient 11 2) ;; => 5
 > (quotient 10 2) ;; => 5
 > (quotient -10 2) ;; => -5
+```
+### **real-part**
+Returns the real part of a number
+
+(real-part number) -> number?
+
+#### Examples
+```scheme
+> (real-part 3+4i) ;; => 3
+> (real-part 42) ;; => 42
 ```
 ### **remainder**
 Returns the arithmetic remainder of the division of the first number by the second.
@@ -522,7 +567,3 @@ Checks if the given real number is zero.
 > (zero? 0.0) ;; => #t
 > (zero? 0.1) ;; => #f
 ```
-### **arithmetic-shift**
-### **even?**
-### **f+**
-### **odd?**

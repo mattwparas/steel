@@ -10,7 +10,7 @@ use super::{
 use crate::{
     gc::Gc,
     parser::span::Span,
-    primitives::VectorOperations,
+    primitives::vectors::vec_construct_iter,
     rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
     stop,
@@ -527,7 +527,7 @@ impl<'global, 'a> VmCore<'a> {
                 iter.nth(usize).unwrap_or_else(|| stop!(Generic => "`nth` - index given is greater than the length of the iterator"))
             },
             Reducer::List => iter.collect::<Result<List<_>>>().map(SteelVal::ListV),
-            Reducer::Vector => VectorOperations::vec_construct_iter(iter),
+            Reducer::Vector => vec_construct_iter(iter),
             Reducer::HashMap => {
                 iter.map(|x| {
                     match x? {
