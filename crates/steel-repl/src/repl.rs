@@ -236,6 +236,8 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
         safepoint.resume();
     };
 
+    let mut previous_line_cancelled = false;
+
     while rx.try_recv().is_err() {
         // Update globals for highlighting
         // TODO: Come up with some kind of subscription API?
@@ -255,6 +257,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str()).ok();
+                previous_line_cancelled = false;
                 match line.as_str() {
                     ":q" | ":quit" => return Ok(()),
                     ":time" => {
@@ -313,8 +316,13 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
                 }
             }
             Err(ReadlineError::Interrupted) => {
-                println!("CTRL-C");
-                continue;
+                if previous_line_cancelled {
+                    break;
+                } else {
+                    previous_line_cancelled = true;
+                    println!("CTRL-C");
+                    continue;
+                }
             }
             Err(ReadlineError::Eof) => {
                 println!("CTRL-D");
