@@ -1,13 +1,12 @@
 use std::{
     cell::RefCell,
     rc::Rc,
-    sync::{Arc, Mutex},
+    sync::{Arc, LazyLock, Mutex},
 };
 
 use steel::steel_vm::engine::Engine;
 use steel::steel_vm::register_fn::RegisterFn;
 
-use once_cell::sync::Lazy;
 use steel_derive::Steel; // 1.3.1
 
 // Since Steel is a functional language, we can perform mutation by using the interior mutability pattern
@@ -37,7 +36,7 @@ pub fn mutex_increment(value: MutexWrapper) {
 
 // Optionally, you can also provide functions which hold references to static global
 // variables
-static ARRAY: Lazy<Mutex<Vec<u8>>> = Lazy::new(|| Mutex::new(vec![]));
+static ARRAY: LazyLock<Mutex<Vec<u8>>> = LazyLock::new(|| Mutex::new(vec![]));
 
 fn push_global_vector() {
     ARRAY.lock().unwrap().push(1);

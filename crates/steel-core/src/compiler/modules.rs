@@ -20,7 +20,6 @@ use crate::{parser::expand_visitor::Expander, rvals::Result};
 
 use compact_str::CompactString;
 use fxhash::{FxHashMap, FxHashSet};
-use once_cell::sync::Lazy;
 // use smallvec::SmallVec;
 use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
 
@@ -29,7 +28,7 @@ use std::{
     collections::{HashMap, HashSet},
     io::Read,
     path::PathBuf,
-    sync::Arc,
+    sync::{Arc, LazyLock},
 };
 
 use crate::parser::expander::SteelMacro;
@@ -126,7 +125,7 @@ create_prelude!(
 );
 
 #[cfg(not(target_arch = "wasm32"))]
-pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
+pub static STEEL_HOME: LazyLock<Option<String>> = LazyLock::new(|| {
     std::env::var("STEEL_HOME").ok().or_else(|| {
         let home = home::home_dir();
 
@@ -149,7 +148,7 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
 });
 
 #[cfg(target_arch = "wasm32")]
-pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| None);
+pub static STEEL_HOME: LazyLock<Option<String>> = LazyLock::new(|| None);
 
 pub fn steel_home() -> Option<String> {
     STEEL_HOME.clone()

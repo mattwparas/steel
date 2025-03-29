@@ -10,14 +10,14 @@ use steel_derive::function;
 
 #[cfg(not(feature = "sync"))]
 thread_local! {
-    static EOF_OBJECT: once_cell::unsync::Lazy<(SteelVal, StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
+    static EOF_OBJECT: std::cell::LazyCell<(SteelVal, StructTypeDescriptor)> = std::cell::LazyCell::new(|| {
         make_struct_singleton("eof".into())
     });
 }
 
 #[cfg(feature = "sync")]
-pub static EOF_OBJECT: once_cell::sync::Lazy<(SteelVal, StructTypeDescriptor)> =
-    once_cell::sync::Lazy::new(|| make_struct_singleton("eof".into()));
+pub static EOF_OBJECT: std::sync::LazyLock<(SteelVal, StructTypeDescriptor)> =
+    std::sync::LazyLock::new(|| make_struct_singleton("eof".into()));
 
 pub fn port_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ports");

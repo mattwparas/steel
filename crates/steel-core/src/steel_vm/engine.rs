@@ -65,14 +65,13 @@ use std::{
     rc::Rc,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc, Mutex,
+        Arc, LazyLock, Mutex, OnceLock,
     },
 };
 
 use crate::values::HashMap as ImmutableHashMap;
 use fxhash::{FxBuildHasher, FxHashMap};
 use lasso::ThreadedRodeo;
-use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
@@ -408,11 +407,11 @@ macro_rules! time {
     }};
 }
 
-static STATIC_DEFAULT_PRELUDE_MACROS: OnceCell<Arc<FxHashMap<InternedString, SteelMacro>>> =
-    OnceCell::new();
+static STATIC_DEFAULT_PRELUDE_MACROS: OnceLock<Arc<FxHashMap<InternedString, SteelMacro>>> =
+    OnceLock::new();
 
-static STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX: OnceCell<Arc<FxHashMap<InternedString, SteelMacro>>> =
-    OnceCell::new();
+static STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX: OnceLock<Arc<FxHashMap<InternedString, SteelMacro>>> =
+    OnceLock::new();
 
 pub(crate) fn set_default_prelude_macros(
     prelude_macros: FxHashMap<InternedString, SteelMacro>,

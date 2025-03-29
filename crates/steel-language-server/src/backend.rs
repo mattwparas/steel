@@ -5,12 +5,11 @@ use std::{
     collections::{HashMap, HashSet},
     error::Error,
     path::PathBuf,
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, LazyLock, Mutex, RwLock},
 };
 
 use dashmap::{DashMap, DashSet};
 
-use once_cell::sync::Lazy;
 use ropey::Rope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -892,10 +891,11 @@ impl steel::steel_vm::engine::ModuleResolver for ExternalModuleResolver {
 
 // TODO: Move these to the backend - we don't need them to be global like this now that
 // we're thread safe
-pub static ENGINE: Lazy<RwLock<Engine>> = Lazy::new(|| RwLock::new(Engine::new()));
-pub static LINT_ENGINE: Lazy<RwLock<UserDefinedLintEngine>> =
-    Lazy::new(|| RwLock::new(configure_lints().unwrap()));
-pub static DIAGNOSTICS: Lazy<RwLock<Vec<SteelDiagnostic>>> = Lazy::new(|| RwLock::new(Vec::new()));
+pub static ENGINE: LazyLock<RwLock<Engine>> = LazyLock::new(|| RwLock::new(Engine::new()));
+pub static LINT_ENGINE: LazyLock<RwLock<UserDefinedLintEngine>> =
+    LazyLock::new(|| RwLock::new(configure_lints().unwrap()));
+pub static DIAGNOSTICS: LazyLock<RwLock<Vec<SteelDiagnostic>>> =
+    LazyLock::new(|| RwLock::new(Vec::new()));
 
 // At one time, call the lints, collecting the diagnostics each time.
 pub struct UserDefinedLintEngine {

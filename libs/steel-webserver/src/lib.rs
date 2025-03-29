@@ -8,7 +8,7 @@ use steel::{
     },
 };
 
-use crossbeam::channel::{unbounded, Receiver, Sender};
+use crossbeam_channel::{unbounded, Receiver, Sender};
 
 use axum::extract::Path;
 

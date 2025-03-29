@@ -1,5 +1,5 @@
 extern crate rustyline;
-use colored::*;
+use owo_colors::OwoColorize;
 use steel_parser::interner::InternedString;
 use steel_parser::parser::SourceId;
 
@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 use rustyline::highlight::Highlighter;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 
+use rustyline::Helper;
 use rustyline::{hint::Hinter, Context};
-use rustyline_derive::Helper;
 
 use steel_parser::lexer::TokenStream;
 
@@ -26,14 +26,14 @@ impl Completer for RustylineHelper {
 #[derive(Helper)]
 pub struct RustylineHelper {
     globals: Arc<Mutex<HashSet<InternedString>>>,
-    bracket: crossbeam::atomic::AtomicCell<Option<(u8, usize)>>, // keywords: HashSet<&'static str>,
+    bracket: crossbeam_utils::atomic::AtomicCell<Option<(u8, usize)>>, // keywords: HashSet<&'static str>,
 }
 
 impl RustylineHelper {
     pub fn new(globals: Arc<Mutex<HashSet<InternedString>>>) -> Self {
         Self {
             globals,
-            bracket: crossbeam::atomic::AtomicCell::new(None),
+            bracket: crossbeam_utils::atomic::AtomicCell::new(None),
         }
     }
 }

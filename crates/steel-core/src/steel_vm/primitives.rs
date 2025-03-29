@@ -73,8 +73,7 @@ use crate::{
 };
 use compact_str::CompactString;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
-use once_cell::sync::Lazy;
-use std::cmp::Ordering;
+use std::{cmp::Ordering, sync::LazyLock};
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -231,7 +230,7 @@ pub const CONSTANTS: &[&str] = &[
 macro_rules! define_modules {
     ($($name:tt => $func:expr,) * ) => {
         $(
-            pub static $name: once_cell::sync::Lazy<BuiltInModule> = once_cell::sync::Lazy::new($func);
+            pub static $name: std::sync::LazyLock<BuiltInModule> = std::sync::LazyLock::new($func);
         )*
     };
 }
@@ -281,8 +280,7 @@ define_modules! {
 }
 
 #[cfg(all(feature = "dylibs", feature = "sync"))]
-pub static STEEL_FFI_MODULE: once_cell::sync::Lazy<BuiltInModule> =
-    once_cell::sync::Lazy::new(ffi_module);
+pub static STEEL_FFI_MODULE: LazyLock<BuiltInModule> = LazyLock::new(ffi_module);
 
 thread_local! {
     pub static MAP_MODULE: BuiltInModule = hashmap_module();
@@ -627,7 +625,7 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     }
 }
 
-pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::new(|| {
+pub static MODULE_IDENTIFIERS: LazyLock<fxhash::FxHashSet<InternedString>> = LazyLock::new(|| {
     let mut set = fxhash::FxHashSet::default();
 
     // TODO: Consolidate the prefixes and module names into one spot
@@ -659,8 +657,8 @@ pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::n
     set
 });
 
-pub(crate) static PRELUDE_TO_RESERVED_MAP: Lazy<FxHashMap<String, InternedString>> =
-    Lazy::new(|| {
+pub(crate) static PRELUDE_TO_RESERVED_MAP: LazyLock<FxHashMap<String, InternedString>> =
+    LazyLock::new(|| {
         PRELUDE_INTERNED_STRINGS.with(|x| {
             x.iter()
                 .map(|x| {
@@ -697,9 +695,9 @@ pub(crate) fn constant_primitives(
 }
 
 #[cfg(feature = "sync")]
-pub static CONSTANT_PRIMITIVES: Lazy<
+pub static CONSTANT_PRIMITIVES: LazyLock<
     crate::values::HashMap<InternedString, SteelVal, FxBuildHasher>,
-> = Lazy::new(|| STEEL_PRELUDE_MODULE.constant_funcs());
+> = LazyLock::new(|| STEEL_PRELUDE_MODULE.constant_funcs());
 
 #[cfg(not(feature = "sync"))]
 thread_local! {
