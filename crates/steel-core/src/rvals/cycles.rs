@@ -1618,7 +1618,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
 thread_local! {
     static LEFT_QUEUE: RefCell<Vec<SteelVal>> = RefCell::new(Vec::with_capacity(128));
     static RIGHT_QUEUE: RefCell<Vec<SteelVal>> = RefCell::new(Vec::with_capacity(128));
-    static VISITED_SET: RefCell<fxhash::FxHashSet<usize>> = RefCell::new(fxhash::FxHashSet::default());
+    static VISITED_SET: RefCell<fxhash::FxHashSet<(usize, usize)>> = RefCell::new(fxhash::FxHashSet::default());
     static EQ_DEPTH: Cell<usize> = Cell::new(0);
 }
 
@@ -1648,8 +1648,7 @@ fn eq_depth() -> usize {
 struct RecursiveEqualityHandler<'a> {
     left: EqualityVisitor<'a>,
     right: EqualityVisitor<'a>,
-    visited: &'a mut fxhash::FxHashSet<usize>,
-    // found_mutable_object: bool,
+    visited: &'a mut fxhash::FxHashSet<(usize, usize)>,
 }
 
 impl<'a> RecursiveEqualityHandler<'a> {
@@ -1660,7 +1659,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
         self.visit()
     }
 
-    fn should_visit(&mut self, value: usize) -> bool {
+    fn should_visit(&mut self, value: (usize, usize)) -> bool {
         // if !self.found_mutable_object {
         // return true;
         // }
@@ -1695,8 +1694,8 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    if self.should_visit(l.elements_as_ptr_usize())
-                        && self.should_visit(r.elements_as_ptr_usize())
+                    if self.should_visit(l.identity_tuple())
+                        && self.should_visit(r.identity_tuple())
                     {
                         if l.len() != r.len() {
                             return false;
@@ -1780,8 +1779,8 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     }
 
                     // Should we visit these?
-                    if self.should_visit(l.0.as_ptr() as usize)
-                        && self.should_visit(r.0.as_ptr() as usize)
+                    if self.should_visit((l.0.as_ptr() as usize, 0))
+                        && self.should_visit((r.0.as_ptr() as usize, 0))
                     {
                         self.left.visit_immutable_vector(l);
                         self.right.visit_immutable_vector(r);
@@ -1921,8 +1920,8 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    if self.should_visit(l.0.as_ptr() as usize)
-                        && self.should_visit(r.0.as_ptr() as usize)
+                    if self.should_visit((l.0.as_ptr() as usize, 0))
+                        && self.should_visit((r.0.as_ptr() as usize, 0))
                     {
                         if l.len() != r.len() {
                             return false;
@@ -1970,8 +1969,8 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    if self.should_visit(l.0.as_ptr() as usize)
-                        && self.should_visit(r.0.as_ptr() as usize)
+                    if self.should_visit((l.0.as_ptr() as usize, 0))
+                        && self.should_visit((r.0.as_ptr() as usize, 0))
                     {
                         if l.len() != r.len() {
                             return false;
@@ -1997,8 +1996,8 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    if self.should_visit(l.as_ptr() as usize)
-                        && self.should_visit(r.as_ptr() as usize)
+                    if self.should_visit((l.as_ptr() as usize, 0))
+                        && self.should_visit((r.as_ptr() as usize, 0))
                     {
                         // Check the top level equality indicators to make sure
                         // that these two types are the same
