@@ -1,7 +1,7 @@
 use super::parser::SourceId;
 use crate::tokens::{IntLiteral, Token, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
 use std::char;
 use std::iter::Iterator;
@@ -354,7 +354,7 @@ impl<'a> Lexer<'a> {
                 c if c.is_ascii_digit() => {
                     self.eat();
                 }
-                '+' | '-' | '.' | '/' | 'e' | 'E' | 'i' => {
+                '+' | '-' | '.' | '/' | 'e' | 'E' | 'i' | 'n' | 'a' | 'f' => {
                     self.eat();
                 }
                 '(' | ')' | '[' | ']' => {
@@ -452,10 +452,6 @@ impl<'a> Lexer<'a> {
             "set!" => TokenType::Set,
             "require" => TokenType::Require,
             "if" => TokenType::If,
-            INFINITY => RealLiteral::Float(f64::INFINITY).into(),
-            NEG_INFINITY => RealLiteral::Float(f64::NEG_INFINITY).into(),
-            NAN => RealLiteral::Float(f64::NAN).into(),
-            NEG_NAN => RealLiteral::Float(f64::NAN).into(),
             identifier => {
                 debug_assert!(!identifier.is_empty());
 
@@ -744,10 +740,7 @@ impl<'a> Iterator for Lexer<'a> {
             }
             Some('+') | Some('-') => {
                 self.eat();
-                match self.chars.peek() {
-                    Some(&c) if c.is_ascii_digit() => Some(self.read_number()),
-                    _ => Some(self.read_word()),
-                }
+                Some(self.read_number())
             }
             Some('#') => {
                 self.eat();
@@ -778,22 +771,34 @@ impl<'a> Iterator for Lexer<'a> {
 // Split the string by + and -. Returns at most 2 elements or `None` if there were more than 2.
 fn split_into_complex<'a>(s: &'a str) -> Option<SmallVec<[NumPart<'a>; 2]>> {
     let classify_num_part = |s: &'a str| -> NumPart<'a> {
-        match s.chars().last() {
-            Some('i') => NumPart::Imaginary(&s[..s.len() - 1]),
+        match s.as_bytes().last() {
+            Some(b'i') => NumPart::Imaginary(&s[..s.len() - 1]),
             _ => NumPart::Real(s),
         }
     };
-    let idxs: SmallVec<[usize; 3]> = s
-        .char_indices()
-        .filter(|(_, ch)| *ch == '+' || *ch == '-')
-        .map(|(idx, _)| idx)
-        .take(3)
-        .collect();
-    let parts = match idxs.as_slice() {
-        [] | [0] => SmallVec::from_iter(std::iter::once(s).map(classify_num_part)),
-        [idx] | [0, idx] => {
-            SmallVec::from_iter([&s[0..*idx], &s[*idx..]].into_iter().map(classify_num_part))
+
+    let mut idxs = SmallVec::<[usize; 3]>::new();
+
+    let mut chars = s.char_indices();
+    while let Some((idx, ch)) = chars.next() {
+        if ch == '+' || ch == '-' {
+            if idxs.len() == 2 {
+                return None;
+            } else {
+                idxs.push(idx);
+            }
+        } else if ch == 'e' || ch == 'E' {
+            // ignore any + or - after an e
+            let _ = chars.next();
         }
+    }
+
+    let parts = match idxs.as_slice() {
+        [] | [0] => smallvec![classify_num_part(s)],
+        [idx] | [0, idx] => smallvec![
+            classify_num_part(&s[0..*idx]),
+            classify_num_part(&s[*idx..])
+        ],
         _ => return None,
     };
     Some(parts)
@@ -806,21 +811,19 @@ enum NumPart<'a> {
 }
 
 fn parse_real(s: &str) -> Option<RealLiteral> {
+    if s == NEG_INFINITY {
+        return Some(RealLiteral::Float(f64::NEG_INFINITY));
+    } else if s == INFINITY {
+        return Some(RealLiteral::Float(f64::INFINITY));
+    } else if s == NAN || s == NEG_NAN {
+        return Some(RealLiteral::Float(f64::NAN));
+    }
+
     let mut has_e = false;
     let mut has_dot = false;
     let mut frac_position = None;
     for (idx, ch) in s.chars().enumerate() {
         match ch {
-            '+' => {
-                if idx != 0 {
-                    return None;
-                }
-            }
-            '-' => {
-                if idx != 0 {
-                    return None;
-                }
-            }
             'e' | 'E' => {
                 if has_e {
                     return None;
@@ -842,6 +845,7 @@ fn parse_real(s: &str) -> Option<RealLiteral> {
             _ => {}
         }
     }
+
     if has_e || has_dot {
         s.parse().map(|f| RealLiteral::Float(f)).ok()
     } else if let Some(p) = frac_position {
@@ -860,13 +864,12 @@ fn parse_number(s: &str) -> Option<NumberLiteral> {
     match split_into_complex(s)?.as_slice() {
         [NumPart::Real(x)] => parse_real(x).map(NumberLiteral::from),
         [NumPart::Imaginary(x)] => {
-            if !matches!(x.chars().next(), Some('+') | Some('-')) {
+            if !matches!(x.as_bytes().first(), Some(b'+') | Some(b'-')) {
                 return None;
             };
             Some(NumberLiteral::Complex(IntLiteral::Small(0).into(), parse_real(x)?).into())
         }
-        [NumPart::Real(re), NumPart::Imaginary(im)]
-        | [NumPart::Imaginary(im), NumPart::Real(re)] => {
+        [NumPart::Real(re), NumPart::Imaginary(im)] => {
             Some(NumberLiteral::Complex(parse_real(re)?, parse_real(im)?))
         }
         _ => None,
@@ -1219,7 +1222,7 @@ mod lexer_tests {
     #[test]
     fn test_real_numbers() {
         let got: Vec<_> = TokenStream::new(
-            "0 -0 -1.2 +2.3 999 1. 1e2 1E2 1.2e2 1.2E2 +inf.0 -inf.0",
+            "0 -0 -1.2 +2.3 999 1. 1e2 1E2 1.2e2 1.2E2 +inf.0 -inf.0 2e-4 2e+10",
             true,
             SourceId::none(),
         )
@@ -1287,6 +1290,16 @@ mod lexer_tests {
                     source: "-inf.0",
                     span: Span::new(49, 55, SourceId::none()),
                 },
+                Token {
+                    ty: RealLiteral::Float(2e-4).into(),
+                    source: "2e-4",
+                    span: Span::new(56, 60, SourceId::none()),
+                },
+                Token {
+                    ty: RealLiteral::Float(2e+10).into(),
+                    source: "2e+10",
+                    span: Span::new(61, 66, SourceId::none())
+                }
             ]
         );
     }
@@ -1413,7 +1426,7 @@ mod lexer_tests {
     #[test]
     fn test_complex_numbers() {
         let got: Vec<_> = TokenStream::new(
-            "1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i",
+            "1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i 2e+4+inf.0i -inf.0-2e-4i",
             true,
             SourceId::none(),
         )
@@ -1484,6 +1497,24 @@ mod lexer_tests {
                     source: "+1.0i",
                     span: Span::new(36, 41, SourceId::none()),
                 },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        RealLiteral::Float(2e+4),
+                        RealLiteral::Float(f64::INFINITY),
+                    )
+                    .into(),
+                    source: "2e+4+inf.0i",
+                    span: Span::new(42, 53, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        RealLiteral::Float(f64::NEG_INFINITY),
+                        RealLiteral::Float(-2e-4),
+                    )
+                    .into(),
+                    source: "-inf.0-2e-4i",
+                    span: Span::new(54, 66, SourceId::none()),
+                }
             ]
         );
     }
