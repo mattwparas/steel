@@ -5,7 +5,9 @@
          call-with-output-file
          call-with-input-file
          call-with-output-string
-         with-output-to-string)
+         call-with-input-string
+         with-output-to-string
+         with-input-from-string)
 
 (define (call-with-port port proc)
   (let ([ret (proc port)])
@@ -23,7 +25,16 @@
   (proc output-string)
   (get-output-string output-string))
 
+(define (call-with-input-string string proc)
+  (call-with-port (open-input-string string) proc))
+
 (define (with-output-to-string proc)
-  (call-with-output-string (lambda (p)
-                             (parameterize ([current-output-port p])
+  (call-with-output-string (lambda (port)
+                             (parameterize ([current-output-port port])
                                (proc)))))
+
+(define (with-input-from-string string proc)
+  (call-with-input-string string
+                          (lambda (port)
+                            (parameterize ([current-input-port port])
+                              (proc)))))
