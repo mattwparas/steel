@@ -35,13 +35,16 @@ use crate::{
         time::time_module,
         vectors::{
             immutable_vectors_module, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION,
-            MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION, MUTABLE_VECTOR_POP_DEFINITION,
-            MUTABLE_VECTOR_TO_STRING_DEFINITION, MUT_VECTOR_COPY_DEFINITION,
-            MUT_VEC_CONSTRUCT_DEFINITION, MUT_VEC_CONSTRUCT_VEC_DEFINITION,
-            MUT_VEC_LENGTH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_TO_LIST_DEFINITION,
-            VECTOR_FILL_DEFINITION, VEC_LENGTH_DEFINITION,
+            LIST_VEC_NULL_DEFINITION, MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION,
+            MUTABLE_VECTOR_POP_DEFINITION, MUTABLE_VECTOR_TO_STRING_DEFINITION,
+            MUT_VECTOR_COPY_DEFINITION, MUT_VEC_APPEND_DEFINITION, MUT_VEC_CONSTRUCT_DEFINITION,
+            MUT_VEC_CONSTRUCT_VEC_DEFINITION, MUT_VEC_GET_DEFINITION, MUT_VEC_LENGTH_DEFINITION,
+            MUT_VEC_PUSH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_TO_LIST_DEFINITION,
+            VECTOR_FILL_DEFINITION, VEC_APPEND_DEFINITION, VEC_CAR_DEFINITION, VEC_CDR_DEFINITION,
+            VEC_CONS_DEFINITION, VEC_LENGTH_DEFINITION, VEC_PUSH_DEFINITION, VEC_RANGE_DEFINITION,
+            VEC_REF_DEFINITION,
         },
-        ControlOperations, IoFunctions, MetaOperations, StreamOperations, VectorOperations,
+        ControlOperations, IoFunctions, MetaOperations, StreamOperations,
     },
     rerrs::ErrorKind,
     rvals::{
@@ -829,23 +832,23 @@ fn vector_module() -> BuiltInModule {
         .register_native_fn_definition(MUT_VEC_TO_LIST_DEFINITION)
         .register_native_fn_definition(VECTOR_FILL_DEFINITION)
         .register_native_fn_definition(MUT_VECTOR_COPY_DEFINITION)
-        .register_value("vector-push!", VectorOperations::mut_vec_push())
+        .register_native_fn_definition(MUT_VEC_PUSH_DEFINITION)
         .register_native_fn_definition(MUT_VEC_LENGTH_DEFINITION)
         .register_native_fn_definition(VEC_LENGTH_DEFINITION)
-        .register_value("vector-append!", VectorOperations::mut_vec_append())
-        .register_value("mut-vector-ref", VectorOperations::mut_vec_get())
+        .register_native_fn_definition(MUT_VEC_APPEND_DEFINITION)
+        .register_native_fn_definition(MUT_VEC_GET_DEFINITION)
         .register_native_fn_definition(MUT_VEC_SET_DEFINITION)
         // Immutable vector operations
         .register_native_fn_definition(IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION)
-        .register_value("push-front", VectorOperations::vec_cons())
-        .register_value("pop-front", VectorOperations::vec_car())
-        .register_value("vec-rest", VectorOperations::vec_cdr())
-        .register_value("null?", VectorOperations::list_vec_null())
-        .register_value("push", VectorOperations::vec_push())
-        .register_value("range-vec", VectorOperations::vec_range())
-        .register_value("vec-append", VectorOperations::vec_append())
+        .register_native_fn_definition(VEC_CONS_DEFINITION)
+        .register_native_fn_definition(VEC_CAR_DEFINITION)
+        .register_native_fn_definition(VEC_CDR_DEFINITION)
+        .register_native_fn_definition(LIST_VEC_NULL_DEFINITION)
+        .register_native_fn_definition(VEC_PUSH_DEFINITION)
+        .register_native_fn_definition(VEC_RANGE_DEFINITION)
+        .register_native_fn_definition(VEC_APPEND_DEFINITION)
         // TODO: This has to be cleaned up
-        .register_value("vector-ref", VectorOperations::vec_ref())
+        .register_native_fn_definition(VEC_REF_DEFINITION)
         .register_native_fn_definition(MUTABLE_VECTOR_CLEAR_DEFINITION)
         .register_native_fn_definition(MUTABLE_VECTOR_TO_STRING_DEFINITION)
         .register_native_fn_definition(MUTABLE_VECTOR_POP_DEFINITION);

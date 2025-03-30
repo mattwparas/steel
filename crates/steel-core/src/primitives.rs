@@ -59,7 +59,6 @@ use std::result;
 pub use streams::StreamOperations;
 pub use strings::string_module;
 pub use symbols::symbol_module;
-pub use vectors::VectorOperations;
 
 macro_rules! try_from_impl {
     ($type:ident => $($body:ty),*) => {
