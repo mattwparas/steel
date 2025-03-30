@@ -47,12 +47,12 @@ impl Completer for RustylineHelper {
         // Only do completions if we're in an identifier
         let Some((span, symbol)) =
             TokenStream::new(line, true, SourceId::none()).find_map(|token| match token.ty {
-                TokenType::Identifier(symbol) => (
+                TokenType::Identifier(ref symbol) => (
                     // Inclusive range as curser usually placed directly after the symbol
                     token.span().start()..=token.span().end()
                 )
                     .contains(&pos)
-                    .then_some((token.span(), symbol)),
+                    .then_some((token.span(), symbol.clone())),
                 _ => None,
             })
         else {
@@ -64,9 +64,9 @@ impl Completer for RustylineHelper {
         let mut containing = Vec::new();
         for interned in self.globals.lock().unwrap().iter() {
             let str = interned.resolve();
-            if str.starts_with(symbol) {
+            if str.starts_with(symbol.as_ref()) {
                 starting.push(str.to_owned());
-            } else if str.contains(symbol) {
+            } else if str.contains(symbol.as_ref()) {
                 containing.push(str.to_owned())
             }
         }
