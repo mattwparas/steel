@@ -65,6 +65,8 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
     module
         .register_native_fn_definition(OPEN_STDIN_DEFINITION)
         .register_native_fn_definition(OPEN_STDOUT_DEFINITION)
+        .register_native_fn_definition(OPEN_INPUT_FILE_SANDBOXED_DEFINITION)
+        .register_native_fn_definition(OPEN_OUTPUT_FILE_SANDBOXED_DEFINITION)
         .register_native_fn_definition(OPEN_OUTPUT_STRING_DEFINITION)
         .register_native_fn_definition(OPEN_OUTPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(WRITE_LINE_DEFINITION)
@@ -155,6 +157,39 @@ pub fn open_input_file(path: &SteelString) -> Result<SteelVal> {
 #[function(name = "open-output-file")]
 pub fn open_output_file(path: &SteelString) -> Result<SteelVal> {
     SteelPort::new_textual_file_output(path).map(SteelVal::PortV)
+}
+
+/// Takes a filename `path` referring to an existing file and returns an input port. Raises an error
+/// if the file does not exist
+///
+/// (open-input-file string?) -> input-port?
+///
+/// # Examples
+/// ```scheme
+/// > (open-input-file "foo-bar.txt") ;; => #<port>
+/// > (open-input-file "file-does-not-exist.txt")
+/// error[E08]: Io
+///   ┌─ :1:2
+///   │
+/// 1 │ (open-input-file "foo-bar.txt")
+///   │  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
+/// ```
+#[function(name = "open-input-file")]
+pub fn open_input_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
+    stop!(Generic => "A sandboxed engine cannot open the file system.")
+}
+
+/// Takes a filename `path` referring to a file to be created and returns an output port.
+///
+/// (open-output-file string?) -> output-port?
+///
+/// # Examples
+/// ```scheme
+/// > (open-output-file "foo-bar.txt") ;; => #<port>
+/// ```
+#[function(name = "open-output-file")]
+pub fn open_output_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
+    stop!(Generic => "A sandboxed engine cannot open the file system.")
 }
 
 /// Creates an output port that accumulates what is written into a string.
