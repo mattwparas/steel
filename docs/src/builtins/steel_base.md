@@ -463,6 +463,18 @@ Compares characters according to their codepoints, in a "greater-than" fashion.
 (char>? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+### **close-input-port**
+Close an input port. If the port is a file, the file will be closed.
+
+(close-port input-port?) -> void
+### **close-output-port**
+Close an output port. If the port is a file, the file will be closed.
+
+(close-port output-port?) -> void
+### **close-port**
+Close a port. If the port is a file, the file will be closed.
+
+(close-port port?) -> void
 ### **command-line**
 Returns the command line passed to this process,
 including the command name as first argument.
@@ -2662,8 +2674,6 @@ Checks if the given real number is zero.
 ### **child-stderr**
 ### **child-stdin**
 ### **child-stdout**
-### **close-input-port**
-### **close-output-port**
 ### **command**
 ### **compose**
 ### **concat-symbols**

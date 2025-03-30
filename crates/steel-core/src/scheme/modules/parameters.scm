@@ -120,21 +120,6 @@
     [(arg) (#%raw-write arg (current-output-port))]
     [(arg port) (#%raw-write arg port)]))
 
-;;;;;;;;;;;;;;;;;;;;; Port functions ;;;;;;;;;;;;;;;;;;;;;
-
-(provide call-with-output-string
-         with-output-to-string)
-
-(define (call-with-output-string proc)
-  (define output-string (open-output-string))
-  (proc output-string)
-  (get-output-string output-string))
-
-(define (with-output-to-string proc)
-  (call-with-output-string (lambda (p)
-                             (parameterize ([current-output-port p])
-                               (proc)))))
-
 ;;;;;;;;;;;;;;;;;;;;; Dynamic Wind ;;;;;;;;;;;;;;;;;;;;;;;
 
 ; (define winders '())
