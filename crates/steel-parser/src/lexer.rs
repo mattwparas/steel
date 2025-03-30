@@ -1,7 +1,7 @@
 use super::parser::SourceId;
 use crate::tokens::{IntLiteral, Token, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
-use smallvec::SmallVec;
+use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
 use std::char;
 use std::iter::Iterator;
@@ -771,8 +771,8 @@ impl<'a> Iterator for Lexer<'a> {
 // Split the string by + and -. Returns at most 2 elements or `None` if there were more than 2.
 fn split_into_complex<'a>(s: &'a str) -> Option<SmallVec<[NumPart<'a>; 2]>> {
     let classify_num_part = |s: &'a str| -> NumPart<'a> {
-        match s.chars().last() {
-            Some('i') => NumPart::Imaginary(&s[..s.len() - 1]),
+        match s.as_bytes().last() {
+            Some(b'i') => NumPart::Imaginary(&s[..s.len() - 1]),
             _ => NumPart::Real(s),
         }
     };
@@ -794,10 +794,11 @@ fn split_into_complex<'a>(s: &'a str) -> Option<SmallVec<[NumPart<'a>; 2]>> {
     }
 
     let parts = match idxs.as_slice() {
-        [] | [0] => SmallVec::from_iter(std::iter::once(s).map(classify_num_part)),
-        [idx] | [0, idx] => {
-            SmallVec::from_iter([&s[0..*idx], &s[*idx..]].into_iter().map(classify_num_part))
-        }
+        [] | [0] => smallvec![classify_num_part(s)],
+        [idx] | [0, idx] => smallvec![
+            classify_num_part(&s[0..*idx]),
+            classify_num_part(&s[*idx..])
+        ],
         _ => return None,
     };
     Some(parts)
@@ -863,7 +864,7 @@ fn parse_number(s: &str) -> Option<NumberLiteral> {
     match split_into_complex(s)?.as_slice() {
         [NumPart::Real(x)] => parse_real(x).map(NumberLiteral::from),
         [NumPart::Imaginary(x)] => {
-            if !matches!(x.chars().next(), Some('+') | Some('-')) {
+            if !matches!(x.as_bytes().first(), Some(b'+') | Some(b'-')) {
                 return None;
             };
             Some(NumberLiteral::Complex(IntLiteral::Small(0).into(), parse_real(x)?).into())
