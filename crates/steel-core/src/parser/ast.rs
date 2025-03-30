@@ -82,8 +82,11 @@ impl TryFromSteelValVisitorForExprKind {
                 StringLiteral(x.to_arc_string()),
             )))),
             FuncV(_) => stop!(Generic => "Can't convert from Function to expression!"),
-            // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
-            // MacroV(_) => Err("Can't convert from Macro to expression!"),
+
+            SymbolV(x) if x.starts_with("#:") => Ok(ExprKind::Atom(Atom::new(
+                SyntaxObject::default(Keyword(x.as_str().into())),
+            ))),
+
             SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 Identifier(x.as_str().into()),
             )))),
@@ -235,8 +238,9 @@ impl TryFrom<&SteelVal> for ExprKind {
                     StringLiteral(x.to_arc_string()),
                 )))),
                 FuncV(_) => Err("Can't convert from Function to expression!"),
-                // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
-                // MacroV(_) => Err("Can't convert from Macro to expression!"),
+                SymbolV(x) if x.starts_with("#:") => Ok(ExprKind::Atom(Atom::new(
+                    SyntaxObject::default(Keyword(x.as_str().into())),
+                ))),
                 SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     Identifier(x.as_str().into()),
                 )))),
