@@ -606,6 +606,12 @@ impl ast::TryFromSteelValVisitorForExprKind {
                 TokenType::StringLiteral(x.to_arc_string()),
                 span,
             )))),
+
+            SymbolV(x) if x.starts_with("#:") => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
+                TokenType::Identifier(x.as_str().into()),
+                span,
+            )))),
+
             SymbolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
                 TokenType::Identifier(x.as_str().into()),
                 span,
