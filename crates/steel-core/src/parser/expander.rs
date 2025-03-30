@@ -678,7 +678,7 @@ impl MacroPattern {
                                 stop!(BadSyntax => format!("rationals numbers are not supported: {}", re))
                             }
                         },
-                        c @ NumberLiteral::Complex(_, _) => {
+                        c @ NumberLiteral::Complex(_, _) | c @ NumberLiteral::Polar(_, _) => {
                             stop!(BadSyntax => format!("complex numbers not supported: {}", c))
                         }
                     },
