@@ -868,8 +868,7 @@ fn parse_number(s: &str) -> Option<NumberLiteral> {
             };
             Some(NumberLiteral::Complex(IntLiteral::Small(0).into(), parse_real(x)?).into())
         }
-        [NumPart::Real(re), NumPart::Imaginary(im)]
-        | [NumPart::Imaginary(im), NumPart::Real(re)] => {
+        [NumPart::Real(re), NumPart::Imaginary(im)] => {
             Some(NumberLiteral::Complex(parse_real(re)?, parse_real(im)?))
         }
         _ => None,
@@ -1426,7 +1425,7 @@ mod lexer_tests {
     #[test]
     fn test_complex_numbers() {
         let got: Vec<_> = TokenStream::new(
-            "1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i 2e+4+inf.0i -inf.0i-2e-4",
+            "1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i 2e+4+inf.0i -inf.0-2e-4i",
             true,
             SourceId::none(),
         )
@@ -1508,11 +1507,11 @@ mod lexer_tests {
                 },
                 Token {
                     ty: NumberLiteral::Complex(
+                        RealLiteral::Float(f64::NEG_INFINITY),
                         RealLiteral::Float(-2e-4),
-                        RealLiteral::Float(f64::NEG_INFINITY)
                     )
                     .into(),
-                    source: "-inf.0i-2e-4",
+                    source: "-inf.0-2e-4i",
                     span: Span::new(54, 66, SourceId::none()),
                 }
             ]
