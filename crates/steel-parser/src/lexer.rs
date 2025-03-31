@@ -1,6 +1,7 @@
 use super::parser::SourceId;
 use crate::tokens::{IntLiteral, Token, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
+use num::{BigInt, Num};
 use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
 use std::char;
@@ -299,27 +300,6 @@ impl<'a> Lexer<'a> {
             "#," => Ok(TokenType::UnquoteSyntax),
             "#,@" => Ok(TokenType::UnquoteSpliceSyntax),
 
-            hex if hex.starts_with("#x") => {
-                let hex = isize::from_str_radix(hex.strip_prefix("#x").unwrap(), 16)
-                    .map_err(|_| TokenError::MalformedHexInteger)?;
-
-                Ok(IntLiteral::Small(hex).into())
-            }
-
-            octal if octal.starts_with("#o") => {
-                let hex = isize::from_str_radix(octal.strip_prefix("#o").unwrap(), 8)
-                    .map_err(|_| TokenError::MalformedOctalInteger)?;
-
-                Ok(IntLiteral::Small(hex).into())
-            }
-
-            binary if binary.starts_with("#b") => {
-                let hex = isize::from_str_radix(binary.strip_prefix("#b").unwrap(), 2)
-                    .map_err(|_| TokenError::MalformedBinaryInteger)?;
-
-                Ok(IntLiteral::Small(hex).into())
-            }
-
             keyword if keyword.starts_with("#:") => Ok(TokenType::Keyword(self.slice().into())),
 
             character if character.starts_with("#\\") => {
@@ -354,7 +334,8 @@ impl<'a> Lexer<'a> {
                 c if c.is_ascii_digit() => {
                     self.eat();
                 }
-                '+' | '-' | '.' | '/' | 'e' | 'E' | 'i' | 'n' | 'a' | 'f' => {
+                '+' | '-' | '.' | '/' | 'a' | 'A' | 'b' | 'B' | 'c' | 'C' | 'd' | 'D' | 'e'
+                | 'E' | 'f' | 'F' | 'i' | 'n' => {
                     self.eat();
                 }
                 '(' | ')' | '[' | ']' => {
@@ -747,6 +728,10 @@ impl<'a> Iterator for Lexer<'a> {
                 let next = self.chars.peek().copied();
 
                 let token = match next {
+                    Some('x' | 'd' | 'o' | 'b') => {
+                        self.eat();
+                        self.read_number()
+                    }
                     Some('|') => self.read_nestable_comment(),
                     Some(';') => {
                         self.eat();
@@ -810,13 +795,24 @@ enum NumPart<'a> {
     Imaginary(&'a str),
 }
 
-fn parse_real(s: &str) -> Option<RealLiteral> {
+fn parse_real(s: &str, radix: Option<u32>) -> Option<RealLiteral> {
     if s == NEG_INFINITY {
         return Some(RealLiteral::Float(f64::NEG_INFINITY));
     } else if s == INFINITY {
         return Some(RealLiteral::Float(f64::INFINITY));
     } else if s == NAN || s == NEG_NAN {
         return Some(RealLiteral::Float(f64::NAN));
+    } else if let Some(radix) = radix {
+        return isize::from_str_radix(s, radix)
+            .ok()
+            .map(IntLiteral::Small)
+            .or_else(|| {
+                BigInt::from_str_radix(s, radix)
+                    .ok()
+                    .map(Box::new)
+                    .map(IntLiteral::Big)
+            })
+            .map(RealLiteral::Int);
     }
 
     let mut has_e = false;
@@ -861,17 +857,26 @@ fn parse_real(s: &str) -> Option<RealLiteral> {
 }
 
 fn parse_number(s: &str) -> Option<NumberLiteral> {
+    let (s, radix) = match s.get(0..2) {
+        Some("#x") => (&s[2..], Some(16)),
+        Some("#d") => (&s[2..], Some(10)),
+        Some("#o") => (&s[2..], Some(8)),
+        Some("#b") => (&s[2..], Some(2)),
+        _ => (s, None),
+    };
+
     match split_into_complex(s)?.as_slice() {
-        [NumPart::Real(x)] => parse_real(x).map(NumberLiteral::from),
+        [NumPart::Real(x)] => parse_real(x, radix).map(NumberLiteral::from),
         [NumPart::Imaginary(x)] => {
             if !matches!(x.as_bytes().first(), Some(b'+') | Some(b'-')) {
                 return None;
             };
-            Some(NumberLiteral::Complex(IntLiteral::Small(0).into(), parse_real(x)?).into())
+            Some(NumberLiteral::Complex(IntLiteral::Small(0).into(), parse_real(x, radix)?).into())
         }
-        [NumPart::Real(re), NumPart::Imaginary(im)] => {
-            Some(NumberLiteral::Complex(parse_real(re)?, parse_real(im)?))
-        }
+        [NumPart::Real(re), NumPart::Imaginary(im)] => Some(NumberLiteral::Complex(
+            parse_real(re, radix)?,
+            parse_real(im, radix)?,
+        )),
         _ => None,
     }
 }
