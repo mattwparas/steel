@@ -1394,20 +1394,33 @@ pub fn angle(number: &SteelVal) -> Result<SteelVal> {
         re @ SteelVal::NumV(_)
         | re @ SteelVal::IntV(_)
         | re @ SteelVal::Rational(_)
-        | re @ SteelVal::BigNum(_) => (re.clone(), &SteelVal::IntV(0)),
-        SteelVal::Complex(complex) => (complex.re.clone(), &complex.im),
+        | re @ SteelVal::BigNum(_) => (re, &SteelVal::IntV(0)),
+        SteelVal::Complex(complex) => (&complex.re, &complex.im),
         _ => stop!(TypeMismatch => "angle expects a number, found {number}"),
     };
 
-    let r = magnitude(number)?;
-    let rhs = divide_primitive(&[re, r])?;
-    let z = acos(&rhs)?;
+    atan2(im, re)
+}
 
-    if negativep(&im)?.is_truthy() {
-        negate(&z)
-    } else {
-        Ok(z)
+/// Computes the quadratic arctan of `x` and `y`
+fn atan2(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
+    let as_f64 = |arg: &_| match arg {
+        SteelVal::NumV(arg) => Ok(*arg),
+        SteelVal::IntV(arg) => Ok(*arg as f64),
+        SteelVal::Rational(arg) => Ok(*arg.numer() as f64 / *arg.denom() as f64),
+        SteelVal::BigNum(arg) => Ok(arg.to_f64().unwrap()),
+        _ => steelerr!(TypeMismatch => "atan2 expects a number, found {arg}"),
+    };
+
+    let x = as_f64(x)?;
+    let y = as_f64(y)?;
+    if x == 0. && y == 0. {
+        // as this is currently only used for `angle`, make the error
+        // message a little better by saying `angle` instead of `atan2`
+        stop!(Generic => "angle: undefined for zero");
     }
+
+    f64::atan2(x, y).into_steelval()
 }
 
 /// Computes the natural logarithm of the given number.
