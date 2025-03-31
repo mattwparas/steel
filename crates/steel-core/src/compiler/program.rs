@@ -2,8 +2,7 @@ use crate::core::instructions::u24;
 use crate::core::labels::Expr;
 use crate::gc::Shared;
 use crate::parser::span_visitor::get_span;
-use crate::primitives::multiply_primitive;
-use crate::primitives::numbers::{cos, sin};
+use crate::primitives::numbers::make_polar;
 use crate::rvals::{Result, SteelComplex};
 use crate::{
     compiler::constants::ConstantMap,
@@ -74,10 +73,7 @@ pub fn number_literal_to_steel(n: &NumberLiteral) -> Result<SteelVal> {
             let r = real_to_steel(r)?;
             let theta = real_to_steel(theta)?;
 
-            let re = multiply_primitive(&[r.clone(), cos(&theta)?])?;
-            let im = multiply_primitive(&[r, sin(&theta)?])?;
-
-            SteelComplex { re, im }.into_steelval()
+            make_polar(&r, &theta)
         }
     }
 }
