@@ -1,15 +1,6 @@
-; (require "steel/command-line/args.scm")
 (require "package.scm")
 (require "parser.scm")
 (require "download.scm")
-
-; (define my-options
-;   (make-command-line-arg-parser #:positional (list '("command" "The subcommand to run"))
-;                                 ; #:required '((("list" #f) "Setting up the values")))
-;                                 ))
-
-; (define list-parser
-;   (make-command-line-arg-parser #:required '((("path" #f) "Path to discover packages"))))
 
 (define (list-packages index)
   (define package-name-width
@@ -75,10 +66,13 @@
   (define force (list? (member "--force" args)))
   (define args (filter (lambda (x) (not (equal? "--force" x))) args))
 
-  (define cogs-to-install (if (empty? args) (list (current-directory)) args))
+  (define cogs-to-install
+    (if (empty? args)
+        (list (current-directory))
+        args))
   (transduce cogs-to-install
              (flat-mapping parse-cog)
-             (into-for-each (lambda (x) (check-install-package index x force)))))
+             (into-for-each (lambda (x) (check-install-package index x #:force force)))))
 
 (define (install-package-if-not-installed installed-cogs cog-to-install)
   (define package-name (hash-get cog-to-install 'package-name))
@@ -117,7 +111,10 @@
       (install-package-if-not-installed index package-spec)))
 
 (define (uninstall-package-from-index index package)
-  (define pkg (if (symbol? package) package (string->symbol package)))
+  (define pkg
+    (if (symbol? package)
+        package
+        (string->symbol package)))
   (unless (hash-contains? index pkg)
     (displayln "Package not found:" package)
     (return! void))
@@ -127,8 +124,12 @@
   ;; wrong, since that is removed from the stack.
   (uninstall-package package))
 
-;; Automatically re-installing isn't good. We'll fix that.
+;; Automatically re-installing isn't good. We'll fix that - how to tell if the package has changed?
+;; Perhaps calculate the hash of the project and see if anything has changed?
 (define (install-dependencies index args)
+  (define dry-run? (list? (member "--dry-run" args)))
+  (define args (filter (lambda (x) (not (equal? x "--dry-run"))) args))
+
   ;; Find all the dependencies, install those
   (match args
     [(list)
@@ -136,15 +137,19 @@
      (define top-level-files (read-dir (current-directory)))
      ;; Are there any cog files here?
      (define cog-files (filter (lambda (x) (equal? (file-name x) "cog.scm")) top-level-files))
-     (define spec (hash-insert (parse-cog-file (car cog-files)) 'path (current-directory)))
-     (walk-and-install spec)
-     (displayln "Package built!")]
+
+     (if (empty? cog-files)
+         (displayln "Unable to locage cog.scm, exiting.")
+         (begin
+           (define spec (hash-insert (parse-cog-file (car cog-files)) 'path (current-directory)))
+           (walk-and-install spec #:dry-run dry-run?)
+           (displayln "Package built!")))]
 
     [(list package)
      ;; Get the passed in argument
      (define path-to-package (car args))
      (define spec (car (parse-cog path-to-package)))
-     (walk-and-install spec)
+     (walk-and-install spec #:dry-run dry-run?)
      (displayln "Package built!")]))
 
 (define SEP (if (equal? (current-os!) "windows") "\\" "/"))
@@ -221,7 +226,9 @@ Commands:
 (define (get-command-line-args)
   (define args (command-line))
   ;; Running as a program, vs embedded elsewhere?
-  (if (ends-with? (car args) "steel") (drop args 2) (drop args 1)))
+  (if (ends-with? (car args) "steel")
+      (drop args 2)
+      (drop args 1)))
 
 (provide main)
 (define (main)

@@ -29,13 +29,22 @@
          *DYLIB-DIR*
          *BIN*)
 
+(struct InstallOptions (force dry-run) #:transparent)
+
+(define (make-options #:force [force #f] #:dry-run [dry-run #f])
+  (InstallOptions force dry-run))
+
 (define SEP (if (equal? (current-os!) "windows") "\\" "/"))
 
 (define (append-with-separator path dir)
-  (if (ends-with? path SEP) (string-append path dir) (string-append path SEP dir)))
+  (if (ends-with? path SEP)
+      (string-append path dir)
+      (string-append path SEP dir)))
 
 (define (convert-path path)
-  (if (equal? (current-os!) "windows") (string-replace path "/" "\\") path))
+  (if (equal? (current-os!) "windows")
+      (string-replace path "/" "\\")
+      path))
 
 ;; Should make this lazy?
 (define *STEEL_HOME* (~> (steel-home-location) (append-with-separator "cogs")))
@@ -58,7 +67,7 @@
 
 ;;@doc
 ;; Given a package spec, install that package directly to the file system
-(define (install-package package [force #f])
+(define (install-package package #:force [force #f] #:dry-run [dry-run #f])
   (define destination
     (convert-path (string-append *STEEL_HOME* "/" (symbol->string (hash-get package 'package-name)))))
 
@@ -71,9 +80,11 @@
   ;; Install the package cog sources to the target location.
   ;; When this package does not have any dylibs, this is a trivial copy to the
   ;; sources directory.
-  (copy-directory-recursively! (hash-get package 'path) destination)
 
-  (when (hash-contains? package 'entrypoint)
+  (unless dry-run
+    (copy-directory-recursively! (hash-get package 'path) destination))
+
+  (when (and (hash-contains? package 'entrypoint) (not dry-run))
     (define entrypoint-spec (apply hash (hash-get package 'entrypoint)))
     (define executable-name (hash-get entrypoint-spec '#:name))
     (define executable-path (hash-get entrypoint-spec '#:path))
@@ -101,17 +112,11 @@
         spawn-process
         Ok->value
         wait->stdout
-        Ok->value)
-
-    ;; Open up the file, inject a shebang, write to the bin, chmod it according to the
-    ;; host platform
-
-    ; (let [(binary (open-output-file ))])
-    )
+        Ok->value))
 
   (displayln "=> Copied package over to: " destination)
 
-  (walk-and-install package force)
+  (walk-and-install package #:force force #:dry-run dry-run)
 
   destination)
 
@@ -146,7 +151,10 @@
   (define pkg-index (list-package-index))
 
   (define remote-pkg-spec
-    (hash-ref pkg-index (if (symbol? package) package (string->symbol package))))
+    (hash-ref pkg-index
+              (if (symbol? package)
+                  package
+                  (string->symbol package))))
 
   (define git-url (hash-ref remote-pkg-spec '#:url))
   (define subdir (or (hash-try-get remote-pkg-spec '#:path) ""))
@@ -156,7 +164,10 @@
   (check-install-package index package-spec))
 
 ;; TODO: Decide if we actually need the package spec here
-(define (fetch-and-install-cog-dependency-from-spec cog-dependency [search-from #f] [force #f])
+(define (fetch-and-install-cog-dependency-from-spec cog-dependency
+                                                    #:search-from [search-from #f]
+                                                    #:force [force #f]
+                                                    #:dry-run [dry-run #f])
 
   ;; TODO: Figure out a way to resolve if the specified package is
   ;; the correct package.
@@ -180,14 +191,14 @@
                        #:subdir (or (hash-try-get cog-dependency '#:subdir) "")
                        #:sha (or (hash-try-get cog-dependency '#:sha) void))])
 
-         (install-package package force))]
+         (install-package package #:force force #:dry-run dry-run))]
 
       ;; Attempt to find the local path to the package if this is
       ;; just another package installed locally.
       [(hash-contains? cog-dependency '#:path)
        (define source (hash-get cog-dependency '#:path))
        (define spec (car (parse-cog source search-from)))
-       (install-package spec force)]
+       (install-package spec #:force force #:dry-run dry-run)]
 
       ;; We're unable to find the package! Logically, here would be a place
       ;; we'd check against some kind of package index to help with this.
@@ -207,13 +218,20 @@
 ;; Go through each of the dependencies, and install the cogs
 ;; and subsequently go through each of the dylibs, and install
 ;; those as well.
-(define (walk-and-install package [force #f])
+(define (walk-and-install package #:force [force #f] #:dry-run [dry-run #f])
 
   (define current-path (hash-try-get package 'path))
-  (define maybe-canonicalized (if current-path (canonicalize-path current-path) current-path))
+  (define maybe-canonicalized
+    (if current-path
+        (canonicalize-path current-path)
+        current-path))
 
   ;; Check the direct cog level dependencies
-  (for-each (lambda (d) (fetch-and-install-cog-dependency-from-spec d maybe-canonicalized force))
+  (for-each (lambda (d)
+              (fetch-and-install-cog-dependency-from-spec d
+                                                          #:search-from maybe-canonicalized
+                                                          #:force force
+                                                          #:dry-run dry-run))
             (hash-ref package 'dependencies))
 
   ;; Check the dylibs next
@@ -225,7 +243,12 @@
 ;; Does not currently check the in memory index, since this could be done during the
 ;; package installation process where the index is constantly getting updated.
 (define (package-installed? name)
-  (define destination (string-append *STEEL_HOME* "/" (if (string? name) name (symbol->string name))))
+  (define destination
+    (string-append *STEEL_HOME*
+                   "/"
+                   (if (string? name)
+                       name
+                       (symbol->string name))))
   (path-exists? destination))
 
 ;; Given a package spec, uninstall that package by deleting the contents of the installation
@@ -242,14 +265,16 @@
         (define dylib-name (find-dylib-name cargo-toml-path))
         (define dylib-path (append-with-separator *DYLIB-DIR* dylib-name))
         ;; Delete the dylib. If it doesn't exist, we can continue on.
-        (if (path-exists? dylib-path) (delete-file! dylib-path) (displayln "Dylib not found.")))))
+        (if (path-exists? dylib-path)
+            (delete-file! dylib-path)
+            (displayln "Dylib not found.")))))
 
   (delete-directory! destination)
 
   destination)
 
 (define (install-package-and-log cog-to-install [force #f])
-  (let ([output-dir (install-package cog-to-install force)])
+  (let ([output-dir (install-package cog-to-install #:force force)])
     (display "✅ Installed package to: ")
     (displayln output-dir)
     (newline)))
@@ -268,7 +293,9 @@
         (install-package-and-log cog-to-install force))))
 
 (define (parse-cogs-from-command-line)
-  (if (empty? std::env::args) (list (current-directory)) std::env::args))
+  (if (empty? std::env::args)
+      (list (current-directory))
+      std::env::args))
 
 (define (package-installer-main)
 
