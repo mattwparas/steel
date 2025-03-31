@@ -1,5 +1,4 @@
-use crate::primitives::multiply_primitive;
-use crate::primitives::numbers::{cos, sin};
+use crate::primitives::numbers::make_polar;
 use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
@@ -171,10 +170,7 @@ impl IntoSteelVal for NumberLiteral {
                 let r = real_literal_to_steelval(r)?;
                 let theta = real_literal_to_steelval(theta)?;
 
-                let re = multiply_primitive(&[r.clone(), cos(&theta)?])?;
-                let im = multiply_primitive(&[r, sin(&theta)?])?;
-
-                SteelComplex { re, im }.into_steelval()
+                make_polar(&r, &theta)
             }
         }
     }
