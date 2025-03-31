@@ -728,7 +728,7 @@ impl<'a> Iterator for Lexer<'a> {
                 let next = self.chars.peek().copied();
 
                 let token = match next {
-                    Some('x' | 'd' | 'o' | 'b') => {
+                    Some('x' | 'X' | 'd' | 'D' | 'o' | 'O' | 'b' | 'B') => {
                         self.eat();
                         self.read_number()
                     }
@@ -858,10 +858,10 @@ fn parse_real(s: &str, radix: Option<u32>) -> Option<RealLiteral> {
 
 fn parse_number(s: &str) -> Option<NumberLiteral> {
     let (s, radix) = match s.get(0..2) {
-        Some("#x") => (&s[2..], Some(16)),
-        Some("#d") => (&s[2..], Some(10)),
-        Some("#o") => (&s[2..], Some(8)),
-        Some("#b") => (&s[2..], Some(2)),
+        Some("#x" | "#X") => (&s[2..], Some(16)),
+        Some("#d" | "#D") => (&s[2..], Some(10)),
+        Some("#o" | "#O") => (&s[2..], Some(8)),
+        Some("#b" | "#B") => (&s[2..], Some(2)),
         _ => (s, None),
     };
 
