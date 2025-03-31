@@ -118,7 +118,7 @@ impl Display for NumberLiteral {
         match self {
             NumberLiteral::Real(r) => r.fmt(f),
             NumberLiteral::Complex(re, im) => {
-                if im.is_negative() {
+                if im.is_negative() || !im.is_finite() {
                     write!(f, "{re}{im}i")
                 } else {
                     write!(f, "{re}+{im}i")
@@ -147,6 +147,14 @@ impl RealLiteral {
             RealLiteral::Int(i) => i.is_negative(),
             RealLiteral::Rational(n, _) => n.is_negative(),
             RealLiteral::Float(f) => f.is_sign_negative(),
+        }
+    }
+
+    fn is_finite(&self) -> bool {
+        match self {
+            RealLiteral::Int(_) => true,
+            RealLiteral::Rational(_, _) => true,
+            RealLiteral::Float(f) => f.is_finite(),
         }
     }
 }
@@ -364,17 +372,21 @@ impl<'a> TokenType<Cow<'a, str>> {
 
 fn character_special_display(c: char, f: &mut fmt::Formatter) -> fmt::Result {
     match c {
-        ' ' => write!(f, "#\\SPACE"),
-        '\t' => write!(f, "#\\TAB"),
-        '\n' => write!(f, "#\\NEWLINE"),
-        '\r' => write!(f, "#\\RETURN"),
-        c if c.is_control() || c.is_whitespace() => {
-            write!(f, "#\\{}", c.escape_unicode())
+        ' ' => write!(f, "#\\space"),
+        '\0' => write!(f, "#\\null"),
+        '\t' => write!(f, "#\\tab"),
+        '\n' => write!(f, "#\\newline"),
+        '\r' => write!(f, "#\\return"),
+        _ => {
+            let escape = c.escape_debug();
+            if escape.len() <= 2 {
+                // char does not need escaping
+                write!(f, "#\\{}", c)
+            } else {
+                // escape char as #\uNNNN
+                write!(f, "#\\u{:04x}", c as u32)
+            }
         }
-        // '\"' => write!(f, "#\\DOUBLE-QUOTE"),
-        // '\'' => write!(f, "#\\QUOTE"),
-        // '\\' => write!(f, "#\\BACKSLASH"),
-        _ => write!(f, "#\\{c}"),
     }
 }
 
