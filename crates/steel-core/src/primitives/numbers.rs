@@ -1269,6 +1269,48 @@ fn sqrt(number: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Create a complex number with `re` as the real part and `im` as the imaginary part.
+///
+/// (make-rectangular re im) -> number?
+///
+/// - re : real?
+/// - im : real?
+#[steel_derive::function(name = "make-rectangular", constant = true)]
+pub fn make_rectangular(re: &SteelVal, im: &SteelVal) -> Result<SteelVal> {
+    ensure_arg_is_real("make-rectangular", re)?;
+    ensure_arg_is_real("make-rectangular", im)?;
+
+    SteelComplex {
+        re: re.clone(),
+        im: im.clone(),
+    }
+    .into_steelval()
+}
+
+/// Make a complex number out of a magnitude `r` and an angle `θ`, so that the result is `r * (cos θ + i sin θ)`
+///
+/// (make-polar r θ) -> number?
+///
+/// - r : real?
+/// - theta : real?
+#[steel_derive::function(name = "make-polar", constant = true)]
+pub fn make_polar(r: &SteelVal, theta: &SteelVal) -> Result<SteelVal> {
+    ensure_arg_is_real("make-polar", r)?;
+    ensure_arg_is_real("make-polar", theta)?;
+
+    let re = multiply_primitive(&[r.clone(), cos(&theta)?])?;
+    let im = multiply_primitive(&[r.clone(), sin(&theta)?])?;
+    SteelComplex { re, im }.into_steelval()
+}
+
+fn ensure_arg_is_real(op: &str, arg: &SteelVal) -> Result<()> {
+    if !realp(arg) {
+        stop!(TypeMismatch => "{op} expects a real number, found: {:?}", arg);
+    } else {
+        Ok(())
+    }
+}
+
 /// Returns the real part of a number
 ///
 /// (real-part number) -> number?
@@ -1338,6 +1380,33 @@ fn magnitude(number: &SteelVal) -> Result<SteelVal> {
             sqrt(&c_squared)
         }
         _ => steelerr!(TypeMismatch => "magnitude expects a number, found {number}"),
+    }
+}
+
+/// Computes the angle `θ` of a complex number `z` where `z = r * (cos θ + i sin θ)` and `r` is the magnitude.
+///
+/// (angle number) -> number?
+///
+/// - number : number?
+#[steel_derive::function(name = "angle", constant = true)]
+pub fn angle(number: &SteelVal) -> Result<SteelVal> {
+    let (re, im) = match number {
+        re @ SteelVal::NumV(_)
+        | re @ SteelVal::IntV(_)
+        | re @ SteelVal::Rational(_)
+        | re @ SteelVal::BigNum(_) => (re.clone(), &SteelVal::IntV(0)),
+        SteelVal::Complex(complex) => (complex.re.clone(), &complex.im),
+        _ => stop!(TypeMismatch => "angle expects a number, found {number}"),
+    };
+
+    let r = magnitude(number)?;
+    let rhs = divide_primitive(&[re, r])?;
+    let z = acos(&rhs)?;
+
+    if negativep(&im)?.is_truthy() {
+        negate(&z)
+    } else {
+        Ok(z)
     }
 }
 
@@ -1531,7 +1600,7 @@ pub fn float_add(args: &[SteelVal]) -> Result<SteelVal> {
 fn ensure_args_are_numbers(op: &str, args: &[SteelVal]) -> Result<()> {
     for arg in args {
         if !numberp(arg) {
-            stop!(TypeMismatch => "{op} expects a number, found: {:?}", arg)
+            stop!(TypeMismatch => "{op} expects a number, found: {:?}", arg);
         }
     }
     Ok(())
