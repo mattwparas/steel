@@ -586,14 +586,7 @@ pub fn define_module(
     }
 }
 
-#[proc_macro_attribute]
-pub fn native(
-    args: proc_macro::TokenStream,
-    input: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
-    let input = parse_macro_input!(input as ItemFn);
-
+fn arity_code_injection(input: &ItemFn, arity_number: &String) -> ItemFn {
     let func_name = input.sig.ident.to_string();
 
     //This is to account for the parameter sometimes being "args", other times "values"
@@ -607,16 +600,6 @@ pub fn native(
     } else {
         panic!()
     };
-
-    let keyword_map = parse_key_value_pairs(&args);
-
-    let value = keyword_map
-        .get("name")
-        .expect("native definition requires a name!");
-
-    let arity_number = keyword_map
-        .get("arity")
-        .expect("native definition requires an arity");
 
     // This function extracts the Arity type and integer value
     let (name, numb) = arity_number
@@ -646,6 +629,34 @@ pub fn native(
         },
         _ => panic!("Unsupported Arity Type"),
     };
+    // Inject the new statements at the beginning of the function
+    let mut modified_input = input.clone();
+    modified_input
+        .block
+        .stmts
+        .insert(0, syn::parse_quote!(#injected_code));
+    modified_input
+}
+
+#[proc_macro_attribute]
+pub fn native(
+    args: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
+    let input = parse_macro_input!(input as ItemFn);
+
+    let keyword_map = parse_key_value_pairs(&args);
+
+    let value = keyword_map
+        .get("name")
+        .expect("native definition requires a name!");
+
+    let arity_number = keyword_map
+        .get("arity")
+        .expect("native definition requires an arity");
+
+    let modified_input = arity_code_injection(&input, arity_number);
 
     let is_const = keyword_map
         .get("constant")
@@ -655,12 +666,6 @@ pub fn native(
     let arity_number: syn::Expr =
         syn::parse_str(arity_number).expect("Unable to parse arity definition");
 
-    let mut modified_input = input.clone();
-    // Inject the new statements at the beginning of the function
-    modified_input
-        .block
-        .stmts
-        .insert(0, syn::parse_quote!(#injected_code));
     let sign: Signature = input.clone().sig;
 
     let maybe_doc_comments = parse_doc_comment(input);
