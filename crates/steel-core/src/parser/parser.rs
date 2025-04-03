@@ -156,6 +156,19 @@ fn real_literal_to_steelval(r: RealLiteral) -> Result<SteelVal, SteelErr> {
     }
 }
 
+impl IntoSteelVal for NumberLiteral {
+    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+        match self {
+            NumberLiteral::Real(r) => real_literal_to_steelval(r),
+            NumberLiteral::Complex(re, im) => SteelComplex {
+                re: real_literal_to_steelval(re)?,
+                im: real_literal_to_steelval(im)?,
+            }
+            .into_steelval(),
+        }
+    }
+}
+
 impl TryFrom<TokenType<InternedString>> for SteelVal {
     type Error = SteelErr;
 

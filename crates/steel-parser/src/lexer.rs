@@ -338,14 +338,14 @@ impl<'a> Lexer<'a> {
                     self.eat();
                 }
                 '(' | ')' | '[' | ']' => {
-                    return if let Some(t) = parse_number(self.slice()) {
+                    return if let Some(t) = parse_number(self.slice(), None) {
                         Ok(t.into())
                     } else {
                         self.read_word()
                     }
                 }
                 c if c.is_whitespace() => {
-                    return if let Some(t) = parse_number(self.slice()) {
+                    return if let Some(t) = parse_number(self.slice(), None) {
                         Ok(t.into())
                     } else {
                         self.read_word()
@@ -354,7 +354,7 @@ impl<'a> Lexer<'a> {
                 _ => return self.read_word(),
             }
         }
-        match parse_number(self.slice()) {
+        match parse_number(self.slice(), None) {
             Some(n) => Ok(n.into()),
             None => self.read_word(),
         }
@@ -849,13 +849,13 @@ fn parse_real(s: &str, radix: u32) -> Option<RealLiteral> {
     }
 }
 
-fn parse_number(s: &str) -> Option<NumberLiteral> {
+pub fn parse_number(s: &str, radix: Option<u32>) -> Option<NumberLiteral> {
     let (s, radix) = match s.get(0..2) {
         Some("#x" | "#X") => (&s[2..], 16),
         Some("#d" | "#D") => (&s[2..], 10),
         Some("#o" | "#O") => (&s[2..], 8),
         Some("#b" | "#B") => (&s[2..], 2),
-        _ => (s, 10),
+        _ => (s, radix.unwrap_or(10)),
     };
 
     match split_into_complex(s)?.as_slice() {
