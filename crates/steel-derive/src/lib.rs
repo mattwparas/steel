@@ -622,11 +622,18 @@ fn arity_code_injection(input: &ItemFn, arity_number: &String) -> ItemFn {
                }
         },
 
+        "AtMost" => quote! {
+            if #parameter_name.len() > #numb {
+                   stop!(ArityMismatch => "{} expects at most {} arguments, found: {}",#func_name, #numb ,#parameter_name.len());
+               }
+        },
+
         "Exact" => quote! {
             if #parameter_name.len() != #numb {
                    stop!(ArityMismatch => "{} expects exactly {} arguments, found: {}",#func_name, #numb ,#parameter_name.len());
                }
         },
+        // Have to implement Range() Arity check
         _ => panic!("Unsupported Arity Type"),
     };
     // Inject the new statements at the beginning of the function
