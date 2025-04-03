@@ -1,7 +1,6 @@
 use super::parser::SourceId;
 use crate::tokens::{IntLiteral, Token, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
-use num::{BigInt, Num};
 use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
 use std::char;
@@ -795,24 +794,13 @@ enum NumPart<'a> {
     Imaginary(&'a str),
 }
 
-fn parse_real(s: &str, radix: Option<u32>) -> Option<RealLiteral> {
+fn parse_real(s: &str, radix: u32) -> Option<RealLiteral> {
     if s == NEG_INFINITY {
         return Some(RealLiteral::Float(f64::NEG_INFINITY));
     } else if s == INFINITY {
         return Some(RealLiteral::Float(f64::INFINITY));
     } else if s == NAN || s == NEG_NAN {
         return Some(RealLiteral::Float(f64::NAN));
-    } else if let Some(radix) = radix {
-        return isize::from_str_radix(s, radix)
-            .ok()
-            .map(IntLiteral::Small)
-            .or_else(|| {
-                BigInt::from_str_radix(s, radix)
-                    .ok()
-                    .map(Box::new)
-                    .map(IntLiteral::Big)
-            })
-            .map(RealLiteral::Int);
     }
 
     let mut has_e = false;
@@ -843,26 +831,31 @@ fn parse_real(s: &str, radix: Option<u32>) -> Option<RealLiteral> {
     }
 
     if has_e || has_dot {
-        s.parse().map(|f| RealLiteral::Float(f)).ok()
+        if radix != 10 {
+            // radix for floating points not yet supported
+            return None;
+        }
+
+        s.parse().map(RealLiteral::Float).ok()
     } else if let Some(p) = frac_position {
         let (n_str, d_str) = s.split_at(p);
         let d_str = &d_str[1..];
-        let n: IntLiteral = n_str.parse().ok()?;
-        let d: IntLiteral = d_str.parse().ok()?;
+        let n = IntLiteral::from_str_radix(n_str, radix).ok()?;
+        let d = IntLiteral::from_str_radix(d_str, radix).ok()?;
         Some(RealLiteral::Rational(n, d))
     } else {
-        let int: IntLiteral = s.parse().ok()?;
+        let int = IntLiteral::from_str_radix(s, radix).ok()?;
         Some(RealLiteral::Int(int))
     }
 }
 
 fn parse_number(s: &str) -> Option<NumberLiteral> {
     let (s, radix) = match s.get(0..2) {
-        Some("#x" | "#X") => (&s[2..], Some(16)),
-        Some("#d" | "#D") => (&s[2..], Some(10)),
-        Some("#o" | "#O") => (&s[2..], Some(8)),
-        Some("#b" | "#B") => (&s[2..], Some(2)),
-        _ => (s, None),
+        Some("#x" | "#X") => (&s[2..], 16),
+        Some("#d" | "#D") => (&s[2..], 10),
+        Some("#o" | "#O") => (&s[2..], 8),
+        Some("#b" | "#B") => (&s[2..], 2),
+        _ => (s, 10),
     };
 
     match split_into_complex(s)?.as_slice() {
