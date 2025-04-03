@@ -803,16 +803,16 @@ fn parse_real(s: &str, radix: u32) -> Option<RealLiteral> {
         return Some(RealLiteral::Float(f64::NAN));
     }
 
-    let mut has_e = false;
     let mut has_dot = false;
+    let mut has_exponent = false;
     let mut frac_position = None;
     for (idx, ch) in s.chars().enumerate() {
         match ch {
-            'e' | 'E' => {
-                if has_e {
+            'e' | 'E' if radix < 15 => {
+                if has_exponent {
                     return None;
                 };
-                has_e = true;
+                has_exponent = true;
             }
             '/' => {
                 frac_position = match frac_position {
@@ -830,7 +830,7 @@ fn parse_real(s: &str, radix: u32) -> Option<RealLiteral> {
         }
     }
 
-    if has_e || has_dot {
+    if has_exponent || has_dot {
         if radix != 10 {
             // radix for floating points not yet supported
             return None;
