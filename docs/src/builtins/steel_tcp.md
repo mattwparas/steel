@@ -4,6 +4,7 @@
 ### **tcp-connect**
 ### **tcp-listen**
 ### **tcp-listener-set-non-blocking!**
+### **tcp-shutdown!**
 ### **tcp-stream-buffered-reader**
 ### **tcp-stream-reader**
 ### **tcp-stream-set-non-blocking!**

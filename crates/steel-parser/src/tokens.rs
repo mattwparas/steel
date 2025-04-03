@@ -4,6 +4,7 @@ use crate::span::Span;
 use core::ops;
 use num::{BigInt, Rational32, Signed};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::fmt::{self, Display};
 use std::str::FromStr;
 use std::sync::Arc;
@@ -117,7 +118,7 @@ impl Display for NumberLiteral {
         match self {
             NumberLiteral::Real(r) => r.fmt(f),
             NumberLiteral::Complex(re, im) => {
-                if im.is_negative() {
+                if im.is_negative() || !im.is_finite() {
                     write!(f, "{re}{im}i")
                 } else {
                     write!(f, "{re}+{im}i")
@@ -146,6 +147,14 @@ impl RealLiteral {
             RealLiteral::Int(i) => i.is_negative(),
             RealLiteral::Rational(n, _) => n.is_negative(),
             RealLiteral::Float(f) => f.is_sign_negative(),
+        }
+    }
+
+    fn is_finite(&self) -> bool {
+        match self {
+            RealLiteral::Int(_) => true,
+            RealLiteral::Rational(_, _) => true,
+            RealLiteral::Float(f) => f.is_finite(),
         }
     }
 }
@@ -271,7 +280,7 @@ impl From<BigInt> for IntLiteral {
     }
 }
 
-impl<'a> TokenType<&'a str> {
+impl<'a> TokenType<Cow<'a, str>> {
     pub fn open_span(mut span: Span, paren_mod: Option<ParenMod>) -> Span {
         let offset = match paren_mod {
             Some(ParenMod::Vector) => 1,
@@ -284,7 +293,7 @@ impl<'a> TokenType<&'a str> {
         span
     }
 
-    pub fn to_owned<T: From<&'a str>>(self) -> TokenType<T> {
+    pub fn to_owned<T: From<Cow<'a, str>>>(self) -> TokenType<T> {
         match self {
             TokenType::Identifier(i) => TokenType::Identifier(i.into()),
             TokenType::Keyword(i) => TokenType::Keyword(i.into()),
@@ -322,7 +331,7 @@ impl<'a> TokenType<&'a str> {
         }
     }
 
-    pub fn map<T>(self, mut func: impl FnMut(&'a str) -> T) -> TokenType<T> {
+    pub fn map<T>(self, mut func: impl FnMut(Cow<'a, str>) -> T) -> TokenType<T> {
         match self {
             TokenType::Identifier(i) => TokenType::Identifier(func(i)),
             TokenType::Keyword(i) => TokenType::Keyword(func(i)),
@@ -363,17 +372,21 @@ impl<'a> TokenType<&'a str> {
 
 fn character_special_display(c: char, f: &mut fmt::Formatter) -> fmt::Result {
     match c {
-        ' ' => write!(f, "#\\SPACE"),
-        '\t' => write!(f, "#\\TAB"),
-        '\n' => write!(f, "#\\NEWLINE"),
-        '\r' => write!(f, "#\\RETURN"),
-        c if c.is_control() || c.is_whitespace() => {
-            write!(f, "#\\{}", c.escape_unicode())
+        ' ' => write!(f, "#\\space"),
+        '\0' => write!(f, "#\\null"),
+        '\t' => write!(f, "#\\tab"),
+        '\n' => write!(f, "#\\newline"),
+        '\r' => write!(f, "#\\return"),
+        _ => {
+            let escape = c.escape_debug();
+            if escape.len() <= 2 {
+                // char does not need escaping
+                write!(f, "#\\{}", c)
+            } else {
+                // escape char as #\uNNNN
+                write!(f, "#\\u{:04x}", c as u32)
+            }
         }
-        // '\"' => write!(f, "#\\DOUBLE-QUOTE"),
-        // '\'' => write!(f, "#\\QUOTE"),
-        // '\\' => write!(f, "#\\BACKSLASH"),
-        _ => write!(f, "#\\{c}"),
     }
 }
 

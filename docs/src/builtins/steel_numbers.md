@@ -65,6 +65,62 @@ Computes the absolute value of the given number.
 > (abs -42) ;; => 42
 > (abs 0) ;; => 0
 ```
+### **acos**
+Returns the arccosine, or inverse cosine, of a value; output is in radians.
+
+(acos n) -> number?
+
+* n : number? - The input value is the cosine of the angle you want and must be from -1 to 1.
+
+#### Examples
+```scheme
+> (acos -1) ;; => 3.141592653589793
+> (acos 0) ;; => 1.5707963267948966
+> (acos 0.5) ;; => 1.0471975511965976
+> (acos 2) ;; => +nan.0
+```
+### **arithmetic-shift**
+Performs a bitwise arithmetic shift using the given 2 numbers
+
+(arithmetic-shift n m) -> integer?
+
+* n : integer? - The number to shift.
+* m : integer? - The number by which to shift.
+
+#### Examples
+```scheme
+> (arithmetic-shift 10 1) ;; => 20
+> (arithmetic-shift 20 1) ;; => 40
+> (arithmetic-shift 40 -2) ;; => 10
+```
+### **asin**
+Returns the arcsine, or inverse sine, of a value; output is in radians.
+
+(asin n) -> number?
+
+* n : number? - The input value is the sine of the angle you want and must be from -1 to 1.
+
+#### Examples
+```scheme
+> (asin -1) ;; => -1.5707963267948966
+> (asin 0) ;; => 0
+> (asin 0.5) ;; => 0.5235987755982988
+> (asin 2) ;; => +nan.0
+```
+### **atan**
+Returns the arctangent, or inverse tangent, of a value; output is in radians.
+
+(atan n) -> number?
+
+* n : number? - The input value is the tangent of the angle you want.
+
+#### Examples
+```scheme
+> (atan -1) ;; => -0.7853981633974483
+> (atan 0) ;; => 0
+> (atan 0.5) ;; => 0.46364760900080615
+> (atan 2) ;; => 1.1071487177940906
+```
 ### **ceiling**
 Rounds the given number up to the nearest integer not less than it.
 
@@ -78,6 +134,20 @@ Rounds the given number up to the nearest integer not less than it.
 > (ceiling 42.1) ;; => 43
 > (ceiling -42.1) ;; => -42
 ```
+### **cos**
+Returns the cosine value of the input angle, measured in radians.
+
+(cos n) -> number?
+
+* n : number? - The input angle, in radians.
+
+#### Examples
+```scheme
+> (cos 0) ;; => 1
+> (cos 1) ;; => 0.5403023058681398
+> (cos 2.0) ;; => -0.4161468365471424
+> (cos 3.14) ;; => -0.9999987317275395
+```
 ### **denominator**
 Retrieves the denominator of the given rational number.
 
@@ -90,6 +160,32 @@ Retrieves the denominator of the given rational number.
 > (denominator 1/2) ;; => 2
 > (denominator 3/4) ;; => 4
 > (denominator 4) ;; => 1
+```
+### **even?**
+Checks if the given number is even
+
+(even? n) -> bool?
+
+* n : number? - The number to check for evenness.
+
+#### Examples
+```scheme
+> (even? 2) ;; => #true
+> (even? 3) ;; => #false
+> (even? 4.0) ;; => #true
+```
+### **exact**
+Returns an exact representation of the input number, coerces an inexact number to an exact form.
+
+(exact n) -> number?
+
+* n : number? - The value to check for exactness.
+
+#### Examples
+```scheme
+> (exact 5.0) ;; => 5
+> (exact 5/3) ;; => 5/3
+> (exact 2) ;; => 2
 ```
 ### **exact->inexact**
 Converts an exact number to an inexact number.
@@ -156,6 +252,19 @@ Raises the left operand to the power of the right operand.
 > (expt 2.0 0.5) ;; => 1.4142135623730951
 > (expt 9 0.5) ;; => 3
 ```
+### **f+**
+Sums all given floats
+
+(f+ nums) -> number?
+
+* nums : float? - The floats to sum up.
+
+#### Examples
+```scheme
+> (f+ 5.5) ;; => 5.5
+> (f+ 1.1 2.2) ;; => 3.3
+> (f+ 3.3 3.3 3.3) ;; => 9.9
+```
 ### **finite?**
 Returns `#t` if the given number is finite.
 
@@ -183,6 +292,16 @@ Computes the largest integer less than or equal to the given number.
 > (floor 3.14) ;; => 3
 > (floor 4.99) ;; => 4
 > (floor -2.5) ;; => -3
+```
+### **imag-part**
+Returns the imaginary part of a number
+
+(imag-part number) -> number?
+
+#### Examples
+```scheme
+> (imag-part 3+4i) ;; => 4
+> (imag-part 42) ;; => 0
 ```
 ### **inexact->exact**
 Converts an inexact number to an exact number.
@@ -250,7 +369,8 @@ Computes the magnitude of the given number.
 > (magnitude -5) ;; => 5
 ```
 ### **modulo**
-Returns the remainder of the division of the first number by the second
+Returns the euclidean remainder of the division of the first number by the second
+This differs from the remainder operator when using negative numbers.
 
 (modulo n m) -> integer?
 
@@ -301,6 +421,19 @@ Retrieves the numerator of the given rational number.
 > (numerator 5/2) ;; => 5
 > (numerator -2) ;; => -2
 ```
+### **odd?**
+Checks if the given number is odd
+
+(odd? n) -> bool?
+
+* n : number? - The number to check for oddness.
+
+#### Examples
+```scheme
+> (odd? 2) ;; => #false
+> (odd? 3) ;; => #true
+> (odd? 5.0) ;; => #true
+```
 ### **positive?**
 Checks if the given real number is positive.
 
@@ -328,6 +461,32 @@ Returns quotient of dividing numerator by denomintator.
 > (quotient 10 2) ;; => 5
 > (quotient -10 2) ;; => -5
 ```
+### **real-part**
+Returns the real part of a number
+
+(real-part number) -> number?
+
+#### Examples
+```scheme
+> (real-part 3+4i) ;; => 3
+> (real-part 42) ;; => 42
+```
+### **remainder**
+Returns the arithmetic remainder of the division of the first number by the second.
+This differs from the modulo operator when using negative numbers.
+
+(remainder n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+```scheme
+> (remainder 10 3) ;; => 1
+> (remainder -10 3) ;; => -1
+> (remainder 10 -3) ;; => 1
+> (remainder -10 -3) ;; => -1
+```
 ### **round**
 Rounds the given number to the nearest integer.
 
@@ -340,6 +499,20 @@ Rounds the given number to the nearest integer.
 > (round 3.14) ;; => 3
 > (round 4.6) ;; => 5
 > (round -2.5) ;; => -3
+```
+### **sin**
+Returns the sine value of the input angle, measured in radians.
+
+(sin n) -> number?
+
+* n : number? - The input angle, in radians.
+
+#### Examples
+```scheme
+> (sin 0) ;; => 0
+> (sin 1) ;; => 0.8414709848078965
+> (sin 2.0) ;; => 0.9092974268256817
+> (sin 3.14) ;; => 0.0015926529164868282
 ```
 ### **sqrt**
 Computes the square root of the given number.
@@ -367,6 +540,20 @@ Computes the square of the given number.
 > (square -3) ;; => 9
 > (square 2.5) ;; => 6.25
 ```
+### **tan**
+Returns the tangent value of the input angle, measured in radians.
+
+(tan n) -> number?
+
+* n : number? - The input angle, in radians.
+
+#### Examples
+```scheme
+> (tan 0) ;; => 0
+> (tan 1) ;; => 1.557407724654902
+> (tan 2.0) ;; => -2.185039863261519
+> (tan 3.14) ;; => -0.0015926549364072232
+```
 ### **zero?**
 Checks if the given real number is zero.
 
@@ -380,15 +567,3 @@ Checks if the given real number is zero.
 > (zero? 0.0) ;; => #t
 > (zero? 0.1) ;; => #f
 ```
-### **acos**
-### **arithmetic-shift**
-### **asin**
-### **atan**
-### **cos**
-### **even?**
-### **exact**
-### **f+**
-### **odd?**
-### **remainder**
-### **sin**
-### **tan**

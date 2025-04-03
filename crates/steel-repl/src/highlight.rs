@@ -2,6 +2,7 @@ extern crate rustyline;
 use colored::*;
 use steel_parser::interner::InternedString;
 use steel_parser::parser::SourceId;
+use steel_parser::tokens::TokenType;
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -19,10 +20,6 @@ use rustyline::completion::Pair;
 
 use std::borrow::Cow;
 
-impl Completer for RustylineHelper {
-    type Candidate = Pair;
-}
-
 #[derive(Helper)]
 pub struct RustylineHelper {
     globals: Arc<Mutex<HashSet<InternedString>>>,
@@ -34,6 +31,80 @@ impl RustylineHelper {
         Self {
             globals,
             bracket: crossbeam::atomic::AtomicCell::new(None),
+        }
+    }
+}
+
+impl Completer for RustylineHelper {
+    type Candidate = Pair;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        _ctx: &Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
+        // Only do completions if we're in an identifier
+        let Some((span, symbol)) =
+            TokenStream::new(line, true, SourceId::none()).find_map(|token| match token.ty {
+                TokenType::Identifier(ref symbol) => (
+                    // Inclusive range as curser usually placed directly after the symbol
+                    token.span().start()..=token.span().end()
+                )
+                    .contains(&pos)
+                    .then_some((token.span(), symbol.clone())),
+                _ => None,
+            })
+        else {
+            return Ok((0, Vec::new()));
+        };
+
+        // Find all globals containing the identifier the user is currently typing
+        let mut starting = Vec::new();
+        let mut containing = Vec::new();
+        for interned in self.globals.lock().unwrap().iter() {
+            let str = interned.resolve();
+            if str.starts_with(symbol.as_ref()) {
+                starting.push(str.to_owned());
+            } else if str.contains(symbol.as_ref()) {
+                containing.push(str.to_owned())
+            }
+        }
+
+        // Sort identifiers, present the ones that only require completing the end first
+        let compare = |a: &String, b: &String| {
+            a.contains("builtin")
+                .cmp(&b.contains("builtin"))
+                .then(a.starts_with('#').cmp(&b.starts_with('#')))
+                .then(a.cmp(b))
+        };
+        starting.sort_by(compare);
+        containing.sort_by(compare);
+        let candidates = starting.into_iter().chain(containing.into_iter());
+
+        // Apply colors to distinguish completion from typed text
+        let completions = candidates
+            .map(|ident| Pair {
+                display: format!("{}", ident.white()),
+                replacement: ident,
+            })
+            .collect();
+
+        Ok((span.start(), completions))
+    }
+
+    fn update(
+        &self,
+        line: &mut rustyline::line_buffer::LineBuffer,
+        start: usize,
+        elected: &str,
+        cl: &mut rustyline::Changeset,
+    ) {
+        // Cursor can be anywhere in the identifier, so find its span again.
+        if let Some(end) = TokenStream::new(line, true, SourceId::none())
+            .find_map(|token| (token.span().start() == start).then_some(token.span().end()))
+        {
+            line.replace(start..end, elected, cl);
         }
     }
 }
@@ -200,7 +271,7 @@ impl Highlighter for RustylineHelper {
                         .globals
                         .lock()
                         .unwrap()
-                        .contains(&InternedString::from(*ident))
+                        .contains(&InternedString::from(&**ident))
                     {
                         let highlighted = format!("{}", token.source().bright_blue());
                         ranges_to_replace.push((token.span().range(), highlighted));

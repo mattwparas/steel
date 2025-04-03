@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     path::PathBuf,
     rc::Rc,
     result,
@@ -269,8 +270,8 @@ impl ParseError {
 pub struct InternString;
 
 impl ToOwnedString<InternedString> for InternString {
-    fn own(&self, s: &str) -> InternedString {
-        s.into()
+    fn own(&self, s: Cow<str>) -> InternedString {
+        (&*s).into()
     }
 }
 
@@ -1133,7 +1134,11 @@ impl<'a> Parser<'a> {
 
                         // println!("Collecting line: {}", doc_line);
 
-                        self.comment_buffer.push(doc_line.trim_start());
+                        let line = doc_line
+                            .strip_prefix(" ")
+                            .unwrap_or(doc_line)
+                            .trim_end_matches(['\n', '\r']);
+                        self.comment_buffer.push(line);
                     }
 
                     continue;

@@ -555,8 +555,9 @@ impl Synchronizer {
             if let SteelVal::Custom(c) = &x.handle {
                 if let Some(inner) = as_underlying_type::<ThreadHandle>(c.read().as_ref()) {
                     if let Some(handle) = inner.handle.as_ref() {
-                        handle.thread().unpark();
+                        // Resume first
                         inner.thread_state_manager.resume();
+                        handle.thread().unpark();
                     }
                 }
             }
@@ -3098,8 +3099,7 @@ impl<'a> VmCore<'a> {
                 todo!()
             }
         } else {
-            dbg!(self
-                .thread
+            self.thread
                 .stack_frames
                 .last()
                 .and_then(|frame| {
@@ -3109,7 +3109,7 @@ impl<'a> VmCore<'a> {
                         None
                     }
                 })
-                .copied())
+                .copied()
         }
     }
 

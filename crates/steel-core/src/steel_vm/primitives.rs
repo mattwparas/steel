@@ -30,19 +30,21 @@ use crate::{
         ports::{port_module_without_filesystem, EOF_OBJECTP_DEFINITION},
         process::process_module,
         random::random_module,
-        string_module,
+        string_module, symbol_module,
         tcp::tcp_module,
         time::time_module,
         vectors::{
             immutable_vectors_module, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION,
-            MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION, MUTABLE_VECTOR_POP_DEFINITION,
-            MUTABLE_VECTOR_TO_STRING_DEFINITION, MUT_VECTOR_COPY_DEFINITION,
-            MUT_VEC_CONSTRUCT_DEFINITION, MUT_VEC_CONSTRUCT_VEC_DEFINITION,
-            MUT_VEC_LENGTH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_TO_LIST_DEFINITION,
-            VECTOR_FILL_DEFINITION, VEC_LENGTH_DEFINITION,
+            LIST_VEC_NULL_DEFINITION, MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION,
+            MUTABLE_VECTOR_POP_DEFINITION, MUTABLE_VECTOR_TO_STRING_DEFINITION,
+            MUT_VECTOR_COPY_DEFINITION, MUT_VEC_APPEND_DEFINITION, MUT_VEC_CONSTRUCT_DEFINITION,
+            MUT_VEC_CONSTRUCT_VEC_DEFINITION, MUT_VEC_GET_DEFINITION, MUT_VEC_LENGTH_DEFINITION,
+            MUT_VEC_PUSH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_TO_LIST_DEFINITION,
+            VECTOR_FILL_DEFINITION, VEC_APPEND_DEFINITION, VEC_CAR_DEFINITION, VEC_CDR_DEFINITION,
+            VEC_CONS_DEFINITION, VEC_LENGTH_DEFINITION, VEC_PUSH_DEFINITION, VEC_RANGE_DEFINITION,
+            VEC_REF_DEFINITION,
         },
-        ControlOperations, IoFunctions, MetaOperations, NumOperations, StreamOperations,
-        SymbolOperations, VectorOperations,
+        ControlOperations, IoFunctions, MetaOperations, StreamOperations,
     },
     rerrs::ErrorKind,
     rvals::{
@@ -830,23 +832,23 @@ fn vector_module() -> BuiltInModule {
         .register_native_fn_definition(MUT_VEC_TO_LIST_DEFINITION)
         .register_native_fn_definition(VECTOR_FILL_DEFINITION)
         .register_native_fn_definition(MUT_VECTOR_COPY_DEFINITION)
-        .register_value("vector-push!", VectorOperations::mut_vec_push())
+        .register_native_fn_definition(MUT_VEC_PUSH_DEFINITION)
         .register_native_fn_definition(MUT_VEC_LENGTH_DEFINITION)
         .register_native_fn_definition(VEC_LENGTH_DEFINITION)
-        .register_value("vector-append!", VectorOperations::mut_vec_append())
-        .register_value("mut-vector-ref", VectorOperations::mut_vec_get())
+        .register_native_fn_definition(MUT_VEC_APPEND_DEFINITION)
+        .register_native_fn_definition(MUT_VEC_GET_DEFINITION)
         .register_native_fn_definition(MUT_VEC_SET_DEFINITION)
         // Immutable vector operations
         .register_native_fn_definition(IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION)
-        .register_value("push-front", VectorOperations::vec_cons())
-        .register_value("pop-front", VectorOperations::vec_car())
-        .register_value("vec-rest", VectorOperations::vec_cdr())
-        .register_value("null?", VectorOperations::list_vec_null())
-        .register_value("push", VectorOperations::vec_push())
-        .register_value("range-vec", VectorOperations::vec_range())
-        .register_value("vec-append", VectorOperations::vec_append())
+        .register_native_fn_definition(VEC_CONS_DEFINITION)
+        .register_native_fn_definition(VEC_CAR_DEFINITION)
+        .register_native_fn_definition(VEC_CDR_DEFINITION)
+        .register_native_fn_definition(LIST_VEC_NULL_DEFINITION)
+        .register_native_fn_definition(VEC_PUSH_DEFINITION)
+        .register_native_fn_definition(VEC_RANGE_DEFINITION)
+        .register_native_fn_definition(VEC_APPEND_DEFINITION)
         // TODO: This has to be cleaned up
-        .register_value("vector-ref", VectorOperations::vec_ref())
+        .register_native_fn_definition(VEC_REF_DEFINITION)
         .register_native_fn_definition(MUTABLE_VECTOR_CLEAR_DEFINITION)
         .register_native_fn_definition(MUTABLE_VECTOR_TO_STRING_DEFINITION)
         .register_native_fn_definition(MUTABLE_VECTOR_POP_DEFINITION);
@@ -1037,13 +1039,13 @@ fn number_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/numbers");
     module
         .register_native_fn_definition(numbers::ADD_PRIMITIVE_DEFINITION)
-        .register_value("f+", NumOperations::float_add())
+        .register_native_fn_definition(numbers::FLOAT_ADD_DEFINITION)
         .register_native_fn_definition(numbers::MULTIPLY_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::DIVIDE_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::SUBTRACT_PRIMITIVE_DEFINITION)
-        .register_value("even?", NumOperations::even())
-        .register_value("odd?", NumOperations::odd())
-        .register_value("arithmetic-shift", NumOperations::arithmetic_shift())
+        .register_native_fn_definition(numbers::EVEN_DEFINITION)
+        .register_native_fn_definition(numbers::ODD_DEFINITION)
+        .register_native_fn_definition(numbers::ARITHMETIC_SHIFT_DEFINITION)
         .register_native_fn_definition(numbers::ABS_DEFINITION)
         .register_native_fn_definition(numbers::NANP_DEFINITION)
         .register_native_fn_definition(numbers::ZEROP_DEFINITION)
@@ -1064,6 +1066,8 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::INFINITEP_DEFINITION)
         .register_native_fn_definition(numbers::LOG_DEFINITION)
         .register_native_fn_definition(numbers::MAGNITUDE_DEFINITION)
+        .register_native_fn_definition(numbers::REAL_PART_DEFINITION)
+        .register_native_fn_definition(numbers::IMAG_PART_DEFINITION)
         .register_native_fn_definition(numbers::NUMERATOR_DEFINITION)
         .register_native_fn_definition(numbers::QUOTIENT_DEFINITION)
         .register_native_fn_definition(numbers::MODULO_DEFINITION)
@@ -1300,14 +1304,6 @@ pub fn transducer_module() -> BuiltInModule {
         .register_value("into-for-each", crate::values::transducers::FOR_EACH)
         .register_value("into-nth", crate::values::transducers::NTH)
         .register_value("into-reducer", crate::values::transducers::REDUCER);
-    module
-}
-
-fn symbol_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/symbols");
-    module
-        .register_value("concat-symbols", SymbolOperations::concat_symbols())
-        .register_value("symbol->string", SymbolOperations::symbol_to_string());
     module
 }
 
