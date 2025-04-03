@@ -610,7 +610,7 @@ fn arity_code_injection(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> ItemF
     // This function extracts the Arity type and integer value
     let (name, numb) = arity_number
         .strip_suffix(')')
-        .and_then(|(stripped)| stripped.split_once('('))
+        .and_then(|stripped| stripped.split_once('('))
         .and_then(|(name, rest)| {
             Some((
                 name,
