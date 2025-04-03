@@ -800,6 +800,7 @@ pub fn native_mut(
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
+    let input = parse_macro_input!(input as ItemFn);
 
     let keyword_map = parse_key_value_pairs(&args);
 
@@ -811,6 +812,8 @@ pub fn native_mut(
         .get("arity")
         .expect("native definition requires an arity");
 
+    let modified_input = arity_code_injection(&input, arity_number);
+
     let is_const = keyword_map
         .get("constant")
         .map(|x| x == "true")
@@ -819,9 +822,6 @@ pub fn native_mut(
     let arity_number: syn::Expr =
         syn::parse_str(arity_number).expect("Unable to parse arity definition");
 
-    let input = parse_macro_input!(input as ItemFn);
-
-    let modified_input = input.clone();
     let sign: Signature = input.clone().sig;
 
     let maybe_doc_comments = parse_doc_comment(input);
