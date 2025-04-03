@@ -655,7 +655,7 @@ fn function_macro_setup(
     input: &ItemFn,
     args: &Punctuated<Meta, Comma>,
 ) -> (
-    Option<proc_macro2::TokenStream>,
+    proc_macro2::TokenStream,
     proc_macro2::Ident,
     String,
     proc_macro2::Ident,
@@ -689,8 +689,13 @@ fn function_macro_setup(
         &(function_name.to_string().to_uppercase() + "_DEFINITION"),
         sign.ident.span(),
     );
+    let doc_field = if let Some(doc) = maybe_doc_comments {
+        quote! { Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)) }
+    } else {
+        quote! { None }
+    };
     (
-        maybe_doc_comments,
+        doc_field,
         doc_name,
         value.to_string(),
         function_name,
@@ -708,34 +713,18 @@ pub fn native(
     let input = parse_macro_input!(input as ItemFn);
     let modified_input = arity_code_injection(&input, &args);
 
-    let (maybe_doc_comments, doc_name, value, function_name, arity_number, is_const) =
+    let (doc_field, doc_name, value, function_name, arity_number, is_const) =
         function_macro_setup(&input, &args);
-
-    let definition_struct = if let Some(doc) = maybe_doc_comments {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition =
-            crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: &[],
-                func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#function_name),
-                arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
-                is_const: #is_const,
-                signature: None,
-            };
-        }
-    } else {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: &[],
-                func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#function_name),
-                arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: None,
-                is_const: #is_const,
-                signature: None,
-            };
-        }
+    let definition_struct = quote! {
+        pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+            name: #value,
+            aliases: &[],
+            func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#function_name),
+            arity: crate::steel_vm::builtin::Arity::#arity_number,
+            doc: #doc_field,
+            is_const: #is_const,
+            signature: None,
+        };
     };
 
     let output = quote! {
@@ -762,33 +751,19 @@ pub fn context(
     let input = parse_macro_input!(input as ItemFn);
     let modified_input = input.clone();
 
-    let (maybe_doc_comments, doc_name, value, function_name, arity_number, is_const) =
+    let (doc_field, doc_name, value, function_name, arity_number, is_const) =
         function_macro_setup(&input, &args);
 
-    let definition_struct = if let Some(doc) = maybe_doc_comments {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: &[],
-                func: crate::steel_vm::builtin::BuiltInFunctionType::Context(#function_name),
-                arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
-                is_const: #is_const,
-                signature: None,
-            };
-        }
-    } else {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: &[],
-                func: crate::steel_vm::builtin::BuiltInFunctionType::Context(#function_name),
-                arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: None,
-                is_const: #is_const,
-                signature: None,
-            };
-        }
+    let definition_struct = quote! {
+        pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+            name: #value,
+            aliases: &[],
+            func: crate::steel_vm::builtin::BuiltInFunctionType::Context(#function_name),
+            arity: crate::steel_vm::builtin::Arity::#arity_number,
+            doc: #doc_field,
+            is_const: #is_const,
+            signature: None,
+        };
     };
 
     let output = quote! {
@@ -813,33 +788,19 @@ pub fn native_mut(
 
     let modified_input = arity_code_injection(&input, &args);
 
-    let (maybe_doc_comments, doc_name, value, function_name, arity_number, is_const) =
+    let (doc_field, doc_name, value, function_name, arity_number, is_const) =
         function_macro_setup(&input, &args);
 
-    let definition_struct = if let Some(doc) = maybe_doc_comments {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: &[],
-                func: crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#function_name),
-                arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
-                is_const: #is_const,
-                signature: None,
-            };
-        }
-    } else {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: &[],
-                func: crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#function_name),
-                arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: None,
-                is_const: #is_const,
-                signature: None,
-            };
-        }
+    let definition_struct = quote! {
+        pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+            name: #value,
+            aliases: &[],
+            func: crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#function_name),
+            arity: crate::steel_vm::builtin::Arity::#arity_number,
+            doc: #doc_field,
+            is_const: #is_const,
+            signature: None,
+        };
     };
 
     let output = quote! {
