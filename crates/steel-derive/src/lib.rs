@@ -601,10 +601,10 @@ fn arity_code_injection(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> ItemF
         if let Pat::Ident(ident) = *pat_type.pat {
             ident.ident
         } else {
-            panic!()
+            panic!("Could not extract parameter name")
         }
     } else {
-        panic!()
+        panic!("Could not extract parameter name")
     };
 
     // This function extracts the Arity type and integer value
