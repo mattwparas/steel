@@ -1518,6 +1518,69 @@ mod lexer_tests {
     }
 
     #[test]
+    fn test_numbers_with_radix() {
+        let got = TokenStream::new(
+            "#xff #xce #o777 #o1/20 #b1/10 #x10+ffi #d1.0",
+            true,
+            SourceId::none(),
+        )
+        .collect::<Vec<_>>();
+
+        assert_eq!(
+            &*got,
+            &[
+                Token {
+                    ty: NumberLiteral::Real(IntLiteral::Small(255).into()).into(),
+                    source: "#xff",
+                    span: Span::new(0, 4, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Real(IntLiteral::Small(206).into()).into(),
+                    source: "#xce",
+                    span: Span::new(5, 9, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Real(IntLiteral::Small(511).into()).into(),
+                    source: "#o777",
+                    span: Span::new(10, 15, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Real(RealLiteral::Rational(
+                        IntLiteral::Small(1),
+                        IntLiteral::Small(16)
+                    ))
+                    .into(),
+                    source: "#o1/20",
+                    span: Span::new(16, 22, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Real(RealLiteral::Rational(
+                        IntLiteral::Small(1),
+                        IntLiteral::Small(2)
+                    ))
+                    .into(),
+                    source: "#b1/10",
+                    span: Span::new(23, 29, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(16).into(),
+                        IntLiteral::Small(255).into(),
+                    )
+                    .into(),
+                    source: "#x10+ffi",
+                    span: Span::new(30, 38, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Real(RealLiteral::Float(1.0)).into(),
+                    source: "#d1.0",
+                    span: Span::new(39, 44, SourceId::none()),
+                }
+            ]
+        );
+    }
+
+    #[test]
     fn test_malformed_complex_numbers_are_identifiers() {
         let got: Vec<_> =
             TokenStream::new("i -i 1i+1i 4+i -4+-2i", true, SourceId::none()).collect();
