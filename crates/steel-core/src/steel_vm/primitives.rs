@@ -1968,6 +1968,16 @@ pub fn error_with_src_loc() -> SteelVal {
             stop!(ArityMismatch => "error-with-span expects at least 2 arguments - the span and the error message")
         }
 
+        if let SteelVal::Void = &args[0] {
+            for arg in &args[1..] {
+                let error_val = arg.to_string();
+                error_message.push(' ');
+                error_message.push_str(error_val.trim_matches('\"'));
+            }
+
+            stop!(Generic => error_message);
+        }
+
         let span = Span::from_steelval(&args[0])?;
 
         if !args[1..].is_empty() {
