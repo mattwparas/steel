@@ -651,7 +651,17 @@ fn arity_code_injection(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> ItemF
     modified_input
 }
 
-fn function_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> i64 {
+fn function_macro_setup(
+    input: &ItemFn,
+    args: &Punctuated<Meta, Comma>,
+) -> (
+    Option<proc_macro2::TokenStream>,
+    proc_macro2::Ident,
+    String,
+    proc_macro2::Ident,
+    syn::Expr,
+    bool,
+) {
     let keyword_map = parse_key_value_pairs(&args);
 
     let value = keyword_map
@@ -661,8 +671,6 @@ fn function_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> i64 {
     let arity_number = keyword_map
         .get("arity")
         .expect("native definition requires an arity");
-
-    let modified_input = arity_code_injection(&input, &args);
 
     let is_const = keyword_map
         .get("constant")
@@ -681,7 +689,14 @@ fn function_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> i64 {
         &(function_name.to_string().to_uppercase() + "_DEFINITION"),
         sign.ident.span(),
     );
-    5
+    (
+        maybe_doc_comments,
+        doc_name,
+        value.to_string(),
+        function_name,
+        arity_number,
+        is_const,
+    )
 }
 
 #[proc_macro_attribute]
@@ -691,36 +706,10 @@ pub fn native(
 ) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
     let input = parse_macro_input!(input as ItemFn);
-
-    let keyword_map = parse_key_value_pairs(&args);
-
-    let value = keyword_map
-        .get("name")
-        .expect("native definition requires a name!");
-
-    let arity_number = keyword_map
-        .get("arity")
-        .expect("native definition requires an arity");
-
     let modified_input = arity_code_injection(&input, &args);
 
-    let is_const = keyword_map
-        .get("constant")
-        .map(|x| x == "true")
-        .unwrap_or_default();
-
-    let arity_number: syn::Expr =
-        syn::parse_str(arity_number).expect("Unable to parse arity definition");
-
-    let sign: Signature = input.clone().sig;
-
-    let maybe_doc_comments = parse_doc_comment(input);
-    let function_name = sign.ident.clone();
-
-    let doc_name = Ident::new(
-        &(function_name.to_string().to_uppercase() + "_DEFINITION"),
-        sign.ident.span(),
-    );
+    let (maybe_doc_comments, doc_name, value, function_name, arity_number, is_const) =
+        function_macro_setup(&input, &args);
 
     let definition_struct = if let Some(doc) = maybe_doc_comments {
         quote! {
@@ -770,37 +759,11 @@ pub fn context(
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
-
-    let keyword_map = parse_key_value_pairs(&args);
-
-    let value = keyword_map
-        .get("name")
-        .expect("native definition requires a name!");
-
-    let arity_number = keyword_map
-        .get("arity")
-        .expect("native definition requires an arity");
-
-    let is_const = keyword_map
-        .get("constant")
-        .map(|x| x == "true")
-        .unwrap_or_default();
-
-    let arity_number: syn::Expr =
-        syn::parse_str(arity_number).expect("Unable to parse arity definition");
-
     let input = parse_macro_input!(input as ItemFn);
-
     let modified_input = input.clone();
-    let sign: Signature = input.clone().sig;
 
-    let maybe_doc_comments = parse_doc_comment(input);
-    let function_name = sign.ident.clone();
-
-    let doc_name = Ident::new(
-        &(function_name.to_string().to_uppercase() + "_DEFINITION"),
-        sign.ident.span(),
-    );
+    let (maybe_doc_comments, doc_name, value, function_name, arity_number, is_const) =
+        function_macro_setup(&input, &args);
 
     let definition_struct = if let Some(doc) = maybe_doc_comments {
         quote! {
@@ -848,35 +811,10 @@ pub fn native_mut(
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
     let input = parse_macro_input!(input as ItemFn);
 
-    let keyword_map = parse_key_value_pairs(&args);
-
-    let value = keyword_map
-        .get("name")
-        .expect("native definition requires a name!");
-
-    let arity_number = keyword_map
-        .get("arity")
-        .expect("native definition requires an arity");
-
     let modified_input = arity_code_injection(&input, &args);
 
-    let is_const = keyword_map
-        .get("constant")
-        .map(|x| x == "true")
-        .unwrap_or_default();
-
-    let arity_number: syn::Expr =
-        syn::parse_str(arity_number).expect("Unable to parse arity definition");
-
-    let sign: Signature = input.clone().sig;
-
-    let maybe_doc_comments = parse_doc_comment(input);
-    let function_name = sign.ident.clone();
-
-    let doc_name = Ident::new(
-        &(function_name.to_string().to_uppercase() + "_DEFINITION"),
-        sign.ident.span(),
-    );
+    let (maybe_doc_comments, doc_name, value, function_name, arity_number, is_const) =
+        function_macro_setup(&input, &args);
 
     let definition_struct = if let Some(doc) = maybe_doc_comments {
         quote! {
