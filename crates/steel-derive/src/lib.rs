@@ -651,7 +651,7 @@ fn arity_code_injection(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> ItemF
     modified_input
 }
 
-fn function_macro_setup(
+fn native_macro_setup(
     input: &ItemFn,
     args: &Punctuated<Meta, Comma>,
 ) -> (
@@ -714,7 +714,7 @@ pub fn native(
     let modified_input = arity_code_injection(&input, &args);
 
     let (doc_field, doc_name, value, function_name, arity_number, is_const) =
-        function_macro_setup(&input, &args);
+        native_macro_setup(&input, &args);
     let definition_struct = quote! {
         pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
             name: #value,
@@ -752,7 +752,7 @@ pub fn context(
     let modified_input = input.clone();
 
     let (doc_field, doc_name, value, function_name, arity_number, is_const) =
-        function_macro_setup(&input, &args);
+        native_macro_setup(&input, &args);
 
     let definition_struct = quote! {
         pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
@@ -789,7 +789,7 @@ pub fn native_mut(
     let modified_input = arity_code_injection(&input, &args);
 
     let (doc_field, doc_name, value, function_name, arity_number, is_const) =
-        function_macro_setup(&input, &args);
+        native_macro_setup(&input, &args);
 
     let definition_struct = quote! {
         pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
@@ -998,30 +998,22 @@ pub fn function(
         None => quote! { &[] },
     };
 
-    let definition_struct = if let Some(doc) = maybe_doc_comments {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: #aliases,
-                func: #function_type,
-                arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
-                is_const: #is_const,
-                signature: None,
-            };
-        }
+    let doc_field = if let Some(doc) = maybe_doc_comments {
+        quote! { Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)) }
     } else {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: #aliases,
-                func: #function_type,
-                arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
-                doc: None,
-                is_const: #is_const,
-                signature: None
-            };
-        }
+        quote! { None }
+    };
+
+    let definition_struct = quote! {
+        pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+            name: #value,
+            aliases: #aliases,
+            func: #function_type,
+            arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
+            doc: #doc_field,
+            is_const: #is_const,
+            signature: None,
+        };
     };
 
     // If we have a rest arg, we need to modify passing in values to pass in a slice to the remaining
@@ -1380,30 +1372,22 @@ pub fn custom_function(
         None => quote! { &[] },
     };
 
-    let definition_struct = if let Some(doc) = maybe_doc_comments {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: #aliases,
-                func: #function_type,
-                arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
-                is_const: #is_const,
-                signature: None,
-            };
-        }
+    let doc_field = if let Some(doc) = maybe_doc_comments {
+        quote! { Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)) }
     } else {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: #aliases,
-                func: #function_type,
-                arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
-                doc: None,
-                is_const: #is_const,
-                signature: None
-            };
-        }
+        quote! { None }
+    };
+
+    let definition_struct = quote! {
+        pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+            name: #value,
+            aliases: #aliases,
+            func: #function_type,
+            arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
+            doc: #doc_field,
+            is_const: #is_const,
+            signature: None,
+        };
     };
 
     // If we have a rest arg, we need to modify passing in values to pass in a slice to the remaining
