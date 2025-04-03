@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
 use syn::{
-    punctuated::Punctuated, spanned::Spanned, Attribute, Data, DeriveInput, Expr, ExprGroup,
-    ExprLit, FnArg, Ident, ItemFn, Lit, LitStr, Meta, Pat, ReturnType, Signature, Type,
+    punctuated::Punctuated, spanned::Spanned, token::Comma, Attribute, Data, DeriveInput, Expr,
+    ExprGroup, ExprLit, FnArg, Ident, ItemFn, Lit, LitStr, Meta, Pat, ReturnType, Signature, Type,
     TypeReference,
 };
 
@@ -586,7 +586,13 @@ pub fn define_module(
     }
 }
 
-fn arity_code_injection(input: &ItemFn, arity_number: &String) -> ItemFn {
+fn arity_code_injection(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> ItemFn {
+    let keyword_map = parse_key_value_pairs(args);
+
+    let arity_number = keyword_map
+        .get("arity")
+        .expect("native definition requires an arity");
+
     let func_name = input.sig.ident.to_string();
 
     //This is to account for the parameter sometimes being "args", other times "values"
@@ -645,6 +651,39 @@ fn arity_code_injection(input: &ItemFn, arity_number: &String) -> ItemFn {
     modified_input
 }
 
+fn function_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> i64 {
+    let keyword_map = parse_key_value_pairs(&args);
+
+    let value = keyword_map
+        .get("name")
+        .expect("native definition requires a name!");
+
+    let arity_number = keyword_map
+        .get("arity")
+        .expect("native definition requires an arity");
+
+    let modified_input = arity_code_injection(&input, &args);
+
+    let is_const = keyword_map
+        .get("constant")
+        .map(|x| x == "true")
+        .unwrap_or_default();
+
+    let arity_number: syn::Expr =
+        syn::parse_str(arity_number).expect("Unable to parse arity definition");
+
+    let sign: Signature = input.clone().sig;
+
+    let maybe_doc_comments = parse_doc_comment(input.clone());
+    let function_name = sign.ident.clone();
+
+    let doc_name = Ident::new(
+        &(function_name.to_string().to_uppercase() + "_DEFINITION"),
+        sign.ident.span(),
+    );
+    5
+}
+
 #[proc_macro_attribute]
 pub fn native(
     args: proc_macro::TokenStream,
@@ -663,7 +702,7 @@ pub fn native(
         .get("arity")
         .expect("native definition requires an arity");
 
-    let modified_input = arity_code_injection(&input, arity_number);
+    let modified_input = arity_code_injection(&input, &args);
 
     let is_const = keyword_map
         .get("constant")
@@ -819,7 +858,7 @@ pub fn native_mut(
         .get("arity")
         .expect("native definition requires an arity");
 
-    let modified_input = arity_code_injection(&input, arity_number);
+    let modified_input = arity_code_injection(&input, &args);
 
     let is_const = keyword_map
         .get("constant")
