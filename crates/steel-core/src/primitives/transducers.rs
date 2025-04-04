@@ -1,11 +1,13 @@
 use crate::gc::Gc;
 use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
-use crate::steel_vm::builtin::BuiltInModule;
-use crate::stop;
-
-use crate::values::transducers::Transducer;
+use crate::steel_vm::{
+    builtin::BuiltInModule,
+    vm::{VmContext, VmCore},
+};
 use crate::values::transducers::Transducers;
+use crate::values::transducers::{Reducer, Transducer};
+use crate::{builtin_stop, stop};
 
 // declare_const_ref_functions!(
 //     COMPOSE => compose,
@@ -26,6 +28,7 @@ pub fn transducer_module() -> BuiltInModule {
 
     module
         .register_native_fn_definition(COMPOSE_DEFINITION)
+        .register_native_fn_definition(EXECUTE_DEFINITION)
         .register_native_fn_definition(MAPPING_DEFINITION)
         .register_native_fn_definition(FLATTENING_DEFINITION)
         .register_native_fn_definition(FLAT_MAPPING_DEFINITION)
@@ -65,6 +68,20 @@ pub fn compose(args: &[SteelVal]) -> Result<SteelVal> {
     }
 
     Ok(SteelVal::IterV(Gc::new(transformers)))
+}
+
+#[steel_derive::context(name = "execute", arity = "Exact(2)")]
+pub fn execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    if args.len() < 2 {
+        builtin_stop!(ArityMismatch => "execute takes two arguments");
+    }
+
+    let SteelVal::IterV(iter) = &args[0] else {
+        builtin_stop!(TypeMismatch => "execute expects an iterator");
+    };
+
+    let ret = ctx.call_transduce(&iter.ops, args[1].clone(), Reducer::List, None);
+    Some(ret)
 }
 
 #[steel_derive::function(name = "enumerating")]
@@ -182,4 +199,3 @@ pub fn dropping(amt: &SteelVal) -> Result<SteelVal> {
         stop!(TypeMismatch => "dropping expects an integer")
     }
 }
-// }
