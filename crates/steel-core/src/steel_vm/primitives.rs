@@ -33,6 +33,7 @@ use crate::{
         string_module, symbol_module,
         tcp::tcp_module,
         time::time_module,
+        transducers::transducer_module,
         vectors::{
             immutable_vectors_module, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION,
             LIST_VEC_NULL_DEFINITION, MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION,
@@ -1274,40 +1275,6 @@ fn ord_module() -> BuiltInModule {
         .register_native_fn_definition(GREATER_THAN_EQUAL_DEFINITION)
         .register_native_fn_definition(LESS_THAN_DEFINITION)
         .register_native_fn_definition(LESS_THAN_EQUAL_DEFINITION);
-    module
-}
-
-pub fn transducer_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/transducers");
-
-    use crate::primitives::transducers::*;
-
-    module
-        .register_native_fn_definition(COMPOSE_DEFINITION)
-        .register_native_fn_definition(MAP_DEFINITION)
-        .register_native_fn_definition(FLATTEN_DEFINITION)
-        .register_native_fn_definition(FLAT_MAP_DEFINITION)
-        .register_native_fn_definition(FILTER_DEFINITION)
-        .register_native_fn_definition(TAKE_DEFINITION)
-        .register_native_fn_definition(DROPPING_DEFINITION)
-        .register_native_fn_definition(EXTENDING_DEFINITION)
-        .register_native_fn_definition(ENUMERATING_DEFINITION)
-        .register_native_fn_definition(ZIPPING_DEFINITION)
-        .register_native_fn_definition(INTERLEAVING_DEFINITION)
-        .register_value("into-sum", crate::values::transducers::INTO_SUM)
-        .register_value("into-product", crate::values::transducers::INTO_PRODUCT)
-        .register_value("into-max", crate::values::transducers::INTO_MAX)
-        .register_value("into-min", crate::values::transducers::INTO_MIN)
-        .register_value("into-count", crate::values::transducers::INTO_COUNT)
-        .register_value("into-list", crate::values::transducers::INTO_LIST)
-        .register_value("into-vector", crate::values::transducers::INTO_VECTOR)
-        .register_value("into-hashmap", crate::values::transducers::INTO_HASHMAP)
-        .register_value("into-hashset", crate::values::transducers::INTO_HASHSET)
-        .register_value("into-string", crate::values::transducers::INTO_STRING)
-        .register_value("into-last", crate::values::transducers::INTO_LAST)
-        .register_value("into-for-each", crate::values::transducers::FOR_EACH)
-        .register_value("into-nth", crate::values::transducers::NTH)
-        .register_value("into-reducer", crate::values::transducers::REDUCER);
     module
 }
 
