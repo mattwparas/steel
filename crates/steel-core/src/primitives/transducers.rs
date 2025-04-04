@@ -84,14 +84,50 @@ pub fn compose(args: &[SteelVal]) -> Result<SteelVal> {
 #[steel_derive::context(name = "execute", arity = "Exact(2)")]
 pub fn execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() < 2 {
-        builtin_stop!(ArityMismatch => "execute takes two arguments");
-    }
+        builtin_stop!(ArityMismatch => "execute takes two or three arguments, got {}", args.len());
+    } else if args.len() > 3 {
+        builtin_stop!(ArityMismatch => "execute takes two or three arguments, got {}", args.len());
+    };
 
     let SteelVal::IterV(iter) = &args[0] else {
         builtin_stop!(TypeMismatch => "execute expects an iterator");
     };
 
-    let ret = ctx.call_transduce(&iter.ops, args[1].clone(), Reducer::List, None);
+    let iterable = args[1].clone();
+    let symbol = match args.get(2) {
+        Some(SymbolV(symbol)) => Some(symbol),
+        Some(invalid) => {
+            builtin_stop!(TypeMismatch =>"third argument should be a symbol, got {}", invalid)
+        }
+        None => None,
+    };
+
+    let reducer = if let Some(symbol) = symbol {
+        match &****symbol {
+            "list" => Reducer::List,
+            "vector" => Reducer::Vector,
+            "string" => Reducer::String,
+            "hashset" => Reducer::HashSet,
+            "hashmap" => Reducer::HashMap,
+            _ => builtin_stop!(Generic => "{} is not a valid output type for execute", symbol),
+        }
+    } else {
+        match iterable {
+            SteelVal::ListV(_) => Reducer::List,
+            SteelVal::VectorV(_) => Reducer::Vector,
+            SteelVal::StringV(_) => Reducer::String,
+            SteelVal::StreamV(_) => Reducer::List,
+            SteelVal::HashSetV(_) => Reducer::HashSet,
+            SteelVal::HashMapV(_) => Reducer::HashMap,
+            SteelVal::MutableVector(_) => Reducer::Vector,
+            _ => {
+                builtin_stop!(TypeMismatch => "value unable to be converted to an iterable: {}", iterable)
+            }
+        }
+    };
+
+    // let reducer = match
+    let ret = ctx.call_transduce(&iter.ops, iterable, reducer, None);
     Some(ret)
 }
 
