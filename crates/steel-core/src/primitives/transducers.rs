@@ -101,21 +101,19 @@ pub fn compose(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::context(name = "execute", arity = "AtMost(3)")]
 pub fn execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    if args.len() < 2 {
-        builtin_stop!(ArityMismatch => "execute takes two or three arguments, got {}", args.len());
-    } else if args.len() > 3 {
-        builtin_stop!(ArityMismatch => "execute takes two or three arguments, got {}", args.len());
+    if args.len() < 2 || args.len() > 3 {
+        builtin_stop!(ArityMismatch => format!("execute takes two or three arguments, got {}", args.len()); ctx.previous_span());
     };
 
     let SteelVal::IterV(iter) = &args[0] else {
-        builtin_stop!(TypeMismatch => "execute expects an iterator");
+        builtin_stop!(TypeMismatch => "execute expects an iterator"; ctx.previous_span());
     };
 
     let iterable = args[1].clone();
     let symbol = match args.get(2) {
         Some(SymbolV(symbol)) => Some(symbol),
         Some(invalid) => {
-            builtin_stop!(TypeMismatch =>"third argument should be a symbol, got {}", invalid)
+            builtin_stop!(TypeMismatch => format!("third argument should be a symbol, got {}", invalid); ctx.previous_span())
         }
         None => None,
     };
@@ -127,7 +125,9 @@ pub fn execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
             "string" => Reducer::String,
             "hashset" => Reducer::HashSet,
             "hashmap" => Reducer::HashMap,
-            _ => builtin_stop!(Generic => "{} is not a valid output type for execute", symbol),
+            _ => {
+                builtin_stop!(Generic => format!("{} is not a valid output type for execute", symbol); ctx.previous_span())
+            }
         }
     } else {
         match iterable {
@@ -139,7 +139,7 @@ pub fn execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
             SteelVal::HashMapV(_) => Reducer::HashMap,
             SteelVal::MutableVector(_) => Reducer::Vector,
             _ => {
-                builtin_stop!(TypeMismatch => "value unable to be converted to an iterable: {}", iterable)
+                builtin_stop!(TypeMismatch => format!("value unable to be converted to an iterable: {}", iterable); ctx.previous_span())
             }
         }
     };
