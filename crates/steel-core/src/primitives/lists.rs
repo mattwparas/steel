@@ -947,9 +947,17 @@ mod list_operation_tests {
 
     #[test]
     fn range_tests_arity_too_few() {
-        let args = [SteelVal::IntV(1)];
-        let res = steel_range(&args);
+        let args = [];
+        let res = range(&args);
         let expected = ErrorKind::ArityMismatch;
+        assert_eq!(res.unwrap_err().kind(), expected);
+    }
+
+    #[test]
+    fn range_tests_type_mismatch() {
+        let args = [SteelVal::StringV("test".into()), SteelVal::IntV(1)];
+        let res = range(&args);
+        let expected = ErrorKind::TypeMismatch;
         assert_eq!(res.unwrap_err().kind(), expected);
     }
 
@@ -960,17 +968,25 @@ mod list_operation_tests {
             SteelVal::NumV(2.0),
             SteelVal::NumV(3.0),
         ];
-        let res = steel_range(&args);
+        let res = range(&args);
         let expected = ErrorKind::ArityMismatch;
         assert_eq!(res.unwrap_err().kind(), expected);
     }
 
     #[test]
+    fn range_tests_single_element() {
+        let args = [SteelVal::IntV(2)];
+        let res = range(&args);
+        let expected = SteelVal::ListV(vec![SteelVal::IntV(0), SteelVal::IntV(1)].into());
+        assert_eq!(res.unwrap(), expected);
+    }
+
+    #[test]
     fn range_test_normal_input() {
-        let args = [SteelVal::IntV(0), SteelVal::IntV(3)];
-        let res = steel_range(&args);
+        let args = [SteelVal::IntV(2), SteelVal::IntV(5)];
+        let res = range(&args);
         let expected =
-            SteelVal::ListV(vec![SteelVal::IntV(0), SteelVal::IntV(1), SteelVal::IntV(2)].into());
+            SteelVal::ListV(vec![SteelVal::IntV(2), SteelVal::IntV(3), SteelVal::IntV(4)].into());
         assert_eq!(res.unwrap(), expected);
     }
 }
