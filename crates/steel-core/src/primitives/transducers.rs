@@ -56,6 +56,17 @@ pub fn transducer_module() -> BuiltInModule {
     module
 }
 
+/// Compose multiple iterators into one iterator
+///
+/// (compose . iters) -> iterator?
+///
+/// # Examples
+/// ```scheme
+/// (compose
+///     (mapping (λ (x) (+ x 1)))
+///     (filtering odd?)
+///     (taking 15))
+/// ```
 #[steel_derive::native(name = "compose", arity = "AtLeast(0)")]
 pub fn compose(args: &[SteelVal]) -> Result<SteelVal> {
     let mut transformers = Transducer::new();
@@ -84,6 +95,14 @@ pub fn execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(ret)
 }
 
+/// Create an enumerating iterator
+///
+/// (enumerating) -> iterator?
+///
+/// # Examples
+/// ```scheme
+/// (execute (enumerating) (list 1 3 5)) ;; => '((0 1) (1 3) (2 5))
+/// ```
 #[steel_derive::function(name = "enumerating")]
 pub fn enumerating() -> Result<SteelVal> {
     let mut transducer = Transducer::new();
@@ -91,6 +110,14 @@ pub fn enumerating() -> Result<SteelVal> {
     Ok(SteelVal::IterV(Gc::new(transducer)))
 }
 
+/// Create a zipping iterator
+///
+/// (zipping any/c) -> iterator?
+///
+/// # Examples
+/// ```scheme
+/// (execute (zipping (list 4 5 6 7)) (list 1 2 3)) ;; => '((1 4) (2 5) (3 6))
+/// ```
 #[steel_derive::function(name = "zipping")]
 pub fn zipping(iterable: &SteelVal) -> Result<SteelVal> {
     match iterable {
@@ -105,6 +132,14 @@ pub fn zipping(iterable: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Create an interleaving iterator
+///
+/// (interleaving any/c) -> iterator?
+///
+/// # Examples
+/// ```scheme
+/// (execute (interleaving (list 4 5 6)) (list 1 2 3)) ;; => '(1 4 2 5 3 6)
+/// ```
 #[steel_derive::function(name = "interleaving")]
 pub fn interleaving(iterable: &SteelVal) -> Result<SteelVal> {
     match &iterable {
@@ -119,6 +154,14 @@ pub fn interleaving(iterable: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Create a mapping iterator
+///
+/// (mapping proc?) -> iterator?
+///
+/// # Examples
+/// ```scheme
+/// (execute (mapping (λ (x) (+ x 1))) (list 1 2 3)) ;; => '(2 3 4)
+/// ```
 #[steel_derive::function(name = "mapping")]
 pub fn mapping(func: &SteelVal) -> Result<SteelVal> {
     match &func {
@@ -131,6 +174,14 @@ pub fn mapping(func: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Create an extending iterator
+///
+/// (extending iterable) -> iterator?
+///
+/// # Examples
+/// ```scheme
+/// (execute (extending (list 4 5 6 7)) (list 1 2 3)) ;; => '(1 2 3 4 5 6 7)
+/// ```
 #[steel_derive::function(name = "extending")]
 pub fn extending(iterable: &SteelVal) -> Result<SteelVal> {
     match &iterable {
@@ -145,6 +196,14 @@ pub fn extending(iterable: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Creates a flat-mapping iterator
+///
+/// (flat-mapping proc?) -> iterator
+///
+/// # Examples
+/// ```scheme
+/// (execute (flat-mapping (λ (x) (range 0 x))) (list 1 2 3)) ;; => '(0 0 1 0 1 2)
+/// ```
 #[steel_derive::function(name = "flat-mapping")]
 pub fn flat_mapping(func: &SteelVal) -> Result<SteelVal> {
     match &func {
@@ -159,6 +218,14 @@ pub fn flat_mapping(func: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Creates a flattening iterator that etc
+///
+/// (flattening) -> iterator?
+///
+/// # Examples
+/// ```scheme
+/// (execute (flattening) (list '(1 2) '(3 4) '(5 6))) ;; => '(1 2 3 4 5 6)
+/// ```
 #[steel_derive::function(name = "flattening")]
 pub fn flattening() -> Result<SteelVal> {
     let mut transducer = Transducer::new();
@@ -166,6 +233,14 @@ pub fn flattening() -> Result<SteelVal> {
     Ok(SteelVal::IterV(Gc::new(transducer)))
 }
 
+/// Creates a filtering iterator
+///
+/// (filtering proc?) -> iterator?
+///
+/// # Examples
+/// ```scheme
+/// (execute (filtering even?)) (list 1 2 3 4)) ;; => '(1 2)
+/// ```
 #[steel_derive::function(name = "filtering")]
 pub fn filtering(func: &SteelVal) -> Result<SteelVal> {
     match &func {
@@ -178,6 +253,14 @@ pub fn filtering(func: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Creates a taking iterator combinator
+///
+/// (taking number?) -> iterator?
+///
+/// # Examples
+/// ```scheme
+/// (execute (taking 3) (list 1 2 3 4 5)) ;; => '(1 2 3)
+/// ```
 #[steel_derive::function(name = "taking")]
 pub fn taking(amt: &SteelVal) -> Result<SteelVal> {
     if let IntV(_) = &amt {
@@ -189,6 +272,14 @@ pub fn taking(amt: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Creates a taking iterator combinator
+///
+/// (dropping integer?) -> iterator?
+///
+/// # Examples
+/// ```scheme
+/// (execute (dropping 3) (list 1 2 3 4 5)) ;; => '(4 5)
+/// ```
 #[steel_derive::function(name = "dropping")]
 pub fn dropping(amt: &SteelVal) -> Result<SteelVal> {
     if let IntV(_) = amt {
