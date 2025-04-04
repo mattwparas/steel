@@ -5,7 +5,8 @@ use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal}
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::{stop, Vector};
 
-use num::{BigInt, Num};
+use num_bigint::BigInt;
+use num_traits::Num;
 use steel_derive::{function, native};
 
 /// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and

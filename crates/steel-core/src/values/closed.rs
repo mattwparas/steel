@@ -13,7 +13,8 @@ use crate::{
     steel_vm::vm::{Continuation, ContinuationMark, Synchronizer},
     values::lists::List,
 };
-use num::{BigInt, BigRational, Rational32};
+use num_bigint::BigInt;
+use num_rational::{BigRational, Rational32};
 
 #[cfg(feature = "sync")]
 use once_cell::sync::Lazy;
