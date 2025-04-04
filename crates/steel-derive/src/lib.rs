@@ -865,7 +865,43 @@ fn ret_val_fun(return_type: ReturnType) -> proc_macro2::TokenStream {
     }
 }
 
-fn sign_inputs_iter(sign: &Signature) -> (Vec<Box<Type>>, bool) {
+// See REmacs : https://github.com/remacs/remacs/blob/16b6fb9319a6d48fbc7b27d27c3234990f6718c5/rust_src/remacs-macros/lib.rs#L17-L161
+// TODO: Pass the new name in to this function
+#[proc_macro_attribute]
+pub fn function(
+    args: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
+
+    // let (_, value) = parse_key_value_pair(&args);
+
+    let keyword_map = parse_key_value_pairs(&args);
+
+    let value = keyword_map
+        .get("name")
+        .expect("native definition requires a name!");
+
+    // If this is constant evaluatable
+    let is_const = keyword_map
+        .get("constant")
+        .map(|x| x == "true")
+        .unwrap_or_default();
+
+    let function_name_with_colon = value.clone() + ": ";
+
+    let input = parse_macro_input!(input as ItemFn);
+
+    let modified_input = input.clone();
+    // let ident = input.sig.ident.clone();
+    let sign: Signature = input.clone().sig;
+
+    let maybe_doc_comments = parse_doc_comment(input);
+
+    let return_type: ReturnType = sign.output;
+
+    let ret_val = ret_val_fun(return_type);
+
     let mut type_vec: Vec<Box<Type>> = Vec::new();
 
     let mut rest_arg_generic_inner_type = false;
@@ -917,47 +953,6 @@ fn sign_inputs_iter(sign: &Signature) -> (Vec<Box<Type>>, bool) {
             type_vec.push(pat_ty.ty);
         }
     }
-    (type_vec, rest_arg_generic_inner_type)
-}
-
-// See REmacs : https://github.com/remacs/remacs/blob/16b6fb9319a6d48fbc7b27d27c3234990f6718c5/rust_src/remacs-macros/lib.rs#L17-L161
-// TODO: Pass the new name in to this function
-#[proc_macro_attribute]
-pub fn function(
-    args: proc_macro::TokenStream,
-    input: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
-
-    // let (_, value) = parse_key_value_pair(&args);
-
-    let keyword_map = parse_key_value_pairs(&args);
-
-    let value = keyword_map
-        .get("name")
-        .expect("native definition requires a name!");
-
-    // If this is constant evaluatable
-    let is_const = keyword_map
-        .get("constant")
-        .map(|x| x == "true")
-        .unwrap_or_default();
-
-    let function_name_with_colon = value.clone() + ": ";
-
-    let input = parse_macro_input!(input as ItemFn);
-
-    let modified_input = input.clone();
-    // let ident = input.sig.ident.clone();
-    let sign: Signature = input.clone().sig;
-
-    let maybe_doc_comments = parse_doc_comment(input);
-
-    let return_type: ReturnType = sign.clone().output;
-
-    let ret_val = ret_val_fun(return_type);
-
-    let (type_vec, rest_arg_generic_inner_type) = sign_inputs_iter(&sign);
 
     let mut arity_number = type_vec.len();
 
@@ -1251,11 +1246,61 @@ pub fn custom_function(
 
     let maybe_doc_comments = parse_doc_comment(input);
 
-    let return_type: ReturnType = sign.clone().output;
+    let return_type: ReturnType = sign.output;
 
     let ret_val = ret_val_fun(return_type);
 
-    let (type_vec, rest_arg_generic_inner_type) = sign_inputs_iter(&sign);
+    let mut type_vec: Vec<Box<Type>> = Vec::new();
+
+    let mut rest_arg_generic_inner_type = false;
+
+    // let mut argument_signatures: Vec<&'static str> = Vec::new();
+    // let mut return_type = "void";
+
+    for (i, arg) in sign.inputs.iter().enumerate() {
+        if let FnArg::Typed(pat_ty) = arg.clone() {
+            if let Type::Path(p) = pat_ty.ty.as_ref() {
+                let primary_type = p.path.segments.iter().last();
+                if let Some(ty) = primary_type {
+                    match ty.ident.to_token_stream().to_string().as_str() {
+                        "RestArgs" | "RestArgsIter" => {
+                            if rest_arg_generic_inner_type {
+                                panic!("There cannot be multiple `RestArg`s for a given function.")
+                            }
+
+                            if i != sign.inputs.len() - 1 {
+                                panic!(
+                                    "The rest argument must be the last argument in the function."
+                                )
+                            }
+                            rest_arg_generic_inner_type = true;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            /*
+            TODO: Attempt to bake the type information into the native
+            function definition. This can give a lot more help to the optimizer
+            and also the LSP if we have the types for every built in definition
+            when we make it.
+
+            // Attempt to calculate the function signature
+            match pat_ty.ty.clone().into_token_stream().to_string().as_str() {
+                "char" => argument_signatures.push("char"),
+                "bool" => argument_signatures.push("bool"),
+                "f64" => argument_signatures.push("f64"),
+                "isize" => argument_signatures.push("isize"),
+                "SteelString" => argument_signatures.push("string"),
+                "&SteelString" => argument_signatures.push("string"),
+                _ => argument_signatures.push("any"),
+            }
+            */
+
+            type_vec.push(pat_ty.ty);
+        }
+    }
 
     let mut arity_number = type_vec.len();
 
