@@ -177,15 +177,17 @@ Checks if the given value can be treated as a pair.
 > (pair? '()) ;; => #false
 ```
 ### **range**
-Returns a newly allocated list of the elements in the range (n, m]
+Returns a newly allocated list of the elements in the range [n, m) or [0, m) when n is not given.
 
+(range m)   -> (listof int?)
 (range n m) -> (listof int?)
 
 * n : int?
 * m : int?
 
 ```scheme
-> (range 0 10) ;; => '(0 1 2 3 4 5 6 7 8 9)
+> (range 4) ;; => '(0 1 2 3)
+> (range 4 10) ;; => '(4 5 6 7 8 9)
 ```
 ### **rest**
 Returns the rest of the list. Will raise an error if the list is empty.

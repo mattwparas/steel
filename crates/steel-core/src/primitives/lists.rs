@@ -295,31 +295,36 @@ macro_rules! debug_unreachable {
 //     }
 // }
 
-/// Returns a newly allocated list of the elements in the range (n, m]
+/// Returns a newly allocated list of the elements in the range [n, m) or [0, m) when n is not given.
 ///
+/// (range m)   -> (listof int?)
 /// (range n m) -> (listof int?)
 ///
 /// * n : int?
 /// * m : int?
 ///
 /// ```scheme
-/// > (range 0 10) ;; => '(0 1 2 3 4 5 6 7 8 9)
+/// > (range 4) ;; => '(0 1 2 3)
+/// > (range 4 10) ;; => '(4 5 6 7 8 9)
 /// ```
-#[steel_derive::function(name = "range")]
-fn range(lower: isize, upper: isize) -> Result<SteelVal> {
-    if lower < 0 {
-        stop!(Generic => "range expects a positive integer");
-    }
+#[steel_derive::native(name = "range", arity = "AtMost(2)")]
+fn range(args: &[SteelVal]) -> Result<SteelVal> {
+    let (lower, upper) = match args {
+        [] => stop!(ArityMismatch => "range expected one or two arguments, got 0"),
+        [SteelVal::IntV(upper)] => (0, *upper),
+        [SteelVal::IntV(lower), SteelVal::IntV(upper)] => (*lower, *upper),
+        [invalid] | [SteelVal::IntV(_), invalid] | [invalid, _] => {
+            stop!(TypeMismatch => "range expects integer, got {}", invalid)
+        }
+        _ => stop!(ArityMismatch => "range expected one or two arguments, got {}", args.len()),
+    };
 
-    if upper < 0 {
+    if lower < 0 || upper < 0 {
         stop!(Generic => "range expects a positive integer");
     }
 
     Ok(SteelVal::ListV(
-        (lower as usize..upper as usize)
-            .into_iter()
-            .map(|x| SteelVal::IntV(x as isize))
-            .collect(),
+        (lower..upper).into_iter().map(SteelVal::IntV).collect(),
     ))
 }
 
