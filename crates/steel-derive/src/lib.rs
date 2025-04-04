@@ -729,7 +729,12 @@ pub fn native(
 ) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
     let input = parse_macro_input!(input as ItemFn);
-    let modified_input = arity_code_injection(&input, &args, false);
+
+    let modified_input = if cfg!(feature = "disable-arity-checking") {
+        input.clone()
+    } else {
+        arity_code_injection(&input, &args, false)
+    };
 
     let (doc_field, doc_name, value, function_name, arity_number, is_const) =
         native_macro_setup(&input, &args);
@@ -767,7 +772,11 @@ pub fn context(
 ) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
     let input = parse_macro_input!(input as ItemFn);
-    let modified_input = arity_code_injection(&input, &args, true);
+    let modified_input = if cfg!(feature = "disable-arity-checking") {
+        input.clone()
+    } else {
+        arity_code_injection(&input, &args, true)
+    };
 
     let (doc_field, doc_name, value, function_name, arity_number, is_const) =
         native_macro_setup(&input, &args);
@@ -804,7 +813,11 @@ pub fn native_mut(
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
     let input = parse_macro_input!(input as ItemFn);
 
-    let modified_input = arity_code_injection(&input, &args, false);
+    let modified_input = if cfg!(feature = "disable-arity-checking") {
+        input.clone()
+    } else {
+        arity_code_injection(&input, &args, false)
+    };
 
     let (doc_field, doc_name, value, function_name, arity_number, is_const) =
         native_macro_setup(&input, &args);

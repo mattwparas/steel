@@ -17,3 +17,7 @@ proc-macro = true
 syn = { version = "2.0.18", features = ["full", "extra-traits"] }
 quote = "1.0.28"
 proc-macro2 = "1.0.51"
+
+[features]
+disable-arity-checking = [
+] # Disables Arity Checking (Proper amount of arguments)

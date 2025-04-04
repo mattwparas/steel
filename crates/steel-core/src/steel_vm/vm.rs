@@ -2771,7 +2771,7 @@ impl<'a> VmCore<'a> {
                             // println!("{:?}", self.stack_index);
                             // println!("Bad tail call");
                             // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-                            stop!(BadSyntax => format!("TailCall - Application not a procedure or function type 
+                            stop!(BadSyntax => format!("TailCall - Application not a procedure or function type
                     not supported: {stack_func}"); self.current_span());
                         }
                     }?
@@ -4000,7 +4000,7 @@ impl<'a> VmCore<'a> {
                 // println!("{:?}", self.stack_index);
                 // println!("Bad tail call");
                 // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-                stop!(BadSyntax => format!("TailCall - Application not a procedure or function type 
+                stop!(BadSyntax => format!("TailCall - Application not a procedure or function type
                     not supported: {stack_func}"); self.current_span());
             }
         }
@@ -5033,7 +5033,7 @@ fn macro_case_bindings_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<Steel
     ))
 }
 
-#[steel_derive::context(name = "#%macro-case-bindings", arity = "Exact(2)")]
+#[steel_derive::context(name = "#%macro-case-bindings", arity = "Exact(1)")]
 pub(crate) fn macro_case_bindings(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(macro_case_bindings_impl(ctx, args))
 }
