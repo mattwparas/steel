@@ -26,11 +26,11 @@ pub fn transducer_module() -> BuiltInModule {
 
     module
         .register_native_fn_definition(COMPOSE_DEFINITION)
-        .register_native_fn_definition(MAP_DEFINITION)
-        .register_native_fn_definition(FLATTEN_DEFINITION)
-        .register_native_fn_definition(FLAT_MAP_DEFINITION)
-        .register_native_fn_definition(FILTER_DEFINITION)
-        .register_native_fn_definition(TAKE_DEFINITION)
+        .register_native_fn_definition(MAPPING_DEFINITION)
+        .register_native_fn_definition(FLATTENING_DEFINITION)
+        .register_native_fn_definition(FLAT_MAPPING_DEFINITION)
+        .register_native_fn_definition(FILTERING_DEFINITION)
+        .register_native_fn_definition(TAKING_DEFINITION)
         .register_native_fn_definition(DROPPING_DEFINITION)
         .register_native_fn_definition(EXTENDING_DEFINITION)
         .register_native_fn_definition(ENUMERATING_DEFINITION)
@@ -103,7 +103,7 @@ pub fn interleaving(iterable: &SteelVal) -> Result<SteelVal> {
 }
 
 #[steel_derive::function(name = "mapping")]
-pub fn map(func: &SteelVal) -> Result<SteelVal> {
+pub fn mapping(func: &SteelVal) -> Result<SteelVal> {
     match &func {
         Closure(_) | FuncV(_) | BoxedFunction(_) | BuiltIn(_) | MutFunc(_) => {
             let mut transducer = Transducer::new();
@@ -129,7 +129,7 @@ pub fn extending(iterable: &SteelVal) -> Result<SteelVal> {
 }
 
 #[steel_derive::function(name = "flat-mapping")]
-pub fn flat_map(func: &SteelVal) -> Result<SteelVal> {
+pub fn flat_mapping(func: &SteelVal) -> Result<SteelVal> {
     match &func {
         Closure(_) | FuncV(_) | BoxedFunction(_) | BuiltIn(_) | MutFunc(_) => {
             let mut transducer = Transducer::new();
@@ -143,14 +143,14 @@ pub fn flat_map(func: &SteelVal) -> Result<SteelVal> {
 }
 
 #[steel_derive::function(name = "flattening")]
-pub fn flatten() -> Result<SteelVal> {
+pub fn flattening() -> Result<SteelVal> {
     let mut transducer = Transducer::new();
     transducer.push(Transducers::Flatten);
     Ok(SteelVal::IterV(Gc::new(transducer)))
 }
 
 #[steel_derive::function(name = "filtering")]
-pub fn filter(func: &SteelVal) -> Result<SteelVal> {
+pub fn filtering(func: &SteelVal) -> Result<SteelVal> {
     match &func {
         Closure(_) | FuncV(_) | BoxedFunction(_) | BuiltIn(_) | MutFunc(_) => {
             let mut transducer = Transducer::new();
@@ -162,7 +162,7 @@ pub fn filter(func: &SteelVal) -> Result<SteelVal> {
 }
 
 #[steel_derive::function(name = "taking")]
-pub fn take(amt: &SteelVal) -> Result<SteelVal> {
+pub fn taking(amt: &SteelVal) -> Result<SteelVal> {
     if let IntV(_) = &amt {
         let mut transducer = Transducer::new();
         transducer.push(Transducers::Take(amt.clone()));
