@@ -625,7 +625,7 @@ pub fn channel_send(sender: &SteelVal, value: SteelVal) -> Result<SteelVal> {
         .sender
         .send(value)
         .map_err(|e| {
-            throw!(Generic => "channel disconnected - 
+            throw!(Generic => "channel disconnected -
             unable to send value across channel: {:?}", e.0)()
         })
         .map(|_| SteelVal::Void)
@@ -637,7 +637,7 @@ pub fn channel_recv(receiver: &SteelVal) -> Result<SteelVal> {
         .receiver
         .recv()
         .map_err(|_| {
-            throw!(Generic => "Unable to receive on the channel. 
+            throw!(Generic => "Unable to receive on the channel.
                 The channel is empty and disconnected")()
         })
 }
@@ -874,7 +874,7 @@ impl crate::rvals::Custom for ThreadLocalStorage {}
 ///
 /// When spawning a new thread, the value inside will be shared into that slot, however
 /// future updates to the slot will be local to that thread.
-#[steel_derive::context(name = "make-tls", arity = "Exact(0)")]
+#[steel_derive::context(name = "make-tls", arity = "Exact(1)")]
 pub(crate) fn make_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let index = ctx.thread.thread_local_storage.len();
     ctx.thread.thread_local_storage.push(args[0].clone());

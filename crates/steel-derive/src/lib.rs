@@ -586,7 +586,11 @@ pub fn define_module(
     }
 }
 
-fn arity_code_injection(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> ItemFn {
+fn arity_code_injection(
+    input: &ItemFn,
+    args: &Punctuated<Meta, Comma>,
+    is_context_function: bool,
+) -> ItemFn {
     let keyword_map = parse_key_value_pairs(args);
 
     let arity_number = keyword_map
@@ -595,8 +599,15 @@ fn arity_code_injection(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> ItemF
 
     let func_name = input.sig.ident.to_string();
 
+    //Context functions have 'ctx' as the first argument, so we get the second one for them
+    let sig_inputs = if is_context_function {
+        input.sig.inputs.get(1)
+    } else {
+        input.sig.inputs.first()
+    };
+
     //This is to account for the parameter sometimes being "args", other times "values"
-    let parameter_name = if let FnArg::Typed(pat_type) = input.sig.inputs.first().unwrap() {
+    let parameter_name = if let FnArg::Typed(pat_type) = sig_inputs.unwrap() {
         let pat_type = pat_type.clone();
         if let Pat::Ident(ident) = *pat_type.pat {
             ident.ident
@@ -620,23 +631,30 @@ fn arity_code_injection(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> ItemF
         })
         .expect("Arity header is wrongly formatted");
 
+    //Context functions return values wrapped in Option, so we must use builtin_stop for them
+    let stop_type = if is_context_function {
+        quote! {builtin_stop!}
+    } else {
+        quote! {stop!}
+    };
+
     //Determines which line of code to inject into the beginning of the function as an Arity check
     let injected_code = match name {
         "AtLeast" => quote! {
             if #parameter_name.len() < #numb {
-                   stop!(ArityMismatch => "{} expects at least {} arguments, found: {}",#func_name, #numb ,#parameter_name.len());
+                   #stop_type(ArityMismatch => "{} expects at least {} arguments, found: {}",#func_name, #numb ,#parameter_name.len());
                }
         },
 
         "AtMost" => quote! {
             if #parameter_name.len() > #numb {
-                   stop!(ArityMismatch => "{} expects at most {} arguments, found: {}",#func_name, #numb ,#parameter_name.len());
+                   #stop_type(ArityMismatch => "{} expects at most {} arguments, found: {}",#func_name, #numb ,#parameter_name.len());
                }
         },
 
         "Exact" => quote! {
             if #parameter_name.len() != #numb {
-                   stop!(ArityMismatch => "{} expects exactly {} arguments, found: {}",#func_name, #numb ,#parameter_name.len());
+                   #stop_type(ArityMismatch => "{} expects exactly {} arguments, found: {}",#func_name, #numb ,#parameter_name.len());
                }
         },
         // Have to implement Range() Arity check
@@ -711,7 +729,7 @@ pub fn native(
 ) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
     let input = parse_macro_input!(input as ItemFn);
-    let modified_input = arity_code_injection(&input, &args);
+    let modified_input = arity_code_injection(&input, &args, false);
 
     let (doc_field, doc_name, value, function_name, arity_number, is_const) =
         native_macro_setup(&input, &args);
@@ -749,7 +767,7 @@ pub fn context(
 ) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
     let input = parse_macro_input!(input as ItemFn);
-    let modified_input = input.clone();
+    let modified_input = arity_code_injection(&input, &args, true);
 
     let (doc_field, doc_name, value, function_name, arity_number, is_const) =
         native_macro_setup(&input, &args);
@@ -786,7 +804,7 @@ pub fn native_mut(
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
     let input = parse_macro_input!(input as ItemFn);
 
-    let modified_input = arity_code_injection(&input, &args);
+    let modified_input = arity_code_injection(&input, &args, false);
 
     let (doc_field, doc_name, value, function_name, arity_number, is_const) =
         native_macro_setup(&input, &args);

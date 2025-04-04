@@ -3,8 +3,8 @@ use crate::rvals::{Result, SteelVal};
 use crate::steel_vm::vm::VmCore;
 use crate::values::lists::List;
 use crate::values::HashSet;
+use crate::{builtin_stop, stop, Vector};
 use crate::{gc::Gc, steel_vm::builtin::BuiltInModule};
-use crate::{stop, Vector};
 
 pub(crate) fn hashset_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/sets");

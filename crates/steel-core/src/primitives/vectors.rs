@@ -8,7 +8,7 @@ use crate::steel_vm::vm::VmCore;
 use crate::values::closed::HeapRef;
 use crate::values::lists::Pair;
 use crate::values::Vector;
-use crate::{stop, throw};
+use crate::{builtin_stop, stop, throw};
 
 #[steel_derive::define_module(name = "steel/immutable-vectors")]
 pub fn immutable_vectors_module() -> BuiltInModule {
