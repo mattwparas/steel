@@ -952,6 +952,75 @@ fn random_stuff(
     (promote_to_mutable, conversion_functions)
 }
 
+fn rest_arg_fun(
+    rest_arg_generic_inner_type: bool,
+    conversion_functions: Map<
+        IntoIter<Box<Type>>,
+        impl FnMut(Box<Type>) -> proc_macro2::TokenStream,
+    >,
+) -> Option<proc_macro2::TokenStream> {
+    // If we have a rest arg, we need to modify passing in values to pass in a slice to the remaining
+    // values in the
+    if rest_arg_generic_inner_type {
+        let mut conversion_functions = conversion_functions.collect::<Vec<_>>();
+        let mut arg_index = arg_enumerate
+            .map(|(i, _)| quote! { #i })
+            .collect::<Vec<_>>();
+
+        if let Some(last) = arg_index.last_mut() {
+            *last = quote! { #last.. };
+        }
+
+        if let Some(last) = conversion_functions.last_mut() {
+            *last = quote! { from_slice };
+        }
+
+        let function_name = sign.ident;
+
+        let output = quote! {
+            // Not sure why, but it says this is unused even when generating functions
+            // marked as pub
+            #[allow(dead_code)]
+            #modified_input
+
+            #definition_struct
+
+            pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+
+                use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
+
+                if args.len() < #arity_number {
+                    crate::stop!(ArityMismatch => format!("{} expected {} arguments, got {}", #value, #arity_number.to_string(), args.len()))
+                }
+
+                fn err_thunk(mut err: crate::rerrs::SteelErr) -> crate::rerrs::SteelErr {
+                    err.prepend_message(#function_name_with_colon);
+                    err.set_kind(crate::rerrs::ErrorKind::TypeMismatch);
+                    err
+                };
+
+                let res = #function_name(
+                    #(
+                        // TODO: Distinguish reference types here if possible - make a special implementation
+                        // for builtin pointer types here to distinguish them
+                        <#arg_type>::#conversion_functions(&args[#arg_index])
+                            .map_err(err_thunk)
+                        ?,
+                    )*
+                );
+
+                #ret_val
+            }
+        };
+
+        // Uncomment this to see the generated code
+        // eprintln!("{}", output.to_string());
+
+        return Some(output);
+    }
+    None
+}
+
 // See REmacs : https://github.com/remacs/remacs/blob/16b6fb9319a6d48fbc7b27d27c3234990f6718c5/rust_src/remacs-macros/lib.rs#L17-L161
 // TODO: Pass the new name in to this function
 #[proc_macro_attribute]
