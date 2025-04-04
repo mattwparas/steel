@@ -115,3 +115,4 @@ Create a zipping iterator
 ### **into-string**
 ### **into-sum**
 ### **into-vector**
+### **transduce**

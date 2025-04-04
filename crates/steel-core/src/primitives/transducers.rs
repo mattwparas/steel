@@ -1,8 +1,11 @@
 use crate::gc::Gc;
 use crate::rvals::SteelVal::*;
 use crate::rvals::{Result, SteelVal};
-use crate::steel_vm::builtin::BuiltInModule;
-use crate::stop;
+use crate::steel_vm::{
+    builtin::BuiltInModule,
+    vm::{VmContext, VmCore},
+};
+use crate::{builtin_stop, stop};
 
 use crate::values::transducers::Transducer;
 use crate::values::transducers::Transducers;
@@ -26,6 +29,7 @@ pub fn transducer_module() -> BuiltInModule {
 
     module
         .register_native_fn_definition(COMPOSE_DEFINITION)
+        .register_native_fn_definition(TRANSDUCE_DEFINITION)
         .register_native_fn_definition(MAPPING_DEFINITION)
         .register_native_fn_definition(FLATTENING_DEFINITION)
         .register_native_fn_definition(FLAT_MAPPING_DEFINITION)
@@ -76,6 +80,57 @@ pub fn compose(args: &[SteelVal]) -> Result<SteelVal> {
     }
 
     Ok(SteelVal::IterV(Gc::new(transformers)))
+}
+
+#[steel_derive::context(name = "transduce", arity = "AtLeast(2)")]
+pub fn transduce(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    if args.len() < 2 {
+        builtin_stop!(ArityMismatch => format!("transduce expects at least 2 arguments, found {}", args.len()); ctx.previous_span())
+    }
+
+    let (reducer, args) = args.split_last().expect("already verified length above");
+
+    let mut arg_iter = args.iter();
+    let collection = arg_iter.next().unwrap();
+
+    // TODO make this way better
+    let transducers: Vec<_> = match arg_iter
+        .map(|x| {
+            if let SteelVal::IterV(i) = x {
+                Ok(i)
+            } else {
+                stop!(TypeMismatch => format!("transduce expects a transducer, found: {x}"); ctx.previous_span())
+            }
+        })
+        .collect::<Result<Vec<_>>>()
+    {
+        Ok(vec) => vec,
+        Err(err) => return Some(Err(err)),
+    };
+
+    let transducers = transducers
+        .into_iter()
+        .flat_map(|x| x.ops.clone())
+        .collect::<Vec<_>>();
+
+    if let SteelVal::ReducerV(r) = &reducer {
+        // TODO get rid of this unwrap
+        // just pass a reference instead
+
+        if ctx.depth > 32 {
+            #[cfg(feature = "stacker")]
+            return stacker::maybe_grow(32 * 1024, 1024 * 1024, || {
+                Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
+            });
+
+            #[cfg(not(feature = "stacker"))]
+            Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
+        } else {
+            Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
+        }
+    } else {
+        builtin_stop!(TypeMismatch => format!("transduce requires that the last argument be a reducer, found: {reducer}"); ctx.previous_span())
+    }
 }
 
 /// Create an enumerating iterator
