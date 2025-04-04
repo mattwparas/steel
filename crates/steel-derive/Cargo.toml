@@ -19,5 +19,4 @@ quote = "1.0.28"
 proc-macro2 = "1.0.51"
 
 [features]
-disable-arity-checking = [
-] # Disables Arity Checking (Proper amount of arguments)
+disable-arity-checking = [] #Disable checking proper amount of arguments
