@@ -53,7 +53,7 @@ use crate::{
         CustomType, FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::{
-        builtin::{get_function_metadata, get_function_name, Arity, BuiltInFunctionType},
+        builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
         vm::threads::threading_module,
     },
     values::{
@@ -1283,17 +1283,17 @@ pub fn transducer_module() -> BuiltInModule {
     use crate::primitives::transducers::*;
 
     module
-        .register_native_fn("compose", compose, Arity::AtLeast(0))
-        .register_native_fn("mapping", map, Arity::Exact(1))
-        .register_native_fn("flattening", flatten, Arity::Exact(0))
-        .register_native_fn("flat-mapping", flat_map, Arity::Exact(1))
-        .register_native_fn("filtering", filter, Arity::Exact(1))
-        .register_native_fn("taking", take, Arity::Exact(1))
-        .register_native_fn("dropping", dropping, Arity::Exact(1))
-        .register_native_fn("extending", extending, Arity::Exact(1))
-        .register_native_fn("enumerating", enumerating, Arity::Exact(0))
-        .register_native_fn("zipping", zipping, Arity::Exact(1))
-        .register_native_fn("interleaving", interleaving, Arity::Exact(1))
+        .register_native_fn_definition(COMPOSE_DEFINITION)
+        .register_native_fn_definition(MAP_DEFINITION)
+        .register_native_fn_definition(FLATTEN_DEFINITION)
+        .register_native_fn_definition(FLAT_MAP_DEFINITION)
+        .register_native_fn_definition(FILTER_DEFINITION)
+        .register_native_fn_definition(TAKE_DEFINITION)
+        .register_native_fn_definition(DROPPING_DEFINITION)
+        .register_native_fn_definition(EXTENDING_DEFINITION)
+        .register_native_fn_definition(ENUMERATING_DEFINITION)
+        .register_native_fn_definition(ZIPPING_DEFINITION)
+        .register_native_fn_definition(INTERLEAVING_DEFINITION)
         .register_value("into-sum", crate::values::transducers::INTO_SUM)
         .register_value("into-product", crate::values::transducers::INTO_PRODUCT)
         .register_value("into-max", crate::values::transducers::INTO_MAX)
