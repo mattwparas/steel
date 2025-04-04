@@ -952,13 +952,7 @@ fn random_stuff(
     (promote_to_mutable, conversion_functions)
 }
 
-fn rest_arg_fun(
-    rest_arg_generic_inner_type: bool,
-    conversion_functions: Map<
-        IntoIter<Box<Type>>,
-        impl FnMut(Box<Type>) -> proc_macro2::TokenStream,
-    >,
-) -> Option<proc_macro2::TokenStream> {
+fn rest_arg_fun() -> Option<proc_macro2::TokenStream> {
     // If we have a rest arg, we need to modify passing in values to pass in a slice to the remaining
     // values in the
     if rest_arg_generic_inner_type {
