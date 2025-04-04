@@ -1,3 +1,4 @@
+use crate::primitives::numbers::make_polar;
 use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
@@ -179,6 +180,12 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
                     im: real_literal_to_steelval(im)?,
                 }
                 .into_steelval(),
+                NumberLiteral::Polar(r, theta) => {
+                    let r = real_literal_to_steelval(r)?;
+                    let theta = real_literal_to_steelval(theta)?;
+
+                    make_polar(&r, &theta)
+                }
             },
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
@@ -241,6 +248,12 @@ impl TryFrom<SyntaxObject> for SteelVal {
                     im: real_literal_to_steelval(im)?,
                 }
                 .into_steelval(),
+                NumberLiteral::Polar(r, theta) => {
+                    let r = real_literal_to_steelval(r)?;
+                    let theta = real_literal_to_steelval(theta)?;
+
+                    make_polar(&r, &theta)
+                }
             },
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),

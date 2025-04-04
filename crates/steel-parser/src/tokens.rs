@@ -111,6 +111,7 @@ impl<T> TokenType<T> {
 pub enum NumberLiteral {
     Real(RealLiteral),
     Complex(RealLiteral, RealLiteral),
+    Polar(RealLiteral, RealLiteral),
 }
 
 impl Display for NumberLiteral {
@@ -123,6 +124,9 @@ impl Display for NumberLiteral {
                 } else {
                     write!(f, "{re}+{im}i")
                 }
+            }
+            NumberLiteral::Polar(r, theta) => {
+                write!(f, "{r}@{theta}")
             }
         }
     }
