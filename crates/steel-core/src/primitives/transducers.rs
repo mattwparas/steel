@@ -81,7 +81,25 @@ pub fn compose(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::IterV(Gc::new(transformers)))
 }
 
-#[steel_derive::context(name = "execute", arity = "Exact(2)")]
+/// Apply an iterator to an iterable collection
+///
+/// (execute iterator? iterable) -> any/c
+/// (execute iterator? iterable symbol?) -> any/c
+///
+/// # Examples
+/// ```scheme
+/// (execute (λ (x) (+ x 1)) (list 1 2 3 4)) ;; => '(2 3 4 5)
+/// (execute (λ (x) (+ x 1)) (vector 1 2 3 4)) ;; => '#(2 3 4 5)
+/// ```
+///
+/// Execute by default returns the type of the iterable.
+/// However you can pass in a symbol to specify the output type
+///
+/// ```scheme
+/// (execute (mapping (λ (x) (+ x 1))) (list 1 2 3 4) 'vector) ;; => '#(2 3 4 5)
+/// (execute (mapping (λ (x) (+ x 1))) (list 1 2 1 2) 'hashset) ;; => (set 1 2)
+/// ```
+#[steel_derive::context(name = "execute", arity = "AtMost(3)")]
 pub fn execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() < 2 {
         builtin_stop!(ArityMismatch => "execute takes two or three arguments, got {}", args.len());
