@@ -3,7 +3,7 @@ extern crate proc_macro2;
 #[macro_use]
 extern crate syn;
 extern crate quote;
-use std::{collections::HashMap, iter::Map, vec::IntoIter};
+use std::collections::HashMap;
 
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
@@ -920,38 +920,6 @@ fn sign_inputs_iter(sign: &Signature) -> (Vec<Box<Type>>, bool) {
     (type_vec, rest_arg_generic_inner_type)
 }
 
-fn random_stuff(
-    type_vec: &Vec<Box<Type>>,
-) -> (
-    bool,
-    Map<IntoIter<Box<Type>>, impl FnMut(Box<Type>) -> proc_macro2::TokenStream>,
-) {
-    // TODO: Awful hack, but this just keeps track of which
-    // variables are presented as mutable, which we can then use to chn
-    let promote_to_mutable = type_vec.iter().any(|x| {
-        if let Type::Reference(TypeReference {
-            mutability: Some(_),
-            ..
-        }) = **x
-        {
-            true
-        } else {
-            false
-        }
-    });
-
-    let conversion_functions = type_vec.clone().into_iter().map(|x| {
-        if let Type::Reference(_) = *x {
-            quote! { primitive_as_ref }
-        } else if x.to_token_stream().to_string().starts_with("Either") {
-            quote! { primitive_as_ref }
-        } else {
-            quote! { from_steelval }
-        }
-    });
-    (promote_to_mutable, conversion_functions)
-}
-
 // See REmacs : https://github.com/remacs/remacs/blob/16b6fb9319a6d48fbc7b27d27c3234990f6718c5/rust_src/remacs-macros/lib.rs#L17-L161
 // TODO: Pass the new name in to this function
 #[proc_macro_attribute]
@@ -993,7 +961,29 @@ pub fn function(
 
     let mut arity_number = type_vec.len();
 
-    let (promote_to_mutable, conversion_functions) = random_stuff(&type_vec);
+    // TODO: Awful hack, but this just keeps track of which
+    // variables are presented as mutable, which we can then use to chn
+    let promote_to_mutable = type_vec.iter().any(|x| {
+        if let Type::Reference(TypeReference {
+            mutability: Some(_),
+            ..
+        }) = **x
+        {
+            true
+        } else {
+            false
+        }
+    });
+
+    let conversion_functions = type_vec.clone().into_iter().map(|x| {
+        if let Type::Reference(_) = *x {
+            quote! { primitive_as_ref }
+        } else if x.to_token_stream().to_string().starts_with("Either") {
+            quote! { primitive_as_ref }
+        } else {
+            quote! { from_steelval }
+        }
+    });
 
     let arg_enumerate = type_vec.iter().enumerate();
     let arg_type = arg_enumerate.clone().map(|(_, x)| x);
@@ -1269,7 +1259,29 @@ pub fn custom_function(
 
     let mut arity_number = type_vec.len();
 
-    let (promote_to_mutable, conversion_functions) = random_stuff(&type_vec);
+    // TODO: Awful hack, but this just keeps track of which
+    // variables are presented as mutable, which we can then use to chn
+    let promote_to_mutable = type_vec.iter().any(|x| {
+        if let Type::Reference(TypeReference {
+            mutability: Some(_),
+            ..
+        }) = **x
+        {
+            true
+        } else {
+            false
+        }
+    });
+
+    let conversion_functions = type_vec.clone().into_iter().map(|x| {
+        if let Type::Reference(_) = *x {
+            quote! { primitive_as_ref }
+        } else if x.to_token_stream().to_string().starts_with("Either") {
+            quote! { primitive_as_ref }
+        } else {
+            quote! { from_steelval }
+        }
+    });
 
     let arg_enumerate = type_vec.iter().enumerate();
     let arg_type = arg_enumerate.clone().map(|(_, x)| x);
