@@ -20,6 +20,7 @@ use crate::values::transducers::Transducers;
 //     DROPPING => dropping,
 // );
 
+#[steel_derive::native(name = "compose", arity = "AtLeast(0)")]
 pub fn compose(args: &[SteelVal]) -> Result<SteelVal> {
     let mut transformers = Transducer::new();
     for transducer in args {
@@ -33,25 +34,19 @@ pub fn compose(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::IterV(Gc::new(transformers)))
 }
 
-pub fn enumerating(args: &[SteelVal]) -> Result<SteelVal> {
-    if !args.is_empty() {
-        stop!(ArityMismatch => "enumerating takes no arguments");
-    }
-
+#[steel_derive::function(name = "enumerating")]
+pub fn enumerating() -> Result<SteelVal> {
     let mut transducer = Transducer::new();
     transducer.push(Transducers::Enumerating);
     Ok(SteelVal::IterV(Gc::new(transducer)))
 }
 
-pub fn zipping(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => format!("zipping takes one argument, found: {}", args.len()));
-    }
-
-    match &args[0] {
+#[steel_derive::function(name = "zipping")]
+pub fn zipping(iterable: &SteelVal) -> Result<SteelVal> {
+    match iterable {
         VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | HashSetV(_) | HashMapV(_) => {
             let mut transducer = Transducer::new();
-            transducer.push(Transducers::Zipping(args[0].clone()));
+            transducer.push(Transducers::Zipping(iterable.clone()));
             Ok(SteelVal::IterV(Gc::new(transducer)))
         }
         v => {
@@ -60,15 +55,12 @@ pub fn zipping(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-pub fn interleaving(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "interleaving takes one argument");
-    }
-
-    match &args[0] {
+#[steel_derive::function(name = "interleaving")]
+pub fn interleaving(iterable: &SteelVal) -> Result<SteelVal> {
+    match &iterable {
         VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | HashSetV(_) | HashMapV(_) => {
             let mut transducer = Transducer::new();
-            transducer.push(Transducers::Interleaving(args[0].clone()));
+            transducer.push(Transducers::Interleaving(iterable.clone()));
             Ok(SteelVal::IterV(Gc::new(transducer)))
         }
         v => {
@@ -77,30 +69,24 @@ pub fn interleaving(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-pub fn map(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "mapping takes one argument");
-    }
-
-    match &args[0] {
+#[steel_derive::function(name = "mapping")]
+pub fn map(func: &SteelVal) -> Result<SteelVal> {
+    match &func {
         Closure(_) | FuncV(_) | BoxedFunction(_) | BuiltIn(_) | MutFunc(_) => {
             let mut transducer = Transducer::new();
-            transducer.push(Transducers::Map(args[0].clone()));
+            transducer.push(Transducers::Map(func.clone()));
             Ok(SteelVal::IterV(Gc::new(transducer)))
         }
         v => stop!(TypeMismatch => format!("mapping expects a function, found: {v:?}")),
     }
 }
 
-pub fn extending(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "extending takes one argument");
-    }
-
-    match &args[0] {
+#[steel_derive::function(name = "extending")]
+pub fn extending(iterable: &SteelVal) -> Result<SteelVal> {
+    match &iterable {
         VectorV(_) | StreamV(_) | StringV(_) | ListV(_) | HashSetV(_) | HashMapV(_) => {
             let mut transducer = Transducer::new();
-            transducer.push(Transducers::Extend(args[0].clone()));
+            transducer.push(Transducers::Extend(iterable.clone()));
             Ok(SteelVal::IterV(Gc::new(transducer)))
         }
         v => {
@@ -109,15 +95,12 @@ pub fn extending(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-pub fn flat_map(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "mapping takes one argument");
-    }
-
-    match &args[0] {
+#[steel_derive::function(name = "flat-mapping")]
+pub fn flat_map(func: &SteelVal) -> Result<SteelVal> {
+    match &func {
         Closure(_) | FuncV(_) | BoxedFunction(_) | BuiltIn(_) | MutFunc(_) => {
             let mut transducer = Transducer::new();
-            transducer.push(Transducers::FlatMap(args[0].clone()));
+            transducer.push(Transducers::FlatMap(func.clone()));
             Ok(SteelVal::IterV(Gc::new(transducer)))
         }
         v => {
@@ -126,53 +109,41 @@ pub fn flat_map(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-pub fn flatten(args: &[SteelVal]) -> Result<SteelVal> {
-    if !args.is_empty() {
-        stop!(ArityMismatch => "flattening takes no arguments");
-    }
-
+#[steel_derive::function(name = "flattening")]
+pub fn flatten() -> Result<SteelVal> {
     let mut transducer = Transducer::new();
     transducer.push(Transducers::Flatten);
     Ok(SteelVal::IterV(Gc::new(transducer)))
 }
 
-pub fn filter(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "filtering takes one argument");
-    }
-
-    match &args[0] {
+#[steel_derive::function(name = "filtering")]
+pub fn filter(func: &SteelVal) -> Result<SteelVal> {
+    match &func {
         Closure(_) | FuncV(_) | BoxedFunction(_) | BuiltIn(_) | MutFunc(_) => {
             let mut transducer = Transducer::new();
-            transducer.push(Transducers::Filter(args[0].clone()));
+            transducer.push(Transducers::Filter(func.clone()));
             Ok(SteelVal::IterV(Gc::new(transducer)))
         }
         _ => stop!(TypeMismatch => "filtering expects a function"),
     }
 }
 
-pub fn take(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "taking takes one argument");
-    }
-
-    if let IntV(_) = &args[0] {
+#[steel_derive::function(name = "taking")]
+pub fn take(amt: &SteelVal) -> Result<SteelVal> {
+    if let IntV(_) = &amt {
         let mut transducer = Transducer::new();
-        transducer.push(Transducers::Take(args[0].clone()));
+        transducer.push(Transducers::Take(amt.clone()));
         Ok(SteelVal::IterV(Gc::new(transducer)))
     } else {
         stop!(TypeMismatch => "taking expects an integer")
     }
 }
 
-pub fn dropping(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "dropping takes one argument");
-    }
-
-    if let IntV(_) = &args[0] {
+#[steel_derive::function(name = "dropping")]
+pub fn dropping(amt: &SteelVal) -> Result<SteelVal> {
+    if let IntV(_) = amt {
         let mut transducer = Transducer::new();
-        transducer.push(Transducers::Drop(args[0].clone()));
+        transducer.push(Transducers::Drop(amt.clone()));
         Ok(SteelVal::IterV(Gc::new(transducer)))
     } else {
         stop!(TypeMismatch => "dropping expects an integer")
