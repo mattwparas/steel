@@ -835,36 +835,6 @@ pub fn native_mut(
 
     output.into()
 }
-
-fn ret_val_fun(return_type: ReturnType) -> proc_macro2::TokenStream {
-    match return_type {
-        ReturnType::Default => quote! {
-            Ok(SteelVal::Void)
-        },
-        ReturnType::Type(_, r) => {
-            if let Type::Path(val) = *r {
-                let last = val.path.segments.into_iter().last();
-                if let Some(last) = last {
-                    match last.ident.into_token_stream().to_string().as_str() {
-                        "Result" => quote! { res },
-                        _ => quote! {
-                            res.into_steelval().map_err(err_thunk)
-                        },
-                    }
-                } else {
-                    quote! {
-                        Ok(SteelVal::Void)
-                    }
-                }
-            } else {
-                quote! {
-                    res.into_steelval().map_err(err_thunk)
-                }
-            }
-        }
-    }
-}
-
 // See REmacs : https://github.com/remacs/remacs/blob/16b6fb9319a6d48fbc7b27d27c3234990f6718c5/rust_src/remacs-macros/lib.rs#L17-L161
 // TODO: Pass the new name in to this function
 #[proc_macro_attribute]
@@ -900,7 +870,32 @@ pub fn function(
 
     let return_type: ReturnType = sign.output;
 
-    let ret_val = ret_val_fun(return_type);
+    let ret_val = match return_type {
+        ReturnType::Default => quote! {
+            Ok(SteelVal::Void)
+        },
+        ReturnType::Type(_, r) => {
+            if let Type::Path(val) = *r {
+                let last = val.path.segments.into_iter().last();
+                if let Some(last) = last {
+                    match last.ident.into_token_stream().to_string().as_str() {
+                        "Result" => quote! { res },
+                        _ => quote! {
+                            res.into_steelval().map_err(err_thunk)
+                        },
+                    }
+                } else {
+                    quote! {
+                        Ok(SteelVal::Void)
+                    }
+                }
+            } else {
+                quote! {
+                    res.into_steelval().map_err(err_thunk)
+                }
+            }
+        }
+    };
 
     let mut type_vec: Vec<Box<Type>> = Vec::new();
 
@@ -1248,7 +1243,32 @@ pub fn custom_function(
 
     let return_type: ReturnType = sign.output;
 
-    let ret_val = ret_val_fun(return_type);
+    let ret_val = match return_type {
+        ReturnType::Default => quote! {
+            Ok(SteelVal::Void)
+        },
+        ReturnType::Type(_, r) => {
+            if let Type::Path(val) = *r {
+                let last = val.path.segments.into_iter().last();
+                if let Some(last) = last {
+                    match last.ident.into_token_stream().to_string().as_str() {
+                        "Result" => quote! { res },
+                        _ => quote! {
+                            res.into_steelval().map_err(err_thunk)
+                        },
+                    }
+                } else {
+                    quote! {
+                        Ok(SteelVal::Void)
+                    }
+                }
+            } else {
+                quote! {
+                    res.into_steelval().map_err(err_thunk)
+                }
+            }
+        }
+    };
 
     let mut type_vec: Vec<Box<Type>> = Vec::new();
 
