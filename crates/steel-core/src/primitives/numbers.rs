@@ -687,33 +687,6 @@ fn number_to_float(number: &SteelVal) -> Result<f64> {
     Ok(res)
 }
 
-/// Converts an exact number to an inexact number.
-///
-/// (exact->inexact num) -> number?
-///
-/// * num : number? - The number to convert from exact to inexact.
-///
-/// # Examples
-/// ```scheme
-/// > (exact->inexact 10) ;; => 10
-/// > (exact->inexact 1/2) ;; => 0.5
-/// > (exact->inexact 1+2i) ;; => 1+2i
-/// ```
-#[steel_derive::function(name = "exact->inexact", constant = true)]
-fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
-    match number {
-        SteelVal::IntV(i) => (*i as f64).into_steelval(),
-        SteelVal::Rational(f) => f.to_f64().unwrap().into_steelval(),
-        SteelVal::BigRational(f) => f.to_f64().unwrap().into_steelval(),
-        SteelVal::NumV(n) => n.into_steelval(),
-        SteelVal::BigNum(n) => Ok(SteelVal::NumV(n.to_f64().unwrap())),
-        SteelVal::Complex(x) => {
-            SteelComplex::new(exact_to_inexact(&x.re)?, exact_to_inexact(&x.im)?).into_steelval()
-        }
-        _ => steelerr!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
-    }
-}
-
 /// Converts a number to an inexact number.
 ///
 /// (inexact num) -> number?
@@ -728,40 +701,32 @@ fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "inexact", constant = true)]
 fn inexact(number: &SteelVal) -> Result<SteelVal> {
-    exact_to_inexact(number)
+    match number {
+        SteelVal::IntV(i) => (*i as f64).into_steelval(),
+        SteelVal::Rational(f) => f.to_f64().unwrap().into_steelval(),
+        SteelVal::BigRational(f) => f.to_f64().unwrap().into_steelval(),
+        SteelVal::NumV(n) => n.into_steelval(),
+        SteelVal::BigNum(n) => Ok(SteelVal::NumV(n.to_f64().unwrap())),
+        SteelVal::Complex(x) => SteelComplex::new(inexact(&x.re)?, inexact(&x.im)?).into_steelval(),
+        _ => steelerr!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
+    }
 }
 
-/// Converts an inexact number to an exact number.
+/// Converts an exact number to an inexact number.
 ///
-/// (inexact->exact num) -> number?
+/// (exact->inexact num) -> number?
 ///
-/// * num : number? - The number to convert from inexact to exact.
+/// * num : number? - The number to convert from exact to inexact.
 ///
 /// # Examples
 /// ```scheme
-/// > (inexact->exact 10.0) ;; => 10
-/// > (inexact->exact 1.5) ;; => 3/2
-/// > (inexact->exact 1.5+2.5i) ;; => 3/2+5/2i
+/// > (exact->inexact 10) ;; => 10
+/// > (exact->inexact 1/2) ;; => 0.5
+/// > (exact->inexact 1+2i) ;; => 1+2i
 /// ```
-#[steel_derive::function(name = "inexact->exact", constant = true)]
-fn inexact_to_exact(number: &SteelVal) -> Result<SteelVal> {
-    match number {
-        SteelVal::IntV(_)
-        | SteelVal::Rational(_)
-        | SteelVal::BigRational(_)
-        | SteelVal::BigNum(_) => Ok(number.clone()),
-        SteelVal::NumV(x) => {
-            if x.fract() == 0. {
-                (*x as isize).into_steelval()
-            } else {
-                BigRational::from_float(*x).into_steelval()
-            }
-        }
-        SteelVal::Complex(x) => {
-            SteelComplex::new(inexact_to_exact(&x.re)?, inexact_to_exact(&x.im)?).into_steelval()
-        }
-        _ => steelerr!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
-    }
+#[steel_derive::function(name = "exact->inexact", constant = true)]
+fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
+    inexact(number)
 }
 
 /// Converts a number to an exact number.
@@ -778,7 +743,38 @@ fn inexact_to_exact(number: &SteelVal) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "exact", constant = true)]
 pub fn exact(number: &SteelVal) -> Result<SteelVal> {
-    inexact_to_exact(number)
+    match number {
+        SteelVal::IntV(_)
+        | SteelVal::Rational(_)
+        | SteelVal::BigRational(_)
+        | SteelVal::BigNum(_) => Ok(number.clone()),
+        SteelVal::NumV(x) => {
+            if x.fract() == 0. {
+                (*x as isize).into_steelval()
+            } else {
+                BigRational::from_float(*x).into_steelval()
+            }
+        }
+        SteelVal::Complex(x) => SteelComplex::new(exact(&x.re)?, exact(&x.im)?).into_steelval(),
+        _ => steelerr!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
+    }
+}
+
+/// Converts an inexact number to an exact number.
+///
+/// (inexact->exact num) -> number?
+///
+/// * num : number? - The number to convert from inexact to exact.
+///
+/// # Examples
+/// ```scheme
+/// > (inexact->exact 10.0) ;; => 10
+/// > (inexact->exact 1.5) ;; => 3/2
+/// > (inexact->exact 1.5+2.5i) ;; => 3/2+5/2i
+/// ```
+#[steel_derive::function(name = "inexact->exact", constant = true)]
+fn inexact_to_exact(number: &SteelVal) -> Result<SteelVal> {
+    exact(number)
 }
 
 fn finitep_impl(number: &SteelVal) -> Result<bool> {
