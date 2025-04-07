@@ -548,11 +548,11 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
 }
 
 pub struct SteelReceiver {
-    receiver: crossbeam::channel::Receiver<SteelVal>,
+    receiver: crossbeam_channel::Receiver<SteelVal>,
 }
 
 pub struct SteelSender {
-    sender: crossbeam::channel::Sender<SteelVal>,
+    sender: crossbeam_channel::Sender<SteelVal>,
 }
 
 pub struct Channels {
@@ -566,7 +566,7 @@ impl Custom for Channels {}
 
 impl Channels {
     pub fn new() -> Self {
-        let (sender, receiver) = crossbeam::channel::unbounded();
+        let (sender, receiver) = crossbeam_channel::unbounded();
 
         Self {
             sender: SteelSender { sender }.into_steelval().unwrap(),
@@ -589,7 +589,7 @@ impl Channels {
 /// Using this directly is not recommended.
 #[steel_derive::native(name = "receivers-select", arity = "AtLeast(0)")]
 pub fn select(values: &[SteelVal]) -> Result<SteelVal> {
-    let mut selector = crossbeam::channel::Select::new();
+    let mut selector = crossbeam_channel::Select::new();
 
     let borrows = values
         .iter()
@@ -650,8 +650,8 @@ pub fn channel_try_recv(receiver: &SteelVal) -> Result<SteelVal> {
 
     match value {
         Ok(v) => Ok(v),
-        Err(crossbeam::channel::TryRecvError::Empty) => Ok(empty_channel()),
-        Err(crossbeam::channel::TryRecvError::Disconnected) => Ok(disconnected_channel()),
+        Err(crossbeam_channel::TryRecvError::Empty) => Ok(empty_channel()),
+        Err(crossbeam_channel::TryRecvError::Disconnected) => Ok(disconnected_channel()),
     }
 }
 

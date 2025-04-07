@@ -77,9 +77,9 @@ use futures_util::future::Shared;
 use futures_util::FutureExt;
 
 use crate::values::lists::List;
-use num::{
-    bigint::ToBigInt, BigInt, BigRational, FromPrimitive, Rational32, Signed, ToPrimitive, Zero,
-};
+use num_bigint::{BigInt, ToBigInt};
+use num_rational::{BigRational, Rational32};
+use num_traits::{FromPrimitive, Signed, ToPrimitive, Zero};
 use steel_parser::tokens::{IntLiteral, RealLiteral};
 
 use self::cycles::{CycleDetector, IterativeDropHandler};
@@ -2117,7 +2117,7 @@ fn integer_float_equality(int: isize, float: f64) -> bool {
     }
 }
 
-fn bignum_float_equality(bigint: &Gc<num::BigInt>, float: f64) -> bool {
+fn bignum_float_equality(bigint: &Gc<BigInt>, float: f64) -> bool {
     if float.fract() == 0.0 {
         if let Some(promoted) = bigint.to_f64() {
             promoted == float
@@ -2188,13 +2188,13 @@ impl PartialOrd for SteelVal {
                 // the common ground
                 #[cfg(target_pointer_width = "32")]
                 {
-                    let x_rational = num::Rational32::new_raw(*x as i32, 1);
+                    let x_rational = num_rational::Rational32::new_raw(*x as i32, 1);
                     x_rational.partial_cmp(y)
                 }
                 #[cfg(target_pointer_width = "64")]
                 {
-                    let x_rational = num::Rational64::new_raw(*x as i64, 1);
-                    x_rational.partial_cmp(&num::Rational64::new_raw(
+                    let x_rational = num_rational::Rational64::new_raw(*x as i64, 1);
+                    x_rational.partial_cmp(&num_rational::Rational64::new_raw(
                         *y.numer() as i64,
                         *y.denom() as i64,
                     ))
@@ -2240,13 +2240,13 @@ impl PartialOrd for SteelVal {
                 // Same as before, but opposite direction
                 #[cfg(target_pointer_width = "32")]
                 {
-                    let y_rational = num::Rational32::new_raw(*y as i32, 1);
+                    let y_rational = num_rational::Rational32::new_raw(*y as i32, 1);
                     x.partial_cmp(&y_rational)
                 }
                 #[cfg(target_pointer_width = "64")]
                 {
-                    let y_rational = num::Rational64::new_raw(*y as i64, 1);
-                    num::Rational64::new_raw(*x.numer() as i64, *x.denom() as i64)
+                    let y_rational = num_rational::Rational64::new_raw(*y as i64, 1);
+                    num_rational::Rational64::new_raw(*x.numer() as i64, *x.denom() as i64)
                         .partial_cmp(&y_rational)
                 }
             }

@@ -1,5 +1,5 @@
 extern crate rustyline;
-use colored::*;
+use colored::Colorize;
 use rustyline::history::FileHistory;
 use steel::compiler::modules::steel_home;
 use steel::rvals::{Custom, SteelString};
@@ -24,8 +24,6 @@ use std::time::Instant;
 use std::env;
 
 use std::fs::File;
-
-use dirs;
 
 use crate::highlight::RustylineHelper;
 
@@ -69,7 +67,7 @@ fn get_repl_history_path() -> String {
             parsed_path.to_string_lossy().into_owned()
         }
         None => {
-            let mut default_path = dirs::home_dir().unwrap_or_default();
+            let mut default_path = env_home::env_home_dir().unwrap_or_default();
             default_path.push(".steel/history");
             default_path.to_string_lossy().into_owned()
         }
