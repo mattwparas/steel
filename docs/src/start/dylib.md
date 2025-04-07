@@ -55,7 +55,12 @@ crate-type = ["cdylib"]
 [dependencies]
 # I'm running this example based on the `steel-sys-info` library found in the steel repo. If you're
 # running this on your own, use whichever steel version you'd like to target and pin to that.
-steel-core = { workspace = true, features = ["dylibs"] }
+steel-core = { workspace = true, features = ["dylibs", "sync"] }
+
+# Note: If you're not using the default features, and you aren't opted into the `sync` feature,
+# you'll need to have the features line up here.
+# steel-core = { workspace = true, features = ["dylibs"] }
+
 abi_stable = "0.11.1"
 sys-info = "0.9.1"
 ```
