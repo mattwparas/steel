@@ -76,7 +76,6 @@ pub fn list_module() -> BuiltInModule {
         .register_value("push-back", crate::primitives::lists::PUSH_BACK)
         .register_native_fn_definition(PAIR_DEFINITION)
         .register_native_fn_definition(APPLY_DEFINITION)
-        .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
         .register_native_fn_definition(SECOND_DEFINITION)
         .register_native_fn_definition(THIRD_DEFINITION)
         .register_native_fn_definition(TAKE_DEFINITION)
