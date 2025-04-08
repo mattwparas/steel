@@ -2,7 +2,8 @@ use crate::lexer;
 use crate::parser::SourceId;
 use crate::span::Span;
 use core::ops;
-use num::{BigInt, Rational32, Signed};
+use num::bigint::ParseBigIntError;
+use num::{BigInt, Num, Rational32, Signed};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt::{self, Display};
@@ -219,6 +220,16 @@ pub enum IntLiteral {
 }
 
 impl IntLiteral {
+    pub fn from_str_radix(src: &str, radix: u32) -> Result<IntLiteral, ParseBigIntError> {
+        isize::from_str_radix(src, radix)
+            .map(IntLiteral::Small)
+            .or_else(|_| {
+                BigInt::from_str_radix(src, radix)
+                    .map(Box::new)
+                    .map(IntLiteral::Big)
+            })
+    }
+
     fn is_negative(&self) -> bool {
         match self {
             IntLiteral::Small(i) => i.is_negative(),
