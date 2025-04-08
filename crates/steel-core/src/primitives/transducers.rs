@@ -5,10 +5,8 @@ use crate::steel_vm::{
     builtin::BuiltInModule,
     vm::{VmContext, VmCore},
 };
-use crate::{builtin_stop, stop};
-
-use crate::values::transducers::Transducer;
-use crate::values::transducers::Transducers;
+use crate::values::transducers::{Transducer, Transducers};
+use crate::{builtin_stop, stop, SteelErr};
 
 // declare_const_ref_functions!(
 //     COMPOSE => compose,
@@ -82,6 +80,22 @@ pub fn compose(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::IterV(Gc::new(transformers)))
 }
 
+enum FlattenOk<'a> {
+    Ok(std::iter::Cloned<std::slice::Iter<'a, Transducers>>),
+    Err(Option<SteelErr>),
+}
+
+impl Iterator for FlattenOk<'_> {
+    type Item = Result<Transducers>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            FlattenOk::Ok(vec) => vec.next().map(Ok),
+            FlattenOk::Err(err) => err.take().map(Err),
+        }
+    }
+}
+
 #[steel_derive::context(name = "transduce", arity = "AtLeast(2)")]
 pub fn transduce(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() < 2 {
@@ -93,25 +107,22 @@ pub fn transduce(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
     let mut arg_iter = args.iter();
     let collection = arg_iter.next().unwrap();
 
-    // TODO make this way better
-    let transducers: Vec<_> = match arg_iter
-        .map(|x| {
-            if let SteelVal::IterV(i) = x {
-                Ok(i)
-            } else {
-                stop!(TypeMismatch => format!("transduce expects a transducer, found: {x}"); ctx.previous_span())
-            }
+    let transducers = match arg_iter
+        .flat_map(|x| match x {
+            SteelVal::IterV(x) => FlattenOk::Ok(x.ops.iter().cloned()),
+            _ => FlattenOk::Err(Some(
+                SteelErr::new(
+                    crate::rerrs::ErrorKind::TypeMismatch,
+                    format!("transduce expects a transducer, found: {x}"),
+                )
+                .with_span(ctx.previous_span()),
+            )),
         })
         .collect::<Result<Vec<_>>>()
     {
-        Ok(vec) => vec,
+        Ok(transducers) => transducers,
         Err(err) => return Some(Err(err)),
     };
-
-    let transducers = transducers
-        .into_iter()
-        .flat_map(|x| x.ops.clone())
-        .collect::<Vec<_>>();
 
     if let SteelVal::ReducerV(r) = &reducer {
         // TODO get rid of this unwrap
