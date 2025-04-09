@@ -43,6 +43,10 @@ pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<(), Box
 
     steel_home.push("native");
 
+    if !steel_home.exists() {
+        std::fs::create_dir(&steel_home)?;
+    }
+
     // --manifest-path
     let mut metadata_command = MetadataCommand::new();
 

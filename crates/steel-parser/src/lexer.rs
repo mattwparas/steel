@@ -299,27 +299,6 @@ impl<'a> Lexer<'a> {
             "#," => Ok(TokenType::UnquoteSyntax),
             "#,@" => Ok(TokenType::UnquoteSpliceSyntax),
 
-            hex if hex.starts_with("#x") => {
-                let hex = isize::from_str_radix(hex.strip_prefix("#x").unwrap(), 16)
-                    .map_err(|_| TokenError::MalformedHexInteger)?;
-
-                Ok(IntLiteral::Small(hex).into())
-            }
-
-            octal if octal.starts_with("#o") => {
-                let hex = isize::from_str_radix(octal.strip_prefix("#o").unwrap(), 8)
-                    .map_err(|_| TokenError::MalformedOctalInteger)?;
-
-                Ok(IntLiteral::Small(hex).into())
-            }
-
-            binary if binary.starts_with("#b") => {
-                let hex = isize::from_str_radix(binary.strip_prefix("#b").unwrap(), 2)
-                    .map_err(|_| TokenError::MalformedBinaryInteger)?;
-
-                Ok(IntLiteral::Small(hex).into())
-            }
-
             keyword if keyword.starts_with("#:") => Ok(TokenType::Keyword(self.slice().into())),
 
             character if character.starts_with("#\\") => {
@@ -354,7 +333,8 @@ impl<'a> Lexer<'a> {
                 c if c.is_ascii_digit() => {
                     self.eat();
                 }
-                '+' | '-' | '.' | '/' | 'e' | 'E' | 'i' | 'n' | 'a' | 'f' => {
+                '+' | '-' | '.' | '/' | 'a' | 'A' | 'b' | 'B' | 'c' | 'C' | 'd' | 'D' | 'e'
+                | 'E' | 'f' | 'F' | 'i' | 'n' => {
                     self.eat();
                 }
                 '(' | ')' | '[' | ']' => {
@@ -747,6 +727,10 @@ impl<'a> Iterator for Lexer<'a> {
                 let next = self.chars.peek().copied();
 
                 let token = match next {
+                    Some('x' | 'X' | 'd' | 'D' | 'o' | 'O' | 'b' | 'B') => {
+                        self.eat();
+                        self.read_number()
+                    }
                     Some('|') => self.read_nestable_comment(),
                     Some(';') => {
                         self.eat();
@@ -810,7 +794,7 @@ enum NumPart<'a> {
     Imaginary(&'a str),
 }
 
-fn parse_real(s: &str) -> Option<RealLiteral> {
+fn parse_real(s: &str, radix: u32) -> Option<RealLiteral> {
     if s == NEG_INFINITY {
         return Some(RealLiteral::Float(f64::NEG_INFINITY));
     } else if s == INFINITY {
@@ -819,16 +803,16 @@ fn parse_real(s: &str) -> Option<RealLiteral> {
         return Some(RealLiteral::Float(f64::NAN));
     }
 
-    let mut has_e = false;
     let mut has_dot = false;
+    let mut has_exponent = false;
     let mut frac_position = None;
     for (idx, ch) in s.chars().enumerate() {
         match ch {
-            'e' | 'E' => {
-                if has_e {
+            'e' | 'E' if radix < 15 => {
+                if has_exponent {
                     return None;
                 };
-                has_e = true;
+                has_exponent = true;
             }
             '/' => {
                 frac_position = match frac_position {
@@ -846,32 +830,46 @@ fn parse_real(s: &str) -> Option<RealLiteral> {
         }
     }
 
-    if has_e || has_dot {
-        s.parse().map(|f| RealLiteral::Float(f)).ok()
+    if has_exponent || has_dot {
+        if radix != 10 {
+            // radix for floating points not yet supported
+            return None;
+        }
+
+        s.parse().map(RealLiteral::Float).ok()
     } else if let Some(p) = frac_position {
         let (n_str, d_str) = s.split_at(p);
         let d_str = &d_str[1..];
-        let n: IntLiteral = n_str.parse().ok()?;
-        let d: IntLiteral = d_str.parse().ok()?;
+        let n = IntLiteral::from_str_radix(n_str, radix).ok()?;
+        let d = IntLiteral::from_str_radix(d_str, radix).ok()?;
         Some(RealLiteral::Rational(n, d))
     } else {
-        let int: IntLiteral = s.parse().ok()?;
+        let int = IntLiteral::from_str_radix(s, radix).ok()?;
         Some(RealLiteral::Int(int))
     }
 }
 
 fn parse_number(s: &str) -> Option<NumberLiteral> {
+    let (s, radix) = match s.get(0..2) {
+        Some("#x" | "#X") => (&s[2..], 16),
+        Some("#d" | "#D") => (&s[2..], 10),
+        Some("#o" | "#O") => (&s[2..], 8),
+        Some("#b" | "#B") => (&s[2..], 2),
+        _ => (s, 10),
+    };
+
     match split_into_complex(s)?.as_slice() {
-        [NumPart::Real(x)] => parse_real(x).map(NumberLiteral::from),
+        [NumPart::Real(x)] => parse_real(x, radix).map(NumberLiteral::from),
         [NumPart::Imaginary(x)] => {
             if !matches!(x.as_bytes().first(), Some(b'+') | Some(b'-')) {
                 return None;
             };
-            Some(NumberLiteral::Complex(IntLiteral::Small(0).into(), parse_real(x)?).into())
+            Some(NumberLiteral::Complex(IntLiteral::Small(0).into(), parse_real(x, radix)?).into())
         }
-        [NumPart::Real(re), NumPart::Imaginary(im)] => {
-            Some(NumberLiteral::Complex(parse_real(re)?, parse_real(im)?))
-        }
+        [NumPart::Real(re), NumPart::Imaginary(im)] => Some(NumberLiteral::Complex(
+            parse_real(re, radix)?,
+            parse_real(im, radix)?,
+        )),
         _ => None,
     }
 }
@@ -1514,6 +1512,69 @@ mod lexer_tests {
                     .into(),
                     source: "-inf.0-2e-4i",
                     span: Span::new(54, 66, SourceId::none()),
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn test_numbers_with_radix() {
+        let got = TokenStream::new(
+            "#xff #xce #o777 #o1/20 #b1/10 #x10+ffi #d1.0",
+            true,
+            SourceId::none(),
+        )
+        .collect::<Vec<_>>();
+
+        assert_eq!(
+            &*got,
+            &[
+                Token {
+                    ty: NumberLiteral::Real(IntLiteral::Small(255).into()).into(),
+                    source: "#xff",
+                    span: Span::new(0, 4, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Real(IntLiteral::Small(206).into()).into(),
+                    source: "#xce",
+                    span: Span::new(5, 9, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Real(IntLiteral::Small(511).into()).into(),
+                    source: "#o777",
+                    span: Span::new(10, 15, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Real(RealLiteral::Rational(
+                        IntLiteral::Small(1),
+                        IntLiteral::Small(16)
+                    ))
+                    .into(),
+                    source: "#o1/20",
+                    span: Span::new(16, 22, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Real(RealLiteral::Rational(
+                        IntLiteral::Small(1),
+                        IntLiteral::Small(2)
+                    ))
+                    .into(),
+                    source: "#b1/10",
+                    span: Span::new(23, 29, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(16).into(),
+                        IntLiteral::Small(255).into(),
+                    )
+                    .into(),
+                    source: "#x10+ffi",
+                    span: Span::new(30, 38, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Real(RealLiteral::Float(1.0)).into(),
+                    source: "#d1.0",
+                    span: Span::new(39, 44, SourceId::none()),
                 }
             ]
         );

@@ -1775,15 +1775,17 @@ Returns quotient of dividing numerator by denomintator.
 > (quotient -10 2) ;; => -5
 ```
 ### **range**
-Returns a newly allocated list of the elements in the range (n, m]
+Returns a newly allocated list of the elements in the range [n, m) or [0, m) when n is not given.
 
+(range m)   -> (listof int?)
 (range n m) -> (listof int?)
 
 * n : int?
 * m : int?
 
 ```scheme
-> (range 0 10) ;; => '(0 1 2 3 4 5 6 7 8 9)
+> (range 4) ;; => '(0 1 2 3)
+> (range 4 10) ;; => '(4 5 6 7 8 9)
 ```
 ### **range-vec**
 Constructs a vector containing a range of integers from `start` to `end` (exclusive).
