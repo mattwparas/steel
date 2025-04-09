@@ -18,7 +18,11 @@
 
 (define even-numbers
   (lambda (l)
-    (if (null? l) '() (if (null? (cdr l)) '() (cons (car (cdr l)) (even-numbers (cdr (cdr l))))))))
+    (if (null? l)
+        '()
+        (if (null? (cdr l))
+            '()
+            (cons (car (cdr l)) (even-numbers (cdr (cdr l))))))))
 
 ;;; -------------------------------------------------------------------
 ;;; Given list l, output those tokens of l which are in odd positions
@@ -27,7 +31,9 @@
   (lambda (l)
     (if (null? l)
         '()
-        (if (null? (cdr l)) (list (car l)) (cons (car l) (odd-numbers (cdr (cdr l))))))))
+        (if (null? (cdr l))
+            (list (car l))
+            (cons (car l) (odd-numbers (cdr (cdr l))))))))
 
 ;;; ---------------------------------------------------------------------
 ;;; Use the procedures above to create a simple and efficient merge-sort

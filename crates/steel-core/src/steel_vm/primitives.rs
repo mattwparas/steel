@@ -21,6 +21,7 @@ use crate::{
         bytevectors::bytevector_module,
         fs_module, fs_module_sandbox,
         git::git_module,
+        hashes::hashes_module,
         hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
         http::http_module,
@@ -281,6 +282,7 @@ define_modules! {
     STEEL_SB_PRELUDE => sandboxed_prelude,
 
     STEEL_GIT_MODULE => git_module,
+    STEEL_HASH_MODULE => hashes_module,
 }
 
 #[cfg(all(feature = "dylibs", feature = "sync"))]
@@ -340,6 +342,7 @@ thread_local! {
     pub static PRIVATE_READER_MODULE: BuiltInModule = reader_module();
 
     pub static GIT_MODULE: BuiltInModule = git_module();
+    pub static HASHES_MODULE: BuiltInModule = hashes_module();
 }
 
 pub fn prelude() -> BuiltInModule {
@@ -552,6 +555,8 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
 
         engine.register_module(STEEL_GIT_MODULE.clone());
 
+        engine.register_module(STEEL_HASH_MODULE.clone());
+
         if !sandbox {
             engine
                 .register_module(STEEL_TCP_MODULE.clone())
@@ -606,6 +611,8 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
             .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()));
 
         engine.register_module(GIT_MODULE.with(|x| x.clone()));
+
+        engine.register_module(HASH_MODULE.with(|x| x.clone()));
 
         if !sandbox {
             engine

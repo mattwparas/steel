@@ -15,6 +15,8 @@
                   run-dylib-installation
                   find-dylib-name))
 
+(require "crypt.scm")
+
 (provide package-installer-main
          parse-cog
          parse-cog-file
@@ -69,6 +71,12 @@
 
   (displayln "=> Installing: " package)
   (displayln "   ...Installing to:" destination)
+
+  ;; Check if the package has changed
+  (define package-changed?
+    (if (path-exists? destination)
+        (directories-equal? (hash-get package 'path) destination)
+        #t))
 
   (when (path-exists? destination)
     (delete-directory! destination))

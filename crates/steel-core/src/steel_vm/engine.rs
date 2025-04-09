@@ -268,7 +268,6 @@ struct BootstrapImage {
 }
 
 // Pre compiled programs along with the global state to set before we start any further processing
-#[derive(Serialize, Deserialize)]
 struct StartupBootstrapImage {
     syntax_object_id: usize,
     function_id: usize,
@@ -279,7 +278,6 @@ struct StartupBootstrapImage {
     compiler: Option<SerializableCompiler>,
 }
 
-#[derive(Serialize, Deserialize)]
 struct KernelImage {
     // Kernel macros
     compiler: SerializableCompiler,
@@ -1680,11 +1678,11 @@ impl Engine {
 
         // Revisit if we need to do this at all?
         if result.is_err() {
-            self.virtual_machine
-                .compiler
-                .write()
-                .symbol_map
-                .roll_back(symbol_map_offset);
+            let mut guard = self.virtual_machine.compiler.write();
+
+            // Reset the compiled modules as well.
+            guard.symbol_map.roll_back(symbol_map_offset);
+            guard.module_manager.rollback_metadata();
         }
 
         result

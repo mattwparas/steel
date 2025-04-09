@@ -133,7 +133,7 @@
      (define cog-files (filter (lambda (x) (equal? (file-name x) "cog.scm")) top-level-files))
 
      (if (empty? cog-files)
-         (displayln "Unable to locage cog.scm, exiting.")
+         (displayln "Unable to locate cog.scm, exiting.")
          (begin
            (define spec (hash-insert (parse-cog-file (car cog-files)) 'path (current-directory)))
            (walk-and-install spec #:dry-run dry-run?)
@@ -198,7 +198,7 @@
 
 (define (render-help)
   (displayln
-   "Forge - the Steel Packager Manager
+   "Forge - the Steel Package Manager
 
 Usage:
   forge <command> [options]

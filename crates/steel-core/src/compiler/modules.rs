@@ -19,7 +19,7 @@ use crate::{
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
 use compact_str::CompactString;
-use fxhash::{FxHashMap, FxHashSet};
+use fxhash::{FxHashMap, FxHashSet, FxHasher};
 use once_cell::sync::Lazy;
 // use smallvec::SmallVec;
 use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
@@ -161,24 +161,30 @@ pub fn steel_home() -> Option<String> {
 /// keeps some visited state on the manager for traversal
 /// Also keeps track of the metadata for each file in order to determine
 /// if it needs to be recompiled
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone)]
 pub(crate) struct ModuleManager {
+    // TODO: Make this an immutable one so we can roll back?
+    // Also, track the dependencies to know what to reload, anytime changes
+    // are specifically made on the dependencies.
     compiled_modules: FxHashMap<PathBuf, CompiledModule>,
-    file_metadata: FxHashMap<PathBuf, SystemTime>,
+    file_metadata: crate::HashMap<PathBuf, SystemTime>,
     visited: FxHashSet<PathBuf>,
     custom_builtins: HashMap<String, String>,
+
+    rollback_metadata: crate::HashMap<PathBuf, SystemTime>,
 }
 
 impl ModuleManager {
     pub(crate) fn new(
         compiled_modules: FxHashMap<PathBuf, CompiledModule>,
-        file_metadata: FxHashMap<PathBuf, SystemTime>,
+        file_metadata: crate::HashMap<PathBuf, SystemTime>,
     ) -> Self {
         ModuleManager {
             compiled_modules,
             file_metadata,
             visited: FxHashSet::default(),
             custom_builtins: HashMap::new(),
+            rollback_metadata: crate::HashMap::new(),
         }
     }
 
@@ -199,7 +205,7 @@ impl ModuleManager {
     }
 
     pub(crate) fn default() -> Self {
-        Self::new(FxHashMap::default(), FxHashMap::default())
+        Self::new(FxHashMap::default(), crate::HashMap::default())
     }
 
     // Add the module directly to the compiled module cache
@@ -237,6 +243,10 @@ impl ModuleManager {
         Ok(())
     }
 
+    pub(crate) fn rollback_metadata(&mut self) {
+        self.file_metadata = self.rollback_metadata.clone();
+    }
+
     // #[allow(unused)]
     pub(crate) fn compile_main(
         &mut self,
@@ -252,6 +262,8 @@ impl ModuleManager {
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
         self.visited.clear();
+
+        self.rollback_metadata = self.file_metadata.clone();
 
         // TODO
         // This is also explicitly wrong -> we should separate the global macro map from the macros found locally in this module
@@ -1667,7 +1679,7 @@ struct ModuleBuilder<'a> {
     provides_for_syntax: Vec<ExprKind>,
     compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
     visited: &'a mut FxHashSet<PathBuf>,
-    file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
+    file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
     sources: &'a mut Sources,
     kernel: &'a mut Option<Kernel>,
     builtin_modules: ModuleContainer,
@@ -1684,7 +1696,7 @@ impl<'a> ModuleBuilder<'a> {
         source_ast: Vec<ExprKind>,
         compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -1881,7 +1893,7 @@ impl<'a> ModuleBuilder<'a> {
                 // If we're unable to get information, we want to compile
                 let should_recompile =
                     if let Some(cached_modified) = self.file_metadata.get(module.as_ref()) {
-                        &last_modified != cached_modified
+                        last_modified != *cached_modified
                     } else {
                         true
                     };
@@ -2851,7 +2863,7 @@ impl<'a> ModuleBuilder<'a> {
         input: Cow<'static, str>,
         compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -2877,7 +2889,7 @@ impl<'a> ModuleBuilder<'a> {
         name: PathBuf,
         compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -2904,7 +2916,7 @@ impl<'a> ModuleBuilder<'a> {
         name: PathBuf,
         compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
