@@ -405,7 +405,7 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                         &self.context.rope,
                                         &span,
                                         format!(
-                                    "Arity mismatch: {} expects between {} and {} arguments, found {}",
+                                    "Arity mismatch: {} expects {} to {} arguments, found {}",
                                     l.first().unwrap(),
                                     n,
                                     m,

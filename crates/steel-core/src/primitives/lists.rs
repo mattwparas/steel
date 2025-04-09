@@ -152,7 +152,7 @@ pub fn list_tail(list_or_pair: &SteelVal, pos: usize) -> Result<SteelVal> {
     match list_or_pair {
         SteelVal::ListV(l) => l
             .tail(pos)
-            .ok_or_else(throw!(Generic => format!("list-tail expects at least {} 
+            .ok_or_else(throw!(Generic => format!("list-tail expects at least {}
                     elements in the list, found: {}", pos, l.len())))
             .map(SteelVal::ListV),
         SteelVal::Pair(p) => {
@@ -164,7 +164,7 @@ pub fn list_tail(list_or_pair: &SteelVal, pos: usize) -> Result<SteelVal> {
                 value = value
                     .pair()
                     .map(|x| x.cdr())
-                    .ok_or_else(throw!(Generic => format!("list-tail: index reached a 
+                    .ok_or_else(throw!(Generic => format!("list-tail: index reached a
                         non-pair: index: {} in {}", count, list_or_pair)))?;
             }
 
@@ -307,7 +307,7 @@ macro_rules! debug_unreachable {
 /// > (range 4) ;; => '(0 1 2 3)
 /// > (range 4 10) ;; => '(4 5 6 7 8 9)
 /// ```
-#[steel_derive::native(name = "range", arity = "AtMost(2)")]
+#[steel_derive::native(name = "range", arity = "Range(1,2)")]
 fn range(args: &[SteelVal]) -> Result<SteelVal> {
     let (lower, upper) = match args {
         [] => stop!(ArityMismatch => "range expected one or two arguments, got 0"),

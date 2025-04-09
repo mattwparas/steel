@@ -631,7 +631,7 @@ fn arity_code_injection(
                 let end = end
                     .parse::<usize>()
                     .expect("Arity end value must be an integer");
-                Some((name, start, end)) // Return tuple with range
+                Some((name, start, end))
             } else {
                 // Handle AtLeast(n) or single-value cases
                 let num = rest
@@ -670,10 +670,10 @@ fn arity_code_injection(
         },
         "Range" => quote! {
             if (#parameter_name.len() < #numb) || (#parameter_name.len() > #end_numb) {
-                   #stop_type(ArityMismatch => "{} expects between {} and {} arguments, found: {}",#func_name, #numb , #end_numb ,#parameter_name.len());
+                   #stop_type(ArityMismatch => "{} expects {} to {} arguments, found: {}",#func_name, #numb , #end_numb ,#parameter_name.len());
                }
         },
-        // Have to implement Range() Arity check
+
         _ => panic!("Unsupported Arity Type"),
     };
     // Inject the new statements at the beginning of the function
