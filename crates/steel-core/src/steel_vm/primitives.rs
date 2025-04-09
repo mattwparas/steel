@@ -289,6 +289,7 @@ define_modules! {
 pub static STEEL_FFI_MODULE: once_cell::sync::Lazy<BuiltInModule> =
     once_cell::sync::Lazy::new(ffi_module);
 
+#[cfg(not(feature = "sync"))]
 thread_local! {
     pub static MAP_MODULE: BuiltInModule = hashmap_module();
     pub static SET_MODULE: BuiltInModule = hashset_module();
@@ -332,9 +333,6 @@ thread_local! {
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
     pub static SB_PRELUDE: BuiltInModule = sandboxed_prelude();
 
-    pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = PRELUDE_MODULE.with(|x| x.names().into_iter().map(|x| x.into()).collect());
-
-
     pub static TIME_MODULE: BuiltInModule = time_module();
     pub static THREADING_MODULE: BuiltInModule = threading_module();
 
@@ -343,6 +341,16 @@ thread_local! {
 
     pub static GIT_MODULE: BuiltInModule = git_module();
     pub static HASHES_MODULE: BuiltInModule = hashes_module();
+}
+
+#[cfg(not(feature = "sync"))]
+thread_local! {
+    pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = PRELUDE_MODULE.with(|x| x.names().into_iter().map(|x| x.into()).collect());
+}
+
+#[cfg(feature = "sync")]
+thread_local! {
+    pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = STEEL_PRELUDE_MODULE.names().into_iter().map(|x| x.into()).collect();
 }
 
 pub fn prelude() -> BuiltInModule {
@@ -612,7 +620,7 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
 
         engine.register_module(GIT_MODULE.with(|x| x.clone()));
 
-        engine.register_module(HASH_MODULE.with(|x| x.clone()));
+        engine.register_module(HASHES_MODULE.with(|x| x.clone()));
 
         if !sandbox {
             engine
