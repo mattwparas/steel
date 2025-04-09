@@ -8,7 +8,7 @@
   steel,
 }:
 mkShell {
-  inputsFrom = steel;
+  inputsFrom = [ steel ];
 
   packages =
     [
