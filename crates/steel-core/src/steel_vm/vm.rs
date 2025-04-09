@@ -1219,7 +1219,7 @@ pub trait VmContext {
         &mut self,
         ops: &[Transducers],
         root: SteelVal,
-        reducer: Reducer,
+        reducer: &Reducer,
         span: Option<Span>,
     ) -> Result<SteelVal>;
 }
@@ -1238,7 +1238,7 @@ impl<'a> VmContext for VmCore<'a> {
         &mut self,
         ops: &[Transducers],
         root: SteelVal,
-        reducer: Reducer,
+        reducer: &Reducer,
         span: Option<Span>,
     ) -> Result<SteelVal> {
         let span = span.unwrap_or_default();
