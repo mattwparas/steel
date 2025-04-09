@@ -633,7 +633,7 @@ fn arity_code_injection(
 
     //Context functions return values wrapped in Option, so we must use builtin_stop for them
     let stop_type = if is_context_function {
-        quote! {builtin_stop!}
+        quote! {crate::builtin_stop!}
     } else {
         quote! {stop!}
     };
