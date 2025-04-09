@@ -618,16 +618,27 @@ fn arity_code_injection(
         panic!("Could not extract parameter name")
     };
 
-    // This function extracts the Arity type and integer value
-    let (name, numb) = arity_number
+    // This function extracts the Arity type and integer values
+    let (name, numb, end_numb) = arity_number
         .strip_suffix(')')
         .and_then(|stripped| stripped.split_once('('))
         .and_then(|(name, rest)| {
-            Some((
-                name,
-                rest.parse::<usize>()
-                    .expect("Arity value must be an integer"),
-            ))
+            if let Some((start, end)) = rest.split_once(',') {
+                // Handle Range(start, end)
+                let start = start
+                    .parse::<usize>()
+                    .expect("Arity start value must be an integer");
+                let end = end
+                    .parse::<usize>()
+                    .expect("Arity end value must be an integer");
+                Some((name, start, end)) // Return tuple with range
+            } else {
+                // Handle AtLeast(n) or single-value cases
+                let num = rest
+                    .parse::<usize>()
+                    .expect("Arity value must be an integer");
+                Some((name, num, 0))
+            }
         })
         .expect("Arity header is wrongly formatted");
 
@@ -655,6 +666,11 @@ fn arity_code_injection(
         "Exact" => quote! {
             if #parameter_name.len() != #numb {
                    #stop_type(ArityMismatch => "{} expects exactly {} arguments, found: {}",#func_name, #numb ,#parameter_name.len());
+               }
+        },
+        "Range" => quote! {
+            if (#parameter_name.len() < #numb) || (#parameter_name.len() > #end_numb) {
+                   #stop_type(ArityMismatch => "{} expects between {} and {} arguments, found: {}",#func_name, #numb , #end_numb ,#parameter_name.len());
                }
         },
         // Have to implement Range() Arity check
