@@ -673,6 +673,18 @@ impl<T: IntoFFIVal> IntoFFIVal for Vec<T> {
     }
 }
 
+impl<T: IntoFFIVal, V: IntoFFIVal> IntoFFIVal for std::collections::HashMap<T, V> {
+    fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
+        let mut output = RHashMap::with_capacity(self.len());
+
+        for (key, value) in self {
+            output.insert(ffi_try!(key.into_ffi_val()), ffi_try!(value.into_ffi_val()));
+        }
+
+        RResult::ROk(FFIValue::HashMap(output))
+    }
+}
+
 impl IntoFFIVal for RResult<FFIValue, RBoxError> {
     fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
         self
