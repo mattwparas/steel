@@ -1,15 +1,15 @@
-{
-  lib,
-  stdenv,
-  mkShell,
-  steel,
-  cargo,
-  rustc,
-  libiconv,
-  CoreServices,
-  SystemConfiguration,
-  rust-analyzer,
-  rustfmt,
+{ lib
+, stdenv
+, mkShell
+, steel
+, cargo
+, rustc
+, libiconv
+, CoreServices
+, SystemConfiguration
+, rust-analyzer
+, rustfmt
+,
 }:
 mkShell {
   shellHook = ''
@@ -27,5 +27,5 @@ mkShell {
       CoreServices
       SystemConfiguration
     ];
-    inputsFrom = steel;
+  inputsFrom = [ steel ];
 }
