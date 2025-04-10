@@ -1,6 +1,5 @@
 {
   lib,
-  stdenv,
   rustPlatform,
   curl,
   pkg-config,
@@ -10,7 +9,6 @@
   openssl,
   sqlite,
   zlib,
-  darwin,
 
   includeLSP ? true,
   includeForge ? true,
@@ -27,8 +25,7 @@ rustPlatform.buildRustPackage {
     fileset = lib.fileset.gitTracked ../.;
   };
 
-  useFetchCargoVendor = true;
-  cargoHash = "sha256-8S/CJFXv89lS3Gyd/TgHUrMxmvYQZvbXCiPQcQtL3Jo=";
+  cargoLock.lockFile = ../Cargo.lock;
 
   nativeBuildInputs = [
     curl

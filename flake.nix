@@ -11,11 +11,18 @@
 
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
     systems.url = "github:nix-systems/default";
+
+    treefmt-nix = {
+      url = "github:numtide/treefmt-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
     inputs:
     inputs.flake-parts.lib.mkFlake { inherit inputs; } {
+      imports = [ inputs.treefmt-nix.flakeModule ];
+
       systems = import inputs.systems;
 
       perSystem =
@@ -26,6 +33,17 @@
           packages = {
             default = self'.packages.steel;
             steel = pkgs.callPackage ./nix/package.nix { };
+          };
+
+          treefmt = {
+            flakeCheck = true;
+
+            programs = {
+              nixfmt.enable = true;
+              rustfmt.enable = true;
+            };
+
+            projectRootFile = "flake.nix";
           };
         };
     };

@@ -10,15 +10,14 @@
 mkShell {
   inputsFrom = [ steel ];
 
-  packages =
-    [
-      cargo
-      clippy
-      rustc
-      rust-analyzer
-      rustfmt
-      steel
-    ];
+  packages = [
+    cargo
+    clippy
+    rustc
+    rust-analyzer
+    rustfmt
+    steel
+  ];
 
   strictDeps = true;
 }
