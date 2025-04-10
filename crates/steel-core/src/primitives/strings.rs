@@ -144,11 +144,6 @@ pub fn number_to_string(value: &SteelVal, mut rest: RestArgsIter<'_, isize>) -> 
     number_to_string_impl(value, radix)
 }
 
-fn string_to_number_impl(value: &str, radix: Option<u32>) -> Option<SteelVal> {
-    let number = steel_parser::lexer::parse_number(value, radix)?;
-    number.into_steelval().ok()
-}
-
 /// Converts the given string to a number, with an optional radix.
 /// On failure, it returns `#f`
 ///
@@ -175,10 +170,8 @@ pub fn string_to_number(
         None
     };
 
-    match string_to_number_impl(value.as_str(), radix) {
-        Some(v) => Ok(v),
-        None => Ok(SteelVal::BoolV(false)),
-    }
+    let number = steel_parser::lexer::parse_number(value, radix);
+    number.into_steelval()
 }
 
 /// Constructs a string from the given characters
