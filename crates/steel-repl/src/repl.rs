@@ -290,7 +290,7 @@ pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
         match readline {
             Ok(line) => {
                 rl.add_history_entry(line.as_str()).ok();
-                match line.as_str() {
+                match line.as_str().trim() {
                     ":q" | ":quit" => return Ok(()),
                     ":time" => {
                         print_time = !print_time;
