@@ -926,14 +926,28 @@ pub fn parse_number(s: &str, radix: Option<u32>) -> Option<NumberLiteral> {
             if !matches!(x.as_bytes().first(), Some(b'+') | Some(b'-')) {
                 return None;
             };
+
+            let imaginary = if *x == "+" {
+                IntLiteral::Small(1).into()
+            } else if *x == "-" {
+                IntLiteral::Small(-1).into()
+            } else {
+                parse_real(x, radix)?
+            };
             Some(NumberLiteral::Complex(
                 IntLiteral::Small(0).into(),
-                parse_real(x, radix)?,
+                imaginary,
             ))
         }
         [NumPart::Real(re), NumPart::Imaginary(im)] => Some(NumberLiteral::Complex(
             parse_real(re, radix)?,
-            parse_real(im, radix)?,
+            if *im == "+" {
+                IntLiteral::Small(1).into()
+            } else if *im == "-" {
+                IntLiteral::Small(-1).into()
+            } else {
+                parse_real(im, radix)?
+            },
         )),
         _ => None,
     }
@@ -1652,7 +1666,7 @@ mod lexer_tests {
 
     #[test]
     fn test_malformed_complex_numbers_are_identifiers() {
-        let got: Vec<_> = token_stream("i -i 1i+1i 4+i -4+-2i").collect();
+        let got: Vec<_> = token_stream("i 1i+1i -4+-2i").collect();
         assert_eq!(
             got.as_slice(),
             &[
@@ -1662,24 +1676,14 @@ mod lexer_tests {
                     span: Span::new(0, 1, SourceId::none()),
                 },
                 Token {
-                    ty: identifier("-i"),
-                    source: "-i",
-                    span: Span::new(2, 4, SourceId::none()),
-                },
-                Token {
                     ty: identifier("1i+1i"),
                     source: "1i+1i",
-                    span: Span::new(5, 10, SourceId::none()),
-                },
-                Token {
-                    ty: identifier("4+i"),
-                    source: "4+i",
-                    span: Span::new(11, 14, SourceId::none()),
+                    span: Span::new(2, 7, SourceId::none()),
                 },
                 Token {
                     ty: identifier("-4+-2i"),
                     source: "-4+-2i",
-                    span: Span::new(15, 21, SourceId::none()),
+                    span: Span::new(8, 14, SourceId::none()),
                 },
             ]
         );
