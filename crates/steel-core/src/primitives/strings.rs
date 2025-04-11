@@ -5,6 +5,8 @@ use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelByteVector, SteelStr
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::{stop, Vector};
 
+use std::fmt::Write;
+
 use steel_derive::{function, native};
 
 /// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
@@ -107,21 +109,82 @@ pub fn char_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
     monotonic!(rest, |ch1: &_, ch2: &_| ch1 == ch2)
 }
 
-fn number_to_string_impl(value: &SteelVal, radix: Option<u32>) -> Result<SteelVal> {
+mod radix_fmt {
+    use num_bigint::BigInt;
+    use std::fmt::Write;
+
+    pub fn small(acc: &mut String, value: isize, radix: u32) {
+        let _ = write!(acc, "{}", radix_fmt::radix(value, radix as u8));
+    }
+
+    pub fn big(acc: &mut String, value: BigInt, radix: u32) {
+        let fmt = value.to_str_radix(radix);
+        acc.push_str(&fmt);
+    }
+}
+
+fn format_number(acc: &mut String, value: &SteelVal, radix: Option<u32>) -> Result<()> {
     match value {
+        SteelVal::NumV(v) if v.is_nan() => acc.push_str("+nan.0"),
+        SteelVal::NumV(v) if *v == f64::INFINITY => acc.push_str("+inf.0"),
+        SteelVal::NumV(v) if *v == f64::NEG_INFINITY => acc.push_str("-inf.0"),
+        SteelVal::NumV(v) => {
+            let _ = write!(acc, "{}", v);
+        }
         SteelVal::IntV(v) => {
             if let Some(radix) = radix {
-                Ok(SteelVal::StringV(
-                    radix_fmt::radix(*v, radix as u8).to_string().into(),
-                ))
+                radix_fmt::small(acc, *v, radix);
             } else {
-                Ok(SteelVal::StringV(v.to_string().into()))
+                let _ = write!(acc, "{}", v);
             }
         }
-        SteelVal::NumV(n) => Ok(SteelVal::StringV(n.to_string().into())),
-        SteelVal::BigNum(n) => Ok(SteelVal::StringV(n.to_string().into())),
+        SteelVal::BigNum(v) => {
+            if let Some(radix) = radix {
+                radix_fmt::big(acc, v.unwrap(), radix);
+            } else {
+                let _ = write!(acc, "{}", **v);
+            }
+        }
+        SteelVal::Rational(v) => {
+            if let Some(radix) = radix {
+                radix_fmt::small(acc, *v.numer() as isize, radix);
+                acc.push('/');
+                radix_fmt::small(acc, *v.denom() as isize, radix);
+            } else {
+                let _ = write!(acc, "{}", v.numer());
+                acc.push('/');
+                let _ = write!(acc, "{}", v.denom());
+            }
+        }
+        SteelVal::BigRational(v) => {
+            if let Some(radix) = radix {
+                radix_fmt::big(acc, v.numer().clone(), radix);
+                acc.push('/');
+                radix_fmt::big(acc, v.denom().clone(), radix);
+            } else {
+                let _ = write!(acc, "{}", v.numer());
+                acc.push('/');
+                let _ = write!(acc, "{}", v.denom());
+            }
+        }
+        SteelVal::Complex(c) => {
+            format_number(acc, &c.re, radix)?;
+            if !c.imaginary_is_negative() && c.imaginary_is_finite() {
+                acc.push('+');
+            }
+            format_number(acc, &c.im, radix)?;
+            acc.push('i');
+        }
         _ => stop!(TypeMismatch => "number->string expects a number type, found: {}", value),
     }
+
+    Ok(())
+}
+
+fn number_to_string_impl(value: &SteelVal, radix: Option<u32>) -> Result<SteelVal> {
+    let mut accumulator = String::new();
+    format_number(&mut accumulator, value, radix.filter(|x| *x != 10))?;
+    accumulator.into_steelval()
 }
 
 /// Converts the given number to a string.
