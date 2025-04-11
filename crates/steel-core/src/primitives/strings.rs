@@ -5,7 +5,7 @@ use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelByteVector, SteelStr
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::{stop, Vector};
 
-use std::fmt::Write;
+use std::io::Write as _;
 
 use steel_derive::{function, native};
 
@@ -111,23 +111,39 @@ pub fn char_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
 
 mod radix_fmt {
     use num_bigint::BigInt;
-    use std::fmt::Write;
 
-    pub fn small(acc: &mut String, value: isize, radix: u32) {
-        let _ = write!(acc, "{}", radix_fmt::radix(value, radix as u8));
+    const DIGITS: [u8; 16] = *b"0123456789abcdef";
+
+    pub fn small(acc: &mut Vec<u8>, value: isize, radix: usize) {
+        let start = acc.len();
+        let numbers = std::iter::successors(Some(value.unsigned_abs()), |n| match n / radix {
+            0 => None,
+            n => Some(n),
+        });
+
+        for number in numbers {
+            let idx = number % radix;
+            let digit = DIGITS[idx];
+            acc.push(digit);
+        }
+        if value < 0 {
+            acc.push(b'-');
+        }
+
+        acc[start..].reverse();
     }
 
-    pub fn big(acc: &mut String, value: BigInt, radix: u32) {
-        let fmt = value.to_str_radix(radix);
-        acc.push_str(&fmt);
+    pub fn big(acc: &mut Vec<u8>, value: BigInt, radix: usize) {
+        let fmt = value.to_str_radix(radix as u32);
+        acc.extend(fmt.as_bytes());
     }
 }
 
-fn format_number(acc: &mut String, value: &SteelVal, radix: Option<u32>) -> Result<()> {
+fn format_number(acc: &mut Vec<u8>, value: &SteelVal, radix: Option<usize>) -> Result<()> {
     match value {
-        SteelVal::NumV(v) if v.is_nan() => acc.push_str("+nan.0"),
-        SteelVal::NumV(v) if *v == f64::INFINITY => acc.push_str("+inf.0"),
-        SteelVal::NumV(v) if *v == f64::NEG_INFINITY => acc.push_str("-inf.0"),
+        SteelVal::NumV(v) if v.is_nan() => acc.extend(b"+nan.0"),
+        SteelVal::NumV(v) if *v == f64::INFINITY => acc.extend(b"+inf.0"),
+        SteelVal::NumV(v) if *v == f64::NEG_INFINITY => acc.extend(b"-inf.0"),
         SteelVal::NumV(v) => {
             let _ = write!(acc, "{}", v);
         }
@@ -148,32 +164,32 @@ fn format_number(acc: &mut String, value: &SteelVal, radix: Option<u32>) -> Resu
         SteelVal::Rational(v) => {
             if let Some(radix) = radix {
                 radix_fmt::small(acc, *v.numer() as isize, radix);
-                acc.push('/');
+                acc.push(b'/');
                 radix_fmt::small(acc, *v.denom() as isize, radix);
             } else {
                 let _ = write!(acc, "{}", v.numer());
-                acc.push('/');
+                acc.push(b'/');
                 let _ = write!(acc, "{}", v.denom());
             }
         }
         SteelVal::BigRational(v) => {
             if let Some(radix) = radix {
                 radix_fmt::big(acc, v.numer().clone(), radix);
-                acc.push('/');
+                acc.push(b'/');
                 radix_fmt::big(acc, v.denom().clone(), radix);
             } else {
                 let _ = write!(acc, "{}", v.numer());
-                acc.push('/');
+                acc.push(b'/');
                 let _ = write!(acc, "{}", v.denom());
             }
         }
         SteelVal::Complex(c) => {
             format_number(acc, &c.re, radix)?;
             if !c.imaginary_is_negative() && c.imaginary_is_finite() {
-                acc.push('+');
+                acc.push(b'+');
             }
             format_number(acc, &c.im, radix)?;
-            acc.push('i');
+            acc.push(b'i');
         }
         _ => stop!(TypeMismatch => "number->string expects a number type, found: {}", value),
     }
@@ -181,10 +197,12 @@ fn format_number(acc: &mut String, value: &SteelVal, radix: Option<u32>) -> Resu
     Ok(())
 }
 
-fn number_to_string_impl(value: &SteelVal, radix: Option<u32>) -> Result<SteelVal> {
-    let mut accumulator = String::new();
+fn number_to_string_impl(value: &SteelVal, radix: Option<usize>) -> Result<SteelVal> {
+    let mut accumulator = Vec::new();
     format_number(&mut accumulator, value, radix.filter(|x| *x != 10))?;
-    accumulator.into_steelval()
+
+    let string = String::from_utf8(accumulator).expect("should just be ascii");
+    string.into_steelval()
 }
 
 /// Converts the given number to a string.
@@ -199,7 +217,7 @@ pub fn number_to_string(value: &SteelVal, mut rest: RestArgsIter<'_, isize>) -> 
             stop!(ContractViolation => "radix value given to string->number must be between 2 and 16, found: {}", radix);
         }
 
-        Some(radix as u32)
+        Some(radix as usize)
     } else {
         None
     };
