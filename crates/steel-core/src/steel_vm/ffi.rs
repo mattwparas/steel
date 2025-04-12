@@ -71,11 +71,20 @@ impl FFIModule {
         self
     }
 
+    pub fn register_type<T: CustomType>(&mut self, predicate_name: &'static str) -> &mut Self {
+        self.register_fn(predicate_name, |value: FFIArg| {
+            if let FFIArg::CustomRef(CustomRef { mut custom, .. }) = value {
+                as_underlying_ffi_type::<T>(custom.get_mut()).is_some()
+            } else {
+                false
+            }
+        })
+    }
+
     pub fn bindings(&self) -> Vec<RString> {
         self.values.keys().cloned().collect()
     }
 
-    // TODO: Have this take a writer
     pub fn emit_package<W: std::io::Write>(
         &self,
         name: &str,
