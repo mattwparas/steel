@@ -71,7 +71,10 @@ impl FFIModule {
         self
     }
 
-    pub fn register_type<T: CustomType>(&mut self, predicate_name: &'static str) -> &mut Self {
+    pub fn register_type<T: CustomType + 'static>(
+        &mut self,
+        predicate_name: &'static str,
+    ) -> &mut Self {
         self.register_fn(predicate_name, |value: FFIArg| {
             if let FFIArg::CustomRef(CustomRef { mut custom, .. }) = value {
                 as_underlying_ffi_type::<T>(custom.get_mut()).is_some()
