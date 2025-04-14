@@ -532,7 +532,11 @@ pub fn read_bytes(amt: usize, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal
 
     match bytes {
         crate::values::port::MaybeBlocking::Nonblocking(b) => {
-            Ok(SteelVal::ByteVector(SteelByteVector::new(b).into()))
+            if b.is_empty() {
+                Ok(eof_object())
+            } else {
+                Ok(SteelVal::ByteVector(SteelByteVector::new(b).into()))
+            }
         }
         crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
     }
@@ -540,7 +544,7 @@ pub fn read_bytes(amt: usize, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal
 
 /// Reads bytes from an input port into a given buffer.
 ///
-/// (read-bytes-into-buf buf amt [port]) -> bytes?
+/// (read-bytes-into-buf buf amt [port]) -> int?
 ///
 /// * buf : bytes?
 /// * amt : (and positive? int?)
@@ -559,9 +563,12 @@ pub fn read_bytes_into_buf(
         stop!(ContractViolation => "read-bytes-into-buf expects a buffer with the capacity to fill the buffer with the specified amount");
     }
 
-    port.read_bytes_into_buf(&mut guard)?;
+    let res = port.read_bytes_into_buf(&mut guard)?;
 
-    Ok(SteelVal::Void)
+    match res {
+        crate::values::port::MaybeBlocking::Nonblocking((amt, _)) => Ok(SteelVal::IntV(amt as _)),
+        crate::values::port::MaybeBlocking::WouldBlock => Ok(SteelVal::Void),
+    }
 }
 
 /// Writes a single byte to an output port.

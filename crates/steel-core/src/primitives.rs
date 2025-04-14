@@ -31,6 +31,8 @@ pub mod vectors;
 // as to not require depending on the system git.
 pub mod git;
 
+pub mod hashes;
+
 use crate::gc::{Gc, GcMut};
 use crate::rvals::{FromSteelVal, IntoSteelVal, SteelByteVector};
 use crate::rvals::{
