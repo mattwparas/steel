@@ -163,6 +163,7 @@ pub trait Custom: private::Sealed {
         None
     }
 
+    #[cfg(feature = "dylibs")]
     fn fmt_ffi(&self) -> Option<abi_stable::std_types::RString> {
         None
     }
