@@ -395,8 +395,27 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                     }
                                 }
                             }
-                            // TODO: Handle this arity if it comes up
-                            Some(Arity::Range(n)) => {}
+                            Some(Arity::Range(n, m)) => {
+                                let arg_amount = l.args.len() - 1;
+                                if (arg_amount < n) || (arg_amount > m) {
+                                    let span =
+                                        l.first().unwrap().atom_syntax_object().unwrap().span;
+
+                                    if let Some(diagnostic) = create_diagnostic(
+                                        &self.context.rope,
+                                        &span,
+                                        format!(
+                                    "Arity mismatch: {} expects {} to {} arguments, found {}",
+                                    l.first().unwrap(),
+                                    n,
+                                    m,
+                                    arg_amount
+                                ),
+                                    ) {
+                                        self.diagnostics.push(diagnostic);
+                                    }
+                                }
+                            }
                             None => {}
                         }
                     } else if let Some(refers_to_id) = info.refers_to {
@@ -693,7 +712,7 @@ fn resolve_contracts() {
     let expression = r#"
 (define/contract (my-fun-contracted-function x y)
   (->/c int? int? int?)
-  (+ x y))        
+  (+ x y))
     "#;
 
     let mut engine = Engine::new();

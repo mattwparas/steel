@@ -92,7 +92,7 @@ pub enum Arity {
     Exact(usize),
     AtLeast(usize),
     AtMost(usize),
-    Range(usize),
+    Range(usize, usize),
 }
 
 impl Custom for Arity {
@@ -101,7 +101,7 @@ impl Custom for Arity {
             Arity::Exact(a) => format!("(Arity::Exact {a})"),
             Arity::AtLeast(a) => format!("(Arity::AtLeast {a})"),
             Arity::AtMost(a) => format!("(Arity::AtMost {a})"),
-            Arity::Range(a) => format!("(Arity::Range {a})"),
+            Arity::Range(a, b) => format!("(Arity::Range [{a},{b}])"),
         }))
     }
 }
