@@ -106,7 +106,7 @@ pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<(), Box
             .is_some()
         {
             for file in last.filenames {
-                if matches!(file.extension(), Some("so") | Some("dylib") | Some("lib")) {
+                if file.extension() == Some(std::env::consts::DLL_EXTENSION) {
                     println!("Found a cdylib!");
                     let filename = file.file_name().unwrap();
 
