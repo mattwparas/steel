@@ -163,6 +163,10 @@ pub trait Custom: private::Sealed {
         None
     }
 
+    fn fmt_ffi(&self) -> Option<abi_stable::std_types::RString> {
+        None
+    }
+
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
     }
