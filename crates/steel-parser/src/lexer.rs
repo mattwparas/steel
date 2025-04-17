@@ -718,7 +718,7 @@ impl<'a> Iterator for Lexer<'a> {
                     Some(Ok(TokenType::Unquote))
                 }
             }
-            Some('+') | Some('-') => {
+            Some('+') | Some('-') | Some('.') => {
                 self.eat();
                 Some(self.read_number())
             }
@@ -1340,6 +1340,7 @@ mod lexer_tests {
                 1/4.0
                 1//4
                 1 / 4
+                .2
 "#,
             true,
             SourceId::none(),
@@ -1417,6 +1418,11 @@ mod lexer_tests {
                     source: "4",
                     span: Span::new(205, 206, SourceId::none()),
                 },
+                Token {
+                    ty: RealLiteral::Float(0.2).into(),
+                    source: ".2",
+                    span: Span::new(223, 225, SourceId::none())
+                }
             ]
         );
     }
