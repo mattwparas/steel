@@ -218,10 +218,6 @@ impl ConditionalEventHandler for CtrlCHandler {
 pub fn repl_base(mut vm: Engine) -> std::io::Result<()> {
     display_startup();
 
-    #[cfg(target_os = "windows")]
-    let mut prompt = String::from("λ > ");
-
-    #[cfg(not(target_os = "windows"))]
     let mut prompt = format!("{}", "λ > ".bright_green().bold().italic());
 
     let mut rl = Editor::<RustylineHelper, rustyline::history::DefaultHistory>::new()
