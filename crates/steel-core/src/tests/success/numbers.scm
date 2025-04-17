@@ -235,3 +235,7 @@
 (assert-equal! '(2 1) (exact-integer-sqrt 5))
 (assert-equal! '(10000000000000000000000 4)
                (exact-integer-sqrt 100000000000000000000000000000000000000000004))
+
+(assert-equal! 255 (string->number "ff" 16))
+(assert-equal! 1+2i (string->number "1+10i" 2))
+(assert-equal! 1/8 (string->number "1/10" 8))
