@@ -123,8 +123,7 @@ impl DylibContainers {
                     for path in paths {
                         let path = path.unwrap().path();
 
-                        if path.extension().unwrap() != "so" && path.extension().unwrap() != "dylib"
-                        {
+                        if path.extension().unwrap() != std::env::consts::DLL_EXTENSION {
                             continue;
                         }
 
