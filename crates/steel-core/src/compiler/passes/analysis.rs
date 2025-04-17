@@ -2589,6 +2589,7 @@ impl<'a> VisitorMutRefUnit for RemovedUnusedImports<'a> {
                                         _ => false,
                                     },
                                     NumberLiteral::Complex(_, _) => false,
+                                    NumberLiteral::Polar(_, _) => false,
                                 },
                                 _ => false,
                             },
