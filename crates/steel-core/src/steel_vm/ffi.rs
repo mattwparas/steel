@@ -15,7 +15,7 @@ use crate::{
     rerrs::ErrorKind,
     rvals::{
         as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal,
-        MaybeSendSyncStatic, Result, SteelByteVector, SteelHashMap, SteelVal,
+        MaybeSendSyncStatic, Result, SteelByteVector, SteelHashMap, SteelVal, SteelVector,
     },
     values::{
         functions::{BoxedDynFunction, StaticOrRcStr},
@@ -1203,7 +1203,6 @@ pub enum FFIValue {
     DynWriter(DynWriter),
     DynReader(DynReader),
     VectorToVector(RVec<FFIValue>),
-    VectorToMutableVector(RVec<FFIValue>),
 }
 
 #[repr(C)]
@@ -1280,7 +1279,6 @@ impl std::fmt::Debug for FFIValue {
             FFIValue::DynWriter(_) => write!(f, "#<ffi-writer>"),
             FFIValue::DynReader(_) => write!(f, "#<ffi-reader>"),
             FFIValue::VectorToVector(v) => write!(f, "{:?}", v),
-            FFIValue::VectorToMutableVector(v) => write!(f, "{:?}", v),
         }
     }
 }
@@ -1383,13 +1381,9 @@ impl IntoSteelVal for FFIValue {
                 .into_iter()
                 .map(|x| x.into_steelval())
                 .collect::<Result<_>>()
-                .map(SteelVal::ListV),
-
-            Self::VectorToMutableVector(v) => v
-                .into_iter()
-                .map(|x| x.into_steelval())
-                .collect::<Result<_>>()
-                .map(SteelVal::ListV),
+                .map(Gc::new)
+                .map(SteelVector)
+                .map(SteelVal::VectorV),
 
             Self::HashMap(h) => h
                 .into_iter()
