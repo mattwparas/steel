@@ -761,6 +761,7 @@ pub fn native(
         arity_number,
         is_const,
     } = native_macro_setup(&input, &args);
+
     let definition_struct = quote! {
         pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
             name: #steel_function_name,
