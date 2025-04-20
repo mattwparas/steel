@@ -2453,14 +2453,11 @@ fn test_steel_quote_macro() {
     let foobarbaz = ExprKind::atom("foo");
     let foobarbaz_list = ExprKind::List(List::new(vec![ExprKind::atom("foo")]));
 
-    println!(
-        "{}",
-        steel_derive::internal_steel_quote! {
-            (define bananas #foobarbaz)
-            (define x (begin @foobarbaz_list ...))
-        }
-        .unwrap()
-        .first()
-        .unwrap()
-    );
+    let expanded = steel_derive::internal_steel_quote! {
+        (define bananas #foobarbaz)
+        (define x (begin @foobarbaz_list ...))
+    }
+    .unwrap();
+
+    println!("{}", expanded);
 }

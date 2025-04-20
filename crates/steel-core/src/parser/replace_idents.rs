@@ -43,7 +43,7 @@ pub fn replace_identifiers(
 pub fn expand_template_pair(
     mut exprs: Vec<ExprKind>,
     bindings_list: impl IntoIterator<Item = (InternedString, (BindingKind, ExprKind))>,
-) -> Result<Vec<ExprKind>> {
+) -> Result<ExprKind> {
     let mut bindings = FxHashMap::default();
     let mut binding_kind = FxHashMap::default();
 
@@ -56,7 +56,14 @@ pub fn expand_template_pair(
         expand_template(expr, &mut bindings, &mut binding_kind)?;
     }
 
-    Ok(exprs)
+    if exprs.len() == 1 {
+        Ok(exprs.into_iter().next().unwrap())
+    } else {
+        Ok(ExprKind::Begin(Box::new(steel_parser::ast::Begin::new(
+            exprs,
+            SyntaxObject::default(TokenType::Begin),
+        ))))
+    }
 }
 
 pub fn expand_template(
