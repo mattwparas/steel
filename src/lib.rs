@@ -70,7 +70,6 @@ const VERSION_MESSAGE: &str = concat!(
 
 pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
     let mut vm = Engine::new();
-
     vm.register_value("std::env::args", steel::SteelVal::ListV(vec![].into()));
 
     register_readline_module(&mut vm);
