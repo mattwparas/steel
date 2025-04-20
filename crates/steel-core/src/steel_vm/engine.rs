@@ -17,8 +17,8 @@ use crate::{
         compiler::{Compiler, SerializableCompiler},
         map::SymbolMap,
         modules::{
-            intern_modules, path_to_module_name, CompiledModule, MANGLER_PREFIX,
-            PRELUDE_WITHOUT_BASE,
+            intern_modules, path_to_module_name, CompiledModule, SourceModuleResolver,
+            MANGLER_PREFIX, PRELUDE_WITHOUT_BASE,
         },
         program::{
             number_literal_to_steel, Executable, RawProgramWithSymbols,
@@ -573,6 +573,16 @@ impl Engine {
         log::debug!(target: "pipeline_time", "Total kernel loading time: {:?}", total_time.elapsed());
 
         vm
+    }
+
+    pub fn register_source_module_resolver<T: SourceModuleResolver + 'static>(
+        &mut self,
+        resolver: T,
+    ) {
+        self.virtual_machine
+            .compiler
+            .write()
+            .register_source_module_resolver(resolver);
     }
 
     /// Register a module resolver. This is used for creating references to modules

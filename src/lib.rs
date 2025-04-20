@@ -2,12 +2,14 @@ extern crate steel;
 extern crate steel_derive;
 extern crate steel_repl;
 
+use steel::compiler::modules::SourceModuleResolver;
 use steel::steel_vm::engine::Engine;
 use steel_doc::walk_dir;
 use steel_repl::{register_readline_module, run_repl};
 
 use std::path::PathBuf;
 use std::process;
+use std::time::SystemTime;
 use std::{error::Error, fs};
 
 use clap::{CommandFactory, Parser};
@@ -66,8 +68,31 @@ const VERSION_MESSAGE: &str = concat!(
     ")"
 );
 
+struct TestSourceModuleResolver;
+
+impl SourceModuleResolver for TestSourceModuleResolver {
+    fn resolve(&self, key: &str) -> Option<String> {
+        if key == "foo/bar/baz" {
+            Some(r#"(displayln "Hello world!")"#.to_string())
+        } else {
+            None
+        }
+    }
+
+    fn exists(&self, key: &str) -> bool {
+        key == "foo/bar/baz"
+    }
+
+    fn last_modified(&self, _: &str) -> std::time::SystemTime {
+        SystemTime::UNIX_EPOCH
+    }
+}
+
 pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
     let mut vm = Engine::new();
+
+    vm.register_source_module_resolver(TestSourceModuleResolver);
+
     vm.register_value("std::env::args", steel::SteelVal::ListV(vec![].into()));
 
     register_readline_module(&mut vm);
