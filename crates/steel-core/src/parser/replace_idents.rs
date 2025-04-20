@@ -40,6 +40,25 @@ pub fn replace_identifiers(
     ReplaceExpressions::new(bindings, binding_kind, fallback_bindings).visit(expr)
 }
 
+pub fn expand_template_pair(
+    mut exprs: Vec<ExprKind>,
+    bindings_list: impl IntoIterator<Item = (InternedString, (BindingKind, ExprKind))>,
+) -> Result<Vec<ExprKind>> {
+    let mut bindings = FxHashMap::default();
+    let mut binding_kind = FxHashMap::default();
+
+    for (key, (kind, expr)) in bindings_list.into_iter() {
+        bindings.insert(key, expr);
+        binding_kind.insert(key, kind);
+    }
+
+    for expr in &mut exprs {
+        expand_template(expr, &mut bindings, &mut binding_kind)?;
+    }
+
+    Ok(exprs)
+}
+
 pub fn expand_template(
     expr: &mut ExprKind,
     bindings: &mut FxHashMap<InternedString, ExprKind>,

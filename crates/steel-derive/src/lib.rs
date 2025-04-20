@@ -6,11 +6,138 @@ extern crate quote;
 use std::collections::HashMap;
 
 use proc_macro::TokenStream;
+use proc_macro2::Group;
 use quote::{quote, ToTokens};
 use syn::{
     punctuated::Punctuated, spanned::Spanned, Attribute, Data, DeriveInput, Expr, ExprGroup,
     ExprLit, FnArg, Ident, ItemFn, Lit, LitStr, Meta, ReturnType, Signature, Type, TypeReference,
 };
+
+#[proc_macro]
+pub fn steel_quote(input: TokenStream) -> TokenStream {
+    let token_iter = proc_macro2::TokenStream::from(input).into_iter();
+
+    let mut identifiers: Vec<Ident> = Vec::new();
+    let mut list_identifiers: Vec<Ident> = Vec::new();
+    let mut tokens: Vec<proc_macro2::TokenTree> = Vec::new();
+
+    walk(
+        token_iter,
+        &mut list_identifiers,
+        &mut identifiers,
+        &mut tokens,
+    );
+
+    let original = proc_macro2::TokenStream::from_iter(tokens.into_iter()).to_string();
+
+    let identifier_str: Vec<String> = identifiers.iter().map(|x| x.to_string()).collect();
+
+    let list_identifiers_str: Vec<String> =
+        list_identifiers.iter().map(|x| x.to_string()).collect();
+
+    quote! {
+        ::steel::parser::replace_idents::expand_template_pair(
+            steel::::parser::parser::Parser::parse(#original).unwrap(),
+            vec![
+                #(
+                    (#identifier_str.into(), (::steel::parser::expander::BindingKind::Single, #identifiers)),
+                )*
+
+                #(
+                   (#list_identifiers_str.into(), (::steel::parser::expander::BindingKind::Many, #list_identifiers)),
+                )*
+            ]
+        )
+
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn internal_steel_quote(input: TokenStream) -> TokenStream {
+    let token_iter = proc_macro2::TokenStream::from(input).into_iter();
+
+    let mut identifiers: Vec<Ident> = Vec::new();
+    let mut list_identifiers: Vec<Ident> = Vec::new();
+    let mut tokens: Vec<proc_macro2::TokenTree> = Vec::new();
+
+    walk(
+        token_iter,
+        &mut list_identifiers,
+        &mut identifiers,
+        &mut tokens,
+    );
+
+    let original = proc_macro2::TokenStream::from_iter(tokens.into_iter()).to_string();
+
+    let identifier_str: Vec<String> = identifiers.iter().map(|x| x.to_string()).collect();
+
+    let list_identifiers_str: Vec<String> =
+        list_identifiers.iter().map(|x| x.to_string()).collect();
+
+    quote! {
+        crate::parser::replace_idents::expand_template_pair(
+            crate::parser::parser::Parser::parse(#original).unwrap(),
+            vec![
+                #(
+                    (#identifier_str.into(), (crate::parser::expander::BindingKind::Single, #identifiers)),
+                )*
+
+                #(
+                   (#list_identifiers_str.into(), (crate::parser::expander::BindingKind::Many, #list_identifiers)),
+                )*
+            ]
+        )
+
+    }
+    .into()
+}
+
+fn walk(
+    mut token_iter: proc_macro2::token_stream::IntoIter,
+    list_identifiers: &mut Vec<Ident>,
+    identifiers: &mut Vec<Ident>,
+    tokens: &mut Vec<proc_macro2::TokenTree>,
+) {
+    while let Some(next) = token_iter.next() {
+        match &next {
+            proc_macro2::TokenTree::Group(g) => {
+                let mut child = Vec::new();
+
+                walk(
+                    g.stream().into_iter(),
+                    list_identifiers,
+                    identifiers,
+                    &mut child,
+                );
+
+                tokens.push(proc_macro2::TokenTree::Group(Group::new(
+                    g.delimiter(),
+                    proc_macro2::TokenStream::from_iter(child.into_iter()),
+                )));
+            }
+            proc_macro2::TokenTree::Punct(p) if p.as_char() == '@' => {
+                if let Some(proc_macro2::TokenTree::Ident(next_ident)) = token_iter.next() {
+                    list_identifiers.push(next_ident.clone());
+                    tokens.push(proc_macro2::TokenTree::Ident(next_ident));
+                } else {
+                    panic!();
+                };
+            }
+            proc_macro2::TokenTree::Punct(p) if p.as_char() == '#' => {
+                if let Some(proc_macro2::TokenTree::Ident(next_ident)) = token_iter.next() {
+                    identifiers.push(next_ident.clone());
+                    tokens.push(proc_macro2::TokenTree::Ident(next_ident));
+                } else {
+                    panic!();
+                };
+            }
+            _ => {
+                tokens.push(next);
+            }
+        }
+    }
+}
 
 fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> TokenStream {
     let name = &input.ident;
