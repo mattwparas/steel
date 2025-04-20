@@ -685,17 +685,16 @@ fn arity_code_injection(
     modified_input
 }
 
-fn native_macro_setup(
-    input: &ItemFn,
-    args: &Punctuated<Meta, Comma>,
-) -> (
-    proc_macro2::TokenStream,
-    proc_macro2::Ident,
-    String,
-    proc_macro2::Ident,
-    syn::Expr,
-    bool,
-) {
+struct NativeMacroComponents {
+    pub doc_field: proc_macro2::TokenStream,
+    pub doc_name: proc_macro2::Ident,
+    pub value: String,
+    pub function_name: proc_macro2::Ident,
+    pub arity_number: syn::Expr,
+    pub is_const: bool,
+}
+
+fn native_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> NativeMacroComponents {
     let keyword_map = parse_key_value_pairs(&args);
 
     let value = keyword_map
@@ -728,14 +727,15 @@ fn native_macro_setup(
     } else {
         quote! { None }
     };
-    (
+
+    NativeMacroComponents {
         doc_field,
         doc_name,
-        value.to_string(),
+        value: value.to_string(),
         function_name,
         arity_number,
         is_const,
-    )
+    }
 }
 
 #[proc_macro_attribute]
@@ -752,8 +752,14 @@ pub fn native(
         arity_code_injection(&input, &args, false)
     };
 
-    let (doc_field, doc_name, value, function_name, arity_number, is_const) =
-        native_macro_setup(&input, &args);
+    let NativeMacroComponents {
+        doc_field,
+        doc_name,
+        value,
+        function_name,
+        arity_number,
+        is_const,
+    } = native_macro_setup(&input, &args);
     let definition_struct = quote! {
         pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
             name: #value,
@@ -794,8 +800,14 @@ pub fn context(
         arity_code_injection(&input, &args, true)
     };
 
-    let (doc_field, doc_name, value, function_name, arity_number, is_const) =
-        native_macro_setup(&input, &args);
+    let NativeMacroComponents {
+        doc_field,
+        doc_name,
+        value,
+        function_name,
+        arity_number,
+        is_const,
+    } = native_macro_setup(&input, &args);
 
     let definition_struct = quote! {
         pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
@@ -835,8 +847,14 @@ pub fn native_mut(
         arity_code_injection(&input, &args, false)
     };
 
-    let (doc_field, doc_name, value, function_name, arity_number, is_const) =
-        native_macro_setup(&input, &args);
+    let NativeMacroComponents {
+        doc_field,
+        doc_name,
+        value,
+        function_name,
+        arity_number,
+        is_const,
+    } = native_macro_setup(&input, &args);
 
     let definition_struct = quote! {
         pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
