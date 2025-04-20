@@ -68,30 +68,8 @@ const VERSION_MESSAGE: &str = concat!(
     ")"
 );
 
-struct TestSourceModuleResolver;
-
-impl SourceModuleResolver for TestSourceModuleResolver {
-    fn resolve(&self, key: &str) -> Option<String> {
-        if key == "foo/bar/baz" {
-            Some(r#"(displayln "Hello world!")"#.to_string())
-        } else {
-            None
-        }
-    }
-
-    fn exists(&self, key: &str) -> bool {
-        key == "foo/bar/baz"
-    }
-
-    fn last_modified(&self, _: &str) -> std::time::SystemTime {
-        SystemTime::UNIX_EPOCH
-    }
-}
-
 pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
     let mut vm = Engine::new();
-
-    vm.register_source_module_resolver(TestSourceModuleResolver);
 
     vm.register_value("std::env::args", steel::SteelVal::ListV(vec![].into()));
 
