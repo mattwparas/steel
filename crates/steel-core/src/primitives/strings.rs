@@ -1,11 +1,10 @@
 use crate::gc::Gc;
 use crate::values::lists::{List, SteelList};
 
-use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
+use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::{stop, Vector};
 
-use num::{BigInt, Num};
 use steel_derive::{function, native};
 
 /// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
@@ -145,41 +144,6 @@ pub fn number_to_string(value: &SteelVal, mut rest: RestArgsIter<'_, isize>) -> 
     number_to_string_impl(value, radix)
 }
 
-fn string_to_number_impl(value: &str, radix: Option<u32>) -> Result<SteelVal> {
-    let expr = crate::parser::parser::Parser::parse(value)?;
-
-    if expr.len() != 1 {
-        return Ok(SteelVal::BoolV(false));
-    }
-
-    let explicit_radix = matches!(
-        value.get(0..2),
-        Some("#x") | Some("#d") | Some("#o") | Some("#b")
-    );
-
-    let implicit_radix = radix.filter(|_| !explicit_radix);
-
-    let number = expr.into_iter().next().unwrap();
-
-    let svalue = SteelVal::try_from(number)?;
-
-    match (svalue, implicit_radix) {
-        (SteelVal::IntV(_), Some(radix)) => match isize::from_str_radix(value, radix) {
-            Ok(parsed) => Ok(SteelVal::IntV(parsed)),
-            Err(_) => Ok(SteelVal::BoolV(false)),
-        },
-        (val @ SteelVal::IntV(_), None) => Ok(val),
-        (SteelVal::BigNum(_), Some(radix)) => match BigInt::from_str_radix(value, radix) {
-            Ok(parsed) => Ok(SteelVal::BigNum(Gc::new(parsed))),
-            Err(_) => Ok(SteelVal::BoolV(false)),
-        },
-
-        (val @ SteelVal::BigNum(_), None) => Ok(val),
-        (svalue @ SteelVal::NumV(_), _) => Ok(svalue),
-        _ => Ok(SteelVal::BoolV(false)),
-    }
-}
-
 /// Converts the given string to a number, with an optional radix.
 /// On failure, it returns `#f`
 ///
@@ -206,10 +170,8 @@ pub fn string_to_number(
         None
     };
 
-    match string_to_number_impl(value.as_str(), radix) {
-        Ok(v) => Ok(v),
-        Err(_) => Ok(SteelVal::BoolV(false)),
-    }
+    let number = steel_parser::lexer::parse_number(value, radix);
+    number.into_steelval()
 }
 
 /// Constructs a string from the given characters
