@@ -688,8 +688,8 @@ fn arity_code_injection(
 struct NativeMacroComponents {
     pub doc_field: proc_macro2::TokenStream,
     pub doc_name: proc_macro2::Ident,
-    pub value: String,
-    pub function_name: proc_macro2::Ident,
+    pub steel_function_name: String,
+    pub rust_function_name: proc_macro2::Ident,
     pub arity_number: syn::Expr,
     pub is_const: bool,
 }
@@ -697,9 +697,10 @@ struct NativeMacroComponents {
 fn native_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> NativeMacroComponents {
     let keyword_map = parse_key_value_pairs(&args);
 
-    let value = keyword_map
+    let steel_function_name = keyword_map
         .get("name")
-        .expect("native definition requires a name!");
+        .expect("native definition requires a name!")
+        .to_string();
 
     let arity_number = keyword_map
         .get("arity")
@@ -716,10 +717,10 @@ fn native_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> NativeM
     let sign: Signature = input.clone().sig;
 
     let maybe_doc_comments = parse_doc_comment(input.clone());
-    let function_name = sign.ident.clone();
+    let rust_function_name = sign.ident.clone();
 
     let doc_name = Ident::new(
-        &(function_name.to_string().to_uppercase() + "_DEFINITION"),
+        &(rust_function_name.to_string().to_uppercase() + "_DEFINITION"),
         sign.ident.span(),
     );
     let doc_field = if let Some(doc) = maybe_doc_comments {
@@ -731,8 +732,8 @@ fn native_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> NativeM
     NativeMacroComponents {
         doc_field,
         doc_name,
-        value: value.to_string(),
-        function_name,
+        steel_function_name,
+        rust_function_name,
         arity_number,
         is_const,
     }
@@ -755,16 +756,16 @@ pub fn native(
     let NativeMacroComponents {
         doc_field,
         doc_name,
-        value,
-        function_name,
+        steel_function_name,
+        rust_function_name,
         arity_number,
         is_const,
     } = native_macro_setup(&input, &args);
     let definition_struct = quote! {
         pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-            name: #value,
+            name: #steel_function_name,
             aliases: &[],
-            func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#function_name),
+            func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#rust_function_name),
             arity: crate::steel_vm::builtin::Arity::#arity_number,
             doc: #doc_field,
             is_const: #is_const,
@@ -803,17 +804,17 @@ pub fn context(
     let NativeMacroComponents {
         doc_field,
         doc_name,
-        value,
-        function_name,
+        steel_function_name,
+        rust_function_name,
         arity_number,
         is_const,
     } = native_macro_setup(&input, &args);
 
     let definition_struct = quote! {
         pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-            name: #value,
+            name: #steel_function_name,
             aliases: &[],
-            func: crate::steel_vm::builtin::BuiltInFunctionType::Context(#function_name),
+            func: crate::steel_vm::builtin::BuiltInFunctionType::Context(#rust_function_name),
             arity: crate::steel_vm::builtin::Arity::#arity_number,
             doc: #doc_field,
             is_const: #is_const,
@@ -850,17 +851,17 @@ pub fn native_mut(
     let NativeMacroComponents {
         doc_field,
         doc_name,
-        value,
-        function_name,
+        steel_function_name,
+        rust_function_name,
         arity_number,
         is_const,
     } = native_macro_setup(&input, &args);
 
     let definition_struct = quote! {
         pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-            name: #value,
+            name: #steel_function_name,
             aliases: &[],
-            func: crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#function_name),
+            func: crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#rust_function_name),
             arity: crate::steel_vm::builtin::Arity::#arity_number,
             doc: #doc_field,
             is_const: #is_const,
