@@ -186,47 +186,9 @@ impl IntoSteelVal for NumberLiteral {
 
 impl<'a> IntoSteelVal for &'a NumberLiteral {
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
-        // real_to_steel does some cloning of bignums. It may be possible to optimize this away.
-        let real_to_steel = |re: &RealLiteral| match re {
-            RealLiteral::Int(IntLiteral::Small(i)) => i.into_steelval(),
-            RealLiteral::Int(IntLiteral::Big(i)) => i.clone().into_steelval(),
-            RealLiteral::Rational(n, d) => match (n, d) {
-                (IntLiteral::Small(n), IntLiteral::Small(d)) => {
-                    match (i32::try_from(*n), i32::try_from(*d)) {
-                        (Ok(n), Ok(0)) => {
-                            stop!(BadSyntax => format!("division by zero in {:?}/0", n))
-                        }
-                        (Ok(n), Ok(d)) => Rational32::new(n, d).into_steelval(),
-                        _ => BigRational::new(BigInt::from(*n), BigInt::from(*d)).into_steelval(),
-                    }
-                }
-                (IntLiteral::Small(n), IntLiteral::Big(d)) => {
-                    BigRational::new(BigInt::from(*n), *d.clone()).into_steelval()
-                }
-                (IntLiteral::Big(n), IntLiteral::Small(d)) => {
-                    BigRational::new(*n.clone(), BigInt::from(*d)).into_steelval()
-                }
-                (IntLiteral::Big(n), IntLiteral::Big(d)) => {
-                    BigRational::new(*n.clone(), *d.clone()).into_steelval()
-                }
-            },
-            RealLiteral::Float(f) => f.into_steelval(),
-        };
-
-        match self {
-            NumberLiteral::Real(re) => real_to_steel(re),
-            NumberLiteral::Complex(re, im) => SteelComplex {
-                re: real_to_steel(re)?,
-                im: real_to_steel(im)?,
-            }
-            .into_steelval(),
-            NumberLiteral::Polar(r, theta) => {
-                let r = real_to_steel(r)?;
-                let theta = real_to_steel(theta)?;
-
-                make_polar(&r, &theta)
-            }
-        }
+        // as we do not have an owned `self`, we have to clone here, as
+        // we need all the BigInts owned
+        self.clone().into_steelval()
     }
 }
 
