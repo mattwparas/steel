@@ -575,6 +575,12 @@ impl Engine {
         vm
     }
 
+    /// Registers a source module resolvers. This differs from `register_module_resolver` which deals
+    /// specifically with builtin modules, e.g. `BuiltInModule`. This will allow you to embed
+    /// source modules that can be referenced via `(require ...)` at the scheme level.
+    ///
+    /// This is a more flexible version of the api provided by `register_steel_module`, which allows
+    /// you to directly register a module with the name, and the associated text for that module.
     pub fn register_source_module_resolver<T: SourceModuleResolver + 'static>(
         &mut self,
         resolver: T,
@@ -1102,7 +1108,8 @@ impl Engine {
         }
     }
 
-    /// Registers a steel module
+    /// Registers a steel module. This is a more streamlined version of the
+    /// api provided by `register_source_module_resolver`.
     pub fn register_steel_module(&mut self, module_name: String, text: String) {
         self.virtual_machine
             .compiler

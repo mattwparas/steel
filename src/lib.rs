@@ -9,7 +9,6 @@ use steel_repl::{register_readline_module, run_repl};
 
 use std::path::PathBuf;
 use std::process;
-use std::time::SystemTime;
 use std::{error::Error, fs};
 
 use clap::{CommandFactory, Parser};
