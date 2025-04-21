@@ -1,5 +1,4 @@
-use crate::compiler::program::number_literal_to_steel;
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::{
     compiler::compiler::OptLevel,
     parser::{
@@ -292,7 +291,7 @@ impl<'a> ConstantEvaluator<'a> {
                 self.bindings.borrow_mut().get(s)
             }
             // todo!() figure out if it is ok to expand scope of eval_atom.
-            TokenType::Number(n) => number_literal_to_steel(n).ok(),
+            TokenType::Number(n) => (&**n).into_steelval().ok(),
             TokenType::StringLiteral(s) => Some(SteelVal::StringV((s.clone()).into())),
             TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
             _ => None,

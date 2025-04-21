@@ -20,10 +20,7 @@ use crate::{
             intern_modules, path_to_module_name, CompiledModule, SourceModuleResolver,
             MANGLER_PREFIX, PRELUDE_WITHOUT_BASE,
         },
-        program::{
-            number_literal_to_steel, Executable, RawProgramWithSymbols,
-            SerializableRawProgramWithSymbols,
-        },
+        program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
     },
     containers::RegisterValue,
     core::{
@@ -1561,7 +1558,7 @@ impl Engine {
         fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
             match &t.ty {
                 TokenType::BooleanLiteral(b) => Ok((*b).into()),
-                TokenType::Number(n) => number_literal_to_steel(n),
+                TokenType::Number(n) => (&**n).into_steelval(),
                 TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
                 TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
                 // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
