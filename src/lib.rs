@@ -2,7 +2,6 @@ extern crate steel;
 extern crate steel_derive;
 extern crate steel_repl;
 
-use steel::compiler::modules::SourceModuleResolver;
 use steel::steel_vm::engine::Engine;
 use steel_doc::walk_dir;
 use steel_repl::{register_readline_module, run_repl};
