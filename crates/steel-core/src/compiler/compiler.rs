@@ -49,7 +49,7 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{
     constants::SerializableConstantMap,
-    modules::{CompiledModule, ModuleManager},
+    modules::{CompiledModule, ModuleManager, SourceModuleResolver},
     passes::{analysis::Analysis, mangle::NameMangler},
     program::RawProgramWithSymbols,
 };
@@ -485,6 +485,13 @@ impl Compiler {
 
     pub fn register_builtin(&mut self, name: String, contents: String) {
         self.module_manager.add_builtin_module(name, contents);
+    }
+
+    pub fn register_source_module_resolver(
+        &mut self,
+        resolver: impl SourceModuleResolver + 'static,
+    ) {
+        self.module_manager.register_module_resolver(resolver);
     }
 
     pub fn add_search_directory(&mut self, dir: PathBuf) {

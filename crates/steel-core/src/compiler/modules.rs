@@ -167,6 +167,13 @@ pub(crate) struct ModuleManager {
     file_metadata: FxHashMap<PathBuf, SystemTime>,
     visited: FxHashSet<PathBuf>,
     custom_builtins: HashMap<String, String>,
+    #[serde(skip_serializing, skip_deserializing)]
+    module_resolvers: Vec<Arc<dyn SourceModuleResolver>>,
+}
+
+pub trait SourceModuleResolver: Send + Sync {
+    fn resolve(&self, key: &str) -> Option<String>;
+    fn exists(&self, key: &str) -> bool;
 }
 
 impl ModuleManager {
@@ -179,6 +186,7 @@ impl ModuleManager {
             file_metadata,
             visited: FxHashSet::default(),
             custom_builtins: HashMap::new(),
+            module_resolvers: Vec::new(),
         }
     }
 
@@ -200,6 +208,13 @@ impl ModuleManager {
 
     pub(crate) fn default() -> Self {
         Self::new(FxHashMap::default(), FxHashMap::default())
+    }
+
+    pub(crate) fn register_module_resolver(
+        &mut self,
+        resolver: impl SourceModuleResolver + 'static,
+    ) {
+        self.module_resolvers.push(Arc::new(resolver));
     }
 
     // Add the module directly to the compiled module cache
@@ -228,11 +243,10 @@ impl ModuleManager {
             global_macro_map,
             &self.custom_builtins,
             &[],
+            &self.module_resolvers,
         )?;
 
         module_builder.compile()?;
-
-        // println!("{:#?}", self.compiled_modules);
 
         Ok(())
     }
@@ -272,6 +286,7 @@ impl ModuleManager {
             global_macro_map,
             &self.custom_builtins,
             search_dirs,
+            &self.module_resolvers,
         )?;
 
         let mut module_statements = module_builder.compile()?;
@@ -1674,6 +1689,7 @@ struct ModuleBuilder<'a> {
     global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
     custom_builtins: &'a HashMap<String, String>,
     search_dirs: &'a [PathBuf],
+    module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
 }
 
 impl<'a> ModuleBuilder<'a> {
@@ -1691,6 +1707,7 @@ impl<'a> ModuleBuilder<'a> {
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
         search_dirs: &'a [PathBuf],
+        module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
         // change the path to not always be required
@@ -1723,6 +1740,7 @@ impl<'a> ModuleBuilder<'a> {
             global_macro_map,
             custom_builtins,
             search_dirs,
+            module_resolvers,
         })
     }
 
@@ -1823,6 +1841,17 @@ impl<'a> ModuleBuilder<'a> {
                             .get(module.to_str().unwrap())
                             .map(|x| Cow::Owned(x.to_string()))
                     })
+                    .or_else(|| {
+                        self.module_resolvers
+                            .iter()
+                            .find_map(|x| x.resolve(module.to_str().unwrap()))
+                            // Insert the prelude
+                            .map(|mut x| {
+                                x.insert_str(0, PRELUDE_STRING);
+                                x
+                            })
+                            .map(Cow::Owned)
+                    })
                     .ok_or_else(
                         crate::throw!(Generic => "Unable to find builtin module: {:?}", module),
                     )?;
@@ -1838,6 +1867,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.builtin_modules.clone(),
                     self.global_macro_map,
                     self.custom_builtins,
+                    self.module_resolvers,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -1911,6 +1941,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.global_macro_map,
                     self.custom_builtins,
                     self.search_dirs,
+                    self.module_resolvers,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -2566,6 +2597,18 @@ impl<'a> ModuleBuilder<'a> {
                     return Ok(());
                 }
 
+                if self
+                    .module_resolvers
+                    .iter()
+                    .find(|x| x.exists(s.as_str()))
+                    .is_some()
+                {
+                    require_object.path =
+                        Some(PathOrBuiltIn::BuiltIn(s.clone().to_string().into()));
+
+                    return Ok(());
+                }
+
                 if cfg!(target_arch = "wasm32") {
                     stop!(Generic => "requiring modules is not supported for wasm");
                 }
@@ -2716,6 +2759,15 @@ impl<'a> ModuleBuilder<'a> {
                                 require_object.for_syntax = true;
 
                                 return Ok(());
+                            } else if self
+                                .module_resolvers
+                                .iter()
+                                .find(|x| x.exists(path))
+                                .is_some()
+                            {
+                                require_object.path =
+                                    Some(PathOrBuiltIn::BuiltIn(Cow::Owned(path.to_string())));
+                                require_object.for_syntax = true;
                             } else {
                                 let mut current = self.name.clone();
                                 if current.is_file() {
@@ -2857,6 +2909,7 @@ impl<'a> ModuleBuilder<'a> {
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
+        module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -2869,6 +2922,7 @@ impl<'a> ModuleBuilder<'a> {
             global_macro_map,
             custom_builtins,
             &[],
+            module_resolvers,
         )
         .parse_builtin(input)
     }
@@ -2884,6 +2938,7 @@ impl<'a> ModuleBuilder<'a> {
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
         search_dirs: &'a [PathBuf],
+        module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -2896,6 +2951,7 @@ impl<'a> ModuleBuilder<'a> {
             global_macro_map,
             custom_builtins,
             search_dirs,
+            module_resolvers,
         )
         .parse_from_path()
     }
@@ -2911,6 +2967,7 @@ impl<'a> ModuleBuilder<'a> {
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
         search_dirs: &'a [PathBuf],
+        module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
     ) -> Self {
         // println!("New module found: {:?}", name);
 
@@ -2934,6 +2991,7 @@ impl<'a> ModuleBuilder<'a> {
             global_macro_map,
             custom_builtins,
             search_dirs,
+            module_resolvers,
         }
     }
 
@@ -2962,7 +3020,10 @@ impl<'a> ModuleBuilder<'a> {
 
     fn parse_from_path(mut self) -> Result<Self> {
         log::info!("Opening: {:?}", self.name);
+        let mut exprs = String::new();
 
+        // If we were unable to resolve it via any of the built in module resolvers,
+        // then we check the file system.
         let mut file = std::fs::File::open(&self.name).map_err(|err| {
             let mut err = crate::SteelErr::from(err);
             err.prepend_message(&format!("Attempting to load module from: {:?}", self.name));
@@ -2971,24 +3032,12 @@ impl<'a> ModuleBuilder<'a> {
         self.file_metadata
             .insert(self.name.clone(), file.metadata()?.modified()?);
 
-        // TODO: DEFAULT MODULE LOADER PREFIX
-        let mut exprs = String::new();
-
-        // TODO: Don't do this - get the source from the cache?
-        // let mut exprs = PRELUDE_STRING.to_string();
+        file.read_to_string(&mut exprs)?;
 
         let mut expressions = Parser::new(&PRELUDE_STRING, SourceId::none())
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
-
-        // let expressions = Parser::new_from_source(, , )
-
-        // Add the modules here:
-
-        // exprs.push_str(ALL_MODULES);
-
-        file.read_to_string(&mut exprs)?;
 
         let id = self.sources.add_source(exprs, Some(self.name.clone()));
 
