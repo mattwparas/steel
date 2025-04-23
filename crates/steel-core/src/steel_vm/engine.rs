@@ -2407,6 +2407,18 @@ mod derive_macro_tests {
     use super::*;
 
     #[derive(steel_derive::_Steel, PartialEq, Debug)]
+    #[steel(getters)]
+    struct FooBar {
+        baz: usize,
+    }
+
+    #[test]
+    fn test_struct_registered() {
+        let mut module = BuiltInModule::new("foo");
+        FooBar::register_type(&mut module);
+    }
+
+    #[derive(steel_derive::_Steel, PartialEq, Debug)]
     #[steel(equality, getters, constructors)]
     enum TestEnumVariants {
         Foo,

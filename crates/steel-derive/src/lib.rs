@@ -58,7 +58,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                                 values.push(quote! {
                                     |value: &#name| {
                                         use #prefix::rvals::IntoSteelVal;
-                                        &value.#field_name.clone().into_steelval()
+                                        value.#field_name.clone().into_steelval()
                                     }
                                 });
                             }
@@ -90,7 +90,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                             values.push(quote! {
                                 |value: &#name| {
                                     use #prefix::rvals::IntoSteelVal;
-                                    &value.#index.clone().into_steelval()
+                                    value.#index.clone().into_steelval()
                                 }
                             });
                         }
