@@ -470,6 +470,14 @@ impl Analysis {
         Some(id)
     }
 
+    pub fn resolve_reference(&self, mut id: SyntaxObjectId) -> SyntaxObjectId {
+        while let Some(next) = self.info.get(&id).and_then(|x| x.refers_to) {
+            id = next;
+        }
+
+        id
+    }
+
     pub fn visit_top_level_define_function_without_body(
         &mut self,
         define: &crate::parser::ast::Define,
@@ -4819,6 +4827,10 @@ impl<'a> SemanticAnalysis<'a> {
         self.analysis.resolve_alias(id)
     }
 
+    pub fn resolve_reference(&self, id: SyntaxObjectId) -> SyntaxObjectId {
+        self.analysis.resolve_reference(id)
+    }
+
     pub fn flatten_anonymous_functions(&mut self) {
         FlattenAnonymousFunctionCalls::flatten(&self.analysis, self.exprs);
     }
@@ -5742,6 +5754,35 @@ mod analysis_pass_tests {
             let found = analysis.resolve_alias(alias_list_4_id);
 
             assert_eq!(list_id, found.unwrap());
+        }
+    }
+
+    #[test]
+    fn resolve_reference() {
+        let script = r#"
+            (define (double number)
+                (+ number number))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let analysis = SemanticAnalysis::new(&mut exprs);
+
+        let identifiers = analysis
+            .analysis
+            .identifier_info()
+            .iter()
+            .filter(|(_, semantic_info)| semantic_info.kind == IdentifierStatus::Local)
+            .map(|(id, _)| analysis.resolve_reference(*id))
+            .collect::<Vec<_>>();
+
+        assert_eq!(identifiers.len(), 3);
+
+        for window in identifiers.windows(2) {
+            let [left, right] = window else {
+                unreachable!()
+            };
+
+            assert_eq!(left, right);
         }
     }
 
