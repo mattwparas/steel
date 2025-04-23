@@ -333,8 +333,8 @@ impl<'a> Lexer<'a> {
                 c if c.is_ascii_digit() => {
                     self.eat();
                 }
-                '+' | '-' | '.' | '/' | 'a' | 'A' | 'b' | 'B' | 'c' | 'C' | 'd' | 'D' | 'e'
-                | 'E' | 'f' | 'F' | 'i' | 'n' => {
+                '+' | '-' | '.' | '/' | '@' | 'a' | 'A' | 'b' | 'B' | 'c' | 'C' | 'd' | 'D'
+                | 'e' | 'E' | 'f' | 'F' | 'i' | 'n' => {
                     self.eat();
                 }
                 '(' | ')' | '[' | ']' => {
@@ -857,6 +857,12 @@ pub fn parse_number(s: &str, radix: Option<u32>) -> Option<NumberLiteral> {
         Some("#b" | "#B") => (&s[2..], 2),
         _ => (s, radix.unwrap_or(10)),
     };
+
+    if let Some((r, theta)) = s.split_once('@') {
+        let r = parse_real(r, radix)?;
+        let theta = parse_real(theta, radix)?;
+        return Some(NumberLiteral::Polar(r, theta));
+    }
 
     match split_into_complex(s)?.as_slice() {
         [NumPart::Real(x)] => parse_real(x, radix).map(NumberLiteral::from),
@@ -1430,7 +1436,7 @@ mod lexer_tests {
     #[test]
     fn test_complex_numbers() {
         let got: Vec<_> = TokenStream::new(
-            "1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i 2e+4+inf.0i -inf.0-2e-4i",
+            "1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i 2e+4+inf.0i -inf.0-2e-4i 1/2@0 -3/2@1",
             true,
             SourceId::none(),
         )
@@ -1518,6 +1524,24 @@ mod lexer_tests {
                     .into(),
                     source: "-inf.0-2e-4i",
                     span: Span::new(54, 66, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Polar(
+                        RealLiteral::Rational(IntLiteral::Small(1), IntLiteral::Small(2)),
+                        IntLiteral::Small(0).into()
+                    )
+                    .into(),
+                    source: "1/2@0",
+                    span: Span::new(67, 72, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Polar(
+                        RealLiteral::Rational(IntLiteral::Small(-3), IntLiteral::Small(2)),
+                        IntLiteral::Small(1).into()
+                    )
+                    .into(),
+                    source: "-3/2@1",
+                    span: Span::new(73, 79, SourceId::none()),
                 }
             ]
         );
