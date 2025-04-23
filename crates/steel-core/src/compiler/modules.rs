@@ -130,7 +130,7 @@ create_prelude!(
 #[cfg(not(target_arch = "wasm32"))]
 pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
     std::env::var("STEEL_HOME").ok().or_else(|| {
-        let home = home::home_dir();
+        let home = env_home::env_home_dir();
 
         home.map(|mut x: PathBuf| {
             x.push(".steel");

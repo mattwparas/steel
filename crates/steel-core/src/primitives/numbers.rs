@@ -1,9 +1,9 @@
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
 use crate::{steelerr, stop};
-use num::Zero;
-use num::{
-    pow::Pow, BigInt, BigRational, CheckedAdd, CheckedMul, Integer, Rational32, Signed, ToPrimitive,
-};
+use num_bigint::BigInt;
+use num_integer::Integer;
+use num_rational::{BigRational, Rational32};
+use num_traits::{pow::Pow, CheckedAdd, CheckedMul, Signed, ToPrimitive, Zero};
 use std::ops::Neg;
 
 /// Checks if the given value is a number
@@ -957,8 +957,8 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
 
             let expt = BigInt::from(*l).pow(r.magnitude());
             match r.sign() {
-                num::bigint::Sign::Plus | num::bigint::Sign::NoSign => expt.into_steelval(),
-                num::bigint::Sign::Minus => {
+                num_bigint::Sign::Plus | num_bigint::Sign::NoSign => expt.into_steelval(),
+                num_bigint::Sign::Minus => {
                     BigRational::new_raw(BigInt::from(1), expt).into_steelval()
                 }
             }
@@ -1003,8 +1003,8 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => {
             let expt = l.as_ref().clone().pow(r.magnitude());
             match r.sign() {
-                num::bigint::Sign::NoSign | num::bigint::Sign::Plus => expt.into_steelval(),
-                num::bigint::Sign::Minus => {
+                num_bigint::Sign::NoSign | num_bigint::Sign::Plus => expt.into_steelval(),
+                num_bigint::Sign::Minus => {
                     BigRational::new_raw(BigInt::from(1), expt).into_steelval()
                 }
             }
@@ -1494,7 +1494,7 @@ fn exact_integer_sqrt(number: &SteelVal) -> Result<SteelVal> {
 
 fn exact_integer_impl<'a, N>(target: &'a N) -> (N, N)
 where
-    N: num::integer::Roots + Clone,
+    N: num_integer::Roots + Clone,
     &'a N: std::ops::Mul<&'a N, Output = N>,
     N: std::ops::Sub<N, Output = N>,
 {
@@ -1944,7 +1944,7 @@ mod num_op_tests {
             )
             .unwrap()
             .to_string(),
-            BigRational(Gc::new(num::BigRational::new(
+            BigRational(Gc::new(num_rational::BigRational::new(
                 BigInt::from(1),
                 BigInt::from_str("18446744073709551616").unwrap()
             )))
@@ -2096,7 +2096,7 @@ mod num_op_tests {
         )
         .is_err());
         assert!(exact_integer_sqrt(
-            &num::BigRational::new(
+            &num_rational::BigRational::new(
                 BigInt::from_str("-10000000000000000000000000000000000001").unwrap(),
                 BigInt::from_str("2").unwrap()
             )

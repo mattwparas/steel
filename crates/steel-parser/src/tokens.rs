@@ -2,8 +2,9 @@ use crate::lexer;
 use crate::parser::SourceId;
 use crate::span::Span;
 use core::ops;
-use num::bigint::ParseBigIntError;
-use num::{BigInt, Num, Rational32, Signed};
+use num_bigint::{BigInt, ParseBigIntError};
+use num_rational::Rational32;
+use num_traits::{Num, Signed};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt::{self, Display};
@@ -243,11 +244,11 @@ impl IntLiteral {
 }
 
 impl FromStr for IntLiteral {
-    type Err = <num::BigInt as FromStr>::Err;
+    type Err = <num_bigint::BigInt as FromStr>::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.parse::<isize>().map(IntLiteral::Small).or_else(|_| {
-            s.parse::<num::BigInt>()
+            s.parse::<num_bigint::BigInt>()
                 .map(|b| IntLiteral::Big(Box::new(b)))
         })
     }

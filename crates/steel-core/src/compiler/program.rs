@@ -20,7 +20,8 @@ use crate::{
     rvals::IntoSteelVal,
 };
 
-use num::{BigInt, BigRational, Rational32};
+use num_bigint::BigInt;
+use num_rational::{BigRational, Rational32};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::TryInto, time::SystemTime};
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
