@@ -18,7 +18,7 @@ pub fn steel_home() -> Option<PathBuf> {
         .ok()
         .map(PathBuf::from)
         .or_else(|| {
-            let home = home::home_dir();
+            let home = env_home::env_home_dir();
 
             home.map(|mut x: PathBuf| {
                 x.push(".steel");

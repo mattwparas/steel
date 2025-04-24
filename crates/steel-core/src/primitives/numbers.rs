@@ -1,9 +1,9 @@
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
 use crate::{steelerr, stop};
-use num::Zero;
-use num::{
-    pow::Pow, BigInt, BigRational, CheckedAdd, CheckedMul, Integer, Rational32, Signed, ToPrimitive,
-};
+use num_bigint::BigInt;
+use num_integer::Integer;
+use num_rational::{BigRational, Rational32};
+use num_traits::{pow::Pow, CheckedAdd, CheckedMul, Signed, ToPrimitive, Zero};
 use std::ops::Neg;
 
 /// Checks if the given value is a number
@@ -957,8 +957,8 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
 
             let expt = BigInt::from(*l).pow(r.magnitude());
             match r.sign() {
-                num::bigint::Sign::Plus | num::bigint::Sign::NoSign => expt.into_steelval(),
-                num::bigint::Sign::Minus => {
+                num_bigint::Sign::Plus | num_bigint::Sign::NoSign => expt.into_steelval(),
+                num_bigint::Sign::Minus => {
                     BigRational::new_raw(BigInt::from(1), expt).into_steelval()
                 }
             }
@@ -1003,8 +1003,8 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => {
             let expt = l.as_ref().clone().pow(r.magnitude());
             match r.sign() {
-                num::bigint::Sign::NoSign | num::bigint::Sign::Plus => expt.into_steelval(),
-                num::bigint::Sign::Minus => {
+                num_bigint::Sign::NoSign | num_bigint::Sign::Plus => expt.into_steelval(),
+                num_bigint::Sign::Minus => {
                     BigRational::new_raw(BigInt::from(1), expt).into_steelval()
                 }
             }
@@ -1269,6 +1269,48 @@ fn sqrt(number: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Create a complex number with `re` as the real part and `im` as the imaginary part.
+///
+/// (make-rectangular re im) -> number?
+///
+/// - re : real?
+/// - im : real?
+#[steel_derive::function(name = "make-rectangular", constant = true)]
+pub fn make_rectangular(re: &SteelVal, im: &SteelVal) -> Result<SteelVal> {
+    ensure_arg_is_real("make-rectangular", re)?;
+    ensure_arg_is_real("make-rectangular", im)?;
+
+    SteelComplex {
+        re: re.clone(),
+        im: im.clone(),
+    }
+    .into_steelval()
+}
+
+/// Make a complex number out of a magnitude `r` and an angle `θ`, so that the result is `r * (cos θ + i sin θ)`
+///
+/// (make-polar r θ) -> number?
+///
+/// - r : real?
+/// - theta : real?
+#[steel_derive::function(name = "make-polar", constant = true)]
+pub fn make_polar(r: &SteelVal, theta: &SteelVal) -> Result<SteelVal> {
+    ensure_arg_is_real("make-polar", r)?;
+    ensure_arg_is_real("make-polar", theta)?;
+
+    let re = multiply_primitive(&[r.clone(), cos(&theta)?])?;
+    let im = multiply_primitive(&[r.clone(), sin(&theta)?])?;
+    SteelComplex { re, im }.into_steelval()
+}
+
+fn ensure_arg_is_real(op: &str, arg: &SteelVal) -> Result<()> {
+    if !realp(arg) {
+        stop!(TypeMismatch => "{op} expects a real number, found: {:?}", arg);
+    } else {
+        Ok(())
+    }
+}
+
 /// Returns the real part of a number
 ///
 /// (real-part number) -> number?
@@ -1339,6 +1381,46 @@ fn magnitude(number: &SteelVal) -> Result<SteelVal> {
         }
         _ => steelerr!(TypeMismatch => "magnitude expects a number, found {number}"),
     }
+}
+
+/// Computes the angle `θ` of a complex number `z` where `z = r * (cos θ + i sin θ)` and `r` is the magnitude.
+///
+/// (angle number) -> number?
+///
+/// - number : number?
+#[steel_derive::function(name = "angle", constant = true)]
+pub fn angle(number: &SteelVal) -> Result<SteelVal> {
+    let (re, im) = match number {
+        re @ SteelVal::NumV(_)
+        | re @ SteelVal::IntV(_)
+        | re @ SteelVal::Rational(_)
+        | re @ SteelVal::BigNum(_) => (re, &SteelVal::IntV(0)),
+        SteelVal::Complex(complex) => (&complex.re, &complex.im),
+        _ => stop!(TypeMismatch => "angle expects a number, found {number}"),
+    };
+
+    atan2(im, re)
+}
+
+/// Computes the quadratic arctan of `x` and `y`
+fn atan2(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
+    let as_f64 = |arg: &_| match arg {
+        SteelVal::NumV(arg) => Ok(*arg),
+        SteelVal::IntV(arg) => Ok(*arg as f64),
+        SteelVal::Rational(arg) => Ok(*arg.numer() as f64 / *arg.denom() as f64),
+        SteelVal::BigNum(arg) => Ok(arg.to_f64().unwrap()),
+        _ => steelerr!(TypeMismatch => "atan2 expects a number, found {arg}"),
+    };
+
+    let x = as_f64(x)?;
+    let y = as_f64(y)?;
+    if x == 0. && y == 0. {
+        // as this is currently only used for `angle`, make the error
+        // message a little better by saying `angle` instead of `atan2`
+        stop!(Generic => "angle: undefined for zero");
+    }
+
+    f64::atan2(x, y).into_steelval()
 }
 
 /// Computes the natural logarithm of the given number.
@@ -1412,7 +1494,7 @@ fn exact_integer_sqrt(number: &SteelVal) -> Result<SteelVal> {
 
 fn exact_integer_impl<'a, N>(target: &'a N) -> (N, N)
 where
-    N: num::integer::Roots + Clone,
+    N: num_integer::Roots + Clone,
     &'a N: std::ops::Mul<&'a N, Output = N>,
     N: std::ops::Sub<N, Output = N>,
 {
@@ -1531,7 +1613,7 @@ pub fn float_add(args: &[SteelVal]) -> Result<SteelVal> {
 fn ensure_args_are_numbers(op: &str, args: &[SteelVal]) -> Result<()> {
     for arg in args {
         if !numberp(arg) {
-            stop!(TypeMismatch => "{op} expects a number, found: {:?}", arg)
+            stop!(TypeMismatch => "{op} expects a number, found: {:?}", arg);
         }
     }
     Ok(())
@@ -1862,7 +1944,7 @@ mod num_op_tests {
             )
             .unwrap()
             .to_string(),
-            BigRational(Gc::new(num::BigRational::new(
+            BigRational(Gc::new(num_rational::BigRational::new(
                 BigInt::from(1),
                 BigInt::from_str("18446744073709551616").unwrap()
             )))
@@ -2014,7 +2096,7 @@ mod num_op_tests {
         )
         .is_err());
         assert!(exact_integer_sqrt(
-            &num::BigRational::new(
+            &num_rational::BigRational::new(
                 BigInt::from_str("-10000000000000000000000000000000000001").unwrap(),
                 BigInt::from_str("2").unwrap()
             )

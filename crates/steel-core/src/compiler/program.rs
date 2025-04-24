@@ -2,6 +2,7 @@ use crate::core::instructions::u24;
 use crate::core::labels::Expr;
 use crate::gc::Shared;
 use crate::parser::span_visitor::get_span;
+use crate::primitives::numbers::make_polar;
 use crate::rvals::{Result, SteelComplex};
 use crate::{
     compiler::constants::ConstantMap,
@@ -19,7 +20,8 @@ use crate::{
     rvals::IntoSteelVal,
 };
 
-use num::{BigInt, BigRational, Rational32};
+use num_bigint::BigInt;
+use num_rational::{BigRational, Rational32};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::TryInto, time::SystemTime};
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
@@ -68,6 +70,12 @@ pub fn number_literal_to_steel(n: &NumberLiteral) -> Result<SteelVal> {
             im: real_to_steel(im)?,
         }
         .into_steelval(),
+        NumberLiteral::Polar(r, theta) => {
+            let r = real_to_steel(r)?;
+            let theta = real_to_steel(theta)?;
+
+            make_polar(&r, &theta)
+        }
     }
 }
 

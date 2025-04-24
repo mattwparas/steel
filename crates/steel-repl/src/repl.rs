@@ -1,5 +1,5 @@
 extern crate rustyline;
-use colored::*;
+use colored::{ColoredString, Colorize};
 use rustyline::history::FileHistory;
 use rustyline::{
     Cmd, ConditionalEventHandler, Event, EventContext, EventHandler, KeyEvent, RepeatCount,
@@ -30,8 +30,6 @@ use std::time::Instant;
 use std::env;
 
 use std::fs::File;
-
-use dirs;
 
 use crate::highlight::RustylineHelper;
 
@@ -69,8 +67,9 @@ fn get_default_repl_history_path() -> PathBuf {
         parsed_path.push("history");
         parsed_path
     } else {
-        let mut default_path = dirs::home_dir().unwrap_or_default();
+        let mut default_path = env_home::env_home_dir().unwrap_or_default();
         default_path.push(".steel/history");
+        default_path.to_string_lossy().into_owned();
         default_path
     }
 }
