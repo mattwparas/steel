@@ -1,5 +1,5 @@
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
-use crate::{steelerr, stop};
+use crate::{steelerr, stop, throw};
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::{BigRational, Rational32};
@@ -752,7 +752,9 @@ pub fn exact(number: &SteelVal) -> Result<SteelVal> {
             if x.fract() == 0. {
                 (*x as isize).into_steelval()
             } else {
-                BigRational::from_float(*x).into_steelval()
+                BigRational::from_float(*x)
+                    .ok_or_else(throw!(ConversionError => "no exact representation for {}", x))?
+                    .into_steelval()
             }
         }
         SteelVal::Complex(x) => SteelComplex::new(exact(&x.re)?, exact(&x.im)?).into_steelval(),
