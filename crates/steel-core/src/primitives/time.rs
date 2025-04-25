@@ -1,9 +1,10 @@
 use crate::gc::Gc;
+use crate::rvals::as_underlying_type;
 use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::MarkdownDoc};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
-use std::time::Duration;
 use std::time::Instant;
+use std::time::{Duration, SystemTime};
 use steel_derive::function;
 
 use crate::steel_vm::builtin::BuiltInModule;
@@ -56,6 +57,15 @@ fn current_time_formatted(format_string: String) -> String {
 
 impl Custom for NaiveDateTime {}
 impl Custom for NaiveDate {}
+impl Custom for SystemTime {
+    fn equality_hint(&self, other: &dyn crate::rvals::CustomType) -> bool {
+        if let Some(other) = as_underlying_type::<SystemTime>(other) {
+            self == other
+        } else {
+            false
+        }
+    }
+}
 
 #[function(name = "naive-current-date-local")]
 fn naive_current_date() -> NaiveDate {
@@ -85,6 +95,26 @@ fn date_month(date: NaiveDate) -> u32 {
 #[function(name = "naive-date-day")]
 fn date_day(date: NaiveDate) -> u32 {
     date.day()
+}
+
+#[function(name = "system-time>?")]
+fn system_time_gt(left: SystemTime, right: SystemTime) -> bool {
+    left > right
+}
+
+#[function(name = "system-time<?")]
+fn system_time_lt(left: SystemTime, right: SystemTime) -> bool {
+    left < right
+}
+
+#[function(name = "system-time>=")]
+fn system_time_gte(left: SystemTime, right: SystemTime) -> bool {
+    left >= right
+}
+
+#[function(name = "system-time<=")]
+fn system_time_lte(left: SystemTime, right: SystemTime) -> bool {
+    left <= right
 }
 
 /// Sleeps the thread for a given number of milliseconds.
@@ -158,6 +188,10 @@ pub fn time_module() -> BuiltInModule {
         .register_fn("instant/elapsed", Instant::elapsed)
         .register_fn("duration-since", Instant::duration_since)
         .register_fn("duration->seconds", Duration::as_secs)
+        .register_native_fn_definition(SYSTEM_TIME_GTE_DEFINITION)
+        .register_native_fn_definition(SYSTEM_TIME_GT_DEFINITION)
+        .register_native_fn_definition(SYSTEM_TIME_LTE_DEFINITION)
+        .register_native_fn_definition(SYSTEM_TIME_LT_DEFINITION)
         .register_native_fn_definition(DURATION_TO_STRING_DEFINITION)
         .register_native_fn_definition(CURRENT_TIME_FORMATTED_DEFINITION)
         .register_native_fn_definition(SLEEP_MILLIS_DEFINITION)

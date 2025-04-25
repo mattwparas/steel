@@ -20,3 +20,18 @@
     [(is-file? path) (func path)]
     [(is-dir? path) (for-each (lambda (x) (walk-files x func)) (read-dir path))]
     [else void]))
+
+; (define (consume-iter iter)
+;   (define next (read-dir-iter-next! iter))
+;   (when next
+;     (if (read-dir-entry-is-dir? next)
+;         (begin
+;           (consume-iter (read-dir-iter (read-dir-entry-path next)))
+;           (consume-iter iter))
+
+;         (begin
+;           (vector-push! files (read-dir-entry-path next))
+;           (consume-iter iter)))))
+
+; (define (walk cr)
+;   (consume-iter (read-dir-iter cr)))
