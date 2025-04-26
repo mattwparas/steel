@@ -71,11 +71,23 @@ impl FFIModule {
         self
     }
 
+    pub fn register_type<T: CustomType + 'static>(
+        &mut self,
+        predicate_name: &'static str,
+    ) -> &mut Self {
+        self.register_fn(predicate_name, |value: FFIArg| {
+            if let FFIArg::CustomRef(CustomRef { mut custom, .. }) = value {
+                as_underlying_ffi_type::<T>(custom.get_mut()).is_some()
+            } else {
+                false
+            }
+        })
+    }
+
     pub fn bindings(&self) -> Vec<RString> {
         self.values.keys().cloned().collect()
     }
 
-    // TODO: Have this take a writer
     pub fn emit_package<W: std::io::Write>(
         &self,
         name: &str,
@@ -670,6 +682,18 @@ impl<T: IntoFFIVal> IntoFFIVal for Vec<T> {
         }
 
         RResult::ROk(FFIValue::Vector(output))
+    }
+}
+
+impl<T: IntoFFIVal, V: IntoFFIVal> IntoFFIVal for std::collections::HashMap<T, V> {
+    fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
+        let mut output = RHashMap::with_capacity(self.len());
+
+        for (key, value) in self {
+            output.insert(ffi_try!(key.into_ffi_val()), ffi_try!(value.into_ffi_val()));
+        }
+
+        RResult::ROk(FFIValue::HashMap(output))
     }
 }
 

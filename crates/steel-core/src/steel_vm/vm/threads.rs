@@ -548,11 +548,11 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
 }
 
 pub struct SteelReceiver {
-    receiver: crossbeam::channel::Receiver<SteelVal>,
+    receiver: crossbeam_channel::Receiver<SteelVal>,
 }
 
 pub struct SteelSender {
-    sender: crossbeam::channel::Sender<SteelVal>,
+    sender: crossbeam_channel::Sender<SteelVal>,
 }
 
 pub struct Channels {
@@ -566,7 +566,7 @@ impl Custom for Channels {}
 
 impl Channels {
     pub fn new() -> Self {
-        let (sender, receiver) = crossbeam::channel::unbounded();
+        let (sender, receiver) = crossbeam_channel::unbounded();
 
         Self {
             sender: SteelSender { sender }.into_steelval().unwrap(),
@@ -589,7 +589,7 @@ impl Channels {
 /// Using this directly is not recommended.
 #[steel_derive::native(name = "receivers-select", arity = "AtLeast(0)")]
 pub fn select(values: &[SteelVal]) -> Result<SteelVal> {
-    let mut selector = crossbeam::channel::Select::new();
+    let mut selector = crossbeam_channel::Select::new();
 
     let borrows = values
         .iter()
@@ -625,7 +625,7 @@ pub fn channel_send(sender: &SteelVal, value: SteelVal) -> Result<SteelVal> {
         .sender
         .send(value)
         .map_err(|e| {
-            throw!(Generic => "channel disconnected - 
+            throw!(Generic => "channel disconnected -
             unable to send value across channel: {:?}", e.0)()
         })
         .map(|_| SteelVal::Void)
@@ -637,7 +637,7 @@ pub fn channel_recv(receiver: &SteelVal) -> Result<SteelVal> {
         .receiver
         .recv()
         .map_err(|_| {
-            throw!(Generic => "Unable to receive on the channel. 
+            throw!(Generic => "Unable to receive on the channel.
                 The channel is empty and disconnected")()
         })
 }
@@ -650,8 +650,8 @@ pub fn channel_try_recv(receiver: &SteelVal) -> Result<SteelVal> {
 
     match value {
         Ok(v) => Ok(v),
-        Err(crossbeam::channel::TryRecvError::Empty) => Ok(empty_channel()),
-        Err(crossbeam::channel::TryRecvError::Disconnected) => Ok(disconnected_channel()),
+        Err(crossbeam_channel::TryRecvError::Empty) => Ok(empty_channel()),
+        Err(crossbeam_channel::TryRecvError::Disconnected) => Ok(disconnected_channel()),
     }
 }
 
@@ -874,7 +874,7 @@ impl crate::rvals::Custom for ThreadLocalStorage {}
 ///
 /// When spawning a new thread, the value inside will be shared into that slot, however
 /// future updates to the slot will be local to that thread.
-#[steel_derive::context(name = "make-tls", arity = "Exact(0)")]
+#[steel_derive::context(name = "make-tls", arity = "Exact(1)")]
 pub(crate) fn make_tls(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let index = ctx.thread.thread_local_storage.len();
     ctx.thread.thread_local_storage.push(args[0].clone());

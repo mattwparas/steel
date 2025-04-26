@@ -1,7 +1,8 @@
+use crate::primitives::numbers::make_polar;
 use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
-use num::BigRational;
+use num_rational::BigRational;
 use std::borrow::Cow;
 use std::str;
 use std::sync::{Arc, Mutex};
@@ -156,6 +157,25 @@ fn real_literal_to_steelval(r: RealLiteral) -> Result<SteelVal, SteelErr> {
     }
 }
 
+impl IntoSteelVal for NumberLiteral {
+    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+        match self {
+            NumberLiteral::Real(r) => real_literal_to_steelval(r),
+            NumberLiteral::Complex(re, im) => SteelComplex {
+                re: real_literal_to_steelval(re)?,
+                im: real_literal_to_steelval(im)?,
+            }
+            .into_steelval(),
+            NumberLiteral::Polar(r, theta) => {
+                let r = real_literal_to_steelval(r)?;
+                let theta = real_literal_to_steelval(theta)?;
+
+                make_polar(&r, &theta)
+            }
+        }
+    }
+}
+
 impl TryFrom<TokenType<InternedString>> for SteelVal {
     type Error = SteelErr;
 
@@ -172,14 +192,7 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
             CharacterLiteral(x) => Ok(CharV(x)),
             BooleanLiteral(x) => Ok(BoolV(x)),
             Identifier(x) => Ok(SymbolV(x.into())),
-            Number(x) => match *x {
-                NumberLiteral::Real(r) => real_literal_to_steelval(r),
-                NumberLiteral::Complex(re, im) => SteelComplex {
-                    re: real_literal_to_steelval(re)?,
-                    im: real_literal_to_steelval(im)?,
-                }
-                .into_steelval(),
-            },
+            Number(x) => x.into_steelval(),
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => Err(SteelErr::new(ErrorKind::UnexpectedToken, "'".to_string())),
@@ -234,14 +247,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
             CharacterLiteral(x) => Ok(CharV(x)),
             BooleanLiteral(x) => Ok(BoolV(x)),
             Identifier(x) => Ok(SymbolV(x.into())),
-            Number(x) => match *x {
-                NumberLiteral::Real(r) => real_literal_to_steelval(r),
-                NumberLiteral::Complex(re, im) => SteelComplex {
-                    re: real_literal_to_steelval(re)?,
-                    im: real_literal_to_steelval(im)?,
-                }
-                .into_steelval(),
-            },
+            Number(x) => x.into_steelval(),
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => {

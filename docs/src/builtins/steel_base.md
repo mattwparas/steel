@@ -147,6 +147,12 @@ Returns the arccosine, or inverse cosine, of a value; output is in radians.
 > (acos 0.5) ;; => 1.0471975511965976
 > (acos 2) ;; => +nan.0
 ```
+### **angle**
+Computes the angle `θ` of a complex number `z` where `z = r * (cos θ + i sin θ)` and `r` is the magnitude.
+
+(angle number) -> number?
+
+- number : number?
 ### **append**
 Appends the given lists together. If provided with no lists, will return the empty list.
 
@@ -1367,6 +1373,20 @@ Creates a bytevector given a length and a default value.
 ```scheme
 (make-bytes 6 42) ;; => (bytes 42 42 42 42 42)
 ```
+### **make-polar**
+Make a complex number out of a magnitude `r` and an angle `θ`, so that the result is `r * (cos θ + i sin θ)`
+
+(make-polar r θ) -> number?
+
+- r : real?
+- theta : real?
+### **make-rectangular**
+Create a complex number with `re` as the real part and `im` as the imaginary part.
+
+(make-rectangular re im) -> number?
+
+- re : real?
+- im : real?
 ### **make-string**
 Creates a string of a given length, filled with an optional character
 (which defaults to `#\0`).
@@ -1775,15 +1795,17 @@ Returns quotient of dividing numerator by denomintator.
 > (quotient -10 2) ;; => -5
 ```
 ### **range**
-Returns a newly allocated list of the elements in the range (n, m]
+Returns a newly allocated list of the elements in the range [n, m) or [0, m) when n is not given.
 
+(range m)   -> (listof int?)
 (range n m) -> (listof int?)
 
 * n : int?
 * m : int?
 
 ```scheme
-> (range 0 10) ;; => '(0 1 2 3 4 5 6 7 8 9)
+> (range 4) ;; => '(0 1 2 3)
+> (range 4 10) ;; => '(4 5 6 7 8 9)
 ```
 ### **range-vec**
 Constructs a vector containing a range of integers from `start` to `end` (exclusive).

@@ -17,8 +17,8 @@ use crate::{
         compiler::{Compiler, SerializableCompiler},
         map::SymbolMap,
         modules::{
-            intern_modules, path_to_module_name, CompiledModule, MANGLER_PREFIX,
-            PRELUDE_WITHOUT_BASE,
+            intern_modules, path_to_module_name, CompiledModule, SourceModuleResolver,
+            MANGLER_PREFIX, PRELUDE_WITHOUT_BASE,
         },
         program::{
             number_literal_to_steel, Executable, RawProgramWithSymbols,
@@ -573,6 +573,22 @@ impl Engine {
         vm
     }
 
+    /// Registers a source module resolvers. This differs from `register_module_resolver` which deals
+    /// specifically with builtin modules, e.g. `BuiltInModule`. This will allow you to embed
+    /// source modules that can be referenced via `(require ...)` at the scheme level.
+    ///
+    /// This is a more flexible version of the api provided by `register_steel_module`, which allows
+    /// you to directly register a module with the name, and the associated text for that module.
+    pub fn register_source_module_resolver<T: SourceModuleResolver + 'static>(
+        &mut self,
+        resolver: T,
+    ) {
+        self.virtual_machine
+            .compiler
+            .write()
+            .register_source_module_resolver(resolver);
+    }
+
     /// Register a module resolver. This is used for creating references to modules
     /// that don't exist within the compiler. Without this, you wouldn't be able to
     /// pre-compile or analyze code that is run within another host application, without
@@ -1090,7 +1106,8 @@ impl Engine {
         }
     }
 
-    /// Registers a steel module
+    /// Registers a steel module. This is a more streamlined version of the
+    /// api provided by `register_source_module_resolver`.
     pub fn register_steel_module(&mut self, module_name: String, text: String) {
         self.virtual_machine
             .compiler
@@ -2386,6 +2403,18 @@ mod engine_sandbox_tests {
 #[cfg(test)]
 mod derive_macro_tests {
     use super::*;
+
+    #[derive(steel_derive::_Steel, PartialEq, Debug)]
+    #[steel(getters)]
+    struct FooBar {
+        baz: usize,
+    }
+
+    #[test]
+    fn test_struct_registered() {
+        let mut module = BuiltInModule::new("foo");
+        FooBar::register_type(&mut module);
+    }
 
     #[derive(steel_derive::_Steel, PartialEq, Debug)]
     #[steel(equality, getters, constructors)]

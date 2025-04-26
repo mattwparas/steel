@@ -2,7 +2,9 @@ use crate::lexer;
 use crate::parser::SourceId;
 use crate::span::Span;
 use core::ops;
-use num::{BigInt, Rational32, Signed};
+use num_bigint::{BigInt, ParseBigIntError};
+use num_rational::Rational32;
+use num_traits::{Num, Signed};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::fmt::{self, Display};
@@ -111,6 +113,7 @@ impl<T> TokenType<T> {
 pub enum NumberLiteral {
     Real(RealLiteral),
     Complex(RealLiteral, RealLiteral),
+    Polar(RealLiteral, RealLiteral),
 }
 
 impl Display for NumberLiteral {
@@ -123,6 +126,9 @@ impl Display for NumberLiteral {
                 } else {
                     write!(f, "{re}+{im}i")
                 }
+            }
+            NumberLiteral::Polar(r, theta) => {
+                write!(f, "{r}@{theta}")
             }
         }
     }
@@ -219,6 +225,16 @@ pub enum IntLiteral {
 }
 
 impl IntLiteral {
+    pub fn from_str_radix(src: &str, radix: u32) -> Result<IntLiteral, ParseBigIntError> {
+        isize::from_str_radix(src, radix)
+            .map(IntLiteral::Small)
+            .or_else(|_| {
+                BigInt::from_str_radix(src, radix)
+                    .map(Box::new)
+                    .map(IntLiteral::Big)
+            })
+    }
+
     fn is_negative(&self) -> bool {
         match self {
             IntLiteral::Small(i) => i.is_negative(),
@@ -228,11 +244,11 @@ impl IntLiteral {
 }
 
 impl FromStr for IntLiteral {
-    type Err = <num::BigInt as FromStr>::Err;
+    type Err = <num_bigint::BigInt as FromStr>::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         s.parse::<isize>().map(IntLiteral::Small).or_else(|_| {
-            s.parse::<num::BigInt>()
+            s.parse::<num_bigint::BigInt>()
                 .map(|b| IntLiteral::Big(Box::new(b)))
         })
     }

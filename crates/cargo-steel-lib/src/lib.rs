@@ -18,7 +18,7 @@ pub fn steel_home() -> Option<PathBuf> {
         .ok()
         .map(PathBuf::from)
         .or_else(|| {
-            let home = home::home_dir();
+            let home = env_home::env_home_dir();
 
             home.map(|mut x: PathBuf| {
                 x.push(".steel");
@@ -42,6 +42,10 @@ pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<(), Box
     let mut steel_home = steel_home().expect("Unable to find STEEL_HOME");
 
     steel_home.push("native");
+
+    if !steel_home.exists() {
+        std::fs::create_dir(&steel_home)?;
+    }
 
     // --manifest-path
     let mut metadata_command = MetadataCommand::new();
@@ -102,7 +106,7 @@ pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<(), Box
             .is_some()
         {
             for file in last.filenames {
-                if matches!(file.extension(), Some("so") | Some("dylib") | Some("lib")) {
+                if file.extension() == Some(std::env::consts::DLL_EXTENSION) {
                     println!("Found a cdylib!");
                     let filename = file.file_name().unwrap();
 
