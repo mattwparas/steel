@@ -46,6 +46,8 @@ pub struct JIT {
     /// The module, with the jit backend, which manages the JIT'd
     /// functions.
     module: JITModule,
+
+    function_map: OwnedFunctionMap,
 }
 
 // Set up ways to deconstruct this value, such that we can use a 16 byte value rather than an 8
@@ -138,14 +140,23 @@ pub struct VmContext {}
 // TODO: Rename to an intrinsic map?
 // Wire up with function signatures as well for automated unboxing?
 struct FunctionMap<'a> {
-    map: HashMap<&'static str, Box<dyn FunctionToCranelift>>,
+    map: HashMap<&'static str, Box<dyn FunctionToCranelift + Send + Sync + 'static>>,
     return_type_hints: HashMap<&'static str, InferredType>,
     builder: &'a mut JITBuilder,
 }
 
+struct OwnedFunctionMap {
+    map: HashMap<&'static str, Box<dyn FunctionToCranelift + Send + Sync + 'static>>,
+    return_type_hints: HashMap<&'static str, InferredType>,
+}
+
 impl<'a> FunctionMap<'a> {
     // Do the thing?
-    pub fn add_func(&mut self, name: &'static str, func: impl FunctionToCranelift + 'static) {
+    pub fn add_func(
+        &mut self,
+        name: &'static str,
+        func: impl FunctionToCranelift + Send + Sync + 'static,
+    ) {
         self.builder.symbol(name, func.as_pointer());
         self.map.insert(name, Box::new(func));
     }
@@ -153,7 +164,7 @@ impl<'a> FunctionMap<'a> {
     pub fn add_func_hint(
         &mut self,
         name: &'static str,
-        func: impl FunctionToCranelift + 'static,
+        func: impl FunctionToCranelift + Send + Sync + 'static,
         return_type: InferredType,
     ) {
         self.add_func(name, func);
@@ -244,9 +255,6 @@ impl Default for JIT {
             .unwrap();
         let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
 
-        // builder.symbol("rustfunc", rustfunc as *const u8);
-        // builder.symbol("test", handle_pop_test as *const u8);
-
         for op_code in OPCODES_ARRAY {
             builder.symbol(
                 format!("{:?}", op_code),
@@ -288,28 +296,6 @@ impl Default for JIT {
             num_equal_value_unboxed as *const u8,
         );
 
-        builder.symbol("push-global-value", push_global as *const u8);
-
-        builder.symbol(
-            "call-global-function-deopt-0",
-            call_global_function_deopt_0 as *const u8,
-        );
-
-        builder.symbol(
-            "call-global-function-deopt-1",
-            call_global_function_deopt_1 as *const u8,
-        );
-
-        builder.symbol(
-            "call-global-function-deopt-2",
-            call_global_function_deopt_2 as *const u8,
-        );
-
-        builder.symbol(
-            "call-global-function-deopt-3",
-            call_global_function_deopt_3 as *const u8,
-        );
-
         builder.symbol(
             "call-global-function-deopt-0-func",
             call_global_function_deopt_0_func as *const u8,
@@ -333,13 +319,51 @@ impl Default for JIT {
         builder.symbol("let-end-scope-c", let_end_scope_c as *const u8);
         builder.symbol("set-ctx-ip!", set_ctx_ip as *const u8);
 
-        builder.symbol("handle-pop!", extern_handle_pop as *const u8);
-
         let mut map = FunctionMap {
             map: HashMap::new(),
             builder: &mut builder,
             return_type_hints: HashMap::new(),
         };
+
+        map.add_func(
+            "handle-pop!",
+            extern_handle_pop as extern "C" fn(*mut VmCore, SteelVal),
+        );
+
+        map.add_func(
+            "call-global-function-deopt-0",
+            call_global_function_deopt_0 as extern "C" fn(*mut VmCore, usize, usize) -> SteelVal,
+        );
+
+        map.add_func(
+            "call-global-function-deopt-1",
+            call_global_function_deopt_1
+                as extern "C" fn(*mut VmCore, usize, usize, SteelVal) -> SteelVal,
+        );
+
+        map.add_func(
+            "call-global-function-deopt-2",
+            call_global_function_deopt_2
+                as extern "C" fn(*mut VmCore, usize, usize, SteelVal, SteelVal) -> SteelVal,
+        );
+
+        map.add_func(
+            "call-global-function-deopt-3",
+            call_global_function_deopt_3
+                as extern "C" fn(
+                    *mut VmCore,
+                    usize,
+                    usize,
+                    SteelVal,
+                    SteelVal,
+                    SteelVal,
+                ) -> SteelVal,
+        );
+
+        map.add_func(
+            "push-global-value",
+            push_global as extern "C" fn(ctx: *mut VmCore, index: usize) -> SteelVal,
+        );
 
         // Check if the function at the global location is in fact the right one.
         map.add_func(
@@ -442,7 +466,10 @@ impl Default for JIT {
 
         map.add_func("vm-should-continue?", should_continue as Vm0b);
 
-        drop(map);
+        let function_map = OwnedFunctionMap {
+            map: map.map,
+            return_type_hints: map.return_type_hints,
+        };
 
         let module = JITModule::new(builder);
         Self {
@@ -450,6 +477,7 @@ impl Default for JIT {
             ctx: module.make_context(),
             data_description: DataDescription::new(),
             module,
+            function_map,
         }
     }
 }
@@ -746,6 +774,7 @@ impl JIT {
             constants,
             local_count: 0,
             patched_locals: false,
+            function_map: &self.function_map,
         };
 
         // trans.translate_instructions();
@@ -817,6 +846,8 @@ struct FunctionTranslator<'a> {
     local_count: usize,
 
     patched_locals: bool,
+
+    function_map: &'a OwnedFunctionMap,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -1305,6 +1336,37 @@ impl FunctionTranslator<'_> {
         }
 
         return true;
+    }
+
+    /// Call a function by its name. If this function has been registered in the builder
+    fn call_function_by_name(
+        &mut self,
+        name: &str,
+        args: impl Iterator<Item = Value>,
+    ) -> (Value, InferredType) {
+        let obj = self.function_map.map.get(name).unwrap();
+        let sig = obj.to_cranelift(&self.module);
+
+        let callee = self
+            .module
+            .declare_function(name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+
+        // Unfortunate allocation here.
+        let args = [ctx].into_iter().chain(args).collect::<Vec<_>>();
+
+        let call = self.builder.ins().call(local_callee, &args);
+
+        let result = self.builder.inst_results(call)[0];
+
+        (
+            result,
+            *self.function_map.return_type_hints.get(name).unwrap(),
+        )
     }
 
     fn call_test_handler(&mut self, test_value: Value) -> Value {

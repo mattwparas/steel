@@ -2540,10 +2540,11 @@ pub(crate) extern "C" fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> u8 {
     unsafe { callglobal_handler_deopt(&mut *ctx) }
 }
 
-pub(crate) extern "C" fn extern_handle_pop(ctx: *mut VmCore, value: i128) {
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn extern_handle_pop(ctx: *mut VmCore, value: SteelVal) {
     unsafe {
         let this = &mut *ctx;
-        let res = this.handle_pop_pure_value(std::mem::transmute(value));
+        let res = this.handle_pop_pure_value(value);
         this.result = res;
     }
 }
@@ -2685,11 +2686,11 @@ pub(crate) extern "C" fn push_int_2(ctx: *mut VmCore) -> i128 {
 }
 
 // Read the global value at the registered index
-pub(crate) extern "C" fn push_global(ctx: *mut VmCore, index: usize) -> i128 {
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn push_global(ctx: *mut VmCore, index: usize) -> SteelVal {
     unsafe {
         let this = &mut *ctx;
-        let value = this.thread.global_env.repl_lookup_idx(index);
-        std::mem::transmute(value)
+        this.thread.global_env.repl_lookup_idx(index)
     }
 }
 
@@ -3069,73 +3070,52 @@ pub(crate) extern "C" fn call_global_function_tail_deopt_3(
     }
 }
 
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C" fn call_global_function_deopt_0(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
-) -> i128 {
-    unsafe {
-        std::mem::transmute(call_global_function_deopt(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [],
-        ))
-    }
+) -> SteelVal {
+    unsafe { call_global_function_deopt(&mut *ctx, lookup_index, fallback_ip, &mut []) }
 }
 
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C" fn call_global_function_deopt_1(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
-    arg0: i128,
-) -> i128 {
-    unsafe {
-        std::mem::transmute(call_global_function_deopt(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [std::mem::transmute(arg0)],
-        ))
-    }
+    arg0: SteelVal,
+) -> SteelVal {
+    unsafe { call_global_function_deopt(&mut *ctx, lookup_index, fallback_ip, &mut [arg0]) }
 }
 
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C" fn call_global_function_deopt_2(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
-    arg0: i128,
-    arg1: i128,
-) -> i128 {
-    unsafe {
-        std::mem::transmute(call_global_function_deopt(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [std::mem::transmute(arg0), std::mem::transmute(arg1)],
-        ))
-    }
+    arg0: SteelVal,
+    arg1: SteelVal,
+) -> SteelVal {
+    unsafe { call_global_function_deopt(&mut *ctx, lookup_index, fallback_ip, &mut [arg0, arg1]) }
 }
 
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C" fn call_global_function_deopt_3(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
-    arg0: i128,
-    arg1: i128,
-    arg2: i128,
-) -> i128 {
+    arg0: SteelVal,
+    arg1: SteelVal,
+    arg2: SteelVal,
+) -> SteelVal {
     unsafe {
-        std::mem::transmute(call_global_function_deopt(
+        call_global_function_deopt(
             &mut *ctx,
             lookup_index,
             fallback_ip,
-            &mut [
-                std::mem::transmute(arg0),
-                std::mem::transmute(arg1),
-                std::mem::transmute(arg2),
-            ],
-        ))
+            &mut [arg0, arg1, arg2],
+        )
     }
 }
 
