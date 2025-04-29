@@ -203,52 +203,62 @@ pub fn read_dir_entry_file_name(value: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Checks if this value is a #<Metadata>
 #[steel_derive::function(name = "fs-metadata?")]
 pub fn is_fs_metadata(value: &SteelVal) -> Result<SteelVal> {
     Metadata::as_ref(value).is_ok().into_steelval()
 }
 
+/// Extract the file metadata from the #<DirEntry>
 #[steel_derive::function(name = "read-dir-entry-metadata")]
 pub fn read_dir_entry_metadata(value: &SteelVal) -> Result<SteelVal> {
     let entry = DirEntry::as_ref(value)?;
     entry.metadata()?.into_steelval()
 }
 
+/// Get the last modified time from the file metadata
 #[steel_derive::function(name = "fs-metadata-modified")]
 pub fn fs_metadata_modified(value: &SteelVal) -> Result<SteelVal> {
     Metadata::as_ref(value)?.modified()?.into_steelval()
 }
 
+/// Get the last accessed time from the file metadata
 #[steel_derive::function(name = "fs-metadata-accessed")]
 pub fn fs_metadata_accessed(value: &SteelVal) -> Result<SteelVal> {
     Metadata::as_ref(value)?.accessed()?.into_steelval()
 }
 
-#[steel_derive::function(name = "fs-metadata-accessed")]
+/// Get the created time from the file metadata
+#[steel_derive::function(name = "fs-metadata-created")]
 pub fn fs_metadata_created(value: &SteelVal) -> Result<SteelVal> {
     Metadata::as_ref(value)?.created()?.into_steelval()
 }
 
+/// Check if this metadata is from a file
 #[steel_derive::function(name = "fs-metadata-is-file?")]
 pub fn fs_metadata_is_file(value: &SteelVal) -> Result<SteelVal> {
     Metadata::as_ref(value)?.is_file().into_steelval()
 }
 
+/// Check if this metadata is from a directory
 #[steel_derive::function(name = "fs-metadata-is-dir?")]
 pub fn fs_metadata_is_dir(value: &SteelVal) -> Result<SteelVal> {
     Metadata::as_ref(value)?.is_dir().into_steelval()
 }
 
+/// Check if this metadata is from a symlink
 #[steel_derive::function(name = "fs-metadata-is-symlink?")]
 pub fn fs_metadata_is_symlink(value: &SteelVal) -> Result<SteelVal> {
     Metadata::as_ref(value)?.is_symlink().into_steelval()
 }
 
+/// Get the length of the file in bytes
 #[steel_derive::function(name = "fs-metadata-len")]
 pub fn fs_metadata_len(value: &SteelVal) -> Result<SteelVal> {
     Metadata::as_ref(value)?.len().into_steelval()
 }
 
+/// Access the file metadata for a given path
 #[steel_derive::function(name = "file-metadata")]
 pub fn file_metadata(path: &SteelString) -> Result<SteelVal> {
     std::fs::metadata(path.as_str())?.into_steelval()
