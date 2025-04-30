@@ -49,3 +49,7 @@ Sleeps the thread for a given number of milliseconds.
 ### **naive-date-month**
 ### **naive-date-year**
 ### **naive-date-ymd**
+### **system-time<=**
+### **system-time<?**
+### **system-time>=**
+### **system-time>?**
