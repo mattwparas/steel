@@ -773,6 +773,8 @@ Sums all given floats
 > (f+ 1.1 2.2) ;; => 3.3
 > (f+ 3.3 3.3 3.3) ;; => 9.9
 ```
+### **file-metadata**
+Access the file metadata for a given path
 ### **file-name**
 Gets the filename for a given path
 
@@ -839,6 +841,22 @@ Computes the largest integer less than or equal to the given number.
 > (floor 4.99) ;; => 4
 > (floor -2.5) ;; => -3
 ```
+### **fs-metadata-accessed**
+Get the last accessed time from the file metadata
+### **fs-metadata-created**
+Get the created time from the file metadata
+### **fs-metadata-is-dir?**
+Check if this metadata is from a directory
+### **fs-metadata-is-file?**
+Check if this metadata is from a file
+### **fs-metadata-is-symlink?**
+Check if this metadata is from a symlink
+### **fs-metadata-len**
+Get the length of the file in bytes
+### **fs-metadata-modified**
+Get the last modified time from the file metadata
+### **fs-metadata?**
+Checks if this value is a #<Metadata>
 ### **get-output-bytevector**
 Extracts the contents from a port created with `open-output-bytevector`.
 
@@ -1887,6 +1905,98 @@ Returns the contents of the directory as a list
 > (read-dir "logs") ;; => '("logs/today.json" "logs/yesterday.json")
 > (read-dir "empty_dir") ;; => '()
 ```
+### **read-dir-entry-file-name**
+Returns the file name from a given read-dir-entry.
+### **read-dir-entry-is-dir?**
+Checks whether the read dir entry is a directory.
+
+(read-dir-entry-is-dir? value) -> bool?
+
+* value : read-dir-iter-entry?
+
+#### Examples
+```scheme
+(define my-iter (read-dir-iter "src"))
+(define next (read-dir-iter-next! my-iter))
+
+(read-dir-entry-path) ;; => "src/lib.rs"
+(read-dir-entry-is-dir? next) ;; #false - because this is a file
+
+```
+### **read-dir-entry-is-file?**
+Checks whether the read dir entry is a file.
+
+(read-dir-entry-is-dir? value) -> bool?
+
+* value : read-dir-iter-entry?
+
+#### Examples
+```scheme
+(define my-iter (read-dir-iter "src"))
+(define next (read-dir-iter-next! my-iter))
+
+(read-dir-entry-path) ;; => "src/lib.rs"
+(read-dir-entry-is-dir? next) ;; #true - because this is a file
+
+```
+### **read-dir-entry-is-symlink?**
+Checks whether the read dir entry is a symlink.
+### **read-dir-entry-metadata**
+Extract the file metadata from the #<DirEntry>
+### **read-dir-entry-path**
+Returns the path from a given read-dir-entry.
+### **read-dir-iter**
+Creates an iterator over the contents of the given directory.
+The given path must be a directory.
+
+(read-dir-iter dir) -> #<ReadDir>
+
+* dir : (is-dir?) - the directory to iterate over
+
+#### Examples
+```scheme
+(define my-iter (read-dir-iter "src"))
+(read-dir-iter-next! my-iter) ;; => #<DirEntry> src/lib.rs
+(read-dir-iter-next! my-iter) ;; => #<DirEntry> src/main.rs
+(read-dir-iter-next! my-iter) ;; => #false
+```
+### **read-dir-iter-entry?**
+Checks whether the given value is a #<DirEntry>
+
+(read-dir-iter-entry? value) -> bool?
+
+#### Examples
+```scheme
+(define my-iter (read-dir-iter "src"))
+(define next (read-dir-iter-next! my-iter))
+(read-dir-iter-entry? next) ;; => #true
+```
+### **read-dir-iter-next!**
+Reads one entry from the iterator. Reads a `ReadDir` struct.
+
+(read-dir-iter-next! read-dir-iter) -> #<DirEntry>
+
+* dir : (read-dir-iter?) - the directory to iterate over
+
+#### Examples
+```scheme
+(define my-iter (read-dir-iter "src"))
+(define nex-entry (read-dir-iter-next! my-iter)) ;; => #<DirEntry> src/lib.rs
+(read-dir-entry-is-dir? next-entry) ;; => #false
+(read-dir-entry-is-file? next-entry) ;; => #true
+(read-dir-entry-file-name) ;; => "lib.rs"
+```
+### **read-dir-iter?**
+Checks whether the given value is a #<ReadDir>
+
+(read-dir-iter? value) -> bool?
+
+#### Examples
+```scheme
+(define my-iter (read-dir-iter "src"))
+(read-dir-iter? my-iter) ;; => #true
+(read-dir-iter "not an iter") ;; => #false
+```
 ### **read-port-to-string**
 Takes a port and reads the entire content into a string
 
@@ -2836,6 +2946,10 @@ Checks if the given real number is zero.
 ### **syntax-span**
 ### **syntax/loc**
 ### **syntax?**
+### **system-time<=**
+### **system-time<?**
+### **system-time>=**
+### **system-time>?**
 ### **taking**
 ### **thread/available-parallelism**
 ### **thread::current/id**
