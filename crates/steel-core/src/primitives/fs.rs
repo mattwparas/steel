@@ -162,6 +162,20 @@ pub fn is_read_dir_iter_entry(value: &SteelVal) -> Result<SteelVal> {
 }
 
 /// Checks whether the read dir entry is a directory.
+///
+/// (read-dir-entry-is-dir? value) -> bool?
+///
+/// * value : read-dir-iter-entry?
+///
+/// # Examples
+/// ```scheme
+/// (define my-iter (read-dir-iter "src"))
+/// (define next (read-dir-iter-next! my-iter))
+///
+/// (read-dir-entry-path) ;; => "src/lib.rs"
+/// (read-dir-entry-is-dir? next) ;; #false - because this is a file
+///
+/// ```
 #[steel_derive::function(name = "read-dir-entry-is-dir?")]
 pub fn read_dir_entry_is_dir(value: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(
@@ -170,6 +184,20 @@ pub fn read_dir_entry_is_dir(value: &SteelVal) -> Result<SteelVal> {
 }
 
 /// Checks whether the read dir entry is a file.
+///
+/// (read-dir-entry-is-dir? value) -> bool?
+///
+/// * value : read-dir-iter-entry?
+///
+/// # Examples
+/// ```scheme
+/// (define my-iter (read-dir-iter "src"))
+/// (define next (read-dir-iter-next! my-iter))
+///
+/// (read-dir-entry-path) ;; => "src/lib.rs"
+/// (read-dir-entry-is-dir? next) ;; #true - because this is a file
+///
+/// ```
 #[steel_derive::function(name = "read-dir-entry-is-file?")]
 pub fn read_dir_entry_is_file(value: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(
