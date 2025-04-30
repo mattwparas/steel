@@ -670,17 +670,17 @@ Checks if the given number is even
 > (even? 4.0) ;; => #true
 ```
 ### **exact**
-Returns an exact representation of the input number, coerces an inexact number to an exact form.
+Converts a number to an exact number.
 
-(exact n) -> number?
+(exact num) -> number?
 
-* n : number? - The value to check for exactness.
+* num : number? - The value to convert to exact.
 
 #### Examples
 ```scheme
-> (exact 5.0) ;; => 5
-> (exact 5/3) ;; => 5/3
-> (exact 2) ;; => 2
+> (exact 10.0) ;; => 10
+> (exact 1.5) ;; => 3/2
+> (exact 1.5+2.5i) ;; => 3/2+5/2i
 ```
 ### **exact->inexact**
 Converts an exact number to an inexact number.
@@ -1135,6 +1135,19 @@ Constructs an immutable vector from the given arguments.
 ```scheme
 > (define V (immutable-vector 1 2 3)) ;;
 > V ;; => '#(1 2 3)
+```
+### **inexact**
+Converts a number to an inexact number.
+
+(inexact num) -> number?
+
+* num : number? - The number to convert from exact to inexact.
+
+#### Examples
+```scheme
+> (inexact 10) ;; => 10
+> (inexact 1/2) ;; => 0.5
+> (inexact 1+2i) ;; => 1+2i
 ```
 ### **inexact->exact**
 Converts an inexact number to an exact number.
