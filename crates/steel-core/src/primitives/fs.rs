@@ -1,10 +1,12 @@
-use crate::rvals::{Custom, Result, SteelString, SteelVal};
+use crate::rvals::{
+    AsRefMutSteelVal, AsRefSteelVal, Custom, IntoSteelVal, Result, SteelString, SteelVal,
+};
 use crate::steel_vm::builtin::BuiltInModule;
-use crate::{steelerr, stop, throw};
+use crate::{steelerr, throw};
 use std::env::{current_dir, set_current_dir};
 use std::path::{Path, PathBuf};
 
-use std::fs;
+use std::fs::{self, DirEntry, Metadata, ReadDir};
 use std::io;
 
 fn get_extension_from_filename(filename: &str) -> Option<&str> {
@@ -54,13 +56,240 @@ pub fn fs_module() -> BuiltInModule {
         .register_native_fn_definition(CURRENT_DIRECTORY_DEFINITION)
         .register_native_fn_definition(CHANGE_CURRENT_DIRECTORY_DEFINITION)
         .register_native_fn_definition(GET_EXTENSION_DEFINITION)
-        .register_native_fn_definition(DELETE_FILE_DEFINITION);
+        .register_native_fn_definition(DELETE_FILE_DEFINITION)
+        .register_native_fn_definition(READ_DIR_ITER_DEFINITION)
+        .register_native_fn_definition(READ_DIR_ITER_NEXT_DEFINITION)
+        .register_native_fn_definition(READ_DIR_ENTRY_IS_DIR_DEFINITION)
+        .register_native_fn_definition(READ_DIR_ENTRY_IS_FILE_DEFINITION)
+        .register_native_fn_definition(READ_DIR_ENTRY_IS_SYMLINK_DEFINITION)
+        .register_native_fn_definition(READ_DIR_ENTRY_PATH_DEFINITION)
+        .register_native_fn_definition(READ_DIR_ENTRY_FILE_NAME_DEFINITION)
+        .register_native_fn_definition(READ_DIR_ENTRY_METADATA_DEFINITION)
+        .register_native_fn_definition(FS_METADATA_MODIFIED_DEFINITION)
+        .register_native_fn_definition(FS_METADATA_ACCESSED_DEFINITION)
+        .register_native_fn_definition(FS_METADATA_CREATED_DEFINITION)
+        .register_native_fn_definition(FS_METADATA_IS_FILE_DEFINITION)
+        .register_native_fn_definition(FS_METADATA_IS_DIR_DEFINITION)
+        .register_native_fn_definition(FS_METADATA_IS_SYMLINK_DEFINITION)
+        .register_native_fn_definition(FS_METADATA_LEN_DEFINITION)
+        .register_native_fn_definition(FILE_METADATA_DEFINITION)
+        .register_native_fn_definition(IS_FS_METADATA_DEFINITION)
+        .register_native_fn_definition(IS_READ_DIR_DEFINITION)
+        .register_native_fn_definition(IS_READ_DIR_ITER_ENTRY_DEFINITION);
     module
 }
 
 #[steel_derive::define_module(name = "steel/filesystem")]
 pub fn fs_module_sandbox() -> BuiltInModule {
     BuiltInModule::new("steel/filesystem")
+}
+
+impl Custom for ReadDir {}
+impl Custom for DirEntry {}
+impl Custom for Metadata {}
+
+/// Creates an iterator over the contents of the given directory.
+/// The given path must be a directory.
+///
+/// (read-dir-iter dir) -> #<ReadDir>
+///
+/// * dir : (is-dir?) - the directory to iterate over
+///
+/// # Examples
+/// ```scheme
+/// (define my-iter (read-dir-iter "src"))
+/// (read-dir-iter-next! my-iter) ;; => #<DirEntry> src/lib.rs
+/// (read-dir-iter-next! my-iter) ;; => #<DirEntry> src/main.rs
+/// (read-dir-iter-next! my-iter) ;; => #false
+/// ```
+#[steel_derive::function(name = "read-dir-iter")]
+pub fn read_dir_iter(directory: &SteelString) -> Result<SteelVal> {
+    let p = Path::new(directory.as_ref());
+    p.read_dir()?.into_steelval()
+}
+
+/// Reads one entry from the iterator. Reads a `ReadDir` struct.
+///
+/// (read-dir-iter-next! read-dir-iter) -> #<DirEntry>
+///
+/// * dir : (read-dir-iter?) - the directory to iterate over
+///
+/// # Examples
+/// ```scheme
+/// (define my-iter (read-dir-iter "src"))
+/// (define nex-entry (read-dir-iter-next! my-iter)) ;; => #<DirEntry> src/lib.rs
+/// (read-dir-entry-is-dir? next-entry) ;; => #false
+/// (read-dir-entry-is-file? next-entry) ;; => #true
+/// (read-dir-entry-file-name) ;; => "lib.rs"
+/// ```
+#[steel_derive::function(name = "read-dir-iter-next!")]
+pub fn read_dir_iter_next(iter: &SteelVal) -> Result<SteelVal> {
+    ReadDir::as_mut_ref(iter)?
+        .next()
+        .transpose()
+        .map(|x| x.map(|entry| entry.into_steelval().unwrap()))?
+        .into_steelval()
+}
+
+/// Checks whether the given value is a #<ReadDir>
+///
+/// (read-dir-iter? value) -> bool?
+///
+/// # Examples
+/// ```scheme
+/// (define my-iter (read-dir-iter "src"))
+/// (read-dir-iter? my-iter) ;; => #true
+/// (read-dir-iter "not an iter") ;; => #false
+/// ```
+#[steel_derive::function(name = "read-dir-iter?")]
+pub fn is_read_dir(value: &SteelVal) -> Result<SteelVal> {
+    ReadDir::as_ref(value).is_ok().into_steelval()
+}
+
+/// Checks whether the given value is a #<DirEntry>
+///
+/// (read-dir-iter-entry? value) -> bool?
+///
+/// # Examples
+/// ```scheme
+/// (define my-iter (read-dir-iter "src"))
+/// (define next (read-dir-iter-next! my-iter))
+/// (read-dir-iter-entry? next) ;; => #true
+/// ```
+#[steel_derive::function(name = "read-dir-iter-entry?")]
+pub fn is_read_dir_iter_entry(value: &SteelVal) -> Result<SteelVal> {
+    DirEntry::as_ref(value).is_ok().into_steelval()
+}
+
+/// Checks whether the read dir entry is a directory.
+///
+/// (read-dir-entry-is-dir? value) -> bool?
+///
+/// * value : read-dir-iter-entry?
+///
+/// # Examples
+/// ```scheme
+/// (define my-iter (read-dir-iter "src"))
+/// (define next (read-dir-iter-next! my-iter))
+///
+/// (read-dir-entry-path) ;; => "src/lib.rs"
+/// (read-dir-entry-is-dir? next) ;; #false - because this is a file
+///
+/// ```
+#[steel_derive::function(name = "read-dir-entry-is-dir?")]
+pub fn read_dir_entry_is_dir(value: &SteelVal) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(
+        DirEntry::as_ref(value)?.file_type()?.is_dir(),
+    ))
+}
+
+/// Checks whether the read dir entry is a file.
+///
+/// (read-dir-entry-is-dir? value) -> bool?
+///
+/// * value : read-dir-iter-entry?
+///
+/// # Examples
+/// ```scheme
+/// (define my-iter (read-dir-iter "src"))
+/// (define next (read-dir-iter-next! my-iter))
+///
+/// (read-dir-entry-path) ;; => "src/lib.rs"
+/// (read-dir-entry-is-dir? next) ;; #true - because this is a file
+///
+/// ```
+#[steel_derive::function(name = "read-dir-entry-is-file?")]
+pub fn read_dir_entry_is_file(value: &SteelVal) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(
+        DirEntry::as_ref(value)?.file_type()?.is_file(),
+    ))
+}
+
+/// Checks whether the read dir entry is a symlink.
+#[steel_derive::function(name = "read-dir-entry-is-symlink?")]
+pub fn read_dir_entry_is_symlink(value: &SteelVal) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(
+        DirEntry::as_ref(value)?.file_type()?.is_symlink(),
+    ))
+}
+
+/// Returns the path from a given read-dir-entry.
+#[steel_derive::function(name = "read-dir-entry-path")]
+pub fn read_dir_entry_path(value: &SteelVal) -> Result<SteelVal> {
+    match DirEntry::as_ref(value)?.path().to_str() {
+        Some(p) => Ok(SteelVal::StringV(p.into())),
+        None => Ok(SteelVal::BoolV(false)),
+    }
+}
+
+/// Returns the file name from a given read-dir-entry.
+#[steel_derive::function(name = "read-dir-entry-file-name")]
+pub fn read_dir_entry_file_name(value: &SteelVal) -> Result<SteelVal> {
+    match DirEntry::as_ref(value)?.file_name().to_str() {
+        Some(p) => Ok(SteelVal::StringV(p.into())),
+        None => Ok(SteelVal::BoolV(false)),
+    }
+}
+
+/// Checks if this value is a #<Metadata>
+#[steel_derive::function(name = "fs-metadata?")]
+pub fn is_fs_metadata(value: &SteelVal) -> Result<SteelVal> {
+    Metadata::as_ref(value).is_ok().into_steelval()
+}
+
+/// Extract the file metadata from the #<DirEntry>
+#[steel_derive::function(name = "read-dir-entry-metadata")]
+pub fn read_dir_entry_metadata(value: &SteelVal) -> Result<SteelVal> {
+    let entry = DirEntry::as_ref(value)?;
+    entry.metadata()?.into_steelval()
+}
+
+/// Get the last modified time from the file metadata
+#[steel_derive::function(name = "fs-metadata-modified")]
+pub fn fs_metadata_modified(value: &SteelVal) -> Result<SteelVal> {
+    Metadata::as_ref(value)?.modified()?.into_steelval()
+}
+
+/// Get the last accessed time from the file metadata
+#[steel_derive::function(name = "fs-metadata-accessed")]
+pub fn fs_metadata_accessed(value: &SteelVal) -> Result<SteelVal> {
+    Metadata::as_ref(value)?.accessed()?.into_steelval()
+}
+
+/// Get the created time from the file metadata
+#[steel_derive::function(name = "fs-metadata-created")]
+pub fn fs_metadata_created(value: &SteelVal) -> Result<SteelVal> {
+    Metadata::as_ref(value)?.created()?.into_steelval()
+}
+
+/// Check if this metadata is from a file
+#[steel_derive::function(name = "fs-metadata-is-file?")]
+pub fn fs_metadata_is_file(value: &SteelVal) -> Result<SteelVal> {
+    Metadata::as_ref(value)?.is_file().into_steelval()
+}
+
+/// Check if this metadata is from a directory
+#[steel_derive::function(name = "fs-metadata-is-dir?")]
+pub fn fs_metadata_is_dir(value: &SteelVal) -> Result<SteelVal> {
+    Metadata::as_ref(value)?.is_dir().into_steelval()
+}
+
+/// Check if this metadata is from a symlink
+#[steel_derive::function(name = "fs-metadata-is-symlink?")]
+pub fn fs_metadata_is_symlink(value: &SteelVal) -> Result<SteelVal> {
+    Metadata::as_ref(value)?.is_symlink().into_steelval()
+}
+
+/// Get the length of the file in bytes
+#[steel_derive::function(name = "fs-metadata-len")]
+pub fn fs_metadata_len(value: &SteelVal) -> Result<SteelVal> {
+    Metadata::as_ref(value)?.len().into_steelval()
+}
+
+/// Access the file metadata for a given path
+#[steel_derive::function(name = "file-metadata")]
+pub fn file_metadata(path: &SteelString) -> Result<SteelVal> {
+    std::fs::metadata(path.as_str())?.into_steelval()
 }
 
 /// Deletes the directory
@@ -279,22 +508,15 @@ pub fn canonicalize_path(path: &SteelString) -> Result<SteelVal> {
 #[steel_derive::function(name = "read-dir")]
 pub fn read_dir(path: &SteelString) -> Result<SteelVal> {
     let p = Path::new(path.as_ref());
-    if p.is_dir() {
-        let iter = p.read_dir();
-        match iter {
-            Ok(i) => Ok(SteelVal::ListV(
-                i.into_iter()
-                    .map(|x| match x?.path().to_str() {
-                        Some(s) => Ok(SteelVal::StringV(s.into())),
-                        None => Ok(SteelVal::BoolV(false)),
-                    })
-                    .collect::<Result<_>>()?,
-            )),
-            Err(e) => stop!(Generic => e.to_string()),
-        }
-    } else {
-        stop!(TypeMismatch => "read-dir expected a dir, found a file: {}", path)
-    }
+    let iter = p.read_dir()?;
+    Ok(SteelVal::ListV(
+        iter.into_iter()
+            .map(|x| match x?.path().to_str() {
+                Some(s) => Ok(SteelVal::StringV(s.into())),
+                None => Ok(SteelVal::BoolV(false)),
+            })
+            .collect::<Result<_>>()?,
+    ))
 }
 
 /// Outputs the current working directory as a string

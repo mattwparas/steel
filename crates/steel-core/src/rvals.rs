@@ -1352,7 +1352,7 @@ impl SteelComplex {
     }
 
     /// Returns `true` if the imaginary part is negative.
-    fn imaginary_is_negative(&self) -> bool {
+    pub(crate) fn imaginary_is_negative(&self) -> bool {
         match &self.im {
             NumV(x) => x.is_negative(),
             IntV(x) => x.is_negative(),
@@ -1363,7 +1363,7 @@ impl SteelComplex {
         }
     }
 
-    fn imaginary_is_finite(&self) -> bool {
+    pub(crate) fn imaginary_is_finite(&self) -> bool {
         match &self.im {
             NumV(x) => x.is_finite(),
             IntV(_) | Rational(_) | BigNum(_) | SteelVal::BigRational(_) => true,

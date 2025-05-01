@@ -74,9 +74,7 @@
 
   ;; Check if the package has changed
   (define package-changed?
-    (if (path-exists? destination)
-        (directories-equal? (hash-get package 'path) destination)
-        #t))
+    (if (path-exists? destination) (directories-equal? (hash-get package 'path) destination) #t))
 
   (when (path-exists? destination)
     (delete-directory! destination))
@@ -88,7 +86,9 @@
   (unless dry-run
     (copy-directory-recursively! (hash-get package 'path) destination))
 
-  (when (and (hash-contains? package 'entrypoint) (not dry-run))
+  (when (and (hash-contains? package 'entrypoint)
+             (not dry-run)
+             (not (equal? (current-os!) "windows")))
     (define entrypoint-spec (apply hash (hash-get package 'entrypoint)))
     (define executable-name (hash-get entrypoint-spec '#:name))
     (define executable-path (hash-get entrypoint-spec '#:path))
