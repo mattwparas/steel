@@ -15,6 +15,7 @@
                   run-dylib-installation
                   find-dylib-name))
 
+;; Used for detecting if directories/files have changed
 (require "crypt.scm")
 
 (provide package-installer-main
@@ -63,6 +64,15 @@
 (define (shebang-line)
   "#!/usr/bin/env steel")
 
+(define (directories-equal-excluding-target? a b)
+  (define a-target (path-exists? (convert-path (append-with-separator a "Cargo.toml"))))
+  (define b-target (path-exists? (convert-path (append-with-separator b "Cargo.toml"))))
+  (directories-equal?
+   a
+   b
+   #:ignore-a (if a-target (hashset (convert-path (append-with-separator a "target"))) #f)
+   #:ignore-b (if b-target (hashset (convert-path (append-with-separator b "target"))) #f)))
+
 ;;@doc
 ;; Given a package spec, install that package directly to the file system
 (define (install-package package #:force [force #f] #:dry-run [dry-run #f])
@@ -72,9 +82,18 @@
   (displayln "=> Installing: " package)
   (displayln "   ...Installing to:" destination)
 
-  ;; Check if the package has changed
+  ;; Check if the package has changed by comparing the hashes of the directories.
   (define package-changed?
-    (if (path-exists? destination) (directories-equal? (hash-get package 'path) destination) #t))
+    (if (path-exists? destination)
+        (begin
+          (displayln "Checking if the paths are equivalent: " (hash-get package 'path) destination)
+          (not (directories-equal-excluding-target? (hash-get package 'path) destination)))
+        #t))
+
+  (if package-changed? (displayln "Package has changed.") (displayln "Package has not changed."))
+
+  (when (not package-changed?)
+    (return! destination))
 
   (when (path-exists? destination)
     (delete-directory! destination))

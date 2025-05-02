@@ -622,10 +622,6 @@ impl Compiler {
         self.module_manager.modules()
     }
 
-    pub(crate) fn modules_mut(&mut self) -> &mut FxHashMap<PathBuf, CompiledModule> {
-        self.module_manager.modules_mut()
-    }
-
     pub fn expand_expressions(
         &mut self,
         exprs: Vec<ExprKind>,
