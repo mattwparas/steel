@@ -93,6 +93,8 @@
   (if package-changed? (displayln "Package has changed.") (displayln "Package has not changed."))
 
   (when (not package-changed?)
+    ;; Try walking the deps
+    (walk-and-install package #:force force #:dry-run dry-run)
     (return! destination))
 
   (when (path-exists? destination)
@@ -198,7 +200,10 @@
   ;; This should not only check if the package is installed, but also check
   ;; if the package manifest matches the one that we have. If there is a change, we
   ;; should update the installation accordingly.
-  (when (or (not (package-installed? (hash-ref cog-dependency '#:name))) force)
+  (when (or (not (package-installed? (hash-ref cog-dependency '#:name)))
+            force
+            ;; If its a local path, always attempt to resolve it
+            (hash-contains? cog-dependency '#:path))
     (cond
       ;; First, attempt to resolve it via the git url if it is provided.
       [(hash-contains? cog-dependency '#:git-url)
