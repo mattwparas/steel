@@ -1870,8 +1870,6 @@ impl<'a> ModuleBuilder<'a> {
                     self.module_resolvers,
                 )?;
 
-                println!("--- {:?}", new_module.name);
-
                 // Walk the tree and compile any dependencies
                 // This will eventually put the module in the cache
                 let mut module_exprs = new_module.compile()?;
