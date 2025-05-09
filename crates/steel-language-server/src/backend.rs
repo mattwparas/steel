@@ -725,13 +725,6 @@ impl Backend {
 
         let maybe_definition = analysis.get_identifier(refers_to)?;
 
-        self.client
-            .log_message(
-                MessageType::INFO,
-                format!("Refers to information: {:?}", &maybe_definition),
-            )
-            .await;
-
         // log::info!("")
 
         if maybe_definition.is_required_identifier {
@@ -777,19 +770,10 @@ impl Backend {
                         )
                     });
 
-                    self.client
-                        .log_message(MessageType::INFO, format!("{:?}", define))
-                        .await;
-
                     match define {
                         Some(define) => {
-                            self.client
-                                .log_message(MessageType::INFO, format!("{:?}", define))
-                                .await;
-
                             // This _should_ be the resolved documentation. And then we just extract the
                             // string from the definition.
-
                             let definition = define.body.to_string_literal()?;
 
                             return Some(Hover {
@@ -804,10 +788,6 @@ impl Backend {
                 }
 
                 RequiredIdentifierInformation::Unresolved(mut interned, name, original) => {
-                    self.client
-                        .log_message(MessageType::INFO, "UNRESOLVED")
-                        .await;
-
                     return unresolved_hover(interned, original, name);
                 }
             }
@@ -840,17 +820,9 @@ impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
         let now = std::time::Instant::now();
 
-        self.client
-            .log_message(MessageType::INFO, "on change")
-            .await;
-
         let rope = ropey::Rope::from_str(&params.text);
         self.document_map
             .insert(params.uri.to_string(), rope.clone());
-
-        self.client
-            .log_message(MessageType::INFO, &params.uri.as_str())
-            .await;
 
         let expression = params.text;
 
