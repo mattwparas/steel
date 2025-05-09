@@ -2507,6 +2507,24 @@ pub(crate) fn is_a_require_definition(def: &Define) -> bool {
     false
 }
 
+#[inline(always)]
+pub(crate) fn require_defitinion_to_original_symbol(def: &Define) -> Option<InternedString> {
+    if let ExprKind::List(l) = &def.body {
+        match l.first_ident() {
+            Some(func) if *func == *PROTO_HASH_GET => {
+                if let Some(ExprKind::Quote(q)) = l.get(2) {
+                    return q.expr.atom_identifier().copied();
+                } else {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
 impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
     fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) {
         self.depth += 1;
@@ -3686,9 +3704,14 @@ pub struct SemanticAnalysis<'a> {
 }
 
 pub enum RequiredIdentifierInformation<'a> {
-    Resolved(&'a SemanticInformation),
+    Resolved(
+        &'a SemanticInformation,
+        InternedString,
+        String,
+        Option<InternedString>,
+    ),
     // Raw Identifier, Full path
-    Unresolved(InternedString, String),
+    Unresolved(InternedString, String, Option<InternedString>),
 }
 
 impl<'a> SemanticAnalysis<'a> {
@@ -3744,14 +3767,22 @@ impl<'a> SemanticAnalysis<'a> {
 
                         match top_level_define {
                             Some(top_level_define) => {
-                                return self
-                                    .get_identifier(top_level_define.name_id()?)
-                                    .map(RequiredIdentifierInformation::Resolved);
+                                let name = *d.name.atom_identifier()?;
+
+                                return self.get_identifier(top_level_define.name_id()?).map(|x| {
+                                    RequiredIdentifierInformation::Resolved(
+                                        x,
+                                        name,
+                                        prefix,
+                                        require_defitinion_to_original_symbol(&d),
+                                    )
+                                });
                             }
                             None => {
                                 return Some(RequiredIdentifierInformation::Unresolved(
                                     *d.name.atom_identifier()?,
                                     prefix,
+                                    require_defitinion_to_original_symbol(&d),
                                 ))
                             }
                         }
@@ -3775,14 +3806,23 @@ impl<'a> SemanticAnalysis<'a> {
 
                                 match top_level_define {
                                     Some(top_level_define) => {
+                                        let name = *d.name.atom_identifier()?;
                                         return self
                                             .get_identifier(top_level_define.name_id()?)
-                                            .map(RequiredIdentifierInformation::Resolved);
+                                            .map(|x| {
+                                                RequiredIdentifierInformation::Resolved(
+                                                    x,
+                                                    name,
+                                                    prefix,
+                                                    require_defitinion_to_original_symbol(&d),
+                                                )
+                                            });
                                     }
                                     None => {
                                         return Some(RequiredIdentifierInformation::Unresolved(
                                             *d.name.atom_identifier()?,
                                             prefix,
+                                            require_defitinion_to_original_symbol(&d),
                                         ))
                                     }
                                 }
@@ -3820,10 +3860,13 @@ impl<'a> SemanticAnalysis<'a> {
 
                 match top_level_define {
                     Some(top_level_define) => {
+                        let name = *d.name.atom_identifier()?;
+
                         results.push((
                             d.name_id()?,
-                            self.get_identifier(top_level_define.name_id()?)
-                                .map(RequiredIdentifierInformation::Resolved)?,
+                            self.get_identifier(top_level_define.name_id()?).map(|x| {
+                                RequiredIdentifierInformation::Resolved(x, name, prefix, None)
+                            })?,
                         ));
                     }
                     None => {
@@ -3832,6 +3875,7 @@ impl<'a> SemanticAnalysis<'a> {
                             RequiredIdentifierInformation::Unresolved(
                                 *d.name.atom_identifier()?,
                                 prefix,
+                                None,
                             ),
                         ));
                     }

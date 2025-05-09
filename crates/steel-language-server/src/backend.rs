@@ -198,159 +198,7 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        // TODO: In order for this to work, we'll have to both
-        // expose a span -> URI function, as well as figure out how to
-        // decide if a definition refers to an import. I think deciding
-        // if something is a module import should be like:
-        let definition = || -> Option<Hover> {
-            let uri = params.text_document_position_params.text_document.uri;
-            let mut ast = self.ast_map.get_mut(uri.as_str())?;
-            let rope = self.document_map.get(uri.as_str())?;
-
-            let position = params.text_document_position_params.position;
-            let offset = position_to_offset(position, &rope)?;
-
-            let analysis = SemanticAnalysis::new(&mut ast);
-
-            let (syntax_object_id, information) =
-                analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
-
-            let mut syntax_object_id_to_interned_string = HashMap::new();
-            syntax_object_id_to_interned_string.insert(*syntax_object_id, None);
-
-            // If this is a builtin, reference the engine's internal documentation
-            // Note: This does not handle resolving the identifier if it has been brought into scope
-            // with some kind of prefix. This should be relatively easy to resolve - the analysis
-            // can most likely identify if this is a builtin by checking what it was bought into scope
-            // with. For example, it would be brought into scope with:
-            // (define foo.list (%proto-hash-get% ...)
-            //
-            // The ability to then just check what the original identifier was can help us resolve
-            // the binding, by just checking against the interned string stored in the proto hash get.
-            if information.builtin {
-                analysis.syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
-
-                let name = syntax_object_id_to_interned_string.get(syntax_object_id)?;
-
-                let doc = ENGINE
-                    .read()
-                    .ok()?
-                    .builtin_modules()
-                    .get_doc((*name)?.resolve())?;
-
-                return Some(Hover {
-                    contents: HoverContents::Scalar(MarkedString::String(doc)),
-                    range: None,
-                });
-            }
-
-            // Refers to something - keep that around as well
-            let refers_to = information.refers_to?;
-
-            // See if we can find this as well.
-            syntax_object_id_to_interned_string.insert(refers_to, None);
-
-            let maybe_definition = analysis.get_identifier(refers_to)?;
-
-            // log::debug!("Refers to information: {:?}", &maybe_definition);
-
-            if maybe_definition.is_required_identifier {
-                match analysis.resolve_required_identifier(refers_to)? {
-                    RequiredIdentifierInformation::Resolved(_) => {
-                        // Maybe include the span?
-                        // resulting_span = resolved.span;
-
-                        // Find the doc associated with this span then
-                        analysis.syntax_object_ids_to_identifiers(
-                            &mut syntax_object_id_to_interned_string,
-                        );
-
-                        // Guaranteed to be here given that we've resolve it above
-                        let definition_name = syntax_object_id_to_interned_string
-                            .get(&refers_to)
-                            .clone()?
-                            .clone()?;
-
-                        // Memoize a lot of these lookups if possible, or at least share the memory;
-                        let doc_suffix = definition_name.resolve().to_string() + "__doc__";
-
-                        let define = analysis.query_top_level_define(&doc_suffix)?;
-
-                        // This _should_ be the resolved documentation. And then we just extract the
-                        // string from the definition.
-
-                        let definition = define.body.to_string_literal()?;
-
-                        return Some(Hover {
-                            contents: HoverContents::Scalar(MarkedString::String(
-                                definition.clone(),
-                            )),
-                            range: None,
-                        });
-                    }
-
-                    RequiredIdentifierInformation::Unresolved(interned, name) => {
-                        let module_path_to_check = name
-                            .trim_start_matches(MANGLER_PREFIX)
-                            .trim_end_matches(interned.resolve())
-                            .trim_end_matches("__%#__");
-
-                        let guard = ENGINE.read().ok()?;
-                        let modules = guard.modules();
-                        let module = modules.get(&PathBuf::from(module_path_to_check))?;
-                        let module_ast = module.get_ast();
-
-                        // Find the doc form of this
-                        let interned = interned.resolve().to_string() + "__doc__";
-
-                        let top_level_define = query_top_level_define(module_ast, &interned)
-                            .or_else(|| {
-                                query_top_level_define_on_condition(
-                                    module_ast,
-                                    &interned,
-                                    |name, target| name.ends_with(target),
-                                )
-                            })?;
-
-                        let definition = top_level_define.body.to_string_literal()?;
-
-                        return Some(Hover {
-                            contents: HoverContents::Scalar(MarkedString::String(
-                                definition.clone(),
-                            )),
-                            range: None,
-                        });
-                    }
-                }
-            }
-
-            // Resolve what we've found?
-            analysis.syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
-
-            let definition_name = syntax_object_id_to_interned_string
-                .get(&refers_to)
-                .clone()?
-                .clone()?;
-
-            // Memoize a lot of these lookups if possible, or at least share the memory;
-            let doc_suffix = definition_name.resolve().to_string() + "__doc__";
-
-            let define = analysis.query_top_level_define(&doc_suffix)?;
-
-            // This _should_ be the resolved documentation. And then we just extract the
-            // string from the definition.
-
-            let definition = define.body.to_string_literal()?;
-
-            Some(Hover {
-                contents: HoverContents::Scalar(MarkedString::String(definition.clone())),
-                range: None,
-            })
-        };
-
-        Ok(definition())
-
-        // Ok(definition)
+        Ok(self.hover_impl(params).await)
     }
 
     async fn goto_definition(
@@ -382,49 +230,75 @@ impl LanguageServer for Backend {
 
             // log::debug!("Refers to information: {:?}", &maybe_definition);
 
+            let mut resolver = |mut interned: InternedString,
+                                name: String,
+                                original|
+             -> Option<()> {
+                let maybe_renamed = interned;
+
+                if let Some(original) = original {
+                    if interned != original {
+                        interned = original;
+                    }
+                }
+
+                let mut module_prefix_path_to_check =
+                    name.trim_end_matches(if maybe_renamed == interned {
+                        interned.resolve()
+                    } else {
+                        maybe_renamed.resolve()
+                    });
+
+                resulting_span = {
+                    let guard = ENGINE.read().ok()?;
+
+                    let modules = guard.modules();
+
+                    let module = modules
+                        .values()
+                        .find(|x| x.prefix() == module_prefix_path_to_check)?;
+
+                    let module_ast = module.get_ast();
+
+                    let top_level_define = query_top_level_define(module_ast, interned.resolve())
+                        .or_else(|| {
+                        query_top_level_define_on_condition(
+                            module_ast,
+                            interned.resolve(),
+                            |name, target| target.ends_with(name),
+                        )
+                    })?;
+
+                    top_level_define.name.atom_syntax_object().map(|x| x.span)?
+                };
+
+                Some(())
+            };
+
             if maybe_definition.is_required_identifier {
                 match analysis.resolve_required_identifier(refers_to)? {
-                    RequiredIdentifierInformation::Resolved(resolved) => {
-                        resulting_span = resolved.span;
+                    RequiredIdentifierInformation::Resolved(
+                        resolved,
+                        mut interned,
+                        name,
+                        original,
+                    ) => {
+                        if let Some(original) = original {
+                            if interned != original {
+                                // Just call the unresolved
+                                // todo!()
+
+                                resolver(interned, name, Some(original))?;
+                            } else {
+                                resulting_span = resolved.span;
+                            }
+                        } else {
+                            resulting_span = resolved.span;
+                        }
                     }
 
-                    RequiredIdentifierInformation::Unresolved(interned, name) => {
-                        // log::debug!("Found unresolved identifier: {} - {}", interned, name);
-
-                        let module_path_to_check = name
-                            .trim_start_matches(MANGLER_PREFIX)
-                            .trim_end_matches(interned.resolve())
-                            .trim_end_matches("__%#__");
-
-                        resulting_span = {
-                            let guard = ENGINE.read().ok()?;
-
-                            // log::debug!(
-                            //     "Compiled modules: {:?}",
-                            //     guard.modules().keys().collect::<Vec<_>>()
-                            // );
-
-                            // log::debug!("Searching for: {} in {}", name, module_path_to_check);
-
-                            let modules = guard.modules();
-
-                            let module = modules.get(&PathBuf::from(module_path_to_check))?;
-
-                            let module_ast = module.get_ast();
-
-                            let top_level_define =
-                                query_top_level_define(module_ast, interned.resolve()).or_else(
-                                    || {
-                                        query_top_level_define_on_condition(
-                                            module_ast,
-                                            interned.resolve(),
-                                            |name, target| name.ends_with(target),
-                                        )
-                                    },
-                                )?;
-
-                            top_level_define.name.atom_syntax_object().map(|x| x.span)?
-                        };
+                    RequiredIdentifierInformation::Unresolved(mut interned, name, original) => {
+                        resolver(interned, name, original)?;
                     }
                 }
 
@@ -800,6 +674,169 @@ struct TextDocumentItem {
     version: i32,
 }
 impl Backend {
+    async fn hover_impl(&self, params: HoverParams) -> Option<Hover> {
+        let uri = params.text_document_position_params.text_document.uri;
+
+        let mut ast = self.ast_map.get_mut(uri.as_str())?;
+        let rope = self.document_map.get(uri.as_str())?;
+
+        let position = params.text_document_position_params.position;
+        let offset = position_to_offset(position, &rope)?;
+
+        let analysis = SemanticAnalysis::new(&mut ast);
+
+        let (syntax_object_id, information) =
+            analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
+
+        let mut syntax_object_id_to_interned_string = HashMap::new();
+        syntax_object_id_to_interned_string.insert(*syntax_object_id, None);
+
+        // If this is a builtin, reference the engine's internal documentation
+        // Note: This does not handle resolving the identifier if it has been brought into scope
+        // with some kind of prefix. This should be relatively easy to resolve - the analysis
+        // can most likely identify if this is a builtin by checking what it was bought into scope
+        // with. For example, it would be brought into scope with:
+        // (define foo.list (%proto-hash-get% ...)
+        //
+        // The ability to then just check what the original identifier was can help us resolve
+        // the binding, by just checking against the interned string stored in the proto hash get.
+        if information.builtin {
+            analysis.syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
+
+            let name = syntax_object_id_to_interned_string.get(syntax_object_id)?;
+
+            let doc = ENGINE
+                .read()
+                .ok()?
+                .builtin_modules()
+                .get_doc((*name)?.resolve())?;
+
+            return Some(Hover {
+                contents: HoverContents::Scalar(MarkedString::String(doc)),
+                range: None,
+            });
+        }
+
+        // Refers to something - keep that around as well
+        let refers_to = information.refers_to?;
+
+        // See if we can find this as well.
+        syntax_object_id_to_interned_string.insert(refers_to, None);
+
+        let maybe_definition = analysis.get_identifier(refers_to)?;
+
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("Refers to information: {:?}", &maybe_definition),
+            )
+            .await;
+
+        // log::info!("")
+
+        if maybe_definition.is_required_identifier {
+            let resolve_required = analysis.resolve_required_identifier(refers_to);
+
+            match resolve_required? {
+                RequiredIdentifierInformation::Resolved(_, mut interned, name, original) => {
+                    // Maybe include the span?
+                    // resulting_span = resolved.span;
+
+                    // if let Some(original) = original {
+                    //     if interned != original {
+                    //         return unresolved_hover(interned, Some(original), name);
+                    //     }
+                    // }
+
+                    // Find the doc associated with this span then
+                    analysis
+                        .syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
+
+                    // self.client
+                    //     .log_message(MessageType::INFO, "GETTING HERE")
+                    //     .await;
+
+                    // Guaranteed to be here given that we've resolve it above
+                    let definition_name = syntax_object_id_to_interned_string
+                        .get(&refers_to)
+                        .clone()?
+                        .clone()?;
+
+                    // self.client
+                    //     .log_message(MessageType::INFO, definition_name)
+                    //     .await;
+
+                    // Memoize a lot of these lookups if possible, or at least share the memory;
+                    let doc_suffix = definition_name.resolve().to_string() + "__doc__";
+
+                    let define = analysis.query_top_level_define(&doc_suffix).or_else(|| {
+                        query_top_level_define_on_condition(
+                            &analysis.exprs,
+                            doc_suffix,
+                            |name, target| target.ends_with(name),
+                        )
+                    });
+
+                    self.client
+                        .log_message(MessageType::INFO, format!("{:?}", define))
+                        .await;
+
+                    match define {
+                        Some(define) => {
+                            self.client
+                                .log_message(MessageType::INFO, format!("{:?}", define))
+                                .await;
+
+                            // This _should_ be the resolved documentation. And then we just extract the
+                            // string from the definition.
+
+                            let definition = define.body.to_string_literal()?;
+
+                            return Some(Hover {
+                                contents: HoverContents::Scalar(MarkedString::String(
+                                    definition.clone(),
+                                )),
+                                range: None,
+                            });
+                        }
+                        None => return unresolved_hover(interned, original, name),
+                    }
+                }
+
+                RequiredIdentifierInformation::Unresolved(mut interned, name, original) => {
+                    self.client
+                        .log_message(MessageType::INFO, "UNRESOLVED")
+                        .await;
+
+                    return unresolved_hover(interned, original, name);
+                }
+            }
+        }
+
+        // Resolve what we've found?
+        analysis.syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
+
+        let definition_name = syntax_object_id_to_interned_string
+            .get(&refers_to)
+            .clone()?
+            .clone()?;
+
+        // Memoize a lot of these lookups if possible, or at least share the memory;
+        let doc_suffix = definition_name.resolve().to_string() + "__doc__";
+
+        let define = analysis.query_top_level_define(&doc_suffix)?;
+
+        // This _should_ be the resolved documentation. And then we just extract the
+        // string from the definition.
+
+        let definition = define.body.to_string_literal()?;
+
+        Some(Hover {
+            contents: HoverContents::Scalar(MarkedString::String(definition.clone())),
+            range: None,
+        })
+    }
+
     async fn on_change(&self, params: TextDocumentItem) {
         let now = std::time::Instant::now();
 
@@ -943,6 +980,52 @@ impl Backend {
 
         // log::debug!("On change time taken: {:?}", now.elapsed());
     }
+}
+
+fn unresolved_hover(
+    mut interned: InternedString,
+    original: Option<InternedString>,
+    name: String,
+) -> Option<Hover> {
+    let maybe_renamed = interned;
+    if let Some(original) = original {
+        if interned != original {
+            interned = original;
+        }
+    }
+    let mut module_prefix_path_to_check = name.trim_end_matches(if maybe_renamed == interned {
+        interned.resolve()
+    } else {
+        maybe_renamed.resolve()
+    });
+    let interned = interned.resolve().to_string() + "__doc__";
+    let top_level_define = {
+        let guard = ENGINE.read().ok()?;
+        let modules = guard.modules();
+
+        // Just do a linear scan for now, until this is better:
+        let module = modules
+            .values()
+            .find(|x| x.prefix() == module_prefix_path_to_check)?;
+
+        let module_ast = module.get_ast();
+
+        let top_level_define = query_top_level_define(module_ast, &interned)
+            .or_else(|| {
+                query_top_level_define_on_condition(module_ast, &interned, |name, target| {
+                    target.ends_with(name)
+                })
+            })
+            .cloned();
+
+        top_level_define
+    };
+    let top_level_define = top_level_define?;
+    let definition = top_level_define.body.to_string_literal()?;
+    return Some(Hover {
+        contents: HoverContents::Scalar(MarkedString::String(definition.clone())),
+        range: None,
+    });
 }
 
 fn uri_to_source_id(uri: &Url) -> Option<steel::parser::parser::SourceId> {

@@ -162,12 +162,12 @@ impl DiagnosticGenerator for StaticArityChecker {
         for (id, required_identifier) in required_identifier_information {
             match required_identifier {
                 // This is probably going to be annoying?
-                RequiredIdentifierInformation::Resolved(resolved) => {
+                RequiredIdentifierInformation::Resolved(resolved, _, _, _) => {
                     // TODO: When the identifier is already in the given AST, meaning
                     // we don't have to go to another AST in order to resolve it,
                     // we should just do that here.
                 }
-                RequiredIdentifierInformation::Unresolved(interned, name) => {
+                RequiredIdentifierInformation::Unresolved(interned, name, _) => {
                     let module_path_to_check = name
                         .trim_start_matches("mangler")
                         .trim_end_matches(interned.resolve())
