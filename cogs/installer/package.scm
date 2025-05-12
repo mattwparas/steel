@@ -64,14 +64,16 @@
 (define (shebang-line)
   "#!/usr/bin/env steel")
 
+(define (push-path root p)
+  (convert-path (append-with-separator root p)))
+
 (define (directories-equal-excluding-target? a b)
-  (define a-target (path-exists? (convert-path (append-with-separator a "Cargo.toml"))))
-  (define b-target (path-exists? (convert-path (append-with-separator b "Cargo.toml"))))
-  (directories-equal?
-   a
-   b
-   #:ignore-a (if a-target (hashset (convert-path (append-with-separator a "target"))) #f)
-   #:ignore-b (if b-target (hashset (convert-path (append-with-separator b "target"))) #f)))
+  (define a-target (path-exists? (push-path a "Cargo.toml")))
+  (define b-target (path-exists? (push-path b "Cargo.toml")))
+  (directories-equal? a
+                      b
+                      #:ignore-a (if a-target (hashset (push-path a "target")) #f)
+                      #:ignore-b (if b-target (hashset (push-path b "target")) #f)))
 
 ;;@doc
 ;; Given a package spec, install that package directly to the file system

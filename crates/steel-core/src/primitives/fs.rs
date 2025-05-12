@@ -1,5 +1,6 @@
 use crate::rvals::{
-    AsRefMutSteelVal, AsRefSteelVal, Custom, IntoSteelVal, Result, SteelString, SteelVal,
+    self, AsRefMutSteelVal, AsRefSteelVal, Custom, IntoSteelVal, RestArgsIter, Result, SteelString,
+    SteelVal,
 };
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::{steelerr, throw};
@@ -35,6 +36,46 @@ impl Custom for PathBuf {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
         Some(Ok(format!("#<Path:{:?}>", self)))
     }
+}
+
+impl Custom for glob::MatchOptions {}
+impl Custom for glob::PatternError {}
+impl Custom for glob::Paths {}
+
+#[steel_derive::function(name = "glob")]
+pub fn glob(pattern: SteelString, mut rest: RestArgsIter<'_, &SteelVal>) -> Result<SteelVal> {
+    use crate::rvals::FromSteelVal;
+
+    let options = rest
+        .next()
+        .map(|x| glob::MatchOptions::from_steelval(&x.unwrap()))
+        .unwrap_or_else(|| Ok(glob::MatchOptions::default()))?;
+
+    if rest.next().is_some() {
+        crate::stop!(ArityMismatch => "glob expects no more than 2 arguments");
+    }
+
+    glob::glob_with(pattern.as_str(), options)
+        .map_err(|x| throw!(Generic => "glob pattern: {:?}", x)())?
+        .into_steelval()
+}
+
+#[steel_derive::function(name = "glob-iter-next!")]
+pub fn glob_paths_next(paths: &SteelVal) -> Result<SteelVal> {
+    let mut paths = glob::Paths::as_mut_ref(paths)?;
+    match paths.next() {
+        Some(Ok(v)) => v.into_steelval(),
+        Some(Err(e)) => crate::stop!(Generic => "glob-iter-next!: {:?}", e),
+        None => Ok(SteelVal::BoolV(false)),
+    }
+}
+
+#[steel_derive::function(name = "path->string")]
+pub fn path_to_string(path: &SteelVal) -> Result<SteelVal> {
+    <PathBuf as rvals::AsRefSteelVal>::as_ref(&path)?
+        .to_str()
+        .map(|x| SteelVal::StringV(x.to_string().into()))
+        .into_steelval()
 }
 
 /// Filesystem functions, mostly just thin wrappers around the `std::fs` functions in
@@ -75,7 +116,10 @@ pub fn fs_module() -> BuiltInModule {
         .register_native_fn_definition(FILE_METADATA_DEFINITION)
         .register_native_fn_definition(IS_FS_METADATA_DEFINITION)
         .register_native_fn_definition(IS_READ_DIR_DEFINITION)
-        .register_native_fn_definition(IS_READ_DIR_ITER_ENTRY_DEFINITION);
+        .register_native_fn_definition(IS_READ_DIR_ITER_ENTRY_DEFINITION)
+        .register_native_fn_definition(GLOB_DEFINITION)
+        .register_native_fn_definition(GLOB_PATHS_NEXT_DEFINITION)
+        .register_native_fn_definition(PATH_TO_STRING_DEFINITION);
     module
 }
 
