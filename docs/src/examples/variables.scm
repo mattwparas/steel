@@ -8,8 +8,9 @@
 ; The first argument is `1`. The second argument is `2`
 (define three (+ 1 2))
 
-; `assert!`: functions that end with an exlamation
-; mark `!` are macros.
+; functions that end with an exlamation mark `!` are macros.
+;
+; The `assert!` macro throws an error if its argument is `#false`
 ;
 ; Macros do not evaluate to anything.
 ; Rather, they expand to more code
