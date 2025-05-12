@@ -2507,6 +2507,24 @@ pub(crate) fn is_a_require_definition(def: &Define) -> bool {
     false
 }
 
+#[inline(always)]
+pub(crate) fn require_defitinion_to_original_symbol(def: &Define) -> Option<InternedString> {
+    if let ExprKind::List(l) = &def.body {
+        match l.first_ident() {
+            Some(func) if *func == *PROTO_HASH_GET => {
+                if let Some(ExprKind::Quote(q)) = l.get(2) {
+                    return q.expr.atom_identifier().copied();
+                } else {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
 impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
     fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) {
         self.depth += 1;
@@ -3686,9 +3704,14 @@ pub struct SemanticAnalysis<'a> {
 }
 
 pub enum RequiredIdentifierInformation<'a> {
-    Resolved(&'a SemanticInformation),
+    Resolved(
+        &'a SemanticInformation,
+        InternedString,
+        String,
+        Option<InternedString>,
+    ),
     // Raw Identifier, Full path
-    Unresolved(InternedString, String),
+    Unresolved(InternedString, String, Option<InternedString>),
 }
 
 impl<'a> SemanticAnalysis<'a> {
@@ -3744,14 +3767,22 @@ impl<'a> SemanticAnalysis<'a> {
 
                         match top_level_define {
                             Some(top_level_define) => {
-                                return self
-                                    .get_identifier(top_level_define.name_id()?)
-                                    .map(RequiredIdentifierInformation::Resolved);
+                                let name = *d.name.atom_identifier()?;
+
+                                return self.get_identifier(top_level_define.name_id()?).map(|x| {
+                                    RequiredIdentifierInformation::Resolved(
+                                        x,
+                                        name,
+                                        prefix,
+                                        require_defitinion_to_original_symbol(&d),
+                                    )
+                                });
                             }
                             None => {
                                 return Some(RequiredIdentifierInformation::Unresolved(
                                     *d.name.atom_identifier()?,
                                     prefix,
+                                    require_defitinion_to_original_symbol(&d),
                                 ))
                             }
                         }
@@ -3775,14 +3806,23 @@ impl<'a> SemanticAnalysis<'a> {
 
                                 match top_level_define {
                                     Some(top_level_define) => {
+                                        let name = *d.name.atom_identifier()?;
                                         return self
                                             .get_identifier(top_level_define.name_id()?)
-                                            .map(RequiredIdentifierInformation::Resolved);
+                                            .map(|x| {
+                                                RequiredIdentifierInformation::Resolved(
+                                                    x,
+                                                    name,
+                                                    prefix,
+                                                    require_defitinion_to_original_symbol(&d),
+                                                )
+                                            });
                                     }
                                     None => {
                                         return Some(RequiredIdentifierInformation::Unresolved(
                                             *d.name.atom_identifier()?,
                                             prefix,
+                                            require_defitinion_to_original_symbol(&d),
                                         ))
                                     }
                                 }
@@ -3820,10 +3860,13 @@ impl<'a> SemanticAnalysis<'a> {
 
                 match top_level_define {
                     Some(top_level_define) => {
+                        let name = *d.name.atom_identifier()?;
+
                         results.push((
                             d.name_id()?,
-                            self.get_identifier(top_level_define.name_id()?)
-                                .map(RequiredIdentifierInformation::Resolved)?,
+                            self.get_identifier(top_level_define.name_id()?).map(|x| {
+                                RequiredIdentifierInformation::Resolved(x, name, prefix, None)
+                            })?,
                         ));
                     }
                     None => {
@@ -3832,6 +3875,7 @@ impl<'a> SemanticAnalysis<'a> {
                             RequiredIdentifierInformation::Unresolved(
                                 *d.name.atom_identifier()?,
                                 prefix,
+                                None,
                             ),
                         ));
                     }
@@ -4864,13 +4908,13 @@ mod analysis_pass_tests {
     fn test_unused_arguments() {
         let script = r#"
 
-(define ##lambda-lifting##loop119067
+(define lambda-lifting##loop119067
   (λ (port sum)
     (%plain-let
      ((next-line (read-line-from-port port)))
      (if (equal? (quote eof) next-line)
          sum
-         (##lambda-lifting##loop119067
+         (lambda-lifting##loop119067
           port
           (+ sum
              (%plain-let ((digits (filter char-digit? next-line)))
@@ -4878,27 +4922,27 @@ mod analysis_pass_tests {
                                      (string->number (list->string (list first-digit
                                                                          second-digit)))))))))))
 
-(define ##lambda-lifting##trie-contains-inner?119977
+(define lambda-lifting##trie-contains-inner?119977
   (λ (node char-list)
     (if (empty? char-list)
         #true
         (if (char=? (trie-char node) (car char-list))
             (%plain-let ((children-matched
                           (map (λ (node4)
-                                 (##lambda-lifting##trie-contains-inner?119977 node4 (cdr char-list)))
+                                 (lambda-lifting##trie-contains-inner?119977 node4 (cdr char-list)))
                                (trie-children node))))
                         (if (empty? children-matched) #true (list? (member #true children-matched))))
             #false))))
 
-(define ##lambda-lifting##loop120600
+(define lambda-lifting##loop120600
   (λ (port sum)
     (%plain-let ((next-line (read-line-from-port port)))
                 (if (equal? (quote eof) next-line)
                     sum
-                    (##lambda-lifting##loop120600 port (+ sum (process-line next-line)))))))
+                    (lambda-lifting##loop120600 port (+ sum (process-line next-line)))))))
 
 (define scan
-  (λ (path) (%plain-let ((file (open-input-file path))) (##lambda-lifting##loop119067 file 0))))
+  (λ (path) (%plain-let ((file (open-input-file path))) (lambda-lifting##loop119067 file 0))))
 
 (displayln (scan "aoc/day1.data"))
 
@@ -5064,7 +5108,7 @@ mod analysis_pass_tests {
      ((root-word-char-list (if (string? word) (string->list word) word)))
      (list? (member #true
                     (map (λ (node)
-                           (##lambda-lifting##trie-contains-inner?119977 node root-word-char-list))
+                           (lambda-lifting##trie-contains-inner?119977 node root-word-char-list))
                          (trie-children root)))))))
 
 (define my-trie
@@ -5115,7 +5159,7 @@ mod analysis_pass_tests {
                 (string->number (apply string-append (list (first result) (last result)))))))
 
 (define scan2
-  (λ (path) (%plain-let ((file (open-input-file path))) (##lambda-lifting##loop120600 file 0))))
+  (λ (path) (%plain-let ((file (open-input-file path))) (lambda-lifting##loop120600 file 0))))
 
 (displayln (scan2 "aoc/day1.data"))
         "#;
@@ -5233,7 +5277,7 @@ mod analysis_pass_tests {
                        value)))
                 void))))
 
-(define ##lambda-lifting##loop118915
+(define lambda-lifting##loop118915
   (λ (mutable-cons3 builder)
     (if (not
          (mcons?
@@ -5247,7 +5291,7 @@ mod analysis_pass_tests {
                     (simple-displayln result)
                     result))))
       (#%prim.cons (mcons-mcar mutable-cons3) builder)
-      (##lambda-lifting##loop118915
+      (lambda-lifting##loop118915
          (mcons-mcdr mutable-cons3)
          (#%prim.cons
             (mcons-mcar mutable-cons3)
@@ -5262,7 +5306,7 @@ mod analysis_pass_tests {
 (define mcons->list
   (λ (mutable-cons)
     (reverse
-       (##lambda-lifting##loop118915
+       (lambda-lifting##loop118915
           mutable-cons
           (quote
             ())))))
@@ -5521,18 +5565,18 @@ mod analysis_pass_tests {
         let script = r#"
 (define loop
   (λ ()
-    (%plain-let ((##captured3 123) (##foo3 123))
-      (%plain-let ((####captured34 (#%box ##captured3))
-          (####foo34 (#%box ##foo3)))
-        (%plain-let ((##_____captured04 (list))
-            (##_____foo14 (λ ()
+    (%plain-let ((captured3 123) (foo3 123))
+      (%plain-let ((captured34 (#%box captured3))
+          (foo34 (#%box foo3)))
+        (%plain-let ((_____captured04 (list))
+            (_____foo14 (λ ()
               (begin
-               (cons 10 (#%unbox ####captured34))
-                    ((#%unbox ####foo34))))))
+               (cons 10 (#%unbox captured34))
+                    ((#%unbox foo34))))))
           (begin
-           (#%set-box! ####captured34 ##_____captured04)
-                (#%set-box! ####foo34 ##_____foo14)
-                ((#%unbox ####foo34))))))))
+           (#%set-box! captured34 _____captured04)
+                (#%set-box! foo34 _____foo14)
+                ((#%unbox foo34))))))))
         "#;
 
         let mut exprs = Parser::parse(script).unwrap();

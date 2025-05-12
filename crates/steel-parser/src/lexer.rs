@@ -736,6 +736,10 @@ impl<'a> Iterator for Lexer<'a> {
                         self.eat();
                         Ok(TokenType::DatumComment)
                     }
+                    Some('#') => {
+                        self.eat();
+                        Err(TokenError::UnexpectedChar('#'))
+                    }
                     _ => self.read_hash_value(),
                 };
 
