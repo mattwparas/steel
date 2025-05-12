@@ -2,6 +2,8 @@
 
 [Introduction](introduction.md)
 
+[Steel By Example](by_example.md)
+
 - [Foundations](foundations/overview.md)
     - [Evaluation](foundations/evaluation.md)
     - [Literals](foundations/literals.md)
