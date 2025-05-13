@@ -373,12 +373,9 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "quotient", constant = true, arity = "Exact(2)")]
 pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
-    match &args {
-        [l, r] => match (l, r) {
-            (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r).into_steelval(),
-            _ => steelerr!(TypeMismatch => "quotient only supports integers"),
-        },
-        _ => steelerr!(ArityMismatch => "quotient requires 2 arguments"),
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r).into_steelval(),
+        _ => steelerr!(TypeMismatch => "quotient only supports integers"),
     }
 }
 
@@ -399,12 +396,9 @@ pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "modulo", constant = true, arity = "Exact(2)")]
 pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
-    match &args {
-        [l, r] => match (l, r) {
-            (SteelVal::IntV(l), SteelVal::IntV(r)) => ((l % r + r) % r).into_steelval(),
-            _ => steelerr!(TypeMismatch => "modulo only supports integers"),
-        },
-        _ => steelerr!(ArityMismatch => "modulo requires 2 arguments"),
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => ((l % r + r) % r).into_steelval(),
+        _ => steelerr!(TypeMismatch => "modulo only supports integers"),
     }
 }
 
@@ -425,12 +419,9 @@ pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "remainder", constant = true, arity = "Exact(2)")]
 pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
-    match &args {
-        [l, r] => match (l, r) {
-            (SteelVal::IntV(l), SteelVal::IntV(r)) => (l % r).into_steelval(),
-            _ => steelerr!(TypeMismatch => "remainder only supports integers"),
-        },
-        _ => steelerr!(ArityMismatch => "remainder requires 2 arguments"),
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => (l % r).into_steelval(),
+        _ => steelerr!(TypeMismatch => "remainder only supports integers"),
     }
 }
 
@@ -1523,18 +1514,15 @@ where
 /// ```
 #[steel_derive::native(name = "arithmetic-shift", constant = true, arity = "Exact(2)")]
 pub fn arithmetic_shift(args: &[SteelVal]) -> Result<SteelVal> {
-    match &args {
-        [n, m] => match (n, m) {
-            (SteelVal::IntV(n), SteelVal::IntV(m)) => {
-                if *m >= 0 {
-                    Ok(SteelVal::IntV(n << m))
-                } else {
-                    Ok(SteelVal::IntV(n >> -m))
-                }
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(n), SteelVal::IntV(m)) => {
+            if *m >= 0 {
+                Ok(SteelVal::IntV(n << m))
+            } else {
+                Ok(SteelVal::IntV(n >> -m))
             }
-            _ => stop!(TypeMismatch => "arithmetic-shift expected 2 integers"),
-        },
-        _ => stop!(ArityMismatch => "arithmetic-shift takes 2 arguments"),
+        }
+        _ => stop!(TypeMismatch => "arithmetic-shift expected 2 integers"),
     }
 }
 

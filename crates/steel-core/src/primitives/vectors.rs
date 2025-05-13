@@ -1008,27 +1008,16 @@ pub fn vec_length(v: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>) -> SteelVal 
 /// ```
 #[steel_derive::native(name = "range-vec", constant = true, arity = "Exact(2)")]
 pub fn vec_range(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "range takes two arguments");
-    }
-    let mut args = args.iter();
-    match (args.next(), args.next()) {
-        (Some(elem), Some(lst)) => {
-            if let (IntV(lower), IntV(upper)) = (elem, lst) {
-                Ok(SteelVal::VectorV(
-                    Gc::new(
-                        (*lower as usize..*upper as usize)
-                            .into_iter()
-                            .map(|x| SteelVal::IntV(x as isize))
-                            .collect::<Vector<_>>(),
-                    )
-                    .into(),
-                ))
-            } else {
-                stop!(TypeMismatch => "range expected number")
-            }
-        }
-        _ => stop!(ArityMismatch => "range takes two arguments"),
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(lower), SteelVal::IntV(upper)) => Ok(SteelVal::VectorV(
+            Gc::new(
+                (*lower as usize..*upper as usize)
+                    .map(|x| SteelVal::IntV(x as isize))
+                    .collect::<Vector<_>>(),
+            )
+            .into(),
+        )),
+        _ => stop!(TypeMismatch => "range expected number"),
     }
 }
 
