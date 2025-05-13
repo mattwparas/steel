@@ -497,10 +497,6 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
 #[steel_derive::function(name = "rest", constant = true, arity = "Exact(1)")]
 fn rest(arg: &mut SteelVal) -> Result<SteelVal> {
     if let SteelVal::ListV(mut l) = std::mem::replace(arg, SteelVal::Void) {
-        if l.is_empty() {
-            stop!(Generic => "rest expects a non empty list");
-        }
-
         match l.rest_mut() {
             Some(l) => Ok(SteelVal::ListV(l.clone())),
             None => Ok(SteelVal::ListV(l.clone())),
