@@ -1290,24 +1290,15 @@ pub fn vec_cons(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "pop-front", constant = true, arity = "Exact(1)")]
 pub fn vec_car(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "car takes one argument");
-    }
-    if let Some(first) = args.iter().next() {
-        match first {
-            SteelVal::VectorV(e) => {
-                let mut e = e.0.unwrap();
-                match e.pop_front() {
-                    Some(e) => Ok(e),
-                    None => stop!(ContractViolation => "car expects a non empty list"),
-                }
-            }
-            e => {
-                stop!(TypeMismatch => "car takes a list, given: {}", e);
+    match &args[0] {
+        SteelVal::VectorV(v) => {
+            let mut vec = v.0.unwrap();
+            match vec.pop_front() {
+                Some(val) => Ok(val),
+                None => stop!(ContractViolation => "car expects a non-empty list"),
             }
         }
-    } else {
-        stop!(ArityMismatch => "car takes one argument");
+        other => stop!(TypeMismatch => "car expects a list, given: {}", other),
     }
 }
 
@@ -1324,26 +1315,17 @@ pub fn vec_car(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "vec-rest", constant = true, arity = "Exact(1)")]
 pub fn vec_cdr(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 1 {
-        stop!(ArityMismatch => "cdr takes one argument");
-    }
-    if let Some(first) = args.iter().next() {
-        match first {
-            SteelVal::VectorV(e) => {
-                let mut e = e.0.unwrap();
-                if !e.is_empty() {
-                    e.pop_front();
-                    Ok(SteelVal::VectorV(Gc::new(e).into()))
-                } else {
-                    stop!(ContractViolation => "cdr expects a non empty list")
-                }
-            }
-            e => {
-                stop!(TypeMismatch => "cdr takes a list, given: {}", e);
+    match &args[0] {
+        SteelVal::VectorV(v) => {
+            let mut vec = v.0.unwrap();
+            if vec.is_empty() {
+                stop!(ContractViolation => "cdr expects a non-empty list");
+            } else {
+                vec.pop_front();
+                Ok(SteelVal::VectorV(Gc::new(vec).into()))
             }
         }
-    } else {
-        stop!(ArityMismatch => "cdr takes one argument");
+        other => stop!(TypeMismatch => "cdr expects a list, given: {}", other),
     }
 }
 
@@ -1362,15 +1344,20 @@ pub fn vec_cdr(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "null?", constant = true, arity = "Exact(1)")]
 pub fn list_vec_null(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() == 1 {
-        match &args[0] {
-            SteelVal::ListV(l) => Ok(l.is_empty().into()),
-            SteelVal::VectorV(v) => Ok(v.is_empty().into()),
-            _ => Ok(SteelVal::BoolV(false)),
+    let arg = &args[0];
+
+    let result = match arg {
+        SteelVal::ListV(l) => l.is_empty(),
+        SteelVal::VectorV(v) => v.is_empty(),
+        SteelVal::MutableVector(v) => {
+            let ptr = v.strong_ptr();
+            let guard = &ptr.read().value;
+            guard.is_empty()
         }
-    } else {
-        stop!(ArityMismatch => "null? takes one argument");
-    }
+        _ => false,
+    };
+
+    Ok(SteelVal::BoolV(result))
 }
 
 fn unwrap_list_of_lists(args: Vec<SteelVal>) -> Result<Vec<Vector<SteelVal>>> {
