@@ -1035,10 +1035,6 @@ pub fn vec_range(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "mut-vector-ref", constant = true, arity = "Exact(2)")]
 pub fn mut_vec_get(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "mut-vector-ref takes two arguments, found: {:?}", args.len())
-    }
-
     let vec = args[0].clone();
     let pos = args[1].clone();
 
@@ -1071,10 +1067,6 @@ pub fn mut_vec_get(args: &[SteelVal]) -> Result<SteelVal> {
 // increases past a certain amount
 #[steel_derive::native(name = "vector-push!", constant = true, arity = "Exact(2)")]
 pub fn mut_vec_push(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "vector-push! takes two arguments, found: {:?}", args.len())
-    }
-
     let vec = &args[0];
 
     if let SteelVal::MutableVector(v) = vec {
@@ -1108,10 +1100,6 @@ pub fn mut_vec_push(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "vector-append!", constant = true, arity = "Exact(2)")]
 pub fn mut_vec_append(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "vector-append! takes two arguments, found: {:?}", args.len())
-    }
-
     let vec = args[0].clone();
     let other_vec = args[1].clone();
 
@@ -1178,55 +1166,50 @@ pub fn vec_append(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "vector-ref", constant = true, arity = "Exact(2)")]
 pub fn vec_ref(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "vector-ref takes two arguments");
-    }
-    let mut args = args.iter();
-    match (args.next(), args.next()) {
-        (Some(vec), Some(idx)) => {
-            if let SteelVal::MutableVector(v) = &vec {
-                if let SteelVal::IntV(i) = idx.clone() {
-                    if i < 0 {
-                        stop!(Generic => "vector-ref expects a positive integer, found: {:?}", vec);
-                    }
+    let vec = &args[0];
+    let idx = &args[1];
 
-                    let ptr = v.strong_ptr();
+    // First, ensure the index is a valid non-negative integer
+    if let SteelVal::IntV(i) = idx {
+        if *i < 0 {
+            stop!(Generic => "vector-ref expects a positive integer, found: {:?}", i);
+        }
 
-                    let guard = &mut ptr.write().value;
+        let idx_usize = *i as usize;
 
-                    if i as usize >= guard.len() {
-                        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
-                    }
+        // Now match on the vector type
+        match vec {
+            SteelVal::MutableVector(v) => {
+                let ptr = v.strong_ptr();
+                let guard = &mut ptr.write().value;
 
-                    // Grab the value out of the vector
-                    return Ok(guard[i as usize].clone());
-                } else {
-                    stop!(TypeMismatch => "vector-ref expects an integer, found: {:?}", idx);
+                if idx_usize >= guard.len() {
+                    stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
                 }
+
+                Ok(guard[idx_usize].clone())
             }
 
-            if let (VectorV(vec), IntV(idx)) = (vec, idx) {
-                if idx < &0 {
-                    stop!(TypeMismatch => "vector-ref expected a positive integer");
-                }
-
-                let idx: usize = *idx as usize;
-
-                if idx < vec.len() {
-                    Ok(vec[idx].clone())
+            SteelVal::VectorV(v) => {
+                if idx_usize < v.len() {
+                    Ok(v[idx_usize].clone())
                 } else {
                     let e = format!(
                         "Index out of bounds - attempted to access index: {} with length: {}",
-                        idx,
-                        vec.len()
+                        idx_usize,
+                        v.len()
                     );
                     stop!(Generic => e);
                 }
-            } else {
-                stop!(TypeMismatch => format!("vector-ref expected a vector and a number, found: {vec} and {idx}"))
             }
+
+            _ => stop!(TypeMismatch => format!(
+                "vector-ref expected a vector and a number, found: {:?} and {:?}",
+                vec, idx
+            )),
         }
-        _ => stop!(ArityMismatch => "vector-ref takes two arguments"),
+    } else {
+        stop!(TypeMismatch => "vector-ref expects an integer index, found: {:?}", idx);
     }
 }
 
@@ -1244,24 +1227,21 @@ pub fn vec_ref(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "push", constant = true, arity = "Exact(2)")]
 pub fn vec_push(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "push takes two arguments");
-    }
-    let mut args = args.iter();
-    match (args.next(), args.next()) {
-        (Some(elem), Some(lst)) => {
-            if let SteelVal::VectorV(l) = lst {
-                let mut l = l.0.unwrap();
-                l.push_back(elem.clone());
-                Ok(SteelVal::VectorV(Gc::new(l).into()))
-            } else {
-                let mut new = Vector::new();
-                new.push_front(elem.clone());
-                new.push_front(lst.clone());
-                Ok(SteelVal::VectorV(Gc::new(new).into()))
-            }
+    let elem = &args[0];
+    let lst = &args[1];
+
+    match lst {
+        SteelVal::VectorV(v) => {
+            let mut vec = v.0.unwrap();
+            vec.push_back(elem.clone());
+            Ok(SteelVal::VectorV(Gc::new(vec).into()))
         }
-        _ => stop!(ArityMismatch => "push takes two arguments"),
+        _ => {
+            let mut new = Vector::new();
+            new.push_front(elem.clone());
+            new.push_front(lst.clone());
+            Ok(SteelVal::VectorV(Gc::new(new).into()))
+        }
     }
 }
 
@@ -1279,24 +1259,21 @@ pub fn vec_push(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "push-front", constant = true, arity = "Exact(2)")]
 pub fn vec_cons(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "cons takes two arguments")
-    }
-    let mut args = args.iter();
-    match (args.next(), args.next()) {
-        (Some(elem), Some(lst)) => {
-            if let SteelVal::VectorV(l) = lst {
-                let mut l = l.0.unwrap();
-                l.push_front(elem.clone());
-                Ok(SteelVal::VectorV(Gc::new(l).into()))
-            } else {
-                let mut new = Vector::new();
-                new.push_front(lst.clone());
-                new.push_front(elem.clone());
-                Ok(SteelVal::VectorV(Gc::new(new).into()))
-            }
+    let elem = &args[0];
+    let lst = &args[1];
+
+    match lst {
+        SteelVal::VectorV(v) => {
+            let mut vec = v.0.unwrap();
+            vec.push_front(elem.clone());
+            Ok(SteelVal::VectorV(Gc::new(vec).into()))
         }
-        _ => stop!(ArityMismatch => "cons takes two arguments"),
+        _ => {
+            let mut new = Vector::new();
+            new.push_front(lst.clone());
+            new.push_front(elem.clone());
+            Ok(SteelVal::VectorV(Gc::new(new).into()))
+        }
     }
 }
 
