@@ -310,7 +310,6 @@ macro_rules! debug_unreachable {
 #[steel_derive::native(name = "range", arity = "Range(1,2)")]
 fn range(args: &[SteelVal]) -> Result<SteelVal> {
     let (lower, upper) = match args {
-        [] => stop!(ArityMismatch => "range expected one or two arguments, got 0"),
         [SteelVal::IntV(upper)] => (0, *upper),
         [SteelVal::IntV(lower), SteelVal::IntV(upper)] => (*lower, *upper),
         [invalid] | [SteelVal::IntV(_), invalid] | [invalid, _] => {
@@ -427,8 +426,6 @@ pub(crate) fn car(list: &SteelVal) -> Result<SteelVal> {
 // Optimistic check to see if the rest is null before making an allocation
 #[steel_derive::native(name = "cdr-null?", constant = true, arity = "Exact(1)")]
 fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(cdr_is_null, args, 1);
-
     match &args[0] {
         SteelVal::ListV(l) => {
             if l.is_empty() {

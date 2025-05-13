@@ -1444,12 +1444,8 @@ fn atan2(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
 /// > (log 100 10) ;; => 2
 /// > (log 27 3) ;; => 3
 /// ```
-#[steel_derive::native(name = "log", arity = "AtLeast(1)")]
+#[steel_derive::native(name = "log", arity = "Range(1,2)")]
 fn log(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() > 2 {
-        stop!(ArityMismatch => "log expects one or two arguments, found: {}", args.len());
-    }
-
     let first = &args[0];
     let base = args
         .get(1)
@@ -1602,9 +1598,6 @@ pub fn odd(arg: &SteelVal) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "f+", constant = true, arity = "AtLeast(1)")]
 pub fn float_add(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.is_empty() {
-        stop!(ArityMismatch => "f+ requires at least one argument")
-    }
     let mut sum = 0.0;
 
     for arg in args {
