@@ -882,7 +882,7 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
         self.visit(&mut r.expr)
     }
 
-    fn visit_quote(&mut self, quote: &mut super::ast::Quote) -> Self::Output {
+    fn visit_quote(&mut self, _quote: &mut super::ast::Quote) -> Self::Output {
         // TODO: We probably should not visit this here
         // self.visit(&mut quote.expr)
         Ok(())
