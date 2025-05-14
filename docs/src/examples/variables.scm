@@ -15,17 +15,24 @@
 ; They return a boolean: `#true` or `#false`
 ;
 ; The `eq?` predicate returns `#true` if the 2 arguments are
-; equal, and `#false` otherwise
-(define result (eq? (actual expected)))
+; the same, and `#false` otherwise
+;
+; The `assert!` function throws an error if its argument is `#false`
+(assert! (eq? 10 10))
 
-; Functions that end with an exclamation mark `!` are macros.
-;
-; Macros expand to code.
-;
-; The `assert!` macro throws an error if its argument is `#false`
-(assert! result)
+; But eq? tests for pointer-equality. `actual` and `expected` have the same value:
+(displayln actual) ; prints: "1 + 2 = 3"
+(displayln expected) ; prints: "1 + 2 = 3"
+
+(assert! (not (eq? actual expected)))
+
+; equal? tests for value-equality, so will be `true` here
+(assert! (equal? actual expected))
 
 ; Boolean operators
 (assert! (and #true #true))
 (assert! (or #true #false))
 (assert! (not #false))
+
+; This math expression is equivalent to 1 + 3 + (7 - 4) + 7
+(assert! (eq? (+ 1 3 (- 7 4 (* 100)) 7) 14))
