@@ -20,5 +20,4 @@ Here is another example with a variadic definition.
 (define (add #:first [first 0] . args)
   (apply + (cons first args)))
 ```
-```
 
