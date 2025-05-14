@@ -487,7 +487,7 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
 /// ```scheme
 /// > (rest (list 10 20 30)) ;; => '(20 30)
 /// > (rest (list 10)) ;; => '()
-/// > (rest (list 10))
+/// > (rest '() )
 /// error[E11]: Generic
 ///    ┌─ :1:2
 ///    │
