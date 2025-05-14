@@ -3,7 +3,7 @@
          mhash
          (contract/out mhash->hash (->/c mhash? hash?))
          (contract/out mhash-length (->/c mhash? int?))
-         (contract/out mhash-contains? (->/c mhash? bool?))
+         (contract/out mhash-contains? (->/c mhash? any/c bool?))
          (contract/out mhash-keys->list (->/c mhash? list?))
          (contract/out mhash-values->list (->/c mhash? list?))
          (contract/out mhash->list (->/c mhash? list?))

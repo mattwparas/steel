@@ -675,8 +675,6 @@ pub fn plist_get_positional(list: &List<SteelVal>, index: usize) -> Result<Steel
     let mut iter = list.iter();
     let mut positional_arg_offset = 0;
 
-    dbg!(list);
-
     while let Some(next) = iter.next() {
         if let SteelVal::SymbolV(v) = next {
             // If we found a keyword, skip the next one.
