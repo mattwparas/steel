@@ -1344,9 +1344,7 @@ pub fn vec_cdr(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "null?", constant = true, arity = "Exact(1)")]
 pub fn list_vec_null(args: &[SteelVal]) -> Result<SteelVal> {
-    let arg = &args[0];
-
-    let result = match arg {
+    let result = match &args[0] {
         SteelVal::ListV(l) => l.is_empty(),
         SteelVal::VectorV(v) => v.is_empty(),
         SteelVal::MutableVector(v) => {
