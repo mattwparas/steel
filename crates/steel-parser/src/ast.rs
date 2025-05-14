@@ -2352,20 +2352,20 @@ pub fn parse_lambda(a: Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseErro
         Some(ExprKind::List(l)) => {
             let args = l.args;
 
-            for arg in &args {
-                if let ExprKind::Atom(_) = arg {
-                    continue;
-                } else {
-                    return Err(ParseError::SyntaxError(
-                        format!(
-                            "lambda function expects a list of identifiers, found: {}",
-                            List::new(args)
-                        ),
-                        syn.span,
-                        None,
-                    ));
-                }
-            }
+            // for arg in &args {
+            //     if let ExprKind::Atom(_) = arg {
+            //         continue;
+            //     } else {
+            //         return Err(ParseError::SyntaxError(
+            //             format!(
+            //                 "lambda function expects a list of identifiers, found: {}",
+            //                 List::new(args)
+            //             ),
+            //             syn.span,
+            //             None,
+            //         ));
+            //     }
+            // }
 
             let body_exprs: Vec<_> = value_iter.collect();
 

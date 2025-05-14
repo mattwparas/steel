@@ -437,7 +437,7 @@
            (define lowered-expression
              (append (list 'define-syntax (cons name-expr (cadr lambda-expr))) (drop lambda-expr 2)))
 
-           (displayln lowered-expression)
+           ;; (displayln lowered-expression)
 
            ;; Body exprs
            (parse-def-syntax lowered-expression))
