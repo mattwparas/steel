@@ -651,11 +651,18 @@ fn arity_code_injection(
 
     //Determines which line of code to inject into the beginning of the function as an Arity check
     let injected_code = match name {
-        "AtLeast" => quote! {
-            if #parameter_name.len() < #numb {
-                   #stop_type(ArityMismatch => "{} expects at least {} arguments, found: {}",#func_name, #numb ,#parameter_name.len());
-               }
-        },
+        "AtLeast" => {
+            // If AtLeast = 0 , then do not perform arity check, since any amount is valid
+            if numb == 0 {
+                quote! {{}}
+            } else {
+                quote! {
+                    if #parameter_name.len() < #numb {
+                        #stop_type(ArityMismatch => "{} expects at least {} arguments, found: {}", #func_name, #numb, #parameter_name.len());
+                    }
+                }
+            }
+        }
 
         "AtMost" => quote! {
             if #parameter_name.len() > #numb {
