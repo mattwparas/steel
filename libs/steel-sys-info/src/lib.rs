@@ -39,7 +39,11 @@ impl MemoryInfo {
     }
 }
 
-impl Custom for MemoryInfo {}
+impl Custom for MemoryInfo {
+    fn fmt_ffi(&self) -> Option<abi_stable::std_types::RString> {
+        Some("#<MemoryInfo>".into())
+    }
+}
 
 declare_module!(create_module);
 
