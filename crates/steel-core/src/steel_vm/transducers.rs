@@ -558,7 +558,17 @@ impl<'global, 'a> VmCore<'a> {
                 }).collect::<Result<HashMap<_, _>>>().map(|x| SteelVal::HashMapV(Gc::new(x).into()))
             },
             Reducer::HashSet => iter.collect::<Result<HashSet<_>>>().map(|x| SteelVal::HashSetV(Gc::new(x).into())),
-            Reducer::String => todo!(),
+            Reducer::String => {
+                iter.map(|x| x.map(|x| {
+                    // strings and chars need special treatment
+                    // since their Display implementations emit quotes and hash-backslash respectively
+                    match x {
+                        SteelVal::StringV(s) => s.to_string(),
+                        SteelVal::CharV(c) => c.to_string(),
+                        x => x.to_string(),
+                    }
+                })).collect::<Result<String>>().map(|x| SteelVal::StringV(x.into()))
+            },
             Reducer::Last => iter.last().unwrap_or_else(|| stop!(Generic => "`last` found empty list - `last` requires at least one element in the sequence")),
             Reducer::ForEach(f) => {
                 for value in iter {

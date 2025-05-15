@@ -103,6 +103,7 @@ test_harness_success! {
     heap_sort,
     help,
     html_table,
+    into_string,
     letrec_mutual_recursion,
     letrec_simple_recursion,
     list_functions,
