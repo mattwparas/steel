@@ -4,7 +4,8 @@
          log/info!
          log/warn!
          log/debug!
-         log/error!)
+         log/error!
+         log/trace!)
 
 (define *info* "INFO")
 (define *warn* "WARN")
