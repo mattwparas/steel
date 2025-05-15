@@ -145,10 +145,6 @@ pub fn hashset_to_immutable_vector(hashset: &SteelHashSet) -> SteelVal {
 #[steel_derive::context(name = "hashset->vector", arity = "Exact(1)")]
 pub fn hashset_to_mutable_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn hashset_to_mutable_vector_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-        if args.len() != 1 {
-            stop!(ArityMismatch => "hashset->vector takes 1 argument")
-        }
-
         let hashset = &args[0];
 
         if let SteelVal::HashSetV(hs) = hashset {

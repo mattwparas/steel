@@ -1543,10 +1543,6 @@ pub struct HostRuntimeFunction {
 #[steel_derive::context(name = "function->ffi-function", arity = "Exact(1)")]
 pub fn function_to_ffi_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn function_to_ffi_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-        if args.len() != 1 {
-            stop!(ArityMismatch => "function->ffi-function expects one arg, found: {}", args.len());
-        }
-
         let function = args[0].clone();
 
         if function.is_function() {

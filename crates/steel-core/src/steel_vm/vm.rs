@@ -4504,10 +4504,6 @@ pub fn call_with_exception_handler(
     ctx: &mut VmCore,
     args: &[SteelVal],
 ) -> Option<Result<SteelVal>> {
-    if args.len() != 2 {
-        builtin_stop!(ArityMismatch => format!("with-handler expects two arguments, found: {}", args.len()); ctx.current_span());
-    }
-
     let handler = args[0].clone();
     let thunk = args[1].clone();
 
@@ -4565,10 +4561,6 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
 
     // Roll back one because we advanced prior to entering the builtin
     ctx.ip -= 1;
-
-    if args.len() != 1 {
-        builtin_stop!(ArityMismatch => format!("call/cc expects one argument, found: {}", args.len()); ctx.current_span());
-    }
 
     let function = args[0].clone();
 
@@ -4914,10 +4906,6 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, _args: &[SteelVal]) -> Option
 // back and forth will probably hamper performance significantly. That being said,
 // it is entirely at compile time, so probably _okay_
 pub(crate) fn expand_syntax_case_impl(_ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 3 {
-        stop!(ArityMismatch => format!("#%expand-template expected 3 arguments, found: {}", args.len()))
-    }
-
     let mut bindings: fxhash::FxHashMap<_, _> = if let SteelVal::HashMapV(h) = &args[1] {
         h.iter()
             .map(|(k, v)| match (k, v) {
@@ -5063,10 +5051,6 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
         current_instruction.op_code,
         OpCode::TAILCALL | OpCode::CALLGLOBALTAIL
     );
-
-    if args.len() != 2 {
-        builtin_stop!(ArityMismatch => "apply expected 2 arguments");
-    }
 
     let mut arg_iter = args.iter();
     let arg1 = arg_iter.next().unwrap();
