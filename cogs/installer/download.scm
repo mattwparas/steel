@@ -54,7 +54,7 @@
 
     ; (~> (command "git" (list "pull")) (in-directory resulting-path) spawn-process Ok->value wait)
 
-    (git-pull resulting-path #f #f)
+    (git-pull resulting-path #f (if (void? *sha*) #f *sha*))
 
     (return! resulting-path))
 
