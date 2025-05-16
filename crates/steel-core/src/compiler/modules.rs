@@ -161,13 +161,14 @@ pub fn steel_home() -> Option<String> {
 /// keeps some visited state on the manager for traversal
 /// Also keeps track of the metadata for each file in order to determine
 /// if it needs to be recompiled
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone)]
 pub(crate) struct ModuleManager {
     compiled_modules: FxHashMap<PathBuf, CompiledModule>,
-    file_metadata: FxHashMap<PathBuf, SystemTime>,
+    file_metadata: crate::HashMap<PathBuf, SystemTime>,
     visited: FxHashSet<PathBuf>,
     custom_builtins: HashMap<String, String>,
-    #[serde(skip_serializing, skip_deserializing)]
+    rollback_metadata: crate::HashMap<PathBuf, SystemTime>,
+    // #[serde(skip_serializing, skip_deserializing)]
     module_resolvers: Vec<Arc<dyn SourceModuleResolver>>,
 }
 
@@ -179,13 +180,14 @@ pub trait SourceModuleResolver: Send + Sync {
 impl ModuleManager {
     pub(crate) fn new(
         compiled_modules: FxHashMap<PathBuf, CompiledModule>,
-        file_metadata: FxHashMap<PathBuf, SystemTime>,
+        file_metadata: crate::HashMap<PathBuf, SystemTime>,
     ) -> Self {
         ModuleManager {
             compiled_modules,
             file_metadata,
             visited: FxHashSet::default(),
             custom_builtins: HashMap::new(),
+            rollback_metadata: crate::HashMap::new(),
             module_resolvers: Vec::new(),
         }
     }
@@ -207,7 +209,7 @@ impl ModuleManager {
     }
 
     pub(crate) fn default() -> Self {
-        Self::new(FxHashMap::default(), FxHashMap::default())
+        Self::new(FxHashMap::default(), crate::HashMap::default())
     }
 
     pub(crate) fn register_module_resolver(
@@ -226,8 +228,6 @@ impl ModuleManager {
         sources: &mut Sources,
         builtin_modules: ModuleContainer,
     ) -> Result<()> {
-        // todo!()
-
         self.visited.clear();
 
         // TODO: Expand macros on the fly when visiting a module. Don't wait till the end
@@ -251,6 +251,10 @@ impl ModuleManager {
         Ok(())
     }
 
+    pub(crate) fn rollback_metadata(&mut self) {
+        self.file_metadata = self.rollback_metadata.clone();
+    }
+
     // #[allow(unused)]
     pub(crate) fn compile_main(
         &mut self,
@@ -266,6 +270,8 @@ impl ModuleManager {
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
         self.visited.clear();
+
+        self.rollback_metadata = self.file_metadata.clone();
 
         // TODO
         // This is also explicitly wrong -> we should separate the global macro map from the macros found locally in this module
@@ -935,6 +941,7 @@ pub struct CompiledModule {
     ast: Vec<ExprKind>,
     emitted: bool,
     cached_prefix: CompactString,
+    downstream: Vec<PathBuf>,
 }
 
 pub static MANGLER_PREFIX: &'static str = "##mm";
@@ -976,6 +983,7 @@ impl CompiledModule {
         provides_for_syntax: Vec<InternedString>,
         macro_map: Arc<FxHashMap<InternedString, SteelMacro>>,
         ast: Vec<ExprKind>,
+        downstream: Vec<PathBuf>,
     ) -> Self {
         let mut base = CompactString::new(MANGLER_PREFIX);
 
@@ -1013,6 +1021,7 @@ impl CompiledModule {
             ast,
             emitted: false,
             cached_prefix: base,
+            downstream,
         }
     }
 
@@ -1670,6 +1679,59 @@ fn try_canonicalize(path: PathBuf) -> PathBuf {
     std::fs::canonicalize(&path).unwrap_or_else(|_| path)
 }
 
+/*
+#[derive(Default, Clone)]
+struct DependencyGraph {
+    downstream: HashMap<PathBuf, Vec<PathBuf>>,
+}
+
+impl DependencyGraph {
+    // Adding edges downward.
+    pub fn add_edges(&mut self, parent: PathBuf, children: Vec<PathBuf>) {
+        self.downstream.insert(parent, children);
+    }
+
+    pub fn remove(&mut self, parent: &PathBuf) {
+        self.downstream.remove(parent);
+    }
+
+    pub fn add_edge(&mut self, parent: &PathBuf, child: PathBuf) {
+        if let Some(children) = self.downstream.get_mut(parent) {
+            children.push(child);
+        } else {
+            self.downstream.insert(parent.clone(), vec![child]);
+        }
+    }
+
+    // Check everything downstream of this, to see if anything needs to be invalidated
+    pub fn check_downstream_changes(
+        &self,
+        root: &PathBuf,
+        updated_at: &crate::HashMap<PathBuf, SystemTime>,
+    ) -> std::io::Result<bool> {
+        let mut stack = vec![root];
+
+        while let Some(next) = stack.pop() {
+            let meta = std::fs::metadata(next)?;
+
+            if let Some(prev) = updated_at.get(next) {
+                if *prev != meta.modified()? {
+                    return Ok(true);
+                }
+            }
+
+            if let Some(children) = self.downstream.get(next) {
+                for child in children {
+                    stack.push(child);
+                }
+            }
+        }
+
+        Ok(false)
+    }
+}
+*/
+
 struct ModuleBuilder<'a> {
     name: PathBuf,
     main: bool,
@@ -1682,7 +1744,7 @@ struct ModuleBuilder<'a> {
     provides_for_syntax: Vec<ExprKind>,
     compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
     visited: &'a mut FxHashSet<PathBuf>,
-    file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
+    file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
     sources: &'a mut Sources,
     kernel: &'a mut Option<Kernel>,
     builtin_modules: ModuleContainer,
@@ -1700,7 +1762,7 @@ impl<'a> ModuleBuilder<'a> {
         source_ast: Vec<ExprKind>,
         compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -1911,22 +1973,53 @@ impl<'a> ModuleBuilder<'a> {
                 // If we're unable to get information, we want to compile
                 let should_recompile =
                     if let Some(cached_modified) = self.file_metadata.get(module.as_ref()) {
-                        &last_modified != cached_modified
+                        last_modified != *cached_modified
                     } else {
                         true
                     };
+
+                let mut downstream_validated = true;
 
                 // We've established nothing has changed with this file
                 // Check to see if its in the cache first
                 // Otherwise go ahead and compile
                 if !should_recompile {
                     // If we already have compiled this module, get it from the cache
-                    if let Some(_m) = self.compiled_modules.get(module.as_ref()) {
+                    if let Some(m) = self.compiled_modules.get(module.as_ref()) {
                         // debug!("Getting {:?} from the module cache", module);
                         // println!("Already found in the cache: {:?}", module);
                         // new_exprs.push(m.to_module_ast_node());
                         // No need to do anything
-                        continue;
+
+                        // Check the dependencies all the way down.
+                        // if any are invalidated, re-compile the whole thing.
+                        let mut stack = m.downstream.clone();
+
+                        while let Some(next) = stack.pop() {
+                            let meta = std::fs::metadata(&next)?;
+
+                            if let Some(prev) = self.file_metadata.get(&next) {
+                                if *prev != meta.modified()? {
+                                    // println!(
+                                    //     "Detected change in {:?}, recompiling root starting from {:?}",
+                                    //     next,
+                                    //     module.as_ref()
+                                    // );
+                                    downstream_validated = false;
+                                    break;
+                                }
+                            }
+
+                            if let Some(module) = self.compiled_modules.get(&next) {
+                                for child in &module.downstream {
+                                    stack.push(child.to_owned());
+                                }
+                            }
+                        }
+
+                        if downstream_validated {
+                            continue;
+                        }
                     }
                 }
 
@@ -1975,7 +2068,9 @@ impl<'a> ModuleBuilder<'a> {
                 } else if !new_module.compiled_modules.contains_key(&new_module.name) {
                     // else if !new_module.compiled_modules.contains_key(&new_module.name) {
                     new_exprs.push(new_module.compile_module()?);
-                } else {
+                } else if !downstream_validated {
+                    new_exprs.push(new_module.compile_module()?);
+
                     // log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
                     // log::debug!(target: "requires", "Module already in the cache: {}", new_module.compiled_modules.contains_key(&new_module.name));
                     // log::debug!(target: "requires", "Compiled modules: {:?}", new_module.compiled_modules.keys().collect::<Vec<_>>());
@@ -2077,12 +2172,17 @@ impl<'a> ModuleBuilder<'a> {
         //     .collect::<Result<Vec<_>>>()?;
 
         let mut mangled_asts = Vec::with_capacity(ast.len() + 16);
+        let mut downstream = Vec::new();
 
         // Look for the modules in the requires for syntax
         for require_object in self.require_objects.iter()
         // .filter(|x| x.for_syntax)
         {
             let require_for_syntax = require_object.path.get_path();
+
+            if let PathOrBuiltIn::Path(_) = &require_object.path {
+                downstream.push(require_for_syntax.clone().into_owned());
+            }
 
             let (module, in_scope_macros, mut name_mangler) = ModuleManager::find_in_scope_macros(
                 self.compiled_modules,
@@ -2347,6 +2447,7 @@ impl<'a> ModuleBuilder<'a> {
             // std::mem::take(&mut self.macro_map),
             self.macro_map.clone(),
             mangled_asts,
+            downstream,
         );
 
         module.set_emitted(true);
@@ -2903,7 +3004,7 @@ impl<'a> ModuleBuilder<'a> {
         input: Cow<'static, str>,
         compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -2932,7 +3033,7 @@ impl<'a> ModuleBuilder<'a> {
         name: PathBuf,
         compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -2962,7 +3063,7 @@ impl<'a> ModuleBuilder<'a> {
         name: PathBuf,
         compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut FxHashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,

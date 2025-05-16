@@ -1,6 +1,5 @@
 (provide walk-files
          file->string)
-
 (define (for-each func lst)
   (if (null? lst)
       void

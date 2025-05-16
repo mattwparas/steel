@@ -15,6 +15,9 @@
                   run-dylib-installation
                   find-dylib-name))
 
+;; Used for detecting if directories/files have changed
+(require "crypt.scm")
+
 (provide package-installer-main
          parse-cog
          parse-cog-file
@@ -28,6 +31,11 @@
          uninstall-package
          *DYLIB-DIR*
          *BIN*)
+
+(struct InstallOptions (force dry-run) #:transparent)
+
+(define (make-options #:force [force #f] #:dry-run [dry-run #f])
+  (InstallOptions force dry-run))
 
 (define SEP (if (equal? (current-os!) "windows") "\\" "/"))
 
@@ -56,16 +64,40 @@
 (define (shebang-line)
   "#!/usr/bin/env steel")
 
+(define (push-path root p)
+  (convert-path (append-with-separator root p)))
+
+(define (directories-equal-excluding-target? a b)
+  (define a-target (path-exists? (push-path a "Cargo.toml")))
+  (define b-target (path-exists? (push-path b "Cargo.toml")))
+  (directories-equal? a
+                      b
+                      #:ignore-a (if a-target (hashset (push-path a "target")) #f)
+                      #:ignore-b (if b-target (hashset (push-path b "target")) #f)))
+
 ;;@doc
 ;; Given a package spec, install that package directly to the file system
-(define/contract (install-package package)
-  (->/c hash? string?)
-
+(define (install-package package #:force [force #f] #:dry-run [dry-run #f])
   (define destination
     (convert-path (string-append *STEEL_HOME* "/" (symbol->string (hash-get package 'package-name)))))
 
   (displayln "=> Installing: " package)
   (displayln "   ...Installing to:" destination)
+
+  ;; Check if the package has changed by comparing the hashes of the directories.
+  (define package-changed?
+    (if (path-exists? destination)
+        (begin
+          (displayln "Checking if the paths are equivalent: " (hash-get package 'path) destination)
+          (not (directories-equal-excluding-target? (hash-get package 'path) destination)))
+        #t))
+
+  (if package-changed? (displayln "Package has changed.") (displayln "Package has not changed."))
+
+  (when (not package-changed?)
+    ;; Try walking the deps
+    (walk-and-install package #:force force #:dry-run dry-run)
+    (return! destination))
 
   (when (path-exists? destination)
     (delete-directory! destination))
@@ -73,9 +105,13 @@
   ;; Install the package cog sources to the target location.
   ;; When this package does not have any dylibs, this is a trivial copy to the
   ;; sources directory.
-  (copy-directory-recursively! (hash-get package 'path) destination)
 
-  (when (and (hash-contains? package 'entrypoint) (not (equal? (current-os!) "windows")))
+  (unless dry-run
+    (copy-directory-recursively! (hash-get package 'path) destination))
+
+  (when (and (hash-contains? package 'entrypoint)
+             (not dry-run)
+             (not (equal? (current-os!) "windows")))
     (define entrypoint-spec (apply hash (hash-get package 'entrypoint)))
     (define executable-name (hash-get entrypoint-spec '#:name))
     (define executable-path (hash-get entrypoint-spec '#:path))
@@ -103,17 +139,11 @@
         spawn-process
         Ok->value
         wait->stdout
-        Ok->value)
-
-    ;; Open up the file, inject a shebang, write to the bin, chmod it according to the
-    ;; host platform
-
-    ; (let [(binary (open-output-file ))])
-    )
+        Ok->value))
 
   (displayln "=> Copied package over to: " destination)
 
-  (walk-and-install package)
+  (walk-and-install package #:force force #:dry-run dry-run)
 
   destination)
 
@@ -158,18 +188,25 @@
   (check-install-package index package-spec))
 
 ;; TODO: Decide if we actually need the package spec here
-(define (fetch-and-install-cog-dependency-from-spec cog-dependency [search-from #f])
+(define (fetch-and-install-cog-dependency-from-spec cog-dependency
+                                                    #:search-from [search-from #f]
+                                                    #:force [force #f]
+                                                    #:dry-run [dry-run #f])
 
   ;; TODO: Figure out a way to resolve if the specified package is
   ;; the correct package.
-  (when (package-installed? (hash-ref cog-dependency '#:name))
+  (when (and (not force) (package-installed? (hash-ref cog-dependency '#:name)))
     (displayln "=> Package already installed:" (hash-ref cog-dependency '#:name)))
 
   ;; For each cog, go through and install the package to the `STEEL_HOME` directory.
   ;; This should not only check if the package is installed, but also check
   ;; if the package manifest matches the one that we have. If there is a change, we
   ;; should update the installation accordingly.
-  (unless (package-installed? (hash-ref cog-dependency '#:name))
+  (when (or (not (package-installed? (hash-ref cog-dependency '#:name)))
+            force
+            ;; If its a local path, always attempt to resolve it
+            (hash-contains? cog-dependency '#:path)
+            (hash-contains? cog-dependency '#:git-url))
     (cond
       ;; First, attempt to resolve it via the git url if it is provided.
       [(hash-contains? cog-dependency '#:git-url)
@@ -182,23 +219,14 @@
                        #:subdir (or (hash-try-get cog-dependency '#:subdir) "")
                        #:sha (or (hash-try-get cog-dependency '#:sha) void))])
 
-         ; (for-each (lambda (dylib)
-         ;             (run-dylib-installation
-         ;              ;; This should be where the package is downloaded to.
-         ;              (append-with-separator *STEEL_HOME* (hash-ref cog-dependency '#:name))
-         ;              ;; This is the subdirectory in which the individual module
-         ;              ;; containing the dylib should be loaded
-         ;              #:subdir (or (hash-try-get dylib '#:subdir) "")))
-         ;           (or (hash-try-get package 'dylibs) '()))
-
-         (install-package package))]
+         (install-package package #:force force #:dry-run dry-run))]
 
       ;; Attempt to find the local path to the package if this is
       ;; just another package installed locally.
       [(hash-contains? cog-dependency '#:path)
        (define source (hash-get cog-dependency '#:path))
        (define spec (car (parse-cog source search-from)))
-       (install-package spec)]
+       (install-package spec #:force force #:dry-run dry-run)]
 
       ;; We're unable to find the package! Logically, here would be a place
       ;; we'd check against some kind of package index to help with this.
@@ -218,13 +246,17 @@
 ;; Go through each of the dependencies, and install the cogs
 ;; and subsequently go through each of the dylibs, and install
 ;; those as well.
-(define (walk-and-install package)
+(define (walk-and-install package #:force [force #f] #:dry-run [dry-run #f])
 
   (define current-path (hash-try-get package 'path))
   (define maybe-canonicalized (if current-path (canonicalize-path current-path) current-path))
 
   ;; Check the direct cog level dependencies
-  (for-each (lambda (d) (fetch-and-install-cog-dependency-from-spec d maybe-canonicalized))
+  (for-each (lambda (d)
+              (fetch-and-install-cog-dependency-from-spec d
+                                                          #:search-from maybe-canonicalized
+                                                          #:force force
+                                                          #:dry-run dry-run))
             (hash-ref package 'dependencies))
 
   ;; Check the dylibs next
@@ -259,25 +291,24 @@
 
   destination)
 
-(define/contract (install-package-and-log cog-to-install)
-  (->/c hash? void?)
-  (let ([output-dir (install-package cog-to-install)])
+(define (install-package-and-log cog-to-install [force #f])
+  (let ([output-dir (install-package cog-to-install #:force force)])
     (display "✅ Installed package to: ")
     (displayln output-dir)
     (newline)))
 
-(define (check-install-package installed-cogs cog-to-install)
+(define (check-install-package installed-cogs cog-to-install [force #f])
   (define package-name (hash-get cog-to-install 'package-name))
   (if (hash-contains? installed-cogs package-name)
       (begin
         (displayln "Beginning installation for:" package-name)
         (displayln "    Package already installed...")
         (displayln "    Overwriting existing package installation...")
-        (install-package-and-log cog-to-install))
+        (install-package-and-log cog-to-install force))
 
       (begin
         (displayln "Package is not currently installed.")
-        (install-package-and-log cog-to-install))))
+        (install-package-and-log cog-to-install force))))
 
 (define (parse-cogs-from-command-line)
   (if (empty? std::env::args) (list (current-directory)) std::env::args))

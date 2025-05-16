@@ -21,6 +21,7 @@ use crate::{
         bytevectors::bytevector_module,
         fs_module, fs_module_sandbox,
         git::git_module,
+        hashes::hashes_module,
         hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT},
         hashsets::hashset_module,
         http::http_module,
@@ -281,12 +282,14 @@ define_modules! {
     STEEL_SB_PRELUDE => sandboxed_prelude,
 
     STEEL_GIT_MODULE => git_module,
+    STEEL_HASH_MODULE => hashes_module,
 }
 
 #[cfg(all(feature = "dylibs", feature = "sync"))]
 pub static STEEL_FFI_MODULE: once_cell::sync::Lazy<BuiltInModule> =
     once_cell::sync::Lazy::new(ffi_module);
 
+#[cfg(not(feature = "sync"))]
 thread_local! {
     pub static MAP_MODULE: BuiltInModule = hashmap_module();
     pub static SET_MODULE: BuiltInModule = hashset_module();
@@ -330,9 +333,6 @@ thread_local! {
     pub static PRELUDE_MODULE: BuiltInModule = prelude();
     pub static SB_PRELUDE: BuiltInModule = sandboxed_prelude();
 
-    pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = PRELUDE_MODULE.with(|x| x.names().into_iter().map(|x| x.into()).collect());
-
-
     pub static TIME_MODULE: BuiltInModule = time_module();
     pub static THREADING_MODULE: BuiltInModule = threading_module();
 
@@ -340,6 +340,17 @@ thread_local! {
     pub static PRIVATE_READER_MODULE: BuiltInModule = reader_module();
 
     pub static GIT_MODULE: BuiltInModule = git_module();
+    pub static HASHES_MODULE: BuiltInModule = hashes_module();
+}
+
+#[cfg(not(feature = "sync"))]
+thread_local! {
+    pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = PRELUDE_MODULE.with(|x| x.names().into_iter().map(|x| x.into()).collect());
+}
+
+#[cfg(feature = "sync")]
+thread_local! {
+    pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = STEEL_PRELUDE_MODULE.names().into_iter().map(|x| x.into()).collect();
 }
 
 pub fn prelude() -> BuiltInModule {
@@ -552,6 +563,8 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
 
         engine.register_module(STEEL_GIT_MODULE.clone());
 
+        engine.register_module(STEEL_HASH_MODULE.clone());
+
         if !sandbox {
             engine
                 .register_module(STEEL_TCP_MODULE.clone())
@@ -606,6 +619,8 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
             .register_module(BYTEVECTOR_MODULE.with(|x| x.clone()));
 
         engine.register_module(GIT_MODULE.with(|x| x.clone()));
+
+        engine.register_module(HASHES_MODULE.with(|x| x.clone()));
 
         if !sandbox {
             engine
@@ -1970,6 +1985,16 @@ pub fn error_with_src_loc() -> SteelVal {
 
         if args.len() < 2 {
             stop!(ArityMismatch => "error-with-span expects at least 2 arguments - the span and the error message")
+        }
+
+        if let SteelVal::Void = &args[0] {
+            for arg in &args[1..] {
+                let error_val = arg.to_string();
+                error_message.push(' ');
+                error_message.push_str(error_val.trim_matches('\"'));
+            }
+
+            stop!(Generic => error_message);
         }
 
         let span = Span::from_steelval(&args[0])?;
