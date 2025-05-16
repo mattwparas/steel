@@ -205,7 +205,8 @@
   (when (or (not (package-installed? (hash-ref cog-dependency '#:name)))
             force
             ;; If its a local path, always attempt to resolve it
-            (hash-contains? cog-dependency '#:path))
+            (hash-contains? cog-dependency '#:path)
+            (hash-contains? cog-dependency '#:git-url))
     (cond
       ;; First, attempt to resolve it via the git url if it is provided.
       [(hash-contains? cog-dependency '#:git-url)
