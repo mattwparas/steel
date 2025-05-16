@@ -1,5 +1,9 @@
 # Benchmarks
 
+## Fib
+
+{{#include fib.md}}
+
 ## Binary Trees
 
 {{#include bin-trees.md}}
@@ -11,10 +15,6 @@
 ## Ack
 
 {{#include ack.md}}
-
-## Fib
-
-{{#include fib.md}}
 
 ## Startup
 

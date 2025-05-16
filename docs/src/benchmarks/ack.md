@@ -1,4 +1,4 @@
 | Command | Mean [ms] | Min [ms] | Max [ms] | Relative |
 |:---|---:|---:|---:|---:|
-| `../target/release/steel ack/ack.scm` | 59.1 ± 3.1 | 51.7 | 66.1 | 4.05 ± 0.64 |
-| `python3.13 ack/ack.py` | 14.6 ± 2.2 | 11.7 | 21.0 | 1.00 |
+| `../target/release/steel ack/ack.scm` | 95.7 ± 7.3 | 79.1 | 107.4 | 3.32 ± 0.77 |
+| `python3.13 ack/ack.py` | 28.8 ± 6.4 | 15.6 | 39.6 | 1.00 |
