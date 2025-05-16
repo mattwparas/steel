@@ -273,6 +273,8 @@ mod libgit {
         let repo = git2::Repository::open(path)?;
 
         let remote_name = remote_name.as_ref().map(|s| &s[..]).unwrap_or("origin");
+        let original_remote = remote_branch.clone();
+
         let remote_branch = remote_branch
             .as_ref()
             .map(|s| &s[..])
@@ -289,7 +291,27 @@ mod libgit {
 
         let mut remote = repo.find_remote(remote_name)?;
         let fetch_commit = do_fetch(&repo, &[&remote_branch], &mut remote)?;
-        Ok(do_merge(&repo, &remote_branch, fetch_commit)?)
+        do_merge(&repo, &remote_branch, fetch_commit)?;
+
+        repo.set_head(&remote_branch)?;
+
+        if let Some(remote_branch) = original_remote {
+            println!("Checking out: {}", remote_branch);
+            let (object, reference) = repo.revparse_ext(&remote_branch).expect("Object not found");
+
+            repo.checkout_tree(&object, None)
+                .expect("Failed to checkout");
+
+            match reference {
+                // gref is an actual reference like branches or tags
+                Some(gref) => repo.set_head(gref.name().unwrap()),
+                // this is a commit, not a reference
+                None => repo.set_head_detached(object.id()),
+            }
+            .expect("Failed to set HEAD");
+        }
+
+        Ok(())
     }
 
     // TODO: Eventually, try to use gix instead of git2
