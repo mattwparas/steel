@@ -38,7 +38,8 @@
                      options)))
 
 (define *bench-hashmap*
-  (hash "Startup" '("startup" "--warmup" "10" "--min-runs" "100") 
+  (hash 
+	"Startup" '("startup" "--warmup" "10" "--min-runs" "100") 
 	    "Map" '("map" "--warmup" "10")
         "Ack" '("ack" "--warmup" "10")
         "Fib" '("fib" "--warmup" "10" "--min-runs" "40")
@@ -68,7 +69,7 @@
   (for-each (λ (key) (let ([name (car (hash-ref bench-hashmap key))])
 	(#%raw-write-string (format "## ~a" key) out)
 	(write-newlines 2 out)
-	(#%raw-write-string (format "{{include ~a.md}}" name) out)
+	(#%raw-write-string (format "{{#include ~a.md}}" name) out)
 	(write-newlines 2 out)))
 	(hash-keys->list bench-hashmap))
   (close-port out))

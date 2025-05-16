@@ -3,7 +3,6 @@
 /scratch
 docs/book
 docs/theme
-docs/src/benchmarks/*.md
 .vscode/
 /result
 .direnv/
