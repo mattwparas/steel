@@ -1,7 +1,8 @@
 extern crate rustyline;
 use colored::Colorize;
+use steel::SteelErr;
 use steel_parser::interner::InternedString;
-use steel_parser::parser::SourceId;
+use steel_parser::parser::{Parser, SourceId};
 use steel_parser::tokens::TokenType;
 
 use std::collections::HashSet;
@@ -115,10 +116,9 @@ impl Validator for RustylineHelper {
 
         let token_stream = TokenStream::new(ctx.input(), true, SourceId::none());
 
+        // Check whether more input is expected
         let mut balance = 0;
-
         let mut unfinished = false;
-
         for token in token_stream {
             match token.ty {
                 TokenType::OpenParen(..) => {
@@ -128,8 +128,16 @@ impl Validator for RustylineHelper {
                     balance -= 1;
                 }
                 TokenType::Error => {
-                    unfinished = token.source.starts_with("\"") || token.source.starts_with("#|");
-
+                    if token.source.starts_with("\"") || token.source.starts_with("#|") {
+                        // We're withing a string literal or nestable comment,
+                        // so a newline input should become part of the token
+                        // instead of telling the repl to evaluate this expression.
+                        unfinished = true;
+                    } else {
+                        // A genuine lexing error, reset the balange so we don't
+                        // try to interpret this as an incomplete input.
+                        balance = 0;
+                    }
                     break;
                 }
                 _ => {}
@@ -138,6 +146,11 @@ impl Validator for RustylineHelper {
 
         if balance > 0 || unfinished {
             Ok(ValidationResult::Incomplete)
+        } else if let Some(parse_err) = Parser::new(ctx.input(), None).find_map(|r| r.err()) {
+            Ok(ValidationResult::Invalid(Some(format!(
+                "\n{}",
+                SteelErr::from(parse_err).emit_result_to_string("", "", true)
+            ))))
         } else {
             Ok(ValidationResult::Valid(None))
         }
