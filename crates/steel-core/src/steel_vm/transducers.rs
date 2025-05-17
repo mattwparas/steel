@@ -3,10 +3,7 @@ use crate::values::{lists::List, HashSet};
 // use itertools::Itertools;
 
 // use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
-use super::{
-    lazy_stream::LazyStreamIter,
-    vm::{VmContext, VmCore},
-};
+use super::{lazy_stream::LazyStreamIter, vm::VmCore};
 use crate::{
     gc::Gc,
     parser::span::Span,
@@ -127,59 +124,6 @@ macro_rules! generate_drop {
         } else {
             stop!(TypeMismatch => "drop transducer takes an integer"; *$cur_inst_span)
         }
-    }
-}
-
-pub(crate) const TRANSDUCE: SteelVal = SteelVal::BuiltIn(transduce);
-
-// figure out if nested transducers works
-fn transduce(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    if args.len() < 2 {
-        builtin_stop!(ArityMismatch => format!("transduce expects at least 2 arguments, found {}", args.len()))
-    }
-
-    let (reducer, args) = args
-        .split_last()
-        .ok_or_else(throw!(ArityMismatch => "transduce expects 3 arguments, found none"))
-        .unwrap();
-
-    let mut arg_iter = args.iter();
-    let collection = arg_iter.next().unwrap();
-
-    // TODO make this way better
-    let transducers: Vec<_> = arg_iter
-        .map(|x| {
-            if let SteelVal::IterV(i) = x {
-                Ok(i)
-            } else {
-                stop!(TypeMismatch => format!("transduce expects a transducer, found: {x}"))
-            }
-        })
-        .collect::<Result<Vec<_>>>()
-        .unwrap();
-
-    let transducers = transducers
-        .into_iter()
-        .flat_map(|x| x.ops.clone())
-        .collect::<Vec<_>>();
-
-    if let SteelVal::ReducerV(r) = &reducer {
-        // TODO get rid of this unwrap
-        // just pass a reference instead
-
-        if ctx.depth > 32 {
-            #[cfg(feature = "stacker")]
-            return stacker::maybe_grow(32 * 1024, 1024 * 1024, || {
-                Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
-            });
-
-            #[cfg(not(feature = "stacker"))]
-            Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
-        } else {
-            Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
-        }
-    } else {
-        builtin_stop!(TypeMismatch => format!("transduce requires that the last argument be a reducer, found: {reducer}"))
     }
 }
 

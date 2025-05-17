@@ -34,6 +34,7 @@ use crate::{
         string_module, symbol_module,
         tcp::tcp_module,
         time::time_module,
+        transducers::transducer_module,
         vectors::{
             immutable_vectors_module, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION,
             LIST_VEC_NULL_DEFINITION, MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION,
@@ -54,7 +55,7 @@ use crate::{
         CustomType, FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::{
-        builtin::{get_function_metadata, get_function_name, Arity, BuiltInFunctionType},
+        builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
         vm::threads::threading_module,
     },
     values::{
@@ -1289,40 +1290,6 @@ fn ord_module() -> BuiltInModule {
         .register_native_fn_definition(GREATER_THAN_EQUAL_DEFINITION)
         .register_native_fn_definition(LESS_THAN_DEFINITION)
         .register_native_fn_definition(LESS_THAN_EQUAL_DEFINITION);
-    module
-}
-
-pub fn transducer_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/transducers");
-
-    use crate::primitives::transducers::*;
-
-    module
-        .register_native_fn("compose", compose, Arity::AtLeast(0))
-        .register_native_fn("mapping", map, Arity::Exact(1))
-        .register_native_fn("flattening", flatten, Arity::Exact(0))
-        .register_native_fn("flat-mapping", flat_map, Arity::Exact(1))
-        .register_native_fn("filtering", filter, Arity::Exact(1))
-        .register_native_fn("taking", take, Arity::Exact(1))
-        .register_native_fn("dropping", dropping, Arity::Exact(1))
-        .register_native_fn("extending", extending, Arity::Exact(1))
-        .register_native_fn("enumerating", enumerating, Arity::Exact(0))
-        .register_native_fn("zipping", zipping, Arity::Exact(1))
-        .register_native_fn("interleaving", interleaving, Arity::Exact(1))
-        .register_value("into-sum", crate::values::transducers::INTO_SUM)
-        .register_value("into-product", crate::values::transducers::INTO_PRODUCT)
-        .register_value("into-max", crate::values::transducers::INTO_MAX)
-        .register_value("into-min", crate::values::transducers::INTO_MIN)
-        .register_value("into-count", crate::values::transducers::INTO_COUNT)
-        .register_value("into-list", crate::values::transducers::INTO_LIST)
-        .register_value("into-vector", crate::values::transducers::INTO_VECTOR)
-        .register_value("into-hashmap", crate::values::transducers::INTO_HASHMAP)
-        .register_value("into-hashset", crate::values::transducers::INTO_HASHSET)
-        .register_value("into-string", crate::values::transducers::INTO_STRING)
-        .register_value("into-last", crate::values::transducers::INTO_LAST)
-        .register_value("into-for-each", crate::values::transducers::FOR_EACH)
-        .register_value("into-nth", crate::values::transducers::NTH)
-        .register_value("into-reducer", crate::values::transducers::REDUCER);
     module
 }
 

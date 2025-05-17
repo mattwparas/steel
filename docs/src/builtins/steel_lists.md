@@ -281,5 +281,4 @@ error[E11]: Generic
 ### **plist-try-get-positional-arg**
 ### **plist-validate-args**
 ### **push-back**
-### **transduce**
 ### **try-list-ref**
