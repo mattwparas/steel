@@ -1543,7 +1543,6 @@ impl Engine {
             .symbol_map
             .values()
             .iter()
-            .skip(after_offset)
             .filter(|x| {
                 let resolved = x.resolve();
                 !resolved.starts_with("#")
@@ -1561,6 +1560,7 @@ impl Engine {
                     Some(x)
                 }
             })
+            .skip(after_offset)
             .copied()
             .collect()
     }
