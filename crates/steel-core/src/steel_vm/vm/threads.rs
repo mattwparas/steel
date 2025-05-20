@@ -761,6 +761,12 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 /// given function be 0. If the arity of the given function cannot be checked until runtime,
 /// the thread will be spawned and the function will fail to execute.
 ///
+/// ```scheme
+/// (spawn-native-thread func)
+/// ```
+///
+/// func : (-> any?) ;; Function with no arguments, returns anything
+///
 /// # Examples
 ///
 /// ```scheme

@@ -1882,7 +1882,7 @@ Reads bytes from an input port.
 ### **read-bytes-into-buf**
 Reads bytes from an input port into a given buffer.
 
-(read-bytes-into-buf buf amt [port]) -> bytes?
+(read-bytes-into-buf buf amt [port]) -> int?
 
 * buf : bytes?
 * amt : (and positive? int?)
@@ -2128,6 +2128,12 @@ Returns the sine value of the input angle, measured in radians.
 Spawns the given `func` on another thread. It is required that the arity of the
 given function be 0. If the arity of the given function cannot be checked until runtime,
 the thread will be spawned and the function will fail to execute.
+
+```scheme
+(spawn-native-thread func)
+```
+
+func : (-> any?) ;; Function with no arguments, returns anything
 
 #### Examples
 
@@ -2853,6 +2859,8 @@ Checks if the given real number is zero.
 ### **future?**
 ### **get-contract-struct**
 ### **get-test-mode**
+### **glob**
+### **glob-iter-next!**
 ### **hash-get**
 ### **hash?**
 ### **immutable-vector?**
@@ -2900,6 +2908,7 @@ Checks if the given real number is zero.
 ### **naive-date-year**
 ### **naive-date-ymd**
 ### **not**
+### **path->string**
 ### **plist-get**
 ### **plist-get-kwarg**
 ### **plist-get-positional-arg**
