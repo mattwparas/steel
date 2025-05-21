@@ -17,7 +17,7 @@ use crate::{
         RAW_UNSYNTAX_SPLICING, REQUIRE, RETURN, SET, SYNTAX_QUOTE, UNQUOTE, UNQUOTE_SPLICING,
     },
     interner::InternedString,
-    lexer::{OwnedTokenStream, ToOwnedString, TokenStream},
+    lexer::{OwnedTokenStream, ReadTableRef, ToOwnedString, TokenStream},
     span::Span,
     tokens::{Paren, ParenMod, Token, TokenType},
 };
@@ -312,6 +312,11 @@ enum ParsingContext {
 impl<'a> Parser<'a> {
     pub fn parse(expr: &str) -> Result<Vec<ExprKind>> {
         Parser::new(expr, SourceId::none()).collect()
+    }
+
+    pub fn with_read_table(mut self, read_table: Option<ReadTableRef<'a>>) -> Self {
+        self.tokenizer.stream = self.tokenizer.stream.with_read_table(read_table);
+        self
     }
 
     pub fn parse_without_lowering(expr: &str) -> Result<Vec<ExprKind>> {

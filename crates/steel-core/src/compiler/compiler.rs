@@ -337,6 +337,8 @@ pub struct Compiler {
     // want to have the compiler share everything with the runtime.
     sources: Sources,
     builtin_modules: ModuleContainer,
+
+    read_table: steel_parser::lexer::ReadTable,
 }
 
 pub struct SerializableCompiler {
@@ -413,6 +415,7 @@ impl Compiler {
             search_dirs: Vec::new(),
             sources,
             builtin_modules,
+            read_table: None,
         }
     }
 
@@ -441,6 +444,7 @@ impl Compiler {
             search_dirs: Vec::new(),
             sources,
             builtin_modules,
+            read_table: None,
         }
     }
 
@@ -516,12 +520,26 @@ impl Compiler {
 
         let id = self.sources.add_source(expr_str.clone(), path.clone());
 
+        let mut read_table = HashMap::new();
+
+        read_table.insert(
+            '◊',
+            Box::new(
+                |lexer: &mut steel_parser::lexer::Lexer, c: char| -> ExprKind {
+                    println!("Hello world!");
+
+                    ExprKind::atom("foo")
+                },
+            ) as _,
+        );
+
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
             .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
             .without_lowering()
+            .with_read_table(Some(&mut read_table))
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect();
 

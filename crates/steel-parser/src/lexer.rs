@@ -37,6 +37,7 @@ pub struct Lexer<'a> {
     queued: Option<TokenType<Cow<'a, str>>>,
     token_start: usize,
     token_end: usize,
+    read_table: Option<ReadTableRef<'a>>,
 }
 
 impl<'a> Lexer<'a> {
@@ -47,6 +48,7 @@ impl<'a> Lexer<'a> {
             queued: None,
             token_start: 0,
             token_end: 0,
+            read_table: None,
         }
     }
 
@@ -560,6 +562,22 @@ impl<'a> Lexer<'a> {
     }
 }
 
+pub type ReadTable = Option<
+    std::sync::Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<
+                char,
+                Box<dyn FnMut(&mut TokenStream, char) -> crate::ast::ExprKind + Send + Sync>,
+            >,
+        >,
+    >,
+>;
+
+pub type ReadTableRef<'a> = &'a mut std::collections::HashMap<
+    char,
+    Box<dyn FnMut(&mut Lexer<'_>, char) -> crate::ast::ExprKind + Send + Sync>,
+>;
+
 pub struct TokenStream<'a> {
     pub(crate) lexer: Lexer<'a>,
     skip_comments: bool,
@@ -584,6 +602,11 @@ impl<'a> TokenStream<'a> {
         }
 
         res
+    }
+
+    pub fn with_read_table(mut self, read_table: Option<ReadTableRef<'a>>) -> Self {
+        self.lexer.read_table = read_table;
+        self
     }
 
     pub fn into_owned<T, F: ToOwnedString<T>>(self, adapter: F) -> OwnedTokenStream<'a, T, F> {
@@ -667,7 +690,28 @@ impl<'a> Iterator for Lexer<'a> {
 
         self.token_start = self.token_end;
 
-        match self.chars.peek() {
+        let char = self.chars.peek().copied();
+
+        match char {
+            Some(char)
+                if self
+                    .read_table
+                    .as_mut()
+                    .map(|x| x.contains_key(&char))
+                    .unwrap_or_default() =>
+            {
+                self.eat();
+                let mut let_me_do_it = std::mem::take(&mut self.read_table);
+                let callback = let_me_do_it.as_mut().unwrap().get_mut(&char).unwrap();
+
+                // Yoink out the callback for the duration of the call
+                (callback)(self, char);
+
+                self.read_table = let_me_do_it;
+
+                panic!("We made it");
+            }
+
             Some(';') => {
                 self.eat();
                 self.read_rest_of_line();
@@ -676,7 +720,7 @@ impl<'a> Iterator for Lexer<'a> {
 
             Some('"') => Some(self.read_string()),
 
-            Some(&paren @ ('(' | '[' | '{')) => {
+            Some(paren @ ('(' | '[' | '{')) => {
                 self.eat();
                 let kind = match paren {
                     '[' => Paren::Square,
@@ -686,7 +730,7 @@ impl<'a> Iterator for Lexer<'a> {
                 Some(Ok(TokenType::OpenParen(kind, None)))
             }
 
-            Some(&paren @ (')' | ']' | '}')) => {
+            Some(paren @ (')' | ']' | '}')) => {
                 self.eat();
                 let kind = match paren {
                     ']' => Paren::Square,
@@ -746,7 +790,7 @@ impl<'a> Iterator for Lexer<'a> {
                 Some(token)
             }
 
-            Some(c) if !c.is_whitespace() && !c.is_ascii_digit() || *c == '_' => {
+            Some(c) if !c.is_whitespace() && !c.is_ascii_digit() || c == '_' => {
                 Some(self.read_word())
             }
             Some(c) if c.is_ascii_digit() => Some(self.read_number()),
