@@ -522,6 +522,7 @@ impl Compiler {
 
         let mut read_table = HashMap::new();
 
+        // Pass in the compiler as well to this function? Do something like that?
         read_table.insert(
             '◊',
             Box::new(

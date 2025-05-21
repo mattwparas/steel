@@ -7,13 +7,14 @@ use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 #[cfg(feature = "sync")]
 use once_cell::sync::Lazy;
-use steel_parser::tokens::TokenType;
+use steel_parser::{lexer::Lexer, tokens::TokenType};
 
 use crate::{
     compiler::{
         passes::analysis::SemanticAnalysis,
         program::{BEGIN_FOR_SYNTAX, DEFMACRO},
     },
+    gc::unsafe_erased_pointers::CustomReference,
     parser::{
         ast::{Atom, Set},
         parser::SyntaxObject,
@@ -94,6 +95,9 @@ impl Default for Kernel {
         Self::new()
     }
 }
+
+impl<'a> CustomReference for Lexer<'a> {}
+crate::custom_reference!(Lexer<'a>);
 
 impl Kernel {
     pub fn new() -> Self {
