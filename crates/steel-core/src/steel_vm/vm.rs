@@ -4637,20 +4637,23 @@ fn register_reader_macro(
     ctx: &mut crate::steel_vm::vm::VmCore,
     args: &[SteelVal],
 ) -> Option<Result<SteelVal>> {
-    match register_reader_macro_impl(ctx, args) {
-        Ok(_) => None,
-        Err(e) => Some(Err(e)),
-    }
+    Some(register_reader_macro_impl(ctx, args))
 }
 
+// (#%register-reader-macro env char quoted-expr)
 fn register_reader_macro_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     // This is gonna suck...
-    let weak_comp = std::sync::Arc::downgrade(&ctx.thread.compiler);
-    let comp = ctx.thread.compiler.write();
+    let mut comp = ctx.thread.compiler.write();
+    let kernel = comp
+        .kernel
+        .as_ref()
+        .map(|x| Arc::downgrade(&x))
+        .ok_or_else(
+            throw!(Generic => "#%register-reader-macro cannot be used from the kernel environment"),
+        )?;
 
-    let character: char = char::from_steelval(&args[0])?;
-    let env: SteelString = SteelString::from_steelval(&args[1])?;
-    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[2])?;
+    let env: SteelString = SteelString::from_steelval(&args[0])?;
+    let character: char = char::from_steelval(&args[1])?;
 
     let mut rt = comp.read_table.lock().unwrap();
 
@@ -4658,20 +4661,31 @@ fn register_reader_macro_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<Ste
     rt.insert(
         character,
         Box::new(move |lexer, character| {
-            let compiler = weak_comp.clone();
-            let comp = std::sync::Weak::upgrade(&compiler).unwrap();
+            let kernel = kernel.clone();
+            let k = std::sync::Weak::upgrade(&kernel).unwrap();
 
-            comp.write()
-                .kernel
-                .as_mut()
-                .map(|x| x.call_reader_macro(env.clone(), lexer, character))
-                .unwrap();
+            println!("Trying to get access to the compiler");
+            k.lock()
+                .unwrap()
+                .call_reader_macro(env.clone(), lexer, character);
 
-            todo!()
+            todo!("exiting the callback");
         }),
     );
 
-    todo!()
+    drop(rt);
+
+    comp.kernel.as_mut().map(|x| {
+        x.lock()
+            .unwrap()
+            .engine
+            .call_function_by_name_with_args("#%add-to-reader-map", args.to_vec())
+            .unwrap()
+    });
+
+    println!("Finished registering the reader macro");
+
+    Ok(SteelVal::Void)
 }
 
 fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {

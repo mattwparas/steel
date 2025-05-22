@@ -1149,7 +1149,7 @@ impl Engine {
     pub fn new_sandboxed() -> Self {
         let mut engine = fresh_kernel_image(true);
 
-        engine.virtual_machine.compiler.write().kernel = Some(Kernel::new());
+        engine.virtual_machine.compiler.write().kernel = Some(Arc::new(Mutex::new(Kernel::new())));
 
         #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
@@ -1382,7 +1382,8 @@ impl Engine {
         let mut engine = fresh_kernel_image(false);
 
         {
-            engine.virtual_machine.compiler.write().kernel = Some(Kernel::new());
+            engine.virtual_machine.compiler.write().kernel =
+                Some(Arc::new(Mutex::new(Kernel::new())));
         }
 
         #[cfg(feature = "profiling")]

@@ -8,6 +8,7 @@ use super::{
         CALL_WITH_EXCEPTION_HANDLER_DEFINITION, EVAL_DEFINITION, EVAL_FILE_DEFINITION,
         EVAL_STRING_DEFINITION, EXPAND_SYNTAX_CASE_DEFINITION, EXPAND_SYNTAX_OBJECTS_DEFINITION,
         INSPECT_DEFINITION, MACRO_CASE_BINDINGS_DEFINITION, MATCH_SYNTAX_CASE_DEFINITION,
+        REGISTER_READER_MACRO_DEFINITION,
     },
 };
 use crate::{
@@ -1806,6 +1807,7 @@ fn meta_module() -> BuiltInModule {
         .register_value("raise-error", raise_error_from_error())
         .register_native_fn_definition(CALL_CC_DEFINITION)
         .register_native_fn_definition(EVAL_DEFINITION)
+        .register_native_fn_definition(REGISTER_READER_MACRO_DEFINITION)
         .register_native_fn_definition(EVAL_FILE_DEFINITION)
         .register_native_fn_definition(EXPAND_SYNTAX_OBJECTS_DEFINITION)
         .register_native_fn_definition(MATCH_SYNTAX_CASE_DEFINITION)

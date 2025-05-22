@@ -52,7 +52,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn eat(&mut self) -> Option<char> {
+    pub fn eat(&mut self) -> Option<char> {
         if let Some(c) = self.chars.next() {
             self.token_end += c.len_utf8();
             Some(c)

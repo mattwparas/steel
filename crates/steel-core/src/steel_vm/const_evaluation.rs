@@ -128,7 +128,7 @@ pub struct ConstantEvaluatorManager<'a> {
     pub(crate) changed: bool,
     opt_level: OptLevel,
     _memoization_table: &'a mut MemoizationTable,
-    kernel: &'a mut Option<Kernel>,
+    kernel: Option<&'a mut Kernel>,
 }
 
 impl<'a> ConstantEvaluatorManager<'a> {
@@ -136,7 +136,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
         memoization_table: &'a mut MemoizationTable,
         constant_bindings: HashMap<InternedString, SteelVal, FxBuildHasher>,
         opt_level: OptLevel,
-        kernel: &'a mut Option<Kernel>,
+        kernel: Option<&'a mut Kernel>,
     ) -> Self {
         Self {
             global_env: Rc::new(RefCell::new(ConstantEnv::root(constant_bindings))),
@@ -179,7 +179,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
                 &expr_level_set_idents,
                 self.opt_level,
                 self._memoization_table,
-                self.kernel,
+                self.kernel.as_mut().map_or(None, |p| Some(p)),
             );
             let mut output = eval.visit(expr)?;
             self.changed = self.changed || eval.changed;
@@ -231,7 +231,7 @@ struct ConstantEvaluator<'a> {
     changed: bool,
     opt_level: OptLevel,
     _memoization_table: &'a mut MemoizationTable,
-    kernel: &'a mut Option<Kernel>,
+    kernel: Option<&'a mut Kernel>,
     scope_contains_define: bool,
 }
 
@@ -254,7 +254,7 @@ impl<'a> ConstantEvaluator<'a> {
         expr_level_set_idents: &'a [InternedString],
         opt_level: OptLevel,
         memoization_table: &'a mut MemoizationTable,
-        kernel: &'a mut Option<Kernel>,
+        kernel: Option<&'a mut Kernel>,
     ) -> Self {
         Self {
             bindings,

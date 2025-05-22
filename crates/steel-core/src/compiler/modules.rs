@@ -224,7 +224,7 @@ impl ModuleManager {
         &mut self,
         path: PathBuf,
         global_macro_map: &mut FxHashMap<InternedString, SteelMacro>,
-        kernel: &mut Option<Kernel>,
+        kernel: Option<&mut Kernel>,
         sources: &mut Sources,
         builtin_modules: ModuleContainer,
     ) -> Result<()> {
@@ -259,7 +259,7 @@ impl ModuleManager {
     pub(crate) fn compile_main(
         &mut self,
         global_macro_map: &mut FxHashMap<InternedString, SteelMacro>,
-        kernel: &mut Option<Kernel>,
+        mut kernel: Option<&mut Kernel>,
         sources: &mut Sources,
         mut exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
@@ -287,7 +287,7 @@ impl ModuleManager {
             &mut self.visited,
             &mut self.file_metadata,
             sources,
-            kernel,
+            kernel.as_mut().map_or(None, |p| Some(p)),
             builtin_modules,
             global_macro_map,
             &self.custom_builtins,
@@ -504,6 +504,8 @@ impl ModuleManager {
         {
             let require_for_syntax = require_object.path.get_path();
 
+            // let local_kernel = module_builder.kernel.take();
+
             let (module, in_scope_macros, mut name_mangler) = Self::find_in_scope_macros(
                 &mut self.compiled_modules,
                 require_for_syntax.as_ref(),
@@ -520,7 +522,7 @@ impl ModuleManager {
 
             let module_name = module.name.to_str().unwrap().to_string();
 
-            if let Some(kernel) = kernel.as_mut() {
+            if let Some(kernel) = kernel.as_mut().map_or(None, |p| Some(p)) {
                 if kernel.exported_defmacros(&module_name).is_some() {
                     lifted_kernel_environments.insert(
                         module_name.clone(),
@@ -616,7 +618,7 @@ impl ModuleManager {
                     // Expanding the kernel with only these macros...
                     let changed = expand_kernel_in_env_with_change(
                         expr,
-                        kernel.as_mut(),
+                        kernel.as_mut().map_or(None, |p| Some(p)),
                         // We don't need to expand those here
                         ModuleContainer::default(),
                         &module_name,
@@ -1746,7 +1748,7 @@ struct ModuleBuilder<'a> {
     visited: &'a mut FxHashSet<PathBuf>,
     file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
     sources: &'a mut Sources,
-    kernel: &'a mut Option<Kernel>,
+    kernel: Option<&'a mut Kernel>,
     builtin_modules: ModuleContainer,
     global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
     custom_builtins: &'a HashMap<String, String>,
@@ -1764,7 +1766,7 @@ impl<'a> ModuleBuilder<'a> {
         visited: &'a mut FxHashSet<PathBuf>,
         file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
-        kernel: &'a mut Option<Kernel>,
+        kernel: Option<&'a mut Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
@@ -1925,7 +1927,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.visited,
                     self.file_metadata,
                     self.sources,
-                    self.kernel,
+                    self.kernel.as_mut().map_or(None, |p| Some(p)),
                     self.builtin_modules.clone(),
                     self.global_macro_map,
                     self.custom_builtins,
@@ -2029,7 +2031,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.visited,
                     self.file_metadata,
                     self.sources,
-                    self.kernel,
+                    self.kernel.as_mut().map_or(None, |p| Some(p)),
                     self.builtin_modules.clone(),
                     self.global_macro_map,
                     self.custom_builtins,
@@ -2110,7 +2112,7 @@ impl<'a> ModuleBuilder<'a> {
 
             expand_kernel_in_env(
                 expr,
-                self.kernel.as_mut(),
+                self.kernel.as_mut().map_or(None, |p| Some(p)),
                 self.builtin_modules.clone(),
                 // Expanding macros in the environment?
                 self.name.to_str().unwrap(),
@@ -2146,7 +2148,7 @@ impl<'a> ModuleBuilder<'a> {
             // expand_kernel(x, self.kernel.as_mut(), self.builtin_modules.clone())
             expand_kernel_in_env(
                 expr,
-                self.kernel.as_mut(),
+                self.kernel.as_mut().map_or(None, |p| Some(p)),
                 self.builtin_modules.clone(),
                 // Expanding macros in the environment?
                 &self.name.to_str().unwrap(),
@@ -2240,7 +2242,7 @@ impl<'a> ModuleBuilder<'a> {
                     // Expanding the kernel with only these macros...
                     let changed = expand_kernel_in_env_with_change(
                         &mut fully_expanded,
-                        self.kernel.as_mut(),
+                        self.kernel.as_mut().map_or(None, |p| Some(p)),
                         // We don't need to expand those here
                         ModuleContainer::default(),
                         &module.name.to_str().unwrap(),
@@ -3006,7 +3008,7 @@ impl<'a> ModuleBuilder<'a> {
         visited: &'a mut FxHashSet<PathBuf>,
         file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
-        kernel: &'a mut Option<Kernel>,
+        kernel: Option<&'a mut Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
@@ -3035,7 +3037,7 @@ impl<'a> ModuleBuilder<'a> {
         visited: &'a mut FxHashSet<PathBuf>,
         file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
-        kernel: &'a mut Option<Kernel>,
+        kernel: Option<&'a mut Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
@@ -3065,7 +3067,7 @@ impl<'a> ModuleBuilder<'a> {
         visited: &'a mut FxHashSet<PathBuf>,
         file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
-        kernel: &'a mut Option<Kernel>,
+        kernel: Option<&'a mut Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,

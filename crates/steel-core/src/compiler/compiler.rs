@@ -22,7 +22,11 @@ use crate::{
     parser::parser::Sources,
 };
 
-use std::{borrow::Cow, iter::Iterator};
+use std::{
+    borrow::Cow,
+    iter::Iterator,
+    sync::{Arc, Mutex},
+};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -315,7 +319,12 @@ pub struct Compiler {
     pub(crate) macro_env: FxHashMap<InternedString, SteelMacro>,
     pub(crate) module_manager: ModuleManager,
     opt_level: OptLevel,
-    pub(crate) kernel: Option<Kernel>,
+
+    // Note: This is... a bit nasty, and most like we need
+    // the kernel to actually be cheaply cloneable since
+    // we need to move the kernel down into the proper environments.
+    pub(crate) kernel: Option<Arc<Mutex<Kernel>>>,
+
     memoization_table: MemoizationTable,
     mangled_identifiers: FxHashSet<InternedString>,
     // Try this out?
@@ -434,7 +443,7 @@ impl Compiler {
             macro_env,
             module_manager,
             opt_level: OptLevel::Three,
-            kernel: Some(kernel),
+            kernel: Some(Arc::new(Mutex::new(kernel))),
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashSet::default(),
             lifted_kernel_environments: HashMap::new(),
@@ -636,7 +645,10 @@ impl Compiler {
         self.module_manager.add_module(
             path,
             &mut self.macro_env,
-            &mut self.kernel,
+            self.kernel
+                .as_mut()
+                .map(|x| x.lock().unwrap())
+                .as_deref_mut(),
             sources,
             builtin_modules,
         )
@@ -654,7 +666,10 @@ impl Compiler {
         // #[cfg(feature = "modules")]
         return self.module_manager.compile_main(
             &mut self.macro_env,
-            &mut self.kernel,
+            self.kernel
+                .as_mut()
+                .map(|x| x.lock().unwrap())
+                .as_deref_mut(),
             &mut self.sources,
             exprs,
             path,
@@ -718,13 +733,19 @@ impl Compiler {
 
         if let Some(kernel) = self.kernel.as_mut() {
             // Label anything at the top as well - top level
-            kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
+            kernel
+                .lock()
+                .unwrap()
+                .load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
         }
 
         for expr in expanded_statements.iter_mut() {
             expand_kernel_in_env(
                 expr,
-                self.kernel.as_mut(),
+                self.kernel
+                    .as_mut()
+                    .map(|x| x.lock().unwrap())
+                    .as_deref_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
             )?;
@@ -735,7 +756,10 @@ impl Compiler {
         for expr in expanded_statements.iter_mut() {
             expand_kernel_in_env(
                 expr,
-                self.kernel.as_mut(),
+                self.kernel
+                    .as_mut()
+                    .map(|x| x.lock().unwrap())
+                    .as_deref_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
             )?;
@@ -762,7 +786,10 @@ impl Compiler {
             for (module, lifted_env) in &mut self.lifted_kernel_environments {
                 let changed = expand_kernel_in_env_with_change(
                     expr,
-                    self.kernel.as_mut(),
+                    self.kernel
+                        .as_mut()
+                        .map(|x| x.lock().unwrap())
+                        .as_deref_mut(),
                     self.builtin_modules.clone(),
                     &module,
                 )?;
@@ -774,7 +801,10 @@ impl Compiler {
 
             expand_kernel_in_env(
                 expr,
-                self.kernel.as_mut(),
+                self.kernel
+                    .as_mut()
+                    .map(|x| x.lock().unwrap())
+                    .as_deref_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
             )?;
@@ -913,13 +943,19 @@ impl Compiler {
 
         if let Some(kernel) = self.kernel.as_mut() {
             // Label anything at the top as well - top level
-            kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
+            kernel
+                .lock()
+                .unwrap()
+                .load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
         }
 
         for expr in expanded_statements.iter_mut() {
             expand_kernel_in_env(
                 expr,
-                self.kernel.as_mut(),
+                self.kernel
+                    .as_mut()
+                    .map(|x| x.lock().unwrap())
+                    .as_deref_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
             )?;
@@ -942,7 +978,10 @@ impl Compiler {
             for (module, lifted_env) in &mut self.lifted_kernel_environments {
                 let changed = expand_kernel_in_env_with_change(
                     expr,
-                    self.kernel.as_mut(),
+                    self.kernel
+                        .as_mut()
+                        .map(|x| x.lock().unwrap())
+                        .as_deref_mut(),
                     self.builtin_modules.clone(),
                     &module,
                 )?;
@@ -954,7 +993,10 @@ impl Compiler {
 
             expand_kernel_in_env(
                 expr,
-                self.kernel.as_mut(),
+                self.kernel
+                    .as_mut()
+                    .map(|x| x.lock().unwrap())
+                    .as_deref_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
             )?;
@@ -1213,22 +1255,25 @@ impl Compiler {
         #[cfg(feature = "profiling")]
         let opt_time = Instant::now();
 
-        let mut maybe_kernel = None;
-
         if use_kernel {
             if let Some(kernel) = self.kernel.as_mut() {
-                kernel.load_program_for_comptime(constants.clone(), &mut expanded_statements)?;
+                kernel
+                    .lock()
+                    .unwrap()
+                    .load_program_for_comptime(constants.clone(), &mut expanded_statements)?;
             }
         }
+
+        let mut kernel = self.kernel.as_mut().map(|x| x.lock().unwrap());
 
         let mut manager = ConstantEvaluatorManager::new(
             &mut self.memoization_table,
             constants.clone(),
             self.opt_level,
             if use_kernel {
-                &mut self.kernel
+                kernel.as_deref_mut()
             } else {
-                &mut maybe_kernel
+                None
             },
         );
 
@@ -1252,9 +1297,9 @@ impl Compiler {
                     constants,
                     self.opt_level,
                     if use_kernel {
-                        &mut self.kernel
+                        kernel.as_deref_mut()
                     } else {
-                        &mut maybe_kernel
+                        None
                     },
                 )
                 .run(expanded_statements)?;

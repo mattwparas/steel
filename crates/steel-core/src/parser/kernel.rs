@@ -142,6 +142,8 @@ impl Kernel {
             },
         );
 
+        engine.register_fn("next-character!", |lexer: &mut Lexer| lexer.eat());
+
         // Load in parameters.
         // TODO: Merge this with the path in modules.rs
         if let Err(err) =
@@ -574,6 +576,7 @@ impl Kernel {
                 args.push(c.into_steelval().unwrap());
                 // TODO: Figure out how to map the ident to the right thing.
 
+                // (#%reader-macro-map "env" #\c) -> #<function>
                 let function = engine
                     .call_function_by_name_with_args(
                         "#%reader-macro-map",
