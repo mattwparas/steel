@@ -142,7 +142,8 @@ impl Kernel {
             },
         );
 
-        engine.register_fn("next-character!", |lexer: &mut Lexer| lexer.eat());
+        engine.register_fn("lexer-eat", Lexer::eat);
+        engine.register_fn("lexer-consume-whitespace", Lexer::consume_whitespace);
 
         // Load in parameters.
         // TODO: Merge this with the path in modules.rs

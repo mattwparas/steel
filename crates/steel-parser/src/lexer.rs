@@ -62,7 +62,7 @@ impl<'a> Lexer<'a> {
     }
 
     // Consume characters until the next non whitespace input
-    fn consume_whitespace(&mut self) {
+    pub fn consume_whitespace(&mut self) {
         while let Some(&c) = self.chars.peek() {
             if c.is_whitespace() {
                 self.eat();
