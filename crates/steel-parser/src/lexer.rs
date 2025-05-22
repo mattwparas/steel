@@ -562,13 +562,11 @@ impl<'a> Lexer<'a> {
     }
 }
 
-pub type ReadTable = Option<
-    std::sync::Arc<
-        std::sync::Mutex<
-            std::collections::HashMap<
-                char,
-                Box<dyn FnMut(&mut TokenStream, char) -> crate::ast::ExprKind + Send + Sync>,
-            >,
+pub type ReadTable = std::sync::Arc<
+    std::sync::Mutex<
+        std::collections::HashMap<
+            char,
+            Box<dyn FnMut(&mut Lexer<'_>, char) -> crate::ast::ExprKind + Send + Sync>,
         >,
     >,
 >;

@@ -338,7 +338,7 @@ pub struct Compiler {
     sources: Sources,
     builtin_modules: ModuleContainer,
 
-    read_table: steel_parser::lexer::ReadTable,
+    pub(crate) read_table: steel_parser::lexer::ReadTable,
 }
 
 pub struct SerializableCompiler {
@@ -415,7 +415,7 @@ impl Compiler {
             search_dirs: Vec::new(),
             sources,
             builtin_modules,
-            read_table: None,
+            read_table: std::sync::Arc::new(std::sync::Mutex::new(HashMap::default())),
         }
     }
 
@@ -444,7 +444,7 @@ impl Compiler {
             search_dirs: Vec::new(),
             sources,
             builtin_modules,
-            read_table: None,
+            read_table: std::sync::Arc::new(std::sync::Mutex::new(HashMap::default())),
         }
     }
 
@@ -520,19 +520,21 @@ impl Compiler {
 
         let id = self.sources.add_source(expr_str.clone(), path.clone());
 
-        let mut read_table = HashMap::new();
+        // let mut read_table = HashMap::new();
 
         // Pass in the compiler as well to this function? Do something like that?
-        read_table.insert(
-            '◊',
-            Box::new(
-                |lexer: &mut steel_parser::lexer::Lexer, c: char| -> ExprKind {
-                    println!("Hello world!");
+        // read_table.insert(
+        //     '◊',
+        //     Box::new(
+        //         |lexer: &mut steel_parser::lexer::Lexer, c: char| -> ExprKind {
+        //             println!("Hello world!");
 
-                    ExprKind::atom("foo")
-                },
-            ) as _,
-        );
+        //             ExprKind::atom("foo")
+        //         },
+        //     ) as _,
+        // );
+
+        let mut read_table = self.read_table.lock().unwrap();
 
         // Could fail here
         let parsed: std::result::Result<Vec<ExprKind>, ParseError> = path
@@ -543,6 +545,9 @@ impl Compiler {
             .with_read_table(Some(&mut read_table))
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect();
+
+        // Otherwise we can't continue on here
+        drop(read_table);
 
         #[cfg(feature = "profiling")]
         if log::log_enabled!(target: "pipeline_time", log::Level::Debug) {

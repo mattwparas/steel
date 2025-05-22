@@ -19,7 +19,7 @@ use crate::{
         ast::{Atom, Set},
         parser::SyntaxObject,
     },
-    rvals::{Result, SteelString},
+    rvals::{IntoSteelVal, Result, SteelString},
     steel_vm::register_fn::RegisterFn,
     values::lists::List,
 };
@@ -565,6 +565,24 @@ impl Kernel {
         let function = self.engine.extract_value(ident.resolve())?;
 
         self.engine.call_function_with_args(function, args.to_vec())
+    }
+
+    pub fn call_reader_macro(&mut self, ident: SteelString, lexer: &mut Lexer, c: char) {
+        self.engine
+            .with_mut_reference(lexer)
+            .consume(move |engine, mut args| {
+                args.push(c.into_steelval().unwrap());
+                // TODO: Figure out how to map the ident to the right thing.
+
+                let function = engine
+                    .call_function_by_name_with_args(
+                        "#%reader-macro-map",
+                        vec![SteelVal::StringV(ident.clone()), SteelVal::CharV(c)],
+                    )
+                    .unwrap();
+
+                engine.call_function_with_args(function, args).unwrap();
+            })
     }
 
     pub(crate) fn expand_syntax_object(

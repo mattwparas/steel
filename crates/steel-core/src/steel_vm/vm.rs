@@ -4632,6 +4632,48 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
+#[steel_derive::context(name = "#%register-reader-macro", arity = "Exact(3)")]
+fn register_reader_macro(
+    ctx: &mut crate::steel_vm::vm::VmCore,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    match register_reader_macro_impl(ctx, args) {
+        Ok(_) => None,
+        Err(e) => Some(Err(e)),
+    }
+}
+
+fn register_reader_macro_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    // This is gonna suck...
+    let weak_comp = std::sync::Arc::downgrade(&ctx.thread.compiler);
+    let comp = ctx.thread.compiler.write();
+
+    let character: char = char::from_steelval(&args[0])?;
+    let env: SteelString = SteelString::from_steelval(&args[1])?;
+    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[2])?;
+
+    let mut rt = comp.read_table.lock().unwrap();
+
+    // The callback... is gonna be nasty
+    rt.insert(
+        character,
+        Box::new(move |lexer, character| {
+            let compiler = weak_comp.clone();
+            let comp = std::sync::Weak::upgrade(&compiler).unwrap();
+
+            comp.write()
+                .kernel
+                .as_mut()
+                .map(|x| x.call_reader_macro(env.clone(), lexer, character))
+                .unwrap();
+
+            todo!()
+        }),
+    );
+
+    todo!()
+}
+
 fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
     // TODO: Looks like this isn't correctly parsing / pushing down macros!
