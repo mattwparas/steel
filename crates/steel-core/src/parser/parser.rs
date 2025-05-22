@@ -228,6 +228,7 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
                 Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,@".to_string()))
             }
             Dot => Err(SteelErr::new(ErrorKind::UnexpectedToken, ".".to_string())),
+            ReaderMacroExpression(_) => todo!(),
         }
     }
 }
@@ -297,6 +298,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
                 Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,@".to_string()).with_span(span))
             }
             Dot => Err(SteelErr::new(ErrorKind::UnexpectedToken, ".".to_string()).with_span(span)),
+            ReaderMacroExpression(_) => todo!(),
         }
     }
 }

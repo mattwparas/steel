@@ -28,6 +28,11 @@ pub trait ToOwnedString<T> {
 
 pub type Span = core::ops::Range<usize>;
 
+enum Either<L, R> {
+    Left(L),
+    Right(R),
+}
+
 pub struct Lexer<'a> {
     /// The source of the lexer.
     source: &'a str,
@@ -677,7 +682,9 @@ pub enum TokenError {
 }
 
 impl<'a> Iterator for Lexer<'a> {
+    // Lets... see if we can return an ExprKind...
     type Item = Result<TokenType<Cow<'a, str>>>;
+    // type Item = Result<Either<TokenType<Cow<'a, str>>, crate::ast::ExprKind>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(t) = self.queued.take() {
@@ -703,11 +710,13 @@ impl<'a> Iterator for Lexer<'a> {
                 let callback = let_me_do_it.as_mut().unwrap().get_mut(&char).unwrap();
 
                 // Yoink out the callback for the duration of the call
-                (callback)(self, char);
+                let res = (callback)(self, char);
 
                 self.read_table = let_me_do_it;
 
-                panic!("We made it");
+                // Horrendous hack, but perhaps its a price we have to pay for now.
+                // We don't want this to be recursive in general.
+                Some(Ok(TokenType::ReaderMacroExpression(Box::new(res))))
             }
 
             Some(';') => {

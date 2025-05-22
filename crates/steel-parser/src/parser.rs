@@ -1024,6 +1024,10 @@ impl<'a> Parser<'a> {
                     }
                 }
 
+                TokenType::ReaderMacroExpression(e) => {
+                    current_frame.push(*e)?;
+                }
+
                 _ => {
                     if let TokenType::Quote = &token.ty {
                         // self.quote_stack.push(current_frame.exprs.len());
@@ -1147,6 +1151,10 @@ impl<'a> Parser<'a> {
                     }
 
                     continue;
+                }
+
+                TokenType::ReaderMacroExpression(e) => {
+                    maybe_return![Ok(*e)];
                 }
 
                 TokenType::DatumComment => {

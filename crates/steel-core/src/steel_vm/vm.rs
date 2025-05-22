@@ -4664,12 +4664,13 @@ fn register_reader_macro_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<Ste
             let kernel = kernel.clone();
             let k = std::sync::Weak::upgrade(&kernel).unwrap();
 
-            println!("Trying to get access to the compiler");
-            k.lock()
+            let res = k
+                .lock()
                 .unwrap()
-                .call_reader_macro(env.clone(), lexer, character);
+                .call_reader_macro(env.clone(), lexer, character)
+                .unwrap();
 
-            todo!("exiting the callback");
+            res
         }),
     );
 

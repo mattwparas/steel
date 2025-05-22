@@ -570,7 +570,12 @@ impl Kernel {
         self.engine.call_function_with_args(function, args.to_vec())
     }
 
-    pub fn call_reader_macro(&mut self, ident: SteelString, lexer: &mut Lexer, c: char) {
+    pub fn call_reader_macro(
+        &mut self,
+        ident: SteelString,
+        lexer: &mut Lexer,
+        c: char,
+    ) -> Result<ExprKind> {
         self.engine
             .with_mut_reference(lexer)
             .consume(move |engine, mut args| {
@@ -578,14 +583,14 @@ impl Kernel {
                 // TODO: Figure out how to map the ident to the right thing.
 
                 // (#%reader-macro-map "env" #\c) -> #<function>
-                let function = engine
-                    .call_function_by_name_with_args(
-                        "#%reader-macro-map",
-                        vec![SteelVal::StringV(ident.clone()), SteelVal::CharV(c)],
-                    )
-                    .unwrap();
+                let function = engine.call_function_by_name_with_args(
+                    "#%reader-macro-map",
+                    vec![SteelVal::StringV(ident.clone()), SteelVal::CharV(c)],
+                )?;
 
-                engine.call_function_with_args(function, args).unwrap();
+                let result = engine.call_function_with_args(function, args)?;
+
+                TryFromSteelValVisitorForExprKind::root(&result)
             })
     }
 

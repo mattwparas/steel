@@ -58,8 +58,6 @@ impl Paren {
     }
 }
 
-// TODO the character parsing is not quite right
-// need to make sure that we can handle cases like "#\SPACE" or "#\a" but not "#\applesauce"
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TokenType<S> {
     OpenParen(Paren, Option<ParenMod>),
@@ -92,11 +90,12 @@ pub enum TokenType<S> {
     Identifier(S),
     Keyword(S),
     Number(Box<NumberLiteral>),
-    // TODO: Consider using Arc<String> here instead to save
-    // on copies
     StringLiteral(Arc<String>),
     Dot,
     Error,
+
+    // Hack in... crappy returning of values
+    ReaderMacroExpression(Box<crate::ast::ExprKind>),
 }
 
 impl<T> TokenType<T> {
@@ -344,6 +343,7 @@ impl<'a> TokenType<Cow<'a, str>> {
             QuoteSyntax => QuoteSyntax,
             UnquoteSpliceSyntax => UnquoteSpliceSyntax,
             Dot => Dot,
+            ReaderMacroExpression(e) => ReaderMacroExpression(e),
         }
     }
 
@@ -382,6 +382,7 @@ impl<'a> TokenType<Cow<'a, str>> {
             QuoteSyntax => QuoteSyntax,
             UnquoteSpliceSyntax => UnquoteSpliceSyntax,
             Dot => Dot,
+            ReaderMacroExpression(e) => ReaderMacroExpression(e),
         }
     }
 }
@@ -448,6 +449,7 @@ impl<T: Display> fmt::Display for TokenType<T> {
             Set => write!(f, "set!"),
             Require => write!(f, "require"),
             Dot => write!(f, "."),
+            ReaderMacroExpression(e) => write!(f, "{}", e),
         }
     }
 }
