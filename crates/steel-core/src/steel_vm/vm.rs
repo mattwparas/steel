@@ -71,10 +71,9 @@ use std::time::Instant;
 use steel_parser::interner::InternedString;
 use threads::ThreadHandle;
 
-use crate::rvals::{from_serializable_value, into_serializable_value, IntoSteelVal};
+use crate::rvals::{into_serializable_value, IntoSteelVal};
 
 pub(crate) mod threads;
-pub(crate) use threads::spawn_thread;
 
 pub use threads::{mutex_lock, mutex_unlock};
 
