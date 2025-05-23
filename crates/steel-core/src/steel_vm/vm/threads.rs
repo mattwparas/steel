@@ -31,7 +31,7 @@ macro_rules! time {
 
 pub struct ThreadHandle {
     // If this can hold a native steelerr object that would be nice
-    pub(crate) handle: Option<std::thread::JoinHandle<std::result::Result<(), String>>>,
+    pub(crate) handle: Option<std::thread::JoinHandle<std::result::Result<SteelVal, String>>>,
     pub(crate) thread_state_manager: ThreadStateController,
 }
 
@@ -112,7 +112,7 @@ pub fn thread_join(handle: &SteelVal) -> Result<SteelVal> {
         .map(|_| SteelVal::Void)
 }
 
-pub(crate) fn thread_join_impl(handle: &mut ThreadHandle) -> Result<()> {
+pub(crate) fn thread_join_impl(handle: &mut ThreadHandle) -> Result<SteelVal> {
     if let Some(handle) = handle.handle.take() {
         handle
             .join()
@@ -262,8 +262,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
         SteelVal::FuncV(f) => {
             let func = *f;
 
-            let handle =
-                std::thread::spawn(move || func(&[]).map(|_| ()).map_err(|e| e.to_string()));
+            let handle = std::thread::spawn(move || func(&[]).map_err(|e| e.to_string()));
 
             return ThreadHandle {
                 handle: Some(handle),
@@ -276,8 +275,7 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
         SteelVal::MutFunc(f) => {
             let func = *f;
 
-            let handle =
-                std::thread::spawn(move || func(&mut []).map(|_| ()).map_err(|e| e.to_string()));
+            let handle = std::thread::spawn(move || func(&mut []).map_err(|e| e.to_string()));
 
             return ThreadHandle {
                 handle: Some(handle),
@@ -536,7 +534,6 @@ fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> 
                 SteelVal::Closure(Gc::new(closure)),
                 Vec::new(),
             )
-            .map(|_| ())
             .map_err(|e| e.to_string())
     });
 
@@ -809,10 +806,7 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
         // like we're not getting it installed correctly, and things are dying
         thread
             .call_function(constant_map, func, Vec::new())
-            .map(|_| ())
             .map_err(|e| e.to_string())
-
-        // thread.execute(func, , )
     });
 
     let value = ThreadHandle {
