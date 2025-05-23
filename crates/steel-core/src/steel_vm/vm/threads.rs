@@ -12,19 +12,19 @@ use crate::{
 use super::*;
 
 // TODO: Do proper logging here for thread spawning
-macro_rules! time {
-    ($label:expr, $e:expr) => {{
-        #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+// macro_rules! time {
+//     ($label:expr, $e:expr) => {{
+//         #[cfg(feature = "profiling")]
+//         let now = std::time::Instant::now();
 
-        let e = $e;
+//         let e = $e;
 
-        #[cfg(feature = "profiling")]
-        log::debug!(target: "threads", "{}: {:?}", $label, now.elapsed());
+//         #[cfg(feature = "profiling")]
+//         log::debug!(target: "threads", "{}: {:?}", $label, now.elapsed());
 
-        e
-    }};
-}
+//         e
+//     }};
+// }
 
 pub struct ThreadHandle {
     pub(crate) handle: Option<std::thread::JoinHandle<std::result::Result<SteelVal, String>>>,
@@ -215,18 +215,18 @@ pub fn closure_into_serializable(
     }
 }
 
-struct MovableThread {
-    constants: Vec<SerializableSteelVal>,
-    global_env: Vec<SerializableSteelVal>,
-    function_interner: MovableFunctionInterner,
-    runtime_options: RunTimeOptions,
-}
+// struct MovableThread {
+//     constants: Vec<SerializableSteelVal>,
+//     global_env: Vec<SerializableSteelVal>,
+//     function_interner: MovableFunctionInterner,
+//     runtime_options: RunTimeOptions,
+// }
 
-struct MovableFunctionInterner {
-    closure_interner: fxhash::FxHashMap<u32, SerializedLambda>,
-    pure_function_interner: fxhash::FxHashMap<u32, SerializedLambda>,
-    spans: fxhash::FxHashMap<u32, Vec<Span>>,
-}
+// struct MovableFunctionInterner {
+//     closure_interner: fxhash::FxHashMap<u32, SerializedLambda>,
+//     pure_function_interner: fxhash::FxHashMap<u32, SerializedLambda>,
+//     spans: fxhash::FxHashMap<u32, Vec<Span>>,
+// }
 
 #[allow(unused)]
 /// This will naively deep clone the environment, by attempting to translate every value into a `SerializableSteelVal`
