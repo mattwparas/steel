@@ -104,9 +104,7 @@ pub fn mutex_unlock(mutex: &SteelVal) -> Result<SteelVal> {
 /// Block until this thread finishes.
 #[steel_derive::function(name = "thread-join!")]
 pub fn thread_join(handle: &SteelVal) -> Result<SteelVal> {
-    ThreadHandle::as_mut_ref(handle)
-        .and_then(|mut x| thread_join_impl(&mut x))
-        .map(|_| SteelVal::Void)
+    ThreadHandle::as_mut_ref(handle).and_then(|mut x| thread_join_impl(&mut x))
 }
 
 pub(crate) fn thread_join_impl(handle: &mut ThreadHandle) -> Result<SteelVal> {
