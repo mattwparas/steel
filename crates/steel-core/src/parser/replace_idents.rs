@@ -98,7 +98,7 @@ impl<'a> EllipsesExpanderVisitor<'a> {
             error: None,
         };
 
-        VisitorMutControlFlow::visit(&mut visitor, expr);
+        let _ = VisitorMutControlFlow::visit(&mut visitor, expr);
 
         visitor
     }

@@ -4951,7 +4951,15 @@ pub(crate) fn expand_syntax_case_impl(_ctx: &mut VmCore, args: &[SteelVal]) -> R
     };
 
     if bindings.is_empty() && binding_kind.is_empty() {
-        return Ok(args[0].clone());
+        // If its a quoted expr, convert it.
+        if let SteelVal::SyntaxObject(_) = &args[0] {
+            return Ok(args[0].clone());
+        } else {
+            let template = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+            return crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(
+                template,
+            );
+        }
     }
 
     let mut template = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
