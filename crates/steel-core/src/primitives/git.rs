@@ -293,7 +293,7 @@ mod libgit {
         let fetch_commit = do_fetch(&repo, &[&remote_branch], &mut remote)?;
         do_merge(&repo, &remote_branch, fetch_commit)?;
 
-        repo.set_head(&remote_branch)?;
+        // repo.set_head(&remote_branch)?;
 
         if let Some(remote_branch) = original_remote {
             println!("Checking out: {}", remote_branch);

@@ -85,7 +85,7 @@ httparse = "1.9.4"
 
 compact_str = { version = "0.8.0", features = ["serde"] }
 
-git2 = { version = "0.19.0", optional = true, features = ["vendored-openssl"] }
+git2 = { version = "0.20.2", optional = true, features = ["vendored-openssl"] }
 
 # For the constant map
 arc-swap = "1.7.1"
