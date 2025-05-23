@@ -84,11 +84,10 @@
     [(syntax (#%syntax/raw x ...))
      (#%expand-syntax-case (#%syntax/raw x ...) (#%syntax-bindings) (#%syntax-binding-kind))]
 
-    [(syntax (quote x)) (#%expand-syntax-case x (#%syntax-bindings) (#%syntax-binding-kind))]
+    [(syntax (quote x)) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]
 
     ;; Otherwise, if its not quoted, just quote it
     ;; Quasisyntax isn't quite right here. We actually just want the syntax raw behavior without really any unquote?
-    ; [(syntax x) (#%expand-syntax-case (quasisyntax x) (#%syntax-bindings) (#%syntax-binding-kind))]))
     [(syntax x) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]))
 
 (define-syntax quasiquote
@@ -121,10 +120,6 @@
     [(quasiquote (x xs ...)) (cons (quasiquote x) (quasiquote (xs ...)))]
     [(quasiquote #(x xs ...)) (list->vector (cons (quasiquote x) (quasiquote (xs ...))))]
     [(quasiquote x) 'x]))
-
-; (define-syntax #%unquote
-;   (syntax-rules ()
-;     [(#%unquote x) x]))
 
 (define-syntax #%proto-syntax-object
   (syntax-rules ()
