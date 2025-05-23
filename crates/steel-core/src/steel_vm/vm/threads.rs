@@ -6,7 +6,7 @@ use steel_derive::function;
 use crate::{
     rvals::{AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer, SerializableSteelVal},
     steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn},
-    values::{functions::SerializedLambdaPrototype, structs::VTable},
+    values::functions::SerializedLambdaPrototype,
 };
 
 use super::*;
@@ -27,11 +27,7 @@ macro_rules! time {
 }
 
 pub struct ThreadHandle {
-    #[cfg(feature = "sync")]
     pub(crate) handle: Option<std::thread::JoinHandle<std::result::Result<SteelVal, String>>>,
-
-    #[cfg(not(feature = "sync"))]
-    pub(crate) handle: Option<std::thread::JoinHandle<std::result::Result<(), String>>>,
 
     pub(crate) thread_state_manager: ThreadStateController,
 }
