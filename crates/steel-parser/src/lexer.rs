@@ -28,11 +28,6 @@ pub trait ToOwnedString<T> {
 
 pub type Span = core::ops::Range<usize>;
 
-enum Either<L, R> {
-    Left(L),
-    Right(R),
-}
-
 pub struct Lexer<'a> {
     /// The source of the lexer.
     source: &'a str,
@@ -55,6 +50,29 @@ impl<'a> Lexer<'a> {
             token_end: 0,
             read_table: None,
         }
+    }
+
+    // Convert this lexer into an owned lexer, and any resulting mutations
+    // will get copied _back_ onto the source lexer.
+    pub fn temporarily_convert_to_owned(&mut self, thunk: impl FnOnce(Lexer<'a>) -> Lexer<'a>) {
+        let mut staged = Lexer {
+            source: "",
+            chars: "".chars().peekable(),
+            queued: None,
+            token_start: 0,
+            token_end: 0,
+            read_table: None,
+        };
+
+        // Swap the staged with the owned one, which should give us the ability
+        // to build a real parser on top of the lexer.
+        std::mem::swap(&mut staged, self);
+        let res = thunk(staged);
+        *self = res;
+    }
+
+    pub fn peek(&mut self) -> Option<char> {
+        self.chars.peek().copied()
     }
 
     pub fn eat(&mut self) -> Option<char> {
@@ -588,6 +606,18 @@ pub struct TokenStream<'a> {
 }
 
 impl<'a> TokenStream<'a> {
+    pub fn new_from_lexer(
+        lexer: Lexer<'a>,
+        skip_comments: bool,
+        source_id: Option<SourceId>,
+    ) -> Self {
+        Self {
+            lexer,
+            skip_comments,
+            source_id,
+        }
+    }
+
     pub fn new(input: &'a str, skip_comments: bool, source_id: Option<SourceId>) -> Self {
         let (_, char_offset, bytes_offset) = strip_shebang_line(input);
 

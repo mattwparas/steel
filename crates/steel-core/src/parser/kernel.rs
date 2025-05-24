@@ -7,7 +7,7 @@ use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 #[cfg(feature = "sync")]
 use once_cell::sync::Lazy;
-use steel_parser::{lexer::Lexer, tokens::TokenType};
+use steel_parser::{lexer::Lexer, parser::Parser, tokens::TokenType};
 
 use crate::{
     compiler::{
@@ -99,6 +99,9 @@ impl Default for Kernel {
 impl<'a> CustomReference for Lexer<'a> {}
 crate::custom_reference!(Lexer<'a>);
 
+impl<'a> CustomReference for Parser<'a> {}
+crate::custom_reference!(Parser<'a>);
+
 impl Kernel {
     pub fn new() -> Self {
         // Does... sandboxing help here?
@@ -142,8 +145,32 @@ impl Kernel {
             },
         );
 
-        engine.register_fn("lexer-eat", Lexer::eat);
-        engine.register_fn("lexer-consume-whitespace", Lexer::consume_whitespace);
+        // Return unmodified next thing? Convert it
+        engine.register_fn("raw:read", |parser: &mut Parser| {
+            parser
+                .next()
+                .map(|x| {
+                    x.map_err(|x| x.into()).and_then(|x| {
+                        super::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(x)
+                    })
+                })
+                .transpose()
+        });
+
+        engine.register_fn("raw:eat-next-char!", |parser: &mut Parser| {
+            parser.lexer().eat()
+        });
+        engine.register_fn("raw:peek-next-char", |parser: &mut Parser| {
+            parser.lexer().peek()
+        });
+        engine.register_fn("raw:consume-whitespace!", |parser: &mut Parser| {
+            parser.lexer().consume_whitespace()
+        });
+
+        // engine.register_fn("lexer-eat", Lexer::eat);
+        // engine.register_fn("lexer-consume-whitespace", Lexer::consume_whitespace);
+
+        // Somehow, have the lexer... be the parser?
 
         // Load in parameters.
         // TODO: Merge this with the path in modules.rs
@@ -576,22 +603,34 @@ impl Kernel {
         lexer: &mut Lexer,
         c: char,
     ) -> Result<ExprKind> {
-        self.engine
-            .with_mut_reference(lexer)
-            .consume(move |engine, mut args| {
-                args.push(c.into_steelval().unwrap());
-                // TODO: Figure out how to map the ident to the right thing.
+        // Initialize to a temporary thing just to get this to behave
+        let mut res: Result<ExprKind> = Ok(ExprKind::empty());
 
-                // (#%reader-macro-map "env" #\c) -> #<function>
-                let function = engine.call_function_by_name_with_args(
-                    "#%reader-macro-map",
-                    vec![SteelVal::StringV(ident.clone()), SteelVal::CharV(c)],
-                )?;
+        lexer.temporarily_convert_to_owned(|lexer| {
+            let mut parser = Parser::new_from_lexer(lexer, false, None);
 
-                let result = engine.call_function_with_args(function, args)?;
+            res = self
+                .engine
+                .with_mut_reference(&mut parser)
+                .consume(move |engine, mut args| {
+                    args.push(c.into_steelval().unwrap());
+                    // TODO: Figure out how to map the ident to the right thing.
 
-                TryFromSteelValVisitorForExprKind::root(&result)
-            })
+                    // (#%reader-macro-map "env" #\c) -> #<function>
+                    let function = engine.call_function_by_name_with_args(
+                        "#%reader-macro-map",
+                        vec![SteelVal::StringV(ident.clone()), SteelVal::CharV(c)],
+                    )?;
+
+                    let result = engine.call_function_with_args(function, args)?;
+
+                    TryFromSteelValVisitorForExprKind::root(&result)
+                });
+
+            parser.into_lexer()
+        });
+
+        res
     }
 
     pub(crate) fn expand_syntax_object(

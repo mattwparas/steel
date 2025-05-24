@@ -5008,6 +5008,7 @@ pub(crate) fn expand_syntax_case_impl(_ctx: &mut VmCore, args: &[SteelVal]) -> R
     };
 
     if bindings.is_empty() && binding_kind.is_empty() {
+        // This actually still needs to be converted to syntax.
         return Ok(args[0].clone());
     }
 

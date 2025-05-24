@@ -314,6 +314,10 @@ impl<'a> Parser<'a> {
         Parser::new(expr, SourceId::none()).collect()
     }
 
+    pub fn lexer(&mut self) -> &mut crate::lexer::Lexer<'a> {
+        &mut self.tokenizer.stream.lexer
+    }
+
     pub fn with_read_table(mut self, read_table: Option<ReadTableRef<'a>>) -> Self {
         self.tokenizer.stream = self.tokenizer.stream.with_read_table(read_table);
         self
@@ -348,6 +352,30 @@ impl<'a> Parser<'a> {
     pub fn new(input: &'a str, source_id: Option<SourceId>) -> Self {
         Parser {
             tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
+            quote_stack: Vec::new(),
+            quasiquote_depth: 0,
+            quote_context: false,
+            shorthand_quote_stack: Vec::new(),
+            source_name: None,
+            context: Vec::new(),
+            comment_buffer: Vec::new(),
+            collecting_comments: false,
+            keep_lists: false,
+        }
+    }
+
+    pub fn into_lexer(self) -> crate::lexer::Lexer<'a> {
+        self.tokenizer.stream.lexer
+    }
+
+    pub fn new_from_lexer(
+        lexer: crate::lexer::Lexer<'a>,
+        skip_comments: bool,
+        source_id: Option<SourceId>,
+    ) -> Self {
+        Parser {
+            tokenizer: TokenStream::new_from_lexer(lexer, skip_comments, source_id)
+                .into_owned(InternString),
             quote_stack: Vec::new(),
             quasiquote_depth: 0,
             quote_context: false,
