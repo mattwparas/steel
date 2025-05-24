@@ -138,8 +138,8 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
             }
         }
 
-        let xdg = xdg::BaseDirectories::new();
-        let home = xdg.data_home;
+        let bd = xdg::BaseDirectories::new();
+        let home = bd.data_home;
 
         home.map(|mut x: PathBuf| {
             x.push("steel");
