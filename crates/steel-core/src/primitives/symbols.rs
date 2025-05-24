@@ -5,8 +5,8 @@ use crate::stop;
 pub fn symbol_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/symbols");
     module
-        .register_value("concat-symbols", SymbolOperations::concat_symbols())
-        .register_value("symbol->string", SymbolOperations::symbol_to_string())
+        .register_native_fn_definition(CONCAT_SYMBOLS_DEFINITION)
+        .register_native_fn_definition(SYMBOL_TO_STRING_DEFINITION)
         .register_native_fn_definition(SYMBOL_EQUALS_DEFINITION);
     module
 }
@@ -49,58 +49,44 @@ pub fn symbol_equals(mut iter: RestArgsIter<SteelSymbol<'_>>) -> Result<SteelVal
     Ok(SteelVal::BoolV(true))
 }
 
-pub struct SymbolOperations {}
-impl SymbolOperations {
-    pub fn concat_symbols() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            let mut new_symbol = String::new();
+#[steel_derive::native(name = "concat-symbols", arity = "AtLeast(0)")]
+fn concat_symbols(args: &[SteelVal]) -> Result<SteelVal> {
+    let mut new_symbol = String::new();
 
-            for arg in args {
-                if let SteelVal::SymbolV(quoted_value) = arg {
-                    new_symbol.push_str(quoted_value.as_ref());
-                } else {
-                    let error_message =
-                        format!("concat-symbol expected only symbols, found {args:?}");
-                    stop!(TypeMismatch => error_message);
-                }
-            }
-
-            Ok(SteelVal::SymbolV(new_symbol.into()))
-        })
+    for arg in args {
+        if let SteelVal::SymbolV(quoted_value) = arg {
+            new_symbol.push_str(quoted_value.as_ref());
+        } else {
+            let error_message = format!("concat-symbol expected only symbols, found {args:?}");
+            stop!(TypeMismatch => error_message);
+        }
     }
 
-    pub fn symbol_to_string() -> SteelVal {
-        SteelVal::FuncV(|args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() == 1 {
-                match &args[0] {
-                    SteelVal::SymbolV(quoted_value) => Ok(SteelVal::StringV(quoted_value.clone())),
-                    SteelVal::ListV(_) => Ok(SteelVal::StringV(
-                        format!("{:?}", &args[0]).trim_start_matches('\'').into(),
-                    )),
-                    _ => {
-                        let error_message =
-                            format!("symbol->string expected a symbol, found {}", &args[0]);
-                        stop!(TypeMismatch => error_message)
-                    }
-                }
-            } else {
-                stop!(ArityMismatch => "symbol->string expects only one argument")
+    Ok(SteelVal::SymbolV(new_symbol.into()))
+}
+
+#[steel_derive::native(name = "symbol->string", arity = "AtLeast(0)")]
+fn symbol_to_string(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.len() == 1 {
+        match &args[0] {
+            SteelVal::SymbolV(quoted_value) => Ok(SteelVal::StringV(quoted_value.clone())),
+            SteelVal::ListV(_) => Ok(SteelVal::StringV(
+                format!("{:?}", &args[0]).trim_start_matches('\'').into(),
+            )),
+            _ => {
+                let error_message = format!("symbol->string expected a symbol, found {}", &args[0]);
+                stop!(TypeMismatch => error_message)
             }
-        })
+        }
+    } else {
+        stop!(ArityMismatch => "symbol->string expects only one argument")
     }
 }
 
 #[cfg(test)]
 mod symbol_tests {
     use super::*;
-    use crate::throw;
-
     use crate::rvals::SteelVal::*;
-
-    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<SteelVal> {
-        func.func_or_else(throw!(BadSyntax => "hash tests"))
-            .unwrap()(&args)
-    }
 
     #[test]
     fn concat_symbols_normal() {
@@ -109,7 +95,7 @@ mod symbol_tests {
             SymbolV("bar".into()),
             SymbolV("baz".into()),
         ];
-        let result = apply_function(SymbolOperations::concat_symbols(), args);
+        let result = concat_symbols(&args);
         let expected = SymbolV("foobarbaz".into());
         assert_eq!(result.unwrap(), expected);
     }
@@ -117,7 +103,7 @@ mod symbol_tests {
     #[test]
     fn symbol_to_string_normal() {
         let args = vec![SymbolV("foo".into())];
-        let result = apply_function(SymbolOperations::symbol_to_string(), args);
+        let result = symbol_to_string(&args);
         let expected = StringV("foo".into());
         assert_eq!(result.unwrap(), expected);
     }
