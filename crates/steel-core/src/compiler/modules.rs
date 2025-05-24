@@ -130,10 +130,19 @@ create_prelude!(
 #[cfg(not(target_arch = "wasm32"))]
 pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
     std::env::var("STEEL_HOME").ok().or_else(|| {
-        let home = env_home::env_home_dir();
+        let home = env_home::env_home_dir().map(|x| x.join(".steel"));
+
+        if let Some(home) = home {
+            if home.exists() {
+                return Some(home.into_os_string().into_string().unwrap());
+            }
+        }
+
+        let xdg = xdg::BaseDirectories::new();
+        let home = xdg.data_home;
 
         home.map(|mut x: PathBuf| {
-            x.push(".steel");
+            x.push("steel");
 
             // Just go ahead and initialize the directory, even though
             // this is probably not the best place to do this. This almost
