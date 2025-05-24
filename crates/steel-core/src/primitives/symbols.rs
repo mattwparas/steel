@@ -65,21 +65,17 @@ fn concat_symbols(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::SymbolV(new_symbol.into()))
 }
 
-#[steel_derive::native(name = "symbol->string", arity = "AtLeast(0)")]
+#[steel_derive::native(name = "symbol->string", arity = "Exact(1)")]
 fn symbol_to_string(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() == 1 {
-        match &args[0] {
-            SteelVal::SymbolV(quoted_value) => Ok(SteelVal::StringV(quoted_value.clone())),
-            SteelVal::ListV(_) => Ok(SteelVal::StringV(
-                format!("{:?}", &args[0]).trim_start_matches('\'').into(),
-            )),
-            _ => {
-                let error_message = format!("symbol->string expected a symbol, found {}", &args[0]);
-                stop!(TypeMismatch => error_message)
-            }
+    match &args[0] {
+        SteelVal::SymbolV(quoted_value) => Ok(SteelVal::StringV(quoted_value.clone())),
+        SteelVal::ListV(_) => Ok(SteelVal::StringV(
+            format!("{:?}", &args[0]).trim_start_matches('\'').into(),
+        )),
+        _ => {
+            let error_message = format!("symbol->string expected a symbol, found {}", &args[0]);
+            stop!(TypeMismatch => error_message)
         }
-    } else {
-        stop!(ArityMismatch => "symbol->string expects only one argument")
     }
 }
 
