@@ -31,6 +31,27 @@ impl<'a> PrimitiveAsRef<'a> for SteelSymbol<'a> {
     }
 }
 
+/// Compares one or more symbols for pointer‐identity equality.
+///
+/// (symbol=? sym1 sym2 …) -> bool?
+///
+/// * `sym1` : symbol? — the first symbol to compare
+/// * `sym2` : symbol? — the next symbol to compare, and so on
+///
+/// Returns `#t` if all provided symbols share the same memory pointer,
+/// `#f` otherwise. At least one argument is required.
+///
+/// # Examples
+/// ```scheme
+/// > (define a 'foo)
+/// > (define b 'foo)
+/// > (symbol=? a b)
+/// => #t
+/// > (symbol=? 'a 'b)
+/// => #f
+/// > (symbol=? 'x 'x 'x)
+/// => #t
+/// ```
 #[steel_derive::function(name = "symbol=?", constant = true)]
 pub fn symbol_equals(mut iter: RestArgsIter<SteelSymbol<'_>>) -> Result<SteelVal> {
     let Some(mut prev) = iter.next().transpose()? else {
@@ -49,6 +70,20 @@ pub fn symbol_equals(mut iter: RestArgsIter<SteelSymbol<'_>>) -> Result<SteelVal
     Ok(SteelVal::BoolV(true))
 }
 
+/// Concatenates zero or more symbols into a new symbol.
+///
+/// (concat-symbols sym1 sym2 …) -> symbol?
+///
+/// * `sym1` : symbol? — the first symbol to append
+/// * `sym2` : symbol? — the next symbol to append, and so on
+///
+/// # Examples
+/// ```scheme
+/// > (concat-symbols 'he 'llo)
+/// => 'hello
+/// > (concat-symbols)
+/// => '
+/// ```
 #[steel_derive::native(name = "concat-symbols", arity = "AtLeast(0)")]
 fn concat_symbols(args: &[SteelVal]) -> Result<SteelVal> {
     let mut new_symbol = String::new();
@@ -65,6 +100,29 @@ fn concat_symbols(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::SymbolV(new_symbol.into()))
 }
 
+/// Converts a symbol or quoted list into its string representation.
+///
+/// (symbol->string sym) -> string?
+///
+/// * `sym` : symbol? | list? — a symbol or quoted list to convert
+///
+/// If given a symbol, returns its name as a string.
+/// If given a quoted list, returns its printed form (without the leading quote).
+///
+/// # Errors
+/// Raises a `TypeMismatch` if the argument is neither a symbol nor a list.
+///
+/// # Examples
+/// ```scheme
+/// > (symbol->string 'foo)
+/// "foo"
+///
+/// > (symbol->string '(a b c))
+/// "(a b c)"
+///
+/// > (symbol->string 123)
+/// Error: symbol->string expected a symbol, found 123
+/// ```
 #[steel_derive::native(name = "symbol->string", arity = "Exact(1)")]
 fn symbol_to_string(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
