@@ -55,6 +55,9 @@ pub fn steel_home() -> Option<PathBuf> {
                     x
                 })
             }
+
+            #[cfg(target_os = "windows")]
+            None
         })
 }
 

@@ -168,6 +168,9 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
                 x.into_os_string().into_string().unwrap()
             })
         }
+
+        #[cfg(target_os = "windows")]
+        None
     })
 });
 
