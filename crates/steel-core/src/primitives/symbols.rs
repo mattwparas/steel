@@ -106,12 +106,6 @@ fn concat_symbols(args: &[SteelVal]) -> Result<SteelVal> {
 ///
 /// * `sym` : symbol? | list? — a symbol or quoted list to convert
 ///
-/// If given a symbol, returns its name as a string.
-/// If given a quoted list, returns its printed form (without the leading quote).
-///
-/// # Errors
-/// Raises a `TypeMismatch` if the argument is neither a symbol nor a list.
-///
 /// # Examples
 /// ```scheme
 /// > (symbol->string 'foo)
