@@ -819,6 +819,11 @@ impl ModuleManager {
             .provides_for_syntax
             .iter()
             // Chain with just the normal provides!
+            .chain(module.provides.iter().flat_map(|x| {
+                x.list().unwrap().args[1..]
+                    .iter()
+                    .filter_map(|x| x.atom_identifier())
+            }))
             .filter_map(|x| {
                 let smacro = Arc::make_mut(&mut module.macro_map).get_mut(x);
 
