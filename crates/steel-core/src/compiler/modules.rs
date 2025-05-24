@@ -128,6 +128,19 @@ create_prelude!(
 );
 
 #[cfg(not(target_arch = "wasm32"))]
+pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
+    std::env::var("STEEL_SEARCH_PATHS").ok().map(|x| {
+        std::env::split_paths(x.as_str())
+            .map(PathBuf::from)
+            .collect::<Vec<_>>()
+    })
+});
+
+pub fn steel_search_dirs() -> Vec<PathBuf> {
+    STEEL_SEARCH_PATHS.clone().unwrap_or_default()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
     std::env::var("STEEL_HOME").ok().or_else(|| {
         let home = env_home::env_home_dir().map(|x| x.join(".steel"));
