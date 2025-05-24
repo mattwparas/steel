@@ -24,26 +24,37 @@ pub fn steel_home() -> Option<PathBuf> {
                 if home.exists() {
                     return Some(home);
                 }
-            }
 
-            let bd = xdg::BaseDirectories::new();
-            let home = bd.data_home;
-
-            home.map(|mut x: PathBuf| {
-                x.push("steel");
-
-                // Just go ahead and initialize the directory, even though
-                // this is probably not the best place to do this. This almost
-                // assuredly could be lifted out of this check since failing here
-                // could cause some annoyance.
-                if !x.exists() {
+                #[cfg(target_os = "windows")]
+                {
                     if let Err(_) = std::fs::create_dir(&x) {
                         eprintln!("Unable to create steel home directory {:?}", x)
                     }
-                }
 
-                x
-            })
+                    return Some(home);
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let bd = xdg::BaseDirectories::new();
+                let home = bd.data_home;
+
+                home.map(|mut x: PathBuf| {
+                    x.push("steel");
+
+                    // Just go ahead and initialize the directory, even though
+                    // this is probably not the best place to do this. This almost
+                    // assuredly could be lifted out of this check since failing here
+                    // could cause some annoyance.
+                    if !x.exists() {
+                        if let Err(_) = std::fs::create_dir(&x) {
+                            eprintln!("Unable to create steel home directory {:?}", x)
+                        }
+                    }
+
+                    x
+                })
+            }
         })
 }
 
