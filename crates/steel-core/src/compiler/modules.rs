@@ -139,8 +139,8 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
 
             #[cfg(target_os = "windows")]
             {
-                if let Err(_) = std::fs::create_dir(&x) {
-                    eprintln!("Unable to create steel home directory {:?}", x)
+                if let Err(_) = std::fs::create_dir(&home) {
+                    eprintln!("Unable to create steel home directory {:?}", home)
                 }
 
                 return Some(home.into_os_string().into_string().unwrap());
