@@ -28,7 +28,7 @@ pub fn steel_home() -> Option<PathBuf> {
                 #[cfg(target_os = "windows")]
                 {
                     if let Err(e) = std::fs::create_dir(&home) {
-                        eprintln!("Unable to create steel home directory {:?}: {}", home)
+                        eprintln!("Unable to create steel home directory {:?}: {}", home, e)
                     }
 
                     return Some(home);
