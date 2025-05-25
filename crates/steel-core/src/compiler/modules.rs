@@ -137,7 +137,11 @@ pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
 });
 
 pub fn steel_search_dirs() -> Vec<PathBuf> {
-    STEEL_SEARCH_PATHS.clone().unwrap_or_default()
+    #[cfg(not(target_arch = "wasm32"))]
+    return STEEL_SEARCH_PATHS.clone().unwrap_or_default();
+
+    #[cfg(target_arch = "wasm32")]
+    return Vec::new();
 }
 
 #[cfg(not(target_arch = "wasm32"))]
