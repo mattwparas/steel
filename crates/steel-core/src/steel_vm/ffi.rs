@@ -158,7 +158,7 @@ pub struct OpaqueFFIValueReturn {
 
 impl Custom for OpaqueFFIValueReturn {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        Some(Ok(format!("#<OpaqueFFIValue>")))
+        Some(Ok("#<OpaqueFFIValue>".to_string()))
     }
 }
 
@@ -636,7 +636,7 @@ impl<T: OpaqueObject + 'static> AsRefFFIVal for T {
             }
         }
 
-        return conversion_error!(OpaqueFFIValue, val);
+        conversion_error!(OpaqueFFIValue, val)
     }
 
     fn as_mut_ref<'b, 'a: 'b, 'c>(val: &'a mut FFIArg<'c>) -> RResult<&'b mut Self, RBoxError> {
@@ -663,7 +663,7 @@ impl<T: OpaqueObject + 'static> AsRefFFIVal for T {
             }
         }
 
-        return conversion_error!(OpaqueFFIValue, val);
+        conversion_error!(OpaqueFFIValue, val)
     }
 }
 
@@ -722,7 +722,7 @@ impl<RET: IntoFFIVal, SELF: AsRefFFIVal, FN: Fn(&SELF) -> RET + SendSyncStatic>
 
             let arg1 = ffi_try!(<SELF>::as_ref(&rarg1));
 
-            let res = func(&arg1);
+            let res = func(arg1);
 
             res.into_ffi_val()
         };
@@ -1040,7 +1040,7 @@ pub fn as_underlying_ffi_type<'a, T: 'static>(
 
 pub fn is_opaque_type<T: 'static>(val: FFIArg) -> bool {
     if let FFIArg::CustomRef(CustomRef { custom, .. }) = val {
-        return as_underlying_ffi_type::<T>(custom.into_mut()).is_some();
+        as_underlying_ffi_type::<T>(custom.into_mut()).is_some()
     } else {
         false
     }
@@ -1076,12 +1076,13 @@ pub struct StringMutRef<'a> {
 // `SteelVal`s. This means the values can be borrowed without
 // copying in certain situations, assuming we can do that optimization.
 #[repr(C)]
-#[derive(StableAbi)]
+#[derive(StableAbi, Default)]
 pub enum FFIArg<'a> {
     StringRef(RStr<'a>),
     BoolV(bool),
     NumV(f64),
     IntV(isize),
+    #[default]
     Void,
     StringV(RString),
     StringMutRef(StringMutRef<'a>),
@@ -1102,12 +1103,6 @@ pub enum FFIArg<'a> {
     },
     HostFunction(HostRuntimeFunction),
     ByteVector(RVec<u8>),
-}
-
-impl<'a> std::default::Default for FFIArg<'a> {
-    fn default() -> Self {
-        FFIArg::Void
-    }
 }
 
 impl<'a> std::hash::Hash for FFIArg<'a> {
@@ -1160,10 +1155,7 @@ pub fn ffi_module() -> BuiltInModule {
 #[steel_derive::native(name = "ffi-vector", arity = "AtLeast(0)")]
 pub fn new_ffi_vector(args: &[SteelVal]) -> Result<SteelVal> {
     FFIVector {
-        vec: args
-            .into_iter()
-            .map(|x| as_ffi_value(x))
-            .collect::<Result<_>>()?,
+        vec: args.iter().map(as_ffi_value).collect::<Result<_>>()?,
     }
     .into_steelval()
 }
@@ -1425,7 +1417,7 @@ impl Clone for FFIBoxedDynFunction {
     fn clone(&self) -> Self {
         Self {
             name: self.name.clone(),
-            arity: self.arity.clone(),
+            arity: self.arity,
             function: RFn_TO::from_sabi(self.function.obj.shallow_clone()),
         }
     }
@@ -1574,7 +1566,7 @@ impl HostRuntimeFunction {
                 Ok(mut args) => {
                     let res = (func)(&mut args);
 
-                    match res.and_then(|x| into_ffi_value(x)) {
+                    match res.and_then(into_ffi_value) {
                         Ok(value) => RResult::ROk(value),
                         Err(e) => RResult::RErr(RBoxError::new(e)),
                     }
@@ -1701,7 +1693,7 @@ impl FFIBoxedDynFunction {
 
             // Attempt collecting and passing as an rslice?
             let mut other_args = args
-                .into_iter()
+                .iter()
                 .map(as_ffi_argument)
                 .collect::<Result<smallvec::SmallVec<[FFIArg<'_>; 16]>>>()?;
 
@@ -1740,7 +1732,7 @@ impl From<FFIBoxedDynFunction> for BoxedDynFunction {
             let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             let mut other_args = args
-                .into_iter()
+                .iter()
                 .map(as_ffi_argument)
                 .collect::<Result<smallvec::SmallVec<[FFIArg<'_>; 16]>>>()?;
 
@@ -1780,7 +1772,7 @@ pub struct FFIWrappedModule {
 
 impl FFIWrappedModule {
     pub fn new(mut raw_module: RBox<FFIModule>) -> Result<Self> {
-        let mut converted_module = BuiltInModule::new((&raw_module.name).to_string());
+        let mut converted_module = BuiltInModule::new(raw_module.name.to_string());
 
         for tuple in std::mem::take(&mut raw_module.values).into_iter() {
             let key = tuple.0;

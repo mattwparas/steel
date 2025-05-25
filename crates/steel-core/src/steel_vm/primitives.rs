@@ -1168,7 +1168,7 @@ fn ord_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ord");
 
     fn ensure_real(x: &SteelVal) -> Result<&SteelVal> {
-        realp(x).then(|| x).ok_or_else(|| {
+        realp(x).then_some(x).ok_or_else(|| {
             SteelErr::new(ErrorKind::TypeMismatch, "expected real numbers".to_owned())
         })
     }

@@ -331,7 +331,7 @@ impl StackToSSAConverter {
                         max_local_offset_read = max_local_offset_read.max(0);
                     } else {
                         let local = self.push();
-                        let var = self.stack.get(0).unwrap();
+                        let var = self.stack.first().unwrap();
 
                         if &local == var {
                             lines.line(format!(
@@ -363,7 +363,7 @@ impl StackToSSAConverter {
                         if &local == var {
                             // let local = self.pop();
 
-                            let var = self.stack.get(0).unwrap();
+                            let var = self.stack.first().unwrap();
 
                             lines.line(format!("let {local} = {var}.clone();"));
                             lines.line("ctx.ip += 1;")
@@ -455,7 +455,7 @@ impl StackToSSAConverter {
                         max_local_offset_read = max_local_offset_read.max(0);
                     } else {
                         let local = self.push();
-                        let var = self.stack.get(0).unwrap();
+                        let var = self.stack.first().unwrap();
                         lines.line(format!("let {local} = {var};"));
                     }
                 }

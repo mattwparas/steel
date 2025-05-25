@@ -1838,7 +1838,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 e
             })?;
 
-            let res = func(&mut input);
+            let res = func(input);
 
             res.into_steelval()
         };
@@ -1874,7 +1874,7 @@ impl<
                 err
             })?;
 
-            let res = func(&mut input, arg);
+            let res = func(input, arg);
 
             res.into_steelval()
         };
@@ -1906,7 +1906,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 e
             })?;
 
-            let res = func(&mut input);
+            let res = func(input);
 
             res.into_steelval()
         };
