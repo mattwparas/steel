@@ -12,3 +12,4 @@ env_home = "0.1.0"
 
 # Keeps the MSRV at v1.70.0
 cargo-platform = "=0.1.7"
+xdg = "3.0.0"

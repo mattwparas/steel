@@ -49,7 +49,7 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{
     constants::SerializableConstantMap,
-    modules::{CompiledModule, ModuleManager, SourceModuleResolver},
+    modules::{steel_search_dirs, CompiledModule, ModuleManager, SourceModuleResolver},
     passes::{analysis::Analysis, mangle::NameMangler},
     program::RawProgramWithSymbols,
 };
@@ -397,6 +397,9 @@ impl Compiler {
         sources: Sources,
         builtin_modules: ModuleContainer,
     ) -> Compiler {
+        // Include additional search directories by default
+        let search_dirs = steel_search_dirs();
+
         Compiler {
             symbol_map,
             constant_map,
@@ -410,7 +413,7 @@ impl Compiler {
             lifted_macro_environments: HashSet::new(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
-            search_dirs: Vec::new(),
+            search_dirs,
             sources,
             builtin_modules,
         }
@@ -425,6 +428,8 @@ impl Compiler {
         sources: Sources,
         builtin_modules: ModuleContainer,
     ) -> Compiler {
+        let search_dirs = steel_search_dirs();
+
         Compiler {
             symbol_map,
             constant_map,
@@ -438,7 +443,7 @@ impl Compiler {
             lifted_macro_environments: HashSet::new(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
-            search_dirs: Vec::new(),
+            search_dirs,
             sources,
             builtin_modules,
         }
