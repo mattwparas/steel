@@ -3052,7 +3052,7 @@ impl<'a> VmCore<'a> {
         std::mem::replace(&mut self.thread.stack[offset], SteelVal::Void)
     }
 
-    fn current_span_for_index(&self, ip: usize) -> Span {
+    pub(crate) fn current_span_for_index(&self, ip: usize) -> Span {
         self.thread
             .stack_frames
             .last()
@@ -3074,6 +3074,10 @@ impl<'a> VmCore<'a> {
     // We will probably end up grabbing a garbage span
     fn current_span(&self) -> Span {
         self.current_span_for_index(self.ip)
+    }
+
+    pub(crate) fn previous_span(&self) -> Span {
+        self.current_span_for_index(self.ip - 1)
     }
 
     // TODO: Tail calls see to obfuscate the proper span information.
