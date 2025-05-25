@@ -979,12 +979,12 @@ impl<'a> Parser<'a> {
                             | Some(ParsingContext::QuasiquoteTick(_)) => {
                                 // | Some(ParsingContext::Quote(d)) && d > 0 => {
 
-                                return Ok(current_frame.to_expr(close)?);
+                                return current_frame.to_expr(close);
                             }
                             Some(ParsingContext::Quote(x)) if *x > 0 => {
                                 self.context.pop();
 
-                                return Ok(current_frame.to_expr(close)?);
+                                return current_frame.to_expr(close);
                             }
                             Some(ParsingContext::Quote(0)) => {
                                 self.context.pop();
@@ -1010,7 +1010,7 @@ impl<'a> Parser<'a> {
 
                                     // println!("Should still be quoted here");
 
-                                    return Ok(current_frame.to_expr(close)?);
+                                    return current_frame.to_expr(close);
                                 }
 
                                 return self.maybe_lower_frame(current_frame, close);
@@ -1336,7 +1336,7 @@ impl<'a> Parser<'a> {
             };
         }
 
-        if datum_comments.len() > 0 {
+        if !datum_comments.is_empty() {
             return Some(Err(ParseError::SyntaxError(
                 "unfinished commented-out expression".into(),
                 datum_comments.pop().unwrap(),

@@ -949,9 +949,9 @@ pub struct CompiledModule {
     downstream: Vec<PathBuf>,
 }
 
-pub static MANGLER_PREFIX: &'static str = "##mm";
-pub static MODULE_PREFIX: &'static str = "__module-";
-pub static MANGLED_MODULE_PREFIX: &'static str = "__module-##mm";
+pub static MANGLER_PREFIX: &str = "##mm";
+pub static MODULE_PREFIX: &str = "__module-";
+pub static MANGLED_MODULE_PREFIX: &str = "__module-##mm";
 
 pub fn path_to_module_name(name: PathBuf) -> String {
     let mut base = CompactString::new(MANGLED_MODULE_PREFIX);

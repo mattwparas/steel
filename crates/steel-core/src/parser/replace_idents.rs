@@ -108,23 +108,21 @@ impl<'a> VisitorMutControlFlow for EllipsesExpanderVisitor<'a> {
     fn visit_atom(&mut self, a: &Atom) -> ControlFlow<()> {
         let expansion = a.ident().and_then(|x| self.bindings.get(x));
 
-        if let Some(expansion) = expansion {
-            if let ExprKind::List(found_list) = expansion {
-                if let Some(BindingKind::Many) = a.ident().and_then(|x| self.binding_kind.get(x)) {
-                    if let Some(previously_seen_length) = self.found_length {
-                        // Check that the length is the same
-                        if previously_seen_length != found_list.len() {
-                            self.error =
-                                Some(format!("Mismatched lengths found in ellipses expansion"));
-                            return ControlFlow::Break(());
-                        }
-
-                        // Found this one, use it
-                        self.collected.push(*(a.ident().unwrap()));
-                    } else {
-                        self.found_length = Some(found_list.len());
-                        self.collected.push(*(a.ident().unwrap()));
+        if let Some(ExprKind::List(found_list)) = expansion {
+            if let Some(BindingKind::Many) = a.ident().and_then(|x| self.binding_kind.get(x)) {
+                if let Some(previously_seen_length) = self.found_length {
+                    // Check that the length is the same
+                    if previously_seen_length != found_list.len() {
+                        self.error =
+                            Some(format!("Mismatched lengths found in ellipses expansion"));
+                        return ControlFlow::Break(());
                     }
+
+                    // Found this one, use it
+                    self.collected.push(*(a.ident().unwrap()));
+                } else {
+                    self.found_length = Some(found_list.len());
+                    self.collected.push(*(a.ident().unwrap()));
                 }
             }
         }
@@ -358,7 +356,7 @@ impl<'a> ReplaceExpressions<'a> {
     }
 
     fn vec_expr_datum_to_syntax(&self, vec_exprs: &[ExprKind]) -> Result<Option<ExprKind>> {
-        match vec_exprs.get(0) {
+        match vec_exprs.first() {
             Some(ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {
@@ -417,7 +415,7 @@ impl<'a> ReplaceExpressions<'a> {
             // stop!(ArityMismatch => "#%syntax-span requires 2 arguments, found: {}", vec_exprs.len());
         }
 
-        match vec_exprs.get(0) {
+        match vec_exprs.first() {
             Some(ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {

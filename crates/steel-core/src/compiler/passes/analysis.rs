@@ -2783,21 +2783,6 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
     }
 }
 
-/// Takes functions that have one argument that is used one time, and inline the function
-/// body and replace the call site.
-// struct InlineFunctionsWithArgumentsUsedOnce<'a> {
-//     analysis: &'a Analysis,
-//     functions_to_inline: FxHashMap<InternedString, ExprKind>,
-// }
-
-// struct FunctionInliner {
-//     variable_to_substitute: ExprKind,
-// }
-
-// impl FunctionInliner {
-
-// }
-
 // TODO: If its _not_ a pure function, we need to both assert that the function
 // does not escape, and then find the captured arguments, assert that those also
 // are immutable captures, and then modify the callsites to pass in those variables
@@ -4256,19 +4241,17 @@ impl<'a> SemanticAnalysis<'a> {
                                     }
                                 }
                             }
-                        } else {
-                            if let ExprKind::List(l) = expression {
-                                if let Some(func) = l.first_ident() {
-                                    if *func == module_get_interned {
-                                        if l[1].atom_identifier() == Some(&steel_constant_module) {
-                                            if let ExprKind::Quote(q) = &l[2] {
-                                                if q.expr.atom_identifier() == Some(&void)
-                                                    && offset < total_length
-                                                {
-                                                    offset += 1;
-                                                    return false;
-                                                }
-                                            }
+                        } else if let ExprKind::List(l) = expression {
+                            if let Some(func) = l.first_ident() {
+                                if *func == module_get_interned
+                                    && l[1].atom_identifier() == Some(&steel_constant_module)
+                                {
+                                    if let ExprKind::Quote(q) = &l[2] {
+                                        if q.expr.atom_identifier() == Some(&void)
+                                            && offset < total_length
+                                        {
+                                            offset += 1;
+                                            return false;
                                         }
                                     }
                                 }

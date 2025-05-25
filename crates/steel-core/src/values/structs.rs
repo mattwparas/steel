@@ -96,7 +96,7 @@ pub struct StructTypeDescriptor(usize);
 
 impl Custom for StructTypeDescriptor {
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
-        Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+        Some(SerializableSteelVal::Custom(Box::new(*self)))
     }
 }
 
@@ -1304,9 +1304,9 @@ impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for std::result::Result<T, E
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::CustomStruct(s) = val {
             if s.is_ok() {
-                Ok(Ok(T::from_steelval(s.fields.get(0).unwrap())?))
+                Ok(Ok(T::from_steelval(s.fields.first().unwrap())?))
             } else if s.is_err() {
-                Ok(Err(E::from_steelval(s.fields.get(0).unwrap())?))
+                Ok(Err(E::from_steelval(s.fields.first().unwrap())?))
             } else {
                 stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {val:?}"))
             }

@@ -325,15 +325,12 @@ impl<'a> Drop for LifetimeGuard<'a> {
 impl<'a> LifetimeGuard<'a> {
     pub fn with_immutable_reference<
         'b: 'a,
-        T: CustomReference + 'b,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
         EXT: CustomReference + 'static,
     >(
         self,
         obj: &'a T,
-    ) -> Self
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> Self {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
             std::any::TypeId::of::<EXT>()
@@ -346,13 +343,14 @@ impl<'a> LifetimeGuard<'a> {
         self
     }
 
-    pub fn with_mut_reference<'b: 'a, T: CustomReference + 'b, EXT: CustomReference + 'static>(
+    pub fn with_mut_reference<
+        'b: 'a,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
+        EXT: CustomReference + 'static,
+    >(
         self,
         obj: &'a mut T,
-    ) -> Self
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> Self {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
             std::any::TypeId::of::<EXT>()
@@ -1234,15 +1232,12 @@ impl Engine {
     pub fn with_immutable_reference<
         'a,
         'b: 'a,
-        T: CustomReference + 'b,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
         EXT: CustomReference + 'static,
     >(
         &'a mut self,
         obj: &'a T,
-    ) -> LifetimeGuard<'a>
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> LifetimeGuard<'a> {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
             std::any::TypeId::of::<EXT>()
@@ -1255,13 +1250,15 @@ impl Engine {
         LifetimeGuard { engine: self }
     }
 
-    pub fn with_mut_reference<'a, 'b: 'a, T: CustomReference + 'b, EXT: CustomReference + 'static>(
+    pub fn with_mut_reference<
+        'a,
+        'b: 'a,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
+        EXT: CustomReference + 'static,
+    >(
         &'a mut self,
         obj: &'a mut T,
-    ) -> LifetimeGuard<'a>
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> LifetimeGuard<'a> {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
             std::any::TypeId::of::<EXT>()
@@ -1275,15 +1272,17 @@ impl Engine {
     }
 
     // Tie the lifetime of this object to the scope of this execution
-    pub fn run_with_reference<'a, 'b: 'a, T: CustomReference + 'b, EXT: CustomReference + 'static>(
+    pub fn run_with_reference<
+        'a,
+        'b: 'a,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
+        EXT: CustomReference + 'static,
+    >(
         &'a mut self,
         obj: &'a mut T,
         bind_to: &'a str,
         script: &'a str,
-    ) -> Result<SteelVal>
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> Result<SteelVal> {
         self.with_mut_reference(obj).consume(move |engine, args| {
             let mut args = args.into_iter();
 
@@ -1300,7 +1299,7 @@ impl Engine {
     pub fn run_with_reference_from_path<
         'a,
         'b: 'a,
-        T: CustomReference + 'b,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
         EXT: CustomReference + 'static,
     >(
         &'a mut self,
@@ -1308,10 +1307,7 @@ impl Engine {
         bind_to: &'a str,
         script: &'a str,
         path: PathBuf,
-    ) -> Result<SteelVal>
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> Result<SteelVal> {
         self.with_mut_reference(obj).consume(move |engine, args| {
             let mut args = args.into_iter();
 
@@ -1329,16 +1325,13 @@ impl Engine {
     pub fn run_thunk_with_reference<
         'a,
         'b: 'a,
-        T: CustomReference + 'b,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
         EXT: CustomReference + 'static,
     >(
         &'a mut self,
         obj: &'a mut T,
         mut thunk: impl FnMut(&mut Engine, SteelVal) -> Result<SteelVal>,
-    ) -> Result<SteelVal>
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> Result<SteelVal> {
         self.with_mut_reference(obj).consume(|engine, args| {
             let mut args = args.into_iter();
 
@@ -1349,16 +1342,13 @@ impl Engine {
     pub fn run_thunk_with_ro_reference<
         'a,
         'b: 'a,
-        T: CustomReference + 'b,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
         EXT: CustomReference + 'static,
     >(
         &'a mut self,
         obj: &'a T,
         mut thunk: impl FnMut(&mut Engine, SteelVal) -> Result<SteelVal>,
-    ) -> Result<SteelVal>
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> Result<SteelVal> {
         self.with_immutable_reference(obj).consume(|engine, args| {
             let mut args = args.into_iter();
 
@@ -1575,7 +1565,7 @@ impl Engine {
                 TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
                 TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
                 // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
-                TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
+                TokenType::Keyword(k) => Ok(SteelVal::SymbolV((*k).into())),
                 what => {
                     // println!("getting here in the eval_atom - code_gen");
                     stop!(UnexpectedToken => what; t.span)
@@ -2028,36 +2018,6 @@ impl Engine {
         raise_error_to_string(&self.sources, error)
     }
 
-    /// Execute a program given as the `expr`, and computes a `Vec<SteelVal>` corresponding to the output of each expression given.
-    /// This method contains no path information used for error reporting, and simply runs the expression as is. Modules will be
-    /// imported with the root directory as wherever the executable was started.
-    /// Any parsing, compilation, or runtime error will be reflected here, ideally with span information as well. The error will not
-    /// be reported automatically.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # extern crate steel;
-    /// # use steel::steel_vm::engine::Engine;
-    /// use steel::rvals::SteelVal;
-    /// let mut vm = Engine::new();
-    /// let output = vm.run("(+ 1 2) (* 5 5) (- 10 5)").unwrap();
-    /// assert_eq!(output, vec![SteelVal::IntV(3), SteelVal::IntV(25), SteelVal::IntV(5)]);
-    /// ```
-    // pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-    //     let constants = self.constants();
-    //     let program = self.compiler.compile_program(expr, None, constants)?;
-    //     self.virtual_machine.execute_program(program)
-    // }
-
-    /// Execute a program, however do not run any callbacks as registered with `on_progress`.
-    // pub fn run_without_callbacks(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-    //     let constants = self.constants();
-    //     let program = self.compiler.compile_program(expr, None, constants)?;
-    //     self.virtual_machine
-    //         .execute_program::<DoNotUseCallback, ApplyContract>(program)
-    // }
-
     pub fn add_module(&mut self, path: String) -> Result<()> {
         self.virtual_machine.compiler.write().compile_module(
             path.into(),
@@ -2196,7 +2156,7 @@ fn raise_error(sources: &Sources, error: SteelErr) {
                                         .and_then(|x| x.to_str())
                                         .unwrap_or_default();
 
-                                    back_trace(&resolved_file_name, &source, *span);
+                                    back_trace(resolved_file_name, source, *span);
                                 }
                             }
                         }
@@ -2205,7 +2165,7 @@ fn raise_error(sources: &Sources, error: SteelErr) {
 
                 let resolved_file_name = file_name.unwrap_or_default();
 
-                error.emit_result(resolved_file_name.to_str().unwrap(), &file_content);
+                error.emit_result(resolved_file_name.to_str().unwrap(), file_content);
                 return;
             }
         }
@@ -2250,7 +2210,7 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
                                         .unwrap_or_default();
 
                                     let bt =
-                                        back_trace_to_string(&resolved_file_name, &source, *span);
+                                        back_trace_to_string(resolved_file_name, source, *span);
                                     back_traces.push(bt);
                                 }
                             }
@@ -2260,8 +2220,8 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
 
                 let resolved_file_name = file_name.unwrap_or_default();
 
-                let final_error = error
-                    .emit_result_to_string(resolved_file_name.to_str().unwrap(), &file_content);
+                let final_error =
+                    error.emit_result_to_string(resolved_file_name.to_str().unwrap(), file_content);
 
                 back_traces.push(final_error);
 

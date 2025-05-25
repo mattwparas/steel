@@ -635,9 +635,8 @@ impl SteelThread {
                 .paused
                 .load(std::sync::atomic::Ordering::Relaxed)
             {
-                match self.synchronizer.state.state.load() {
-                    ThreadState::Interrupted => break,
-                    _ => {}
+                if let ThreadState::Interrupted = self.synchronizer.state.state.load() {
+                    break;
                 }
 
                 std::thread::park();
@@ -948,7 +947,7 @@ impl SteelThread {
                 return Err(e);
             } else {
                 for frame in &vm_instance.thread.stack_frames {
-                    Continuation::close_marks(&vm_instance, &frame);
+                    Continuation::close_marks(&vm_instance, frame);
                 }
 
                 // Clean up
@@ -1089,20 +1088,19 @@ impl Continuation {
                         .and_then(|x| WeakShared::upgrade(&x.inner))
                 }) {
                     if Shared::ptr_eq(&mark, &this.inner) {
-                        if weak_count == 1 && strong_count > 1 {
-                            if Self::close_marks(ctx, &stack_frame) {
-                                // TODO: We shouldn't have to both close the frame and also
-                                // set state from the continuation in both spots. There is a nefarious
-                                // bug here that I haven't yet resolved.
-                                let definitely_closed =
-                                    this.inner.read().clone().into_closed().unwrap();
+                        if weak_count == 1
+                            && strong_count > 1
+                            && Self::close_marks(ctx, &stack_frame)
+                        {
+                            // TODO: We shouldn't have to both close the frame and also
+                            // set state from the continuation in both spots. There is a nefarious
+                            // bug here that I haven't yet resolved.
+                            let definitely_closed =
+                                this.inner.read().clone().into_closed().unwrap();
 
-                                ctx.set_state_from_continuation(definitely_closed);
+                            ctx.set_state_from_continuation(definitely_closed);
 
-                                return;
-
-                                // println!("CLOSING MARKS WHEN SETTING STATE FROM CONTINUATION: pop count: {}", ctx.pop_count);
-                            }
+                            return;
                         }
 
                         ctx.sp = open.sp;

@@ -1,8 +1,8 @@
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
 use crate::primitives::Either;
+use crate::rvals::SteelVector;
 use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelVal};
-use crate::rvals::{SteelVal::*, SteelVector};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::vm::VmCore;
 use crate::values::closed::HeapRef;
@@ -1434,18 +1434,12 @@ fn bounds(
 #[cfg(test)]
 mod vector_prim_tests {
     use super::*;
-    use crate::throw;
 
     #[cfg(not(feature = "sync"))]
     use im_rc::vector;
 
     #[cfg(feature = "sync")]
     use im::vector;
-
-    fn apply_function(func: SteelVal, args: Vec<SteelVal>) -> Result<SteelVal> {
-        func.func_or_else(throw!(BadSyntax => "string tests"))
-            .unwrap()(&args)
-    }
 
     #[test]
     fn vec_construct_test() {
