@@ -170,7 +170,7 @@ impl<'global, 'a> VmCore<'a> {
         &mut self,
         ops: &[Transducers],
         root: SteelVal,
-        reducer: Reducer,
+        reducer: &Reducer,
         cur_inst_span: &Span,
     ) -> Result<SteelVal> {
         let vm = Rc::new(RefCell::new(self));
@@ -432,7 +432,7 @@ impl<'global, 'a> VmCore<'a> {
 
     fn into_value(
         vm_ctx: Rc<RefCell<&'global mut Self>>,
-        reducer: Reducer,
+        reducer: &Reducer,
         mut iter: impl Iterator<Item = Result<SteelVal>>,
         cur_inst_span: &Span,
     ) -> Result<SteelVal> {
@@ -468,7 +468,7 @@ impl<'global, 'a> VmCore<'a> {
                 Ok(SteelVal::IntV(iter.count().try_into().unwrap())) // TODO have proper big int
             },
             Reducer::Nth(usize) => {
-                iter.nth(usize).unwrap_or_else(|| stop!(Generic => "`nth` - index given is greater than the length of the iterator"))
+                iter.nth(*usize).unwrap_or_else(|| stop!(Generic => "`nth` - index given is greater than the length of the iterator"))
             },
             Reducer::List => iter.collect::<Result<List<_>>>().map(SteelVal::ListV),
             Reducer::Vector => vec_construct_iter(iter),
