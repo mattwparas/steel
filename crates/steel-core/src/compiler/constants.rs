@@ -1,7 +1,9 @@
 use crate::gc::shared::{MutContainer, ShareableMut};
 use crate::gc::{Shared, SharedMut};
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
-use crate::rvals::{into_serializable_value, Result, SerializableSteelVal, SteelVal};
+use crate::rvals::{
+    into_serializable_value, Result, SerializableSteelVal, SerializationContext, SteelVal,
+};
 
 use crate::parser::{
     ast::ExprKind,
@@ -84,16 +86,12 @@ impl ConstantMap {
         SerializableConstantMap(self.to_bytes().unwrap())
     }
 
-    pub fn to_serializable_vec(
-        &self,
-        serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-        visited: &mut std::collections::HashSet<usize>,
-    ) -> Vec<SerializableSteelVal> {
+    pub fn to_serializable_vec(&self, ctx: &mut SerializationContext) -> Vec<SerializableSteelVal> {
         self.values
             .read()
             .iter()
             .cloned()
-            .map(|x| into_serializable_value(x, serializer, visited))
+            .map(|x| into_serializable_value(x, ctx))
             .collect::<Result<_>>()
             .unwrap()
     }

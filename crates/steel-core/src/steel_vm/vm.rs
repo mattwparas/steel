@@ -4625,6 +4625,24 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
+#[steel_derive::context(name = "debug-globals", arity = "Exact(0)")]
+fn debug_globals(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(debug_global_env(ctx, args))
+}
+
+fn debug_global_env(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let compiler = ctx.thread.compiler.read();
+
+    let symbols = compiler.symbol_map.values();
+    let globals = &ctx.thread.global_env.thread_local_bindings;
+
+    for (key, value) in symbols.iter().zip(globals.iter()) {
+        println!("{} = {}", key, value);
+    }
+
+    Ok(SteelVal::Void)
+}
+
 fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
     // TODO: Looks like this isn't correctly parsing / pushing down macros!

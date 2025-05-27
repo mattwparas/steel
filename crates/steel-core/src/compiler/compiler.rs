@@ -336,7 +336,7 @@ pub struct Compiler {
     // is under the hood, shared references to the engine, since we
     // want to have the compiler share everything with the runtime.
     sources: Sources,
-    builtin_modules: ModuleContainer,
+    pub(crate) builtin_modules: ModuleContainer,
 }
 
 pub struct SerializableCompiler {

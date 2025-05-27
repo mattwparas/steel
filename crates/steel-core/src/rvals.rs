@@ -17,11 +17,14 @@ use crate::{
     },
     primitives::numbers::realp,
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
+    steel_vm::{
+        engine::ModuleContainer,
+        vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
+    },
     values::{
         closed::{Heap, HeapRef, MarkAndSweepContext},
         functions::{BoxedDynFunction, ByteCodeLambda},
-        lazy_stream::LazyStream,
+        lazy_stream::{LazyStream, SerializableStream},
         port::{SendablePort, SteelPort},
         structs::{SerializableUserDefinedStruct, UserDefinedStruct},
         transducers::{Reducer, Transducer},
@@ -847,6 +850,7 @@ pub enum SerializableSteelVal {
     FuncV(FunctionSignature),
     MutFunc(MutFunctionSignature),
     HashMapV(Vec<(SerializableSteelVal, SerializableSteelVal)>),
+    HashSet(Vec<SerializableSteelVal>),
     ListV(Vec<SerializableSteelVal>),
     Pair(Box<(SerializableSteelVal, SerializableSteelVal)>),
     VectorV(Vec<SerializableSteelVal>),
@@ -860,6 +864,25 @@ pub enum SerializableSteelVal {
     HeapAllocated(usize),
     Port(SendablePort),
     Rational(Rational32),
+    Stream(Box<SerializableStream>),
+    NativeRef(NativeRefSpec),
+}
+
+/*
+Serialize via known modules. If the value is a native one, then it should get replaced with a
+value that is something like SerializableSteelVal::NativeRef(NativeRefSpec) where NativeRefSpec is like:
+
+struct NativeRefSpec {
+    module: String,
+    key: String,
+}
+
+And then deserializing is just grabbing that back from the root.
+*/
+
+pub struct NativeRefSpec {
+    pub module: String,
+    pub key: String,
 }
 
 pub enum SerializedHeapRef {
@@ -918,6 +941,14 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                         )
                     })
                     .collect::<HashMap<_, _>>(),
+            )
+            .into(),
+        ),
+        SerializableSteelVal::HashSet(h) => SteelVal::HashSetV(
+            Gc::new(
+                h.into_iter()
+                    .map(|k| from_serializable_value(ctx, k))
+                    .collect::<HashSet<_>>(),
             )
             .into(),
         ),
@@ -1013,38 +1044,63 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
         SerializableSteelVal::ByteVectorV(bytes) => {
             SteelVal::ByteVector(SteelByteVector::new(bytes))
         }
+
+        SerializableSteelVal::Stream(value) => SteelVal::StreamV(Gc::new(LazyStream {
+            initial_value: from_serializable_value(ctx, value.initial_value),
+            stream_thunk: from_serializable_value(ctx, value.stream_thunk),
+            empty_stream: value.empty_stream,
+        })),
+
+        SerializableSteelVal::NativeRef(_) => {
+            todo!("Implement native ref spec deserialization!")
+        }
     }
 }
 
 // The serializable value needs to refer to the original heap -
 // that way can reference the original stuff easily.
 
+pub struct SerializationContext<'a> {
+    pub builtin_modules: &'a ModuleContainer,
+    pub serialized_heap: &'a mut std::collections::HashMap<usize, SerializableSteelVal>,
+    pub visited: &'a mut std::collections::HashSet<usize>,
+}
+
 // TODO: Use the cycle detector instead
 pub fn into_serializable_value(
     val: SteelVal,
-    serialized_heap: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-    visited: &mut std::collections::HashSet<usize>,
+    ctx: &mut SerializationContext,
+    // serialized_heap: &mut std::collections::HashMap<usize, SerializableSteelVal>,
+    // visited: &mut std::collections::HashSet<usize>,
 ) -> Result<SerializableSteelVal> {
     // dbg!(&serialized_heap);
 
     match val {
-        SteelVal::Closure(c) => closure_into_serializable(&c, serialized_heap, visited)
-            .map(SerializableSteelVal::Closure),
+        SteelVal::Closure(c) => {
+            closure_into_serializable(&c, ctx).map(SerializableSteelVal::Closure)
+        }
         SteelVal::BoolV(b) => Ok(SerializableSteelVal::BoolV(b)),
         SteelVal::NumV(n) => Ok(SerializableSteelVal::NumV(n)),
         SteelVal::IntV(n) => Ok(SerializableSteelVal::IntV(n)),
         SteelVal::CharV(c) => Ok(SerializableSteelVal::CharV(c)),
         SteelVal::Void => Ok(SerializableSteelVal::Void),
         SteelVal::StringV(s) => Ok(SerializableSteelVal::StringV(s.to_string())),
-        SteelVal::FuncV(f) => Ok(SerializableSteelVal::FuncV(f)),
+        // SteelVal::FuncV(f) => Ok(SerializableSteelVal::FuncV(f)),
+        SteelVal::FuncV(f) => Ok(SerializableSteelVal::NativeRef(
+            // TODO: Native ref spec for anything that is native
+            // and truly can't be serialized between runtimes, such as native
+            // functions.
+            crate::steel_vm::vm::threads::create_native_ref(&ctx.builtin_modules, val.clone())
+                .expect(&format!("Unable to find: {}", val)),
+        )),
         SteelVal::ListV(l) => Ok(SerializableSteelVal::ListV(
             l.into_iter()
-                .map(|x| into_serializable_value(x, serialized_heap, visited))
+                .map(|x| into_serializable_value(x, ctx))
                 .collect::<Result<_>>()?,
         )),
         SteelVal::Pair(pair) => Ok(SerializableSteelVal::Pair(Box::new((
-            into_serializable_value(pair.car.clone(), serialized_heap, visited)?,
-            into_serializable_value(pair.cdr.clone(), serialized_heap, visited)?,
+            into_serializable_value(pair.car.clone(), ctx)?,
+            into_serializable_value(pair.cdr.clone(), ctx)?,
         )))),
         SteelVal::BoxedFunction(f) => Ok(SerializableSteelVal::BoxedDynFunction((*f).clone())),
         SteelVal::BuiltIn(f) => Ok(SerializableSteelVal::BuiltIn(f)),
@@ -1054,8 +1110,8 @@ pub fn into_serializable_value(
             v.0.unwrap()
                 .into_iter()
                 .map(|(k, v)| {
-                    let kprime = into_serializable_value(k, serialized_heap, visited)?;
-                    let vprime = into_serializable_value(v, serialized_heap, visited)?;
+                    let kprime = into_serializable_value(k, ctx)?;
+                    let vprime = into_serializable_value(v, ctx)?;
 
                     Ok((kprime, vprime))
                 })
@@ -1063,10 +1119,12 @@ pub fn into_serializable_value(
         )),
 
         SteelVal::Custom(c) => {
-            if let Some(output) = c.write().as_serializable_steelval() {
+            let mut guard = c.write();
+
+            if let Some(output) = guard.as_serializable_steelval() {
                 Ok(output)
             } else {
-                stop!(Generic => "Custom type not allowed to be moved across threads!")
+                stop!(Generic => "Custom type not allowed to be moved across threads!: {}", guard.name())
             }
         }
 
@@ -1076,7 +1134,7 @@ pub fn into_serializable_value(
                     .fields
                     .iter()
                     .cloned()
-                    .map(|x| into_serializable_value(x, serialized_heap, visited))
+                    .map(|x| into_serializable_value(x, ctx))
                     .collect::<Result<Vec<_>>>()?,
                 type_descriptor: s.type_descriptor,
             },
@@ -1087,23 +1145,23 @@ pub fn into_serializable_value(
         // If there is a cycle, this could cause problems?
         SteelVal::HeapAllocated(h) => {
             // We should pick it up on the way back the recursion
-            if visited.contains(&h.as_ptr_usize())
-                && !serialized_heap.contains_key(&h.as_ptr_usize())
+            if ctx.visited.contains(&h.as_ptr_usize())
+                && !ctx.serialized_heap.contains_key(&h.as_ptr_usize())
             {
                 // println!("Already visited: {}", h.as_ptr_usize());
 
                 Ok(SerializableSteelVal::HeapAllocated(h.as_ptr_usize()))
             } else {
-                visited.insert(h.as_ptr_usize());
+                ctx.visited.insert(h.as_ptr_usize());
 
-                if serialized_heap.contains_key(&h.as_ptr_usize()) {
+                if ctx.serialized_heap.contains_key(&h.as_ptr_usize()) {
                     // println!("Already exists in map: {}", h.as_ptr_usize());
 
                     Ok(SerializableSteelVal::HeapAllocated(h.as_ptr_usize()))
                 } else {
                     // println!("Trying to insert: {} @ {}", h.get(), h.as_ptr_usize());
 
-                    let value = into_serializable_value(h.get(), serialized_heap, visited);
+                    let value = into_serializable_value(h.get(), ctx);
 
                     let value = match value {
                         Ok(v) => v,
@@ -1113,7 +1171,7 @@ pub fn into_serializable_value(
                         }
                     };
 
-                    serialized_heap.insert(h.as_ptr_usize(), value);
+                    ctx.serialized_heap.insert(h.as_ptr_usize(), value);
 
                     // println!("Inserting: {}", h.as_ptr_usize());
 
@@ -1126,7 +1184,7 @@ pub fn into_serializable_value(
             vector
                 .iter()
                 .cloned()
-                .map(|val| into_serializable_value(val, serialized_heap, visited))
+                .map(|val| into_serializable_value(val, ctx))
                 .collect::<Result<_>>()?,
         )),
 
@@ -1135,6 +1193,19 @@ pub fn into_serializable_value(
         }
 
         SteelVal::Rational(r) => Ok(SerializableSteelVal::Rational(r)),
+
+        SteelVal::StreamV(s) => Ok(SerializableSteelVal::Stream(Box::new(SerializableStream {
+            initial_value: into_serializable_value(s.initial_value.clone(), ctx)?,
+            stream_thunk: into_serializable_value(s.stream_thunk.clone(), ctx)?,
+            empty_stream: s.empty_stream,
+        }))),
+
+        SteelVal::HashSetV(s) => Ok(SerializableSteelVal::HashSet(
+            s.iter()
+                .cloned()
+                .map(|val| into_serializable_value(val, ctx))
+                .collect::<Result<_>>()?,
+        )),
 
         illegal => stop!(Generic => "Type not allowed to be moved across threads!: {}", illegal),
     }

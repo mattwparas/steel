@@ -4,9 +4,12 @@ use fxhash::FxHashMap;
 use steel_derive::function;
 
 use crate::{
-    rvals::{AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer, SerializableSteelVal},
-    steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn},
-    values::functions::SerializedLambdaPrototype,
+    rvals::{
+        from_serializable_value, AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer,
+        NativeRefSpec, SerializableSteelVal, SerializationContext, SerializedHeapRef,
+    },
+    steel_vm::{builtin::BuiltInModule, engine::ModuleContainer, register_fn::RegisterFn},
+    values::{functions::SerializedLambdaPrototype, structs::VTable},
 };
 
 use super::*;
@@ -159,8 +162,7 @@ thread_local! {
 
 pub fn closure_into_serializable(
     c: &ByteCodeLambda,
-    serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-    visited: &mut std::collections::HashSet<usize>,
+    ctx: &mut SerializationContext,
 ) -> Result<SerializedLambda> {
     if let Some(prototype) = CACHED_CLOSURES.with(|x| x.borrow().get(&c.id).cloned()) {
         let mut prototype = SerializedLambda {
@@ -175,7 +177,7 @@ pub fn closure_into_serializable(
             .captures
             .iter()
             .cloned()
-            .map(|x| into_serializable_value(x, serializer, visited))
+            .map(|x| into_serializable_value(x, ctx))
             .collect::<Result<_>>()?;
 
         Ok(prototype)
@@ -207,338 +209,358 @@ pub fn closure_into_serializable(
             .captures
             .iter()
             .cloned()
-            .map(|x| into_serializable_value(x, serializer, visited))
+            .map(|x| into_serializable_value(x, ctx))
             .collect::<Result<_>>()?;
 
         Ok(prototype)
     }
 }
 
-// struct MovableThread {
-//     constants: Vec<SerializableSteelVal>,
-//     global_env: Vec<SerializableSteelVal>,
-//     function_interner: MovableFunctionInterner,
-//     runtime_options: RunTimeOptions,
-// }
+struct MovableThread {
+    constants: Vec<SerializableSteelVal>,
+    global_env: Vec<SerializableSteelVal>,
+    function_interner: MovableFunctionInterner,
+    runtime_options: RunTimeOptions,
+}
 
-// struct MovableFunctionInterner {
-//     closure_interner: fxhash::FxHashMap<u32, SerializedLambda>,
-//     pure_function_interner: fxhash::FxHashMap<u32, SerializedLambda>,
-//     spans: fxhash::FxHashMap<u32, Vec<Span>>,
-// }
+struct MovableFunctionInterner {
+    closure_interner: fxhash::FxHashMap<u32, SerializedLambda>,
+    pure_function_interner: fxhash::FxHashMap<u32, SerializedLambda>,
+    spans: fxhash::FxHashMap<u32, Vec<Span>>,
+}
+
+#[steel_derive::context(name = "serialize-thread", arity = "Exact(0)")]
+fn serialize_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(serialize_thread_impl(ctx, args))
+}
+
+// Create a native ref spec from the builtin modules.
+// This should in theory be all we need in order to then reconstruct this
+// native value reference on the other side.
+//
+// When deconstructing the value, we'll attempt to find the key for it
+// and provide the builtin modules. Assuming it exists, we can locate
+// the value and move on with our lives.
+pub(crate) fn create_native_ref(ctx: &ModuleContainer, v: SteelVal) -> Option<NativeRefSpec> {
+    // Not good, but lets just see if it even works:
+    let module_map = ctx.inner();
+
+    for (mkey, module) in module_map.iter() {
+        let map = module.inner_map();
+
+        for (key, value) in map.iter() {
+            // Just check each item, and drain from our list if its it?
+
+            if value == &v {
+                return Some(NativeRefSpec {
+                    module: mkey.to_string(),
+                    key: key.to_string(),
+                });
+            }
+        }
+    }
+
+    None
+}
 
 // #[allow(unused)]
 // This will naively deep clone the environment, by attempting to translate every value into a `SerializableSteelVal`
 // While this does work, it does result in a fairly hefty deep clone of the environment. It does _not_ smartly attempt
 // to keep track of what values this function could touch - rather it assumes every value is possible to be touched
 // by the child thread.
-// fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-//     use crate::rvals::SerializableSteelVal;
+fn serialize_thread_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    // use crate::rvals::SerializableSteelVal;
 
-//     #[cfg(feature = "profiling")]
-//     let now = std::time::Instant::now();
+    #[cfg(feature = "profiling")]
+    let now = std::time::Instant::now();
 
-//     // Need a new:
-//     // Stack
-//     // Heap
-//     // global env - This we can do (hopefully) lazily. Only clone the values that actually
-//     // get referenced. We can also just straight up reject any closures that cannot be moved
-//     // across threads
+    // Need a new:
+    // Stack
+    // Heap
+    // global env - This we can do (hopefully) lazily. Only clone the values that actually
+    // get referenced. We can also just straight up reject any closures that cannot be moved
+    // across threads
 
-//     if args.len() != 1 {
-//         stop!(ArityMismatch => "spawn-thread! accepts one argument, found: {}", args.len())
-//     }
+    let mut initial_map = HashMap::new();
+    let mut visited = HashSet::new();
 
-//     let mut initial_map = HashMap::new();
-//     let mut visited = HashSet::new();
+    // If it is a native function, theres no reason we can't just call it on a new thread, most likely.
+    // There might be some funny business with thread local values, but for now we'll just accept it.
+    // let function: SerializedLambda = match &args[0] {
+    //     SteelVal::FuncV(f) => {
+    //         let func = *f;
 
-//     // If it is a native function, theres no reason we can't just call it on a new thread, most likely.
-//     // There might be some funny business with thread local values, but for now we'll just accept it.
-//     let function: SerializedLambda = match &args[0] {
-//         SteelVal::FuncV(f) => {
-//             let func = *f;
+    //         let handle = std::thread::spawn(move || func(&[]).map_err(|e| e.to_string()));
 
-//             let handle = std::thread::spawn(move || func(&[]).map_err(|e| e.to_string()));
+    //         return ThreadHandle {
+    //             handle: Some(handle),
+    //             thread_state_manager: ThreadStateController::default(),
+    //         }
+    //         .into_steelval();
 
-//             return ThreadHandle {
-//                 handle: Some(handle),
-//                 thread_state_manager: ThreadStateController::default(),
-//             }
-//             .into_steelval();
+    //         // todo!()
+    //     }
+    //     SteelVal::MutFunc(f) => {
+    //         let func = *f;
 
-//             // todo!()
-//         }
-//         SteelVal::MutFunc(f) => {
-//             let func = *f;
+    //         let handle = std::thread::spawn(move || func(&mut []).map_err(|e| e.to_string()));
 
-//             let handle = std::thread::spawn(move || func(&mut []).map_err(|e| e.to_string()));
+    //         return ThreadHandle {
+    //             handle: Some(handle),
+    //             thread_state_manager: ThreadStateController::default(),
+    //         }
+    //         .into_steelval();
+    //     }
 
-//             return ThreadHandle {
-//                 handle: Some(handle),
-//                 thread_state_manager: ThreadStateController::default(),
-//             }
-//             .into_steelval();
-//         }
+    //     // Probably rename unwrap to something else
+    //     SteelVal::Closure(f) => closure_into_serializable(&f, &mut initial_map, &mut visited)?,
+    //     illegal => {
+    //         stop!(TypeMismatch => "Cannot spawn value on another thread: {}", illegal);
+    //     }
+    // };
 
-//         // Probably rename unwrap to something else
-//         SteelVal::Closure(f) => closure_into_serializable(&f, &mut initial_map, &mut visited)?,
-//         illegal => {
-//             stop!(TypeMismatch => "Cannot spawn value on another thread: {}", illegal);
-//         }
-//     };
+    let sources = ctx.thread.sources.clone();
 
-//     let constants = time!("Constant map serialization", {
-//         let constants = ctx
-//             .thread
-//             .constant_map
-//             .to_serializable_vec(&mut initial_map, &mut visited);
+    let builtin_modules = ctx.thread.compiler.read().builtin_modules.clone();
 
-//         constants
-//     });
+    let mut sctx = SerializationContext {
+        builtin_modules: &builtin_modules,
+        serialized_heap: &mut initial_map,
+        visited: &mut visited,
+    };
 
-//     let sources = ctx.thread.sources.clone();
+    let constants = ctx.thread.constant_map.to_serializable_vec(&mut sctx);
 
-//     let thread = MovableThread {
-//         constants,
+    let thread = MovableThread {
+        constants,
 
-//         // Void in this case, is a poisoned value. We need to trace the closure
-//         // (and all of its references) - to find any / all globals that _could_ be
-//         // referenced.
-//         #[cfg(feature = "sync")]
-//         global_env: time!(
-//             "Global env serialization",
-//             ctx.thread
-//                 .global_env
-//                 .bindings_vec
-//                 .read()
-//                 .unwrap()
-//                 .iter()
-//                 .cloned()
-//                 .map(|x| into_serializable_value(x, &mut initial_map, &mut visited))
-//                 .map(|x| x.unwrap_or(SerializableSteelVal::Void))
-//                 .collect()
-//         ),
+        // Void in this case, is a poisoned value. We need to trace the closure
+        // (and all of its references) - to find any / all globals that _could_ be
+        // referenced.
+        #[cfg(feature = "sync")]
+        global_env: ctx
+            .thread
+            .global_env
+            .bindings_vec
+            .read()
+            .unwrap()
+            .iter()
+            .cloned()
+            .map(|x| into_serializable_value(x, &mut sctx).unwrap())
+            .collect(),
 
-//         #[cfg(not(feature = "sync"))]
-//         global_env: time!(
-//             "Global env serialization",
-//             ctx.thread
-//                 .global_env
-//                 .bindings_vec
-//                 .iter()
-//                 .cloned()
-//                 .map(|x| into_serializable_value(x, &mut initial_map, &mut visited))
-//                 .map(|x| x.unwrap_or(SerializableSteelVal::Void))
-//                 .collect()
-//         ),
+        #[cfg(not(feature = "sync"))]
+        global_env: ctx
+            .thread
+            .global_env
+            .bindings_vec
+            .iter()
+            .cloned()
+            .map(|x| into_serializable_value(x, &mut sctx))
+            .collect(),
 
-//         // Populate with the values after moving into the thread, spawn accordingly
-//         // TODO: Move this out of here
-//         function_interner: time!(
-//             "Function interner serialization",
-//             MovableFunctionInterner {
-//                 closure_interner: ctx
-//                     .thread
-//                     .function_interner
-//                     .closure_interner
-//                     .iter()
-//                     .map(|(k, v)| {
-//                         let v_prime: SerializedLambda =
-//                             closure_into_serializable(v, &mut initial_map, &mut visited)
-//                                 .expect("This shouldn't fail!");
-//                         (*k, v_prime)
-//                     })
-//                     .collect(),
-//                 pure_function_interner: ctx
-//                     .thread
-//                     .function_interner
-//                     .pure_function_interner
-//                     .iter()
-//                     .map(|(k, v)| {
-//                         let v_prime: SerializedLambda =
-//                             closure_into_serializable(v, &mut initial_map, &mut visited)
-//                                 .expect("This shouldn't fail!");
-//                         (*k, v_prime)
-//                     })
-//                     .collect(),
-//                 spans: ctx
-//                     .thread
-//                     .function_interner
-//                     .spans
-//                     .iter()
-//                     .map(|(k, v)| (*k, v.iter().copied().collect()))
-//                     .collect(),
-//             }
-//         ),
+        // Populate with the values after moving into the thread, spawn accordingly
+        // TODO: Move this out of here
+        function_interner: MovableFunctionInterner {
+            closure_interner: ctx
+                .thread
+                .function_interner
+                .closure_interner
+                .iter()
+                .map(|(k, v)| {
+                    let v_prime: SerializedLambda =
+                        closure_into_serializable(v, &mut sctx).expect("This shouldn't fail!");
+                    (*k, v_prime)
+                })
+                .collect(),
+            pure_function_interner: ctx
+                .thread
+                .function_interner
+                .pure_function_interner
+                .iter()
+                .map(|(k, v)| {
+                    let v_prime: SerializedLambda =
+                        closure_into_serializable(v, &mut sctx).expect("This shouldn't fail!");
+                    (*k, v_prime)
+                })
+                .collect(),
+            spans: ctx
+                .thread
+                .function_interner
+                .spans
+                .iter()
+                .map(|(k, v)| (*k, v.iter().copied().collect()))
+                .collect(),
+        },
 
-//         runtime_options: ctx.thread.runtime_options.clone(),
-//     };
+        runtime_options: ctx.thread.runtime_options.clone(),
+    };
 
-//     let sendable_vtable_entries = VTable::sendable_entries(&mut initial_map, &mut visited)?;
+    let sendable_vtable_entries = VTable::sendable_entries(&mut sctx)?;
 
-//     // TODO: Spawn a bunch of threads at the start to handle requests. That way we don't need to do this
-//     // the whole time they're in there.
-//     let handle = std::thread::spawn(move || {
-//         let heap = time!("Heap Creation", Arc::new(Mutex::new(Heap::new())));
+    // TODO: Spawn a bunch of threads at the start to handle requests. That way we don't need to do this
+    // the whole time they're in there.
+    let heap = Arc::new(Mutex::new(Heap::new()));
 
-//         // Move across threads?
-//         let mut mapping = initial_map
-//             .into_iter()
-//             .map(|(key, value)| (key, SerializedHeapRef::Serialized(Some(value))))
-//             .collect();
+    // Move across threads?
+    let mut mapping = initial_map
+        .into_iter()
+        .map(|(key, value)| (key, SerializedHeapRef::Serialized(Some(value))))
+        .collect();
 
-//         let mut patcher = HashMap::new();
-//         let mut built_functions = HashMap::new();
+    let mut patcher = HashMap::new();
+    let mut built_functions = HashMap::new();
 
-//         let mut heap_guard = heap.lock().unwrap();
+    let mut heap_guard = heap.lock().unwrap();
 
-//         let mut serializer = HeapSerializer {
-//             heap: &mut heap_guard,
-//             fake_heap: &mut mapping,
-//             values_to_fill_in: &mut patcher,
-//             built_functions: &mut built_functions,
-//         };
+    let mut serializer = HeapSerializer {
+        heap: &mut heap_guard,
+        fake_heap: &mut mapping,
+        values_to_fill_in: &mut patcher,
+        built_functions: &mut built_functions,
+    };
 
-//         // Moved over the thread. We now have
-//         let closure: ByteCodeLambda = ByteCodeLambda::from_serialized(&mut serializer, function);
+    // Moved over the thread. We now have
+    // let closure: ByteCodeLambda = ByteCodeLambda::from_serialized(&mut serializer, function);
 
-//         VTable::initialize_new_thread(sendable_vtable_entries, &mut serializer);
+    VTable::initialize_new_thread(sendable_vtable_entries, &mut serializer);
 
-//         let constant_map = time!(
-//             "Constant map deserialization",
-//             ConstantMap::from_vec(
-//                 thread
-//                     .constants
-//                     .into_iter()
-//                     .map(|x| from_serializable_value(&mut serializer, x))
-//                     .collect(),
-//             )
-//         );
+    println!("Initialized vtable.");
 
-//         #[cfg(feature = "sync")]
-//         let global_env = time!(
-//             "Global env creation",
-//             Env {
-//                 bindings_vec: Arc::new(std::sync::RwLock::new(
-//                     thread
-//                         .global_env
-//                         .into_iter()
-//                         .map(|x| from_serializable_value(&mut serializer, x))
-//                         .collect()
-//                 )),
-//                 // TODO:
-//                 thread_local_bindings: Vec::new(),
-//             }
-//         );
+    let constant_map = ConstantMap::from_vec(
+        thread
+            .constants
+            .into_iter()
+            .map(|x| from_serializable_value(&mut serializer, x))
+            .collect(),
+    );
 
-//         #[cfg(not(feature = "sync"))]
-//         let global_env = time!(
-//             "Global env creation",
-//             Env {
-//                 bindings_vec: thread
-//                     .global_env
-//                     .into_iter()
-//                     .map(|x| from_serializable_value(&mut serializer, x))
-//                     .collect(),
-//             }
-//         );
+    println!("Initialized constant map");
 
-//         let function_interner = time!(
-//             "Function interner time",
-//             FunctionInterner {
-//                 closure_interner: thread
-//                     .function_interner
-//                     .closure_interner
-//                     .into_iter()
-//                     .map(|(k, v)| (k, ByteCodeLambda::from_serialized(&mut serializer, v)))
-//                     .collect(),
-//                 pure_function_interner: thread
-//                     .function_interner
-//                     .pure_function_interner
-//                     .into_iter()
-//                     .map(|(k, v)| (
-//                         k,
-//                         if let Some(exists) = serializer.built_functions.get(&v.id) {
-//                             exists.clone()
-//                         } else {
-//                             Gc::new(ByteCodeLambda::from_serialized(&mut serializer, v))
-//                         }
-//                     ))
-//                     .collect(),
-//                 spans: thread
-//                     .function_interner
-//                     .spans
-//                     .into_iter()
-//                     .map(|(k, v)| (k, v.into()))
-//                     .collect(),
-//             }
-//         );
+    #[cfg(feature = "sync")]
+    let global_env = Env {
+        bindings_vec: Arc::new(std::sync::RwLock::new(
+            thread
+                .global_env
+                .into_iter()
+                .map(|x| from_serializable_value(&mut serializer, x))
+                .collect(),
+        )),
+        // TODO:
+        thread_local_bindings: Vec::new(),
+    };
 
-//         // Patch over the values in the final heap!
+    #[cfg(not(feature = "sync"))]
+    let global_env = Env {
+        bindings_vec: thread
+            .global_env
+            .into_iter()
+            .map(|x| from_serializable_value(&mut serializer, x))
+            .collect(),
+    };
 
-//         time!("Patching over heap values", {
-//             for (key, value) in serializer.values_to_fill_in {
-//                 if let Some(cycled) = serializer.fake_heap.get(key) {
-//                     match cycled {
-//                         SerializedHeapRef::Serialized(_) => todo!(),
-//                         // Patch over the cycle
-//                         SerializedHeapRef::Closed(c) => {
-//                             value.set(c.get());
-//                         }
-//                     }
-//                 } else {
-//                     todo!()
-//                 }
-//             }
-//         });
+    println!("Initialized global env");
 
-//         drop(heap_guard);
+    let function_interner = FunctionInterner {
+        closure_interner: thread
+            .function_interner
+            .closure_interner
+            .into_iter()
+            .map(|(k, v)| (k, ByteCodeLambda::from_serialized(&mut serializer, v)))
+            .collect(),
+        pure_function_interner: thread
+            .function_interner
+            .pure_function_interner
+            .into_iter()
+            .map(|(k, v)| {
+                (
+                    k,
+                    if let Some(exists) = serializer.built_functions.get(&v.id) {
+                        exists.clone()
+                    } else {
+                        Gc::new(ByteCodeLambda::from_serialized(&mut serializer, v))
+                    },
+                )
+            })
+            .collect(),
+        spans: thread
+            .function_interner
+            .spans
+            .into_iter()
+            .map(|(k, v)| (k, v.into()))
+            .collect(),
+    };
 
-//         // New thread! It will result in a run time error if the function references globals that cannot be shared
-//         // between threads. This is a bit of an unfortunate occurrence - we probably _should_ just have the engine share
-//         // as much as possible between threads.
-//         let mut thread = SteelThread {
-//             global_env,
-//             sources,
-//             stack: Vec::with_capacity(64),
+    println!("Initialized function interner");
 
-//             #[cfg(feature = "dynamic")]
-//             profiler: OpCodeOccurenceProfiler::new(),
+    // Patch over the values in the final heap!
 
-//             function_interner,
-//             heap,
-//             runtime_options: thread.runtime_options,
-//             current_frame: StackFrame::main(),
-//             stack_frames: Vec::with_capacity(32),
-//             constant_map,
-//             interrupted: Default::default(),
-//             synchronizer: Synchronizer::new(),
-//             thread_local_storage: Vec::new(),
-//             // TODO: Fix this
-//             compiler: todo!(),
-//             id: EngineId::new(),
-//             safepoints_enabled: false,
-//         };
+    for (key, value) in serializer.values_to_fill_in {
+        if let Some(cycled) = serializer.fake_heap.get(key) {
+            match cycled {
+                SerializedHeapRef::Serialized(_) => todo!(),
+                // Patch over the cycle
+                SerializedHeapRef::Closed(c) => {
+                    value.set(c.get());
+                }
+            }
+        } else {
+            todo!()
+        }
+    }
 
-//         #[cfg(feature = "profiling")]
-//         log::info!(target: "threads", "Time taken to spawn thread: {:?}", now.elapsed());
+    println!("Patched heap");
 
-//         // Call the function!
-//         thread
-//             .call_function(
-//                 thread.constant_map.clone(),
-//                 SteelVal::Closure(Gc::new(closure)),
-//                 Vec::new(),
-//             )
-//             .map_err(|e| e.to_string())
-//     });
+    drop(heap_guard);
 
-//     return ThreadHandle {
-//         handle: Some(handle),
-//         thread_state_manager: ThreadStateController::default(),
-//     }
-//     .into_steelval();
-// }
+    println!("Finished.");
+
+    // New thread! It will result in a run time error if the function references globals that cannot be shared
+    // between threads. This is a bit of an unfortunate occurrence - we probably _should_ just have the engine share
+    // as much as possible between threads.
+    // let mut thread = SteelThread {
+    //     global_env,
+    //     sources,
+    //     stack: Vec::with_capacity(64),
+
+    //     #[cfg(feature = "dynamic")]
+    //     profiler: OpCodeOccurenceProfiler::new(),
+
+    //     function_interner,
+    //     heap,
+    //     runtime_options: thread.runtime_options,
+    //     current_frame: StackFrame::main(),
+    //     stack_frames: Vec::with_capacity(32),
+    //     constant_map,
+    //     interrupted: Default::default(),
+    //     synchronizer: Synchronizer::new(),
+    //     thread_local_storage: Vec::new(),
+    //     // TODO: Fix this
+    //     compiler: todo!(),
+    //     id: EngineId::new(),
+    //     safepoints_enabled: false,
+    // };
+
+    // #[cfg(feature = "profiling")]
+    // log::info!(target: "threads", "Time taken to spawn thread: {:?}", now.elapsed());
+
+    // Call the function!
+    // thread
+    //     .call_function(
+    //         thread.constant_map.clone(),
+    //         SteelVal::Closure(Gc::new(closure)),
+    //         Vec::new(),
+    //     )
+    //     .map_err(|e| e.to_string())
+
+    // return ThreadHandle {
+    //     handle: Some(handle),
+    //     thread_state_manager: ThreadStateController::default(),
+    // }
+    // .into_steelval();
+
+    Ok(SteelVal::Void)
+}
 
 pub struct SteelReceiver {
     receiver: crossbeam_channel::Receiver<SteelVal>,
@@ -867,8 +889,14 @@ impl Custom for std::thread::ThreadId {
     }
 }
 
+#[derive(Clone)]
 pub struct ThreadLocalStorage(usize);
-impl crate::rvals::Custom for ThreadLocalStorage {}
+impl crate::rvals::Custom for ThreadLocalStorage {
+    fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
+        // TODO: This probably should have a different implementation?
+        Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+    }
+}
 
 /// Creates a thread local storage slot. These slots are static, and will _not_ be reclaimed.
 ///
@@ -958,20 +986,22 @@ pub fn threading_module() -> BuiltInModule {
             |channel: &std::sync::mpsc::Sender<SerializableSteelVal>,
              val: SteelVal|
              -> Result<()> {
-                let mut map = HashMap::new();
-                let mut visited = HashSet::new();
+                // let mut map = HashMap::new();
+                // let mut visited = HashSet::new();
+
+                todo!()
 
                 // TODO: Handle this here somehow, we don't want to use an empty map
-                let serializable =
-                    crate::rvals::into_serializable_value(val, &mut map, &mut visited)?;
+                // let serializable =
+                //     crate::rvals::into_serializable_value(val, &mut map, &mut visited)?;
 
-                if !map.is_empty() {
-                    stop!(Generic => "Unable to send mutable variable over a channel");
-                }
+                // if !map.is_empty() {
+                //     stop!(Generic => "Unable to send mutable variable over a channel");
+                // }
 
-                channel
-                    .send(serializable)
-                    .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))
+                // channel
+                //     .send(serializable)
+                //     .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))
             },
         )
         // TODO: These need to be fucntions that take the context
