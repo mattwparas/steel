@@ -128,25 +128,66 @@ create_prelude!(
 );
 
 #[cfg(not(target_arch = "wasm32"))]
+pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
+    std::env::var("STEEL_SEARCH_PATHS").ok().map(|x| {
+        std::env::split_paths(x.as_str())
+            .map(PathBuf::from)
+            .collect::<Vec<_>>()
+    })
+});
+
+pub fn steel_search_dirs() -> Vec<PathBuf> {
+    #[cfg(not(target_arch = "wasm32"))]
+    return STEEL_SEARCH_PATHS.clone().unwrap_or_default();
+
+    #[cfg(target_arch = "wasm32")]
+    return Vec::new();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
     std::env::var("STEEL_HOME").ok().or_else(|| {
-        let home = env_home::env_home_dir();
+        let home = env_home::env_home_dir().map(|x| x.join(".steel"));
 
-        home.map(|mut x: PathBuf| {
-            x.push(".steel");
-
-            // Just go ahead and initialize the directory, even though
-            // this is probably not the best place to do this. This almost
-            // assuredly could be lifted out of this check since failing here
-            // could cause some annoyance.
-            if !x.exists() {
-                if let Err(_) = std::fs::create_dir(&x) {
-                    eprintln!("Unable to create steel home directory {:?}", x)
-                }
+        if let Some(home) = home {
+            if home.exists() {
+                return Some(home.into_os_string().into_string().unwrap());
             }
 
-            x.into_os_string().into_string().unwrap()
-        })
+            #[cfg(target_os = "windows")]
+            {
+                if let Err(e) = std::fs::create_dir(&home) {
+                    eprintln!("Unable to create steel home directory {:?}: {}", home, e)
+                }
+
+                return Some(home.into_os_string().into_string().unwrap());
+            }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let bd = xdg::BaseDirectories::new();
+            let home = bd.data_home;
+
+            home.map(|mut x: PathBuf| {
+                x.push("steel");
+
+                // Just go ahead and initialize the directory, even though
+                // this is probably not the best place to do this. This almost
+                // assuredly could be lifted out of this check since failing here
+                // could cause some annoyance.
+                if !x.exists() {
+                    if let Err(e) = std::fs::create_dir(&x) {
+                        eprintln!("Unable to create steel home directory {:?}: {}", x, e)
+                    }
+                }
+
+                x.into_os_string().into_string().unwrap()
+            })
+        }
+
+        #[cfg(target_os = "windows")]
+        None
     })
 });
 

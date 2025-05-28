@@ -93,6 +93,9 @@ arc-swap = "1.7.1"
 md-5 = "0.10.6"
 glob = "0.3.2"
 
+# For helping discover the steel home location
+xdg = "3.0.0"
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3.1", features = ["wasm_js"] }
 
