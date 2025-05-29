@@ -2,7 +2,6 @@ use crate::primitives::numbers::make_polar;
 use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
-use num_bigint::BigInt;
 use num_rational::{BigRational, Rational32};
 use std::borrow::Cow;
 use std::str;
