@@ -2,7 +2,8 @@ use crate::primitives::numbers::make_polar;
 use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
-use num_rational::BigRational;
+use num_bigint::BigInt;
+use num_rational::{BigRational, Rational32};
 use std::borrow::Cow;
 use std::str;
 use std::sync::{Arc, Mutex};
@@ -150,7 +151,16 @@ fn real_literal_to_steelval(r: RealLiteral) -> Result<SteelVal, SteelErr> {
     match r {
         RealLiteral::Int(IntLiteral::Small(x)) => x.into_steelval(),
         RealLiteral::Int(IntLiteral::Big(x)) => x.into_steelval(),
-        RealLiteral::Rational(n, d) => BigRational::new(n.into(), d.into()).into_steelval(),
+        RealLiteral::Rational(numer, denom) => match (&numer, &denom) {
+            (IntLiteral::Small(n), IntLiteral::Small(d)) => {
+                match (i32::try_from(*n), i32::try_from(*d)) {
+                    (_, Ok(0)) => steelerr!(BadSyntax => "division by zero in {}/0", numer),
+                    (Ok(n), Ok(d)) => Rational32::new(n, d).into_steelval(),
+                    (_, _) => BigRational::new(numer.into(), denom.into()).into_steelval(),
+                }
+            }
+            (_, _) => BigRational::new(numer.into(), denom.into()).into_steelval(),
+        },
         RealLiteral::Float(f) => f.into_steelval(),
     }
 }
@@ -171,6 +181,14 @@ impl IntoSteelVal for NumberLiteral {
                 make_polar(&r, &theta)
             }
         }
+    }
+}
+
+impl<'a> IntoSteelVal for &'a NumberLiteral {
+    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+        // as we do not have an owned `self`, we have to clone here, as
+        // we need all the BigInts owned
+        self.clone().into_steelval()
     }
 }
 

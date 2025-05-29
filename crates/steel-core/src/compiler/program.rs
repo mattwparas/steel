@@ -2,8 +2,7 @@ use crate::core::instructions::u24;
 use crate::core::labels::Expr;
 use crate::gc::Shared;
 use crate::parser::span_visitor::get_span;
-use crate::primitives::numbers::make_polar;
-use crate::rvals::{Result, SteelComplex};
+use crate::rvals::Result;
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::Instruction, opcode::OpCode},
@@ -19,12 +18,8 @@ use crate::{
     },
     rvals::IntoSteelVal,
 };
-
-use num_bigint::BigInt;
-use num_rational::{BigRational, Rational32};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::TryInto, time::SystemTime};
-use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 
 #[cfg(feature = "profiling")]
 use std::time::Instant;
@@ -36,54 +31,11 @@ use super::{compiler::DebruijnIndicesInterner, map::SymbolMap};
 
 const _TILE_SUPER_INSTRUCTIONS: bool = true;
 
-pub fn number_literal_to_steel(n: &NumberLiteral) -> Result<SteelVal> {
-    // real_to_steel does some cloning of bignums. It may be possible to optimize this away.
-    let real_to_steel = |re: &RealLiteral| match re {
-        RealLiteral::Int(IntLiteral::Small(i)) => i.into_steelval(),
-        RealLiteral::Int(IntLiteral::Big(i)) => i.clone().into_steelval(),
-        RealLiteral::Rational(n, d) => match (n, d) {
-            (IntLiteral::Small(n), IntLiteral::Small(d)) => {
-                match (i32::try_from(*n), i32::try_from(*d)) {
-                    (Ok(n), Ok(0)) => {
-                        stop!(BadSyntax => format!("division by zero in {:?}/0", n))
-                    }
-                    (Ok(n), Ok(d)) => Rational32::new(n, d).into_steelval(),
-                    _ => BigRational::new(BigInt::from(*n), BigInt::from(*d)).into_steelval(),
-                }
-            }
-            (IntLiteral::Small(n), IntLiteral::Big(d)) => {
-                BigRational::new(BigInt::from(*n), *d.clone()).into_steelval()
-            }
-            (IntLiteral::Big(n), IntLiteral::Small(d)) => {
-                BigRational::new(*n.clone(), BigInt::from(*d)).into_steelval()
-            }
-            (IntLiteral::Big(n), IntLiteral::Big(d)) => {
-                BigRational::new(*n.clone(), *d.clone()).into_steelval()
-            }
-        },
-        RealLiteral::Float(f) => f.into_steelval(),
-    };
-    match n {
-        NumberLiteral::Real(re) => real_to_steel(re),
-        NumberLiteral::Complex(re, im) => SteelComplex {
-            re: real_to_steel(re)?,
-            im: real_to_steel(im)?,
-        }
-        .into_steelval(),
-        NumberLiteral::Polar(r, theta) => {
-            let r = real_to_steel(r)?;
-            let theta = real_to_steel(theta)?;
-
-            make_polar(&r, &theta)
-        }
-    }
-}
-
 /// Evaluates an atom expression in given environment.
 fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Ok((*b).into()),
-        TokenType::Number(n) => number_literal_to_steel(n),
+        TokenType::Number(n) => (&**n).into_steelval(),
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.to_string().into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
