@@ -188,7 +188,7 @@ fn system_time_now() -> SystemTime {
 
 /// Gets the duration between two system times.
 ///
-/// (system-time-duration-since)
+/// (system-time-duration-since time earlier)
 #[function(name = "system-time-duration-since")]
 fn system_time_duration_since(
     left: SystemTime,
