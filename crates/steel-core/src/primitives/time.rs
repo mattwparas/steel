@@ -212,6 +212,8 @@ pub fn time_module() -> BuiltInModule {
         .register_fn("duration->millis", Duration::as_millis)
         .register_fn("duration->micros", Duration::as_micros)
         .register_fn("duration->nanos", Duration::as_nanos)
+        .register_native_fn_definition(SYSTEM_TIME_DURATION_SINCE_DEFINITION)
+        .register_native_fn_definition(SYSTEM_TIME_NOW_DEFINITION)
         .register_native_fn_definition(SYSTEM_TIME_GTE_DEFINITION)
         .register_native_fn_definition(SYSTEM_TIME_GT_DEFINITION)
         .register_native_fn_definition(SYSTEM_TIME_LTE_DEFINITION)
