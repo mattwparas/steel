@@ -1171,51 +1171,6 @@ impl Compiler {
         }
 
         res
-
-        // log::debug!(target: "expansion-phase", "Expanding macros -> phase 0");
-
-        // let expanded_statements = self.lower_expressions_impl(exprs, path)?;
-
-        // log::debug!(target: "expansion-phase", "Generating instructions");
-
-        // let instructions = self.generate_instructions_for_executable(expanded_statements)?;
-
-        // let mut raw_program = RawProgramWithSymbols::new(
-        //     instructions,
-        //     self.constant_map.clone(),
-        //     "0.1.0".to_string(),
-        // );
-
-        // // Make sure to apply the peephole optimizations
-        // raw_program.apply_optimizations();
-
-        // // Lets see everything that gets run!
-        // // raw_program.debug_print_log();
-
-        // Ok(raw_program)
-
-        // let old = self.modules().clone();
-        // let res = compile_raw_program_impl(self, exprs, path);
-
-        // if res.is_err() {
-        //     println!("-> Getting here");
-
-        //     let new = self.modules().clone();
-
-        //     println!("Old modules: {:?}", old.keys().collect::<Vec<_>>());
-        //     println!("New modules: {:?}", new.keys().collect::<Vec<_>>());
-
-        //     let difference = new.difference(old.clone());
-        //     let metadata = self.module_metadata_mut();
-
-        //     for key in difference.keys() {
-        //         metadata.remove(key);
-        //     }
-
-        //     *self.modules_mut() = old;
-        // }
-
-        // res
     }
 
     fn _run_const_evaluation_with_memoization(
