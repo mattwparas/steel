@@ -623,7 +623,7 @@ impl Compiler {
         )
     }
 
-    pub fn modules(&self) -> &FxHashMap<PathBuf, CompiledModule> {
+    pub fn modules(&self) -> &crate::HashMap<PathBuf, CompiledModule> {
         self.module_manager.modules()
     }
 
@@ -1124,10 +1124,7 @@ impl Compiler {
         Ok(raw_program)
     }
 
-    // TODO
-    // figure out how the symbols will work so that a raw program with symbols
-    // can be later pulled in and symbols can be interned correctly
-    fn compile_raw_program(
+    fn compile_raw_program_impl(
         &mut self,
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
@@ -1153,6 +1150,49 @@ impl Compiler {
         // raw_program.debug_print_log();
 
         Ok(raw_program)
+    }
+
+    // TODO
+    // figure out how the symbols will work so that a raw program with symbols
+    // can be later pulled in and symbols can be interned correctly
+    fn compile_raw_program(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        path: Option<PathBuf>,
+    ) -> Result<RawProgramWithSymbols> {
+        // Roll back any dependencies that got compiled, assuming they did.
+        let snapshot_modules = self.module_manager.compiled_modules.clone();
+
+        let res = self.compile_raw_program_impl(exprs, path);
+
+        if res.is_err() {
+            self.module_manager.compiled_modules = snapshot_modules;
+            // Also rollback the metadata to match?
+        }
+
+        res
+
+        // log::debug!(target: "expansion-phase", "Expanding macros -> phase 0");
+
+        // let expanded_statements = self.lower_expressions_impl(exprs, path)?;
+
+        // log::debug!(target: "expansion-phase", "Generating instructions");
+
+        // let instructions = self.generate_instructions_for_executable(expanded_statements)?;
+
+        // let mut raw_program = RawProgramWithSymbols::new(
+        //     instructions,
+        //     self.constant_map.clone(),
+        //     "0.1.0".to_string(),
+        // );
+
+        // // Make sure to apply the peephole optimizations
+        // raw_program.apply_optimizations();
+
+        // // Lets see everything that gets run!
+        // // raw_program.debug_print_log();
+
+        // Ok(raw_program)
 
         // let old = self.modules().clone();
         // let res = compile_raw_program_impl(self, exprs, path);
