@@ -204,7 +204,7 @@ pub fn steel_home() -> Option<String> {
 /// if it needs to be recompiled
 #[derive(Clone)]
 pub(crate) struct ModuleManager {
-    compiled_modules: FxHashMap<PathBuf, CompiledModule>,
+    pub(crate) compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
     file_metadata: crate::HashMap<PathBuf, SystemTime>,
     visited: FxHashSet<PathBuf>,
     custom_builtins: HashMap<String, String>,
@@ -220,7 +220,7 @@ pub trait SourceModuleResolver: Send + Sync {
 
 impl ModuleManager {
     pub(crate) fn new(
-        compiled_modules: FxHashMap<PathBuf, CompiledModule>,
+        compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
         file_metadata: crate::HashMap<PathBuf, SystemTime>,
     ) -> Self {
         ModuleManager {
@@ -241,16 +241,16 @@ impl ModuleManager {
         self.custom_builtins.insert(module_name, text);
     }
 
-    pub fn modules(&self) -> &FxHashMap<PathBuf, CompiledModule> {
+    pub fn modules(&self) -> &crate::HashMap<PathBuf, CompiledModule> {
         &self.compiled_modules
     }
 
-    pub fn modules_mut(&mut self) -> &mut FxHashMap<PathBuf, CompiledModule> {
+    pub fn modules_mut(&mut self) -> &mut crate::HashMap<PathBuf, CompiledModule> {
         &mut self.compiled_modules
     }
 
     pub(crate) fn default() -> Self {
-        Self::new(FxHashMap::default(), crate::HashMap::default())
+        Self::new(crate::HashMap::default(), crate::HashMap::default())
     }
 
     pub(crate) fn register_module_resolver(
@@ -819,7 +819,7 @@ impl ModuleManager {
     }
 
     fn find_in_scope_macros<'a>(
-        compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
+        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
         require_for_syntax: &'a PathBuf,
         require_object: &'a RequireObject,
         mangled_asts: &'a mut Vec<ExprKind>,
@@ -1094,7 +1094,7 @@ impl CompiledModule {
 
     fn to_top_level_module(
         &self,
-        modules: &FxHashMap<PathBuf, CompiledModule>,
+        modules: &crate::HashMap<PathBuf, CompiledModule>,
         global_macro_map: &FxHashMap<InternedString, SteelMacro>,
     ) -> Result<ExprKind> {
         let mut globals = collect_globals(&self.ast);
@@ -1788,7 +1788,7 @@ struct ModuleBuilder<'a> {
 
     provides: Vec<ExprKind>,
     provides_for_syntax: Vec<ExprKind>,
-    compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
+    compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
     visited: &'a mut FxHashSet<PathBuf>,
     file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
     sources: &'a mut Sources,
@@ -1806,7 +1806,7 @@ impl<'a> ModuleBuilder<'a> {
     fn main(
         name: Option<PathBuf>,
         source_ast: Vec<ExprKind>,
-        compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
+        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
         file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
@@ -3048,7 +3048,7 @@ impl<'a> ModuleBuilder<'a> {
     fn new_built_in(
         name: PathBuf,
         input: Cow<'static, str>,
-        compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
+        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
         file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
@@ -3077,7 +3077,7 @@ impl<'a> ModuleBuilder<'a> {
 
     fn new_from_path(
         name: PathBuf,
-        compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
+        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
         file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
@@ -3107,7 +3107,7 @@ impl<'a> ModuleBuilder<'a> {
 
     fn raw(
         name: PathBuf,
-        compiled_modules: &'a mut FxHashMap<PathBuf, CompiledModule>,
+        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
         file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,

@@ -2023,7 +2023,7 @@ impl Engine {
         )
     }
 
-    pub fn modules(&self) -> MappedRwLockReadGuard<'_, FxHashMap<PathBuf, CompiledModule>> {
+    pub fn modules(&self) -> MappedRwLockReadGuard<'_, crate::HashMap<PathBuf, CompiledModule>> {
         RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| x.modules())
     }
 

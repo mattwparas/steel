@@ -623,7 +623,7 @@ impl Compiler {
         )
     }
 
-    pub fn modules(&self) -> &FxHashMap<PathBuf, CompiledModule> {
+    pub fn modules(&self) -> &crate::HashMap<PathBuf, CompiledModule> {
         self.module_manager.modules()
     }
 
@@ -1124,10 +1124,7 @@ impl Compiler {
         Ok(raw_program)
     }
 
-    // TODO
-    // figure out how the symbols will work so that a raw program with symbols
-    // can be later pulled in and symbols can be interned correctly
-    fn compile_raw_program(
+    fn compile_raw_program_impl(
         &mut self,
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
@@ -1153,29 +1150,27 @@ impl Compiler {
         // raw_program.debug_print_log();
 
         Ok(raw_program)
+    }
 
-        // let old = self.modules().clone();
-        // let res = compile_raw_program_impl(self, exprs, path);
+    // TODO
+    // figure out how the symbols will work so that a raw program with symbols
+    // can be later pulled in and symbols can be interned correctly
+    fn compile_raw_program(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        path: Option<PathBuf>,
+    ) -> Result<RawProgramWithSymbols> {
+        // Roll back any dependencies that got compiled, assuming they did.
+        let snapshot_modules = self.module_manager.compiled_modules.clone();
 
-        // if res.is_err() {
-        //     println!("-> Getting here");
+        let res = self.compile_raw_program_impl(exprs, path);
 
-        //     let new = self.modules().clone();
+        if res.is_err() {
+            self.module_manager.compiled_modules = snapshot_modules;
+            // Also rollback the metadata to match?
+        }
 
-        //     println!("Old modules: {:?}", old.keys().collect::<Vec<_>>());
-        //     println!("New modules: {:?}", new.keys().collect::<Vec<_>>());
-
-        //     let difference = new.difference(old.clone());
-        //     let metadata = self.module_metadata_mut();
-
-        //     for key in difference.keys() {
-        //         metadata.remove(key);
-        //     }
-
-        //     *self.modules_mut() = old;
-        // }
-
-        // res
+        res
     }
 
     fn _run_const_evaluation_with_memoization(
