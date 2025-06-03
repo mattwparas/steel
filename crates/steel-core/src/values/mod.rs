@@ -10,6 +10,8 @@ pub(crate) mod recycler;
 pub(crate) mod structs;
 pub(crate) mod transducers;
 
+pub use functions::LambdaMetadataTable;
+
 pub use closed::RootToken;
 pub use closed::RootedSteelVal;
 pub use port::SteelPortRepr;
