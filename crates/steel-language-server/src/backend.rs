@@ -30,7 +30,7 @@ use steel::{
         span::Span,
         tryfrom_visitor::SyntaxObjectFromExprKindRef,
     },
-    rvals::{FromSteelVal, SteelString},
+    rvals::{AsRefSteelVal, FromSteelVal, SteelString},
     steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn},
 };
 use tower_lsp::jsonrpc::{self, Result};
@@ -673,6 +673,22 @@ struct TextDocumentItem {
     text: String,
     version: i32,
 }
+
+fn fetch_stdlib_doc(ident: &str) -> Option<SteelString> {
+    let mut guard = ENGINE.write().unwrap();
+
+    // Fetch the function pointer table, call the function pointer table function
+    let ptr_to_lookup = guard.extract_value(ident);
+
+    if let Ok(ptr_to_lookup) = ptr_to_lookup {
+        let fn_ptr_doc = guard.extract_value("#%function-ptr-table").unwrap();
+        let inner = steel::LambdaMetadataTable::as_ref(&fn_ptr_doc).ok()?;
+        return steel::LambdaMetadataTable::get(&inner, ptr_to_lookup);
+    }
+
+    None
+}
+
 impl Backend {
     async fn hover_impl(&self, params: HoverParams) -> Option<Hover> {
         let uri = params.text_document_position_params.text_document.uri;
@@ -715,6 +731,29 @@ impl Backend {
                 contents: HoverContents::Scalar(MarkedString::String(doc)),
                 range: None,
             });
+        }
+
+        // If we can't figure out what this refers to, it probably refers
+        // to some standard library function
+        if information.refers_to.is_none() {
+            // Resolve what we've found?
+            analysis.syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
+
+            // In the event... we have found something that more or less matched the standard
+            // library values, we should just include that here? I don't think this is going to
+            // work in general?
+            let base_identifier = syntax_object_id_to_interned_string.get(syntax_object_id);
+            if let Some(Some(base_identifier)) = base_identifier {
+                let definition = fetch_stdlib_doc(base_identifier.resolve());
+                if let Some(definition) = definition {
+                    return Some(Hover {
+                        contents: HoverContents::Scalar(MarkedString::String(
+                            definition.as_str().to_owned(),
+                        )),
+                        range: None,
+                    });
+                }
+            }
         }
 
         // Refers to something - keep that around as well
