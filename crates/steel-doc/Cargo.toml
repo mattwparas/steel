@@ -11,3 +11,6 @@ description = "Document generation for steel"
 
 [dependencies]
 steel-core = { workspace = true }
+
+[package.metadata.dist]
+dist = false
