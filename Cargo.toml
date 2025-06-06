@@ -19,7 +19,13 @@ path = "src/main.rs"
 
 [workspace.dependencies]
 # This has to line up with the workspace version above
-steel-core = { path = "./crates/steel-core", version = "0.6.0", features = ["dylibs", "markdown", "stacker", "sync", "rooted-instructions"] }
+steel-core = { path = "./crates/steel-core", version = "0.6.0", features = [
+    "dylibs",
+    "markdown",
+    "stacker",
+    "sync",
+    "rooted-instructions",
+] }
 
 [features]
 default = ["mimalloc"]
@@ -39,7 +45,8 @@ steel-derive = { path = "./crates/steel-derive", version = "0.5.0" }
 steel-repl = { path = "./crates/steel-repl", version = "0.6.0" }
 env_logger = "0.10.0"
 log = "0.4.17"
-clap = { version = "=4.1.4", features = ["derive"] }
+clap = { version = "4.5.39", features = ["derive"] }
+clap_complete = "4.5.52"
 steel-doc = { path = "./crates/steel-doc", version = "0.6.0" }
 mimalloc = { version = "0.1.43", optional = true }
 
@@ -47,11 +54,7 @@ mimalloc = { version = "0.1.43", optional = true }
 cargo-steel-lib = { path = "./crates/cargo-steel-lib", version = "0.1.0" }
 
 [workspace]
-members = [
-    ".",
-    "crates/*", 
-    "libs/*",
-]
+members = [".", "crates/*", "libs/*"]
 
 [profile.release]
 debug = true
@@ -61,4 +64,8 @@ lto = true
 opt-level = 2
 
 [build-dependencies]
-vergen = { version = "9.0.0", features = [ "build", "cargo", "rustc" ], optional = true}
+vergen = { version = "9.0.0", features = [
+    "build",
+    "cargo",
+    "rustc",
+], optional = true }
