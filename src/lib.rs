@@ -45,6 +45,8 @@ enum EmitAction {
         default_file: Option<PathBuf>,
         arguments: Vec<String>,
     },
+    /// Create basic project folder in current dir
+    New { folder_name: String },
     /// Tests the module - only tests modules which provide values
     Test { default_file: Option<String> },
     /// Generate the documentation for a file
@@ -143,6 +145,18 @@ pub fn run(clap_args: Args) -> Result<(), Box<dyn Error>> {
                     return Err(Box::new(e));
                 }
             }
+            Ok(())
+        }
+        Args {
+            action: Some(EmitAction::New { folder_name }),
+            ..
+        } => {
+            let folder_creation_result = create_project_folder(&folder_name);
+            if let Err(e) = folder_creation_result {
+                eprintln!("{e}");
+                return Ok(());
+            }
+            println!("project folder `{}` created", &folder_name);
             Ok(())
         }
         Args {
@@ -339,6 +353,51 @@ lto = true
             Ok(())
         }
     }
+}
+
+fn create_project_folder(folder_name: &String) -> Result<(), std::io::Error> {
+    fs::create_dir(folder_name)?;
+    let manifest_content = format!(
+        r#"(define package-name "{folder_name}")
+(define version "0.1.0")
+
+(define dependencies '())
+"#
+    );
+    fs::write(format!("{folder_name}/cog.scm"), manifest_content)?;
+    let main_content = r#"(require "mysum.scm")
+
+(define (main a b)
+    (begin
+        ( displayln "hello world!" )
+        ( display a )
+        ( display " + " )
+        ( display b )
+        ( display " = " )
+        ( displayln (mysum a b) )
+    ))
+
+(main 1 1)
+"#;
+    fs::write(format!("{folder_name}/main.scm"), main_content)?;
+    let mysum_content = r#"(provide mysum)
+
+(define (mysum a b) (+ a b) )
+"#;
+    fs::write(format!("{folder_name}/mysum.scm"), mysum_content)?;
+    let mysum_test_content = r#"(require "steel/tests/unit-test.scm" (for-syntax "steel/tests/unit-test.scm"))
+(require "mysum.scm")
+
+(define dummy-provide 1)
+(provide dummy-provide)
+
+(test-module
+  "mysum"
+  (check-equal? "my sum works!" 3 (mysum 1 2))
+)
+"#;
+    fs::write(format!("{folder_name}/mysum-test.scm"), mysum_test_content)?;
+    Ok(())
 }
 
 pub fn finish(result: Result<(), std::io::Error>) -> ! {
