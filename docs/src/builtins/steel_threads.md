@@ -70,6 +70,5 @@ bytecode instruction that is running.
 ### **channels/new**
 ### **current-thread-id**
 ### **make-channels**
-### **spawn-thread!**
 ### **thread/available-parallelism**
 ### **thread::current/id**

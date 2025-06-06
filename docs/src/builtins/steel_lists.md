@@ -200,7 +200,7 @@ Returns the rest of the list. Will raise an error if the list is empty.
 ```scheme
 > (rest (list 10 20 30)) ;; => '(20 30)
 > (rest (list 10)) ;; => '()
-> (rest (list 10))
+> (rest '() )
 error[E11]: Generic
 ┌─ :1:2
 │

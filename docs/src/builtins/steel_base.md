@@ -509,6 +509,21 @@ Compose multiple iterators into one iterator
 (filtering odd?)
 (taking 15))
 ```
+### **concat-symbols**
+Concatenates zero or more symbols into a new symbol.
+
+(concat-symbols sym1 sym2 …) -> symbol?
+
+* `sym1` : symbol? — the first symbol to append
+* `sym2` : symbol? — the next symbol to append, and so on
+
+#### Examples
+```scheme
+> (concat-symbols 'he 'llo)
+=> 'hello
+> (concat-symbols)
+=> '
+```
 ### **cons**
 Returns a newly allocated list whose first element is `a` and second element is `d`.
 
@@ -1173,6 +1188,13 @@ Test if the hashset contains a given element.
 (hashset-contains? (hashset 10 20) 10) ;; => #true
 (hashset-contains? (hashset 10 20) "foo") ;; => #false
 ```
+### **hashset-difference**
+Finds the difference between the two hash sets.
+
+#### Examples
+```scheme
+(hashset-difference (hashset 10 20 30) (hashset 20 30 40)) ;; => (hashset 40 10)
+```
 ### **hashset-insert**
 Insert a new element into the hashset. Returns a hashset.
 
@@ -1182,6 +1204,13 @@ Insert a new element into the hashset. Returns a hashset.
 (define updated (hashset-insert hs 40))
 (equal? hs (hashset 10 20 30)) ;; => #true
 (equal? updated (hashset 10 20 30 40)) ;; => #true
+```
+### **hashset-intersection**
+Finds the intersection between the two hash sets.
+
+#### Examples
+```scheme
+(hashset-intersection (hashset 10 20) (hashset 20)) ;; => (hashset 10)
 ```
 ### **hashset-length**
 Get the number of elements in the hashset
@@ -1197,6 +1226,13 @@ Check if the left set is a subset of the right set
 ```scheme
 (hashset-subset? (hash 10) (hashset 10 20)) ;; => #true
 (hashset-subset? (hash 100) (hashset 30)) ;; => #false
+```
+### **hashset-union**
+Finds the union between the two hash sets.
+
+#### Examples
+```scheme
+(hashset-union (hashset 10) (hashset 20)) ;; => (hashset 10 20)
 ```
 ### **imag-part**
 Returns the imaginary part of a number
@@ -2142,7 +2178,7 @@ Returns the rest of the list. Will raise an error if the list is empty.
 ```scheme
 > (rest (list 10 20 30)) ;; => '(20 30)
 > (rest (list 10)) ;; => '()
-> (rest (list 10))
+> (rest '() )
 error[E11]: Generic
 ┌─ :1:2
 │
@@ -2551,6 +2587,54 @@ Creates a substring slicing the characters between two indices.
 (substring "hello" 1 4) ;; => "ell"
 (substring "hello" 10 15) ;; => error
 ```
+### **symbol->string**
+Converts a symbol or quoted list into its string representation.
+
+(symbol->string sym) -> string?
+
+* `sym` : symbol? | list? — a symbol or quoted list to convert
+
+#### Examples
+```scheme
+> (symbol->string 'foo)
+"foo"
+
+> (symbol->string '(a b c))
+"(a b c)"
+
+> (symbol->string 123)
+Error: symbol->string expected a symbol, found 123
+```
+### **symbol=?**
+Compares one or more symbols for pointer‐identity equality.
+
+(symbol=? sym1 sym2 …) -> bool?
+
+* `sym1` : symbol? — the first symbol to compare
+* `sym2` : symbol? — the next symbol to compare, and so on
+
+Returns `#t` if all provided symbols share the same memory pointer,
+`#f` otherwise. At least one argument is required.
+
+#### Examples
+```scheme
+> (define a 'foo)
+> (define b 'foo)
+> (symbol=? a b)
+=> #t
+> (symbol=? 'a 'b)
+=> #f
+> (symbol=? 'x 'x 'x)
+=> #t
+```
+### **system-time-duration-since**
+Gets the duration between two system times.
+
+(system-time-duration-since time earlier)
+### **system-time/now**
+Returns the current `SystemTime`.
+
+(system-time/now) -> SystemTime?
 ### **take**
 Returns the first n elements of the list l as a new list.
 
@@ -2928,11 +3012,13 @@ Create a zipping iterator
 ### **child-stdin**
 ### **child-stdout**
 ### **command**
-### **concat-symbols**
 ### **continuation?**
 ### **current-function-span**
 ### **current-os!**
 ### **current-thread-id**
+### **duration->micros**
+### **duration->millis**
+### **duration->nanos**
 ### **duration->seconds**
 ### **duration-since**
 ### **emit-expanded**
@@ -3028,7 +3114,6 @@ Create a zipping iterator
 ### **set?**
 ### **span-file-id**
 ### **spawn-process**
-### **spawn-thread!**
 ### **stdout**
 ### **stdout-simple-displayln**
 ### **steel-home-location**
@@ -3038,8 +3123,6 @@ Create a zipping iterator
 ### **string?**
 ### **struct->list**
 ### **struct?**
-### **symbol->string**
-### **symbol=?**
 ### **symbol?**
 ### **syntax->datum**
 ### **syntax-e**
