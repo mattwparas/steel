@@ -4635,6 +4635,12 @@ fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result
         .write()
         .compile_executable_from_expressions(vec![expr]);
 
+    // Gc the sources, if possible
+    ctx.thread
+        .compiler
+        .write()
+        .gc_sources(ctx.thread.function_interner.spans.values());
+
     match res {
         Ok(program) => {
             let result = program.build(
@@ -4825,6 +4831,10 @@ fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> R
         .compiler
         .write()
         .compile_executable(exprs, Some(std::path::PathBuf::from(path.as_str())));
+    ctx.thread
+        .compiler
+        .write()
+        .gc_sources(ctx.thread.function_interner.spans.values());
 
     match res {
         Ok(program) => {
@@ -4851,6 +4861,11 @@ fn eval_string_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) ->
         .compiler
         .write()
         .compile_executable(string.to_string(), None);
+
+    ctx.thread
+        .compiler
+        .write()
+        .gc_sources(ctx.thread.function_interner.spans.values());
 
     match res {
         Ok(program) => {
