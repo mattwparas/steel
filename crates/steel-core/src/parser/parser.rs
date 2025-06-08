@@ -1,5 +1,7 @@
+use crate::compiler::passes::VisitorMutUnitRef;
 use crate::primitives::numbers::make_polar;
 use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
+use crate::HashSet;
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
 use num_rational::{BigRational, Rational32};
@@ -39,10 +41,35 @@ impl FromSteelVal for SourceId {
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
+struct GcMetadata {
+    size_in_bytes: usize,
+
+    threshold: usize,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub(crate) struct InterierSources {
     paths: HashMap<SourceId, PathBuf>,
     reverse: HashMap<PathBuf, SourceId>,
-    sources: Vec<Cow<'static, str>>,
+    // TODO: The sources here are just ever growing.
+    // Really, we shouldn't even do this. Having to index
+    // into the list isn't particularly necessary, we could
+    // just use a hashmap, which would allow us to shrink
+    // the sources later by pruning sources that are
+    // duplicate. Expressions that are just eval'd are
+    // eventually going to take up a lot of space
+    // in this. Those expressions should have some kind
+    // of weak reference back to the program that we have.
+    //
+    // Every time the sources are pointing in to this and we want
+    // to do some GC, we will just have to walk all of the sources
+    // and collect the spans. It isn't fun, but it could be
+    // a fine way to remove sources.
+    sources: HashMap<SourceId, Cow<'static, str>>,
+
+    counter: usize,
+
+    gc_metadata: GcMetadata,
 }
 
 impl InterierSources {
@@ -50,15 +77,27 @@ impl InterierSources {
         InterierSources {
             paths: HashMap::new(),
             reverse: HashMap::new(),
-            sources: Vec::new(),
+            sources: HashMap::new(),
+            counter: 0,
+            gc_metadata: GcMetadata {
+                size_in_bytes: 0,
+                // Start with 8 Kilobytes. Which will grow to 64 if there
+                // is sufficient pressure.
+                threshold: 1024 * 8,
+            },
         }
     }
 
     pub fn size_in_bytes(&self) -> usize {
         self.sources
-            .iter()
+            .values()
             .map(|x| std::mem::size_of_val(&*x))
             .sum()
+    }
+
+    fn gensym(&mut self) -> usize {
+        self.counter += 1;
+        self.counter
     }
 
     // TODO: Source Id should probably be a weak pointer back here rather than an ID
@@ -72,15 +111,23 @@ impl InterierSources {
         // We're overwriting the existing source
         if let Some(path) = &path {
             if let Some(id) = self.reverse.get(path) {
-                self.sources[id.0 as usize] = source.into();
+                let expr = source.into();
+                self.gc_metadata.size_in_bytes += expr.len();
+                let old = self.sources.insert(*id, expr);
+                if let Some(old) = old {
+                    self.gc_metadata.size_in_bytes += old.len();
+                }
                 return *id;
             }
         }
 
-        let index = self.sources.len();
-        self.sources.push(source.into());
-
+        let index = self.gensym();
         let id = SourceId(index as _);
+        let expr = source.into();
+
+        self.gc_metadata.size_in_bytes += expr.len();
+
+        self.sources.insert(id, expr);
 
         if let Some(path) = path {
             self.paths.insert(id, path.clone());
@@ -91,7 +138,7 @@ impl InterierSources {
     }
 
     pub fn get(&self, source_id: SourceId) -> Option<&Cow<'static, str>> {
-        self.sources.get(source_id.0 as usize)
+        self.sources.get(&source_id)
     }
 
     pub fn get_path(&self, source_id: &SourceId) -> Option<PathBuf> {
@@ -100,6 +147,48 @@ impl InterierSources {
 
     pub fn get_id(&self, path: &PathBuf) -> Option<SourceId> {
         self.reverse.get(path).copied()
+    }
+
+    pub fn should_gc(&self) -> bool {
+        self.gc_metadata.size_in_bytes > self.gc_metadata.threshold
+    }
+
+    pub fn gc(&mut self, roots: HashSet<SourceId>) {
+        self.sources.retain(|key, _| roots.contains(key));
+        self.paths.retain(|key, _| roots.contains(key));
+        self.reverse.retain(|_, value| roots.contains(value));
+
+        let remaining = self.size_in_bytes();
+        log::debug!("Sources GC: Reclaimed bytes: {}", remaining);
+
+        self.gc_metadata.size_in_bytes = remaining;
+
+        if remaining as f64 > (0.75 * self.gc_metadata.threshold as f64) {
+            self.gc_metadata.threshold = remaining * 2;
+        }
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct SourcesCollector {
+    sources: HashSet<SourceId>,
+}
+
+impl SourcesCollector {
+    pub fn add(&mut self, id: SourceId) {
+        self.sources.insert(id);
+    }
+
+    pub fn into_set(self) -> HashSet<SourceId> {
+        self.sources
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for SourcesCollector {
+    fn visit_atom(&mut self, a: &'a steel_parser::ast::Atom) {
+        if let Some(source) = a.syn.span.source_id() {
+            self.sources.insert(source);
+        }
     }
 }
 
@@ -139,6 +228,16 @@ impl Sources {
 
     pub fn size_in_bytes(&self) -> usize {
         self.sources.lock().unwrap().size_in_bytes()
+    }
+
+    pub(crate) fn should_gc(&self) -> bool {
+        self.sources.lock().unwrap().should_gc()
+    }
+
+    pub(crate) fn gc(&self, roots: HashSet<SourceId>) {
+        let mut guard = self.sources.lock().unwrap();
+        // Drop anything that isn't present
+        guard.gc(roots);
     }
 }
 

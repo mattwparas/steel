@@ -429,6 +429,10 @@ impl BuiltInModuleRepr {
         self.values.get(name.as_str()).cloned()
     }
 
+    pub(crate) fn cached_expression(&self) -> SharedMut<Option<ExprKind>> {
+        self.generated_expression.clone()
+    }
+
     /// This does the boot strapping for bundling modules
     /// Rather than expose a native hash-get, the built in module above should expose a raw
     /// function to fetch a dependency. It will be a packaged #<BuiltInModule> with only a function to
@@ -513,6 +517,10 @@ impl BuiltInModule {
         Self {
             module: Shared::new(MutContainer::new(BuiltInModuleRepr::new(name))),
         }
+    }
+
+    pub(crate) fn cached_expression(&self) -> SharedMut<Option<ExprKind>> {
+        self.module.read().cached_expression()
     }
 
     pub(crate) fn constant_funcs(

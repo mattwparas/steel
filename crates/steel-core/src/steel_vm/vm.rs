@@ -370,7 +370,7 @@ pub struct FunctionInterner {
     // actually any references to this still in existence. Functions should probably hold a direct
     // reference to the existing thread in which it was created, and if passed in externally by
     // another run time, we can nuke it?
-    spans: fxhash::FxHashMap<u32, Shared<[Span]>>,
+    pub(crate) spans: fxhash::FxHashMap<u32, Shared<[Span]>>,
 }
 
 #[derive(Clone, Default)]

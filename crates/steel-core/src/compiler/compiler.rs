@@ -5,15 +5,16 @@ use crate::{
         modules::MANGLER_PREFIX,
         passes::{
             analysis::SemanticAnalysis, begin::flatten_begins_and_expand_defines,
-            shadow::RenameShadowedVariables, VisitorMutRefUnit,
+            shadow::RenameShadowedVariables, VisitorMutRefUnit, VisitorMutUnitRef,
         },
     },
     core::{instructions::u24, labels::Expr},
+    gc::Shared,
     parser::{
         expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change},
         interner::InternedString,
         kernel::Kernel,
-        parser::{lower_entire_ast, lower_macro_and_require_definitions},
+        parser::{lower_entire_ast, lower_macro_and_require_definitions, SourcesCollector},
     },
     steel_vm::{cache::MemoizationTable, engine::ModuleContainer, primitives::constant_primitives},
 };
@@ -31,7 +32,7 @@ use std::{
 // TODO: Replace the usages of hashmap with this directly
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use steel_parser::ast::PROVIDE;
+use steel_parser::{ast::PROVIDE, span::Span};
 
 use crate::rvals::{Result, SteelVal};
 
@@ -363,6 +364,71 @@ impl SerializableCompiler {
 }
 
 impl Compiler {
+    // A better solution _in general_ would be to replace the source
+    // id with some kind of weak pointer. The problem there, is that
+    // we don't have a perfect solution to converting from an expr
+    // representation to a steel representation. Thus, we have to
+    // do this walk, and occasionally have to do some kind of heuristic
+    // for deciding when to clean incremental expressions.
+    //
+    // Note: We _probably_ also have to check the running bytecode?
+    // Note sure how we'd do that besides doing a full walk. We can
+    // probably just check the spans on the interner itself, but that would
+    // require access to the runtime as well.
+    pub(crate) fn gc_sources<'a>(
+        &mut self,
+        runtime_spans: impl Iterator<Item = &'a Shared<[Span]>>,
+    ) {
+        if self.sources.should_gc() {
+            let mut sources = SourcesCollector::default();
+
+            for spans in runtime_spans {
+                for span in spans.iter() {
+                    if let Some(source) = span.source_id() {
+                        sources.add(source);
+                    }
+                }
+            }
+
+            // Visit all of the expressions, make sure those sources
+            // don't get dropped. Figure out a better way to do this, but for
+            // now we can just prune the expressions if it comes to that.
+            // All the macros that exist in the top level macro environment
+            for m in self.macro_env.values() {
+                for expr in m.exprs() {
+                    sources.visit(expr);
+                }
+            }
+
+            // All the macros that exist in the modules macro environments
+            for module in self.modules().values() {
+                for expr in &module.ast {
+                    sources.visit(expr);
+                }
+
+                for m in module.macro_map.values() {
+                    for expr in m.exprs() {
+                        sources.visit(expr);
+                    }
+                }
+            }
+
+            for expression in self
+                .builtin_modules
+                .inner()
+                .values()
+                .map(|x| x.cached_expression())
+            {
+                let expression = expression.read();
+                if let Some(expression) = expression.as_ref() {
+                    sources.visit(expression);
+                }
+            }
+
+            self.sources.gc(sources.into_set());
+        }
+    }
+
     #[allow(unused)]
     pub(crate) fn into_serializable_compiler(self) -> Result<SerializableCompiler> {
         Ok(SerializableCompiler {
@@ -692,6 +758,7 @@ impl Compiler {
         Ok(results)
     }
 
+    // TODO: Compare this to the lower_expressions_impl and merge the behavior
     fn expand_ast(&mut self, exprs: Vec<ExprKind>, path: Option<PathBuf>) -> Result<Vec<ExprKind>> {
         let mut expanded_statements = self.expand_expressions(exprs, path)?;
 
@@ -727,15 +794,11 @@ impl Compiler {
                 if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
                     let source_id = self.sources.get_source_id(module).unwrap();
 
-                    // println!("Expanding macros from: {:?}", module);
-
                     crate::parser::expand_visitor::expand_with_source_id(
                         expr,
                         macro_env,
                         Some(source_id),
                     )?
-
-                    // crate::parser::expand_visitor::expand(expr, macro_env)?
                 }
             }
 
@@ -876,13 +939,7 @@ impl Compiler {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
 
-        // println!("Before expanding macros");
-        // exprs.pretty_print();
-
         let mut expanded_statements = self.expand_expressions(exprs, path)?;
-
-        // println!("After expanding macros");
-        // expanded_statements.pretty_print();
 
         #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Phase 1 module expansion time: {:?}", now.elapsed());
@@ -953,15 +1010,6 @@ impl Compiler {
         log::debug!(target: "pipeline_time", "Top level macro expansion time: {:?}", now.elapsed());
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
-
-        // steel_parser::ast::AstTools::pretty_print(&expanded_statements);
-
-        // println!(
-        //     "Modules: {:#?}",
-        //     self.module_manager.modules().keys().collect::<Vec<_>>()
-        // );
-
-        // self.sources.debug_sources();
 
         let expanded_statements =
             self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;

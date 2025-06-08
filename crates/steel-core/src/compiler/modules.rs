@@ -984,7 +984,7 @@ pub struct CompiledModule {
     require_objects: Vec<RequireObject>,
     provides_for_syntax: Vec<InternedString>,
     pub(crate) macro_map: Arc<FxHashMap<InternedString, SteelMacro>>,
-    ast: Vec<ExprKind>,
+    pub(crate) ast: Vec<ExprKind>,
     emitted: bool,
     cached_prefix: CompactString,
     downstream: Vec<PathBuf>,

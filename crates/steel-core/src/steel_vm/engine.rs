@@ -1484,10 +1484,12 @@ impl Engine {
         &mut self,
         expr: E,
     ) -> Result<RawProgramWithSymbols> {
-        self.virtual_machine
-            .compiler
-            .write()
-            .compile_executable(expr, None)
+        self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .compile_executable(expr, None)
+        })
     }
 
     pub fn emit_raw_program<E: AsRef<str> + Into<Cow<'static, str>>>(
@@ -1495,10 +1497,12 @@ impl Engine {
         expr: E,
         path: PathBuf,
     ) -> Result<RawProgramWithSymbols> {
-        self.virtual_machine
-            .compiler
-            .write()
-            .compile_executable(expr, Some(path))
+        self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .compile_executable(expr, Some(path))
+        })
     }
 
     #[doc(hidden)]
@@ -1611,20 +1615,23 @@ impl Engine {
         exprs: E,
         path: PathBuf,
     ) {
-        self.virtual_machine
-            .compiler
-            .write()
-            .fully_expand_to_file(exprs, Some(path))
-            .unwrap();
+        self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .fully_expand_to_file(exprs, Some(path))
+                .unwrap()
+        });
     }
 
     pub fn load_from_expanded_file(&mut self, path: &str) {
-        let program = self
-            .virtual_machine
-            .compiler
-            .write()
-            .load_from_file(path)
-            .unwrap();
+        let program = self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .load_from_file(path)
+                .unwrap()
+        });
 
         self.run_raw_program(program).unwrap();
     }
@@ -1635,11 +1642,12 @@ impl Engine {
         exprs: E,
         path: PathBuf,
     ) -> Result<Vec<SteelVal>> {
-        let program = self
-            .virtual_machine
-            .compiler
-            .write()
-            .compile_executable(exprs, Some(path))?;
+        let program = self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .compile_executable(exprs, Some(path))
+        })?;
 
         self.run_raw_program(program)
     }
@@ -1660,11 +1668,12 @@ impl Engine {
         &mut self,
         exprs: E,
     ) -> Result<Vec<SteelVal>> {
-        let program = self
-            .virtual_machine
-            .compiler
-            .write()
-            .compile_executable(exprs, None)?;
+        let program = self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .compile_executable(exprs, None)
+        })?;
 
         self.run_raw_program(program)
     }
@@ -1802,10 +1811,23 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
+        self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .emit_expanded_ast(expr, path)
+        })
+    }
+
+    fn with_sources_guard<T>(&self, func: impl FnOnce() -> T) -> T {
+        let res = func();
+
         self.virtual_machine
             .compiler
             .write()
-            .emit_expanded_ast(expr, path)
+            .gc_sources(self.virtual_machine.function_interner.spans.values());
+
+        res
     }
 
     pub fn emit_expanded_ast_without_optimizations(
@@ -1813,10 +1835,12 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
-        self.virtual_machine
-            .compiler
-            .write()
-            .emit_expanded_ast_without_optimizations(expr, path)
+        self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .emit_expanded_ast_without_optimizations(expr, path)
+        })
     }
 
     /// Emit the unexpanded AST
@@ -1837,14 +1861,16 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<String> {
-        Ok(self
-            .virtual_machine
-            .compiler
-            .write()
-            .emit_expanded_ast(expr, path)?
-            .into_iter()
-            .map(|x| x.to_pretty(60))
-            .join("\n\n"))
+        self.with_sources_guard(|| {
+            Ok(self
+                .virtual_machine
+                .compiler
+                .write()
+                .emit_expanded_ast(expr, path)?
+                .into_iter()
+                .map(|x| x.to_pretty(60))
+                .join("\n\n"))
+        })
     }
 
     /// Emits the fully expanded AST directly.
@@ -1853,10 +1879,12 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
-        self.virtual_machine
-            .compiler
-            .write()
-            .emit_expanded_ast(expr, path)
+        self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .emit_expanded_ast(expr, path)
+        })
     }
 
     /// Registers an external value of any type as long as it implements [`FromSteelVal`](crate::rvals::FromSteelVal) and
