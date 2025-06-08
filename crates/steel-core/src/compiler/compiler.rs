@@ -336,7 +336,7 @@ pub struct Compiler {
     // just ignore the constants function in general. This unfortunately,
     // is under the hood, shared references to the engine, since we
     // want to have the compiler share everything with the runtime.
-    sources: Sources,
+    pub(crate) sources: Sources,
     builtin_modules: ModuleContainer,
 }
 
@@ -380,6 +380,7 @@ impl Compiler {
         runtime_spans: impl Iterator<Item = &'a Shared<[Span]>>,
     ) {
         if self.sources.should_gc() {
+            let now = std::time::Instant::now();
             let mut sources = SourcesCollector::default();
 
             for spans in runtime_spans {
@@ -419,6 +420,7 @@ impl Compiler {
                 .values()
                 .map(|x| x.cached_expression())
             {
+                use crate::gc::shared::ShareableMut;
                 let expression = expression.read();
                 if let Some(expression) = expression.as_ref() {
                     sources.visit(expression);
@@ -426,6 +428,7 @@ impl Compiler {
             }
 
             self.sources.gc(sources.into_set());
+            // println!("Time taken: {:?}", now.elapsed());
         }
     }
 
@@ -677,14 +680,13 @@ impl Compiler {
     pub fn compile_module(
         &mut self,
         path: PathBuf,
-        sources: &mut Sources,
         builtin_modules: ModuleContainer,
     ) -> Result<()> {
         self.module_manager.add_module(
             path,
             &mut self.macro_env,
             &mut self.kernel,
-            sources,
+            &mut self.sources,
             builtin_modules,
         )
     }

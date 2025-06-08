@@ -99,7 +99,7 @@
 (define (event-loop)
   (with-handler
    (lambda (err)
-     (report-error! err)
+     ; (report-error! err)
      (sender/send vm-sender (Response-Err (to-string err))))
    (->> (receiver/recv vm-receiver) (handle-request) (Response-Ok) (sender/send vm-sender)))
 

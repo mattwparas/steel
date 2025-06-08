@@ -1892,7 +1892,7 @@ fn syntax_to_module_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
         let source = span.source_id();
 
         if let Some(source) = source {
-            let path = ctx.thread.sources.get_path(&source);
+            let path = ctx.thread.compiler.read().sources.get_path(&source);
             return path
                 .map(|x| x.to_str().unwrap().to_string())
                 .into_steelval();

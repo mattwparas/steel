@@ -3198,7 +3198,7 @@ impl<'a> ModuleBuilder<'a> {
         {
             // Fetch the exprs after adding them to the sources
             // We did _just_ add it, so its fine to unwrap
-            let guard = self.sources.sources.lock().unwrap();
+            let guard = &self.sources.sources;
 
             let exprs = guard.get(id).unwrap();
 

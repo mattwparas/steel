@@ -6,9 +6,9 @@ use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
 use num_rational::{BigRational, Rational32};
 use std::borrow::Cow;
+use std::path::PathBuf;
 use std::str;
-use std::sync::{Arc, Mutex};
-use std::{collections::HashMap, path::PathBuf};
+use std::sync::Arc;
 use steel_parser::interner::InternedString;
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral, TokenType};
 
@@ -49,8 +49,8 @@ struct GcMetadata {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub(crate) struct InterierSources {
-    paths: HashMap<SourceId, PathBuf>,
-    reverse: HashMap<PathBuf, SourceId>,
+    paths: crate::HashMap<SourceId, PathBuf>,
+    reverse: crate::HashMap<PathBuf, SourceId>,
     // TODO: The sources here are just ever growing.
     // Really, we shouldn't even do this. Having to index
     // into the list isn't particularly necessary, we could
@@ -65,7 +65,7 @@ pub(crate) struct InterierSources {
     // to do some GC, we will just have to walk all of the sources
     // and collect the spans. It isn't fun, but it could be
     // a fine way to remove sources.
-    sources: HashMap<SourceId, Cow<'static, str>>,
+    sources: crate::HashMap<SourceId, Arc<Cow<'static, str>>>,
 
     counter: usize,
 
@@ -75,9 +75,9 @@ pub(crate) struct InterierSources {
 impl InterierSources {
     pub fn new() -> Self {
         InterierSources {
-            paths: HashMap::new(),
-            reverse: HashMap::new(),
-            sources: HashMap::new(),
+            paths: crate::HashMap::new(),
+            reverse: crate::HashMap::new(),
+            sources: crate::HashMap::new(),
             counter: 0,
             gc_metadata: GcMetadata {
                 size_in_bytes: 0,
@@ -91,7 +91,10 @@ impl InterierSources {
     pub fn size_in_bytes(&self) -> usize {
         self.sources
             .values()
-            .map(|x| std::mem::size_of_val(&*x))
+            .map(|x| {
+                let x: &str = x;
+                std::mem::size_of_val(x)
+            })
             .sum()
     }
 
@@ -113,9 +116,9 @@ impl InterierSources {
             if let Some(id) = self.reverse.get(path) {
                 let expr = source.into();
                 self.gc_metadata.size_in_bytes += expr.len();
-                let old = self.sources.insert(*id, expr);
+                let old = self.sources.insert(*id, Arc::new(expr));
                 if let Some(old) = old {
-                    self.gc_metadata.size_in_bytes += old.len();
+                    self.gc_metadata.size_in_bytes -= old.len();
                 }
                 return *id;
             }
@@ -127,7 +130,7 @@ impl InterierSources {
 
         self.gc_metadata.size_in_bytes += expr.len();
 
-        self.sources.insert(id, expr);
+        self.sources.insert(id, Arc::new(expr));
 
         if let Some(path) = path {
             self.paths.insert(id, path.clone());
@@ -137,7 +140,7 @@ impl InterierSources {
         id
     }
 
-    pub fn get(&self, source_id: SourceId) -> Option<&Cow<'static, str>> {
+    pub fn get(&self, source_id: SourceId) -> Option<&Arc<Cow<'static, str>>> {
         self.sources.get(&source_id)
     }
 
@@ -154,6 +157,9 @@ impl InterierSources {
     }
 
     pub fn gc(&mut self, roots: HashSet<SourceId>) {
+        let start = self.gc_metadata.size_in_bytes;
+        // println!("Size before: {}", start);
+        // println!("Threshold: {}", self.gc_metadata.threshold);
         self.sources.retain(|key, _| roots.contains(key));
         self.paths.retain(|key, _| roots.contains(key));
         self.reverse.retain(|_, value| roots.contains(value));
@@ -164,8 +170,10 @@ impl InterierSources {
         self.gc_metadata.size_in_bytes = remaining;
 
         if remaining as f64 > (0.75 * self.gc_metadata.threshold as f64) {
+            // println!("Doubling threshold");
             self.gc_metadata.threshold = remaining * 2;
         }
+        // println!("Size after: {}", self.gc_metadata.size_in_bytes);
     }
 }
 
@@ -194,7 +202,7 @@ impl<'a> VisitorMutUnitRef<'a> for SourcesCollector {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Sources {
-    pub(crate) sources: Arc<Mutex<InterierSources>>,
+    pub(crate) sources: InterierSources,
 }
 
 impl Default for Sources {
@@ -206,7 +214,7 @@ impl Default for Sources {
 impl Sources {
     pub fn new() -> Self {
         Sources {
-            sources: Arc::new(Mutex::new(InterierSources::new())),
+            sources: InterierSources::new(),
         }
     }
 
@@ -215,29 +223,29 @@ impl Sources {
         source: impl Into<Cow<'static, str>>,
         path: Option<PathBuf>,
     ) -> SourceId {
-        self.sources.lock().unwrap().add_source(source, path)
+        self.sources.add_source(source, path)
     }
 
     pub fn get_source_id(&self, path: &PathBuf) -> Option<SourceId> {
-        self.sources.lock().unwrap().get_id(path)
+        self.sources.get_id(path)
     }
 
     pub fn get_path(&self, source_id: &SourceId) -> Option<PathBuf> {
-        self.sources.lock().unwrap().get_path(source_id)
+        self.sources.get_path(source_id)
     }
 
     pub fn size_in_bytes(&self) -> usize {
-        self.sources.lock().unwrap().size_in_bytes()
+        self.sources.size_in_bytes()
     }
 
     pub(crate) fn should_gc(&self) -> bool {
-        self.sources.lock().unwrap().should_gc()
+        self.sources.should_gc()
     }
 
-    pub(crate) fn gc(&self, roots: HashSet<SourceId>) {
-        let mut guard = self.sources.lock().unwrap();
+    pub(crate) fn gc(&mut self, roots: HashSet<SourceId>) {
+        // let mut guard = self.sources.lock().unwrap();
         // Drop anything that isn't present
-        guard.gc(roots);
+        self.sources.gc(roots);
     }
 }
 

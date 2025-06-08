@@ -208,7 +208,6 @@ pub struct Engine {
     // still... needs to be shared, but thats fine.
     // pub(crate) compiler: Arc<RwLock<Compiler>>,
     modules: ModuleContainer,
-    sources: Sources,
     #[cfg(feature = "dylibs")]
     dylibs: DylibContainers,
     pub(crate) id: EngineId,
@@ -241,7 +240,6 @@ impl Clone for Engine {
             virtual_machine,
             // compiler,
             modules: self.modules.clone(),
-            sources: self.sources.clone(),
             #[cfg(feature = "dylibs")]
             dylibs: self.dylibs.clone(),
             id: EngineId::new(),
@@ -256,13 +254,13 @@ impl Default for Engine {
 }
 
 // Pre-parsed ASTs along with the global state to set before we start any further processing
-#[derive(Serialize, Deserialize)]
-struct BootstrapImage {
-    interner: Arc<ThreadedRodeo<lasso::Spur, FxBuildHasher>>,
-    syntax_object_id: usize,
-    sources: Sources,
-    programs: Vec<Vec<ExprKind>>,
-}
+// #[derive(Serialize, Deserialize)]
+// struct BootstrapImage {
+//     interner: Arc<ThreadedRodeo<lasso::Spur, FxBuildHasher>>,
+//     syntax_object_id: usize,
+//     sources: Sources,
+//     programs: Vec<Vec<ExprKind>>,
+// }
 
 // Pre compiled programs along with the global state to set before we start any further processing
 struct StartupBootstrapImage {
@@ -513,14 +511,13 @@ impl Engine {
         let modules = ModuleContainer::with_expected_capacity();
 
         let compiler = Arc::new(RwLock::new(Compiler::default_without_kernel(
-            sources.clone(),
+            sources,
             modules.clone(),
         )));
 
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(sources.clone(), compiler),
+            virtual_machine: SteelThread::new(compiler),
             modules,
-            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
@@ -633,11 +630,11 @@ impl Engine {
         if matches!(option_env!("STEEL_BOOTSTRAP"), Some("false") | None) {
             let mut vm = Engine::new_kernel(sandbox);
 
-            let sources = vm.sources.clone();
+            // let sources = vm.sources.clone();
 
-            vm.register_fn("report-error!", move |error: SteelErr| {
-                raise_error(&sources, error);
-            });
+            // vm.register_fn("report-error!", move |error: SteelErr| {
+            //     raise_error(&sources, error);
+            // });
 
             return vm;
         }
@@ -684,11 +681,11 @@ impl Engine {
         // } else {
         let mut vm = Engine::new_kernel(sandbox);
 
-        let sources = vm.sources.clone();
+        // let sources = vm.sources.clone();
 
-        vm.register_fn("report-error!", move |error: SteelErr| {
-            raise_error(&sources, error);
-        });
+        // vm.register_fn("report-error!", move |error: SteelErr| {
+        //     raise_error(&sources, error);
+        // });
 
         vm
         // }
@@ -738,7 +735,7 @@ impl Engine {
             .emit_raw_program(expr, path)?
             .into_serializable_program()
             .map(|program| NonInteractiveProgramImage {
-                sources: engine.sources.clone(),
+                sources: engine.virtual_machine.compiler.read().sources.clone(),
                 program,
             })
     }
@@ -750,7 +747,7 @@ impl Engine {
         let mut engine = Engine::new();
         let program = crate::steel_vm::engine::NonInteractiveProgramImage::from_bytes(program);
 
-        engine.sources = program.sources;
+        engine.virtual_machine.compiler.write().sources = program.sources;
 
         // TODO: The constant map needs to be brought back as well. Install it here.
         // it needs to get installed in the VM and the compiler. Lets just try that now.
@@ -763,7 +760,7 @@ impl Engine {
         let results = engine.run_raw_program(raw_program);
 
         if let Err(e) = results {
-            raise_error(&engine.sources, e);
+            raise_error(&engine.virtual_machine.compiler.read().sources, e);
         }
 
         Ok(())
@@ -1079,14 +1076,13 @@ impl Engine {
         let modules = ModuleContainer::default();
 
         let compiler = Arc::new(RwLock::new(Compiler::default_with_kernel(
-            sources.clone(),
+            sources,
             modules.clone(),
         )));
 
         Engine {
-            virtual_machine: SteelThread::new(sources.clone(), compiler),
+            virtual_machine: SteelThread::new(compiler),
             modules,
-            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
@@ -1097,7 +1093,7 @@ impl Engine {
         EngineStatistics {
             rooted_count: self.globals().len(),
             constants_count: self.virtual_machine.compiler.read().constant_map.len(),
-            sources_size: self.sources.size_in_bytes(),
+            sources_size: self.virtual_machine.compiler.read().sources.size_in_bytes(),
         }
     }
 
@@ -1150,7 +1146,7 @@ impl Engine {
         let now = std::time::Instant::now();
 
         if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
-            raise_error(&engine.sources, e);
+            raise_error(&engine.virtual_machine.compiler.read().sources, e);
             panic!("This shouldn't happen!");
         }
 
@@ -1376,7 +1372,7 @@ impl Engine {
         let now = std::time::Instant::now();
 
         if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
-            raise_error(&engine.sources, e);
+            raise_error(&engine.virtual_machine.compiler.read().sources, e);
             panic!("This shouldn't happen!");
         }
 
@@ -2035,20 +2031,19 @@ impl Engine {
 
     /// Raise the error within the stack trace
     pub fn raise_error(&self, error: SteelErr) {
-        raise_error(&self.sources, error)
+        raise_error(&self.virtual_machine.compiler.read().sources, error)
     }
 
     /// Emit an error string reporing, the back trace.
     pub fn raise_error_to_string(&self, error: SteelErr) -> Option<String> {
-        raise_error_to_string(&self.sources, error)
+        raise_error_to_string(&self.virtual_machine.compiler.read().sources, error)
     }
 
     pub fn add_module(&mut self, path: String) -> Result<()> {
-        self.virtual_machine.compiler.write().compile_module(
-            path.into(),
-            &mut self.sources,
-            self.modules.clone(),
-        )
+        self.virtual_machine
+            .compiler
+            .write()
+            .compile_module(path.into(), self.modules.clone())
     }
 
     pub fn modules(&self) -> MappedRwLockReadGuard<'_, crate::HashMap<PathBuf, CompiledModule>> {
@@ -2093,18 +2088,27 @@ impl Engine {
     }
 
     pub fn get_source_id(&self, path: &PathBuf) -> Option<SourceId> {
-        self.sources.get_source_id(path)
+        self.virtual_machine
+            .compiler
+            .read()
+            .sources
+            .get_source_id(path)
     }
 
     pub fn get_path_for_source_id(&self, source_id: &SourceId) -> Option<PathBuf> {
-        self.sources.get_path(source_id)
+        self.virtual_machine
+            .compiler
+            .read()
+            .sources
+            .get_path(source_id)
     }
 
-    pub fn get_source(&self, source_id: &SourceId) -> Option<Cow<'static, str>> {
-        self.sources
+    pub fn get_source(&self, source_id: &SourceId) -> Option<Arc<Cow<'static, str>>> {
+        self.virtual_machine
+            .compiler
+            .read()
             .sources
-            .lock()
-            .unwrap()
+            .sources
             .get(*source_id)
             .cloned()
     }
@@ -2159,7 +2163,7 @@ fn raise_error(sources: &Sources, error: SteelErr) {
         let source_id = span.source_id();
 
         if let Some(source_id) = source_id {
-            let sources = sources.sources.lock().unwrap();
+            let sources = &sources.sources;
 
             let file_name = sources.get_path(&source_id);
 
@@ -2204,7 +2208,7 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
     if let Some(span) = error.span() {
         let source_id = span.source_id();
         if let Some(source_id) = source_id {
-            let sources = sources.sources.lock().unwrap();
+            let sources = &sources.sources;
 
             let file_name = sources.get_path(&source_id);
 
