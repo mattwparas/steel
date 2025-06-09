@@ -28,6 +28,17 @@ fn top_level_error_allows_redefining() {
 }
 
 #[test]
+fn test_free_memory() {
+    let mut engine = Engine::new();
+
+    for _ in 0..10000 {
+        engine
+            .compile_and_run_raw_program("(define (x) 100)")
+            .unwrap();
+    }
+}
+
+#[test]
 fn module_test() {
     let mut evaluator = Engine::new();
 

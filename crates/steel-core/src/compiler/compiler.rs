@@ -380,7 +380,6 @@ impl Compiler {
         runtime_spans: impl Iterator<Item = &'a Shared<[Span]>>,
     ) {
         if self.sources.should_gc() {
-            let now = std::time::Instant::now();
             let mut sources = SourcesCollector::default();
 
             for spans in runtime_spans {

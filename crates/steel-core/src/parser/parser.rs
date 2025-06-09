@@ -157,7 +157,7 @@ impl InterierSources {
     }
 
     pub fn gc(&mut self, roots: HashSet<SourceId>) {
-        let start = self.gc_metadata.size_in_bytes;
+        // let start = self.gc_metadata.size_in_bytes;
         // println!("Size before: {}", start);
         // println!("Threshold: {}", self.gc_metadata.threshold);
         self.sources.retain(|key, _| roots.contains(key));
