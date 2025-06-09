@@ -984,7 +984,7 @@ pub struct CompiledModule {
     require_objects: Vec<RequireObject>,
     provides_for_syntax: Vec<InternedString>,
     pub(crate) macro_map: Arc<FxHashMap<InternedString, SteelMacro>>,
-    ast: Vec<ExprKind>,
+    pub(crate) ast: Vec<ExprKind>,
     emitted: bool,
     cached_prefix: CompactString,
     downstream: Vec<PathBuf>,
@@ -3198,7 +3198,7 @@ impl<'a> ModuleBuilder<'a> {
         {
             // Fetch the exprs after adding them to the sources
             // We did _just_ add it, so its fine to unwrap
-            let guard = self.sources.sources.lock().unwrap();
+            let guard = &self.sources.sources;
 
             let exprs = guard.get(id).unwrap();
 

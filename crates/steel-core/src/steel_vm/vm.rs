@@ -7,7 +7,6 @@ use crate::gc::shared::WeakShared;
 use crate::gc::shared::WeakSharedMut;
 use crate::gc::SharedMut;
 use crate::parser::expander::BindingKind;
-use crate::parser::parser::Sources;
 use crate::parser::replace_idents::expand_template;
 use crate::primitives::lists::car;
 use crate::primitives::lists::cdr;
@@ -330,7 +329,6 @@ pub struct SteelThread {
     pub(crate) synchronizer: Synchronizer,
     // This will be static, for the thread.
     pub(crate) thread_local_storage: Vec<SteelVal>,
-    pub(crate) sources: Sources,
 
     // Store... more stuff here
     pub(crate) compiler: std::sync::Arc<RwLock<Compiler>>,
@@ -370,7 +368,7 @@ pub struct FunctionInterner {
     // actually any references to this still in existence. Functions should probably hold a direct
     // reference to the existing thread in which it was created, and if passed in externally by
     // another run time, we can nuke it?
-    spans: fxhash::FxHashMap<u32, Shared<[Span]>>,
+    pub(crate) spans: fxhash::FxHashMap<u32, Shared<[Span]>>,
 }
 
 #[derive(Clone, Default)]
@@ -565,7 +563,7 @@ impl Synchronizer {
 }
 
 impl SteelThread {
-    pub fn new(sources: Sources, compiler: std::sync::Arc<RwLock<Compiler>>) -> SteelThread {
+    pub fn new(compiler: std::sync::Arc<RwLock<Compiler>>) -> SteelThread {
         let synchronizer = Synchronizer::new();
         let weak_ctx = Arc::downgrade(&synchronizer.ctx);
 
@@ -598,7 +596,6 @@ impl SteelThread {
             interrupted: Default::default(),
             synchronizer,
             thread_local_storage: Vec::new(),
-            sources,
             compiler,
             id: EngineId::new(),
 
@@ -4346,7 +4343,7 @@ pub fn current_function_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
 }
 
 fn inspect_impl(ctx: &VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    let guard = ctx.thread.sources.sources.lock().unwrap();
+    let guard = &ctx.thread.compiler.read().sources.sources;
 
     if let Some(SteelVal::Closure(c)) = args.get(0) {
         let spans = ctx.thread.function_interner.spans.get(&c.id);
@@ -4432,7 +4429,7 @@ pub fn breakpoint(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVa
     // Wait for user input to continue...
     // -> Evaluation context, but lets first see if we can resolve what everything is on the stack
 
-    let guard = ctx.thread.sources.sources.lock().unwrap();
+    let guard = &ctx.thread.compiler.read().sources.sources;
 
     // Determine the globals at the current spot, use the span in order to resolve
     // what they're looking for, into something more interesting.
@@ -4638,6 +4635,12 @@ fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result
         .write()
         .compile_executable_from_expressions(vec![expr]);
 
+    // Gc the sources, if possible
+    ctx.thread
+        .compiler
+        .write()
+        .gc_sources(ctx.thread.function_interner.spans.values());
+
     match res {
         Ok(program) => {
             let result = program.build(
@@ -4828,6 +4831,10 @@ fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> R
         .compiler
         .write()
         .compile_executable(exprs, Some(std::path::PathBuf::from(path.as_str())));
+    ctx.thread
+        .compiler
+        .write()
+        .gc_sources(ctx.thread.function_interner.spans.values());
 
     match res {
         Ok(program) => {
@@ -4854,6 +4861,11 @@ fn eval_string_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) ->
         .compiler
         .write()
         .compile_executable(string.to_string(), None);
+
+    ctx.thread
+        .compiler
+        .write()
+        .gc_sources(ctx.thread.function_interner.spans.values());
 
     match res {
         Ok(program) => {

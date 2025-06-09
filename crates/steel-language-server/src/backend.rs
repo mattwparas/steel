@@ -173,6 +173,10 @@ impl LanguageServer for Backend {
         .await
     }
 
+    // TODO: Separate out did change and on change
+    // so that we can get away with incremental updates.
+    //
+    // On save should kick off a full build of things.
     async fn did_change(&self, mut params: DidChangeTextDocumentParams) {
         self.on_change(TextDocumentItem {
             uri: params.text_document.uri,
@@ -856,6 +860,7 @@ impl Backend {
         })
     }
 
+    // Just do incremental?
     async fn on_change(&self, params: TextDocumentItem) {
         let now = std::time::Instant::now();
 
