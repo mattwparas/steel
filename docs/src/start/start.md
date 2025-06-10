@@ -5,18 +5,32 @@
 If you want to start exploring Steel you can use the [Steel
 Playground](https://mattwparas.github.io/steel-playground/dev)
 
-## Local Install
+## Local Install options
+
+A local install provides
+
+1. The Steel interpreter, `steel`
+1. The Steel dynamic library installer, `cargo-steel-lib`
+1. The Steel Language Server, `steel-language-server`
+1. The Steel libraries under the `cogs` directory
+1. The Steel package manager `forge`
+
+
+### Using `cargo`'s `--git` option
+
+For a completely managed install through `cargo` use the following command
+
+```
+$ cargo install --git https://github.com/mattwparas/steel.git steel-interpreter forge steel-language-server cargo-steel-lib
+```
+
+### Manually cloning the Steel repository
 
 You will need to have [Rust](https://www.rust-lang.org/tools/install)
 installed on your system.
 
 1. Clone the [Steel repository](https://github.com/mattwparas/steel)
-1. From the cloned repository's root folder execute `cargo xtask
-   install`. This will build and install
-    1. The Steel interpreter, `steel`
-    1. The Steel dynamic library installer, `cargo-steel-lib`
-    1. The Steel Language Server, `steel-language-server`
-    1. The Steel libraries under the `cogs` directory
+1. From the cloned repository's root folder execute `cargo xtask install`.
 
 
 ## Steel CLI
