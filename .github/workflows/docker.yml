@@ -11,6 +11,8 @@ permissions:
 
 jobs:
   build_and_deploy:
+    # only run from Steels authoritative repo
+    if: github.repository == 'mattwparas/steel'
     runs-on: ubuntu-latest
 
     steps:
