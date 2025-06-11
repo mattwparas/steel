@@ -26,6 +26,9 @@ $ cargo install --git https://github.com/mattwparas/steel.git steel-interpreter 
 
 ### Manually cloning the Steel repository
 
+You will need to have [Rust](https://www.rust-lang.org/tools/install)
+installed on your system.
+
 1. Clone the [Steel repository](https://github.com/mattwparas/steel)
 1. From the cloned repository's root folder execute `cargo xtask install`.
 
