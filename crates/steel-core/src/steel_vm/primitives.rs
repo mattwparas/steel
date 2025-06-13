@@ -52,7 +52,8 @@ use crate::{
     rvals::{
         as_underlying_type,
         cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
-        CustomType, FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
+        AsRefSteelVal, CustomType, FromSteelVal, SteelString, ITERATOR_FINISHED,
+        NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::{
         builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
@@ -1387,6 +1388,40 @@ fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
     }
 }
 
+#[steel_derive::context(name = "#%lookup-doc", arity = "Exact(1)")]
+pub fn lookup_doc_ctx(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    // Attempt to find the docs for a given value.
+    let compiler = ctx.thread.compiler.read();
+    let value = args[0].clone();
+
+    for module in compiler.builtin_modules.inner().values() {
+        let doc = module.search(value.clone());
+
+        // If we found a doc on the fast path, just return
+        if let Some(doc) = doc {
+            let string = doc.doc.map(|x| x.0.to_string());
+            return Some(string.into_steelval());
+        }
+
+        // If this is specifically the meta doc, we can attempt to
+        // grab a quick one here
+        if module.name().as_ref() == "steel/meta" {
+            let table = module.try_get_ref("#%function-ptr-table").unwrap();
+            let doc = LambdaMetadataTable::as_ref(&table).unwrap().get(value);
+            return Some(doc.into_steelval());
+        }
+
+        for (key, module_value) in module.module.read().values.iter() {
+            if value.ptr_eq(module_value) {
+                let doc = module.get_documentation(key);
+                return Some(doc.into_steelval());
+            }
+        }
+    }
+
+    Some(Ok(SteelVal::BoolV(false)))
+}
+
 fn lookup_doc(value: SteelVal) -> bool {
     match value {
         // SteelVal::BoxedFunction(f) => ,
@@ -1419,6 +1454,24 @@ fn lookup_doc(value: SteelVal) -> bool {
             }
         }
         _ => false,
+    }
+}
+
+fn lookup_doc_value(value: SteelVal) -> Option<String> {
+    match value {
+        SteelVal::FuncV(f) => {
+            let metadata = get_function_metadata(BuiltInFunctionType::Reference(f));
+            metadata.and_then(|x| x.doc.map(|x| x.0.to_string()))
+        }
+        SteelVal::MutFunc(f) => {
+            let metadata = get_function_metadata(BuiltInFunctionType::Mutable(f));
+            metadata.and_then(|x| x.doc.map(|x| x.0.to_string()))
+        }
+        SteelVal::BuiltIn(f) => {
+            let metadata = get_function_metadata(BuiltInFunctionType::Context(f));
+            metadata.and_then(|x| x.doc.map(|x| x.0.to_string()))
+        }
+        _ => None,
     }
 }
 
@@ -1740,6 +1793,7 @@ fn meta_module() -> BuiltInModule {
         )
         .register_fn("#%function-ptr-table-add", LambdaMetadataTable::add)
         .register_fn("#%function-ptr-table-get", LambdaMetadataTable::get)
+        .register_native_fn_definition(LOOKUP_DOC_CTX_DEFINITION)
         .register_fn("#%private-cycle-collector", SteelCycleCollector::from_root)
         .register_fn("#%private-cycle-collector-get", SteelCycleCollector::get)
         .register_fn(
@@ -1822,6 +1876,7 @@ fn meta_module() -> BuiltInModule {
         .register_fn("arity?", arity)
         .register_fn("function-name", lookup_function_name)
         .register_fn("#%native-fn-ptr-doc", lookup_doc)
+        .register_fn("#%native-fn-ptr-doc->string", lookup_doc_value)
         .register_fn("multi-arity?", is_multi_arity)
         .register_value("make-struct-type", SteelVal::FuncV(make_struct_type))
         .register_value(
