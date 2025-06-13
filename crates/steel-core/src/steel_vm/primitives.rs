@@ -1,5 +1,5 @@
 use super::{
-    builtin::{BuiltInModule, MarkdownDoc},
+    builtin::{Arity, BuiltInModule, MarkdownDoc},
     cache::WeakMemoizationTable,
     engine::Engine,
     register_fn::RegisterFn,
@@ -1475,6 +1475,27 @@ fn lookup_doc_value(value: SteelVal) -> Option<String> {
     }
 }
 
+fn arity_to_list(arity: &Arity) -> SteelVal {
+    match arity {
+        Arity::Exact(e) => vec!["exact".into_steelval().unwrap(), e.into_steelval().unwrap()],
+        Arity::AtLeast(e) => vec![
+            "at-least".into_steelval().unwrap(),
+            e.into_steelval().unwrap(),
+        ],
+        Arity::AtMost(e) => vec![
+            "at-most".into_steelval().unwrap(),
+            e.into_steelval().unwrap(),
+        ],
+        Arity::Range(l, h) => vec![
+            "range".into_steelval().unwrap(),
+            l.into_steelval().unwrap(),
+            h.into_steelval().unwrap(),
+        ],
+    }
+    .into_steelval()
+    .unwrap()
+}
+
 // Only works with fixed size arity functions
 fn arity(value: SteelVal) -> UnRecoverableResult {
     match value {
@@ -1874,6 +1895,8 @@ fn meta_module() -> BuiltInModule {
             std::env::set_var::<String, String>(name, val)
         })
         .register_fn("arity?", arity)
+        .register_fn("function-arity", arity)
+        .register_fn("arity-object->list", arity_to_list)
         .register_fn("function-name", lookup_function_name)
         .register_fn("#%native-fn-ptr-doc", lookup_doc)
         .register_fn("#%native-fn-ptr-doc->string", lookup_doc_value)
