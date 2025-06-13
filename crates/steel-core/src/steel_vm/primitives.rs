@@ -52,8 +52,7 @@ use crate::{
     rvals::{
         as_underlying_type,
         cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
-        AsRefSteelVal, CustomType, FromSteelVal, SteelString, ITERATOR_FINISHED,
-        NUMBER_EQUALITY_DEFINITION,
+        CustomType, FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::{
         builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
@@ -1394,32 +1393,17 @@ pub fn lookup_doc_ctx(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Stee
     let compiler = ctx.thread.compiler.read();
     let value = args[0].clone();
 
-    for module in compiler.builtin_modules.inner().values() {
-        let doc = module.search(value.clone());
+    let doc = compiler.get_doc(value);
 
-        // If we found a doc on the fast path, just return
-        if let Some(doc) = doc {
-            let string = doc.doc.map(|x| x.0.to_string());
-            return Some(string.into_steelval());
+    match doc {
+        Some(crate::compiler::compiler::StringOrSteelString::String(s)) => {
+            Some(Ok(SteelVal::StringV(s.into())))
         }
-
-        // If this is specifically the meta doc, we can attempt to
-        // grab a quick one here
-        if module.name().as_ref() == "steel/meta" {
-            let table = module.try_get_ref("#%function-ptr-table").unwrap();
-            let doc = LambdaMetadataTable::as_ref(&table).unwrap().get(value);
-            return Some(doc.into_steelval());
+        Some(crate::compiler::compiler::StringOrSteelString::SteelString(s)) => {
+            Some(Ok(SteelVal::StringV(s)))
         }
-
-        for (key, module_value) in module.module.read().values.iter() {
-            if value.ptr_eq(module_value) {
-                let doc = module.get_documentation(key);
-                return Some(doc.into_steelval());
-            }
-        }
+        None => Some(Ok(SteelVal::BoolV(false))),
     }
-
-    Some(Ok(SteelVal::BoolV(false)))
 }
 
 fn lookup_doc(value: SteelVal) -> bool {

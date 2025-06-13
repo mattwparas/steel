@@ -2112,6 +2112,18 @@ impl Engine {
             .get(*source_id)
             .cloned()
     }
+
+    #[doc(hidden)]
+    pub fn get_doc_for_identifier(&self, ident: &str) -> Option<String> {
+        let value = self.extract_value(ident).ok()?;
+
+        match self.virtual_machine.compiler.read().get_doc(value)? {
+            crate::compiler::compiler::StringOrSteelString::String(s) => Some(s),
+            crate::compiler::compiler::StringOrSteelString::SteelString(steel_string) => {
+                Some(steel_string.as_str().to_string())
+            }
+        }
+    }
 }
 
 // #[cfg(test)]
