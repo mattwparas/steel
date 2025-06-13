@@ -170,22 +170,6 @@ pub fn get_function_metadata(function: BuiltInFunctionType) -> Option<FunctionSi
     }
 }
 
-// struct WeakBoxedFunction {
-//     func: WeakShared<BoxedDynFunction>,
-// }
-// impl std::hash::Hash for WeakBoxedFunction {
-//     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-//     }
-// }
-
-// #[derive(Copy, Clone, Hash, PartialEq, Eq)]
-// pub struct BoxedSignatureWrapper {
-//     func: *const BoxedDynFunction,
-// }
-
-// unsafe impl Send for BoxedSignatureWrapper {}
-// unsafe impl Sync for BoxedSignatureWrapper {}
-
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
 pub enum BuiltInFunctionType {
     Reference(FunctionSignature),
