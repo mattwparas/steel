@@ -47,13 +47,13 @@ use super::vm::BuiltInSignature;
 /// structs. This should be more properly documented.
 #[derive(Clone)]
 pub struct BuiltInModule {
-    module: SharedMut<BuiltInModuleRepr>,
+    pub(crate) module: SharedMut<BuiltInModuleRepr>,
 }
 
 #[derive(Clone)]
-struct BuiltInModuleRepr {
+pub(crate) struct BuiltInModuleRepr {
     pub(crate) name: Shared<str>,
-    values: std::collections::HashMap<Arc<str>, SteelVal, FxBuildHasher>,
+    pub(crate) values: std::collections::HashMap<Arc<str>, SteelVal, FxBuildHasher>,
     docs: Box<InternalDocumentation>,
     // Add the metadata separate from the pointer, keeps the pointer slim
     fn_ptr_table: std::collections::HashMap<BuiltInFunctionType, FunctionSignatureMetadata>,
@@ -65,7 +65,7 @@ struct BuiltInModuleRepr {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 // Probably need something more interesting than just an integer for the arity
 pub struct FunctionSignatureMetadata {
-    pub name: &'static str,
+    pub name: Cow<'static, str>,
     pub arity: Arity,
     pub is_const: bool,
     pub doc: Option<MarkdownDoc<'static>>,
@@ -79,7 +79,7 @@ impl FunctionSignatureMetadata {
         doc: Option<MarkdownDoc<'static>>,
     ) -> Self {
         Self {
-            name,
+            name: Cow::Borrowed(name),
             arity,
             is_const,
             doc,
@@ -170,6 +170,22 @@ pub fn get_function_metadata(function: BuiltInFunctionType) -> Option<FunctionSi
     }
 }
 
+// struct WeakBoxedFunction {
+//     func: WeakShared<BoxedDynFunction>,
+// }
+// impl std::hash::Hash for WeakBoxedFunction {
+//     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+//     }
+// }
+
+// #[derive(Copy, Clone, Hash, PartialEq, Eq)]
+// pub struct BoxedSignatureWrapper {
+//     func: *const BoxedDynFunction,
+// }
+
+// unsafe impl Send for BoxedSignatureWrapper {}
+// unsafe impl Sync for BoxedSignatureWrapper {}
+
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
 pub enum BuiltInFunctionType {
     Reference(FunctionSignature),
@@ -229,7 +245,6 @@ impl BuiltInModuleRepr {
                 self.fn_ptr_table
                     .insert(BuiltInFunctionType::Reference(value), data);
             }
-
             BuiltInFunctionType::Mutable(value) => {
                 #[cfg(feature = "sync")]
                 {
@@ -249,7 +264,6 @@ impl BuiltInModuleRepr {
                 self.fn_ptr_table
                     .insert(BuiltInFunctionType::Mutable(value), data);
             }
-
             BuiltInFunctionType::Context(value) => {
                 #[cfg(feature = "sync")]
                 {
@@ -429,6 +443,10 @@ impl BuiltInModuleRepr {
         self.values.get(name.as_str()).cloned()
     }
 
+    pub fn try_get_ref(&self, name: &str) -> Option<SteelVal> {
+        self.values.get(name).cloned()
+    }
+
     pub(crate) fn cached_expression(&self) -> SharedMut<Option<ExprKind>> {
         self.generated_expression.clone()
     }
@@ -532,11 +550,11 @@ impl BuiltInModule {
             .iter()
             .filter_map(|(key, value)| match key {
                 BuiltInFunctionType::Reference(func) if value.is_const => Some((
-                    (CompactString::new("#%prim.") + value.name).into(),
+                    (CompactString::new("#%prim.") + value.name.as_ref()).into(),
                     SteelVal::FuncV(*func),
                 )),
                 BuiltInFunctionType::Mutable(func) if value.is_const => Some((
-                    (CompactString::new("#%prim.") + value.name).into(),
+                    (CompactString::new("#%prim.") + value.name.as_ref()).into(),
                     SteelVal::MutFunc(*func),
                 )),
                 _ => None,
@@ -672,8 +690,6 @@ impl BuiltInModule {
         self
     }
 
-    // pub fn docs(&self) ->
-
     pub fn get_doc(&self, definition: String) {
         self.module.read().get_doc(definition);
     }
@@ -712,6 +728,10 @@ impl BuiltInModule {
 
     pub fn try_get(&self, name: String) -> Option<SteelVal> {
         self.module.read().try_get(name)
+    }
+
+    pub fn try_get_ref(&self, name: &str) -> Option<SteelVal> {
+        self.module.read().try_get_ref(name)
     }
 
     /// This does the boot strapping for bundling modules
