@@ -847,17 +847,28 @@ impl Backend {
         // Memoize a lot of these lookups if possible, or at least share the memory;
         let doc_suffix = definition_name.resolve().to_string() + "__doc__";
 
-        let define = analysis.query_top_level_define(&doc_suffix)?;
+        if let Some(define) = analysis.query_top_level_define(&doc_suffix) {
+            // This _should_ be the resolved documentation. And then we just extract the
+            // string from the definition.
+            let definition = define.body.to_string_literal()?;
 
-        // This _should_ be the resolved documentation. And then we just extract the
-        // string from the definition.
+            Some(Hover {
+                contents: HoverContents::Scalar(MarkedString::String(definition.clone())),
+                range: None,
+            })
+        } else {
+            // Query modules again
+            let doc = ENGINE
+                .read()
+                .ok()?
+                .builtin_modules()
+                .get_doc(definition_name.resolve())?;
 
-        let definition = define.body.to_string_literal()?;
-
-        Some(Hover {
-            contents: HoverContents::Scalar(MarkedString::String(definition.clone())),
-            range: None,
-        })
+            return Some(Hover {
+                contents: HoverContents::Scalar(MarkedString::String(doc)),
+                range: None,
+            });
+        }
     }
 
     // Just do incremental?

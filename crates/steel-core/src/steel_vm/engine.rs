@@ -147,11 +147,22 @@ impl ModuleContainer {
     }
 
     pub fn get(&self, key: &str) -> Option<BuiltInModule> {
-        self.modules.read().get(key).cloned().or_else(|| {
-            self.unresolved_modules
+        let mut guard = self.modules.write();
+        let found = guard.get(key).cloned();
+
+        found.or_else(|| {
+            let res = self
+                .unresolved_modules
                 .read()
                 .as_ref()
-                .and_then(|x| x.resolve(key))
+                .and_then(|x| x.resolve(key));
+
+            if let Some(res) = res {
+                guard.insert(Arc::from(key), res.clone());
+                Some(res)
+            } else {
+                None
+            }
         })
     }
 
