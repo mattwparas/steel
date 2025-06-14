@@ -7,3 +7,6 @@ version.workspace = true
 
 [dependencies]
 which = "7.0.0"
+
+[package.metadata.dist]
+dist = false
