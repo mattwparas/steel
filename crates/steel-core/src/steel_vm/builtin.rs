@@ -378,7 +378,9 @@ impl BuiltInModuleRepr {
     }
 
     pub fn get_documentation(&self, definition: &str) -> Option<String> {
-        self.docs.get(definition).map(|x| x.to_string())
+        self.docs
+            .get(definition)
+            .and_then(|x| x.as_inner_str().map(|x| x.to_owned()))
     }
 
     pub(crate) fn unreadable_name(&self) -> String {
@@ -838,6 +840,15 @@ impl<'a> std::fmt::Display for Documentation<'a> {
             Documentation::Module(d) => write!(f, "{d}"),
             Documentation::Value(d) => write!(f, "{d}"),
             Documentation::Markdown(d) => write!(f, "{d}"),
+        }
+    }
+}
+
+impl<'a> Documentation<'a> {
+    pub fn as_inner_str(&self) -> Option<&str> {
+        match self {
+            Documentation::Markdown(markdown_doc) => Some(markdown_doc.0.as_ref()),
+            _ => None,
         }
     }
 }

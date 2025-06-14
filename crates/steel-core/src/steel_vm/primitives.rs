@@ -79,7 +79,7 @@ use crate::{
 use compact_str::CompactString;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
-use std::cmp::Ordering;
+use std::{borrow::Cow, cmp::Ordering};
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -503,6 +503,16 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
         "#%module-add",
         |module: &mut BuiltInModule, name: SteelString, value: SteelVal| {
             module.register_value(&name, value);
+        },
+    );
+
+    engine.register_fn(
+        "#%module-add-doc",
+        |module: &mut BuiltInModule, name: SteelString, value: String| {
+            module.register_doc(
+                Cow::Owned(name.as_str().to_string()),
+                super::builtin::Documentation::Markdown(MarkdownDoc(value.into())),
+            );
         },
     );
 
