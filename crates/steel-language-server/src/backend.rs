@@ -1118,6 +1118,9 @@ impl steel::steel_vm::engine::ModuleResolver for ExternalModuleResolver {
     fn resolve(&self, module: &str) -> Option<BuiltInModule> {
         self.modules.get(module).cloned()
     }
+    fn names(&self) -> Vec<String> {
+        self.modules.keys().cloned().collect()
+    }
 }
 
 // TODO: Move these to the backend - we don't need them to be global like this now that

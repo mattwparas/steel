@@ -94,11 +94,13 @@ thread_local! {
 #[cfg(not(feature = "sync"))]
 pub trait ModuleResolver {
     fn resolve(&self, name: &str) -> Option<BuiltInModule>;
+    fn names(&self) -> Vec<String>;
 }
 
 #[cfg(feature = "sync")]
 pub trait ModuleResolver: MaybeSendSyncStatic {
     fn resolve(&self, name: &str) -> Option<BuiltInModule>;
+    fn names(&self) -> Vec<String>;
 }
 
 #[derive(Clone, Default)]
@@ -158,7 +160,9 @@ impl ModuleContainer {
                 .and_then(|x| x.resolve(key));
 
             if let Some(res) = res {
+                // Define the module now.
                 guard.insert(Shared::from(key), res.clone());
+
                 Some(res)
             } else {
                 None
@@ -598,6 +602,10 @@ impl Engine {
     /// exposing some kind of compiler from that hosts runtime. The requirement then
     /// is to expose some kind of module artifact that we can then consume.
     pub fn register_module_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
+        for name in resolver.names() {
+            self.register_value(&format!("%-builtin-module-{}", name), SteelVal::Void);
+        }
+
         self.modules.with_resolver(resolver);
     }
 
