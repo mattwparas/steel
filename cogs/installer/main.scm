@@ -66,7 +66,10 @@
   (define force (list? (member "--force" args)))
   (define args (filter (lambda (x) (not (equal? "--force" x))) args))
 
-  (define cogs-to-install (if (empty? args) (list (current-directory)) args))
+  (define cogs-to-install
+    (if (empty? args)
+        (list (current-directory))
+        args))
   (transduce cogs-to-install
              (flat-mapping parse-cog)
              (into-for-each (lambda (x) (check-install-package index x force)))))
@@ -108,7 +111,10 @@
       (install-package-if-not-installed index package-spec)))
 
 (define (uninstall-package-from-index index package)
-  (define pkg (if (symbol? package) package (string->symbol package)))
+  (define pkg
+    (if (symbol? package)
+        package
+        (string->symbol package)))
   (unless (hash-contains? index pkg)
     (displayln "Package not found:" package)
     (return! void))
@@ -214,13 +220,17 @@ Commands:
   pkg refresh    Update the package repository from the remote
   pkg list       List the packages in the remote index
   pkg install    Install a package from the remote index
+  pkg uninstall  Uninstall a package
 
-  pkg install <package> --force  Force an install of a package from the remote index"))
+  pkg install <package> --force  Force an install of a package from the remote index
+  pkg install --git <git-url>    Install a package via git"))
 
 (define (get-command-line-args)
   (define args (command-line))
   ;; Running as a program, vs embedded elsewhere?
-  (if (ends-with? (car args) "steel") (drop args 2) (drop args 1)))
+  (if (ends-with? (car args) "steel")
+      (drop args 2)
+      (drop args 1)))
 
 (provide main)
 (define (main)

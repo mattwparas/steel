@@ -14,3 +14,5 @@ rustls = "0.23.17"
 webpki-roots = "0.26"
 flate2 = "1.0.35"
 
+[package.metadata.dist]
+dist = false
