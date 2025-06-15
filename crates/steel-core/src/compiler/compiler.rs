@@ -372,6 +372,8 @@ pub(crate) enum StringOrSteelString {
 
 impl Compiler {
     pub(crate) fn get_doc(&self, value: SteelVal) -> Option<StringOrSteelString> {
+        use crate::gc::shared::ShareableMut;
+
         for module in self.builtin_modules.inner().values() {
             let doc = module.search(value.clone());
 

@@ -158,7 +158,7 @@ impl ModuleContainer {
                 .and_then(|x| x.resolve(key));
 
             if let Some(res) = res {
-                guard.insert(Arc::from(key), res.clone());
+                guard.insert(Shared::from(key), res.clone());
                 Some(res)
             } else {
                 None
