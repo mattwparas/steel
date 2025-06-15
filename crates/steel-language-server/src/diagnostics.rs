@@ -10,7 +10,7 @@ use dashmap::DashSet;
 use ropey::Rope;
 use steel::{
     compiler::{
-        modules::MANGLER_PREFIX,
+        modules::{MANGLED_MODULE_PREFIX, MANGLER_PREFIX, MODULE_PREFIX},
         passes::{
             analysis::{
                 query_top_level_define, query_top_level_define_on_condition,
@@ -69,6 +69,10 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
 
                 // We can just ignore those as well
                 if resolved.starts_with("mangler") {
+                    return None;
+                }
+
+                if resolved.starts_with(MANGLED_MODULE_PREFIX) {
                     return None;
                 }
 
