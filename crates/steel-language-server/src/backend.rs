@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use steel::{
     compiler::{
-        modules::{steel_home, MANGLED_MODULE_PREFIX, MANGLER_PREFIX, MODULE_PREFIX},
+        modules::{steel_home, MANGLER_PREFIX, MODULE_PREFIX},
         passes::analysis::{
             query_top_level_define, query_top_level_define_on_condition, IdentifierStatus,
             RequiredIdentifierInformation, SemanticAnalysis,
