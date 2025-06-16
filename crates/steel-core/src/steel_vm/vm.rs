@@ -1400,7 +1400,8 @@ impl<'a> VmCore<'a> {
     // the continuations found.
     #[cfg(feature = "sync")]
     pub fn make_thread(&self) -> SteelThread {
-        let thread = self.thread.clone();
+        let mut thread = self.thread.clone();
+        thread.id = EngineId::new();
         for frame in &self.thread.stack_frames {
             self.close_continuation_marks(frame);
         }
