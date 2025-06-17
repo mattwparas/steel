@@ -66,10 +66,7 @@
   (define force (list? (member "--force" args)))
   (define args (filter (lambda (x) (not (equal? "--force" x))) args))
 
-  (define cogs-to-install
-    (if (empty? args)
-        (list (current-directory))
-        args))
+  (define cogs-to-install (if (empty? args) (list (current-directory)) args))
   (transduce cogs-to-install
              (flat-mapping parse-cog)
              (into-for-each (lambda (x) (check-install-package index x force)))))
@@ -86,14 +83,14 @@
   ;; First, install the source to a temporary location.
   (define package-spec (download-cog-to-sources-and-parse-module void git-url))
 
-  (define force (member "--force" args))
+  ; (define force (member "--force" args))
 
-  (displayln args)
-  (displayln package-spec)
+  ; (displayln args)
+  ; (displayln package-spec)
 
-  (if force
-      (install-package-and-log package-spec)
-      (install-package-if-not-installed index package-spec)))
+  ; (if force
+  (install-package-and-log package-spec)
+  (install-package-if-not-installed index package-spec))
 
 ;; TODO: Move this to `installer/package.scm`
 (define (install-package-from-pkg-index index package args)
@@ -111,10 +108,7 @@
       (install-package-if-not-installed index package-spec)))
 
 (define (uninstall-package-from-index index package)
-  (define pkg
-    (if (symbol? package)
-        package
-        (string->symbol package)))
+  (define pkg (if (symbol? package) package (string->symbol package)))
   (unless (hash-contains? index pkg)
     (displayln "Package not found:" package)
     (return! void))
@@ -228,9 +222,7 @@ Commands:
 (define (get-command-line-args)
   (define args (command-line))
   ;; Running as a program, vs embedded elsewhere?
-  (if (ends-with? (car args) "steel")
-      (drop args 2)
-      (drop args 1)))
+  (if (ends-with? (car args) "steel") (drop args 2) (drop args 1)))
 
 (provide main)
 (define (main)
