@@ -201,6 +201,13 @@
      ; URL to the dylib, e.g. `"https://example.com/example.so"`
      (define url (hash-ref (apply hash url-entry) '#:url))
 
+     ; Must be `https` connection, otherwise the file could be spoofed
+     ; to serve a malicious dylib
+     (unless
+       (starts-with? url "https")
+       (displayln "url " url " must be `https://` for security purposes")
+       (return! void))
+
      ; Where the dylib will be downloaded
      ;
      ; e.g. `"~/.steel/native/libexample.so"`
