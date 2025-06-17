@@ -1192,33 +1192,27 @@ impl List {
     }
 
     pub fn is_require(&self) -> bool {
-        if let Some(ExprKind::Atom(Atom {
-            syn:
-                SyntaxObject {
+        matches!(
+            self.args.first(),
+            Some(ExprKind::Atom(Atom {
+                syn: SyntaxObject {
                     ty: TokenType::Require,
                     ..
                 },
-        })) = self.args.first()
-        {
-            true
-        } else {
-            false
-        }
+            }))
+        )
     }
 
     pub fn is_begin(&self) -> bool {
-        if let Some(ExprKind::Atom(Atom {
-            syn:
-                SyntaxObject {
+        matches!(
+            self.args.first(),
+            Some(ExprKind::Atom(Atom {
+                syn: SyntaxObject {
                     ty: TokenType::Begin,
                     ..
                 },
-        })) = self.args.first()
-        {
-            true
-        } else {
-            false
-        }
+            }))
+        )
     }
 
     pub fn is_define_syntax(&self) -> bool {
@@ -1252,18 +1246,15 @@ impl List {
     }
 
     pub fn is_quote(&self) -> bool {
-        if let Some(ExprKind::Atom(Atom {
-            syn:
-                SyntaxObject {
+        matches!(
+            self.args.first(),
+            Some(ExprKind::Atom(Atom {
+                syn: SyntaxObject {
                     ty: TokenType::Quote,
                     ..
                 },
-        })) = self.args.first()
-        {
-            true
-        } else {
-            false
-        }
+            }))
+        )
     }
 
     pub fn first_ident(&self) -> Option<&InternedString> {
@@ -1305,7 +1296,7 @@ impl List {
     }
 
     pub fn first_func_mut(&mut self) -> Option<&mut LambdaFunction> {
-        if let Some(ExprKind::LambdaFunction(l)) = self.args.get_mut(0) {
+        if let Some(ExprKind::LambdaFunction(l)) = self.args.first_mut() {
             Some(l)
         } else {
             None
@@ -1313,7 +1304,7 @@ impl List {
     }
 
     pub fn first_func(&self) -> Option<&LambdaFunction> {
-        if let Some(ExprKind::LambdaFunction(l)) = self.args.get(0) {
+        if let Some(ExprKind::LambdaFunction(l)) = self.args.first() {
             Some(l)
         } else {
             None

@@ -273,3 +273,6 @@ Checks whether the given value is a #<ReadDir>
 (read-dir-iter? my-iter) ;; => #true
 (read-dir-iter "not an iter") ;; => #false
 ```
+### **glob**
+### **glob-iter-next!**
+### **path->string**

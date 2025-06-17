@@ -76,7 +76,6 @@ pub fn list_module() -> BuiltInModule {
         .register_value("push-back", crate::primitives::lists::PUSH_BACK)
         .register_native_fn_definition(PAIR_DEFINITION)
         .register_native_fn_definition(APPLY_DEFINITION)
-        .register_value("transduce", crate::steel_vm::transducers::TRANSDUCE)
         .register_native_fn_definition(SECOND_DEFINITION)
         .register_native_fn_definition(THIRD_DEFINITION)
         .register_native_fn_definition(TAKE_DEFINITION)
@@ -310,7 +309,6 @@ macro_rules! debug_unreachable {
 #[steel_derive::native(name = "range", arity = "Range(1,2)")]
 fn range(args: &[SteelVal]) -> Result<SteelVal> {
     let (lower, upper) = match args {
-        [] => stop!(ArityMismatch => "range expected one or two arguments, got 0"),
         [SteelVal::IntV(upper)] => (0, *upper),
         [SteelVal::IntV(lower), SteelVal::IntV(upper)] => (*lower, *upper),
         [invalid] | [SteelVal::IntV(_), invalid] | [invalid, _] => {
@@ -427,8 +425,6 @@ pub(crate) fn car(list: &SteelVal) -> Result<SteelVal> {
 // Optimistic check to see if the rest is null before making an allocation
 #[steel_derive::native(name = "cdr-null?", constant = true, arity = "Exact(1)")]
 fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
-    arity_check!(cdr_is_null, args, 1);
-
     match &args[0] {
         SteelVal::ListV(l) => {
             if l.is_empty() {
@@ -490,7 +486,7 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
 /// ```scheme
 /// > (rest (list 10 20 30)) ;; => '(20 30)
 /// > (rest (list 10)) ;; => '()
-/// > (rest (list 10))
+/// > (rest '() )
 /// error[E11]: Generic
 ///    ┌─ :1:2
 ///    │

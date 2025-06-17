@@ -6,13 +6,17 @@ use super::{
     builtin::{Arity, FunctionSignatureMetadata},
     engine::Engine,
 };
-use crate::{gc::Gc, rvals::MaybeSendSyncStatic, values::lists::List};
 use crate::{
     gc::{
         shared::MutContainer,
         unsafe_erased_pointers::{ReadOnlyTemporaryObject, TemporaryObject},
     },
     steel_vm::builtin::BuiltInModule,
+};
+use crate::{
+    gc::{unsafe_erased_pointers::increment_borrow_flag, Gc},
+    rvals::MaybeSendSyncStatic,
+    values::lists::List,
 };
 use crate::{
     gc::{
@@ -809,7 +813,7 @@ impl<
                 .unwrap();
 
             // Mark as borrowed now
-            borrow_flag.set(true);
+            borrow_flag.store(true, std::sync::atomic::Ordering::SeqCst);
 
             let mut borrowed = BorrowedObject::new(weak_ptr).with_parent_flag(borrow_flag);
 
@@ -893,7 +897,9 @@ impl<
                 .get_borrow_count_if_borrowed_object::<SELFSTAT>()
                 .unwrap();
 
-            borrow_flag.set(borrow_flag.get() + 1);
+            // borrow_flag.set(borrow_flag.get() + 1);
+
+            increment_borrow_flag(&borrow_flag);
 
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
@@ -975,7 +981,7 @@ impl<
                 .get_borrow_count_if_borrowed_object::<SELFSTAT>()
                 .unwrap();
 
-            borrow_flag.set(borrow_flag.get() + 1);
+            increment_borrow_flag(&borrow_flag);
 
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
@@ -1382,7 +1388,7 @@ impl<
                 .get_borrow_flag_if_borrowed_object::<SELFSTAT>()
                 .unwrap();
 
-            borrow_flag.set(true);
+            borrow_flag.store(true, std::sync::atomic::Ordering::SeqCst);
 
             let borrowed = BorrowedObject::new(weak_ptr).with_parent_flag(borrow_flag);
 
@@ -1467,7 +1473,7 @@ impl<
                 .get_borrow_count_if_borrowed_object::<SELFSTAT>()
                 .unwrap();
 
-            borrow_flag.set(borrow_flag.get() + 1);
+            increment_borrow_flag(&borrow_flag);
 
             // TODO: Mark the parent as borrowed -> Can't be access again until
             // the child value is out of scope. We shouldn't have a problem with RO values
@@ -1553,7 +1559,7 @@ impl<
                 .get_borrow_count_if_borrowed_object::<SELFSTAT>()
                 .unwrap();
 
-            borrow_flag.set(borrow_flag.get() + 1);
+            increment_borrow_flag(&borrow_flag);
 
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
@@ -1838,7 +1844,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 e
             })?;
 
-            let res = func(&mut input);
+            let res = func(input);
 
             res.into_steelval()
         };
@@ -1874,7 +1880,7 @@ impl<
                 err
             })?;
 
-            let res = func(&mut input, arg);
+            let res = func(input, arg);
 
             res.into_steelval()
         };
@@ -1906,7 +1912,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 e
             })?;
 
-            let res = func(&mut input);
+            let res = func(input);
 
             res.into_steelval()
         };

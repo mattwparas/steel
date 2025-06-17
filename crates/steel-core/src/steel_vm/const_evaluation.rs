@@ -1,5 +1,4 @@
-use crate::compiler::program::number_literal_to_steel;
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::{
     compiler::compiler::OptLevel,
     parser::{
@@ -292,7 +291,7 @@ impl<'a> ConstantEvaluator<'a> {
                 self.bindings.borrow_mut().get(s)
             }
             // todo!() figure out if it is ok to expand scope of eval_atom.
-            TokenType::Number(n) => number_literal_to_steel(n).ok(),
+            TokenType::Number(n) => (&**n).into_steelval().ok(),
             TokenType::StringLiteral(s) => Some(SteelVal::StringV((s.clone()).into())),
             TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
             _ => None,
@@ -877,12 +876,14 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         stop!(Generic => "unexpected syntax rules in const evaluator");
     }
 
-    fn visit_set(&mut self, s: Box<crate::parser::ast::Set>) -> Self::Output {
+    fn visit_set(&mut self, mut s: Box<crate::parser::ast::Set>) -> Self::Output {
         let identifier = &s.variable.atom_identifier_or_else(
             throw!(BadSyntax => "set expects an identifier"; s.location.span),
         )?;
 
         self.bindings.borrow_mut().unbind(identifier);
+
+        s.expr = self.visit(s.expr)?;
 
         Ok(ExprKind::Set(s))
     }

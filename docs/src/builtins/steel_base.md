@@ -497,6 +497,33 @@ Checks if the given value is a complex number
 > (complex? 42) ;; => #t
 > (complex? "hello") ;; => #f
 ```
+### **compose**
+Compose multiple iterators into one iterator
+
+(compose . iters) -> iterator?
+
+#### Examples
+```scheme
+(compose
+(mapping (λ (x) (+ x 1)))
+(filtering odd?)
+(taking 15))
+```
+### **concat-symbols**
+Concatenates zero or more symbols into a new symbol.
+
+(concat-symbols sym1 sym2 …) -> symbol?
+
+* `sym1` : symbol? — the first symbol to append
+* `sym2` : symbol? — the next symbol to append, and so on
+
+#### Examples
+```scheme
+> (concat-symbols 'he 'llo)
+=> 'hello
+> (concat-symbols)
+=> '
+```
 ### **cons**
 Returns a newly allocated list whose first element is `a` and second element is `d`.
 
@@ -607,6 +634,15 @@ Retrieves the denominator of the given rational number.
 Returns `#t` if the value is an disconnected-channel object.
 
 (eof-object? any/c) -> bool?
+### **dropping**
+Creates a taking iterator combinator
+
+(dropping integer?) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 2 3 4 5) (dropping 3) (into-list)) ;; => '(4 5)
+```
 ### **duration->string**
 Returns a string representation of a duration
 
@@ -643,6 +679,15 @@ pattern: string?
 ```scheme
 > (ends-with? "foobar" "foo") ;; => #false
 > (ends-with? "foobar" "bar") ;; => #true
+```
+### **enumerating**
+Create an enumerating iterator
+
+(enumerating) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 3 5) (enumerating) (into-list)) ;; => '((0 1) (1 3) (2 5))
 ```
 ### **eof-object**
 Returns an EOF object.
@@ -760,6 +805,15 @@ Raises the left operand to the power of the right operand.
 > (expt 2.0 0.5) ;; => 1.4142135623730951
 > (expt 9 0.5) ;; => 3
 ```
+### **extending**
+Create an extending iterator
+
+(extending iterable) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 2 3) (extending (list 4 5 6 7)) (into-list)) ;; => '(1 2 3 4 5 6 7)
+```
 ### **f+**
 Sums all given floats
 
@@ -786,6 +840,15 @@ Gets the filename for a given path
 ```scheme
 > (file-name "logs") ;; => "logs"
 > (file-name "logs/today.json") ;; => "today.json"
+```
+### **filtering**
+Creates a filtering iterator
+
+(filtering proc?) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 2 3 4) (filtering even?) (into-list)) ;; => '(2 4)
 ```
 ### **finite?**
 Returns `#t` if the given number is finite.
@@ -814,6 +877,24 @@ Returns the first element of the list l.
 ```scheme
 > (first '(1 2)) ;; => 1
 > (first (cons 2 3)) ;; => 2
+```
+### **flat-mapping**
+Creates a flat-mapping iterator
+
+(flat-mapping proc?) -> iterator
+
+#### Examples
+```scheme
+(transduce (list 1 2 3) (flat-mapping (λ (x) (range 0 x))) (into-list)) ;; => '(0 0 1 0 1 2)
+```
+### **flattening**
+Creates a flattening iterator that etc
+
+(flattening) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list '(1 2) '(3 4) '(5 6)) (flattening) (into-list)) ;; => '(1 2 3 4 5 6)
 ```
 ### **float?**
 Checks if the given value is a floating-point number
@@ -1107,6 +1188,13 @@ Test if the hashset contains a given element.
 (hashset-contains? (hashset 10 20) 10) ;; => #true
 (hashset-contains? (hashset 10 20) "foo") ;; => #false
 ```
+### **hashset-difference**
+Finds the difference between the two hash sets.
+
+#### Examples
+```scheme
+(hashset-difference (hashset 10 20 30) (hashset 20 30 40)) ;; => (hashset 40 10)
+```
 ### **hashset-insert**
 Insert a new element into the hashset. Returns a hashset.
 
@@ -1116,6 +1204,13 @@ Insert a new element into the hashset. Returns a hashset.
 (define updated (hashset-insert hs 40))
 (equal? hs (hashset 10 20 30)) ;; => #true
 (equal? updated (hashset 10 20 30 40)) ;; => #true
+```
+### **hashset-intersection**
+Finds the intersection between the two hash sets.
+
+#### Examples
+```scheme
+(hashset-intersection (hashset 10 20) (hashset 20)) ;; => (hashset 10)
 ```
 ### **hashset-length**
 Get the number of elements in the hashset
@@ -1131,6 +1226,13 @@ Check if the left set is a subset of the right set
 ```scheme
 (hashset-subset? (hash 10) (hashset 10 20)) ;; => #true
 (hashset-subset? (hash 100) (hashset 30)) ;; => #false
+```
+### **hashset-union**
+Finds the union between the two hash sets.
+
+#### Examples
+```scheme
+(hashset-union (hashset 10) (hashset 20)) ;; => (hashset 10 20)
 ```
 ### **imag-part**
 Returns the imaginary part of a number
@@ -1255,6 +1357,15 @@ Checks if the given value is an integer, an alias for `int?`
 > (integer? 42) ;; => #t
 > (integer? 3.14) ;; => #f
 > (integer? "hello") ;; => #f
+```
+### **interleaving**
+Create an interleaving iterator
+
+(interleaving any/c) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 2 3) (interleaving (list 4 5 6)) (into-list)) ;; => '(1 4 2 5 3 6)
 ```
 ### **is-dir?**
 Checks if a path is a directory
@@ -1443,6 +1554,15 @@ Creates a mutable vector of a given size, optionally initialized with a specifie
 ```scheme
 > (make-vector 3) ;; => '#(0 0 0)
 > (make-vector 3 42) ;; => '#(42 42 42)
+```
+### **mapping**
+Create a mapping iterator
+
+(mapping proc?) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 2 3) (mapping (λ (x) (+ x 1))) (into-list)) ;; => '(2 3 4)
 ```
 ### **modulo**
 Returns the euclidean remainder of the division of the first number by the second
@@ -1882,7 +2002,7 @@ Reads bytes from an input port.
 ### **read-bytes-into-buf**
 Reads bytes from an input port into a given buffer.
 
-(read-bytes-into-buf buf amt [port]) -> bytes?
+(read-bytes-into-buf buf amt [port]) -> int?
 
 * buf : bytes?
 * amt : (and positive? int?)
@@ -2058,7 +2178,7 @@ Returns the rest of the list. Will raise an error if the list is empty.
 ```scheme
 > (rest (list 10 20 30)) ;; => '(20 30)
 > (rest (list 10)) ;; => '()
-> (rest (list 10))
+> (rest '() )
 error[E11]: Generic
 ┌─ :1:2
 │
@@ -2128,6 +2248,12 @@ Returns the sine value of the input angle, measured in radians.
 Spawns the given `func` on another thread. It is required that the arity of the
 given function be 0. If the arity of the given function cannot be checked until runtime,
 the thread will be spawned and the function will fail to execute.
+
+```scheme
+(spawn-native-thread func)
+```
+
+func : (-> any?) ;; Function with no arguments, returns anything
 
 #### Examples
 
@@ -2461,6 +2587,54 @@ Creates a substring slicing the characters between two indices.
 (substring "hello" 1 4) ;; => "ell"
 (substring "hello" 10 15) ;; => error
 ```
+### **symbol->string**
+Converts a symbol or quoted list into its string representation.
+
+(symbol->string sym) -> string?
+
+* `sym` : symbol? | list? — a symbol or quoted list to convert
+
+#### Examples
+```scheme
+> (symbol->string 'foo)
+"foo"
+
+> (symbol->string '(a b c))
+"(a b c)"
+
+> (symbol->string 123)
+Error: symbol->string expected a symbol, found 123
+```
+### **symbol=?**
+Compares one or more symbols for pointer‐identity equality.
+
+(symbol=? sym1 sym2 …) -> bool?
+
+* `sym1` : symbol? — the first symbol to compare
+* `sym2` : symbol? — the next symbol to compare, and so on
+
+Returns `#t` if all provided symbols share the same memory pointer,
+`#f` otherwise. At least one argument is required.
+
+#### Examples
+```scheme
+> (define a 'foo)
+> (define b 'foo)
+> (symbol=? a b)
+=> #t
+> (symbol=? 'a 'b)
+=> #f
+> (symbol=? 'x 'x 'x)
+=> #t
+```
+### **system-time-duration-since**
+Gets the duration between two system times.
+
+(system-time-duration-since time earlier)
+### **system-time/now**
+Returns the current `SystemTime`.
+
+(system-time/now) -> SystemTime?
 ### **take**
 Returns the first n elements of the list l as a new list.
 
@@ -2474,6 +2648,15 @@ Returns the first n elements of the list l as a new list.
 ```scheme
 > (take '(1 2 3 4) 2) ;; => '(0 1)
 > (take (range 0 10) 4) ;; => '(0 1 2 3)
+```
+### **taking**
+Creates a taking iterator combinator
+
+(taking number?) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 2 3 4 5) (taking 3) (into-list)) ;; => '(1 2 3)
 ```
 ### **tan**
 Returns the tangent value of the input angle, measured in radians.
@@ -2768,6 +2951,15 @@ Checks if the given real number is zero.
 > (zero? 0.0) ;; => #t
 > (zero? 0.1) ;; => #f
 ```
+### **zipping**
+Create a zipping iterator
+
+(zipping any/c) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 2 3) (zipping (list 4 5 6 7)) (into-list)) ;; => '((1 4) (2 5) (3 6))
+```
 ### **%#interner-memory-usage**
 ### **%iterator?**
 ### **%keyword-hash**
@@ -2820,18 +3012,17 @@ Checks if the given real number is zero.
 ### **child-stdin**
 ### **child-stdout**
 ### **command**
-### **compose**
-### **concat-symbols**
 ### **continuation?**
 ### **current-function-span**
 ### **current-os!**
 ### **current-thread-id**
-### **dropping**
+### **duration->micros**
+### **duration->millis**
+### **duration->nanos**
 ### **duration->seconds**
 ### **duration-since**
 ### **emit-expanded**
 ### **empty-stream**
-### **enumerating**
 ### **env-var**
 ### **eq?**
 ### **equal?**
@@ -2842,24 +3033,21 @@ Checks if the given real number is zero.
 ### **eval!**
 ### **eval-string**
 ### **expand!**
-### **extending**
 ### **feature-dylib-build?**
-### **filtering**
-### **flat-mapping**
-### **flattening**
 ### **flush-output-port**
 ### **function-name**
 ### **function?**
 ### **future?**
 ### **get-contract-struct**
 ### **get-test-mode**
+### **glob**
+### **glob-iter-next!**
 ### **hash-get**
 ### **hash?**
 ### **immutable-vector?**
 ### **inspect**
 ### **instant/elapsed**
 ### **instant/now**
-### **interleaving**
 ### **into-count**
 ### **into-for-each**
 ### **into-hashmap**
@@ -2888,7 +3076,6 @@ Checks if the given real number is zero.
 ### **local-executor/block-on**
 ### **make-channels**
 ### **make-struct-type**
-### **mapping**
 ### **maybe-get-env-var**
 ### **memory-address**
 ### **multi-arity?**
@@ -2900,6 +3087,7 @@ Checks if the given real number is zero.
 ### **naive-date-year**
 ### **naive-date-ymd**
 ### **not**
+### **path->string**
 ### **plist-get**
 ### **plist-get-kwarg**
 ### **plist-get-positional-arg**
@@ -2926,7 +3114,6 @@ Checks if the given real number is zero.
 ### **set?**
 ### **span-file-id**
 ### **spawn-process**
-### **spawn-thread!**
 ### **stdout**
 ### **stdout-simple-displayln**
 ### **steel-home-location**
@@ -2936,8 +3123,6 @@ Checks if the given real number is zero.
 ### **string?**
 ### **struct->list**
 ### **struct?**
-### **symbol->string**
-### **symbol=?**
 ### **symbol?**
 ### **syntax->datum**
 ### **syntax-e**
@@ -2950,7 +3135,6 @@ Checks if the given real number is zero.
 ### **system-time<?**
 ### **system-time>=**
 ### **system-time>?**
-### **taking**
 ### **thread/available-parallelism**
 ### **thread::current/id**
 ### **transduce**
@@ -2967,4 +3151,3 @@ Checks if the given real number is zero.
 ### **which**
 ### **would-block**
 ### **write-line!**
-### **zipping**

@@ -25,8 +25,7 @@ impl FromSteelVal for Span {
                 source_id: l
                     .get(2)
                     .map(Option::<u32>::from_steelval)
-                    .map(|x| x.transpose())
-                    .flatten()
+                    .and_then(|x| x.transpose())
                     .transpose()?
                     .map(SourceId),
             })

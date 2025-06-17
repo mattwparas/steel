@@ -9,12 +9,15 @@ use std::{
 use dashmap::DashSet;
 use ropey::Rope;
 use steel::{
-    compiler::passes::{
-        analysis::{
-            query_top_level_define, query_top_level_define_on_condition,
-            RequiredIdentifierInformation, SemanticAnalysis,
+    compiler::{
+        modules::{MANGLED_MODULE_PREFIX, MANGLER_PREFIX, MODULE_PREFIX},
+        passes::{
+            analysis::{
+                query_top_level_define, query_top_level_define_on_condition,
+                RequiredIdentifierInformation, SemanticAnalysis,
+            },
+            VisitorMutUnitRef,
         },
-        VisitorMutUnitRef,
     },
     define_primitive_symbols, define_symbols,
     parser::{
@@ -60,8 +63,16 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
 
                 let resolved = ident.resolve();
 
+                if resolved.starts_with(MANGLER_PREFIX) {
+                    return None;
+                }
+
                 // We can just ignore those as well
                 if resolved.starts_with("mangler") {
+                    return None;
+                }
+
+                if resolved.starts_with(MANGLED_MODULE_PREFIX) {
                     return None;
                 }
 

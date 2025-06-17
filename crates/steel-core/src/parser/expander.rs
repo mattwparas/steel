@@ -1,4 +1,4 @@
-use crate::compiler::program::{BEGIN, DEFINE, ELLIPSES_SYMBOL, IF};
+use crate::compiler::program::{BEGIN, DEFINE, ELLIPSES_SYMBOL, IF, LAMBDA};
 use crate::parser::ast::{Atom, ExprKind, List, Macro, PatternPair, Vector};
 use crate::parser::parser::SyntaxObject;
 use crate::parser::rename_idents::RenameIdentifiersVisitor;
@@ -656,6 +656,9 @@ impl MacroPattern {
                     }
                     TokenType::Define => {
                         pattern_vec.push(MacroPattern::Syntax(*DEFINE));
+                    }
+                    TokenType::Lambda => {
+                        pattern_vec.push(MacroPattern::Syntax(*LAMBDA));
                     }
                     TokenType::If => {
                         pattern_vec.push(MacroPattern::Syntax(*IF));

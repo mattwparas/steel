@@ -84,10 +84,10 @@
     [(syntax (#%syntax/raw x ...))
      (#%expand-syntax-case (#%syntax/raw x ...) (#%syntax-bindings) (#%syntax-binding-kind))]
 
-    ;; Don't quote things that are already quoted
     [(syntax (quote x)) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]
 
     ;; Otherwise, if its not quoted, just quote it
+    ;; Quasisyntax isn't quite right here. We actually just want the syntax raw behavior without really any unquote?
     [(syntax x) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]))
 
 (define-syntax quasiquote
@@ -121,10 +121,6 @@
     [(quasiquote #(x xs ...)) (list->vector (cons (quasiquote x) (quasiquote (xs ...))))]
     [(quasiquote x) 'x]))
 
-; (define-syntax #%unquote
-;   (syntax-rules ()
-;     [(#%unquote x) x]))
-
 (define-syntax #%proto-syntax-object
   (syntax-rules ()
     [(#%proto-syntax-object x) (#%syntax/raw 'x 'x (#%syntax-span x))]))
@@ -140,7 +136,10 @@
     [(quasisyntax #%internal-crunch ((syntax x) xs ...))
      (cons (list 'syntax (quasisyntax #%internal-crunch x)) (quasisyntax #%internal-crunch (xs ...)))]
 
-    [(quasisyntax #%internal-crunch (syntax x)) (list 'quote (quasisyntax #%internal-crunch x))]
+    ;; What the heck is going on here?
+    [(quasisyntax #%internal-crunch (syntax x))
+     (begin
+       (#%syntax/raw (quote x) (quasisyntax #%internal-crunch x) (#%syntax-span x)))]
 
     [(quasisyntax #%internal-crunch ((unsyntax x) xs ...))
      (cons (list 'unsyntax (quasisyntax #%internal-crunch x))
@@ -339,6 +338,7 @@
     [(-> a) a]
     [(-> a (b c ...)) ((f> b c ...) a)]
     [(-> a (b)) ((f> b) a)]
+    [(~> a b) ((f> b) a)]
     [(-> a b c ...) (-> (-> a b) c ...)]))
 
 (define-syntax ~>
@@ -367,6 +367,7 @@
     [(->> a) a]
     [(->> a (b c ...)) ((l> b c ...) a)]
     [(->> a (b)) ((l> b) a)]
+    [(~>> a b) ((l> b) a)]
     [(->> a b c ...) (->> (->> a b) c ...)]))
 
 (define-syntax swap

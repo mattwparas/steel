@@ -33,12 +33,23 @@ Returns the local time in the format given by the input string (using `chrono::L
 (local-time/now! fmt) -> string?
 
 * fmt : string?
+### **system-time-duration-since**
+Gets the duration between two system times.
+
+(system-time-duration-since time earlier)
+### **system-time/now**
+Returns the current `SystemTime`.
+
+(system-time/now) -> SystemTime?
 ### **time/sleep-ms**
 Sleeps the thread for a given number of milliseconds.
 
 (time/sleep-ms ms)
 
 * ms : int?
+### **duration->micros**
+### **duration->millis**
+### **duration->nanos**
 ### **duration->seconds**
 ### **duration-since**
 ### **instant/elapsed**

@@ -14,7 +14,7 @@ name = "steel"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-im-rc = "15.1.0"
+im-rc = { version = "15.1.0", features = ["serde"] }
 codespan-reporting = "0.11.1"
 log = "0.4.17"
 
@@ -71,7 +71,7 @@ anyhow = { version = "1", optional = true }
 stacker = { version = "0.1.15", optional = true }
 
 # Sync feature
-im = { version = "15.1.0", optional = true }
+im = { version = "15.1.0", features = ["serde"], optional = true }
 
 parking_lot = { version = "0.12", features = ["arc_lock", "send_guard"] }
 
@@ -85,7 +85,7 @@ httparse = "1.9.4"
 
 compact_str = { version = "0.8.0", features = ["serde"] }
 
-git2 = { version = "0.19.0", optional = true, features = ["vendored-openssl"] }
+git2 = { version = "0.20.2", optional = true, features = ["vendored-openssl"] }
 ureq = { version = "3.0.12", optional = true }
 
 # For the constant map
@@ -93,6 +93,9 @@ arc-swap = "1.7.1"
 
 md-5 = "0.10.6"
 glob = "0.3.2"
+
+# For helping discover the steel home location
+xdg = "3.0.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3.1", features = ["wasm_js"] }
