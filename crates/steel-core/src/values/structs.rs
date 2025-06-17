@@ -332,8 +332,8 @@ impl UserDefinedStruct {
                 let error_message = format!(
                     "{} expected {} arguments, found {}",
                     descriptor.name().clone(),
+                    len,
                     args.len(),
-                    len
                 );
                 stop!(ArityMismatch => error_message);
             }
@@ -361,8 +361,8 @@ impl UserDefinedStruct {
                 let error_message = format!(
                     "{} expected {} arguments, found {}",
                     name.clone(),
+                    len,
                     args.len(),
-                    len
                 );
                 stop!(ArityMismatch => error_message);
             }
