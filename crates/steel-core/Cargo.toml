@@ -86,6 +86,7 @@ httparse = "1.9.4"
 compact_str = { version = "0.8.0", features = ["serde"] }
 
 git2 = { version = "0.19.0", optional = true, features = ["vendored-openssl"] }
+ureq = { version = "3.0.12", optional = true }
 
 # For the constant map
 arc-swap = "1.7.1"
@@ -129,6 +130,7 @@ rooted-instructions = []
 recycle = []
 # git = ["dep:gix", "anyhow"]
 git = ["dep:git2", "anyhow"]
+ureq = ["dep:ureq"]
 disable-arity-checking = ["steel-derive/disable-arity-checking"]
 experimental-drop-handler = []
 unsandboxed-kernel = []
