@@ -171,7 +171,9 @@ mod libgit {
         let msg = format!("Fast-Forward: Setting {} to id: {}", name, rc.id());
         println!("{}", msg);
         lb.set_target(rc.id(), &msg)?;
-        repo.set_head(&name)?;
+        // TODO: Understand why this causes issues. It gives an error with master not
+        // being a proper reference. Same in `git_pull`
+        // repo.set_head(&name)?;
         repo.checkout_head(Some(
             git2::build::CheckoutBuilder::default()
                 // For some reason the force is required to make the working directory actually get updated

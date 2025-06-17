@@ -23,7 +23,7 @@ use super::{
 
 use crate::parser::expander::SteelMacro;
 
-static REST_ARG: &'static str = "##%list-args";
+static REST_ARG: &str = "##%list-args";
 
 pub fn extract_macro_defs(
     exprs: &mut Vec<ExprKind>,
@@ -227,36 +227,34 @@ impl<'a> VisitorMutRef for Expander<'a> {
                         if let Some(m) = self.map.get(s) {
                             // If this macro has been overwritten by any local value, respect
                             // the local binding and do not expand the macro
-                            if !self.in_scope_values.contains(s) {
-                                if self.source_id.is_none()
-                                    || self.source_id == m.location.source_id()
-                                {
-                                    let span = *sp;
+                            if !self.in_scope_values.contains(s) && self.source_id.is_none()
+                                || self.source_id == m.location.source_id()
+                            {
+                                let span = *sp;
 
-                                    let mut expanded = m.expand(
-                                        List::new_maybe_improper(
-                                            std::mem::take(&mut l.args),
-                                            l.improper,
-                                        ),
-                                        span,
-                                    )?;
-                                    self.changed = true;
+                                let mut expanded = m.expand(
+                                    List::new_maybe_improper(
+                                        std::mem::take(&mut l.args),
+                                        l.improper,
+                                    ),
+                                    span,
+                                )?;
+                                self.changed = true;
 
-                                    self.depth += 1;
+                                self.depth += 1;
 
-                                    self.visit(&mut expanded)?;
+                                self.visit(&mut expanded)?;
 
-                                    self.depth -= 1;
+                                self.depth -= 1;
 
-                                    *expr = expanded;
+                                *expr = expanded;
 
-                                    return Ok(());
-                                }
-
-                                // let expanded = m.expand(l.clone(), *sp)?;
-                                // self.changed = true;
-                                // return self.visit(expanded);
+                                return Ok(());
                             }
+
+                            // let expanded = m.expand(l.clone(), *sp)?;
+                            // self.changed = true;
+                            // return self.visit(expanded);
                         }
                     }
                     _ => {}
@@ -602,37 +600,35 @@ fn expand_keyword_and_default_arguments(
             }
 
             seen_default_or_kwarg = true;
-        } else {
-            if seen_default_or_kwarg {
-                match next {
-                    ExprKind::Atom(a) => {
-                        if is_rest && iter.peek().is_none() {
-                            positional_args.push(MaybeDefault::Rest(next))
-                        } else {
-                            if seen_default {
-                                stop!(BadSyntax => "positional arg without default found after default argument"; a.syn.span)
-                            }
-
-                            required_positional_arg_count += 1;
-                            positional_args.push(MaybeDefault::Positional(next))
-                        }
-                    }
-                    ExprKind::List(l) => {
-                        if l.len() != 2 {
-                            stop!(BadSyntax => "malformed default argument"; lambda_function.location.span)
+        } else if seen_default_or_kwarg {
+            match next {
+                ExprKind::Atom(a) => {
+                    if is_rest && iter.peek().is_none() {
+                        positional_args.push(MaybeDefault::Rest(next))
+                    } else {
+                        if seen_default {
+                            stop!(BadSyntax => "positional arg without default found after default argument"; a.syn.span)
                         }
 
-                        seen_default = true;
+                        required_positional_arg_count += 1;
+                        positional_args.push(MaybeDefault::Positional(next))
+                    }
+                }
+                ExprKind::List(l) => {
+                    if l.len() != 2 {
+                        stop!(BadSyntax => "malformed default argument"; lambda_function.location.span)
+                    }
 
-                        optional_positional_arg_count += 1;
-                        positional_args.push(MaybeDefault::DefaultArg(
-                            l.get(0).unwrap(),
-                            l.get(1).unwrap(),
-                        ));
-                    }
-                    _ => {
-                        stop!(BadSyntax => "Internal compiler error")
-                    }
+                    seen_default = true;
+
+                    optional_positional_arg_count += 1;
+                    positional_args.push(MaybeDefault::DefaultArg(
+                        l.get(0).unwrap(),
+                        l.get(1).unwrap(),
+                    ));
+                }
+                _ => {
+                    stop!(BadSyntax => "Internal compiler error")
                 }
             }
         }

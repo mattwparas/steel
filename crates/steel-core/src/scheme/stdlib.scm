@@ -183,9 +183,7 @@
 
     ;; Internal, we don't do anything special
     [(quasisyntax #%internal-crunch x)
-     (if (empty? 'x)
-         (#%syntax/raw '() '() (#%syntax-span x))
-         (#%syntax/raw 'x 'x (#%syntax-span x)))]
+     (if (empty? 'x) (#%syntax/raw '() '() (#%syntax-span x)) (#%syntax/raw 'x 'x (#%syntax-span x)))]
 
     [(quasisyntax (x xs ...))
      (syntax (#%syntax/raw (quote (x xs ...))
@@ -340,6 +338,7 @@
     [(-> a) a]
     [(-> a (b c ...)) ((f> b c ...) a)]
     [(-> a (b)) ((f> b) a)]
+    [(~> a b) ((f> b) a)]
     [(-> a b c ...) (-> (-> a b) c ...)]))
 
 (define-syntax ~>
@@ -368,6 +367,7 @@
     [(->> a) a]
     [(->> a (b c ...)) ((l> b c ...) a)]
     [(->> a (b)) ((l> b) a)]
+    [(~>> a b) ((l> b) a)]
     [(->> a b c ...) (->> (->> a b) c ...)]))
 
 (define-syntax swap
@@ -530,9 +530,7 @@
 ; (define compose (lambda (f g) (lambda (arg) (f (g arg)))))
 
 (define (foldl func accum lst)
-  (if (null? lst)
-      accum
-      (foldl func (func (car lst) accum) (cdr lst))))
+  (if (null? lst) accum (foldl func (func (car lst) accum) (cdr lst))))
 
 (define (map func lst . lsts)
 
@@ -556,16 +554,11 @@
 ;     (transduce lst (mapping func) (into-list))))
 
 (define foldr
-  (lambda (func accum lst)
-    (if (null? lst)
-        accum
-        (func (car lst) (foldr func accum (cdr lst))))))
+  (lambda (func accum lst) (if (null? lst) accum (func (car lst) (foldr func accum (cdr lst))))))
 
 (define unfold
   (lambda (func init pred)
-    (if (pred init)
-        (cons init '())
-        (cons init (unfold func (func init) pred)))))
+    (if (pred init) (cons init '()) (cons init (unfold func (func init) pred)))))
 
 (define fold (lambda (f a l) (foldl f a l)))
 (define reduce (lambda (f a l) (fold f a l)))
@@ -605,25 +598,13 @@
     [else (contains? pred? (cdr lst))]))
 
 (define (assoc thing alist)
-  (if (null? alist)
-      #f
-      (if (equal? (car (car alist)) thing)
-          (car alist)
-          (assoc thing (cdr alist)))))
+  (if (null? alist) #f (if (equal? (car (car alist)) thing) (car alist) (assoc thing (cdr alist)))))
 
 (define (assq thing alist)
-  (if (null? alist)
-      #f
-      (if (eq? (car (car alist)) thing)
-          (car alist)
-          (assq thing (cdr alist)))))
+  (if (null? alist) #f (if (eq? (car (car alist)) thing) (car alist) (assq thing (cdr alist)))))
 
 (define (assv thing alist)
-  (if (null? alist)
-      #f
-      (if (eq? (car (car alist)) thing)
-          (car alist)
-          (assv thing (cdr alist)))))
+  (if (null? alist) #f (if (eq? (car (car alist)) thing) (car alist) (assv thing (cdr alist)))))
 
 ;;@doc
 ;; Returns new list, keeping elements from `lst` which applying `pred` to the element
@@ -636,9 +617,7 @@
 ;; (filter even? (range 0 5)) ;; '(0 2 4)
 ;; ```
 (define (filter pred lst)
-  (if (empty? lst)
-      '()
-      (transduce lst (filtering pred) (into-list))))
+  (if (empty? lst) '() (transduce lst (filtering pred) (into-list))))
 
 ; (define (fact n)
 ;   (define factorial-tail (lambda (n acc)
@@ -647,16 +626,8 @@
 ;                                (factorial-tail (- n 1)  (* acc n )))))
 ;   (factorial-tail n 1))
 
-(define even-rec?
-  (lambda (x)
-    (if (= x 0)
-        #t
-        (odd-rec? (- x 1)))))
-(define odd-rec?
-  (lambda (x)
-    (if (= x 0)
-        #f
-        (even-rec? (- x 1)))))
+(define even-rec? (lambda (x) (if (= x 0) #t (odd-rec? (- x 1)))))
+(define odd-rec? (lambda (x) (if (= x 0) #f (even-rec? (- x 1)))))
 
 (define sum (lambda (x) (reduce + 0 x)))
 ;; (define head car)
@@ -678,9 +649,7 @@
 
 (define (drop lst n)
   (define (loop x l)
-    (if (zero? x)
-        l
-        (loop (sub1 x) (cdr l))))
+    (if (zero? x) l (loop (sub1 x) (cdr l))))
   (loop n lst))
 
 (define (slice l offset n)
@@ -698,9 +667,7 @@
     [else (gcd b (modulo a b))]))
 
 (define (lcm a b)
-  (if (or (zero? a) (zero? b))
-      0
-      (abs (* b (floor (/ a (gcd a b)))))))
+  (if (or (zero? a) (zero? b)) 0 (abs (* b (floor (/ a (gcd a b)))))))
 
 (define (for-each func lst)
   (if (null? lst)

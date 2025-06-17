@@ -35,12 +35,13 @@ pub struct ThreadHandle {
 /// Check if the given thread is finished running.
 #[steel_derive::function(name = "thread-finished?")]
 pub fn thread_finished(handle: &SteelVal) -> Result<SteelVal> {
-    Ok(ThreadHandle::as_ref(handle)?
-        .handle
-        .as_ref()
-        .map(|x| x.is_finished())
-        .unwrap_or(true))
-    .map(SteelVal::BoolV)
+    Ok(SteelVal::BoolV(
+        ThreadHandle::as_ref(handle)?
+            .handle
+            .as_ref()
+            .map(|x| x.is_finished())
+            .unwrap_or(true),
+    ))
 }
 
 impl crate::rvals::Custom for ThreadHandle {}
@@ -226,11 +227,11 @@ pub fn closure_into_serializable(
 //     spans: fxhash::FxHashMap<u32, Vec<Span>>,
 // }
 
-#[allow(unused)]
-/// This will naively deep clone the environment, by attempting to translate every value into a `SerializableSteelVal`
-/// While this does work, it does result in a fairly hefty deep clone of the environment. It does _not_ smartly attempt
-/// to keep track of what values this function could touch - rather it assumes every value is possible to be touched
-/// by the child thread.
+// #[allow(unused)]
+// This will naively deep clone the environment, by attempting to translate every value into a `SerializableSteelVal`
+// While this does work, it does result in a fairly hefty deep clone of the environment. It does _not_ smartly attempt
+// to keep track of what values this function could touch - rather it assumes every value is possible to be touched
+// by the child thread.
 // fn spawn_thread_result(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
 //     use crate::rvals::SerializableSteelVal;
 

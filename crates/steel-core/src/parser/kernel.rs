@@ -395,7 +395,7 @@ impl Kernel {
                 match expr {
                     ExprKind::Define(define) => {
                         if let ExprKind::LambdaFunction(_) = &define.body {
-                            let name = define.name.atom_identifier().unwrap().clone();
+                            let name = define.name.atom_identifier().unwrap();
 
                             return if result.contains_key(&name) {
                                 Some(expr.clone())
@@ -417,15 +417,17 @@ impl Kernel {
                             .filter(|expr| {
                                 if let ExprKind::Define(define) = expr {
                                     if let ExprKind::LambdaFunction(_) = &define.body {
-                                        let name = define.name.atom_identifier().unwrap().clone();
+                                        let name = define.name.atom_identifier().unwrap();
 
-                                        return if result.contains_key(&name) {
-                                            true
-                                        } else if self.engine.global_exists(name.resolve()) {
-                                            false
-                                        } else {
-                                            false
-                                        };
+                                        return result.contains_key(&name);
+
+                                        // return if result.contains_key(&name) {
+                                        //     true
+                                        // } else if self.engine.global_exists(name.resolve()) {
+                                        //     false
+                                        // } else {
+                                        //     false
+                                        // };
                                     }
                                 }
 
@@ -443,7 +445,7 @@ impl Kernel {
                     _ => {}
                 }
 
-                return None;
+                None
 
                 // TODO: Also check begin statements here as well
                 // if let ExprKind::Define(define) = expr {
@@ -480,7 +482,7 @@ impl Kernel {
         let memoize: InternedString = "%make-memoize".into();
 
         for ident in result.keys() {
-            self.constants.insert(ident.clone());
+            self.constants.insert(*ident);
 
             let set_ident = ExprKind::Atom(Atom::new(SyntaxObject::default(
                 TokenType::Identifier(ident.clone()),

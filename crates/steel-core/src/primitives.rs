@@ -195,6 +195,22 @@ impl IntoSteelVal for usize {
     }
 }
 
+impl IntoSteelVal for u128 {
+    fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
+        Ok(SteelVal::from(self))
+    }
+}
+
+impl From<u128> for SteelVal {
+    fn from(value: u128) -> Self {
+        if value > isize::MAX as u128 {
+            SteelVal::BigNum(Gc::new(value.into()))
+        } else {
+            SteelVal::IntV(value as isize)
+        }
+    }
+}
+
 impl IntoSteelVal for i64 {
     #[inline]
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {

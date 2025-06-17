@@ -44,6 +44,13 @@ Test if the hashset contains a given element.
 (hashset-contains? (hashset 10 20) 10) ;; => #true
 (hashset-contains? (hashset 10 20) "foo") ;; => #false
 ```
+### **hashset-difference**
+Finds the difference between the two hash sets.
+
+#### Examples
+```scheme
+(hashset-difference (hashset 10 20 30) (hashset 20 30 40)) ;; => (hashset 40 10)
+```
 ### **hashset-insert**
 Insert a new element into the hashset. Returns a hashset.
 
@@ -53,6 +60,13 @@ Insert a new element into the hashset. Returns a hashset.
 (define updated (hashset-insert hs 40))
 (equal? hs (hashset 10 20 30)) ;; => #true
 (equal? updated (hashset 10 20 30 40)) ;; => #true
+```
+### **hashset-intersection**
+Finds the intersection between the two hash sets.
+
+#### Examples
+```scheme
+(hashset-intersection (hashset 10 20) (hashset 20)) ;; => (hashset 10)
 ```
 ### **hashset-length**
 Get the number of elements in the hashset
@@ -68,6 +82,13 @@ Check if the left set is a subset of the right set
 ```scheme
 (hashset-subset? (hash 10) (hashset 10 20)) ;; => #true
 (hashset-subset? (hash 100) (hashset 30)) ;; => #false
+```
+### **hashset-union**
+Finds the union between the two hash sets.
+
+#### Examples
+```scheme
+(hashset-union (hashset 10) (hashset 20)) ;; => (hashset 10 20)
 ```
 ### **list->hashset**
 Convert the given list into a hashset.

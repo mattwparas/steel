@@ -174,9 +174,7 @@ impl<'a> Lexer<'a> {
 
                 let codepoint = u32::from_str_radix(&digits, 16)
                     .map_err(|_| TokenError::MalformedByteEscape)?;
-                let char = char::from_u32(codepoint).ok_or(TokenError::MalformedByteEscape)?;
-
-                char
+                char::from_u32(codepoint).ok_or(TokenError::MalformedByteEscape)?
             }
 
             Some(&start @ (' ' | '\t' | '\n')) => {
@@ -530,7 +528,7 @@ impl<'a> IdentBuffer<'a> {
 fn strip_shebang_line(input: &str) -> (&str, usize, usize) {
     if input.starts_with("#!") {
         let stripped = input.trim_start_matches("#!");
-        let result = match stripped.char_indices().skip_while(|x| x.1 != '\n').next() {
+        let result = match stripped.char_indices().find(|x| x.1 == '\n') {
             Some((pos, _)) => &stripped[pos..],
             None => "",
         };
@@ -538,11 +536,7 @@ fn strip_shebang_line(input: &str) -> (&str, usize, usize) {
         let original = input.len();
         let new = result.len();
 
-        (
-            result,
-            original - new,
-            input.as_bytes().len() - result.as_bytes().len(),
-        )
+        (result, original - new, input.len() - result.len())
     } else {
         (input, 0, 0)
     }
@@ -874,7 +868,10 @@ pub fn parse_number(s: &str, radix: Option<u32>) -> Option<NumberLiteral> {
             if !matches!(x.as_bytes().first(), Some(b'+') | Some(b'-')) {
                 return None;
             };
-            Some(NumberLiteral::Complex(IntLiteral::Small(0).into(), parse_real(x, radix)?).into())
+            Some(NumberLiteral::Complex(
+                IntLiteral::Small(0).into(),
+                parse_real(x, radix)?,
+            ))
         }
         [NumPart::Real(re), NumPart::Imaginary(im)] => Some(NumberLiteral::Complex(
             parse_real(re, radix)?,

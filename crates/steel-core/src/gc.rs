@@ -636,10 +636,13 @@ pub mod unsafe_erased_pointers {
 
     use std::cell::Cell;
     use std::rc::{Rc, Weak};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
     use std::{any::Any, cell::RefCell, marker::PhantomData};
 
     use crate::steel_vm::engine::EngineId;
     use once_cell::sync::Lazy;
+    use parking_lot::Mutex;
     use std::collections::HashMap;
 
     use crate::rvals::cycles::IterativeDropHandler;
@@ -714,7 +717,7 @@ pub mod unsafe_erased_pointers {
             let wrapped = Shared::new(MutContainer::new(erased));
             let weak_ptr = Shared::downgrade(&wrapped);
 
-            let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, Rc::new(Cell::new(0)));
+            let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, Arc::new(Mutex::new(0)));
 
             thunk(borrowed)
         }
@@ -914,7 +917,7 @@ pub mod unsafe_erased_pointers {
 
     pub struct ReadOnlyBorrowedObject<T> {
         pub(crate) ptr: WeakSharedMut<*const T>,
-        pub(crate) parent_borrow_count: Rc<Cell<BorrowFlag>>,
+        pub(crate) parent_borrow_count: Arc<Mutex<BorrowFlag>>,
     }
 
     impl<T> CustomReference for ReadOnlyBorrowedObject<T> {}
@@ -922,7 +925,7 @@ pub mod unsafe_erased_pointers {
     impl<T> ReadOnlyBorrowedObject<T> {
         pub fn new(
             ptr: WeakSharedMut<*const T>,
-            parent_borrow_count: Rc<Cell<BorrowFlag>>,
+            parent_borrow_count: Arc<Mutex<BorrowFlag>>,
         ) -> Self {
             Self {
                 ptr,
@@ -933,8 +936,8 @@ pub mod unsafe_erased_pointers {
 
     impl<T> Drop for ReadOnlyBorrowedObject<T> {
         fn drop(&mut self) {
-            self.parent_borrow_count
-                .set(self.parent_borrow_count.get() - 1);
+            let mut guard = self.parent_borrow_count.lock();
+            *guard = *guard - 1;
         }
     }
 
@@ -942,7 +945,7 @@ pub mod unsafe_erased_pointers {
         fn clone(&self) -> Self {
             Self {
                 ptr: WeakShared::clone(&self.ptr),
-                parent_borrow_count: Rc::clone(&self.parent_borrow_count),
+                parent_borrow_count: Arc::clone(&self.parent_borrow_count),
             }
         }
     }
@@ -975,38 +978,35 @@ pub mod unsafe_erased_pointers {
 
     pub struct BorrowedObject<T> {
         pub(crate) ptr: WeakSharedMut<*mut T>,
-
-        //// MAJOR TODO:
-        //// WE HAVE CURRENTLY IMPLEMENTED SEND AND SYNC FOR THIS
-        //// BUT IT IS VERY MUCH NOT! THESE NEED TO BE REPLACED
-        //// WITH THE THREAD SAFE VARIANTS
-
-        // TODO: This might need to just be a direct reference to the parent?
-        pub(crate) parent_borrow_flag: Rc<Cell<bool>>,
-        pub(crate) child_borrow_flag: Rc<Cell<bool>>,
-        // TODO:
-        // This really should be the way to do things...
-        pub(crate) borrow_count: Rc<Cell<BorrowFlag>>,
+        pub(crate) parent_borrow_flag: Arc<AtomicBool>,
+        pub(crate) child_borrow_flag: Arc<AtomicBool>,
+        pub(crate) borrow_count: Arc<Mutex<BorrowFlag>>,
     }
 
     impl<T> Drop for BorrowedObject<T> {
         fn drop(&mut self) {
             // We're not borrowing anymore, so we can do this
-            self.parent_borrow_flag.set(false);
+            self.parent_borrow_flag
+                .store(false, std::sync::atomic::Ordering::SeqCst);
         }
+    }
+
+    pub(crate) fn increment_borrow_flag(value: &Arc<Mutex<BorrowFlag>>) {
+        let mut guard = value.lock();
+        *guard = *guard + 1;
     }
 
     impl<T> BorrowedObject<T> {
         pub fn new(ptr: WeakSharedMut<*mut T>) -> Self {
             Self {
                 ptr,
-                parent_borrow_flag: Rc::new(Cell::new(false)),
-                child_borrow_flag: Rc::new(Cell::new(false)),
-                borrow_count: Rc::new(Cell::new(0)),
+                parent_borrow_flag: Arc::new(AtomicBool::new(false)),
+                child_borrow_flag: Arc::new(AtomicBool::new(false)),
+                borrow_count: Arc::new(Mutex::new(0)),
             }
         }
 
-        pub fn with_parent_flag(mut self, parent_borrow_flag: Rc<Cell<bool>>) -> Self {
+        pub fn with_parent_flag(mut self, parent_borrow_flag: Arc<AtomicBool>) -> Self {
             self.parent_borrow_flag = parent_borrow_flag;
 
             self
@@ -1016,14 +1016,14 @@ pub mod unsafe_erased_pointers {
     impl SteelVal {
         pub(crate) fn get_borrow_flag_if_borrowed_object<T: AsRefMutSteelValFromRef + 'static>(
             &self,
-        ) -> crate::rvals::Result<Rc<Cell<bool>>> {
+        ) -> crate::rvals::Result<Arc<AtomicBool>> {
             if let SteelVal::Reference(v) = self {
                 let res = v.inner.as_any_ref();
 
                 if res.is::<BorrowedObject<T>>() {
                     let borrowed_object = res.downcast_ref::<BorrowedObject<T>>().unwrap();
 
-                    Ok(Rc::clone(&borrowed_object.child_borrow_flag))
+                    Ok(Arc::clone(&borrowed_object.child_borrow_flag))
                 } else {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
@@ -1045,14 +1045,14 @@ pub mod unsafe_erased_pointers {
 
         pub(crate) fn get_borrow_count_if_borrowed_object<T: AsRefMutSteelValFromRef + 'static>(
             &self,
-        ) -> crate::rvals::Result<Rc<Cell<BorrowFlag>>> {
+        ) -> crate::rvals::Result<Arc<Mutex<BorrowFlag>>> {
             if let SteelVal::Reference(v) = self {
                 let res = v.inner.as_any_ref();
 
                 if res.is::<BorrowedObject<T>>() {
                     let borrowed_object = res.downcast_ref::<BorrowedObject<T>>().unwrap();
 
-                    Ok(Rc::clone(&borrowed_object.borrow_count))
+                    Ok(Arc::clone(&borrowed_object.borrow_count))
                 } else {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
@@ -1079,9 +1079,9 @@ pub mod unsafe_erased_pointers {
         fn clone(&self) -> Self {
             Self {
                 ptr: WeakShared::clone(&self.ptr),
-                parent_borrow_flag: Rc::clone(&self.parent_borrow_flag),
-                child_borrow_flag: Rc::clone(&self.child_borrow_flag),
-                borrow_count: Rc::clone(&self.borrow_count),
+                parent_borrow_flag: Arc::clone(&self.parent_borrow_flag),
+                child_borrow_flag: Arc::clone(&self.child_borrow_flag),
+                borrow_count: Arc::clone(&self.borrow_count),
             }
         }
     }
@@ -1215,7 +1215,8 @@ pub mod unsafe_erased_pointers {
             let wrapped = Shared::new(MutContainer::new(erased));
             let weak_ptr = Shared::downgrade(&wrapped);
 
-            let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, Rc::new(Cell::new(0)));
+            let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, Arc::new(Mutex::new(0)));
+            // let borrowed = ReadOnlyBorrowedObject::new(weak_ptr);
 
             // #[cfg(feature = "sync")]
             // {
@@ -1321,8 +1322,10 @@ pub mod unsafe_erased_pointers {
                 if res.is::<BorrowedObject<T>>() {
                     let borrowed_object = res.downcast_ref::<BorrowedObject<T>>().unwrap();
 
-                    if borrowed_object.borrow_count.get() > 0
-                        || borrowed_object.child_borrow_flag.get()
+                    if *borrowed_object.borrow_count.lock() > 0
+                        || borrowed_object
+                            .child_borrow_flag
+                            .load(std::sync::atomic::Ordering::SeqCst)
                     {
                         stop!(Generic => "Value is already borrowed!")
                     }

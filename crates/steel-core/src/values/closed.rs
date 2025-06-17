@@ -61,7 +61,7 @@ pub struct GlobalSlotRecycler {
 
 impl GlobalSlotRecycler {
     pub fn free_shadowed_rooted_values(
-        roots: &mut Vec<SteelVal>,
+        roots: &mut [SteelVal],
         symbol_map: &mut SymbolMap,
         heap: &mut Heap,
     ) {
@@ -73,12 +73,7 @@ impl GlobalSlotRecycler {
     // TODO:
     // Take the global roots, without the shadowed values, and iterate over them,
     // push the values back, visit, mark visited, move on.
-    pub fn recycle(
-        &mut self,
-        roots: &mut Vec<SteelVal>,
-        symbol_map: &mut SymbolMap,
-        heap: &mut Heap,
-    ) {
+    pub fn recycle(&mut self, roots: &mut [SteelVal], symbol_map: &mut SymbolMap, heap: &mut Heap) {
         self.slots.clear();
 
         // TODO: Right now, after one pass, we'll ignore it forever.
@@ -128,14 +123,12 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit(&mut self) -> Self::Output {
         use SteelVal::*;
 
-        let mut ret = self.default_output();
-
         while let Some(value) = self.pop_front() {
             if self.slots.is_empty() {
                 return;
             }
 
-            ret = match value {
+            match value {
                 Closure(c) => self.visit_closure(c),
                 BoolV(b) => self.visit_bool(b),
                 NumV(n) => self.visit_float(n),
@@ -175,8 +168,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                 ByteVector(b) => self.visit_bytevector(b),
             };
         }
-
-        ret
     }
 
     fn push_back(&mut self, value: SteelVal) {
@@ -196,7 +187,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
             | SteelVal::MutFunc(_)
             | SteelVal::BuiltIn(_)
             | SteelVal::ByteVector(_)
-            | SteelVal::BigNum(_) => return,
+            | SteelVal::BigNum(_) => {}
             _ => {
                 self.queue.push(value);
             }
@@ -539,7 +530,7 @@ impl FreeList {
 
         self.elements.reserve(Self::EXTEND_CHUNK);
         self.elements
-            .extend(std::iter::repeat(None).take(Self::EXTEND_CHUNK));
+            .extend(std::iter::repeat_n(None, Self::EXTEND_CHUNK));
     }
 
     fn allocate(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
