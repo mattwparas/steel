@@ -40,14 +40,10 @@
 (define SEP (if (equal? (current-os!) "windows") "\\" "/"))
 
 (define (append-with-separator path dir)
-  (if (ends-with? path SEP)
-      (string-append path dir)
-      (string-append path SEP dir)))
+  (if (ends-with? path SEP) (string-append path dir) (string-append path SEP dir)))
 
 (define (convert-path path)
-  (if (equal? (current-os!) "windows")
-      (string-replace path "/" "\\")
-      path))
+  (if (equal? (current-os!) "windows") (string-replace path "/" "\\") path))
 
 ;; Should make this lazy?
 (define *STEEL_HOME* (~> (steel-home-location) (append-with-separator "cogs")))
@@ -76,12 +72,8 @@
   (define b-target (path-exists? (push-path b "Cargo.toml")))
   (directories-equal? a
                       b
-                      #:ignore-a (if a-target
-                                     (hashset (push-path a "target"))
-                                     #f)
-                      #:ignore-b (if b-target
-                                     (hashset (push-path b "target"))
-                                     #f)))
+                      #:ignore-a (if a-target (hashset (push-path a "target")) #f)
+                      #:ignore-b (if b-target (hashset (push-path b "target")) #f)))
 
 ;;@doc
 ;; Given a package spec, install that package directly to the file system
@@ -100,9 +92,7 @@
           (not (directories-equal-excluding-target? (hash-get package 'path) destination)))
         #t))
 
-  (if package-changed?
-      (displayln "Package has changed.")
-      (displayln "Package has not changed."))
+  (if package-changed? (displayln "Package has changed.") (displayln "Package has not changed."))
 
   (when (not package-changed?)
     ;; Try walking the deps
@@ -188,10 +178,7 @@
   (define pkg-index (list-package-index))
 
   (define remote-pkg-spec
-    (hash-ref pkg-index
-              (if (symbol? package)
-                  package
-                  (string->symbol package))))
+    (hash-ref pkg-index (if (symbol? package) package (string->symbol package))))
 
   (define git-url (hash-ref remote-pkg-spec '#:url))
   (define subdir (or (hash-try-get remote-pkg-spec '#:path) ""))
@@ -262,10 +249,7 @@
 (define (walk-and-install package #:force [force #f] #:dry-run [dry-run #f])
 
   (define current-path (hash-try-get package 'path))
-  (define maybe-canonicalized
-    (if current-path
-        (canonicalize-path current-path)
-        current-path))
+  (define maybe-canonicalized (if current-path (canonicalize-path current-path) current-path))
 
   ;; Check the direct cog level dependencies
   (for-each (lambda (d)
@@ -284,12 +268,7 @@
 ;; Does not currently check the in memory index, since this could be done during the
 ;; package installation process where the index is constantly getting updated.
 (define (package-installed? name)
-  (define destination
-    (string-append *STEEL_HOME*
-                   "/"
-                   (if (string? name)
-                       name
-                       (symbol->string name))))
+  (define destination (string-append *STEEL_HOME* "/" (if (string? name) name (symbol->string name))))
   (path-exists? destination))
 
 ;; Given a package spec, uninstall that package by deleting the contents of the installation
@@ -306,9 +285,7 @@
         (define dylib-name (find-dylib-name cargo-toml-path))
         (define dylib-path (append-with-separator *DYLIB-DIR* dylib-name))
         ;; Delete the dylib. If it doesn't exist, we can continue on.
-        (if (path-exists? dylib-path)
-            (delete-file! dylib-path)
-            (displayln "Dylib not found.")))))
+        (if (path-exists? dylib-path) (delete-file! dylib-path) (displayln "Dylib not found.")))))
 
   (delete-directory! destination)
 
@@ -334,9 +311,7 @@
         (install-package-and-log cog-to-install force))))
 
 (define (parse-cogs-from-command-line)
-  (if (empty? std::env::args)
-      (list (current-directory))
-      std::env::args))
+  (if (empty? std::env::args) (list (current-directory)) std::env::args))
 
 (define (package-installer-main)
 
