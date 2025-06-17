@@ -1920,7 +1920,8 @@ fn meta_module() -> BuiltInModule {
             "#%build-dylib",
             |_args: Vec<String>, _env_vars: Vec<(String, String)>| {
                 #[cfg(feature = "dylib-build")]
-                cargo_steel_lib::run(_args, _env_vars).ok()
+                cargo_steel_lib::run(_args, _env_vars)
+                    .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
             },
         )
         .register_fn("feature-dylib-build?", || cfg!(feature = "dylib-build"))
