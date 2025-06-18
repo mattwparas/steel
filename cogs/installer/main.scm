@@ -79,9 +79,9 @@
         (displayln "Package is not currently installed.")
         (install-package-and-log cog-to-install))))
 
-(define (install-package-from-git index git-url args)
-  ;; First, install the source to a temporary location.
-  (define package-spec (download-cog-to-sources-and-parse-module void git-url))
+(define (install-package-from-git index git-url args #:sha [*sha* void])
+  ;; First, install the source to a temporary location.#:sha [*sha* void]
+  (define package-spec (download-cog-to-sources-and-parse-module void git-url #:sha *sha*))
 
   ; (define force (member "--force" args))
 
@@ -217,7 +217,7 @@ Commands:
   pkg uninstall  Uninstall a package
 
   pkg install <package> --force  Force an install of a package from the remote index
-  pkg install --git <git-url>    Install a package via git"))
+  pkg install --git <git-url>    Install a package via git. `--rev <commit>` can be supplied"))
 
 (define (get-command-line-args)
   (define args (command-line))
@@ -276,10 +276,17 @@ Commands:
        (displayln (list-ref command-line-args 3))
        (displayln (drop command-line-args 4))
 
+       (define *sha*
+         (when
+           (equal?
+             '("--rev") (~> command-line-args (drop 4) (take 1)))
+           (~> command-line-args (drop 5) (car))))
+
        ;; Install using a git url
        (install-package-from-git package-index
                                  (list-ref command-line-args 3)
-                                 (drop command-line-args 3))]
+                                 (drop command-line-args 3)
+                                 #:sha *sha*)]
 
       ;; Install package from remote
       [(equal? '("pkg" "install") (take command-line-args 2))
