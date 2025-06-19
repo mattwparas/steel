@@ -34,7 +34,7 @@ An embeddable and extensible scheme dialect built in Rust.
 
 ## Features
 
-- R5RS support
+- [R5RS](https://standards.scheme.org/official/r5rs.pdf) support
 - Modules, using `require` and `provide` much like Racket.
 - `syntax-rules` and `syntax-case` macros.
 - Easy integration with native Rust functions and structs, either through embedding or via FFI.
