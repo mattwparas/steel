@@ -58,7 +58,7 @@ cargo run
 This will launch a REPL instance that looks something like this:
 
 <p align="center">
-  <img src="images/repl.gif" width="100%">
+  <img src="images/steel.gif" width="100%">
 </p>
 
 ### Full install
