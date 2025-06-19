@@ -45,6 +45,8 @@ An embeddable and extensible scheme dialect built in Rust.
   - hashmaps
   - hashsets
 
+For more details, see the [book](https://mattwparas.github.io/steel/book)
+
 ## Getting Started
 
 This github repository contains a cli interpreter. To try it out on the online playground, go to the [Steel playground](https://mattwparas.github.io/steel-playground/dev). To get started using a repl with the crates, make sure you first have rust installed.
@@ -81,8 +83,6 @@ This will install:
 
 If you would like to customize the location of installed packages, please set the `STEEL_HOME` environment variable. Steel currently follows XDG if present, and otherwise assumes the default of `$HOME/.steel` if the `STEEL_HOME` environment variable is not already set.
 
-
-For more details, see the [book](https://mattwparas.github.io/steel/book)
 
 ## License
 
