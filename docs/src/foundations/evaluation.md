@@ -9,5 +9,3 @@ into a proper sexp. It will be explicitly mentioned in this book if that's the c
 string inputs will match the string representation of a resulting sexp.
 2. Macro expansion: Some sexps may become other sexps.
 3. Eval: The final sexp is evaluated.
-
-In subsequent chapters, we'll demystify all of it. For now, steps 1 and 2 will be transparent.
