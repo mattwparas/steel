@@ -26,7 +26,7 @@ An embeddable and extensible scheme dialect built in Rust.
 
 ## About
 
-`Steel` is an embeddable scheme interpreter, with a standalone cli included as well. Inspired largely by Racket, the language seeks to be ergonomic scheme variant helpful for embedding in applications, or to be used on its own with high performance functions implemented in Rust. The language implementation itself contains a fairly powerful macro system based on the `syntax-rules` style and a bytecode virtual machine. At the moment, it is mostly compliant with R5RS, only missing `let-syntax` support. Support for R7Rs is underway.
+`Steel` is an embeddable scheme interpreter, with a standalone interpreter/repl included as well. The language is implemented as a bytecode virtual machine. At the moment, it is mostly compliant with R5RS, only missing `let-syntax` support. Support for R7Rs is underway.
 
 > **Warning**
 > The API is relatively stable, however it may change at any time while pre 1.0. Care will be taken to keep things backwards compatible where possible.
