@@ -876,12 +876,14 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         stop!(Generic => "unexpected syntax rules in const evaluator");
     }
 
-    fn visit_set(&mut self, s: Box<crate::parser::ast::Set>) -> Self::Output {
+    fn visit_set(&mut self, mut s: Box<crate::parser::ast::Set>) -> Self::Output {
         let identifier = &s.variable.atom_identifier_or_else(
             throw!(BadSyntax => "set expects an identifier"; s.location.span),
         )?;
 
         self.bindings.borrow_mut().unbind(identifier);
+
+        s.expr = self.visit(s.expr)?;
 
         Ok(ExprKind::Set(s))
     }

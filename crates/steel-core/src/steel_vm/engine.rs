@@ -94,11 +94,13 @@ thread_local! {
 #[cfg(not(feature = "sync"))]
 pub trait ModuleResolver {
     fn resolve(&self, name: &str) -> Option<BuiltInModule>;
+    fn names(&self) -> Vec<String>;
 }
 
 #[cfg(feature = "sync")]
 pub trait ModuleResolver: MaybeSendSyncStatic {
     fn resolve(&self, name: &str) -> Option<BuiltInModule>;
+    fn names(&self) -> Vec<String>;
 }
 
 #[derive(Clone, Default)]
@@ -147,11 +149,24 @@ impl ModuleContainer {
     }
 
     pub fn get(&self, key: &str) -> Option<BuiltInModule> {
-        self.modules.read().get(key).cloned().or_else(|| {
-            self.unresolved_modules
+        let mut guard = self.modules.write();
+        let found = guard.get(key).cloned();
+
+        found.or_else(|| {
+            let res = self
+                .unresolved_modules
                 .read()
                 .as_ref()
-                .and_then(|x| x.resolve(key))
+                .and_then(|x| x.resolve(key));
+
+            if let Some(res) = res {
+                // Define the module now.
+                guard.insert(Shared::from(key), res.clone());
+
+                Some(res)
+            } else {
+                None
+            }
         })
     }
 
@@ -587,6 +602,10 @@ impl Engine {
     /// exposing some kind of compiler from that hosts runtime. The requirement then
     /// is to expose some kind of module artifact that we can then consume.
     pub fn register_module_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
+        for name in resolver.names() {
+            self.register_value(&format!("%-builtin-module-{}", name), SteelVal::Void);
+        }
+
         self.modules.with_resolver(resolver);
     }
 
@@ -2111,6 +2130,18 @@ impl Engine {
             .sources
             .get(*source_id)
             .cloned()
+    }
+
+    #[doc(hidden)]
+    pub fn get_doc_for_identifier(&self, ident: &str) -> Option<String> {
+        let value = self.extract_value(ident).ok()?;
+
+        match self.virtual_machine.compiler.read().get_doc(value)? {
+            crate::compiler::compiler::StringOrSteelString::String(s) => Some(s),
+            crate::compiler::compiler::StringOrSteelString::SteelString(steel_string) => {
+                Some(steel_string.as_str().to_string())
+            }
+        }
     }
 }
 

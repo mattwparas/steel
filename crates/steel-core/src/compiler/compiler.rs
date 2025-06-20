@@ -16,7 +16,9 @@ use crate::{
         kernel::Kernel,
         parser::{lower_entire_ast, lower_macro_and_require_definitions, SourcesCollector},
     },
+    rvals::{AsRefSteelVal, SteelString},
     steel_vm::{cache::MemoizationTable, engine::ModuleContainer, primitives::constant_primitives},
+    LambdaMetadataTable,
 };
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
@@ -337,7 +339,7 @@ pub struct Compiler {
     // is under the hood, shared references to the engine, since we
     // want to have the compiler share everything with the runtime.
     pub(crate) sources: Sources,
-    builtin_modules: ModuleContainer,
+    pub(crate) builtin_modules: ModuleContainer,
 }
 
 pub struct SerializableCompiler {
@@ -363,7 +365,43 @@ impl SerializableCompiler {
     }
 }
 
+pub(crate) enum StringOrSteelString {
+    String(String),
+    SteelString(SteelString),
+}
+
 impl Compiler {
+    pub(crate) fn get_doc(&self, value: SteelVal) -> Option<StringOrSteelString> {
+        use crate::gc::shared::ShareableMut;
+
+        for module in self.builtin_modules.inner().values() {
+            let doc = module.search(value.clone());
+
+            // If we found a doc on the fast path, just return
+            if let Some(doc) = doc {
+                let string = doc.doc.map(|x| x.0.to_string());
+                return string.map(StringOrSteelString::String);
+            }
+
+            // If this is specifically the meta doc, we can attempt to
+            // grab a quick one here
+            if module.name().as_ref() == "steel/meta" {
+                let table = module.try_get_ref("#%function-ptr-table").unwrap();
+                let doc = LambdaMetadataTable::as_ref(&table).unwrap().get(value);
+                return doc.map(StringOrSteelString::SteelString);
+            }
+
+            for (key, module_value) in module.module.read().values.iter() {
+                if value.ptr_eq(module_value) {
+                    let doc = module.get_documentation(key);
+                    return doc.map(StringOrSteelString::String);
+                }
+            }
+        }
+
+        None
+    }
+
     // A better solution _in general_ would be to replace the source
     // id with some kind of weak pointer. The problem there, is that
     // we don't have a perfect solution to converting from an expr

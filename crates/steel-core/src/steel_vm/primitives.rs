@@ -1,5 +1,5 @@
 use super::{
-    builtin::{BuiltInModule, MarkdownDoc},
+    builtin::{Arity, BuiltInModule, MarkdownDoc},
     cache::WeakMemoizationTable,
     engine::Engine,
     register_fn::RegisterFn,
@@ -79,7 +79,7 @@ use crate::{
 use compact_str::CompactString;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
-use std::cmp::Ordering;
+use std::{borrow::Cow, cmp::Ordering};
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -503,6 +503,16 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
         "#%module-add",
         |module: &mut BuiltInModule, name: SteelString, value: SteelVal| {
             module.register_value(&name, value);
+        },
+    );
+
+    engine.register_fn(
+        "#%module-add-doc",
+        |module: &mut BuiltInModule, name: SteelString, value: String| {
+            module.register_doc(
+                Cow::Owned(name.as_str().to_string()),
+                super::builtin::Documentation::Markdown(MarkdownDoc(value.into())),
+            );
         },
     );
 
@@ -1387,6 +1397,25 @@ fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
     }
 }
 
+#[steel_derive::context(name = "#%lookup-doc", arity = "Exact(1)")]
+pub fn lookup_doc_ctx(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    // Attempt to find the docs for a given value.
+    let compiler = ctx.thread.compiler.read();
+    let value = args[0].clone();
+
+    let doc = compiler.get_doc(value);
+
+    match doc {
+        Some(crate::compiler::compiler::StringOrSteelString::String(s)) => {
+            Some(Ok(SteelVal::StringV(s.into())))
+        }
+        Some(crate::compiler::compiler::StringOrSteelString::SteelString(s)) => {
+            Some(Ok(SteelVal::StringV(s)))
+        }
+        None => Some(Ok(SteelVal::BoolV(false))),
+    }
+}
+
 fn lookup_doc(value: SteelVal) -> bool {
     match value {
         // SteelVal::BoxedFunction(f) => ,
@@ -1420,6 +1449,45 @@ fn lookup_doc(value: SteelVal) -> bool {
         }
         _ => false,
     }
+}
+
+fn lookup_doc_value(value: SteelVal) -> Option<String> {
+    match value {
+        SteelVal::FuncV(f) => {
+            let metadata = get_function_metadata(BuiltInFunctionType::Reference(f));
+            metadata.and_then(|x| x.doc.map(|x| x.0.to_string()))
+        }
+        SteelVal::MutFunc(f) => {
+            let metadata = get_function_metadata(BuiltInFunctionType::Mutable(f));
+            metadata.and_then(|x| x.doc.map(|x| x.0.to_string()))
+        }
+        SteelVal::BuiltIn(f) => {
+            let metadata = get_function_metadata(BuiltInFunctionType::Context(f));
+            metadata.and_then(|x| x.doc.map(|x| x.0.to_string()))
+        }
+        _ => None,
+    }
+}
+
+fn arity_to_list(arity: &Arity) -> SteelVal {
+    match arity {
+        Arity::Exact(e) => vec!["exact".into_steelval().unwrap(), e.into_steelval().unwrap()],
+        Arity::AtLeast(e) => vec![
+            "at-least".into_steelval().unwrap(),
+            e.into_steelval().unwrap(),
+        ],
+        Arity::AtMost(e) => vec![
+            "at-most".into_steelval().unwrap(),
+            e.into_steelval().unwrap(),
+        ],
+        Arity::Range(l, h) => vec![
+            "range".into_steelval().unwrap(),
+            l.into_steelval().unwrap(),
+            h.into_steelval().unwrap(),
+        ],
+    }
+    .into_steelval()
+    .unwrap()
 }
 
 // Only works with fixed size arity functions
@@ -1740,6 +1808,7 @@ fn meta_module() -> BuiltInModule {
         )
         .register_fn("#%function-ptr-table-add", LambdaMetadataTable::add)
         .register_fn("#%function-ptr-table-get", LambdaMetadataTable::get)
+        .register_native_fn_definition(LOOKUP_DOC_CTX_DEFINITION)
         .register_fn("#%private-cycle-collector", SteelCycleCollector::from_root)
         .register_fn("#%private-cycle-collector-get", SteelCycleCollector::get)
         .register_fn(
@@ -1820,8 +1889,11 @@ fn meta_module() -> BuiltInModule {
             std::env::set_var::<String, String>(name, val)
         })
         .register_fn("arity?", arity)
+        .register_fn("function-arity", arity)
+        .register_fn("arity-object->list", arity_to_list)
         .register_fn("function-name", lookup_function_name)
         .register_fn("#%native-fn-ptr-doc", lookup_doc)
+        .register_fn("#%native-fn-ptr-doc->string", lookup_doc_value)
         .register_fn("multi-arity?", is_multi_arity)
         .register_value("make-struct-type", SteelVal::FuncV(make_struct_type))
         .register_value(
@@ -1848,7 +1920,8 @@ fn meta_module() -> BuiltInModule {
             "#%build-dylib",
             |_args: Vec<String>, _env_vars: Vec<(String, String)>| {
                 #[cfg(feature = "dylib-build")]
-                cargo_steel_lib::run(_args, _env_vars).ok()
+                cargo_steel_lib::run(_args, _env_vars)
+                    .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
             },
         )
         .register_fn("feature-dylib-build?", || cfg!(feature = "dylib-build"))

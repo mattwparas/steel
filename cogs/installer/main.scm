@@ -83,14 +83,14 @@
   ;; First, install the source to a temporary location.
   (define package-spec (download-cog-to-sources-and-parse-module void git-url))
 
-  (define force (member "--force" args))
+  ; (define force (member "--force" args))
 
-  (displayln args)
-  (displayln package-spec)
+  ; (displayln args)
+  ; (displayln package-spec)
 
-  (if force
-      (install-package-and-log package-spec)
-      (install-package-if-not-installed index package-spec)))
+  ; (if force
+  (install-package-and-log package-spec)
+  (install-package-if-not-installed index package-spec))
 
 ;; TODO: Move this to `installer/package.scm`
 (define (install-package-from-pkg-index index package args)
@@ -214,8 +214,10 @@ Commands:
   pkg refresh    Update the package repository from the remote
   pkg list       List the packages in the remote index
   pkg install    Install a package from the remote index
+  pkg uninstall  Uninstall a package
 
-  pkg install <package> --force  Force an install of a package from the remote index"))
+  pkg install <package> --force  Force an install of a package from the remote index
+  pkg install --git <git-url>    Install a package via git"))
 
 (define (get-command-line-args)
   (define args (command-line))

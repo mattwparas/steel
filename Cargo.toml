@@ -63,6 +63,11 @@ lto = true
 [profile.test]
 opt-level = 2
 
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "fat"
+
 [build-dependencies]
 vergen = { version = "9.0.0", features = [
     "build",

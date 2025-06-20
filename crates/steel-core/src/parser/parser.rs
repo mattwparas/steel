@@ -81,9 +81,9 @@ impl InterierSources {
             counter: 0,
             gc_metadata: GcMetadata {
                 size_in_bytes: 0,
-                // Start with 8 Kilobytes. Which will grow to 64 if there
+                // Start with 8 Mb. Which will grow to 64 if there
                 // is sufficient pressure.
-                threshold: 1024 * 8,
+                threshold: 1024 * 1024 * 8,
             },
         }
     }
