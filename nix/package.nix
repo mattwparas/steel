@@ -60,7 +60,7 @@ rustPlatform.buildRustPackage {
     ]
     ++ lib.optionals includeForge [
       "--package"
-      "forge"
+      "steel-forge"
     ];
 
   doCheck = false;
