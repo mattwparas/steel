@@ -115,6 +115,7 @@ fn install_everything() -> Result<(), Box<dyn Error>> {
         .arg("install")
         .arg("--path")
         .arg(&workspace_dir)
+        .arg("--force")
         .spawn()?
         .wait()?;
 
