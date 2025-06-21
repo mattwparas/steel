@@ -21,7 +21,13 @@ A local install provides
 For a completely managed install through `cargo` use the following command
 
 ```
-$ cargo install --git https://github.com/mattwparas/steel.git steel-interpreter forge steel-language-server cargo-steel-lib
+$ cargo install --git https://github.com/mattwparas/steel.git steel-interpreter steel-forge steel-language-server cargo-steel-lib
+```
+
+If you previously installed `forge` and run into an error saying that the binary is already installed from the package `forge`, please run:
+
+```
+$ cargo install --git https://github.com/mattwparas/steel.git steel-forge --force
 ```
 
 ### Manually cloning the Steel repository
