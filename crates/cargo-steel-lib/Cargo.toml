@@ -4,7 +4,6 @@ version = "0.2.0"
 edition = "2021"
 repository = "https://github.com/mattwparas/steel"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/mattwparas/steel"
 description = "Cargo plugin to build dylib for steel"
 
 [dependencies]
