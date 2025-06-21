@@ -13,7 +13,7 @@ description = "REPL library for steel"
 rustyline = { version = "14.0.0", features = ["derive"] }
 colored = "3.0.0"
 steel-core = { workspace = true }
-steel-parser = { path = "../steel-parser", version = "0.6.0"}
+steel-parser = { path = "../steel-parser", version = "0.7.0"}
 env_home = "0.1.0"
 ctrlc = "3.4.4"
 crossbeam-utils = "0.8.21"

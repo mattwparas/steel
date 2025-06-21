@@ -12,5 +12,5 @@ crate-type = ["cdylib"]
 
 [dependencies]
 abi_stable = "0.11.1"
-steel-core = { path = "../../crates/steel-core", version = "0.6.0", features = ["dylibs", "sync"] }
+steel-core = { path = "../../crates/steel-core", version = "0.7.0", features = ["dylibs", "sync"] }
 regex = { version = "1.10.3" }

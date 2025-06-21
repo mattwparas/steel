@@ -486,7 +486,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-steel-lib"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cargo-platform",
  "cargo_metadata 0.15.4",
@@ -1407,7 +1407,7 @@ checksum = "3f9eec918d3f24069decb9af1554cad7c880e2da24a9afd88aca000531ab82c1"
 
 [[package]]
 name = "forge"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "steel-core",
 ]
@@ -3527,7 +3527,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "steel-async-webrequests"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "abi_stable",
  "base64 0.22.1",
@@ -3539,7 +3539,7 @@ dependencies = [
 
 [[package]]
 name = "steel-core"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "abi_stable",
  "anyhow",
@@ -3599,7 +3599,7 @@ dependencies = [
 
 [[package]]
 name = "steel-derive"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3608,14 +3608,14 @@ dependencies = [
 
 [[package]]
 name = "steel-doc"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "steel-core",
 ]
 
 [[package]]
 name = "steel-gen"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "codegen",
  "serde",
@@ -3623,7 +3623,7 @@ dependencies = [
 
 [[package]]
 name = "steel-interpreter"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "cargo-steel-lib",
  "clap",
@@ -3641,7 +3641,7 @@ dependencies = [
 
 [[package]]
 name = "steel-language-server"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "dashmap 5.5.3",
  "env_logger",
@@ -3668,7 +3668,7 @@ dependencies = [
 
 [[package]]
 name = "steel-parser"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "compact_str",
  "fxhash",
@@ -3685,7 +3685,7 @@ dependencies = [
 
 [[package]]
 name = "steel-regex"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "abi_stable",
  "regex",
@@ -3694,7 +3694,7 @@ dependencies = [
 
 [[package]]
 name = "steel-repl"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "colored",
  "crossbeam-utils",
@@ -3707,7 +3707,7 @@ dependencies = [
 
 [[package]]
 name = "steel-rustls"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "abi_stable",
  "flate2",
@@ -3718,7 +3718,7 @@ dependencies = [
 
 [[package]]
 name = "steel-sqlite"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "abi_stable",
  "rusqlite",
@@ -3727,7 +3727,7 @@ dependencies = [
 
 [[package]]
 name = "steel-sys-info"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "abi_stable",
  "steel-core",
@@ -3736,7 +3736,7 @@ dependencies = [
 
 [[package]]
 name = "steel-toml"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "abi_stable",
  "steel-core",
@@ -4871,7 +4871,7 @@ checksum = "2fb433233f2df9344722454bc7e96465c9d03bff9d77c248f9e7523fe79585b5"
 
 [[package]]
 name = "xtask"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "which 7.0.3",
 ]
