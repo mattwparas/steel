@@ -2,6 +2,9 @@
 name = "steel-language-server"
 edition = "2021"
 version.workspace = true
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/mattwparas/steel"
+description = "Steel language server"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
