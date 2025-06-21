@@ -1,11 +1,12 @@
 [package]
 name = "steel-forge"
 edition = "2021"
-version.workspace = true
+version = "0.7.0"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/mattwparas/steel"
 description = "Package manager for steel"
 default-run = "forge"
+include = ["build.rs", "Cargo.toml", "src/main.rs", "installer/*"]
 
 [[bin]]
 name = "forge"
