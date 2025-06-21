@@ -746,7 +746,10 @@ pub fn engine_id(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal
 
 #[cfg(not(feature = "sync"))]
 #[steel_derive::context(name = "spawn-native-thread", arity = "Exact(1)")]
-pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+pub(crate) fn spawn_native_thread(
+    _ctx: &mut VmCore,
+    _args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
     builtin_stop!(Generic => "the feature needed for spawn-native-thread is not enabled.")
 }
 

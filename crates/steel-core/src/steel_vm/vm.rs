@@ -690,6 +690,7 @@ impl SteelThread {
         result
     }
 
+    #[allow(unused)]
     pub fn call_fn_from_mut_slice(
         &mut self,
         function: SteelVal,
