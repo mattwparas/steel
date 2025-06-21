@@ -11,7 +11,7 @@ default-run = "steel"
 include = ["/src/**/*", "/Cargo.toml", "/README.md", "LICENSE*"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 
 [[bin]]
 name = "steel"
@@ -19,7 +19,7 @@ path = "src/main.rs"
 
 [workspace.dependencies]
 # This has to line up with the workspace version above
-steel-core = { path = "./crates/steel-core", version = "0.6.0", features = [
+steel-core = { path = "./crates/steel-core", version = "0.7.0", features = [
     "dylibs",
     "markdown",
     "stacker",
@@ -41,17 +41,17 @@ mimalloc = ["dep:mimalloc"]
 [dependencies]
 once_cell = "1.17.0"
 steel-core = { workspace = true }
-steel-derive = { path = "./crates/steel-derive", version = "0.5.0" }
-steel-repl = { path = "./crates/steel-repl", version = "0.6.0" }
+steel-derive = { path = "./crates/steel-derive", version = "0.6.0" }
+steel-repl = { path = "./crates/steel-repl", version = "0.7.0" }
 env_logger = "0.10.0"
 log = "0.4.17"
 clap = { version = "4.5.39", features = ["derive"] }
 clap_complete = "4.5.52"
-steel-doc = { path = "./crates/steel-doc", version = "0.6.0" }
+steel-doc = { path = "./crates/steel-doc", version = "0.7.0" }
 mimalloc = { version = "0.1.43", optional = true }
 
 [target.'cfg(not(target_os = "redox"))'.dependencies]
-cargo-steel-lib = { path = "./crates/cargo-steel-lib", version = "0.1.0" }
+cargo-steel-lib = { path = "./crates/cargo-steel-lib", version = "0.2.0" }
 
 [workspace]
 members = [".", "crates/*", "libs/*"]
