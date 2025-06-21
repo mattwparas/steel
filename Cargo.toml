@@ -8,7 +8,7 @@ repository = "https://github.com/mattwparas/steel"
 description = "Steel repl and command line interface"
 default-run = "steel"
 
-include = ["/src/**/*", "/Cargo.toml", "/README.md", "LICENSE*"]
+include = ["/src/**/*", "/Cargo.toml", "/README.md", "LICENSE*", "cogs/test-runner.scm"]
 
 [workspace.package]
 version = "0.7.0"
