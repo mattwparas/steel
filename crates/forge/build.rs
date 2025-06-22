@@ -16,7 +16,7 @@ fn main() {
     let entrypoint = include_str!("installer/forge.scm");
 
     #[cfg(target_os = "windows")]
-    let entrypoint = include_str!(r#"installer\forge.scm"#);
+    let entrypoint = include_str!(r#"..\..\cogs\installer\forge.scm"#);
 
     let non_interactive_program = Engine::create_non_interactive_program_image(
         entrypoint,
