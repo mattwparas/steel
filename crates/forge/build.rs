@@ -12,7 +12,11 @@ fn main() {
     let dest_path = std::path::Path::new(&out_dir).join("program.rs");
     let dest_bytes = std::path::Path::new(&out_dir).join("program.bin");
 
+    #[cfg(not(target_os = "windows"))]
     let entrypoint = include_str!("installer/forge.scm");
+
+    #[cfg(target_os = "windows")]
+    let entrypoint = include_str!(r#"installer\forge.scm"#);
 
     let non_interactive_program = Engine::create_non_interactive_program_image(
         entrypoint,
