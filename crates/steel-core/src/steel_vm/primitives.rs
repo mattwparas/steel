@@ -1918,8 +1918,10 @@ fn meta_module() -> BuiltInModule {
         .register_fn("current-os!", || std::env::consts::OS)
         .register_fn("target-arch!", || std::env::consts::ARCH)
         .register_fn("platform-dll-prefix!", || std::env::consts::DLL_PREFIX)
-        .register_fn("PATH_SEPARATOR", || std::path::MAIN_SEPARATOR_STR)
-        .register_fn("platform-dll-extension!", || std::env::consts::DLL_EXTENSION)
+        .register_fn("path-separator", || std::path::MAIN_SEPARATOR_STR)
+        .register_fn("platform-dll-extension!", || {
+            std::env::consts::DLL_EXTENSION
+        })
         .register_fn(
             "#%build-dylib",
             |_args: Vec<String>, _env_vars: Vec<(String, String)>| {

@@ -214,7 +214,7 @@
      (define dylib-path
        (string-append
          *DYLIB-DIR*
-         (PATH_SEPARATOR)
+         (path-separator)
          (platform-dll-prefix!)
          dylib-name
          "."

@@ -3744,10 +3744,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "steel-values"
-version = "0.1.0"
-
-[[package]]
 name = "steel-webrequests"
 version = "0.1.0"
 dependencies = [
