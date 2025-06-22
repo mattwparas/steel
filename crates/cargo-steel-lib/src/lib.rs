@@ -131,8 +131,14 @@ pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<bool, B
             for file in last.filenames {
                 if file.extension() == Some(std::env::consts::DLL_EXTENSION) {
                     println!("Found a cdylib!");
-                    let filename = file.file_name().unwrap();
+                    let prefix = if cfg!(target_os = "windows") {
+                        "lib"
+                    } else {
+                        ""
+                    };
+                    let filename = format!("{}{}", prefix, file.file_name().unwrap());
 
+                    // If on windows, prefix with "lib" to match unix
                     steel_home.push(filename);
 
                     println!("Copying {} to {}", file, &steel_home.to_str().unwrap());
