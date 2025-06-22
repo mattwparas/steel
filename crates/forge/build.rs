@@ -11,7 +11,7 @@ fn main() {
     println!("cargo::rerun-if-changed=installer/");
 
     #[cfg(target_os = "windows")]
-    println!(r#"cargo::rerun-if-changed=..\..\cogs\installer\"#);
+    println!("cargo::rerun-if-changed=../../cogs/installer/");
 
     let out_dir = std::env::var_os("OUT_DIR").unwrap();
     let dest_path = std::path::Path::new(&out_dir).join("program.rs");
@@ -25,7 +25,10 @@ fn main() {
 
     let non_interactive_program = Engine::create_non_interactive_program_image(
         entrypoint,
+        #[cfg(not(target_os = "windows"))]
         PathBuf::from("installer/forge.scm"),
+        #[cfg(target_os = "windows")]
+        PathBuf::from("../../cogs/installer/forge.scm"),
     )
     .unwrap();
 
