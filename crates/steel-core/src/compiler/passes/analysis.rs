@@ -2135,7 +2135,7 @@ pub fn query_top_level_define<A: AsRef<str>>(
         log::debug!(
             "Multiple defines found, unable to find one unique value to associate with a name"
         );
-        return None;
+        return found_defines.into_iter().last();
     }
 
     if found_defines.len() == 1 {
@@ -3688,6 +3688,7 @@ pub struct SemanticAnalysis<'a> {
     pub analysis: Analysis,
 }
 
+#[derive(Debug)]
 pub enum RequiredIdentifierInformation<'a> {
     Resolved(
         &'a SemanticInformation,
