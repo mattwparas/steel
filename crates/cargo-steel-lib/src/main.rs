@@ -5,5 +5,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .skip(1)
         .skip_while(|x| x == "steel-lib")
         .collect();
-    cargo_steel_lib::run(args, Vec::new())
+    if cargo_steel_lib::run(args, Vec::new())? {
+        Ok(())
+    } else {
+        let err: Box<dyn Error> =
+            String::from("cargo build failed to complete successfully").into();
+        Err(err)
+    }
 }

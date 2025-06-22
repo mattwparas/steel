@@ -106,10 +106,11 @@
       ;; Kick off on a new thread
       ;; TODO: Properly parallelize this
       (begin
-        (#%build-dylib (list "--manifest-path" (append-with-separator target "Cargo.toml"))
-                       (list (list "CARGO_TARGET_DIR"
-                                   (append-with-separator *CARGO_TARGET_DIR*
-                                                          (file-name target-directory)))))
+        (unless (#%build-dylib (list "--manifest-path" (append-with-separator target "Cargo.toml"))
+                               (list (list "CARGO_TARGET_DIR"
+                                           (append-with-separator *CARGO_TARGET_DIR*
+                                                                  (file-name target-directory)))))
+          (error "Failed to build dylib for" target-directory))
 
         (displayln "Finished building"))
 

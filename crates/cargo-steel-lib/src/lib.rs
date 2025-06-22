@@ -61,7 +61,7 @@ pub fn steel_home() -> Option<PathBuf> {
         })
 }
 
-pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<(), Box<dyn Error>> {
+pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<bool, Box<dyn Error>> {
     let mut steel_home = steel_home().expect("Unable to find STEEL_HOME");
 
     steel_home.push("native");
@@ -153,7 +153,7 @@ pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<(), Box
 
     println!("Done!");
 
-    command.wait().expect("Couldn't get cargo's exit status");
+    let exit_status = command.wait().expect("Couldn't get cargo's exit status");
 
-    Ok(())
+    Ok(exit_status.success())
 }
