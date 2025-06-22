@@ -1474,11 +1474,11 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
 fn exact_integer_sqrt(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(x) if *x >= 0 => {
-            let (ans, rem) = exact_integer_impl(x);
+            let (ans, rem) = exact_integer_impl::<isize>(x);
             (ans.into_steelval()?, rem.into_steelval()?).into_steelval()
         }
         SteelVal::BigNum(x) if !x.is_negative() => {
-            let (ans, rem) = exact_integer_impl(x.as_ref());
+            let (ans, rem) = exact_integer_impl::<BigInt>(x.as_ref());
             (ans.into_steelval()?, rem.into_steelval()?).into_steelval()
         }
         _ => {
