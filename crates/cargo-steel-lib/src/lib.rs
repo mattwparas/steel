@@ -1,10 +1,10 @@
 use std::{error::Error, path::PathBuf, process::Command};
 
-use cargo_metadata::{Message, MetadataCommand, Package};
+use cargo_metadata::{Message, MetadataCommand, Package, TargetKind};
 use std::process::Stdio;
 
 fn package_contains_dependency_on_steel(packages: &[Package]) -> Option<&Package> {
-    packages.iter().find(|x| x.name == "steel-core")
+    packages.iter().find(|x| x.name.as_ref() == "steel-core")
 }
 
 /*
@@ -125,7 +125,7 @@ pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<bool, B
             .target
             .kind
             .iter()
-            .find(|x| x.as_str() == "cdylib")
+            .find(|x| **x == TargetKind::CDyLib)
             .is_some()
         {
             for file in last.filenames {

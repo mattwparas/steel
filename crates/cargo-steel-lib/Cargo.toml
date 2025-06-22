@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 description = "Cargo plugin to build dylib for steel"
 
 [dependencies]
-cargo_metadata = "0.15.3"
+cargo_metadata = "0.20.0"
 env_home = "0.1.0"
 
 # Keeps the MSRV at v1.70.0
