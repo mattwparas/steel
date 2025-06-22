@@ -6,7 +6,12 @@ fn main() {
     // Re run this if any of the files within the directory
     // have changed. Note - this may not pick up changes in any
     // dependencies, but it should be good enough.
+
+    #[cfg(not(target_os = "windows"))]
     println!("cargo::rerun-if-changed=installer/");
+
+    #[cfg(target_os = "windows")]
+    println!(r#"cargo::rerun-if-changed=..\..\cogs\installer\"#);
 
     let out_dir = std::env::var_os("OUT_DIR").unwrap();
     let dest_path = std::path::Path::new(&out_dir).join("program.rs");
