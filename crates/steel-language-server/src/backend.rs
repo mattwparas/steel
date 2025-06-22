@@ -721,7 +721,7 @@ impl Backend {
         //
         // The ability to then just check what the original identifier was can help us resolve
         // the binding, by just checking against the interned string stored in the proto hash get.
-        if information.builtin {
+        if information.builtin && information.refers_to.is_none() {
             analysis.syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
 
             let name = syntax_object_id_to_interned_string.get(syntax_object_id)?;
