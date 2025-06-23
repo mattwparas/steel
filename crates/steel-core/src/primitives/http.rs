@@ -65,7 +65,7 @@ pub fn version(value: &SteelVal) -> Result<SteelVal> {
 
 /// Download file from a URL
 #[steel_derive::function(name = "download-file!")]
-fn download_file(url: &SteelString, file: &SteelString) -> Result<SteelVal> {
+fn download_file(_url: &SteelString, _file: &SteelString) -> Result<SteelVal> {
     #[cfg(not(feature = "ureq"))]
     {
         Err(SteelErr::new(
@@ -78,8 +78,8 @@ fn download_file(url: &SteelString, file: &SteelString) -> Result<SteelVal> {
     {
         use std::{fs, path::PathBuf};
 
-        let url = url.as_str();
-        let file = PathBuf::from(file.as_str());
+        let url = _url.as_str();
+        let file = PathBuf::from(_file.as_str());
         let contents = ureq::get(url)
             .call()
             .map_err(|err| {
