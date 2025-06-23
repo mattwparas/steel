@@ -15,6 +15,8 @@
                   run-dylib-installation
                   find-dylib-name))
 
+(require-builtin steel/http as http.)
+
 ;; Used for detecting if directories/files have changed
 (require "crypt.scm")
 
@@ -147,11 +149,80 @@
 
   destination)
 
+(define (find pred lst)
+  (cond
+    [(null? lst) #f]
+    [(pred (car lst)) (car lst)]
+    [else (find pred (cdr lst))]))
+
 (define (install-dylib-from-spec package dylib-dependency)
 
   (displayln "Attempting to install: " dylib-dependency)
 
   (cond
+    ; If we have urls for dylibs, instead of manually installing
+    ; the dylibs with Cargo
+    ;
+    ; We will download files at the specified `url` into the correct `dylib-path`
+    [(hash-contains? dylib-dependency '#:urls)
+
+      ; Name of the dylib dependency.
+      ;
+      ; Excludes:
+      ; - File extension (e.g. `".dll"`)
+      ; - Prefix (e.g. `"lib"`)
+     (define dylib-name (hash-ref dylib-dependency '#:name))
+
+     ; e.g. `x86_64-linux`
+     (define target
+       (string-append
+         (target-arch!)
+         "-"
+         (current-os!)))
+     
+     ; Example:
+     ;
+     ; (
+     ;  #:platform
+     ;  "x86_64-linux"
+     ;  #:url
+     ;  "https://example.com/example.so"
+     ; )
+     (define url-entry
+       (find (lambda (url-entry)
+             (let ([m (apply hash url-entry)])
+               (string=? (hash-ref m '#:platform) target)))
+           (hash-ref dylib-dependency '#:urls)))
+
+     (unless url-entry
+       (displayln "dylib not found for target: " target
+       (return! void)))
+
+     ; URL to the dylib, e.g. `"https://example.com/example.so"`
+     (define url (hash-ref (apply hash url-entry) '#:url))
+
+     ; Must be `https` connection, otherwise the file could be spoofed
+     ; to serve a malicious dylib
+     (unless
+       (starts-with? url "https")
+       (displayln "url " url " must be `https://` for security purposes")
+       (return! void))
+
+     ; Where the dylib will be downloaded
+     ;
+     ; e.g. `"~/.steel/native/libexample.so"`
+     (define dylib-path
+       (string-append
+         *DYLIB-DIR*
+         (path-separator)
+         (platform-dll-prefix!)
+         dylib-name
+         "."
+         (platform-dll-extension!)))
+     
+     (http.download-file! url dylib-path)
+    ]
+        
     [(hash-contains? dylib-dependency '#:git-url)
      (download-and-install-library (hash-ref dylib-dependency '#:name)
                                    (hash-ref dylib-dependency '#:git-url)
