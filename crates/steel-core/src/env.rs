@@ -19,7 +19,6 @@ pub struct Env {
     // globals from another thread. So in order to do so,
     // there needs to be a lock on all globals since that way
     // things are relatively consistent.
-    #[cfg(feature = "sync")]
     // pub(crate) bindings_vec: Arc<RwLock<Vec<SteelVal>>>,
 
     // TODO: This is NO GOOD! - This causes much contention when
@@ -41,9 +40,13 @@ pub struct Env {
     //
     // This will remove the need to use a RwLock at all, and we can get away with
     // just pushing the changes across together.
+    #[cfg(feature = "sync")]
     pub(crate) bindings_vec: Arc<RwLock<Vec<SteelVal>>>,
     // Keep a copy of the globals that we can access
     // just by offset.
+    //
+    // TODO: Make this copy on write! Something like `Arc::make_mut` so that way we
+    // can fuss with it pretty easil
     #[cfg(feature = "sync")]
     pub(crate) thread_local_bindings: Vec<SteelVal>,
 }
