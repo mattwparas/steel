@@ -213,7 +213,7 @@ This function takes time proportional to the length of `lst`.
 
 (reverse lst) -> list?
 
-* l : list?
+* lst : list?
 
 #### Examples
 ```scheme
@@ -269,10 +269,53 @@ error[E11]: Generic
 ```
 ### **cdr-null?**
 ### **list->string**
+Convert a list of charecters to a string.
+
+(list->string lst) -> string?
+
+* lst : (listof char?)
+
+#### Examples
+```scheme
+(list->string '(#\a #\b #\c)) ;; => "abc"
+```
+
 ### **list->vector**
 ### **list-chunks**
 ### **list-drop**
+Remove a certain number of elements (`n`) from the front of `lst`.
+
+(list-drop lst n) -> any/c
+
+* lst : list?
+* n : int?
+
+#### Examples
+```scheme
+> (list-drop '(1 2 3 4 5) 2) ;; => '(3 4 5)
+> (list-drop '() 3) ;; => '()
+```
+
 ### **list-tail**
+Same as `list-drop`, except raise an error if `n` is greater than the length of `lst`.
+
+(list-tail lst n) -> any/c
+
+* lst : list?
+* n : int?
+
+#### Examples
+```scheme
+> (list-tail '(1 2 3 4 5) 2) ;; => '(3 4 5)
+> (list-tail '() 3)
+error[E11]: Generic
+  ┌─ :1:2
+  │
+1 │ (list-tail '() 3)
+  │  ^^^^^^^^^ list-tail expects at least 3
+                    elements in the list, found: 0
+```
+
 ### **plist-get**
 ### **plist-get-kwarg**
 ### **plist-get-positional-arg**
