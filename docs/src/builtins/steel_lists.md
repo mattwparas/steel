@@ -236,6 +236,7 @@ error[E11]: Generic
 │
 1 │ (second '())
 │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+```
 ### **take**
 Returns the first n elements of the list l as a new list.
 
