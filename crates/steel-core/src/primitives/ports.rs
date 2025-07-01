@@ -1,12 +1,16 @@
+use std::fs::OpenOptions;
+
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
-use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
+use crate::primitives::lists::plist_get_impl;
+use crate::rvals::{FromSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
-use crate::stop;
 use crate::values::port::{would_block, SteelPort, SteelPortRepr, WOULD_BLOCK_OBJECT};
 use crate::values::structs::{make_struct_singleton, StructTypeDescriptor};
+use crate::{stop, throw};
 
-use steel_derive::function;
+use once_cell::sync::Lazy;
+use steel_derive::{function, native};
 
 #[cfg(not(feature = "sync"))]
 thread_local! {
@@ -154,9 +158,41 @@ pub fn open_input_file(path: &SteelString) -> Result<SteelVal> {
 /// ```scheme
 /// > (open-output-file "foo-bar.txt") ;; => #<port>
 /// ```
-#[function(name = "open-output-file")]
-pub fn open_output_file(path: &SteelString) -> Result<SteelVal> {
-    SteelPort::new_textual_file_output(path).map(SteelVal::PortV)
+#[native(name = "open-output-file", arity = "AtLeast(1)")]
+pub fn open_output_file(args: &[SteelVal]) -> Result<SteelVal> {
+    let path = SteelString::from_steelval(&args[0])?;
+    let opts = create_open_options(&args[1..])?;
+    SteelPort::new_textual_file_output_with_options(&path, opts).map(SteelVal::PortV)
+}
+
+pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
+    // Snag the options here:
+    static EXISTS_FLAG: Lazy<SteelVal> = Lazy::new(|| SteelVal::SymbolV("#:exists".into()));
+
+    // Get the value for exists
+    let exists_flag = plist_get_impl(args.iter(), &EXISTS_FLAG).ok();
+
+    let mut options = OpenOptions::new();
+
+    // We want to write the file no matter what in this context
+    options.write(true);
+
+    match exists_flag {
+        Some(flag) => {
+            let flag = flag.symbol_or_else(
+                throw!(Generic => "#:exists flag expects a symbol, found: {}", flag),
+            )?;
+
+            match flag {
+                "append" => options.append(true),
+                "truncate" => options.truncate(true),
+                _ => stop!(Generic => "unexpected option provided to open options"),
+            };
+        }
+        None => {}
+    }
+
+    Ok(options)
 }
 
 /// Takes a filename `path` referring to an existing file and returns an input port. Raises an error

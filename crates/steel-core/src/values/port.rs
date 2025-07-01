@@ -483,6 +483,20 @@ impl SteelPort {
         })
     }
 
+    pub fn new_textual_file_output_with_options(
+        path: &str,
+        open_options: OpenOptions,
+    ) -> Result<SteelPort> {
+        let file = open_options.open(path)?;
+
+        Ok(SteelPort {
+            port: Gc::new_mut(SteelPortRepr::FileOutput(
+                path.to_string(),
+                BufWriter::new(file),
+            )),
+        })
+    }
+
     pub fn new_input_port_string(string: String) -> SteelPort {
         SteelPort {
             port: Gc::new_mut(SteelPortRepr::StringInput(Cursor::new(string.into_bytes()))),

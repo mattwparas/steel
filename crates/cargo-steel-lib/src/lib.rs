@@ -136,7 +136,10 @@ pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<bool, B
                     } else {
                         ""
                     };
-                    let filename = format!("{}{}", prefix, file.file_name().unwrap());
+                    // Replace all hyphens with lowercase in order to match the naming
+                    // conventions
+                    let filename =
+                        format!("{}{}", prefix, file.file_name().unwrap()).replace("-", "_");
 
                     // If on windows, prefix with "lib" to match unix
                     steel_home.push(filename);
