@@ -9,7 +9,6 @@ use crate::values::port::{would_block, SteelPort, SteelPortRepr, WOULD_BLOCK_OBJ
 use crate::values::structs::{make_struct_singleton, StructTypeDescriptor};
 use crate::{stop, throw};
 
-use once_cell::sync::Lazy;
 use steel_derive::{function, native};
 
 #[cfg(not(feature = "sync"))]
@@ -166,8 +165,13 @@ pub fn open_output_file(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
-    // Snag the options here:
-    static EXISTS_FLAG: Lazy<SteelVal> = Lazy::new(|| SteelVal::SymbolV("#:exists".into()));
+    #[cfg(feature = "sync")]
+    static EXISTS_FLAG: once_cell::sync::Lazy<SteelVal> =
+        once_cell::sync::Lazy::new(|| SteelVal::SymbolV("#:exists".into()));
+
+    #[cfg(not(feature = "sync"))]
+    static EXISTS_FLAG: once_cell::unsync::Lazy<SteelVal> =
+        once_cell::unsync::Lazy::new(|| SteelVal::SymbolV("#:exists".into()));
 
     // Get the value for exists
     let exists_flag = plist_get_impl(args.iter(), &EXISTS_FLAG).ok();
