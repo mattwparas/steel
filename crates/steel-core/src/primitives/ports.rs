@@ -179,7 +179,7 @@ pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
     let mut options = OpenOptions::new();
 
     // We want to write the file no matter what in this context
-    options.write(true);
+    options.write(true).create(true);
 
     match exists_flag {
         Some(flag) => {
@@ -188,7 +188,10 @@ pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
             )?;
 
             match flag {
-                "append" => options.append(true),
+                "append" => {
+                    options.append(true);
+                    options.truncate(false)
+                }
                 "truncate" => options.truncate(true),
                 _ => stop!(Generic => "unexpected option provided to open options"),
             };
