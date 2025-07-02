@@ -1401,8 +1401,8 @@ pub fn angle(number: &SteelVal) -> Result<SteelVal> {
     atan2(im, re)
 }
 
-/// Computes the quadratic arctan of `x` and `y`
-fn atan2(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
+/// Computes the quadratic arctan of `y` and `x`
+fn atan2(y: &SteelVal, x: &SteelVal) -> Result<SteelVal> {
     let as_f64 = |arg: &_| match arg {
         SteelVal::NumV(arg) => Ok(*arg),
         SteelVal::IntV(arg) => Ok(*arg as f64),
@@ -1411,15 +1411,15 @@ fn atan2(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
         _ => steelerr!(TypeMismatch => "atan2 expects a number, found {arg}"),
     };
 
-    let x = as_f64(x)?;
     let y = as_f64(y)?;
-    if x == 0. && y == 0. {
+    let x = as_f64(x)?;
+    if y == 0. && x == 0. {
         // as this is currently only used for `angle`, make the error
         // message a little better by saying `angle` instead of `atan2`
         stop!(Generic => "angle: undefined for zero");
     }
 
-    f64::atan2(x, y).into_steelval()
+    f64::atan2(y, x).into_steelval()
 }
 
 /// Computes the natural logarithm of the given number.
