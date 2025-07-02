@@ -169,12 +169,16 @@ pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
     static EXISTS_FLAG: once_cell::sync::Lazy<SteelVal> =
         once_cell::sync::Lazy::new(|| SteelVal::SymbolV("#:exists".into()));
 
-    #[cfg(not(feature = "sync"))]
-    static EXISTS_FLAG: once_cell::unsync::Lazy<SteelVal> =
-        once_cell::unsync::Lazy::new(|| SteelVal::SymbolV("#:exists".into()));
-
-    // Get the value for exists
+    #[cfg(feature = "sync")]
     let exists_flag = plist_get_impl(args.iter(), &EXISTS_FLAG).ok();
+
+    #[cfg(not(feature = "sync"))]
+    thread_local! {
+        static EXISTS_FLAG: SteelVal = SteelVal::SymbolV("#:exists".into());
+    }
+
+    #[cfg(not(feature = "sync"))]
+    let exists_flag = EXISTS_FLAG.with(|x| plist_get_impl(args.iter(), x)).ok();
 
     let mut options = OpenOptions::new();
 
