@@ -587,8 +587,13 @@ pub fn drop_start(list: &List<SteelVal>, skip: usize) -> Result<SteelVal> {
 
 #[steel_derive::function(name = "plist-get", constant = true)]
 pub fn plist_get(list: &List<SteelVal>, key: &SteelVal) -> Result<SteelVal> {
-    let mut iter = list.iter();
-    // TODO: Change this to be pointer equality!
+    plist_get_impl(list.iter(), key)
+}
+
+pub(crate) fn plist_get_impl<'a>(
+    mut iter: impl Iterator<Item = &'a SteelVal>,
+    key: &SteelVal,
+) -> Result<SteelVal> {
     let symbol = iter.find(|x| *x == key);
     let value = iter.next();
     match (symbol, value) {
