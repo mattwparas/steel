@@ -3293,52 +3293,6 @@ impl<'a> VmCore<'a> {
         // Boxed functions probably _should_ be rooted in the modules?
         let func = self.thread.global_env.repl_lookup_idx(index);
         self.handle_global_function_call(func, payload_size)
-
-        // let stack_func = &self.thread.global_env.thread_local_bindings[index] as *const _;
-
-        // let stack_func = &self.thread.global_env.repl_lookup_idx(idx);
-
-        // use SteelVal::*;
-
-        // match unsafe { &*stack_func } {
-        //     Closure(closure) => {
-        //         let closure = closure.clone();
-        //         self.handle_function_call_closure_jit(closure, payload_size)
-        //     }
-        //     FuncV(f) => {
-        //         let f = *f;
-        //         self.call_primitive_func(f, payload_size)
-        //     }
-        //     BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
-        //     MutFunc(f) => {
-        //         let f = *f;
-        //         self.call_primitive_mut_func(f, payload_size)
-        //     }
-        //     FutureFunc(f) => {
-        //         let f = f.clone();
-        //         self.call_future_func(f, payload_size)
-        //     }
-        //     ContinuationFunction(cc) => {
-        //         let cc = cc.clone();
-        //         self.call_continuation(cc)
-        //     }
-        //     BuiltIn(f) => {
-        //         let f = *f;
-        //         // self.ip -= 1;
-        //         self.call_builtin_func(f, payload_size)
-        //     }
-        //     CustomStruct(s) => {
-        //         let s = s.clone();
-        //         self.call_custom_struct(&s, payload_size)
-        //     }
-        //     other => {
-        //         // Explicitly mark this as unlikely
-        //         cold();
-        //         log::error!("{stack_func:?}");
-        //         log::error!("Stack: {:?}", self.thread.stack);
-        //         stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", other); self.current_span());
-        //     }
-        // }
     }
 
     #[inline(always)]
@@ -3346,28 +3300,6 @@ impl<'a> VmCore<'a> {
         let stack_func = self.thread.global_env.repl_lookup_idx(index);
         self.ip += 1;
         self.handle_tail_call(stack_func, payload_size)
-
-        // let stack_func = &self.thread.global_env.thread_local_bindings[index] as *const _;
-
-        // use SteelVal::*;
-
-        // match unsafe { &*stack_func } {
-        //     FuncV(f) => self.call_primitive_func(*f, payload_size),
-        //     MutFunc(f) => self.call_primitive_mut_func(*f, payload_size),
-        //     BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
-        //     Closure(closure) => self.new_handle_tail_call_closure(closure.clone(), payload_size),
-        //     BuiltIn(f) => self.call_builtin_func(*f, payload_size),
-        //     CustomStruct(s) => self.call_custom_struct(&s, payload_size),
-        //     ContinuationFunction(cc) => self.call_continuation(cc.clone()),
-        //     stack_func => {
-        //         // println!("{:?}", self.stack);
-        //         // println!("{:?}", self.stack_index);
-        //         // println!("Bad tail call");
-        //         // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-        //         stop!(BadSyntax => format!("TailCall - Application not a procedure or function type
-        //             not supported: {stack_func}"); self.current_span());
-        //     }
-        // }
     }
 
     // #[inline(always)]

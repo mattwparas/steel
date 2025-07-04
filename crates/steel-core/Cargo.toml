@@ -139,6 +139,7 @@ experimental-drop-handler = []
 unsandboxed-kernel = []
 inline-captures = []
 experimental = []
+thread-local-bindings = []
 
 [[bench]]
 name = "my_benchmark"
