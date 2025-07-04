@@ -1,4 +1,6 @@
 # steel/http
+### **download-file!**
+Download file from a URL
 ### **http-parse-request**
 ### **http-parse-response**
 ### **http-request-body-offset**

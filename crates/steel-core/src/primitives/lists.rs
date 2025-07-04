@@ -120,6 +120,7 @@ pub fn chunks(list: &List<SteelVal>) -> Result<SteelVal> {
 ///         │
 ///         1 │ (second '())
 ///         │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+/// ```
 #[steel_derive::function(name = "second", constant = true)]
 pub fn second(list: &List<SteelVal>) -> Result<SteelVal> {
     list.get(1).cloned().ok_or_else(throw!(Generic => "second: index out of bounds - list did not have an element in the second position: {:?}", list))
@@ -146,6 +147,24 @@ pub(crate) fn third(list: &List<SteelVal>) -> Result<SteelVal> {
     list.get(2).cloned().ok_or_else(throw!(Generic => "third: Index out of bounds - list did not have an element in the second position: {:?}", list))
 }
 
+/// Same as `list-drop`, except raise an error if `n` is greater than the length of `lst`.
+///
+/// (list-tail lst n) -> any/c
+///
+/// * lst : list?
+/// * n : int?
+///
+/// # Examples
+/// ```scheme
+/// > (list-tail '(1 2 3 4 5) 2) ;; => '(3 4 5)
+/// > (list-tail '() 3)
+/// error[E11]: Generic
+///   ┌─ :1:2
+///   │
+/// 1 │ (list-tail '() 3)
+///   │  ^^^^^^^^^ list-tail expects at least 3
+///                     elements in the list, found: 0
+/// ```
 #[steel_derive::function(name = "list-tail")]
 pub fn list_tail(list_or_pair: &SteelVal, pos: usize) -> Result<SteelVal> {
     match list_or_pair {
@@ -347,7 +366,7 @@ fn length(list: &List<SteelVal>) -> usize {
 ///
 /// (reverse lst) -> list?
 ///
-/// * l : list?
+/// * lst : list?
 ///
 /// # Examples
 /// ```scheme
@@ -576,6 +595,18 @@ pub fn try_list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
     }
 }
 
+/// Remove a certain number of elements (`n`) from the front of `lst`.
+///
+/// (list-drop lst n) -> any/c
+///
+/// * lst : list?
+/// * n : int?
+///
+/// # Examples
+/// ```scheme
+/// > (list-drop '(1 2 3 4 5) 2) ;; => '(3 4 5)
+/// > (list-drop '() 3) ;; => '()
+/// ```
 #[steel_derive::function(name = "list-drop", constant = true)]
 pub fn drop_start(list: &List<SteelVal>, skip: usize) -> Result<SteelVal> {
     let mut list = list.clone();
@@ -788,6 +819,16 @@ pub fn list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
         .ok_or_else(throw!(Generic => format!("out of bounds index in list-ref - list length: {}, index: {}", list.len(), index)))
 }
 
+/// Convert a list of charecters to a string.
+///
+/// (list->string lst) -> string?
+///
+/// * lst : (listof char?)
+///
+/// # Examples
+/// ```scheme
+/// (list->string '(#\a #\b #\c)) ;; => "abc"
+/// ```
 #[steel_derive::function(name = "list->string", constant = true)]
 fn list_to_string(list: &List<SteelVal>) -> Result<SteelVal> {
     list.iter()

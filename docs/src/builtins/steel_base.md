@@ -1443,6 +1443,19 @@ Convert the given list into a hashset.
 ```scheme
 (list 10 20 30) ;; => (hashset 10 20 30)
 ```
+### **list-drop**
+Remove a certain number of elements (`n`) from the front of `lst`.
+
+(list-drop lst n) -> any/c
+
+* lst : list?
+* n : int?
+
+#### Examples
+```scheme
+> (list-drop '(1 2 3 4 5) 2) ;; => '(3 4 5)
+> (list-drop '() 3) ;; => '()
+```
 ### **list-ref**
 Returns the value located at the given index. Will raise an error if you try to index out of bounds.
 
@@ -1464,6 +1477,25 @@ error[E11]: Generic
 │
 1 │ (list-ref (list 1 2 3 4) 10)
 │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
+```
+### **list-tail**
+Same as `list-drop`, except raise an error if `n` is greater than the length of `lst`.
+
+(list-tail lst n) -> any/c
+
+* lst : list?
+* n : int?
+
+#### Examples
+```scheme
+> (list-tail '(1 2 3 4 5) 2) ;; => '(3 4 5)
+> (list-tail '() 3)
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (list-tail '() 3)
+│  ^^^^^^^^^ list-tail expects at least 3
+elements in the list, found: 0
 ```
 ### **local-time/now!**
 Returns the local time in the format given by the input string (using `chrono::Local::format`).
@@ -2191,7 +2223,7 @@ This function takes time proportional to the length of `lst`.
 
 (reverse lst) -> list?
 
-* l : list?
+* lst : list?
 
 #### Examples
 ```scheme
@@ -2227,6 +2259,7 @@ error[E11]: Generic
 │
 1 │ (second '())
 │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+```
 ### **set-tls!**
 Set the value in the the thread local storage. Only this thread will see the updates associated
 with this TLS.
@@ -2982,6 +3015,7 @@ Create a zipping iterator
 ### **Some?**
 ### **TypeId?**
 ### **active-object-count**
+### **arity-object->list**
 ### **arity?**
 ### **assert!**
 ### **atom?**
@@ -3035,6 +3069,7 @@ Create a zipping iterator
 ### **expand!**
 ### **feature-dylib-build?**
 ### **flush-output-port**
+### **function-arity**
 ### **function-name**
 ### **function?**
 ### **future?**
@@ -3068,8 +3103,6 @@ Create a zipping iterator
 ### **list->string**
 ### **list->vector**
 ### **list-chunks**
-### **list-drop**
-### **list-tail**
 ### **list?**
 ### **load**
 ### **load-expanded**
@@ -3088,6 +3121,9 @@ Create a zipping iterator
 ### **naive-date-ymd**
 ### **not**
 ### **path->string**
+### **path-separator**
+### **platform-dll-extension!**
+### **platform-dll-prefix!**
 ### **plist-get**
 ### **plist-get-kwarg**
 ### **plist-get-positional-arg**
@@ -3135,6 +3171,7 @@ Create a zipping iterator
 ### **system-time<?**
 ### **system-time>=**
 ### **system-time>?**
+### **target-arch!**
 ### **thread/available-parallelism**
 ### **thread::current/id**
 ### **transduce**

@@ -14,6 +14,7 @@ Returns the message of an error object.
 ### **Engine::new**
 ### **Engine::raise_error**
 ### **active-object-count**
+### **arity-object->list**
 ### **arity?**
 ### **assert!**
 ### **attach-contract-struct!**
@@ -34,6 +35,7 @@ Returns the message of an error object.
 ### **eval-string**
 ### **expand!**
 ### **feature-dylib-build?**
+### **function-arity**
 ### **function-name**
 ### **get-contract-struct**
 ### **get-test-mode**
@@ -47,6 +49,9 @@ Returns the message of an error object.
 ### **maybe-get-env-var**
 ### **memory-address**
 ### **multi-arity?**
+### **path-separator**
+### **platform-dll-extension!**
+### **platform-dll-prefix!**
 ### **poll!**
 ### **raise-error**
 ### **raise-error-with-span**
@@ -58,6 +63,7 @@ Returns the message of an error object.
 ### **set-test-mode!**
 ### **steel-home-location**
 ### **struct->list**
+### **target-arch!**
 ### **unbox**
 ### **unbox-strong**
 ### **value->iterator**

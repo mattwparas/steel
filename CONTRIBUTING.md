@@ -38,3 +38,11 @@ Follow common advice when submitting a patch:
 - Work in a separate branch, not `master`.
 - Before working on "big ideas", open an issue to discuss approaches or
   requirements to limit wasted effort.
+
+## Generating documentation
+
+Run the following command to update the documentation in `docs/` based on the code in `crates/`:
+
+```sh
+cargo xtask docgen
+```
