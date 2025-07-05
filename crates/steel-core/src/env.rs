@@ -1,8 +1,8 @@
-// #[cfg(feature = "sync")]
-// use parking_lot::{RwLock, RwLockReadGuard};
-
 #[cfg(feature = "sync")]
-use std::sync::{RwLock, RwLockReadGuard};
+use parking_lot::{RwLock, RwLockReadGuard};
+
+// #[cfg(feature = "sync")]
+// use std::sync::{RwLock, RwLockReadGuard};
 
 #[cfg(feature = "sync")]
 use std::sync::Arc;
@@ -46,6 +46,8 @@ pub struct Env {
     // just by offset.
     #[cfg(all(feature = "sync", feature = "thread-local-bindings"))]
     pub(crate) thread_local_bindings: Vec<SteelVal>,
+    // Just use a raw pointer for reads, handling dirty reads?
+    // pub(crate) shared_bindings: Arc<Vec<SteelVal>>,
 }
 
 #[cfg(feature = "sync")]
@@ -149,11 +151,12 @@ impl Env {
 #[cfg(feature = "sync")]
 impl Env {
     pub fn extract(&self, idx: usize) -> Option<SteelVal> {
-        self.bindings_vec.read().unwrap().get(idx).cloned()
+        // self.bindings_vec.read().unwrap().get(idx).cloned()
+        self.bindings_vec.read().get(idx).cloned()
     }
 
     pub fn len(&self) -> usize {
-        self.bindings_vec.read().unwrap().len()
+        self.bindings_vec.read().len()
     }
 
     /// top level global env has no parent
@@ -166,7 +169,7 @@ impl Env {
     }
 
     pub fn deep_clone(&self) -> Self {
-        let guard = self.bindings_vec.read().unwrap();
+        let guard = self.bindings_vec.read();
         let bindings_vec = Arc::new(RwLock::new(guard.iter().map(|x| x.clone()).collect()));
         // let thread_local_bindings = guard.iter().map(|x| x.clone()).collect();
 
@@ -204,7 +207,7 @@ impl Env {
 
         #[cfg(not(feature = "thread-local-bindings"))]
         {
-            self.bindings_vec.read().unwrap()[idx].clone()
+            self.bindings_vec.read()[idx].clone()
         }
     }
 
@@ -215,7 +218,7 @@ impl Env {
 
     #[inline]
     pub fn repl_define_idx(&mut self, idx: usize, val: SteelVal) {
-        let mut guard = self.bindings_vec.write().unwrap();
+        let mut guard = self.bindings_vec.write();
 
         #[cfg(feature = "thread-local-bindings")]
         {
@@ -266,7 +269,7 @@ impl Env {
     }
 
     pub fn repl_set_idx(&mut self, idx: usize, val: SteelVal) -> Result<SteelVal> {
-        let mut guard = self.bindings_vec.write().unwrap();
+        let mut guard = self.bindings_vec.write();
         let output = guard[idx].clone();
         guard[idx] = val.clone();
         #[cfg(feature = "thread-local-bindings")]
@@ -285,7 +288,7 @@ impl Env {
     // TODO: This needs to be fixed!
     #[cfg(feature = "sync")]
     pub fn roots(&self) -> RwLockReadGuard<'_, Vec<SteelVal>> {
-        self.bindings_vec.read().unwrap()
+        self.bindings_vec.read()
     }
 
     #[cfg(not(feature = "sync"))]
