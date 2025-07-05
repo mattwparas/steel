@@ -1,8 +1,8 @@
-// #[cfg(feature = "sync")]
-// use parking_lot::{RwLock, RwLockReadGuard};
-
 #[cfg(feature = "sync")]
-use std::sync::{RwLock, RwLockReadGuard};
+use parking_lot::{RwLock, RwLockReadGuard};
+
+// #[cfg(feature = "sync")]
+// use std::sync::{RwLock, RwLockReadGuard};
 
 #[cfg(feature = "sync")]
 use std::sync::Arc;
@@ -44,11 +44,10 @@ pub struct Env {
     pub(crate) bindings_vec: Arc<RwLock<Vec<SteelVal>>>,
     // Keep a copy of the globals that we can access
     // just by offset.
-    //
-    // TODO: Make this copy on write! Something like `Arc::make_mut` so that way we
-    // can fuss with it pretty easil
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", feature = "thread-local-bindings"))]
     pub(crate) thread_local_bindings: Vec<SteelVal>,
+    // Just use a raw pointer for reads, handling dirty reads?
+    // pub(crate) shared_bindings: Arc<Vec<SteelVal>>,
 }
 
 #[cfg(feature = "sync")]
@@ -56,6 +55,7 @@ impl Clone for Env {
     fn clone(&self) -> Self {
         Self {
             bindings_vec: self.bindings_vec.clone(),
+            #[cfg(feature = "thread-local-bindings")]
             thread_local_bindings: self.thread_local_bindings.clone(),
         }
     }
@@ -151,30 +151,34 @@ impl Env {
 #[cfg(feature = "sync")]
 impl Env {
     pub fn extract(&self, idx: usize) -> Option<SteelVal> {
-        self.bindings_vec.read().unwrap().get(idx).cloned()
+        // self.bindings_vec.read().unwrap().get(idx).cloned()
+        self.bindings_vec.read().get(idx).cloned()
     }
 
     pub fn len(&self) -> usize {
-        self.bindings_vec.read().unwrap().len()
+        self.bindings_vec.read().len()
     }
 
     /// top level global env has no parent
     pub fn root() -> Self {
         Env {
             bindings_vec: Arc::new(RwLock::new(Vec::with_capacity(1024))),
+            #[cfg(feature = "thread-local-bindings")]
             thread_local_bindings: Vec::with_capacity(1024),
         }
     }
 
     pub fn deep_clone(&self) -> Self {
-        let guard = self.bindings_vec.read().unwrap();
+        let guard = self.bindings_vec.read();
         let bindings_vec = Arc::new(RwLock::new(guard.iter().map(|x| x.clone()).collect()));
         // let thread_local_bindings = guard.iter().map(|x| x.clone()).collect();
 
+        #[cfg(feature = "thread-local-bindings")]
         let thread_local_bindings = self.thread_local_bindings.clone();
 
         Self {
             bindings_vec,
+            #[cfg(feature = "thread-local-bindings")]
             thread_local_bindings,
         }
     }
@@ -196,8 +200,15 @@ impl Env {
         // TODO: Signal to the other threads to update their stuff?
         // get them all to a safepoint? Is that worth it?
 
-        // self.bindings_vec.read().unwrap()[idx].clone()
-        self.thread_local_bindings[idx].clone()
+        #[cfg(feature = "thread-local-bindings")]
+        {
+            self.thread_local_bindings[idx].clone()
+        }
+
+        #[cfg(not(feature = "thread-local-bindings"))]
+        {
+            self.bindings_vec.read()[idx].clone()
+        }
     }
 
     // /// Get the value located at that index
@@ -207,43 +218,64 @@ impl Env {
 
     #[inline]
     pub fn repl_define_idx(&mut self, idx: usize, val: SteelVal) {
-        let mut guard = self.bindings_vec.write().unwrap();
+        let mut guard = self.bindings_vec.write();
 
-        // println!("{} - {}", guard.len(), self.thread_local_bindings.len());
-
-        // if idx < guard.len() {
-        if idx < self.thread_local_bindings.len() {
-            guard[idx] = val.clone();
-            self.thread_local_bindings[idx] = val;
-        } else {
-            // if idx > guard.len() {
-            if idx > self.thread_local_bindings.len() {
-                // TODO: This seems suspect. Try to understand
-                // what is happening here. This would be that values
-                // are getting interned to be at a global offset in the
-                // wrong order, which seems to be fine in general,
-                // assuming that the values then get actually updated
-                // to the correct values.
-                // for _ in 0..(idx - guard.len()) {
-                for _ in 0..(idx - self.thread_local_bindings.len()) {
-                    guard.push(SteelVal::Void);
-                    self.thread_local_bindings.push(SteelVal::Void);
+        #[cfg(feature = "thread-local-bindings")]
+        {
+            if idx < self.thread_local_bindings.len() {
+                guard[idx] = val.clone();
+                self.thread_local_bindings[idx] = val;
+            } else {
+                if idx > self.thread_local_bindings.len() {
+                    // TODO: This seems suspect. Try to understand
+                    // what is happening here. This would be that values
+                    // are getting interned to be at a global offset in the
+                    // wrong order, which seems to be fine in general,
+                    // assuming that the values then get actually updated
+                    // to the correct values.
+                    // for _ in 0..(idx - guard.len()) {
+                    for _ in 0..(idx - self.thread_local_bindings.len()) {
+                        guard.push(SteelVal::Void);
+                        self.thread_local_bindings.push(SteelVal::Void);
+                    }
                 }
-            }
 
-            guard.push(val.clone());
-            self.thread_local_bindings.push(val);
-            // assert_eq!(guard.len() - 1, idx);
+                guard.push(val.clone());
+                self.thread_local_bindings.push(val);
+            }
         }
 
-        // assert_eq!(self.thread_local_bindings.len(), guard.len())
+        #[cfg(not(feature = "thread-local-bindings"))]
+        {
+            if idx < guard.len() {
+                guard[idx] = val.clone();
+            } else {
+                if idx > guard.len() {
+                    // if idx > self.thread_local_bindings.len() {
+                    // TODO: This seems suspect. Try to understand
+                    // what is happening here. This would be that values
+                    // are getting interned to be at a global offset in the
+                    // wrong order, which seems to be fine in general,
+                    // assuming that the values then get actually updated
+                    // to the correct values.
+                    for _ in 0..(idx - guard.len()) {
+                        guard.push(SteelVal::Void);
+                    }
+                }
+
+                guard.push(val.clone());
+            }
+        }
     }
 
     pub fn repl_set_idx(&mut self, idx: usize, val: SteelVal) -> Result<SteelVal> {
-        let mut guard = self.bindings_vec.write().unwrap();
+        let mut guard = self.bindings_vec.write();
         let output = guard[idx].clone();
         guard[idx] = val.clone();
-        self.thread_local_bindings[idx] = val;
+        #[cfg(feature = "thread-local-bindings")]
+        {
+            self.thread_local_bindings[idx] = val;
+        }
         Ok(output)
     }
 
@@ -256,7 +288,7 @@ impl Env {
     // TODO: This needs to be fixed!
     #[cfg(feature = "sync")]
     pub fn roots(&self) -> RwLockReadGuard<'_, Vec<SteelVal>> {
-        self.bindings_vec.read().unwrap()
+        self.bindings_vec.read()
     }
 
     #[cfg(not(feature = "sync"))]

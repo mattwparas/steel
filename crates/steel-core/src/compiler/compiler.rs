@@ -1168,7 +1168,9 @@ impl Compiler {
         // interactive usages
         self.analysis.shrink_capacity();
 
-        // steel_parser::ast::AstTools::pretty_print(&expanded_statements);
+        if std::env::var("STEEL_DEBUG_AST").is_ok() {
+            steel_parser::ast::AstTools::pretty_print(&expanded_statements);
+        }
 
         Ok(expanded_statements)
 

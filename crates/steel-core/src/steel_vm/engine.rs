@@ -1740,7 +1740,7 @@ impl Engine {
                 .global_env
                 .bindings_vec
                 .write()
-                .unwrap()
+                // .unwrap()
                 .truncate(checkpoint.globals_offset);
         }
 
@@ -1772,12 +1772,8 @@ impl Engine {
             #[cfg(feature = "sync")]
             {
                 GlobalSlotRecycler::free_shadowed_rooted_values(
-                    &mut self
-                        .virtual_machine
-                        .global_env
-                        .bindings_vec
-                        .write()
-                        .unwrap(),
+                    &mut self.virtual_machine.global_env.bindings_vec.write(),
+                    // .unwrap(),
                     &mut self.virtual_machine.compiler.write().symbol_map,
                     &mut self.virtual_machine.heap.lock().unwrap(),
                 );
