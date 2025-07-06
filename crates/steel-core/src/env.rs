@@ -1,5 +1,7 @@
+use once_cell::sync::Lazy;
 #[cfg(feature = "sync")]
 use parking_lot::{RwLock, RwLockReadGuard};
+use shared_vector::AtomicSharedVector;
 
 // #[cfg(feature = "sync")]
 // use std::sync::{RwLock, RwLockReadGuard};
@@ -9,37 +11,48 @@ use std::sync::Arc;
 
 use crate::rvals::{Result, SteelVal};
 
+#[derive(Debug, Clone)]
+pub(crate) struct SharedVectorWrapper(AtomicSharedVector<SteelVal>);
+
+impl SharedVectorWrapper {
+    pub fn set_idx(&mut self, idx: usize, val: SteelVal) -> SteelVal {
+        let guard = self.0.get_mut(idx).unwrap();
+        let output = guard.clone();
+        *guard = val;
+        output
+    }
+
+    pub fn repl_define_idx(&mut self, idx: usize, val: SteelVal) {
+        let guard = &mut self.0;
+        if idx < guard.len() {
+            guard[idx] = val.clone();
+        } else {
+            if idx > guard.len() {
+                // if idx > self.thread_local_bindings.len() {
+                // TODO: This seems suspect. Try to understand
+                // what is happening here. This would be that values
+                // are getting interned to be at a global offset in the
+                // wrong order, which seems to be fine in general,
+                // assuming that the values then get actually updated
+                // to the correct values.
+                for _ in 0..(idx - guard.len()) {
+                    guard.push(SteelVal::Void);
+                }
+            }
+
+            guard.push(val.clone());
+        }
+    }
+}
+
+unsafe impl Sync for SharedVectorWrapper {}
+
 #[allow(unused)]
 #[derive(Debug)]
 pub struct Env {
     #[cfg(not(feature = "sync"))]
     pub(crate) bindings_vec: Vec<SteelVal>,
 
-    // Globals from one thread, need to be able to refer to
-    // globals from another thread. So in order to do so,
-    // there needs to be a lock on all globals since that way
-    // things are relatively consistent.
-    // pub(crate) bindings_vec: Arc<RwLock<Vec<SteelVal>>>,
-
-    // TODO: This is NO GOOD! - This causes much contention when
-    // trying to read the variables. What we really want to do
-    // is rethink how globals are stored and accessed.
-    //
-    // Perhaps updates using `set!` are instead atomic w.r.t a thread,
-    // however would require using an atomic box in order to see
-    // an update that occurs on another thread? - In addition, we could
-    // push down defines to other threads, in order for them to see it.
-    //
-    // At a safepoint, we could "refresh" if dirty? It might be faster?
-    //
-    // That way we don't need to necessarily have _every_ thread constantly
-    // checking its own stuff.
-    //
-    // TODO: Just make set! and `define` make all threads come to a safepoint
-    // before continuing to work, and then apply the definition across the board.
-    //
-    // This will remove the need to use a RwLock at all, and we can get away with
-    // just pushing the changes across together.
     #[cfg(feature = "sync")]
     pub(crate) bindings_vec: Arc<RwLock<Vec<SteelVal>>>,
     // Keep a copy of the globals that we can access
@@ -48,6 +61,8 @@ pub struct Env {
     pub(crate) thread_local_bindings: Vec<SteelVal>,
     // Just use a raw pointer for reads, handling dirty reads?
     // pub(crate) shared_bindings: Arc<Vec<SteelVal>>,
+    #[cfg(feature = "sync")]
+    bindings: SharedVectorWrapper,
 }
 
 #[cfg(feature = "sync")]
@@ -57,6 +72,8 @@ impl Clone for Env {
             bindings_vec: self.bindings_vec.clone(),
             #[cfg(feature = "thread-local-bindings")]
             thread_local_bindings: self.thread_local_bindings.clone(),
+
+            bindings: self.bindings.clone(),
         }
     }
 }
@@ -165,6 +182,8 @@ impl Env {
             bindings_vec: Arc::new(RwLock::new(Vec::with_capacity(1024))),
             #[cfg(feature = "thread-local-bindings")]
             thread_local_bindings: Vec::with_capacity(1024),
+
+            bindings: SharedVectorWrapper(AtomicSharedVector::with_capacity(1024)),
         }
     }
 
@@ -180,6 +199,10 @@ impl Env {
             bindings_vec,
             #[cfg(feature = "thread-local-bindings")]
             thread_local_bindings,
+
+            bindings: SharedVectorWrapper(
+                self.bindings.clone().0.into_unique().into_shared_atomic(),
+            ),
         }
     }
 
@@ -200,15 +223,18 @@ impl Env {
         // TODO: Signal to the other threads to update their stuff?
         // get them all to a safepoint? Is that worth it?
 
-        #[cfg(feature = "thread-local-bindings")]
-        {
-            self.thread_local_bindings[idx].clone()
-        }
+        // #[cfg(feature = "thread-local-bindings")]
+        // {
+        //     self.thread_local_bindings[idx].clone()
+        // }
 
-        #[cfg(not(feature = "thread-local-bindings"))]
-        {
-            self.bindings_vec.read()[idx].clone()
-        }
+        // #[cfg(not(feature = "thread-local-bindings"))]
+        // {
+        //     self.bindings_vec.read()[idx].clone()
+        // }
+
+        // Look up the bindings using the local copy
+        self.bindings.0[idx].clone()
     }
 
     // /// Get the value located at that index
@@ -268,21 +294,74 @@ impl Env {
         }
     }
 
+    #[inline]
+    pub fn update_env(&mut self, vec: SharedVectorWrapper) {
+        self.bindings = vec;
+    }
+
+    #[inline]
+    pub(crate) fn default_env(&mut self) {
+        static DEFAULT_ENV: Lazy<SharedVectorWrapper> =
+            Lazy::new(|| SharedVectorWrapper(shared_vector::arc_vector!()));
+
+        self.bindings = DEFAULT_ENV.clone();
+    }
+
+    #[inline]
+    pub(crate) fn new_repl_define_idx(&mut self, idx: usize, val: SteelVal) {
+        //
+        // let bindings = self.bindings;
+
+        // let mut guard = self.bindings_vec.write();
+
+        // if idx < guard.len() {
+        //     guard[idx] = val.clone();
+        // } else {
+        //     if idx > guard.len() {
+        //         // if idx > self.thread_local_bindings.len() {
+        //         // TODO: This seems suspect. Try to understand
+        //         // what is happening here. This would be that values
+        //         // are getting interned to be at a global offset in the
+        //         // wrong order, which seems to be fine in general,
+        //         // assuming that the values then get actually updated
+        //         // to the correct values.
+        //         for _ in 0..(idx - guard.len()) {
+        //             guard.push(SteelVal::Void);
+        //         }
+        //     }
+
+        //     guard.push(val.clone());
+        // }
+    }
+
+    pub(crate) fn drain_env(&mut self) -> SharedVectorWrapper {
+        let output = self.bindings.clone();
+        self.default_env();
+        output
+    }
+
     pub fn repl_set_idx(&mut self, idx: usize, val: SteelVal) -> Result<SteelVal> {
-        let mut guard = self.bindings_vec.write();
-        let output = guard[idx].clone();
-        guard[idx] = val.clone();
-        #[cfg(feature = "thread-local-bindings")]
-        {
-            self.thread_local_bindings[idx] = val;
-        }
+        // let mut guard = self.bindings_vec.write();
+        // let output = guard[idx].clone();
+        // guard[idx] = val.clone();
+        // #[cfg(feature = "thread-local-bindings")]
+        // {
+        //     self.thread_local_bindings[idx] = val;
+        // }
+        // Ok(output)
+
+        // self.bindings.0[idx].clone();
+
+        let guard = self.bindings.0.get_mut(idx).unwrap();
+        let output = guard.clone();
+        *guard = val;
         Ok(output)
     }
 
     #[inline]
     pub fn add_root_value(&mut self, idx: usize, val: SteelVal) {
         // self.bindings_map.insert(idx, val);
-        self.repl_define_idx(idx, val);
+        self.bindings.repl_define_idx(idx, val);
     }
 
     // TODO: This needs to be fixed!

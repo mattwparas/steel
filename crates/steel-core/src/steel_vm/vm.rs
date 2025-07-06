@@ -422,6 +422,8 @@ pub struct Synchronizer {
     // If we're at a safe point, then this will include a _live_ pointer
     // to the context. Once we exit the safe point, we're done.
     ctx: Arc<AtomicCell<Option<*mut SteelThread>>>,
+
+    spawned_via_make_thread: bool,
 }
 
 // TODO: Until I figure out how to note have this be the case
@@ -437,6 +439,7 @@ impl Synchronizer {
                 state: Arc::new(AtomicCell::new(ThreadState::Running)),
             },
             ctx: Arc::new(AtomicCell::new(None)),
+            spawned_via_make_thread: false,
         }
     }
 
@@ -551,9 +554,12 @@ impl Synchronizer {
         self.threads.lock().unwrap().iter().for_each(|x| {
             if let SteelVal::Custom(c) = &x.handle {
                 if let Some(inner) = as_underlying_type::<ThreadHandle>(c.read().as_ref()) {
+                    // Its possible that this instance of the VM is not associated
+                    // with a thread, so we want to resume it whether or not we have
+                    // a thread handle.
+                    inner.thread_state_manager.resume();
                     if let Some(handle) = inner.handle.as_ref() {
                         // Resume first
-                        inner.thread_state_manager.resume();
                         handle.thread().unpark();
                     }
                 }
@@ -636,7 +642,10 @@ impl SteelThread {
                     break;
                 }
 
-                std::thread::park();
+                // Only park the thread if we actually have the ability to unpark it
+                if !self.synchronizer.spawned_via_make_thread {
+                    std::thread::park();
+                }
             }
 
             self.synchronizer.ctx.store(None);
@@ -1399,9 +1408,38 @@ impl<'a> VmCore<'a> {
 
     // Copy the thread of execution. This just blindly copies the thread, and closes
     // the continuations found.
+    // TODO: Add this thread to the parent VM thread handler -> this is necessary
+    // for safepoints to work correctly
     #[cfg(feature = "sync")]
     pub fn make_thread(&self) -> SteelThread {
         let mut thread = self.thread.clone();
+
+        let controller = ThreadStateController::default();
+        thread.synchronizer.state = controller.clone();
+        // This thread needs its own context
+        thread.synchronizer.ctx = Arc::new(AtomicCell::new(None));
+
+        thread.synchronizer.spawned_via_make_thread = true;
+
+        let weak_ctx = Arc::downgrade(&thread.synchronizer.ctx);
+
+        let value = ThreadHandle {
+            handle: None,
+            thread_state_manager: controller,
+        }
+        .into_steelval()
+        .unwrap();
+
+        self.thread
+            .synchronizer
+            .threads
+            .lock()
+            .unwrap()
+            .push(ThreadContext {
+                ctx: weak_ctx,
+                handle: value.clone(),
+            });
+
         thread.id = EngineId::new();
         for frame in &self.thread.stack_frames {
             self.close_continuation_marks(frame);
@@ -1419,7 +1457,9 @@ impl<'a> VmCore<'a> {
             .paused
             .load(std::sync::atomic::Ordering::Relaxed)
         {
-            std::thread::park();
+            if !self.thread.synchronizer.spawned_via_make_thread {
+                std::thread::park();
+            }
         }
     }
 
@@ -3263,20 +3303,23 @@ impl<'a> VmCore<'a> {
         // set! is _much_ slower than it needs to be.
         self.thread.synchronizer.stop_threads();
 
-        let value = self
-            .thread
-            .global_env
-            .repl_set_idx(index, value_to_assign.clone())?;
+        let mut env = self.thread.global_env.drain_env();
 
-        // Updating on all
         unsafe {
             self.thread.synchronizer.call_per_ctx(|thread| {
-                thread
-                    .global_env
-                    .repl_set_idx(index, value_to_assign.clone())
-                    .unwrap();
+                thread.global_env.default_env();
             });
         }
+
+        let value = env.set_idx(index, value_to_assign);
+
+        unsafe {
+            self.thread.synchronizer.call_per_ctx(|thread| {
+                thread.global_env.update_env(env.clone());
+            });
+        }
+
+        self.thread.global_env.update_env(env);
 
         // Resume.
         // Apply these to all of the things.
@@ -3747,22 +3790,46 @@ impl<'a> VmCore<'a> {
     fn handle_bind(&mut self, payload_size: usize) {
         let value = self.thread.stack.pop().unwrap();
 
-        // TODO: Do the same thing here:
         self.thread.synchronizer.stop_threads();
 
-        // println!("Pausing threads to define new variable");
+        // Do this for now until everything is aligned
         self.thread
             .global_env
             .repl_define_idx(payload_size, value.clone());
 
-        // Updating on all
+        // Pull out the env - then we're gonna go through each and
+        // set them to be the default.
+        let mut env = self.thread.global_env.drain_env();
+
         unsafe {
             self.thread.synchronizer.call_per_ctx(|thread| {
-                thread
-                    .global_env
-                    .repl_define_idx(payload_size, value.clone());
+                thread.global_env.default_env();
+                // .repl_define_idx(payload_size, value.clone());
             });
         }
+
+        env.repl_define_idx(payload_size, value);
+
+        unsafe {
+            self.thread.synchronizer.call_per_ctx(|thread| {
+                thread.global_env.update_env(env.clone());
+            });
+        }
+
+        self.thread.global_env.update_env(env);
+
+        // self.thread
+        //     .global_env
+        //     .repl_define_idx(payload_size, value.clone());
+
+        // Updating on all
+        // unsafe {
+        //     self.thread.synchronizer.call_per_ctx(|thread| {
+        //         thread
+        //             .global_env
+        //             .repl_define_idx(payload_size, value.clone());
+        //     });
+        // }
 
         // println!("Finished broadcasting new variable");
 
