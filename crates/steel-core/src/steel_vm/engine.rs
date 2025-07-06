@@ -1829,7 +1829,11 @@ impl Engine {
                 .increment_generation();
 
             #[cfg(feature = "sync")]
-            self.virtual_machine.global_env.update_env(env);
+            {
+                self.virtual_machine.global_env.update_env(env);
+
+                self.virtual_machine.synchronizer.resume_threads();
+            }
         }
     }
 
