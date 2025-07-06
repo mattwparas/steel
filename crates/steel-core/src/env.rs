@@ -12,7 +12,7 @@ use std::sync::Arc;
 use crate::rvals::{Result, SteelVal};
 
 #[derive(Debug, Clone)]
-pub(crate) struct SharedVectorWrapper(pub(crate) AtomicSharedVector<SteelVal>);
+pub(crate) struct SharedVectorWrapper(pub AtomicSharedVector<SteelVal>);
 
 impl SharedVectorWrapper {
     pub fn set_idx(&mut self, idx: usize, val: SteelVal) -> SteelVal {
@@ -119,6 +119,12 @@ impl Env {
     #[inline(always)]
     pub fn repl_lookup_idx(&self, idx: usize) -> SteelVal {
         self.bindings_vec[idx].clone()
+    }
+
+    #[inline(always)]
+    pub fn repl_maybe_lookup_idx(&self, idx: usize) -> Option<SteelVal> {
+        // Look up the bindings using the local copy
+        self.bindings_vec.get(idx).cloned()
     }
 
     /// Get the value located at that index
@@ -298,33 +304,6 @@ impl Env {
             Lazy::new(|| SharedVectorWrapper(shared_vector::arc_vector!()));
 
         self.bindings = DEFAULT_ENV.clone();
-    }
-
-    #[inline]
-    pub(crate) fn new_repl_define_idx(&mut self, idx: usize, val: SteelVal) {
-        //
-        // let bindings = self.bindings;
-
-        // let mut guard = self.bindings_vec.write();
-
-        // if idx < guard.len() {
-        //     guard[idx] = val.clone();
-        // } else {
-        //     if idx > guard.len() {
-        //         // if idx > self.thread_local_bindings.len() {
-        //         // TODO: This seems suspect. Try to understand
-        //         // what is happening here. This would be that values
-        //         // are getting interned to be at a global offset in the
-        //         // wrong order, which seems to be fine in general,
-        //         // assuming that the values then get actually updated
-        //         // to the correct values.
-        //         for _ in 0..(idx - guard.len()) {
-        //             guard.push(SteelVal::Void);
-        //         }
-        //     }
-
-        //     guard.push(val.clone());
-        // }
     }
 
     pub(crate) fn drain_env(&mut self) -> SharedVectorWrapper {

@@ -1,5 +1,6 @@
 use crate::compiler::compiler::Compiler;
 use crate::core::instructions::u24;
+use crate::env::SharedVectorWrapper;
 use crate::gc::shared::MutContainer;
 use crate::gc::shared::ShareableMut;
 use crate::gc::shared::Shared;
@@ -611,19 +612,21 @@ impl SteelThread {
         }
     }
 
-    pub(crate) fn define_idx(&mut self, idx: usize, value: SteelVal) {
+    #[cfg(feature = "sync")]
+    pub(crate) fn with_locked_env<T, F: FnOnce(&mut Self, &mut SharedVectorWrapper) -> T>(
+        &mut self,
+        thunk: F,
+    ) -> T {
         self.synchronizer.stop_threads();
-
         let mut env = self.global_env.drain_env();
 
         unsafe {
             self.synchronizer.call_per_ctx(|thread| {
                 thread.global_env.default_env();
-                // .repl_define_idx(payload_size, value.clone());
             });
         }
 
-        env.repl_define_idx(idx, value);
+        let out = thunk(self, &mut env);
 
         unsafe {
             self.synchronizer.call_per_ctx(|thread| {
@@ -636,6 +639,13 @@ impl SteelThread {
         // Resume.
         // Apply these to all of the things.
         self.synchronizer.resume_threads();
+
+        out
+    }
+
+    #[cfg(not(feature = "sync"))]
+    pub(crate) fn with_locked_env<T, F: FnOnce(&mut Self) -> T>(&mut self, thunk: F) -> T {
+        thunk(self)
     }
 
     // Allow this thread to be available for garbage collection
@@ -693,7 +703,18 @@ impl SteelThread {
     }
 
     pub fn insert_binding(&mut self, idx: usize, value: SteelVal) {
-        self.global_env.add_root_value(idx, value);
+        // TODO: Do the thing where we also pause the threads
+        // to broadcast all the values!
+
+        #[cfg(feature = "sync")]
+        self.with_locked_env(move |_, env| {
+            env.repl_define_idx(idx, value);
+        });
+
+        #[cfg(not(feature = "sync"))]
+        self.with_locked_env(move |this| {
+            this.global_env.repl_define_idx(idx, value);
+        });
     }
 
     pub fn extract_value(&self, idx: usize) -> Option<SteelVal> {
@@ -3327,31 +3348,15 @@ impl<'a> VmCore<'a> {
     fn handle_set(&mut self, index: usize) -> Result<()> {
         let value_to_assign = self.thread.stack.pop().unwrap();
 
-        // STOP THREADS -> apply the set index across all of them.
-        // set! is _much_ slower than it needs to be.
-        self.thread.synchronizer.stop_threads();
+        #[cfg(feature = "sync")]
+        let value = self
+            .thread
+            .with_locked_env(|_, env| env.set_idx(index, value_to_assign));
 
-        let mut env = self.thread.global_env.drain_env();
-
-        unsafe {
-            self.thread.synchronizer.call_per_ctx(|thread| {
-                thread.global_env.default_env();
-            });
-        }
-
-        let value = env.set_idx(index, value_to_assign);
-
-        unsafe {
-            self.thread.synchronizer.call_per_ctx(|thread| {
-                thread.global_env.update_env(env.clone());
-            });
-        }
-
-        self.thread.global_env.update_env(env);
-
-        // Resume.
-        // Apply these to all of the things.
-        self.thread.synchronizer.resume_threads();
+        #[cfg(not(feature = "sync"))]
+        let value = self
+            .thread
+            .with_locked_env(|this| this.global_env.repl_set_idx(index, value_to_assign))?;
 
         self.thread.stack.push(value);
         self.ip += 1;
@@ -3818,47 +3823,15 @@ impl<'a> VmCore<'a> {
     fn handle_bind(&mut self, payload_size: usize) {
         let value = self.thread.stack.pop().unwrap();
 
-        self.thread.synchronizer.stop_threads();
+        #[cfg(feature = "sync")]
+        self.thread.with_locked_env(move |_, env| {
+            env.repl_define_idx(payload_size, value);
+        });
 
-        // Pull out the env - then we're gonna go through each and
-        // set them to be the default.
-        let mut env = self.thread.global_env.drain_env();
-
-        unsafe {
-            self.thread.synchronizer.call_per_ctx(|thread| {
-                thread.global_env.default_env();
-                // .repl_define_idx(payload_size, value.clone());
-            });
-        }
-
-        env.repl_define_idx(payload_size, value);
-
-        unsafe {
-            self.thread.synchronizer.call_per_ctx(|thread| {
-                thread.global_env.update_env(env.clone());
-            });
-        }
-
-        self.thread.global_env.update_env(env);
-
-        // self.thread
-        //     .global_env
-        //     .repl_define_idx(payload_size, value.clone());
-
-        // Updating on all
-        // unsafe {
-        //     self.thread.synchronizer.call_per_ctx(|thread| {
-        //         thread
-        //             .global_env
-        //             .repl_define_idx(payload_size, value.clone());
-        //     });
-        // }
-
-        // println!("Finished broadcasting new variable");
-
-        // Resume.
-        // Apply these to all of the things.
-        self.thread.synchronizer.resume_threads();
+        #[cfg(not(feature = "sync"))]
+        self.thread.with_locked_env(move |this| {
+            this.global_env.repl_define_idx(payload_size, value);
+        });
 
         self.ip += 1;
     }
