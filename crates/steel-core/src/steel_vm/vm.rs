@@ -611,6 +611,33 @@ impl SteelThread {
         }
     }
 
+    pub(crate) fn define_idx(&mut self, idx: usize, value: SteelVal) {
+        self.synchronizer.stop_threads();
+
+        let mut env = self.global_env.drain_env();
+
+        unsafe {
+            self.synchronizer.call_per_ctx(|thread| {
+                thread.global_env.default_env();
+                // .repl_define_idx(payload_size, value.clone());
+            });
+        }
+
+        env.repl_define_idx(idx, value);
+
+        unsafe {
+            self.synchronizer.call_per_ctx(|thread| {
+                thread.global_env.update_env(env.clone());
+            });
+        }
+
+        self.global_env.update_env(env);
+
+        // Resume.
+        // Apply these to all of the things.
+        self.synchronizer.resume_threads();
+    }
+
     // Allow this thread to be available for garbage collection
     // during the duration of the provided thunk
     #[inline(always)]
@@ -670,7 +697,8 @@ impl SteelThread {
     }
 
     pub fn extract_value(&self, idx: usize) -> Option<SteelVal> {
-        self.global_env.extract(idx)
+        // self.global_env.extract(idx)
+        self.global_env.repl_maybe_lookup_idx(idx)
     }
 
     // Run the executable
@@ -3791,11 +3819,6 @@ impl<'a> VmCore<'a> {
         let value = self.thread.stack.pop().unwrap();
 
         self.thread.synchronizer.stop_threads();
-
-        // Do this for now until everything is aligned
-        self.thread
-            .global_env
-            .repl_define_idx(payload_size, value.clone());
 
         // Pull out the env - then we're gonna go through each and
         // set them to be the default.

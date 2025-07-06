@@ -12,7 +12,7 @@ use std::sync::Arc;
 use crate::rvals::{Result, SteelVal};
 
 #[derive(Debug, Clone)]
-pub(crate) struct SharedVectorWrapper(AtomicSharedVector<SteelVal>);
+pub(crate) struct SharedVectorWrapper(pub(crate) AtomicSharedVector<SteelVal>);
 
 impl SharedVectorWrapper {
     pub fn set_idx(&mut self, idx: usize, val: SteelVal) -> SteelVal {
@@ -220,21 +220,14 @@ impl Env {
 
     #[inline(always)]
     pub fn repl_lookup_idx(&self, idx: usize) -> SteelVal {
-        // TODO: Signal to the other threads to update their stuff?
-        // get them all to a safepoint? Is that worth it?
-
-        // #[cfg(feature = "thread-local-bindings")]
-        // {
-        //     self.thread_local_bindings[idx].clone()
-        // }
-
-        // #[cfg(not(feature = "thread-local-bindings"))]
-        // {
-        //     self.bindings_vec.read()[idx].clone()
-        // }
-
         // Look up the bindings using the local copy
         self.bindings.0[idx].clone()
+    }
+
+    #[inline(always)]
+    pub fn repl_maybe_lookup_idx(&self, idx: usize) -> Option<SteelVal> {
+        // Look up the bindings using the local copy
+        self.bindings.0.get(idx).cloned()
     }
 
     // /// Get the value located at that index

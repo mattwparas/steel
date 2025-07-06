@@ -1734,6 +1734,7 @@ impl Engine {
             .symbol_map
             .roll_back(checkpoint.symbol_map_offset);
 
+        // TODO: Does this even need to happen?
         #[cfg(feature = "sync")]
         {
             self.virtual_machine
@@ -1759,6 +1760,12 @@ impl Engine {
         // TODO: Add hook here to check what values are now unreachable!
         let executable = self.raw_program_to_executable(program)?;
 
+        self.gc_shadowed_roots();
+
+        self.virtual_machine.run_executable(&executable)
+    }
+
+    fn gc_shadowed_roots(&mut self) {
         // Unfortunately, we have to invoke a whole GC algorithm here
         // for shadowed rooted values
         if self
@@ -1769,10 +1776,23 @@ impl Engine {
             .free_list
             .should_collect()
         {
+            // Pause the threads
+            self.virtual_machine.synchronizer.stop_threads();
+
+            #[cfg(feature = "sync")]
+            let mut env = self.virtual_machine.global_env.drain_env();
+
+            unsafe {
+                self.virtual_machine.synchronizer.call_per_ctx(|thread| {
+                    thread.global_env.default_env();
+                });
+            }
+
             #[cfg(feature = "sync")]
             {
                 GlobalSlotRecycler::free_shadowed_rooted_values(
-                    &mut self.virtual_machine.global_env.bindings_vec.write(),
+                    // &mut self.virtual_machine.global_env.bindings_vec.write(),
+                    &mut env.0.as_mut_slice(),
                     // .unwrap(),
                     &mut self.virtual_machine.compiler.write().symbol_map,
                     &mut self.virtual_machine.heap.lock().unwrap(),
@@ -1807,9 +1827,10 @@ impl Engine {
                 .symbol_map
                 .free_list
                 .increment_generation();
-        }
 
-        self.virtual_machine.run_executable(&executable)
+            #[cfg(feature = "sync")]
+            self.virtual_machine.global_env.update_env(env);
+        }
     }
 
     pub fn run_executable(&mut self, executable: &Executable) -> Result<Vec<SteelVal>> {
