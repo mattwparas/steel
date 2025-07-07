@@ -917,7 +917,6 @@ impl ModuleManager {
                 if let Some(smacro) = smacro {
                     if !smacro.special_mangled {
                         for expr in smacro.exprs_mut() {
-                            // TODO: @Matt 7/3/2025 -> This isn't mangling mhash correctly
                             name_mangler.visit(expr);
                         }
                     }
