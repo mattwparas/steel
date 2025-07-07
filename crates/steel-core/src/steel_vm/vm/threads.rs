@@ -29,6 +29,8 @@ use super::*;
 pub struct ThreadHandle {
     pub(crate) handle: Option<std::thread::JoinHandle<std::result::Result<SteelVal, String>>>,
 
+    pub(crate) main_thread: Option<std::thread::Thread>,
+
     pub(crate) thread_state_manager: ThreadStateController,
 }
 
@@ -792,7 +794,7 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     // This thread needs its own context
     thread.synchronizer.ctx = Arc::new(AtomicCell::new(None));
 
-    thread.id = EngineId::new();
+    thread.id = dbg!(EngineId::new());
 
     let weak_ctx = Arc::downgrade(&thread.synchronizer.ctx);
 
@@ -814,6 +816,7 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 
     let value = ThreadHandle {
         handle: Some(handle),
+        main_thread: None,
         thread_state_manager: controller,
     }
     .into_steelval()

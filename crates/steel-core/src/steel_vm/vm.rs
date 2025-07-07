@@ -405,9 +405,9 @@ impl ThreadStateController {
 }
 
 #[derive(Clone)]
-struct ThreadContext {
-    ctx: std::sync::Weak<AtomicCell<Option<*mut SteelThread>>>,
-    handle: SteelVal,
+pub(crate) struct ThreadContext {
+    pub(crate) ctx: std::sync::Weak<AtomicCell<Option<*mut SteelThread>>>,
+    pub(crate) handle: SteelVal,
 }
 
 #[derive(Clone)]
@@ -416,13 +416,13 @@ pub struct Synchronizer {
     // from the root of the runtime. Since we're now operating
     // in a world in which these kinds of threads might basically
     // share memory space, we probably need to handle this
-    threads: Arc<Mutex<Vec<ThreadContext>>>,
+    pub(crate) threads: Arc<Mutex<Vec<ThreadContext>>>,
     // The signal to actually tell all the threads to stop
     pub(crate) state: ThreadStateController,
 
     // If we're at a safe point, then this will include a _live_ pointer
     // to the context. Once we exit the safe point, we're done.
-    ctx: Arc<AtomicCell<Option<*mut SteelThread>>>,
+    pub(crate) ctx: Arc<AtomicCell<Option<*mut SteelThread>>>,
 
     spawned_via_make_thread: bool,
 }
@@ -458,7 +458,7 @@ impl Synchronizer {
                 // TODO: Have to use a condvar
                 loop {
                     if let Some(ctx) = ctx.load() {
-                        log::debug!("Broadcasting `set!` operation");
+                        // println!("Broadcasting `set!` operation");
 
                         unsafe {
                             let live_ctx = &mut (*ctx);
@@ -467,7 +467,7 @@ impl Synchronizer {
 
                         break;
                     } else {
-                        log::debug!("Waiting for thread...")
+                        // println!("Waiting for thread...")
 
                         // println!("Waiting for thread...");
 
@@ -562,6 +562,9 @@ impl Synchronizer {
                     if let Some(handle) = inner.handle.as_ref() {
                         // Resume first
                         handle.thread().unpark();
+                    } else if let Some(main_thread) = inner.main_thread.as_ref() {
+                        // TODO: Flatten the above
+                        main_thread.unpark();
                     }
                 }
             }
@@ -574,11 +577,20 @@ impl SteelThread {
         let synchronizer = Synchronizer::new();
         let weak_ctx = Arc::downgrade(&synchronizer.ctx);
 
+        // Get a handle to the current thread?
+        let handle = ThreadHandle {
+            handle: None,
+            main_thread: Some(std::thread::current()),
+            thread_state_manager: synchronizer.state.clone(),
+        }
+        .into_steelval()
+        .unwrap();
+
         // TODO: Entering safepoint should happen often
         // for the main thread?
         synchronizer.threads.lock().unwrap().push(ThreadContext {
             ctx: weak_ctx,
-            handle: SteelVal::Void,
+            handle,
         });
 
         SteelThread {
@@ -628,8 +640,11 @@ impl SteelThread {
 
         let out = thunk(self, &mut env);
 
+        // println!("Updating env starting from: {:?}", self.id);
+
         unsafe {
             self.synchronizer.call_per_ctx(|thread| {
+                println!("Calling call per ctx against thread: {:?}", thread.id);
                 thread.global_env.update_env(env.clone());
             });
         }
@@ -1474,6 +1489,7 @@ impl<'a> VmCore<'a> {
 
         let value = ThreadHandle {
             handle: None,
+            main_thread: Some(std::thread::current()),
             thread_state_manager: controller,
         }
         .into_steelval()
@@ -1489,7 +1505,7 @@ impl<'a> VmCore<'a> {
                 handle: value.clone(),
             });
 
-        thread.id = EngineId::new();
+        thread.id = dbg!(EngineId::new());
         for frame in &self.thread.stack_frames {
             self.close_continuation_marks(frame);
         }
