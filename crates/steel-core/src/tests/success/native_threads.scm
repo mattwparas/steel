@@ -26,3 +26,7 @@
 (thread-join! (spawn-native-thread (lambda () (set! foobar 200))))
 
 (assert! (= foobar 200))
+
+(thread-join! (spawn-native-thread (lambda () (eval '(define foobarbaz 3000)))))
+
+(assert! (= (eval 'foobarbaz) 3000))

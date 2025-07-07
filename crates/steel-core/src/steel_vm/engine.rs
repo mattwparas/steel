@@ -1758,16 +1758,16 @@ impl Engine {
             .symbol_map
             .roll_back(checkpoint.symbol_map_offset);
 
-        // TODO: Does this even need to happen?
-        #[cfg(feature = "sync")]
-        {
-            self.virtual_machine
-                .global_env
-                .bindings_vec
-                .write()
-                // .unwrap()
-                .truncate(checkpoint.globals_offset);
-        }
+        // // TODO: Does this even need to happen?
+        // #[cfg(feature = "sync")]
+        // {
+        //     self.virtual_machine
+        //         .global_env
+        //         .bindings_vec
+        //         .write()
+        //         // .unwrap()
+        //         .truncate(checkpoint.globals_offset);
+        // }
 
         #[cfg(not(feature = "sync"))]
         {

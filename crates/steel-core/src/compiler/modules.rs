@@ -22,12 +22,7 @@ use compact_str::CompactString;
 use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 // use smallvec::SmallVec;
-use steel_parser::{
-    ast::{AstTools, PROTO_HASH_GET},
-    expr_list,
-    parser::SourceId,
-    span::Span,
-};
+use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
 
 use std::{
     borrow::Cow,

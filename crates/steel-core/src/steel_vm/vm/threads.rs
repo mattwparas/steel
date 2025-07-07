@@ -139,7 +139,7 @@ pub(crate) fn thread_suspend(handle: &SteelVal) -> Result<SteelVal> {
 /// Resume a suspended thread. This does nothing if the thread is already joined.
 #[steel_derive::function(name = "thread-resume")]
 pub(crate) fn thread_resume(handle: &SteelVal) -> Result<SteelVal> {
-    let mut handle = ThreadHandle::as_mut_ref(handle)?;
+    let handle = ThreadHandle::as_mut_ref(handle)?;
     handle.thread_state_manager.resume();
     handle.thread.unpark();
     Ok(SteelVal::Void)
