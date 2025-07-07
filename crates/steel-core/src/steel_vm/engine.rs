@@ -252,8 +252,8 @@ impl Clone for Engine {
 
         // Get a handle to the current thread?
         let handle = ThreadHandle {
-            handle: None,
-            main_thread: Some(std::thread::current()),
+            handle: Mutex::new(None),
+            thread: std::thread::current(),
             thread_state_manager: virtual_machine.synchronizer.state.clone(),
         }
         .into_steelval()

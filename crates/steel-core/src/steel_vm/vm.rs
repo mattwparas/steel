@@ -538,11 +538,20 @@ impl Synchronizer {
     pub fn stop_threads(&mut self) {
         self.state.pause_for_safepoint();
 
+        println!("Acquiring a lock on the other threads");
+
         // Stop other threads, wait until we've gathered acknowledgements
         self.threads.lock().unwrap().iter().for_each(|x| {
             if let SteelVal::Custom(c) = &x.handle {
+                println!("Trying to read thread handle");
                 if let Some(inner) = as_underlying_type::<ThreadHandle>(c.read().as_ref()) {
+                    // let current = Some(std::thread::current().id());
+
+                    // if inner.main_thread.as_ref().map(|x| x.id()) != current
+                    //     && inner.handle.as_ref().map(|x| x.thread().id()) != current
+                    // {
                     inner.thread_state_manager.pause_for_safepoint();
+                    // }
                 }
             }
         });
@@ -559,13 +568,19 @@ impl Synchronizer {
                     // with a thread, so we want to resume it whether or not we have
                     // a thread handle.
                     inner.thread_state_manager.resume();
-                    if let Some(handle) = inner.handle.as_ref() {
-                        // Resume first
-                        handle.thread().unpark();
-                    } else if let Some(main_thread) = inner.main_thread.as_ref() {
-                        // TODO: Flatten the above
-                        main_thread.unpark();
-                    }
+
+                    inner.thread.unpark();
+
+                    // if let Some(handle) = inner.handle.as_ref() {
+                    //     // Resume first
+                    //     handle.thread().unpark();
+                    //     return
+                    // } else if let Some(main_thread) = inner.main_thread.as_ref() {
+                    //     println!("Unparking the main thread");
+
+                    //     // TODO: Flatten the above
+                    //     main_thread.unpark();
+                    // }
                 }
             }
         });
@@ -579,8 +594,8 @@ impl SteelThread {
 
         // Get a handle to the current thread?
         let handle = ThreadHandle {
-            handle: None,
-            main_thread: Some(std::thread::current()),
+            handle: Mutex::new(None),
+            thread: std::thread::current(),
             thread_state_manager: synchronizer.state.clone(),
         }
         .into_steelval()
@@ -629,7 +644,12 @@ impl SteelThread {
         &mut self,
         thunk: F,
     ) -> T {
+        println!("Stopping threads");
+
         self.synchronizer.stop_threads();
+
+        println!("Stopped threads");
+
         let mut env = self.global_env.drain_env();
 
         unsafe {
@@ -644,7 +664,6 @@ impl SteelThread {
 
         unsafe {
             self.synchronizer.call_per_ctx(|thread| {
-                println!("Calling call per ctx against thread: {:?}", thread.id);
                 thread.global_env.update_env(env.clone());
             });
         }
@@ -1488,8 +1507,8 @@ impl<'a> VmCore<'a> {
         let weak_ctx = Arc::downgrade(&thread.synchronizer.ctx);
 
         let value = ThreadHandle {
-            handle: None,
-            main_thread: Some(std::thread::current()),
+            handle: Mutex::new(None),
+            thread: std::thread::current(),
             thread_state_manager: controller,
         }
         .into_steelval()
