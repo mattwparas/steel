@@ -1,5 +1,6 @@
 use crate::compiler::compiler::Compiler;
 use crate::core::instructions::u24;
+use crate::env::SharedVectorWrapper;
 use crate::gc::shared::MutContainer;
 use crate::gc::shared::ShareableMut;
 use crate::gc::shared::Shared;
@@ -404,9 +405,9 @@ impl ThreadStateController {
 }
 
 #[derive(Clone)]
-struct ThreadContext {
-    ctx: std::sync::Weak<AtomicCell<Option<*mut SteelThread>>>,
-    handle: SteelVal,
+pub(crate) struct ThreadContext {
+    pub(crate) ctx: std::sync::Weak<AtomicCell<Option<*mut SteelThread>>>,
+    pub(crate) handle: SteelVal,
 }
 
 #[derive(Clone)]
@@ -415,13 +416,15 @@ pub struct Synchronizer {
     // from the root of the runtime. Since we're now operating
     // in a world in which these kinds of threads might basically
     // share memory space, we probably need to handle this
-    threads: Arc<Mutex<Vec<ThreadContext>>>,
+    pub(crate) threads: Arc<Mutex<Vec<ThreadContext>>>,
     // The signal to actually tell all the threads to stop
     pub(crate) state: ThreadStateController,
 
     // If we're at a safe point, then this will include a _live_ pointer
     // to the context. Once we exit the safe point, we're done.
-    ctx: Arc<AtomicCell<Option<*mut SteelThread>>>,
+    pub(crate) ctx: Arc<AtomicCell<Option<*mut SteelThread>>>,
+
+    spawned_via_make_thread: bool,
 }
 
 // TODO: Until I figure out how to note have this be the case
@@ -437,6 +440,7 @@ impl Synchronizer {
                 state: Arc::new(AtomicCell::new(ThreadState::Running)),
             },
             ctx: Arc::new(AtomicCell::new(None)),
+            spawned_via_make_thread: false,
         }
     }
 
@@ -454,7 +458,7 @@ impl Synchronizer {
                 // TODO: Have to use a condvar
                 loop {
                     if let Some(ctx) = ctx.load() {
-                        log::debug!("Broadcasting `set!` operation");
+                        // println!("Broadcasting `set!` operation");
 
                         unsafe {
                             let live_ctx = &mut (*ctx);
@@ -463,7 +467,7 @@ impl Synchronizer {
 
                         break;
                     } else {
-                        log::debug!("Waiting for thread...")
+                        // println!("Waiting for thread...")
 
                         // println!("Waiting for thread...");
 
@@ -533,7 +537,6 @@ impl Synchronizer {
     /// waits for all of those threads to stop before continuing on.
     pub fn stop_threads(&mut self) {
         self.state.pause_for_safepoint();
-
         // Stop other threads, wait until we've gathered acknowledgements
         self.threads.lock().unwrap().iter().for_each(|x| {
             if let SteelVal::Custom(c) = &x.handle {
@@ -551,11 +554,8 @@ impl Synchronizer {
         self.threads.lock().unwrap().iter().for_each(|x| {
             if let SteelVal::Custom(c) = &x.handle {
                 if let Some(inner) = as_underlying_type::<ThreadHandle>(c.read().as_ref()) {
-                    if let Some(handle) = inner.handle.as_ref() {
-                        // Resume first
-                        inner.thread_state_manager.resume();
-                        handle.thread().unpark();
-                    }
+                    inner.thread_state_manager.resume();
+                    inner.thread.unpark();
                 }
             }
         });
@@ -567,11 +567,20 @@ impl SteelThread {
         let synchronizer = Synchronizer::new();
         let weak_ctx = Arc::downgrade(&synchronizer.ctx);
 
+        // Get a handle to the current thread?
+        let handle = ThreadHandle {
+            handle: Mutex::new(None),
+            thread: std::thread::current(),
+            thread_state_manager: synchronizer.state.clone(),
+        }
+        .into_steelval()
+        .unwrap();
+
         // TODO: Entering safepoint should happen often
         // for the main thread?
         synchronizer.threads.lock().unwrap().push(ThreadContext {
             ctx: weak_ctx,
-            handle: SteelVal::Void,
+            handle,
         });
 
         SteelThread {
@@ -605,6 +614,43 @@ impl SteelThread {
         }
     }
 
+    #[cfg(feature = "sync")]
+    pub(crate) fn with_locked_env<T, F: FnOnce(&mut Self, &mut SharedVectorWrapper) -> T>(
+        &mut self,
+        thunk: F,
+    ) -> T {
+        self.synchronizer.stop_threads();
+
+        let mut env = self.global_env.drain_env();
+
+        unsafe {
+            self.synchronizer.call_per_ctx(|thread| {
+                thread.global_env.default_env();
+            });
+        }
+
+        let out = thunk(self, &mut env);
+
+        unsafe {
+            self.synchronizer.call_per_ctx(|thread| {
+                thread.global_env.update_env(env.clone());
+            });
+        }
+
+        self.global_env.update_env(env);
+
+        // Resume.
+        // Apply these to all of the things.
+        self.synchronizer.resume_threads();
+
+        out
+    }
+
+    #[cfg(not(feature = "sync"))]
+    pub(crate) fn with_locked_env<T, F: FnOnce(&mut Self) -> T>(&mut self, thunk: F) -> T {
+        thunk(self)
+    }
+
     // Allow this thread to be available for garbage collection
     // during the duration of the provided thunk
     #[inline(always)]
@@ -636,7 +682,10 @@ impl SteelThread {
                     break;
                 }
 
-                std::thread::park();
+                // Only park the thread if we actually have the ability to unpark it
+                if !self.synchronizer.spawned_via_make_thread {
+                    std::thread::park();
+                }
             }
 
             self.synchronizer.ctx.store(None);
@@ -657,11 +706,23 @@ impl SteelThread {
     }
 
     pub fn insert_binding(&mut self, idx: usize, value: SteelVal) {
-        self.global_env.add_root_value(idx, value);
+        // TODO: Do the thing where we also pause the threads
+        // to broadcast all the values!
+
+        #[cfg(feature = "sync")]
+        self.with_locked_env(move |_, env| {
+            env.repl_define_idx(idx, value);
+        });
+
+        #[cfg(not(feature = "sync"))]
+        self.with_locked_env(move |this| {
+            this.global_env.repl_define_idx(idx, value);
+        });
     }
 
     pub fn extract_value(&self, idx: usize) -> Option<SteelVal> {
-        self.global_env.extract(idx)
+        // self.global_env.extract(idx)
+        self.global_env.repl_maybe_lookup_idx(idx)
     }
 
     // Run the executable
@@ -1399,10 +1460,40 @@ impl<'a> VmCore<'a> {
 
     // Copy the thread of execution. This just blindly copies the thread, and closes
     // the continuations found.
+    // TODO: Add this thread to the parent VM thread handler -> this is necessary
+    // for safepoints to work correctly
     #[cfg(feature = "sync")]
     pub fn make_thread(&self) -> SteelThread {
         let mut thread = self.thread.clone();
-        thread.id = EngineId::new();
+
+        let controller = ThreadStateController::default();
+        thread.synchronizer.state = controller.clone();
+        // This thread needs its own context
+        thread.synchronizer.ctx = Arc::new(AtomicCell::new(None));
+
+        thread.synchronizer.spawned_via_make_thread = true;
+
+        let weak_ctx = Arc::downgrade(&thread.synchronizer.ctx);
+
+        let value = ThreadHandle {
+            handle: Mutex::new(None),
+            thread: std::thread::current(),
+            thread_state_manager: controller,
+        }
+        .into_steelval()
+        .unwrap();
+
+        self.thread
+            .synchronizer
+            .threads
+            .lock()
+            .unwrap()
+            .push(ThreadContext {
+                ctx: weak_ctx,
+                handle: value.clone(),
+            });
+
+        thread.id = dbg!(EngineId::new());
         for frame in &self.thread.stack_frames {
             self.close_continuation_marks(frame);
         }
@@ -1419,7 +1510,9 @@ impl<'a> VmCore<'a> {
             .paused
             .load(std::sync::atomic::Ordering::Relaxed)
         {
-            std::thread::park();
+            if !self.thread.synchronizer.spawned_via_make_thread {
+                std::thread::park();
+            }
         }
     }
 
@@ -1460,7 +1553,7 @@ impl<'a> VmCore<'a> {
             value,
             &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-            self.thread.global_env.roots().as_slice(),
+            self.thread.global_env.roots(),
             &self.thread.thread_local_storage,
             &mut self.thread.synchronizer,
         );
@@ -1473,7 +1566,7 @@ impl<'a> VmCore<'a> {
             values,
             &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-            self.thread.global_env.roots().as_slice(),
+            self.thread.global_env.roots(),
             &self.thread.thread_local_storage,
             &mut self.thread.synchronizer,
         );
@@ -1487,7 +1580,7 @@ impl<'a> VmCore<'a> {
             None,
             &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-            self.thread.global_env.roots().as_slice(),
+            self.thread.global_env.roots(),
             &self.thread.thread_local_storage,
             &mut self.thread.synchronizer,
             true,
@@ -3259,28 +3352,15 @@ impl<'a> VmCore<'a> {
     fn handle_set(&mut self, index: usize) -> Result<()> {
         let value_to_assign = self.thread.stack.pop().unwrap();
 
-        // STOP THREADS -> apply the set index across all of them.
-        // set! is _much_ slower than it needs to be.
-        self.thread.synchronizer.stop_threads();
-
+        #[cfg(feature = "sync")]
         let value = self
             .thread
-            .global_env
-            .repl_set_idx(index, value_to_assign.clone())?;
+            .with_locked_env(|_, env| env.set_idx(index, value_to_assign));
 
-        // Updating on all
-        unsafe {
-            self.thread.synchronizer.call_per_ctx(|thread| {
-                thread
-                    .global_env
-                    .repl_set_idx(index, value_to_assign.clone())
-                    .unwrap();
-            });
-        }
-
-        // Resume.
-        // Apply these to all of the things.
-        self.thread.synchronizer.resume_threads();
+        #[cfg(not(feature = "sync"))]
+        let value = self
+            .thread
+            .with_locked_env(|this| this.global_env.repl_set_idx(index, value_to_assign))?;
 
         self.thread.stack.push(value);
         self.ip += 1;
@@ -3293,52 +3373,6 @@ impl<'a> VmCore<'a> {
         // Boxed functions probably _should_ be rooted in the modules?
         let func = self.thread.global_env.repl_lookup_idx(index);
         self.handle_global_function_call(func, payload_size)
-
-        // let stack_func = &self.thread.global_env.thread_local_bindings[index] as *const _;
-
-        // let stack_func = &self.thread.global_env.repl_lookup_idx(idx);
-
-        // use SteelVal::*;
-
-        // match unsafe { &*stack_func } {
-        //     Closure(closure) => {
-        //         let closure = closure.clone();
-        //         self.handle_function_call_closure_jit(closure, payload_size)
-        //     }
-        //     FuncV(f) => {
-        //         let f = *f;
-        //         self.call_primitive_func(f, payload_size)
-        //     }
-        //     BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
-        //     MutFunc(f) => {
-        //         let f = *f;
-        //         self.call_primitive_mut_func(f, payload_size)
-        //     }
-        //     FutureFunc(f) => {
-        //         let f = f.clone();
-        //         self.call_future_func(f, payload_size)
-        //     }
-        //     ContinuationFunction(cc) => {
-        //         let cc = cc.clone();
-        //         self.call_continuation(cc)
-        //     }
-        //     BuiltIn(f) => {
-        //         let f = *f;
-        //         // self.ip -= 1;
-        //         self.call_builtin_func(f, payload_size)
-        //     }
-        //     CustomStruct(s) => {
-        //         let s = s.clone();
-        //         self.call_custom_struct(&s, payload_size)
-        //     }
-        //     other => {
-        //         // Explicitly mark this as unlikely
-        //         cold();
-        //         log::error!("{stack_func:?}");
-        //         log::error!("Stack: {:?}", self.thread.stack);
-        //         stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", other); self.current_span());
-        //     }
-        // }
     }
 
     #[inline(always)]
@@ -3346,28 +3380,6 @@ impl<'a> VmCore<'a> {
         let stack_func = self.thread.global_env.repl_lookup_idx(index);
         self.ip += 1;
         self.handle_tail_call(stack_func, payload_size)
-
-        // let stack_func = &self.thread.global_env.thread_local_bindings[index] as *const _;
-
-        // use SteelVal::*;
-
-        // match unsafe { &*stack_func } {
-        //     FuncV(f) => self.call_primitive_func(*f, payload_size),
-        //     MutFunc(f) => self.call_primitive_mut_func(*f, payload_size),
-        //     BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
-        //     Closure(closure) => self.new_handle_tail_call_closure(closure.clone(), payload_size),
-        //     BuiltIn(f) => self.call_builtin_func(*f, payload_size),
-        //     CustomStruct(s) => self.call_custom_struct(&s, payload_size),
-        //     ContinuationFunction(cc) => self.call_continuation(cc.clone()),
-        //     stack_func => {
-        //         // println!("{:?}", self.stack);
-        //         // println!("{:?}", self.stack_index);
-        //         // println!("Bad tail call");
-        //         // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-        //         stop!(BadSyntax => format!("TailCall - Application not a procedure or function type
-        //             not supported: {stack_func}"); self.current_span());
-        //     }
-        // }
     }
 
     // #[inline(always)]
@@ -3815,28 +3827,15 @@ impl<'a> VmCore<'a> {
     fn handle_bind(&mut self, payload_size: usize) {
         let value = self.thread.stack.pop().unwrap();
 
-        // TODO: Do the same thing here:
-        self.thread.synchronizer.stop_threads();
+        #[cfg(feature = "sync")]
+        self.thread.with_locked_env(move |_, env| {
+            env.repl_define_idx(payload_size, value);
+        });
 
-        // println!("Pausing threads to define new variable");
-        self.thread
-            .global_env
-            .repl_define_idx(payload_size, value.clone());
-
-        // Updating on all
-        unsafe {
-            self.thread.synchronizer.call_per_ctx(|thread| {
-                thread
-                    .global_env
-                    .repl_define_idx(payload_size, value.clone());
-            });
-        }
-
-        // println!("Finished broadcasting new variable");
-
-        // Resume.
-        // Apply these to all of the things.
-        self.thread.synchronizer.resume_threads();
+        #[cfg(not(feature = "sync"))]
+        self.thread.with_locked_env(move |this| {
+            this.global_env.repl_define_idx(payload_size, value);
+        });
 
         self.ip += 1;
     }
@@ -6203,7 +6202,7 @@ fn new_box_handler(ctx: &mut VmCore<'_>) -> Result<()> {
         last,
         &ctx.thread.stack,
         ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-        ctx.thread.global_env.roots().as_slice(),
+        ctx.thread.global_env.roots(),
         &ctx.thread.thread_local_storage,
         &mut ctx.thread.synchronizer,
     );

@@ -834,7 +834,53 @@ impl ModuleManager {
 
         let prefix = module.prefix();
 
-        let globals = collect_globals(&module.ast);
+        // Collect globals and also, anything that is imported
+        let mut globals = collect_globals(&module.ast);
+
+        // Bring in what they provided first, but then if we can't find that, we'll have to
+        // find all of the remaining ones by fetching all of their dependencies, and then
+        // reborrowing
+        globals.extend(
+            module
+                .require_objects
+                .iter()
+                .flat_map(|x| x.as_identifiers()),
+        );
+
+        let modules_to_check = module
+            .require_objects
+            .iter()
+            .filter_map(|x| {
+                if x.idents_to_import.is_empty() {
+                    Some(x.path.get_path().into_owned())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        // drop(module);
+
+        for importing_module in modules_to_check {
+            let other_module = compiled_modules.get_mut(&importing_module).unwrap();
+
+            for provide_expr in &other_module.provides {
+                // TODO: Handle provide spec stuff!
+                for provide in &provide_expr.list().unwrap().args[1..] {
+                    if let Some(ident) = provide.atom_identifier() {
+                        globals.insert(*ident);
+                    }
+
+                    if let Some(list) = provide.list().and_then(|x| x.second_ident()) {
+                        globals.insert(*list);
+                    }
+                }
+            }
+        }
+
+        let module = compiled_modules
+            .get_mut(require_for_syntax)
+            .expect(&format!("Module missing!: {:?}", require_for_syntax));
 
         let mut name_mangler = NameMangler::new(globals, prefix);
 
@@ -1680,6 +1726,23 @@ pub struct RequireObject {
     span: Span,
 }
 
+impl RequireObject {
+    fn as_identifiers(&self) -> Vec<InternedString> {
+        let mut out = Vec::new();
+        for identifier in &self.idents_to_import {
+            if let MaybeRenamed::Normal(n) = identifier {
+                if let Some(ident) = n.atom_identifier() {
+                    if let Some(prefix) = self.prefix.as_ref() {
+                        out.push((prefix.clone() + ident.resolve()).into());
+                    }
+                }
+            }
+        }
+
+        out
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 enum PathOrBuiltIn {
     BuiltIn(Cow<'static, str>),
@@ -2481,7 +2544,8 @@ impl<'a> ModuleBuilder<'a> {
         // @Matt: 11/15/2024
         // Try collecting the provides again?
 
-        // TODO: Come back here - we're going to need to figure out the require objects
+        // TODO: @Matt: 7/3/25
+        // Re-exporting macros needs to work here
         let mut module = CompiledModule::new(
             self.name.clone(),
             provides,

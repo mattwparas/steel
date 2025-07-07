@@ -3466,6 +3466,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "shared_vector"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fedf3f42342bc599d499101f718082efc026b6df8fb1ea7e6ea2ae19bf389cfd"
+dependencies = [
+ "allocator-api2",
+]
+
+[[package]]
 name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3643,6 +3652,7 @@ dependencies = [
  "rand 0.9.1",
  "serde",
  "serde_json",
+ "shared_vector",
  "smallvec",
  "stacker",
  "steel-derive",

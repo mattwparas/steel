@@ -603,6 +603,24 @@ pub(crate) fn plist_get_impl<'a>(
     }
 }
 
+pub trait KeywordDictionary<'a> {
+    fn get(self, key: &'a SteelVal) -> Option<&'a SteelVal>;
+}
+
+impl<'a, T> KeywordDictionary<'a> for T
+where
+    T: Iterator<Item = &'a SteelVal>,
+{
+    fn get(mut self, key: &'a SteelVal) -> Option<&'a SteelVal> {
+        let symbol = self.find(|x| *x == key);
+        let value = self.next();
+        match (symbol, value) {
+            (Some(_), Some(v)) => Some(v),
+            _ => None,
+        }
+    }
+}
+
 // Find the arg by index, skipping keyword pairs
 #[steel_derive::function(name = "plist-get-positional-arg-list")]
 pub fn plist_get_positional_list(list: &List<SteelVal>, index: usize) -> Result<SteelVal> {
@@ -748,8 +766,14 @@ pub fn plist_try_get(
     key: &SteelVal,
     default_value: SteelVal,
 ) -> Result<SteelVal> {
-    let mut iter = list.iter();
+    plist_try_get_impl(list.iter(), key, default_value)
+}
 
+pub(crate) fn plist_try_get_impl<'a>(
+    mut iter: impl Iterator<Item = &'a SteelVal>,
+    key: &SteelVal,
+    default_value: SteelVal,
+) -> Result<SteelVal> {
     Ok(iter
         .find(|x| x.ptr_eq(key))
         .and_then(|_| iter.next().cloned())

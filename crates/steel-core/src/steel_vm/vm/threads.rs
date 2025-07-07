@@ -27,7 +27,10 @@ use super::*;
 // }
 
 pub struct ThreadHandle {
-    pub(crate) handle: Option<std::thread::JoinHandle<std::result::Result<SteelVal, String>>>,
+    pub(crate) handle:
+        Mutex<Option<std::thread::JoinHandle<std::result::Result<SteelVal, String>>>>,
+
+    pub(crate) thread: std::thread::Thread,
 
     pub(crate) thread_state_manager: ThreadStateController,
 }
@@ -38,6 +41,8 @@ pub fn thread_finished(handle: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(
         ThreadHandle::as_ref(handle)?
             .handle
+            .lock()
+            .unwrap()
             .as_ref()
             .map(|x| x.is_finished())
             .unwrap_or(true),
@@ -105,11 +110,11 @@ pub fn mutex_unlock(mutex: &SteelVal) -> Result<SteelVal> {
 /// Block until this thread finishes.
 #[steel_derive::function(name = "thread-join!")]
 pub fn thread_join(handle: &SteelVal) -> Result<SteelVal> {
-    ThreadHandle::as_mut_ref(handle).and_then(|mut x| thread_join_impl(&mut x))
+    ThreadHandle::as_ref(handle).and_then(|mut x| thread_join_impl(&mut x))
 }
 
-pub(crate) fn thread_join_impl(handle: &mut ThreadHandle) -> Result<SteelVal> {
-    if let Some(handle) = handle.handle.take() {
+pub(crate) fn thread_join_impl(handle: &ThreadHandle) -> Result<SteelVal> {
+    if let Some(handle) = handle.handle.lock().unwrap().take() {
         handle
             .join()
             .map_err(|_| SteelErr::new(ErrorKind::Generic, "thread panicked!".to_string()))?
@@ -134,11 +139,9 @@ pub(crate) fn thread_suspend(handle: &SteelVal) -> Result<SteelVal> {
 /// Resume a suspended thread. This does nothing if the thread is already joined.
 #[steel_derive::function(name = "thread-resume")]
 pub(crate) fn thread_resume(handle: &SteelVal) -> Result<SteelVal> {
-    let mut handle = ThreadHandle::as_mut_ref(handle)?;
+    let handle = ThreadHandle::as_mut_ref(handle)?;
     handle.thread_state_manager.resume();
-    if let Some(handle) = handle.handle.as_mut() {
-        handle.thread().unpark();
-    }
+    handle.thread.unpark();
     Ok(SteelVal::Void)
 }
 
@@ -812,8 +815,11 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
             .map_err(|e| e.to_string())
     });
 
+    let thread = handle.thread().clone();
+
     let value = ThreadHandle {
-        handle: Some(handle),
+        handle: Mutex::new(Some(handle)),
+        thread,
         thread_state_manager: controller,
     }
     .into_steelval()
