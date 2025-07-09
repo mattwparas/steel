@@ -8,9 +8,7 @@ use crate::{stop, throw};
 
 use crate::values::lists::List;
 
-use crate::core::utils::{
-    arity_check, declare_const_mut_ref_functions,
-};
+use crate::core::utils::{arity_check, declare_const_mut_ref_functions};
 
 declare_const_mut_ref_functions! {
     PUSH_BACK => push_back,
