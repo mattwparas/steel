@@ -1105,9 +1105,62 @@ pub enum FFIArg<'a> {
     ByteVector(RVec<u8>),
 }
 
+impl<'a> FFIArg<'a> {
+    pub fn is_hashable(&self) -> bool {
+        match self {
+            FFIArg::StringRef(_)
+            | FFIArg::BoolV(_)
+            | FFIArg::NumV(_)
+            | FFIArg::IntV(_)
+            | FFIArg::StringV(_)
+            | FFIArg::Vector(_)
+            | FFIArg::CharV { .. }
+            | FFIArg::ByteVector(_) => true,
+            _ => false,
+        }
+    }
+}
+
 impl<'a> std::hash::Hash for FFIArg<'a> {
-    fn hash<H: std::hash::Hasher>(&self, _state: &mut H) {
-        todo!()
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            FFIArg::StringRef(rstr) => {
+                state.write_u8(0);
+                rstr.hash(state);
+            }
+            FFIArg::BoolV(b) => {
+                state.write_u8(1);
+                b.hash(state);
+            }
+            FFIArg::NumV(n) => {
+                state.write_u8(2);
+                n.to_string().hash(state);
+            }
+            FFIArg::IntV(i) => {
+                state.write_u8(3);
+                i.hash(state)
+            }
+            FFIArg::Void => {
+                state.write_u8(4);
+            }
+            FFIArg::StringV(rstring) => {
+                state.write_u8(5);
+                rstring.hash(state);
+            }
+            FFIArg::Vector(rvec) => {
+                state.write_u8(7);
+                rvec.hash(state);
+            }
+            FFIArg::CharV { c } => {
+                state.write_u8(8);
+                c.hash(state);
+            }
+            FFIArg::ByteVector(rvec) => {
+                state.write_u8(10);
+                rvec.hash(state);
+            }
+            _ => panic!("Cannot hash ffi arg: {:?}", self),
+        }
     }
 }
 
@@ -1212,14 +1265,46 @@ impl FFIValue {
     }
 }
 
+impl FFIValue {
+    pub fn is_hashable(&self) -> bool {
+        match self {
+            FFIValue::BoolV(_)
+            | FFIValue::IntV(_)
+            | FFIValue::StringV(_)
+            | FFIValue::CharV { .. }
+            | FFIValue::ByteVector(_) => true,
+            _ => false,
+        }
+    }
+}
+
 impl std::hash::Hash for FFIValue {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
-            FFIValue::BoolV(b) => b.hash(state),
-            FFIValue::IntV(i) => i.hash(state),
-            FFIValue::Void => 0.hash(state),
-            FFIValue::StringV(s) => s.hash(state),
-            FFIValue::CharV { c } => c.hash(state),
+            FFIValue::BoolV(b) => {
+                state.write_u8(0);
+                b.hash(state)
+            }
+            FFIValue::IntV(i) => {
+                state.write_u8(1);
+                i.hash(state)
+            }
+            FFIValue::Void => {
+                state.write_u8(2);
+                0.hash(state)
+            }
+            FFIValue::StringV(s) => {
+                state.write_u8(3);
+                s.hash(state)
+            }
+            FFIValue::CharV { c } => {
+                state.write_u8(4);
+                c.hash(state)
+            }
+            FFIValue::ByteVector(b) => {
+                state.write_u8(5);
+                b.hash(state);
+            }
             _ => panic!("Cannot hash this value: {:?}", self),
         }
     }
@@ -1441,6 +1526,11 @@ fn into_ffi_value(value: SteelVal) -> Result<FFIValue> {
                 .into_iter()
                 .map(|(key, value)| {
                     let key = into_ffi_value(key)?;
+
+                    if !key.is_hashable() {
+                        stop!(Generic => "ffi value key not hashable: {:?}", key);
+                    }
+
                     let value = into_ffi_value(value)?;
 
                     Ok((key, value))
@@ -1497,6 +1587,11 @@ pub fn as_ffi_value(value: &SteelVal) -> Result<FFIValue> {
             .iter()
             .map(|(key, value)| {
                 let key = as_ffi_value(key)?;
+
+                if !key.is_hashable() {
+                    stop!(Generic => "ffi value key not hashable: {:?}", key);
+                }
+
                 let value = as_ffi_value(value)?;
 
                 Ok((key, value))
@@ -1658,6 +1753,10 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
             .map(|(key, value)| {
                 let key = as_ffi_argument(key)?;
                 let value = as_ffi_argument(value)?;
+
+                if !key.is_hashable() {
+                    stop!(Generic => "key not hashable once converted to ffi type: {:?}", key);
+                }
 
                 Ok((key, value))
             })
