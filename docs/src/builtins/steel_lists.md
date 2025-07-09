@@ -142,6 +142,17 @@ Returns a newly allocated list containing the vs as its elements.
 > (list 1 2 3 4 5) ;; => '(1 2 3 4 5)
 > (list (list 1 2) (list 3 4)) ;; => '((1 2) (3 4))
 ```
+### **list->string**
+Convert a list of charecters to a string.
+
+(list->string lst) -> string?
+
+* lst : (listof char?)
+
+#### Examples
+```scheme
+(list->string '(#\a #\b #\c)) ;; => "abc"
+```
 ### **list-drop**
 Remove a certain number of elements (`n`) from the front of `lst`.
 
@@ -301,7 +312,6 @@ error[E11]: Generic
 │  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
 ```
 ### **cdr-null?**
-### **list->string**
 ### **list->vector**
 ### **list-chunks**
 ### **plist-get**

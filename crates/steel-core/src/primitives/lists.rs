@@ -9,12 +9,8 @@ use crate::{stop, throw};
 use crate::values::lists::List;
 
 use crate::core::utils::{
-    arity_check, declare_const_mut_ref_functions, declare_const_ref_functions,
+    arity_check, declare_const_mut_ref_functions,
 };
-
-declare_const_ref_functions! {
-    LIST_TO_STRING => steel_list_to_string,
-}
 
 declare_const_mut_ref_functions! {
     PUSH_BACK => push_back,
@@ -72,7 +68,7 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(REVERSE_DEFINITION)
         .register_native_fn_definition(LIST_REF_DEFINITION)
         .register_native_fn_definition(TRY_LIST_REF_DEFINITION)
-        .register_value("list->string", crate::primitives::lists::LIST_TO_STRING)
+        .register_native_fn_definition(LIST_TO_STRING_DEFINITION)
         .register_value("push-back", crate::primitives::lists::PUSH_BACK)
         .register_native_fn_definition(PAIR_DEFINITION)
         .register_native_fn_definition(APPLY_DEFINITION)

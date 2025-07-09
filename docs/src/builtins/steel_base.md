@@ -1443,6 +1443,17 @@ Convert the given list into a hashset.
 ```scheme
 (list 10 20 30) ;; => (hashset 10 20 30)
 ```
+### **list->string**
+Convert a list of charecters to a string.
+
+(list->string lst) -> string?
+
+* lst : (listof char?)
+
+#### Examples
+```scheme
+(list->string '(#\a #\b #\c)) ;; => "abc"
+```
 ### **list-drop**
 Remove a certain number of elements (`n`) from the front of `lst`.
 
@@ -3100,7 +3111,6 @@ Create a zipping iterator
 ### **iter-next!**
 ### **join!**
 ### **kill**
-### **list->string**
 ### **list->vector**
 ### **list-chunks**
 ### **list?**
