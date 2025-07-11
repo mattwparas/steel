@@ -70,6 +70,7 @@ enum DefineKind {
 
 struct FlatDefineLocation {
     kind: DefineKind,
+    location: (usize, usize),
 }
 
 #[derive(Default)]
@@ -81,6 +82,7 @@ pub struct DebruijnIndicesInterner {
 impl DebruijnIndicesInterner {
     pub fn collect_first_pass_defines(
         &mut self,
+        index: usize,
         instructions: &mut [Instruction],
         symbol_map: &mut SymbolMap,
     ) -> Result<()> {
@@ -116,6 +118,7 @@ impl DebruijnIndicesInterner {
                         s.to_owned(),
                         FlatDefineLocation {
                             kind: DefineKind::Closure,
+                            location: (index, i),
                         },
                     );
 
@@ -145,6 +148,7 @@ impl DebruijnIndicesInterner {
                         s.to_owned(),
                         FlatDefineLocation {
                             kind: DefineKind::Flat,
+                            location: (index, i),
                         },
                     );
 
@@ -186,6 +190,7 @@ impl DebruijnIndicesInterner {
 
     pub fn collect_second_pass_defines(
         &mut self,
+        index: usize,
         instructions: &mut [Instruction],
         symbol_map: &mut SymbolMap,
     ) -> Result<()> {
@@ -257,9 +262,9 @@ impl DebruijnIndicesInterner {
                         })),
                     ..
                 } => {
-                    if self.flat_defines.get(s).is_some()
-                        && self.second_pass_defines.get(s).is_none()
-                    {
+                    let flat_define = self.flat_defines.get(s);
+
+                    if flat_define.is_some() && self.second_pass_defines.get(s).is_none() {
                         if depth == 0 {
                             let message = format!(
                                 "Cannot reference an identifier before its definition: {s}"
@@ -276,7 +281,11 @@ impl DebruijnIndicesInterner {
                             // This should be disallowed, so we need to check if this
                             // definition came _before_ what we wanted.
 
-                            if self.flat_defines.get(s).unwrap().kind == DefineKind::Flat {
+                            let flat_define = flat_define.unwrap();
+
+                            if flat_define.kind == DefineKind::Flat
+                                && flat_define.location < (index, i)
+                            {
                                 let message = format!(
                                     "Cannot reference an identifier before its definition: {s}"
                                 );
