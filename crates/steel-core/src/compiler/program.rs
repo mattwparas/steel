@@ -975,12 +975,12 @@ impl RawProgramWithSymbols {
     ) -> Result<Vec<String>> {
         let mut interner = DebruijnIndicesInterner::default();
 
-        for expression in &mut self.instructions {
-            interner.collect_first_pass_defines(expression, symbol_map)?
+        for (index, expression) in self.instructions.iter_mut().enumerate() {
+            interner.collect_first_pass_defines(index, expression, symbol_map)?
         }
 
-        for expression in &mut self.instructions {
-            interner.collect_second_pass_defines(expression, symbol_map)?
+        for (index, expression) in self.instructions.iter_mut().enumerate() {
+            interner.collect_second_pass_defines(index, expression, symbol_map)?
         }
 
         // TODO try here - the loop condition local const arity two seems to rely on the
@@ -1021,12 +1021,12 @@ impl RawProgramWithSymbols {
 
         let mut interner = DebruijnIndicesInterner::default();
 
-        for expression in &mut self.instructions {
-            interner.collect_first_pass_defines(expression, symbol_map)?
+        for (index, expression) in self.instructions.iter_mut().enumerate() {
+            interner.collect_first_pass_defines(index, expression, symbol_map)?
         }
 
-        for expression in &mut self.instructions {
-            interner.collect_second_pass_defines(expression, symbol_map)?
+        for (index, expression) in self.instructions.iter_mut().enumerate() {
+            interner.collect_second_pass_defines(index, expression, symbol_map)?
         }
 
         // TODO try here - the loop condition local const arity two seems to rely on the
@@ -1066,12 +1066,12 @@ impl RawProgramWithSymbols {
 
         let mut interner = DebruijnIndicesInterner::default();
 
-        for expression in &mut self.instructions {
-            interner.collect_first_pass_defines(expression, symbol_map)?
+        for (index, expression) in self.instructions.iter_mut().enumerate() {
+            interner.collect_first_pass_defines(index, expression, symbol_map)?
         }
 
-        for expression in &mut self.instructions {
-            interner.collect_second_pass_defines(expression, symbol_map)?
+        for (index, expression) in self.instructions.iter_mut().enumerate() {
+            interner.collect_second_pass_defines(index, expression, symbol_map)?
         }
 
         // if std::env::var("CODE_GEN_V2").is_err() {
