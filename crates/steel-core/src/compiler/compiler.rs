@@ -62,9 +62,19 @@ use crate::values::HashMap as ImmutableHashMap;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum DefineKind {
+    Flat,
+    Closure,
+}
+
+struct FlatDefineLocation {
+    kind: DefineKind,
+}
+
 #[derive(Default)]
 pub struct DebruijnIndicesInterner {
-    flat_defines: HashSet<InternedString>,
+    flat_defines: HashMap<InternedString, FlatDefineLocation>,
     second_pass_defines: HashSet<InternedString>,
 }
 
@@ -102,7 +112,12 @@ impl DebruijnIndicesInterner {
                     flat_defines_non_closure.clear();
 
                     let idx = symbol_map.add(s);
-                    self.flat_defines.insert(s.to_owned());
+                    self.flat_defines.insert(
+                        s.to_owned(),
+                        FlatDefineLocation {
+                            kind: DefineKind::Closure,
+                        },
+                    );
 
                     if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = u24::from_usize(idx);
@@ -126,7 +141,12 @@ impl DebruijnIndicesInterner {
                     ..,
                 ) => {
                     let idx = symbol_map.add(s);
-                    self.flat_defines.insert(s.to_owned());
+                    self.flat_defines.insert(
+                        s.to_owned(),
+                        FlatDefineLocation {
+                            kind: DefineKind::Flat,
+                        },
+                    );
 
                     if flat_defines_non_closure.contains(s) {
                         stop!(BadSyntax => format!("Cannot reference identifier before its definition: {}", s.resolve()); *span);
@@ -156,6 +176,7 @@ impl DebruijnIndicesInterner {
                     // We're referencing things within the scope
                     flat_defines_non_closure.insert(*s);
                 }
+
                 _ => {}
             }
         }
@@ -238,11 +259,30 @@ impl DebruijnIndicesInterner {
                 } => {
                     if self.flat_defines.get(s).is_some()
                         && self.second_pass_defines.get(s).is_none()
-                        && depth == 0
                     {
-                        let message =
-                            format!("Cannot reference an identifier before its definition: {s}");
-                        stop!(FreeIdentifier => message; *span);
+                        if depth == 0 {
+                            let message = format!(
+                                "Cannot reference an identifier before its definition: {s}"
+                            );
+                            stop!(FreeIdentifier => message; *span);
+                        } else {
+                            // If the depth is greater than 0, then we're in a weird spot.
+                            // Consider the following:
+                            //
+                            // (define (foo)
+                            //   (list bar 10))
+                            // (define bar (foo))
+                            //
+                            // This should be disallowed, so we need to check if this
+                            // definition came _before_ what we wanted.
+
+                            if self.flat_defines.get(s).unwrap().kind == DefineKind::Flat {
+                                let message = format!(
+                                    "Cannot reference an identifier before its definition: {s}"
+                                );
+                                stop!(FreeIdentifier => message; *span);
+                            }
+                        }
                     }
 
                     let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
