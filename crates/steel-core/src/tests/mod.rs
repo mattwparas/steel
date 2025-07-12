@@ -138,6 +138,7 @@ test_harness_success! {
     stack_test_with_contract,
     string_append,
     structs,
+    symbols,
     // TODO: @Matt 11/11/2023
     syntax_case,
     threads,
