@@ -30,4 +30,4 @@
 ;;
 ;; What that looks like -> Inlining a function call?
 
-(fib 35)
+(fib 40)
