@@ -1506,7 +1506,7 @@ impl Engine {
         &mut self,
         module: abi_stable::std_types::RBox<FFIModule>,
     ) -> Result<&mut Self> {
-        let external_module = FFIWrappedModule::new(module)?.build();
+        let external_module = FFIWrappedModule::new(module, None)?.build();
 
         self.modules
             .insert(external_module.name(), external_module.clone());

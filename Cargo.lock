@@ -66,6 +66,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "512761e0bb2578dd7380c6baaa0f4ce03e84f95e960231d1dec8bf4d7d6e2627"
 
 [[package]]
+name = "afl"
+version = "0.15.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3d197cb6a514b7dffadc7ccab0d1215bed207bcd7532306fe433678541bc3a9"
+dependencies = [
+ "home",
+ "libc",
+ "rustc_version",
+ "xdg",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3686,6 +3698,14 @@ dependencies = [
 name = "steel-forge"
 version = "0.7.0"
 dependencies = [
+ "steel-core",
+]
+
+[[package]]
+name = "steel-fuzz-target"
+version = "0.7.0"
+dependencies = [
+ "afl",
  "steel-core",
 ]
 

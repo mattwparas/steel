@@ -54,7 +54,7 @@ mimalloc = { version = "0.1.43", optional = true }
 cargo-steel-lib = { path = "./crates/cargo-steel-lib", version = "0.2.0" }
 
 [workspace]
-members = [".", "crates/*", "libs/*"]
+members = [".", "crates/*", "libs/*", "steel-fuzz-target"]
 
 [profile.release]
 debug = true

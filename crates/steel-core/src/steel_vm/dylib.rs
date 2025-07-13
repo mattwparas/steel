@@ -58,6 +58,62 @@ pub fn load_root_module_in_directory(file: &Path) -> Result<GenerateModule_Ref, 
         .and_then(|x| x.init_root_module::<GenerateModule_Ref>())
 }
 
+pub fn load_root_module_in_directory_manual(
+    file: &Path,
+) -> Result<(GenerateModule_Ref, Option<usize>), LibraryError> {
+    let header = abi_stable::library::lib_header_from_path(&PathBuf::from(file))
+        .expect("plugin library header must be loadable");
+
+    let mut max_enum: Option<usize> = None;
+
+    // TODO check version strings manually
+
+    if let abi_stable::library::IsLayoutChecked::Yes(layout) = header.root_mod_consts().layout() {
+        // Note the full path here, the abi_checking module is hidden from documentation
+        // Also note the arguments have been reversed, passing the plugin's layout first
+        if let Err(e) = abi_stable::abi_stability::abi_checking::check_layout_compatibility(
+            GenerateModule_Ref::LAYOUT,
+            layout,
+        ) {
+            for err in e.errors {
+                for e in err.errs {
+                    match e {
+                        abi_stable::abi_stability::abi_checking::AI::TooManyVariants(e) => {
+                            // dbg!(err.stack_trace.len());
+
+                            for trace in &err.stack_trace {
+                                match trace.expected {
+                                    // Manually check the
+                                    abi_stable::type_layout::TLFieldOrFunction::Field(tlfield) => {
+                                        if tlfield.full_type().name() == "FFIArg" {
+                                            // This is going to be the maximum enum variant that we'll
+                                            // allow
+                                            max_enum = Some(e.found - 1);
+                                        }
+                                    }
+                                    abi_stable::type_layout::TLFieldOrFunction::Function(_) => {}
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    };
+
+    unsafe { header.init_root_module_with_unchecked_layout::<GenerateModule_Ref>() }
+        .map(|x| (x, max_enum))
+
+    // let lib = unsafe {
+    //     header
+    //         .unchecked_layout::<GenerateModule_Ref>()
+    //         .expect("plugin broke while loading")
+    // };
+
+    // Ok(lib)
+}
+
 #[derive(Clone)]
 pub(crate) struct DylibContainers {}
 
@@ -111,7 +167,6 @@ impl DylibContainers {
             let home = steel_home();
 
             if let Some(home) = home {
-                // let guard = LOADED_DYLIBS.lock().unwrap();
                 let mut module_guard = LOADED_MODULES.lock().unwrap();
 
                 let mut home = PathBuf::from(home);
@@ -127,11 +182,7 @@ impl DylibContainers {
                             continue;
                         }
 
-                        let path_name = path
-                            .file_stem()
-                            // .file_name()
-                            .and_then(|x| x.to_str())
-                            .unwrap();
+                        let path_name = path.file_stem().and_then(|x| x.to_str()).unwrap();
 
                         // Didn't match! skip it
                         if path_name != target.as_str() {
@@ -147,14 +198,15 @@ impl DylibContainers {
                         log::info!(target: "dylibs", "Loading dylib: {:?}", path);
 
                         // Load the module in
-                        let container = load_root_module_in_directory(&path).unwrap();
+                        let (container, max_enum) =
+                            load_root_module_in_directory_manual(&path).unwrap();
 
                         let dylib_module = container.generate_module()();
 
                         module_guard.push((module_name, container));
 
                         let external_module =
-                            crate::steel_vm::ffi::FFIWrappedModule::new(dylib_module)
+                            crate::steel_vm::ffi::FFIWrappedModule::new(dylib_module, max_enum)
                                 .expect("dylib failed to load!")
                                 .build();
 
