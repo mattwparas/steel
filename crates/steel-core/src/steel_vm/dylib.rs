@@ -11,7 +11,7 @@ use abi_stable::{
     library::{LibraryError, RootModule},
     package_version_strings,
     sabi_types::VersionStrings,
-    std_types::{RBox, RBoxError, RBoxError_},
+    std_types::{RBox, RBoxError},
     StableAbi,
 };
 use once_cell::sync::Lazy;
