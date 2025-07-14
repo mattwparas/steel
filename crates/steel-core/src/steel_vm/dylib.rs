@@ -11,7 +11,7 @@ use abi_stable::{
     library::{LibraryError, RootModule},
     package_version_strings,
     sabi_types::VersionStrings,
-    std_types::RBox,
+    std_types::{RBox, RBoxError, RBoxError_},
     StableAbi,
 };
 use once_cell::sync::Lazy;
@@ -66,17 +66,15 @@ pub fn load_root_module_in_directory_manual(
 
     let mut max_enum: Option<usize> = None;
 
-    // TODO check version strings manually
-
     if let abi_stable::library::IsLayoutChecked::Yes(layout) = header.root_mod_consts().layout() {
         // Note the full path here, the abi_checking module is hidden from documentation
         // Also note the arguments have been reversed, passing the plugin's layout first
-        if let Err(e) = abi_stable::abi_stability::abi_checking::check_layout_compatibility(
+        if let Err(errs) = abi_stable::abi_stability::abi_checking::check_layout_compatibility(
             GenerateModule_Ref::LAYOUT,
             layout,
         ) {
-            for err in e.errors {
-                for e in err.errs {
+            for err in &errs.errors {
+                for e in &err.errs {
                     match e {
                         abi_stable::abi_stability::abi_checking::AI::TooManyVariants(e) => {
                             // dbg!(err.stack_trace.len());
@@ -86,16 +84,22 @@ pub fn load_root_module_in_directory_manual(
                                     // Manually check the
                                     abi_stable::type_layout::TLFieldOrFunction::Field(tlfield) => {
                                         if tlfield.full_type().name() == "FFIArg" {
-                                            // This is going to be the maximum enum variant that we'll
-                                            // allow
-                                            max_enum = Some(e.found - 1);
+                                            // This is an older plugin. Assuming the FFIArg layout
+                                            // hasn't changed and this is the only issue, then we
+                                            // should be okay to continue.
+                                            if e.found < e.expected {
+                                                // This is going to be the maximum enum variant that we'll
+                                                // allow
+                                                max_enum = Some(e.found - 1);
+                                            }
                                         }
                                     }
                                     abi_stable::type_layout::TLFieldOrFunction::Function(_) => {}
                                 }
                             }
                         }
-                        _ => {}
+                        // IF this isn't one of our known issues, we're just going to bail immediately
+                        _ => return Err(LibraryError::AbiInstability(RBoxError::new(errs))),
                     }
                 }
             }
