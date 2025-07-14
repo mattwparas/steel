@@ -77,11 +77,8 @@ pub fn load_root_module_in_directory_manual(
                 for e in &err.errs {
                     match e {
                         abi_stable::abi_stability::abi_checking::AI::TooManyVariants(e) => {
-                            // dbg!(err.stack_trace.len());
-
                             for trace in &err.stack_trace {
                                 match trace.expected {
-                                    // Manually check the
                                     abi_stable::type_layout::TLFieldOrFunction::Field(tlfield) => {
                                         if tlfield.full_type().name() == "FFIArg" {
                                             // This is an older plugin. Assuming the FFIArg layout
@@ -96,6 +93,10 @@ pub fn load_root_module_in_directory_manual(
                                     }
                                     abi_stable::type_layout::TLFieldOrFunction::Function(_) => {}
                                 }
+                            }
+
+                            if max_enum.is_none() {
+                                return Err(LibraryError::AbiInstability(RBoxError::new(errs)));
                             }
                         }
                         // IF this isn't one of our known issues, we're just going to bail immediately
