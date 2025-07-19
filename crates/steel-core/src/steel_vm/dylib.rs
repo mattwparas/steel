@@ -110,13 +110,12 @@ pub fn load_root_module_in_directory_manual(
     unsafe { header.init_root_module_with_unchecked_layout::<GenerateModule_Ref>() }
         .map(|x| (x, max_enum))
 
+    // If we want to include version checking, use this instead:
     // let lib = unsafe {
     //     header
     //         .unchecked_layout::<GenerateModule_Ref>()
     //         .expect("plugin broke while loading")
     // };
-
-    // Ok(lib)
 }
 
 #[derive(Clone)]
