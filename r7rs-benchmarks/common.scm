@@ -8,6 +8,9 @@
 
 (require-builtin steel/time)
 
+(provide run-r7rs-benchmark
+         hide)
+
 ; (define values list)
 ; (define (call-with-values producer consumer)
 ;   (define result (apply consumer (producer)))
@@ -21,9 +24,6 @@
 
 (define (jiffies-per-second)
   1000)
-
-(define (current-second)
-  (* 0.001 (current-inexact-milliseconds)))
 
 (define inexact exact->inexact)
 
@@ -52,8 +52,11 @@
   (display name)
   (newline)
   (flush-output-port (current-output-port))
-  (let* ([j/s (jiffies-per-second)] [t0 (current-second)] [j0 (current-jiffy)])
-    (let loop ([i 0] [result #f])
+  (let* ([j/s (jiffies-per-second)]
+         [t0 (current-second)]
+         [j0 (current-jiffy)])
+    (let loop ([i 0]
+               [result #f])
       (cond
         [(< i count) (loop (+ i 1) (thunk))]
         [(ok? result)
