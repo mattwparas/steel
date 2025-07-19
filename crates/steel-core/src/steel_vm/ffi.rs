@@ -1022,6 +1022,13 @@ pub struct MutableString {
     pub string: RString,
 }
 
+#[repr(C)]
+#[derive(StableAbi)]
+pub struct MutableByteVector {
+    pub buffer: RVec<u8>,
+}
+
+impl Custom for MutableByteVector {}
 impl Custom for MutableString {}
 
 #[repr(C)]
@@ -1071,6 +1078,14 @@ pub struct StringMutRef<'a> {
     guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
 }
 
+#[repr(C)]
+#[derive(StableAbi)]
+pub struct ByteVectorRef<'a> {
+    buffer: RMut<'a, RVec<u8>>,
+    #[sabi(unsafe_opaque_field)]
+    guard: ScopedWriteContainer<'a, Box<dyn CustomType>>,
+}
+
 // TODO:
 // Values that are safe to cross the FFI Boundary as arguments from
 // `SteelVal`s. This means the values can be borrowed without
@@ -1103,9 +1118,34 @@ pub enum FFIArg<'a> {
     },
     HostFunction(HostRuntimeFunction),
     ByteVector(RVec<u8>),
+
+    // Does this make things not backwards compatible?
+    ByteVectorRef(ByteVectorRef<'a>),
 }
 
 impl<'a> FFIArg<'a> {
+    fn discriminant_value(&self) -> usize {
+        match self {
+            FFIArg::StringRef(_) => 0,
+            FFIArg::BoolV(_) => 1,
+            FFIArg::NumV(_) => 2,
+            FFIArg::IntV(_) => 3,
+            FFIArg::Void => 4,
+            FFIArg::StringV(_) => 5,
+            FFIArg::StringMutRef(_) => 6,
+            FFIArg::Vector(_) => 7,
+            FFIArg::VectorRef(_) => 8,
+            FFIArg::CharV { .. } => 9,
+            FFIArg::Custom { .. } => 10,
+            FFIArg::CustomRef(..) => 11,
+            FFIArg::HashMap(_) => 12,
+            FFIArg::Future { .. } => 13,
+            FFIArg::HostFunction(_) => 14,
+            FFIArg::ByteVector(_) => 15,
+            FFIArg::ByteVectorRef(_) => 16,
+        }
+    }
+
     pub fn is_hashable(&self) -> bool {
         match self {
             FFIArg::StringRef(_)
@@ -1197,6 +1237,9 @@ pub fn ffi_module() -> BuiltInModule {
         })
         .register_fn("mutable-string", || MutableString {
             string: RString::new(),
+        })
+        .register_fn("mutable-byte-buffer", || MutableByteVector {
+            buffer: RVec::new(),
         });
 
     #[cfg(feature = "sync")]
@@ -1744,6 +1787,14 @@ fn as_ffi_argument(value: &SteelVal) -> Result<FFIArg<'_>> {
                 Ok(FFIArg::HostFunction(HostRuntimeFunction {
                     function: RFn_TO::from_sabi(c.function.obj.shallow_clone()),
                 }))
+            } else if let Some(c) = as_underlying_type_mut::<MutableByteVector>(guard.as_mut()) {
+                unsafe {
+                    let mut_ptr = &mut c.buffer as *mut RVec<u8>;
+                    Ok(FFIArg::ByteVectorRef(ByteVectorRef {
+                        buffer: RMut::from_raw(mut_ptr),
+                        guard,
+                    }))
+                }
             } else {
                 stop!(TypeMismatch => "This opaque type did not originate from an FFI boundary, and thus cannot be passed across it: {:?}", value);
             }
@@ -1860,6 +1911,57 @@ impl From<FFIBoxedDynFunction> for BoxedDynFunction {
     }
 }
 
+impl BoxedDynFunction {
+    pub(crate) fn from_old_function(
+        value: FFIBoxedDynFunction,
+        max_allowed_enum: usize,
+    ) -> SteelVal {
+        let name = value.name.clone().into_string();
+        let arity = value.arity;
+
+        let function = move |args: &[SteelVal]| -> crate::rvals::Result<SteelVal> {
+            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+
+            let mut other_args = args
+                .iter()
+                .map(as_ffi_argument)
+                .collect::<Result<smallvec::SmallVec<[FFIArg<'_>; 16]>>>()?;
+
+            // Check the args: If the discriminant is larger than our allowed one,
+            // then we'll error.
+            for arg in &other_args {
+                if arg.discriminant_value() > max_allowed_enum {
+                    stop!(Generic => "Attempted to call a function on a dylib using a value that the dylib cannot recognize. Please upgrade the version of the dylib in order to access this new value.")
+                }
+            }
+
+            let lifted_slice = unsafe {
+                std::mem::transmute::<&mut [FFIArg], &'static mut [FFIArg]>(
+                    other_args.as_mut_slice(),
+                )
+            };
+
+            // Get the slice
+            let rslice = RSliceMut::from_mut_slice(lifted_slice);
+
+            let result = value.function.call(rslice);
+
+            match result {
+                RResult::ROk(output) => output.into_steelval(),
+                RResult::RErr(e) => Err(SteelErr::new(ErrorKind::Generic, e.to_string())),
+            }
+        };
+
+        let func = BoxedDynFunction {
+            name: Some(StaticOrRcStr::Owned(Arc::new(name))),
+            arity: Some(arity),
+            function: Arc::new(function),
+        };
+
+        SteelVal::BoxedFunction(Gc::new(func))
+    }
+}
+
 thread_local! {
     pub static FFI_MODULES: Arc<Mutex<Vec<RBox<FFIModule>>>> = Arc::new(Mutex::new(Vec::new()));
 }
@@ -1870,14 +1972,25 @@ pub struct FFIWrappedModule {
 }
 
 impl FFIWrappedModule {
-    pub fn new(mut raw_module: RBox<FFIModule>) -> Result<Self> {
+    pub fn new(mut raw_module: RBox<FFIModule>, max_allowed_enum: Option<usize>) -> Result<Self> {
         let mut converted_module = BuiltInModule::new(raw_module.name.to_string());
 
         for tuple in std::mem::take(&mut raw_module.values).into_iter() {
             let key = tuple.0;
             let value = tuple.1;
 
-            converted_module.register_value(&key, value.into_steelval()?);
+            if let Some(max) = max_allowed_enum {
+                if let FFIValue::BoxedFunction(b) = value {
+                    converted_module.register_value(
+                        &key,
+                        BoxedDynFunction::from_old_function(RBox::into_inner(b), max),
+                    );
+                } else {
+                    converted_module.register_value(&key, value.into_steelval()?);
+                }
+            } else {
+                converted_module.register_value(&key, value.into_steelval()?);
+            }
         }
 
         Ok(Self {
