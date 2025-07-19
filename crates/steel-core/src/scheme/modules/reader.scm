@@ -9,9 +9,9 @@
 
 (define (read . port)
   (if (null? port)
-      (read-impl reader.reader-read-one)
+      (reader.#%intern (read-impl reader.reader-read-one))
       (parameterize ([current-input-port (car port)])
-        (read-impl reader.reader-read-one))))
+        (reader.#%intern (read-impl reader.reader-read-one)))))
 
 (define (read-syntax-object . port)
   (if (null? port)

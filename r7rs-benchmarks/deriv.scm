@@ -13,6 +13,8 @@
 
 (define (deriv a)
   (cond
+    ;; TODO: Add a pass from the reader to intern the result! That way it matches
+    ;; the expected behavior
     [(not (pair? a)) (if (eq? a 'x) 1 0)]
     [(eq? (car a) '+) (cons '+ (map deriv (cdr a)))]
     [(eq? (car a) '-) (cons '- (map deriv (cdr a)))]
@@ -29,7 +31,23 @@
          [output (read)]
          [s (number->string count)]
          [name "deriv"])
+
+    (displayln count input1 output)
+
     (run-r7rs-benchmark (string-append name ":" s)
                         count
                         (lambda () (deriv (hide count input1)))
                         (lambda (result) (equal? result output)))))
+
+(with-input-from-file "r7rs-benchmarks/inputs/deriv.input" run-benchmark)
+
+; 10000000
+
+; (+ (* 3 x x) (* a x x) (* b x) 5)
+
+; (+ (* (* 3 x x) (+ (/ 0 3) (/ 1 x) (/ 1 x)))
+;    (* (* a x x) (+ (/ 0 a) (/ 1 x) (/ 1 x)))
+;    (* (* b x) (+ (/ 0 b) (/ 1 x)))
+;    0)
+
+; (displayln (deriv '(+ (* 3 x x) (* a x x) (* b x) 5)))
