@@ -4701,6 +4701,12 @@ impl<'a> SemanticAnalysis<'a> {
                     let name = d.name.atom_identifier().unwrap();
 
                     if non_builtin_definitions.contains(name) {
+                        let name = if name.resolve().starts_with(MANGLER_PREFIX) {
+                            name.resolve().split_once(MANGLER_SEPARATOR).unwrap().1
+                        } else {
+                            name.resolve()
+                        };
+
                         stop!(BadSyntax => format!("Variable re defined within the top level definition: {}", name); d.location.span);
                     }
 
@@ -4716,6 +4722,12 @@ impl<'a> SemanticAnalysis<'a> {
                             let name = d.name.atom_identifier().unwrap();
 
                             if non_builtin_definitions.contains(name) {
+                                let name = if name.resolve().starts_with(MANGLER_PREFIX) {
+                                    name.resolve().split_once(MANGLER_SEPARATOR).unwrap().1
+                                } else {
+                                    name.resolve()
+                                };
+
                                 stop!(BadSyntax => format!("Variable re defined within the top level definition: {}", name); d.location.span);
                             }
 

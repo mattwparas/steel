@@ -1690,6 +1690,14 @@ impl Reader {
     }
 }
 
+#[steel_derive::context(name = "#%intern", arity = "Exact(1)")]
+pub fn intern_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let mut guard = ctx.thread.compiler.write();
+    let interned_index = guard.constant_map.add_or_get(args[0].clone());
+    let value = guard.constant_map.get(interned_index);
+    Some(Ok(value))
+}
+
 fn reader_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("#%private/steel/reader");
 
@@ -1701,7 +1709,8 @@ fn reader_module() -> BuiltInModule {
         .register_fn(
             "reader-read-one-syntax-object",
             Reader::read_one_syntax_object,
-        );
+        )
+        .register_native_fn_definition(INTERN_SYMBOL_DEFINITION);
 
     module
 }
