@@ -1,0 +1,35 @@
+; The traditional parameters for this benchmark are 10:9:2:1,
+; but that's too small for modern computers.
+;
+; The new parameters for this benchmark are 20:10:2:1.
+;                                            M: N:K:L
+;
+; N=10 means the benchmark starts by generating a list of all
+; 10! = 3628800 permutations of the first 10 integers, allocating
+; 13492889 pairs (a little over 100 megabytes on 32-bit machines
+; with two-word pairs), all of which goes into the generated list.
+; (That is, the first phase of the benchmark generates absolutely
+; no garbage.)  This represents a savings of about 63% over the
+; storage that would be required by an unshared list of permuations.
+; The generated permutations are in order of a gray code that bears
+; no obvious relationship to a lexicographic order.
+;
+; Then M*(K-L) = 20*(2-1) = 20 more such lists are allocated.
+;
+; The live storage peaks at K=2 times the storage occupied by a
+; single list of all N! permutations.
+;
+; At the end of each of the M=20 iterations, the oldest L/K = 1/2
+; of the peak storage becomes garbage.  Object lifetimes (measured
+; in bytes or pairs allocated) are distributed uniformly between
+; L/K times the peak storage and the peak storage itself.
+
+20            ; M (number of iterations)
+10            ; N (length of each permutation)
+2             ; K (size of queue)
+1             ; L (number of old copies removed when queue is filled)
+
+; Note: the result below is ignored, since it can be
+; computed from N above.
+
+16329600      ; result (/ (* N (+ N 1) (factorial N)) 2)

@@ -40,14 +40,3 @@
                         (lambda (result) (equal? result output)))))
 
 (with-input-from-file "r7rs-benchmarks/inputs/deriv.input" run-benchmark)
-
-; 10000000
-
-; (+ (* 3 x x) (* a x x) (* b x) 5)
-
-; (+ (* (* 3 x x) (+ (/ 0 3) (/ 1 x) (/ 1 x)))
-;    (* (* a x x) (+ (/ 0 a) (/ 1 x) (/ 1 x)))
-;    (* (* b x) (+ (/ 0 b) (/ 1 x)))
-;    0)
-
-; (displayln (deriv '(+ (* 3 x x) (* a x x) (* b x) 5)))
