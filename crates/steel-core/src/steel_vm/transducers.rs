@@ -156,7 +156,7 @@ impl<'global, 'a> VmCore<'a> {
             }
             SteelVal::MutableVector(v) => {
                 // Copy over the mutable vector into the nursery
-                *nursery = Some(v.get().clone());
+                *nursery = Some(v.get());
 
                 Ok(Box::new(nursery.as_ref().unwrap().iter().cloned().map(Ok)))
             }

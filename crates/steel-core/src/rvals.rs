@@ -1561,7 +1561,7 @@ impl SteelVal {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct SteelString(Gc<String>);
+pub struct SteelString(pub(crate) Gc<String>);
 
 impl Deref for SteelString {
     type Target = crate::gc::Shared<String>;

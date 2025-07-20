@@ -109,19 +109,21 @@ fn vector_to_string(
     match vector {
         Either::Left(vector) => immutable_vector_to_string(vector, rest),
         Either::Right(vec) => {
-            let (start, end) = bounds_mut(rest, "vector->string", 3, &vec.get())?;
+            // TODO: Get rid of this unnecessary clone on the get
+            let (start, end) = vec.borrow(|x| bounds_mut(rest, "vector->string", 3, &x))?;
 
-            vec.get()
-                .iter()
-                .skip(start)
-                .take(end - start)
-                .map(|x| {
-                    x.char_or_else(throw!(TypeMismatch => "vector->string
+            vec.borrow(|x| {
+                x.iter()
+                    .skip(start)
+                    .take(end - start)
+                    .map(|x| {
+                        x.char_or_else(throw!(TypeMismatch => "vector->string
                 expected a succession of characters"))
-                })
-                .collect::<Result<String>>()
-                .map(|x| x.into())
-                .map(SteelVal::StringV)
+                    })
+                    .collect::<Result<String>>()
+                    .map(|x| x.into())
+                    .map(SteelVal::StringV)
+            })
         }
     }
 }
@@ -991,7 +993,7 @@ pub fn immutable_vector_construct_alternate(args: &[SteelVal]) -> Result<SteelVa
 pub fn vec_length(v: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>) -> SteelVal {
     match v {
         Either::Left(v) => SteelVal::IntV(v.len() as _),
-        Either::Right(v) => SteelVal::IntV(v.get().len() as _),
+        Either::Right(v) => SteelVal::IntV(v.borrow(|x| x.len() as _)),
     }
 }
 

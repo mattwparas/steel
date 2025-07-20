@@ -190,6 +190,17 @@
 
          [else (simple-display obj)]))]
 
+    [(vector? obj)
+     (let ([list-obj (vector->list obj)])
+       (simple-display "#(")
+       (when (not (empty? list-obj))
+         (#%print (car list-obj) collector)
+         (for-each (λ (obj)
+                     (simple-display " ")
+                     (#%print obj collector))
+                   (cdr list-obj)))
+       (simple-display ")"))]
+
     [(set? obj)
      (cond
        [(= (hashset-length obj) 0) (simple-display "(set)")]

@@ -744,6 +744,8 @@ impl Heap {
         let memory_size = self.memory.len() + self.vector_cells_allocated();
 
         if memory_size > self.threshold || force_full {
+            println!("Running a gc collection");
+
             log::debug!(target: "gc", "Freeing memory");
 
             let original_length = memory_size;
@@ -953,12 +955,18 @@ impl HeapAble for Vec<SteelVal> {}
 
 #[derive(Clone, Debug)]
 pub struct HeapRef<T: HeapAble> {
-    inner: WeakShared<MutContainer<HeapAllocated<T>>>,
+    pub(crate) inner: WeakShared<MutContainer<HeapAllocated<T>>>,
 }
 
 impl<T: HeapAble> HeapRef<T> {
     pub fn get(&self) -> T {
         self.inner.upgrade().unwrap().read().value.clone()
+    }
+
+    pub fn borrow<O>(&self, thunk: impl FnOnce(&T) -> O) -> O {
+        let value = self.inner.upgrade().unwrap();
+        let value = value.read();
+        thunk(&value.value)
     }
 
     pub fn as_ptr_usize(&self) -> usize {
