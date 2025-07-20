@@ -270,7 +270,9 @@
      (equal (get j (set i val mem))
             (if (eqp j i)
                 val
-                (get j mem)))))))
+                (get j mem))))))
+
+  (displayln "finished setting up lemma list"))
 
 (define (add-lemma-lst lst)
   (cond
@@ -356,9 +358,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (test alist term n)
+  (displayln "term before: " term)
   (let ([term (apply-subst (translate-alist alist)
                            (translate-term (do ((term term (list 'or term '(f))) (n n (- n 1)))
                                                ((zero? n) term))))])
+
+    (displayln "Term after: " term)
+
     (tautp term)))
 
 (define (translate-alist alist)
@@ -366,13 +372,17 @@
     [(null? alist) '()]
     [else (cons (cons (caar alist) (translate-term (cdar alist))) (translate-alist (cdr alist)))]))
 
+(define (simple-dbg value)
+  ; (stdout-simple-displayln value)
+  value)
+
 (define (apply-subst alist term)
-  ; (displayln term)
+  ; (displayln (pair? term))
   (cond
     [(not (pair? term))
      (let ([temp-temp (assoc term alist)])
        (if temp-temp
-           (cdr temp-temp)
+           (simple-dbg (cdr temp-temp))
            term))]
     [else (cons (car term) (apply-subst-lst alist (cdr term)))]))
 
@@ -382,7 +392,14 @@
     [else (cons (apply-subst alist (car lst)) (apply-subst-lst alist (cdr lst)))]))
 
 (define (tautp x)
-  (tautologyp (rewrite x) '() '()))
+
+  (displayln "Rewriting: " x)
+
+  (define rewritten (rewrite x))
+
+  (displayln "Finished rewriting")
+
+  (tautologyp rewritten '() '()))
 
 (define if-constructor '*) ;; becomes (symbol->symbol-record 'if)
 
@@ -403,7 +420,7 @@
 (define rewrite-count 0) ;; sanity check
 
 (define (rewrite term)
-  ; (stdout-simple-displayln term)
+  ; (displayln term)
   ; (stdout-simple-displayln (memory-address term))
   (set! rewrite-count (+ rewrite-count 1))
   (displayln rewrite-count)
@@ -514,6 +531,9 @@
 (set! test-boyer
       (lambda (alist term n)
         (set! rewrite-count 0)
+
+        (displayln "testing " alist "against" term)
+
         (let ([answer (test alist term n)])
           ;;            (write rewrite-count)
           ;;            (display " rewrites")
@@ -533,6 +553,7 @@
                         count
                         (lambda ()
                           (setup-boyer)
+                          (displayln "Done with setup-boyer")
                           (test-boyer alist term (hide count input)))
                         (lambda (rewrites) (and (number? rewrites) (= rewrites output))))))
 
