@@ -1493,7 +1493,7 @@ impl<'a> VmCore<'a> {
                 handle: value.clone(),
             });
 
-        thread.id = dbg!(EngineId::new());
+        thread.id = EngineId::new();
         for frame in &self.thread.stack_frames {
             self.close_continuation_marks(frame);
         }
