@@ -757,7 +757,7 @@ impl SteelThread {
         function: SteelVal,
         args: &mut [SteelVal],
     ) -> Result<SteelVal> {
-        let constants = self.constant_map.clone();
+        let constants = self.compiler.read().constant_map.clone();
 
         self.call_function_from_mut_slice(constants, function, args)
     }
