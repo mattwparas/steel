@@ -76,7 +76,8 @@ pub fn load_root_module_in_directory_manual(
             for err in &errs.errors {
                 for e in &err.errs {
                     match e {
-                        abi_stable::abi_stability::abi_checking::AI::TooManyVariants(e) => {
+                        abi_stable::abi_stability::abi_checking::AI::TooManyVariants(e)
+                        | abi_stable::abi_stability::abi_checking::AI::FieldCountMismatch(e) => {
                             for trace in &err.stack_trace {
                                 match trace.expected {
                                     abi_stable::type_layout::TLFieldOrFunction::Field(tlfield) => {
