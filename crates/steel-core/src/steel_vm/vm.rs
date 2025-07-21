@@ -298,7 +298,7 @@ thread_local! {
     pub(crate) static DEFAULT_CONSTANT_MAP: ConstantMap = ConstantMap::new();
 }
 
-#[derive(Copy, Clone, Default)]
+#[derive(Copy, Clone, Default, Debug)]
 pub enum ThreadState {
     #[default]
     Running,
@@ -449,7 +449,7 @@ impl Synchronizer {
 
         // IMPORTANT - This needs to be all threads except the currently
         // executing one.
-        for ThreadContext { ctx, .. } in guard.iter() {
+        for ThreadContext { ctx, handle } in guard.iter() {
             if let Some(ctx) = ctx.upgrade() {
                 if Arc::ptr_eq(&ctx, &self.ctx) {
                     continue;
@@ -467,13 +467,27 @@ impl Synchronizer {
 
                         break;
                     } else {
+                        if let SteelVal::Custom(c) = &handle {
+                            if let Some(inner) =
+                                as_underlying_type::<ThreadHandle>(c.read().as_ref())
+                            {
+                                if let Some(forked_thread_handle) = &inner.forked_thread_handle {
+                                    if let Some(upgraded) = forked_thread_handle.upgrade() {
+                                        if let Ok(mut live_ctx) = upgraded.try_lock() {
+                                            (func)(&mut live_ctx);
+
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // TODO:
+                        // If the thread was spawned via the make_thread function,
+                        // then we need to check if that thread is even running to begin with.
+
                         // println!("Waiting for thread...")
-
-                        // println!("Waiting for thread...");
-
-                        // TODO: Some kind of condvar or message passing
-                        // is probably a better scheme here, but the idea is to just
-                        // wait until all the threads are done.
                     }
                 }
             } else {
@@ -487,7 +501,7 @@ impl Synchronizer {
         let guard = self.threads.lock().unwrap();
 
         // Wait for all the threads to be legal
-        for ThreadContext { ctx, .. } in guard.iter() {
+        for ThreadContext { ctx, handle } in guard.iter() {
             if let Some(ctx) = ctx.upgrade() {
                 // Don't pause myself, enter safepoint from main thread?
                 if Arc::ptr_eq(&ctx, &self.ctx) {
@@ -520,11 +534,38 @@ impl Synchronizer {
 
                         break;
                     } else {
-                        log::debug!("Waiting for thread...")
+                        log::debug!("Waiting for thread...");
 
-                        // TODO: Some kind of condvar or message passing
-                        // is probably a better scheme here, but the idea is to just
-                        // wait until all the threads are done.
+                        if let SteelVal::Custom(c) = &handle {
+                            if let Some(inner) =
+                                as_underlying_type::<ThreadHandle>(c.read().as_ref())
+                            {
+                                if let Some(forked_thread_handle) = &inner.forked_thread_handle {
+                                    if let Some(upgraded) = forked_thread_handle.upgrade() {
+                                        if let Ok(live_ctx) = upgraded.try_lock() {
+                                            for value in &live_ctx.stack {
+                                                context.push_back(value.clone());
+                                            }
+
+                                            for frame in &live_ctx.stack_frames {
+                                                for value in frame.function.captures() {
+                                                    context.push_back(value.clone());
+                                                }
+                                            }
+
+                                            for value in live_ctx.current_frame.function.captures()
+                                            {
+                                                context.push_back(value.clone());
+                                            }
+
+                                            context.visit();
+
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             } else {
@@ -537,6 +578,7 @@ impl Synchronizer {
     /// waits for all of those threads to stop before continuing on.
     pub fn stop_threads(&mut self) {
         self.state.pause_for_safepoint();
+
         // Stop other threads, wait until we've gathered acknowledgements
         self.threads.lock().unwrap().iter().for_each(|x| {
             if let SteelVal::Custom(c) = &x.handle {
@@ -572,6 +614,7 @@ impl SteelThread {
             handle: Mutex::new(None),
             thread: std::thread::current(),
             thread_state_manager: synchronizer.state.clone(),
+            forked_thread_handle: None,
         }
         .into_steelval()
         .unwrap();
@@ -1447,7 +1490,7 @@ impl<'a> VmCore<'a> {
         &self,
         func: SteelVal,
     ) -> Box<dyn Fn(&mut [SteelVal]) -> Result<SteelVal> + Send + Sync + 'static> {
-        let thread = Arc::new(Mutex::new(self.make_thread()));
+        let thread = self.make_thread();
         let rooted = func.as_rooted();
 
         Box::new(move |args: &mut [SteelVal]| {
@@ -1463,7 +1506,7 @@ impl<'a> VmCore<'a> {
     // TODO: Add this thread to the parent VM thread handler -> this is necessary
     // for safepoints to work correctly
     #[cfg(feature = "sync")]
-    pub fn make_thread(&self) -> SteelThread {
+    pub fn make_thread(&self) -> Arc<Mutex<SteelThread>> {
         let mut thread = self.thread.clone();
 
         let controller = ThreadStateController::default();
@@ -1475,10 +1518,15 @@ impl<'a> VmCore<'a> {
 
         let weak_ctx = Arc::downgrade(&thread.synchronizer.ctx);
 
+        thread.id = EngineId::new();
+
+        let forked_thread = Arc::new(Mutex::new(thread));
+
         let value = ThreadHandle {
             handle: Mutex::new(None),
             thread: std::thread::current(),
             thread_state_manager: controller,
+            forked_thread_handle: Some(Arc::downgrade(&forked_thread)),
         }
         .into_steelval()
         .unwrap();
@@ -1493,12 +1541,12 @@ impl<'a> VmCore<'a> {
                 handle: value.clone(),
             });
 
-        thread.id = EngineId::new();
         for frame in &self.thread.stack_frames {
             self.close_continuation_marks(frame);
         }
         self.close_continuation_marks(&self.thread.current_frame);
-        thread
+
+        forked_thread
     }
 
     fn park_thread_while_paused(&self) {

@@ -11,21 +11,6 @@ use crate::{
 
 use super::*;
 
-// TODO: Do proper logging here for thread spawning
-// macro_rules! time {
-//     ($label:expr, $e:expr) => {{
-//         #[cfg(feature = "profiling")]
-//         let now = std::time::Instant::now();
-
-//         let e = $e;
-
-//         #[cfg(feature = "profiling")]
-//         log::debug!(target: "threads", "{}: {:?}", $label, now.elapsed());
-
-//         e
-//     }};
-// }
-
 pub struct ThreadHandle {
     pub(crate) handle:
         Mutex<Option<std::thread::JoinHandle<std::result::Result<SteelVal, String>>>>,
@@ -33,6 +18,8 @@ pub struct ThreadHandle {
     pub(crate) thread: std::thread::Thread,
 
     pub(crate) thread_state_manager: ThreadStateController,
+
+    pub(crate) forked_thread_handle: Option<std::sync::Weak<Mutex<SteelThread>>>,
 }
 
 /// Check if the given thread is finished running.
@@ -821,6 +808,7 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
         handle: Mutex::new(Some(handle)),
         thread,
         thread_state_manager: controller,
+        forked_thread_handle: None,
     }
     .into_steelval()
     .unwrap();

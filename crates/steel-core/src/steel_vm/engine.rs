@@ -255,6 +255,7 @@ impl Clone for Engine {
             handle: Mutex::new(None),
             thread: std::thread::current(),
             thread_state_manager: virtual_machine.synchronizer.state.clone(),
+            forked_thread_handle: None,
         }
         .into_steelval()
         .unwrap();
