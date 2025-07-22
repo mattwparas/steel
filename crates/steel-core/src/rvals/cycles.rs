@@ -287,10 +287,25 @@ impl CycleDetector {
             ContinuationFunction(_) => write!(f, "#<continuation>"),
             // #[cfg(feature = "jit")]
             // CompiledFunction(_) => write!(f, "#<compiled-function>"),
-            ListV(l) => {
-                if let Some(value) = self.cycles.get(&l.identity_tuple()) {
-                    write!(f, "#{}#", value)
-                } else {
+            ListV(l) => match format_type {
+                FormatType::Normal => {
+                    if let Some(value) = self.cycles.get(&l.identity_tuple()) {
+                        write!(f, "#{}#", value)
+                    } else {
+                        write!(f, "(")?;
+
+                        let mut iter = l.iter().peekable();
+
+                        while let Some(item) = iter.next() {
+                            self.format_with_cycles(item, f, FormatType::Normal)?;
+                            if iter.peek().is_some() {
+                                write!(f, " ")?
+                            }
+                        }
+                        write!(f, ")")
+                    }
+                }
+                FormatType::TopLevel => {
                     write!(f, "(")?;
 
                     let mut iter = l.iter().peekable();
@@ -303,16 +318,33 @@ impl CycleDetector {
                     }
                     write!(f, ")")
                 }
-            }
+            },
             // write!(f, "#<list {:?}>", l),
             MutFunc(_) => write!(f, "#<function>"),
             BuiltIn(_) => write!(f, "#<function>"),
             ReducerV(_) => write!(f, "#<reducer>"),
-            MutableVector(v) => {
-                if let Some(value) = self.cycles.get(&(v.as_ptr_usize(), 0)) {
-                    write!(f, "#{}#", value)
-                } else {
-                    write!(f, "[")?;
+            MutableVector(v) => match format_type {
+                FormatType::Normal => {
+                    if let Some(value) = self.cycles.get(&(v.as_ptr_usize(), 0)) {
+                        write!(f, "#{}#", value)
+                    } else {
+                        write!(f, "#(")?;
+                        let guard = v.inner.upgrade().unwrap();
+                        let guard = guard.read();
+
+                        let mut iter = guard.value.iter().peekable();
+
+                        while let Some(item) = iter.next() {
+                            self.format_with_cycles(item, f, FormatType::Normal)?;
+                            if iter.peek().is_some() {
+                                write!(f, " ")?
+                            }
+                        }
+                        write!(f, ")")
+                    }
+                }
+                FormatType::TopLevel => {
+                    write!(f, "#(")?;
                     let guard = v.inner.upgrade().unwrap();
                     let guard = guard.read();
 
@@ -324,9 +356,9 @@ impl CycleDetector {
                             write!(f, " ")?
                         }
                     }
-                    write!(f, "]")
+                    write!(f, ")")
                 }
-            }
+            },
             SyntaxObject(s) => {
                 if let Some(raw) = &s.raw {
                     write!(f, "#<syntax:{:?} {:?}>", s.span, raw)

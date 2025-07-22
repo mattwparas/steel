@@ -95,7 +95,13 @@ impl MetaOperations {
                 //     Ok(SteelVal::StringV(format!("{:p}", gc).into()))
                 // }
                 SteelVal::ListV(generic_list) => Ok(SteelVal::StringV(
-                    format!("{:?}", generic_list.identity_tuple()).into(),
+                    format!(
+                        "{:?}:{:?}:{:?}",
+                        generic_list.as_ptr_usize(),
+                        generic_list.identity_tuple(),
+                        generic_list.next_ptr_as_usize(),
+                    )
+                    .into(),
                 )),
                 SteelVal::Pair(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
                 // SteelVal::MutFunc(_) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
