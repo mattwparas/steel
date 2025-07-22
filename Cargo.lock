@@ -1978,6 +1978,7 @@ dependencies = [
 [[package]]
 name = "im-lists"
 version = "0.9.0"
+source = "git+https://github.com/mattwparas/im-lists.git?branch=mwp-ptr-eq-exp#f66838495660195461da5e26ede0b9318f9c9094"
 dependencies = [
  "smallvec",
  "triomphe",
