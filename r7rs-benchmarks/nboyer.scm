@@ -63,9 +63,11 @@
                                                   (u equal (plus a b) (difference x y))
                                                   (w lessp (remainder a b) (member a (length b))))))
 
-(define term
-  (quote (implies (and (implies x y) (and (implies y z) (and (implies z u) (implies u w))))
-                  (implies x w))))
+; (define term
+;   (quote (implies (and (implies x y) (and (implies y z) (and (implies z u) (implies u w))))
+;                   (implies x w))))
+
+(define term (quote (implies x y)))
 
 ; (define (setup-boyer . args)
 ;   #t) ;; assigned below
@@ -478,7 +480,7 @@
   (dbg! (hash-get rewrite-cache key)))
 
 (define (rewrite term)
-  (displayln rewrite-count)
+  ; (displayln rewrite-count)
   (displayln "Rewriting" (untranslate-term term))
 
   ; (define untranslated (untranslate-term term))
@@ -521,9 +523,7 @@
      ; (displayln (untranslate-term applied))
      ; (displayln (untranslate-term term))
 
-     (if (dbg! (equal? applied term))
-         applied
-         (rewrite applied))]
+     (rewrite applied)]
 
     [else (rewrite-with-lemmas term (cdr lst))]))
 

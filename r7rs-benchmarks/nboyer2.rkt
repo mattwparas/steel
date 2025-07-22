@@ -153,12 +153,14 @@
           (w lessp (remainder a b)
              (member a (length b))))))
 
-(define term
-  (quote (implies (and (implies x y)
-                       (and (implies y z)
-                            (and (implies z u)
-                                 (implies u w))))
-                  (implies x w))))
+; (define term
+;   (quote (implies (and (implies x y)
+;                        (and (implies y z)
+;                             (and (implies z u)
+;                                  (implies u w))))
+;                   (implies x w))))
+
+(define term (quote (implies x y)))
 
 (define (setup-boyer . args) #t);; assigned below
 (define (test-boyer . args) #t);; assigned below
@@ -633,9 +635,9 @@
 
   (define (get-lemmas symbol-record)
     (define res (vector-ref symbol-record 1))
-    (display "LEMMAS: ")
-    (display res)
-    (newline)
+    ; (display "LEMMAS: ")
+    ; (display res)
+    ; (newline)
     res)
 
   (define (get-name symbol-record)
@@ -884,7 +886,7 @@
           (display (get-lemmas (car false-term)))
           (newline)
 
-          (error #f)
+          ; (error #f)
           
           (setup)))
 
