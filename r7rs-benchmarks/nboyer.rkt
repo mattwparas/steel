@@ -161,12 +161,14 @@
           (w lessp (remainder a b)
              (member a (length b))))))
 
-(define term
-  (quote (implies (and (implies x y)
-                       (and (implies y z)
-                            (and (implies z u)
-                                 (implies u w))))
-                  (implies x w))))
+; (define term
+;   (quote (implies (and (implies x y)
+;                        (and (implies y z)
+;                             (and (implies z u)
+;                                  (implies u w))))
+;                   (implies x w))))
+
+(define term (quote (implies x y)))
 
 (define (setup-boyer . args) #t);; assigned below
 (define (test-boyer . args) #t);; assigned below
@@ -775,6 +777,10 @@
            (one-way-unify1 term1 term2)))
 
   (define (one-way-unify1 term1 term2)
+
+         ; (read)
+
+         (error #f)
 
           ; (displayln "---------------------------------------------")
           ; (when (list? term1) (displayln term1))

@@ -34,7 +34,7 @@
                   (if (eof-object? maybe-next-line)
                       (begin
                         (set! *reader* (reader.new-reader))
-                        (error "missing closing parent - unexpected eof"))
+                        (error "missing closing paren - unexpected eof"))
                       ;; If the next line is not empty,
                       (begin
                         (reader.reader-push-string *reader* maybe-next-line)
@@ -56,7 +56,7 @@
                    (begin
                      ;; TODO: drain the reader - consider a separate function for this
                      (set! *reader* (reader.new-reader))
-                     (error "missing closing parent - unexpected eof"))
+                     (error "missing closing paren - unexpected eof"))
                    ;; If the next line is not empty,
                    (begin
                      (reader.reader-push-string *reader* maybe-next-line)

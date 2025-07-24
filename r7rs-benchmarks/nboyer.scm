@@ -63,11 +63,11 @@
                                                   (u equal (plus a b) (difference x y))
                                                   (w lessp (remainder a b) (member a (length b))))))
 
-; (define term
-;   (quote (implies (and (implies x y) (and (implies y z) (and (implies z u) (implies u w))))
-;                   (implies x w))))
+(define term
+  (quote (implies (and (implies x y) (and (implies y z) (and (implies z u) (implies u w))))
+                  (implies x w))))
 
-(define term (quote (implies x y)))
+; (define term (quote (implies x y)))
 
 ; (define (setup-boyer . args)
 ;   #t) ;; assigned below
@@ -98,10 +98,7 @@
      (equal (greatereqp x y) (not (lessp x y)))
      (equal (boolean x) (or (equal x (t)) (equal x (f))))
      (equal (iff x y) (and (implies x y) (implies y x)))
-     (equal (even1 x)
-            (if (zerop x)
-                (t)
-                (odd (_1- x))))
+     (equal (even1 x) (if (zerop x) (t) (odd (_1- x))))
      (equal (countps- l pred) (countps-loop l pred (zero)))
      (equal (fact- i) (fact-loop i 1))
      (equal (reverse- x) (reverse-loop x (nil)))
@@ -111,36 +108,13 @@
      (equal (tautology-checker x) (tautologyp (normalize x) (nil)))
      (equal (falsify x) (falsify1 (normalize x) (nil)))
      (equal (prime x) (and (not (zerop x)) (not (equal x (add1 (zero)))) (prime1 x (_1- x))))
-     (equal (and p q)
-            (if p
-                (if q
-                    (t)
-                    (f))
-                (f)))
-     (equal (or p q)
-            (if p
-                (t)
-                (if q
-                    (t)
-                    (f))))
-     (equal (not p)
-            (if p
-                (f)
-                (t)))
-     (equal (implies p q)
-            (if p
-                (if q
-                    (t)
-                    (f))
-                (t)))
-     (equal (fix x)
-            (if (numberp x)
-                x
-                (zero)))
-     (equal (if (if a b c) d e)
-            (if a
-                (if b d e)
-                (if c d e)))
+     ;; TODO: This is failing because these macros are getting expanded!
+     (equal (and p q) (if p (if q (t) (f)) (f)))
+     (equal (or p q) (if p (t) (if q (t) (f))))
+     (equal (not p) (if p (f) (t)))
+     (equal (implies p q) (if p (if q (t) (f)) (t)))
+     (equal (fix x) (if (numberp x) x (zero)))
+     (equal (if (if a b c) d e) (if a (if b d e) (if c d e)))
      (equal (zerop x) (or (equal x (zero)) (not (numberp x))))
      (equal (plus (plus x y) z) (plus x (plus y z)))
      (equal (equal (plus a b) (zero)) (and (zerop a) (zerop b)))
@@ -221,58 +195,23 @@
      (equal (difference (add1 (add1 x)) 2) (fix x))
      (equal (quotient (plus x (plus x y)) 2) (plus x (quotient y 2)))
      (equal (sigma (zero) i) (quotient (times i (add1 i)) 2))
-     (equal (plus x (add1 y))
-            (if (numberp y)
-                (add1 (plus x y))
-                (add1 x)))
-     (equal (equal (difference x y) (difference z y))
-            (if (lessp x y)
-                (not (lessp y z))
-                (if (lessp z y)
-                    (not (lessp y x))
-                    (equal (fix x) (fix z)))))
+     (equal (plus x (add1 y)) (if (numberp y) (add1 (plus x y)) (add1 x)))
+     (equal
+      (equal (difference x y) (difference z y))
+      (if (lessp x y) (not (lessp y z)) (if (lessp z y) (not (lessp y x)) (equal (fix x) (fix z)))))
      (equal (meaning (plus-tree (delete x y)) a)
             (if (member x y)
                 (difference (meaning (plus-tree y) a) (meaning x a))
                 (meaning (plus-tree y) a)))
-     (equal (times x (add1 y))
-            (if (numberp y)
-                (plus x (times x y))
-                (fix x)))
-     (equal (nth (nil) i)
-            (if (zerop i)
-                (nil)
-                (zero)))
-     (equal (last (append a b))
-            (if (listp b)
-                (last b)
-                (if (listp a)
-                    (cons (car (last a)) b)
-                    b)))
-     (equal (equal (lessp x y) z)
-            (if (lessp x y)
-                (equal (t) z)
-                (equal (f) z)))
-     (equal (assignment x (append a b))
-            (if (assignedp x a)
-                (assignment x a)
-                (assignment x b)))
-     (equal (car (gopher x))
-            (if (listp x)
-                (car (flatten x))
-                (zero)))
-     (equal (flatten (cdr (gopher x)))
-            (if (listp x)
-                (cdr (flatten x))
-                (cons (zero) (nil))))
-     (equal (quotient (times y x) y)
-            (if (zerop y)
-                (zero)
-                (fix x)))
-     (equal (get j (set i val mem))
-            (if (eqp j i)
-                val
-                (get j mem))))))
+     (equal (times x (add1 y)) (if (numberp y) (plus x (times x y)) (fix x)))
+     (equal (nth (nil) i) (if (zerop i) (nil) (zero)))
+     (equal (last (append a b)) (if (listp b) (last b) (if (listp a) (cons (car (last a)) b) b)))
+     (equal (equal (lessp x y) z) (if (lessp x y) (equal (t) z) (equal (f) z)))
+     (equal (assignment x (append a b)) (if (assignedp x a) (assignment x a) (assignment x b)))
+     (equal (car (gopher x)) (if (listp x) (car (flatten x)) (zero)))
+     (equal (flatten (cdr (gopher x))) (if (listp x) (cdr (flatten x)) (cons (zero) (nil))))
+     (equal (quotient (times y x) y) (if (zerop y) (zero) (fix x)))
+     (equal (get j (set i val mem)) (if (eqp j i) val (get j mem))))))
 
   (displayln "finished setting up lemma list"))
 
@@ -364,12 +303,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (test alist term n)
-  (displayln "term before: " term)
+  ; (displayln "term before: " term)
   (let ([term (apply-subst (translate-alist alist)
                            (translate-term (do ((term term (list 'or term '(f))) (n n (- n 1)))
                                                ((zero? n) term))))])
 
-    (displayln "Term after: " term)
+    ; (displayln "Term after: " term)
 
     (tautp term)))
 
@@ -384,11 +323,7 @@
 
 (define (apply-subst-impl alist term)
   (cond
-    [(not (pair? term))
-     (let ([temp-temp (assq term alist)])
-       (if temp-temp
-           (cdr temp-temp)
-           term))]
+    [(not (pair? term)) (let ([temp-temp (assq term alist)]) (if temp-temp (cdr temp-temp) term))]
     [else (cons (car term) (apply-subst-lst alist (cdr term)))]))
 
 (define (apply-subst alist term)
@@ -443,6 +378,9 @@
   ; (displayln term)
   ; (stdout-simple-displayln term)
   (set! rewrite-count (+ rewrite-count 1))
+
+  ; (read (stdin))
+
   ; (displayln "----- rewrite -----")
   ; (displayln rewrite-count)
   ; ; (displayln term)
@@ -467,21 +405,9 @@
      (define lemmas (get-lemmas (car term)))
      (rewrite-with-lemmas (cons (car term) (rewrite-args (cdr term))) lemmas)]))
 
-(define rewrite-cache (hash))
-
-(define (add-to-cache key value)
-  (set! rewrite-cache (hash-insert rewrite-cache key value)))
-
-(define (cache-exists key)
-  (hash-contains? rewrite-cache key))
-
-(define (get-from-cache key)
-  (displayln key)
-  (dbg! (hash-get rewrite-cache key)))
-
 (define (rewrite term)
   ; (displayln rewrite-count)
-  (displayln "Rewriting" (untranslate-term term))
+  ; (displayln "Rewriting" (untranslate-term term))
 
   ; (define untranslated (untranslate-term term))
   (define res (rewrite-impl term))
@@ -493,7 +419,7 @@
   ;       (add-to-cache untranslated res)
   ;       res)))
 
-  (displayln "--->" (untranslate-term res))
+  ; (displayln "--->" (untranslate-term res))
   res)
 
 (define (rewrite-args lst)
@@ -538,6 +464,8 @@
 
 (define (one-way-unify1 term1 term2)
 
+  ; (error "foo")
+
   ; (displayln "---------------------------------------------")
   ; (displayln "ONE WAY UNIFY")
   ; (displayln (untranslate-term term1))
@@ -550,8 +478,6 @@
     [(not (pair? term2))
 
      (let ([temp-temp (assq term2 unify-subst)])
-
-       (displayln temp-temp)
 
        (cond
          [temp-temp (term-equal? term1 (cdr temp-temp))]
@@ -590,11 +516,11 @@
 (define true-term '*) ;; becomes (translate-term '(t))
 
 (define (falsep x lst)
-  (displayln "CALLING FALSEP")
+  ; (displayln "CALLING FALSEP")
   (or (term-equal? x false-term) (term-member? x lst)))
 
 (define (truep x lst)
-  (displayln "CALLING TRUEP")
+  ; (displayln "CALLING TRUEP")
   (or (term-equal? x true-term) (term-member? x lst)))
 
 ;; The next two procedures were in the original benchmark
@@ -671,7 +597,7 @@
     (set! rewrite-count 0)
     (set! rewrite-with-lemmas-count 0)
 
-    (displayln "testing " alist "against" term)
+    ; (displayln "testing " alist "against" term)
 
     (let ([answer (test alist term n)])
       ;;            (write rewrite-count)

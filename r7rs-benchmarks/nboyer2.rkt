@@ -65,6 +65,8 @@
   (string-append "racket-" (version) "/r7rs+chez"))
 
 
+(define (displayln value) (display value) (newline))
+
 (define (hide r x)
   (call-with-values
    (lambda ()
@@ -721,6 +723,9 @@
   (define (rewrite term)
     (display (untranslate-term term))
     (newline)
+
+    (read-line)
+    
     (set! rewrite-count (+ rewrite-count 1))
     (cond ((not (pair? term))
            term)
@@ -753,6 +758,15 @@
            (one-way-unify1 term1 term2)))
 
   (define (one-way-unify1 term1 term2)
+
+    
+  ; (displayln "---------------------------------------------")
+  ; (displayln "ONE WAY UNIFY")
+  ; (displayln (untranslate-term term1))
+  ; (displayln (untranslate-term term2))
+  ; (displayln "---------------------------------------------")
+         
+         ; (error #f)
     (cond ((not (pair? term2))
            (let ((temp-temp (assq term2 unify-subst)))
 
