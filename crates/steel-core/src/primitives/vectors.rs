@@ -1348,12 +1348,12 @@ pub fn vec_cdr(args: &[SteelVal]) -> Result<SteelVal> {
 pub fn list_vec_null(args: &[SteelVal]) -> Result<SteelVal> {
     let result = match &args[0] {
         SteelVal::ListV(l) => l.is_empty(),
-        // SteelVal::VectorV(v) => v.is_empty(),
-        // SteelVal::MutableVector(v) => {
-        //     let ptr = v.strong_ptr();
-        //     let guard = &ptr.read().value;
-        //     guard.is_empty()
-        // }
+        SteelVal::VectorV(v) => v.is_empty(),
+        SteelVal::MutableVector(v) => {
+            let ptr = v.strong_ptr();
+            let guard = &ptr.read().value;
+            guard.is_empty()
+        }
         _ => false,
     };
 
