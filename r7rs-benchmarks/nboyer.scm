@@ -108,7 +108,6 @@
      (equal (tautology-checker x) (tautologyp (normalize x) (nil)))
      (equal (falsify x) (falsify1 (normalize x) (nil)))
      (equal (prime x) (and (not (zerop x)) (not (equal x (add1 (zero)))) (prime1 x (_1- x))))
-     ;; TODO: This is failing because these macros are getting expanded!
      (equal (and p q) (if p (if q (t) (f)) (f)))
      (equal (or p q) (if p (t) (if q (t) (f))))
      (equal (not p) (if p (f) (t)))
@@ -211,9 +210,7 @@
      (equal (car (gopher x)) (if (listp x) (car (flatten x)) (zero)))
      (equal (flatten (cdr (gopher x))) (if (listp x) (cdr (flatten x)) (cons (zero) (nil))))
      (equal (quotient (times y x) y) (if (zerop y) (zero) (fix x)))
-     (equal (get j (set i val mem)) (if (eqp j i) val (get j mem))))))
-
-  (displayln "finished setting up lemma list"))
+     (equal (get j (set i val mem)) (if (eqp j i) val (get j mem)))))))
 
 (define (add-lemma-lst lst)
   (cond
@@ -264,7 +261,6 @@
 (define *symbol-records-alist* '())
 
 (define (symbol->symbol-record sym)
-  ; (displayln *symbol-records-alist*)
   (let ([x (assq sym *symbol-records-alist*)])
     (if x
         (cdr x)
@@ -285,15 +281,10 @@
 (define (get-lemmas symbol-record)
   (vector-ref symbol-record 1))
 
-; (displayln (list? res))
-
 (define (get-name symbol-record)
   (vector-ref symbol-record 0))
 
 (define (symbol-record-equal? r1 r2)
-  ; (displayln "--------->SYMBOL RECORD EQUAL<-------")
-  ; (displayln r1)
-  ; (displayln r2)
   (eq? r1 r2))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -303,12 +294,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (define (test alist term n)
-  ; (displayln "term before: " term)
   (let ([term (apply-subst (translate-alist alist)
                            (translate-term (do ((term term (list 'or term '(f))) (n n (- n 1)))
                                                ((zero? n) term))))])
-
-    ; (displayln "Term after: " term)
 
     (tautp term)))
 
@@ -318,7 +306,6 @@
     [else (cons (cons (caar alist) (translate-term (cdar alist))) (translate-alist (cdr alist)))]))
 
 (define (simple-dbg value)
-  ; (stdout-simple-displayln value)
   value)
 
 (define (apply-subst-impl alist term)
@@ -327,16 +314,7 @@
     [else (cons (car term) (apply-subst-lst alist (cdr term)))]))
 
 (define (apply-subst alist term)
-  ; (displayln "Term before apply subst: " (untranslate-term term))
-  ; (displayln (memory-address term))
   (define res (apply-subst-impl alist term))
-
-  ; (displayln "$$$$$$$$$$$ APPLY SUBST $$$$$$$$$$$$$")
-  ; (displayln "Term after: " (untranslate-term res))
-  ; (displayln (memory-address res))
-  ; (displayln "eq?" (eq? term res))
-
-  ; (displayln (untranslate-term res))
 
   res)
 
@@ -346,13 +324,7 @@
     [else (cons (apply-subst alist (car lst)) (apply-subst-lst alist (cdr lst)))]))
 
 (define (tautp x)
-
-  (displayln "Rewriting: " x)
-
   (define rewritten (rewrite x))
-
-  (displayln "Finished rewriting")
-
   (tautologyp rewritten '() '()))
 
 (define if-constructor '*) ;; becomes (symbol->symbol-record 'if)
@@ -372,55 +344,17 @@
     [else #f]))
 
 (define rewrite-count 0) ;; sanity check
-(define rewrite-with-lemmas-count 0) ;; sanity check
 
 (define (rewrite-impl term)
-  ; (displayln term)
-  ; (stdout-simple-displayln term)
   (set! rewrite-count (+ rewrite-count 1))
-
-  ; (read (stdin))
-
-  ; (displayln "----- rewrite -----")
-  ; (displayln rewrite-count)
-  ; ; (displayln term)
-  ; (displayln (untranslate-term term))
-  ; (displayln (memory-address term))
-
-  ; (displayln "-------------------")
-
   (cond
-    ; (displayln term)
-    ; (stdout-simple-displayln term)
     [(not (pair? term)) term]
-    ; (displayln term)
     [else
-
-     ; (displayln "------------------------")
-     ; (displayln (length term))
-     ; (displayln (car term))
-     ; (displayln (cdr term))
-     ; (displayln "------------------------")
-
      (define lemmas (get-lemmas (car term)))
      (rewrite-with-lemmas (cons (car term) (rewrite-args (cdr term))) lemmas)]))
 
 (define (rewrite term)
-  ; (displayln rewrite-count)
-  ; (displayln "Rewriting" (untranslate-term term))
-
-  ; (define untranslated (untranslate-term term))
-  (define res (rewrite-impl term))
-
-  ; (if (cache-exists untranslated)
-  ;     (get-from-cache untranslated)
-  ;     (begin
-  ;       (define res (rewrite-impl term))
-  ;       (add-to-cache untranslated res)
-  ;       res)))
-
-  ; (displayln "--->" (untranslate-term res))
-  res)
+  (rewrite-impl term))
 
 (define (rewrite-args lst)
   (cond
@@ -430,50 +364,19 @@
 (define unify-subst '*)
 
 (define (rewrite-with-lemmas term lst)
-  (set! rewrite-with-lemmas-count (+ 1 rewrite-with-lemmas-count))
-
-  ; (displayln "REWRITE WITH LEMMAS")
-  ; (displayln rewrite-with-lemmas-count)
-  ; (displayln (untranslate-term term))
-  ; (displayln "---------------------")
 
   (cond
-    ; (displayln "GETTING HERE")
-    ; (displayln (untranslate-term term))
     [(null? lst) term]
-    [(one-way-unify term (cadr (car lst)))
-
-     (define applied (apply-subst unify-subst (caddr (car lst))))
-
-     ; (displayln "CHECKING IF EQUAL AFTER APPLYING THE SUBST")
-     ; (displayln (untranslate-term applied))
-     ; (displayln (untranslate-term term))
-
-     (rewrite applied)]
+    [(one-way-unify term (cadr (car lst))) (rewrite (apply-subst unify-subst (caddr (car lst))))]
 
     [else (rewrite-with-lemmas term (cdr lst))]))
 
 (define (one-way-unify term1 term2)
   (begin
     (set! unify-subst '())
-    ; (displayln "/// One way unify ///")
-    ; (displayln (untranslate-term term1))
-    ; (displayln (untranslate-term term2))
-    ; (displayln "/// End on way unify ///")
     (one-way-unify1 term1 term2)))
 
 (define (one-way-unify1 term1 term2)
-
-  ; (error "foo")
-
-  ; (displayln "---------------------------------------------")
-  ; (displayln "ONE WAY UNIFY")
-  ; (displayln (untranslate-term term1))
-  ; (displayln (untranslate-term term2))
-  ; (displayln "---------------------------------------------")
-
-  ; (displayln term1)
-  ; (displayln (pair? term2))
   (cond
     [(not (pair? term2))
 
@@ -487,22 +390,10 @@
 
           (define consed (cons term2 term1))
 
-          ; (displayln "------------consed start---------------------------------")
-          ; (displayln term2)
-          ; (displayln term1)
-          ; (displayln consed)
-          ; (displayln (list? consed))
-          ; (displayln "------------consed end---------------------------")
-
           (set! unify-subst (cons consed unify-subst))
           #t]))]
     [(not (pair? term1)) #f]
     [(eq? (car term1) (car term2)) (one-way-unify1-lst (cdr term1) (cdr term2))]
-    ; (displayln "-----------------------")
-    ; (displayln (untranslate-term term1))
-    ; (displayln (untranslate-term term2))
-    ; (displayln "-----------------------")
-    ; (error "bad")
     [else #f]))
 
 (define (one-way-unify1-lst lst1 lst2)
@@ -516,11 +407,9 @@
 (define true-term '*) ;; becomes (translate-term '(t))
 
 (define (falsep x lst)
-  ; (displayln "CALLING FALSEP")
   (or (term-equal? x false-term) (term-member? x lst)))
 
 (define (truep x lst)
-  ; (displayln "CALLING TRUEP")
   (or (term-equal? x true-term) (term-member? x lst)))
 
 ;; The next two procedures were in the original benchmark
@@ -573,37 +462,12 @@
     (set! if-constructor (symbol->symbol-record 'if))
     (set! false-term (translate-term '(f)))
     (set! true-term (translate-term '(t)))
-
-    (displayln false-term)
-    (displayln true-term)
-    (displayln if-constructor)
-
-    (displayln (eq? (symbol->symbol-record 'if) if-constructor))
-
-    ;; That would do it?
-    (displayln (eq? (dbg! (translate-term '(f))) false-term))
-    (displayln (eq? (translate-term '(t)) true-term))
-
-    ; (error)
-
-    ; (displayln (get-lemmas (car false-term)))
-
-    ; (error)
-
     (setup)))
 
 (define test-boyer
   (lambda (alist term n)
     (set! rewrite-count 0)
-    (set! rewrite-with-lemmas-count 0)
-
-    ; (displayln "testing " alist "against" term)
-
-    (let ([answer (test alist term n)])
-      ;;            (write rewrite-count)
-      ;;            (display " rewrites")
-      ;;            (newline)
-      (if answer rewrite-count #f))))
+    (let ([answer (test alist term n)]) (if answer rewrite-count #f))))
 
 ; )
 
@@ -618,7 +482,6 @@
                         count
                         (lambda ()
                           (setup-boyer)
-                          (displayln "Done with setup-boyer")
                           (test-boyer alist term (hide count input)))
                         (lambda (rewrites) (and (number? rewrites) (= rewrites output))))))
 

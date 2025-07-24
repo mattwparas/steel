@@ -744,8 +744,6 @@ impl Heap {
         let memory_size = self.memory.len() + self.vector_cells_allocated();
 
         if memory_size > self.threshold || force_full {
-            println!("Running a gc collection");
-
             log::debug!(target: "gc", "Freeing memory");
 
             let original_length = memory_size;
