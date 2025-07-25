@@ -60,9 +60,70 @@ impl MetaOperations {
                 stop!(ArityMismatch => "memory address takes one address")
             }
 
-            // let memory_address = format!("{:p}", &args[0].as_ptr());
-
-            Ok(SteelVal::StringV("TODO".into())) // TODO come back here
+            match &args[0] {
+                SteelVal::Closure(gc) => Ok(SteelVal::StringV(format!("{:p}", gc.clone()).into())),
+                SteelVal::VectorV(steel_vector) => {
+                    Ok(SteelVal::StringV(format!("{:p}", steel_vector.0).into()))
+                }
+                SteelVal::StringV(steel_string) => {
+                    Ok(SteelVal::StringV(format!("{:p}", steel_string.0).into()))
+                }
+                SteelVal::FuncV(f) => Ok(SteelVal::StringV(format!("{:p}", *f).into())),
+                SteelVal::SymbolV(steel_string) => {
+                    Ok(SteelVal::StringV(format!("{:p}", steel_string.0).into()))
+                }
+                SteelVal::Custom(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                SteelVal::HashMapV(steel_hash_map) => {
+                    Ok(SteelVal::StringV(format!("{:p}", steel_hash_map.0).into()))
+                }
+                SteelVal::HashSetV(steel_hash_set) => {
+                    Ok(SteelVal::StringV(format!("{:p}", steel_hash_set.0).into()))
+                }
+                SteelVal::CustomStruct(gc) => {
+                    Ok(SteelVal::StringV(format!("{:p}", gc.clone()).into()))
+                }
+                SteelVal::PortV(steel_port) => {
+                    Ok(SteelVal::StringV(format!("{:p}", steel_port.port).into()))
+                }
+                // SteelVal::IterV(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::ReducerV(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::FutureFunc(_) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::FutureV(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::StreamV(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::BoxedFunction(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::ContinuationFunction(continuation) => {
+                //     Ok(SteelVal::StringV(format!("{:p}", gc).into()))
+                // }
+                SteelVal::ListV(generic_list) => Ok(SteelVal::StringV(
+                    format!(
+                        "{:?}:{:?}:{:?}",
+                        generic_list.as_ptr_usize(),
+                        generic_list.identity_tuple(),
+                        generic_list.next_ptr_as_usize(),
+                    )
+                    .into(),
+                )),
+                SteelVal::Pair(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::MutFunc(_) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::BuiltIn(_) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                SteelVal::MutableVector(heap_ref) => Ok(SteelVal::StringV(
+                    heap_ref.borrow(|x| format!("{:p}", x).into()),
+                )),
+                // SteelVal::BoxedIterator(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::SyntaxObject(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::Boxed(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::HeapAllocated(heap_ref) => {
+                //     Ok(SteelVal::StringV(format!("{:p}", gc).into()))
+                // }
+                // SteelVal::Reference(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::BigNum(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::BigRational(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::Complex(gc) => Ok(SteelVal::StringV(format!("{:p}", gc).into())),
+                // SteelVal::ByteVector(steel_byte_vector) => {
+                //     Ok(SteelVal::StringV(format!("{:p}", gc).into()))
+                // }
+                _ => Ok(SteelVal::BoolV(false)),
+            }
         })
     }
 

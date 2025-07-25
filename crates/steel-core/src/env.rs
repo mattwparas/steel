@@ -213,6 +213,7 @@ impl Env {
         output
     }
 
+    #[inline(always)]
     pub fn repl_set_idx(&mut self, idx: usize, val: SteelVal) -> Result<SteelVal> {
         let guard = self.bindings.0.get_mut(idx).unwrap();
         let output = guard.clone();

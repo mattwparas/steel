@@ -97,11 +97,11 @@ pub fn unlikely(b: bool) -> bool {
     b
 }
 
-const STACK_LIMIT: usize = 1000000;
+const STACK_LIMIT: usize = 10000000;
 const _JIT_THRESHOLD: usize = 100;
 
 const _USE_SUPER_INSTRUCTIONS: bool = false;
-const CHECK_STACK_OVERFLOW: bool = false;
+const CHECK_STACK_OVERFLOW: bool = true;
 
 #[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq)]
@@ -655,6 +655,11 @@ impl SteelThread {
             // if multiple threads are enabled
             safepoints_enabled: false,
         }
+    }
+
+    #[inline(always)]
+    fn local_set(&mut self, idx: usize, val: SteelVal) -> Result<SteelVal> {
+        self.global_env.repl_set_idx(idx, val)
     }
 
     #[cfg(feature = "sync")]
@@ -1566,7 +1571,7 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     pub fn safepoint_or_interrupt(&mut self) -> Result<()> {
-        // Check if we need to be paused
+        // Check if we need to be paused?
         if self
             .thread
             .synchronizer
@@ -3400,15 +3405,19 @@ impl<'a> VmCore<'a> {
     fn handle_set(&mut self, index: usize) -> Result<()> {
         let value_to_assign = self.thread.stack.pop().unwrap();
 
-        #[cfg(feature = "sync")]
-        let value = self
-            .thread
-            .with_locked_env(|_, env| env.set_idx(index, value_to_assign));
+        let value = if self.thread.safepoints_enabled {
+            #[cfg(feature = "sync")]
+            {
+                self.thread
+                    .with_locked_env(|_, env| env.set_idx(index, value_to_assign))
+            }
 
-        #[cfg(not(feature = "sync"))]
-        let value = self
-            .thread
-            .with_locked_env(|this| this.global_env.repl_set_idx(index, value_to_assign))?;
+            #[cfg(not(feature = "sync"))]
+            self.thread
+                .with_locked_env(|this| this.global_env.repl_set_idx(index, value_to_assign))?
+        } else {
+            self.thread.local_set(index, value_to_assign).unwrap()
+        };
 
         self.thread.stack.push(value);
         self.ip += 1;
@@ -4224,8 +4233,20 @@ impl<'a> VmCore<'a> {
     fn check_stack_overflow(&self) -> Result<()> {
         if CHECK_STACK_OVERFLOW {
             if unlikely(self.thread.stack_frames.len() >= STACK_LIMIT) {
+                // let last_id = self.thread.stack_frames.last().unwrap().function.id;
+
+                // last 100
+                // let last = self
+                //     .thread
+                //     .stack_frames
+                //     .get(self.thread.stack_frames.len() - 10000..self.thread.stack_frames.len())
+                //     .unwrap();
+
+                // let last = last.iter().map(|x| x.function.id).collect::<Vec<_>>();
+
+                // dbg!(last);
+
                 crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-                println!("stack frame at exit: {:?}", self.thread.stack);
                 stop!(Generic => "stack overflowed!"; self.current_span());
             }
         }

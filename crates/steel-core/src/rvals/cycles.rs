@@ -10,7 +10,7 @@ use super::*;
 // Keep track of any reference counted values that are visited, in a pointer
 pub(super) struct CycleDetector {
     // Recording things that have already been seen
-    cycles: fxhash::FxHashMap<usize, usize>,
+    cycles: fxhash::FxHashMap<(usize, usize), usize>,
 
     // Values captured in cycles
     values: Vec<SteelVal>,
@@ -55,51 +55,54 @@ impl CycleDetector {
             let id = match &node {
                 SteelVal::CustomStruct(c) => {
                     let ptr_addr = c.as_ptr() as usize;
-                    self.cycles.get(&ptr_addr).unwrap()
+                    self.cycles.get(&(ptr_addr, 0)).unwrap()
                 }
                 SteelVal::HeapAllocated(b) => {
                     // Get the object that THIS points to
                     let ptr_addr = b.get().as_ptr_usize().unwrap();
-                    self.cycles.get(&ptr_addr).unwrap()
+                    self.cycles.get(&(ptr_addr, 0)).unwrap()
                 }
                 SteelVal::ListV(l) => {
-                    let ptr_addr = l.as_ptr_usize();
-
+                    let ptr_addr = l.identity_tuple();
                     self.cycles.get(&ptr_addr).unwrap()
                 }
                 SteelVal::VectorV(l) => {
-                    let ptr_addr = l.0.as_ptr() as usize;
+                    let ptr_addr = (l.0.as_ptr() as usize, 0);
 
                     self.cycles.get(&ptr_addr).unwrap()
                 }
                 SteelVal::HashMapV(l) => {
-                    let ptr_addr = l.0.as_ptr() as usize;
+                    let ptr_addr = (l.0.as_ptr() as usize, 0);
 
                     self.cycles.get(&ptr_addr).unwrap()
                 }
                 SteelVal::HashSetV(l) => {
-                    let ptr_addr = l.0.as_ptr() as usize;
+                    let ptr_addr = (l.0.as_ptr() as usize, 0);
 
                     self.cycles.get(&ptr_addr).unwrap()
                 }
                 SteelVal::Custom(l) => {
-                    let ptr_addr = l.as_ptr() as usize;
+                    let ptr_addr = (l.as_ptr() as usize, 0);
 
                     self.cycles.get(&ptr_addr).unwrap()
                 }
                 SteelVal::Boxed(b) => {
-                    let ptr_addr = b.as_ptr() as usize;
+                    let ptr_addr = (b.as_ptr() as usize, 0);
 
                     self.cycles.get(&ptr_addr).unwrap()
                 }
                 SteelVal::SyntaxObject(s) => {
-                    let ptr_addr = s.as_ptr() as usize;
+                    let ptr_addr = (s.as_ptr() as usize, 0);
 
                     self.cycles.get(&ptr_addr).unwrap()
                 }
                 SteelVal::MutableVector(v) => {
-                    let ptr_addr = v.as_ptr_usize();
+                    let ptr_addr = (v.as_ptr_usize(), 0);
 
+                    self.cycles.get(&ptr_addr).unwrap()
+                }
+                SteelVal::Pair(p) => {
+                    let ptr_addr = (p.as_ptr() as usize, 0);
                     self.cycles.get(&ptr_addr).unwrap()
                 }
                 _ => {
@@ -128,6 +131,7 @@ impl CycleDetector {
         self.depth += 1;
 
         if self.depth > 128 {
+            self.depth -= 1;
             return write!(f, "...");
         }
 
@@ -174,11 +178,15 @@ impl CycleDetector {
                 }
             },
             Pair(p) => {
-                write!(f, "(")?;
-                self.format_with_cycles(&p.car, f, FormatType::Normal)?;
-                write!(f, " . ")?;
-                self.format_with_cycles(&p.cdr, f, FormatType::Normal)?;
-                write!(f, ")")
+                if let Some(value) = self.cycles.get(&(p.as_ptr() as usize, 0)) {
+                    write!(f, "#{}#", value)
+                } else {
+                    write!(f, "(")?;
+                    self.format_with_cycles(&p.car, f, FormatType::Normal)?;
+                    write!(f, " . ")?;
+                    self.format_with_cycles(&p.cdr, f, FormatType::Normal)?;
+                    write!(f, ")")
+                }
             }
             FuncV(func) => {
                 if let Some(name) = get_function_name(*func) {
@@ -215,7 +223,7 @@ impl CycleDetector {
             },
             CustomStruct(s) => match format_type {
                 FormatType::Normal => {
-                    if let Some(id) = self.cycles.get(&(s.as_ptr() as usize)) {
+                    if let Some(id) = self.cycles.get(&(s.as_ptr() as usize, 0)) {
                         write!(f, "#{id}#")
                     } else {
                         let guard = s;
@@ -279,24 +287,78 @@ impl CycleDetector {
             ContinuationFunction(_) => write!(f, "#<continuation>"),
             // #[cfg(feature = "jit")]
             // CompiledFunction(_) => write!(f, "#<compiled-function>"),
-            ListV(l) => {
-                write!(f, "(")?;
+            ListV(l) => match format_type {
+                FormatType::Normal => {
+                    if let Some(value) = self.cycles.get(&l.identity_tuple()) {
+                        write!(f, "#{}#", value)
+                    } else {
+                        write!(f, "(")?;
 
-                let mut iter = l.iter().peekable();
+                        let mut iter = l.iter().peekable();
 
-                while let Some(item) = iter.next() {
-                    self.format_with_cycles(item, f, FormatType::Normal)?;
-                    if iter.peek().is_some() {
-                        write!(f, " ")?
+                        while let Some(item) = iter.next() {
+                            self.format_with_cycles(item, f, FormatType::Normal)?;
+                            if iter.peek().is_some() {
+                                write!(f, " ")?
+                            }
+                        }
+                        write!(f, ")")
                     }
                 }
-                write!(f, ")")
-            }
+                FormatType::TopLevel => {
+                    write!(f, "(")?;
+
+                    let mut iter = l.iter().peekable();
+
+                    while let Some(item) = iter.next() {
+                        self.format_with_cycles(item, f, FormatType::Normal)?;
+                        if iter.peek().is_some() {
+                            write!(f, " ")?
+                        }
+                    }
+                    write!(f, ")")
+                }
+            },
             // write!(f, "#<list {:?}>", l),
             MutFunc(_) => write!(f, "#<function>"),
             BuiltIn(_) => write!(f, "#<function>"),
             ReducerV(_) => write!(f, "#<reducer>"),
-            MutableVector(v) => write!(f, "{:?}", v.get()),
+            MutableVector(v) => match format_type {
+                FormatType::Normal => {
+                    if let Some(value) = self.cycles.get(&(v.as_ptr_usize(), 0)) {
+                        write!(f, "#{}#", value)
+                    } else {
+                        write!(f, "#(")?;
+                        let guard = v.inner.upgrade().unwrap();
+                        let guard = guard.read();
+
+                        let mut iter = guard.value.iter().peekable();
+
+                        while let Some(item) = iter.next() {
+                            self.format_with_cycles(item, f, FormatType::Normal)?;
+                            if iter.peek().is_some() {
+                                write!(f, " ")?
+                            }
+                        }
+                        write!(f, ")")
+                    }
+                }
+                FormatType::TopLevel => {
+                    write!(f, "#(")?;
+                    let guard = v.inner.upgrade().unwrap();
+                    let guard = guard.read();
+
+                    let mut iter = guard.value.iter().peekable();
+
+                    while let Some(item) = iter.next() {
+                        self.format_with_cycles(item, f, FormatType::Normal)?;
+                        if iter.peek().is_some() {
+                            write!(f, " ")?
+                        }
+                    }
+                    write!(f, ")")
+                }
+            },
             SyntaxObject(s) => {
                 if let Some(raw) = &s.raw {
                     write!(f, "#<syntax:{:?} {:?}>", s.span, raw)
@@ -308,7 +370,10 @@ impl CycleDetector {
             Boxed(b) => write!(f, "'#&{}", b.read()),
             Reference(x) => write!(f, "{}", x.format()?),
             HeapAllocated(b) => {
-                let maybe_id = b.get().as_ptr_usize().and_then(|x| self.cycles.get(&x));
+                let maybe_id = b
+                    .get()
+                    .as_ptr_usize()
+                    .and_then(|x| self.cycles.get(&(x, 0)));
                 match (maybe_id, format_type) {
                     (Some(id), FormatType::Normal) => {
                         write!(f, "#{id}#")
@@ -337,7 +402,7 @@ impl SteelVal {
 }
 
 pub(crate) struct SteelCycleCollector {
-    cycles: fxhash::FxHashMap<usize, usize>,
+    cycles: fxhash::FxHashMap<(usize, usize), usize>,
     values: List<SteelVal>,
 }
 
@@ -376,46 +441,54 @@ impl SteelCycleCollector {
     pub fn get(&self, node: SteelVal) -> Option<usize> {
         match node {
             SteelVal::CustomStruct(c) => {
-                let ptr_addr = c.as_ptr() as usize;
+                let ptr_addr = (c.as_ptr() as usize, 0);
                 self.cycles.get(&ptr_addr)
             }
             SteelVal::HeapAllocated(b) => {
                 // Get the object that THIS points to
-                let ptr_addr = b.get().as_ptr_usize().unwrap();
+                let ptr_addr = (b.get().as_ptr_usize().unwrap(), 0);
+                self.cycles.get(&ptr_addr)
+            }
+            SteelVal::MutableVector(v) => {
+                let ptr_addr = (v.as_ptr_usize(), 0);
+                self.cycles.get(&ptr_addr)
+            }
+            SteelVal::Pair(p) => {
+                let ptr_addr = (p.as_ptr() as usize, 0);
                 self.cycles.get(&ptr_addr)
             }
             SteelVal::ListV(l) => {
-                let ptr_addr = l.as_ptr_usize();
+                let ptr_addr = l.identity_tuple();
 
                 self.cycles.get(&ptr_addr)
             }
             SteelVal::VectorV(l) => {
-                let ptr_addr = l.0.as_ptr() as usize;
+                let ptr_addr = (l.0.as_ptr() as usize, 0);
 
                 self.cycles.get(&ptr_addr)
             }
             SteelVal::HashMapV(l) => {
-                let ptr_addr = l.0.as_ptr() as usize;
+                let ptr_addr = (l.0.as_ptr() as usize, 0);
 
                 self.cycles.get(&ptr_addr)
             }
             SteelVal::HashSetV(l) => {
-                let ptr_addr = l.0.as_ptr() as usize;
+                let ptr_addr = (l.0.as_ptr() as usize, 0);
 
                 self.cycles.get(&ptr_addr)
             }
             SteelVal::Custom(l) => {
-                let ptr_addr = l.as_ptr() as usize;
+                let ptr_addr = (l.as_ptr() as usize, 0);
 
                 self.cycles.get(&ptr_addr)
             }
             SteelVal::Boxed(b) => {
-                let ptr_addr = b.as_ptr() as usize;
+                let ptr_addr = (b.as_ptr() as usize, 0);
 
                 self.cycles.get(&ptr_addr)
             }
             SteelVal::SyntaxObject(s) => {
-                let ptr_addr = s.as_ptr() as usize;
+                let ptr_addr = (s.as_ptr() as usize, 0);
 
                 self.cycles.get(&ptr_addr)
             }
@@ -431,10 +504,10 @@ impl SteelCycleCollector {
 
 struct CycleCollector<'a> {
     // Keep a mapping of the pointer -> gensym
-    visited: fxhash::FxHashSet<usize>,
+    visited: fxhash::FxHashSet<(usize, usize)>,
 
     // Recording things that have already been seen
-    cycles: fxhash::FxHashMap<usize, usize>,
+    cycles: fxhash::FxHashMap<(usize, usize), usize>,
 
     // Values captured in cycles
     values: Vec<SteelVal>,
@@ -448,7 +521,7 @@ struct CycleCollector<'a> {
 }
 
 impl<'a> CycleCollector<'a> {
-    fn add(&mut self, val: usize, steelval: &SteelVal) -> bool {
+    fn add(&mut self, val: (usize, usize), steelval: &SteelVal) -> bool {
         if !self.found_mutable {
             false;
         }
@@ -499,7 +572,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
     fn visit_immutable_vector(&mut self, vector: SteelVector) -> Self::Output {
         if !self.add(
-            vector.0.as_ptr() as usize,
+            (vector.0.as_ptr() as usize, 0),
             &SteelVal::VectorV(vector.clone()),
         ) {
             for value in vector.0.iter() {
@@ -519,7 +592,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output {
         if !self.add(
-            hashmap.0.as_ptr() as usize,
+            (hashmap.0.as_ptr() as usize, 0),
             &SteelVal::HashMapV(hashmap.clone()),
         ) {
             for (key, value) in hashmap.0.iter() {
@@ -531,7 +604,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output {
         if !self.add(
-            hashset.0.as_ptr() as usize,
+            (hashset.0.as_ptr() as usize, 0),
             &SteelVal::HashSetV(hashset.clone()),
         ) {
             for key in hashset.0.iter() {
@@ -542,7 +615,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
         if !self.add(
-            steel_struct.as_ptr() as usize,
+            (steel_struct.as_ptr() as usize, 0),
             &SteelVal::CustomStruct(steel_struct.clone()),
         ) {
             for value in steel_struct.fields.iter() {
@@ -561,7 +634,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     fn visit_continuation(&mut self, _continuation: Continuation) -> Self::Output {}
 
     fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
-        if !self.add(list.as_ptr_usize(), &SteelVal::ListV(list.clone())) {
+        if !self.add(list.identity_tuple(), &SteelVal::ListV(list.clone())) {
             for value in list {
                 self.push_back(value);
             }
@@ -575,7 +648,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
         self.found_mutable = true;
 
         if !self.add(
-            vector.as_ptr_usize(),
+            (vector.as_ptr_usize(), 0),
             &SteelVal::MutableVector(vector.clone()),
         ) {
             for value in vector.get().iter() {
@@ -590,7 +663,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
     fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output {
         if !self.add(
-            syntax_object.as_ptr() as usize,
+            (syntax_object.as_ptr() as usize, 0),
             &SteelVal::SyntaxObject(syntax_object.clone()),
         ) {
             if let Some(raw) = syntax_object.raw.clone() {
@@ -603,7 +676,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
     fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
         if !self.add(
-            boxed_value.as_ptr() as usize,
+            (boxed_value.as_ptr() as usize, 0),
             &SteelVal::Boxed(boxed_value.clone()),
         ) {
             self.push_back(boxed_value.read().clone());
@@ -616,7 +689,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
         self.found_mutable = true;
 
         if !self.add(
-            heap_ref.as_ptr_usize(),
+            (heap_ref.as_ptr_usize(), 0),
             &SteelVal::HeapAllocated(heap_ref.clone()),
         ) {
             self.push_back(heap_ref.get());
@@ -625,8 +698,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
 
     // TODO: Revisit this!
     fn visit_pair(&mut self, pair: Gc<Pair>) -> Self::Output {
-        self.push_back(pair.car());
-        self.push_back(pair.cdr());
+        if !self.add((pair.as_ptr() as usize, 0), &SteelVal::Pair(pair.clone())) {
+            self.push_back(pair.car());
+            self.push_back(pair.cdr());
+        }
     }
 }
 
@@ -1742,11 +1817,17 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    self.left.push_back(l.car());
-                    self.right.push_back(r.car());
+                    if self.should_visit((l.as_ptr() as usize, 0))
+                        && self.should_visit((r.as_ptr() as usize, 0))
+                    {
+                        self.left.push_back(l.car());
+                        self.right.push_back(r.car());
 
-                    self.left.push_back(l.cdr());
-                    self.right.push_back(r.cdr());
+                        self.left.push_back(l.cdr());
+                        self.right.push_back(r.cdr());
+                    }
+
+                    continue;
                 }
                 (BoolV(l), BoolV(r)) => {
                     if l != r {
@@ -1800,7 +1881,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                 }
 
                 (VectorV(l), MutableVector(r)) => {
-                    if l.len() != r.get().len() {
+                    if l.len() != r.borrow(|x| x.len()) {
                         return false;
                     }
 
@@ -1810,7 +1891,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     continue;
                 }
                 (MutableVector(l), VectorV(r)) => {
-                    if l.get().len() != r.len() {
+                    if l.borrow(|x| x.len()) != r.len() {
                         return false;
                     }
 
@@ -2086,8 +2167,16 @@ impl<'a> RecursiveEqualityHandler<'a> {
                         continue;
                     }
 
-                    self.left.visit_mutable_vector(l);
-                    self.right.visit_mutable_vector(r);
+                    if self.should_visit((l.as_ptr_usize(), 0))
+                        && self.should_visit((r.as_ptr_usize(), 0))
+                    {
+                        if l.borrow(|x| x.len()) != r.borrow(|x| x.len()) {
+                            return false;
+                        }
+
+                        self.left.visit_mutable_vector(l);
+                        self.right.visit_mutable_vector(r);
+                    }
 
                     continue;
                 }
@@ -2232,9 +2321,11 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
     }
 
     fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
-        for value in vector.get().iter() {
-            self.push_back(value.clone());
-        }
+        vector.borrow(|x| {
+            for value in x.iter() {
+                self.push_back(value.clone());
+            }
+        })
     }
 
     fn visit_boxed_iterator(&mut self, _iterator: GcMut<OpaqueIterator>) -> Self::Output {}

@@ -1,7 +1,7 @@
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use quickscope::ScopeSet;
 use smallvec::SmallVec;
-use steel_parser::ast::{self, parse_lambda, Begin};
+use steel_parser::ast::{self, parse_lambda, Begin, QUOTE};
 use steel_parser::parser::SourceId;
 use steel_parser::tokens::NumberLiteral;
 
@@ -182,6 +182,21 @@ impl<'a> VisitorMutRef for Expander<'a> {
                     //         unreachable!()
                     //     }
                     // }
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Quote,
+                                ..
+                            },
+                    })) => return Ok(()),
+
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(i),
+                                ..
+                            },
+                    })) if *i == *QUOTE => return Ok(()),
                     Some(ExprKind::Atom(
                         ident @ Atom {
                             syn:

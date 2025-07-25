@@ -481,6 +481,12 @@ fn r7rs_benchmark_test_suite() {
         "r7rs-benchmarks/simplex.scm",
         "r7rs-benchmarks/array1.scm",
         "r7rs-benchmarks/triangl.scm",
+        "r7rs-benchmarks/nboyer.scm",
+        "r7rs-benchmarks/fft.scm",
+        "r7rs-benchmarks/bv2string.scm",
+        "r7rs-benchmarks/mbrotz.scm",
+        "r7rs-benchmarks/sumfp.scm",
+        "r7rs-benchmarks/chudnovsky.scm",
     ];
 
     for bench in benches {

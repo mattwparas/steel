@@ -1561,7 +1561,7 @@ impl SteelVal {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct SteelString(Gc<String>);
+pub struct SteelString(pub(crate) Gc<String>);
 
 impl Deref for SteelString {
     type Target = crate::gc::Shared<String>;
@@ -1788,7 +1788,10 @@ impl SteelVal {
             (BoxedFunction(l), BoxedFunction(r)) => Gc::ptr_eq(l, r),
             (ContinuationFunction(l), ContinuationFunction(r)) => Continuation::ptr_eq(l, r),
             (ListV(l), ListV(r)) => {
-                l.ptr_eq(r) || l.storage_ptr_eq(r) || l.is_empty() && r.is_empty()
+                // Happy path
+                l.ptr_eq(r) || l.storage_ptr_eq(r) || (l.is_empty() && r.is_empty()) || {
+                    slow_path_eq_lists(l, r)
+                }
             }
             (MutFunc(l), MutFunc(r)) => *l as usize == *r as usize,
             (BuiltIn(l), BuiltIn(r)) => *l as usize == *r as usize,
@@ -1796,8 +1799,37 @@ impl SteelVal {
             (BigNum(l), BigNum(r)) => Gc::ptr_eq(l, r),
             (ByteVector(l), ByteVector(r)) => Gc::ptr_eq(&l.vec, &r.vec),
             (Pair(l), Pair(r)) => Gc::ptr_eq(l, r),
-            (_, _) => false,
+            (_, _) => {
+                // dbg!(pointers);
+                false
+            }
         }
+    }
+}
+
+// TODO: Check this out
+fn slow_path_eq_lists(
+    l: &crate::values::lists::List<SteelVal>,
+    r: &crate::values::lists::List<SteelVal>,
+) -> bool {
+    // If the next pointers are the same, then we need to check the values
+    // of the current node for equality:
+    let left_next = l.next_ptr_as_usize();
+    let right_next = r.next_ptr_as_usize();
+
+    if left_next == right_next && l.len() == r.len() {
+        let left_iter = l.current_node_iter();
+        let right_iter = r.current_node_iter();
+
+        for (l, r) in left_iter.zip(right_iter) {
+            if l != r {
+                return false;
+            }
+        }
+
+        true
+    } else {
+        false
     }
 }
 
