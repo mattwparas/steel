@@ -20,7 +20,9 @@
             (vector-set! data (+ j 1) temp)))
         (let loop2 ([m (quotient n 2)]
                     [j j])
-          (if (and (>= m 2) (>= j m)) (loop2 (quotient m 2) (- j m)) (loop1 (+ i 2) (+ j m))))))
+          (if (and (>= m 2) (>= j m))
+              (loop2 (quotient m 2) (- j m))
+              (loop1 (+ i 2) (+ j m))))))
 
     ;; Danielson-Lanczos section
 
@@ -54,11 +56,26 @@
   (four1 data)
   (vector-ref data 0))
 
+; (define (run-benchmark)
+;   (let* ([count (read)]
+;          [input1 (read)]
+;          [input2 (read)]
+;          [output (read)]
+;          [s2 (number->string count)]
+;          [s1 (number->string input1)]
+;          [name "fft"])
+;     (run-r7rs-benchmark (string-append name ":" s1 ":" s2)
+;                         count
+;                         (lambda () (run (hide count (make-vector input1 input2))))
+;                         (lambda (result) (equal? result output)))))
+
+; (with-input-from-file "r7rs-benchmarks/inputs/fft.input" run-benchmark)
+
 (define (run-benchmark)
-  (let* ([count (read)]
-         [input1 (read)]
-         [input2 (read)]
-         [output (read)]
+  (let* ([count 10]
+         [input1 65536]
+         [input2 0.0]
+         [output 0.0]
          [s2 (number->string count)]
          [s1 (number->string input1)]
          [name "fft"])
@@ -67,4 +84,4 @@
                         (lambda () (run (hide count (make-vector input1 input2))))
                         (lambda (result) (equal? result output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/fft.input" run-benchmark)
+(run-benchmark)

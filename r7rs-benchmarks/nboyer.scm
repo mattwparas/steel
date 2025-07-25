@@ -98,7 +98,10 @@
      (equal (greatereqp x y) (not (lessp x y)))
      (equal (boolean x) (or (equal x (t)) (equal x (f))))
      (equal (iff x y) (and (implies x y) (implies y x)))
-     (equal (even1 x) (if (zerop x) (t) (odd (_1- x))))
+     (equal (even1 x)
+            (if (zerop x)
+                (t)
+                (odd (_1- x))))
      (equal (countps- l pred) (countps-loop l pred (zero)))
      (equal (fact- i) (fact-loop i 1))
      (equal (reverse- x) (reverse-loop x (nil)))
@@ -108,12 +111,36 @@
      (equal (tautology-checker x) (tautologyp (normalize x) (nil)))
      (equal (falsify x) (falsify1 (normalize x) (nil)))
      (equal (prime x) (and (not (zerop x)) (not (equal x (add1 (zero)))) (prime1 x (_1- x))))
-     (equal (and p q) (if p (if q (t) (f)) (f)))
-     (equal (or p q) (if p (t) (if q (t) (f))))
-     (equal (not p) (if p (f) (t)))
-     (equal (implies p q) (if p (if q (t) (f)) (t)))
-     (equal (fix x) (if (numberp x) x (zero)))
-     (equal (if (if a b c) d e) (if a (if b d e) (if c d e)))
+     (equal (and p q)
+            (if p
+                (if q
+                    (t)
+                    (f))
+                (f)))
+     (equal (or p q)
+            (if p
+                (t)
+                (if q
+                    (t)
+                    (f))))
+     (equal (not p)
+            (if p
+                (f)
+                (t)))
+     (equal (implies p q)
+            (if p
+                (if q
+                    (t)
+                    (f))
+                (t)))
+     (equal (fix x)
+            (if (numberp x)
+                x
+                (zero)))
+     (equal (if (if a b c) d e)
+            (if a
+                (if b d e)
+                (if c d e)))
      (equal (zerop x) (or (equal x (zero)) (not (numberp x))))
      (equal (plus (plus x y) z) (plus x (plus y z)))
      (equal (equal (plus a b) (zero)) (and (zerop a) (zerop b)))
@@ -194,23 +221,58 @@
      (equal (difference (add1 (add1 x)) 2) (fix x))
      (equal (quotient (plus x (plus x y)) 2) (plus x (quotient y 2)))
      (equal (sigma (zero) i) (quotient (times i (add1 i)) 2))
-     (equal (plus x (add1 y)) (if (numberp y) (add1 (plus x y)) (add1 x)))
-     (equal
-      (equal (difference x y) (difference z y))
-      (if (lessp x y) (not (lessp y z)) (if (lessp z y) (not (lessp y x)) (equal (fix x) (fix z)))))
+     (equal (plus x (add1 y))
+            (if (numberp y)
+                (add1 (plus x y))
+                (add1 x)))
+     (equal (equal (difference x y) (difference z y))
+            (if (lessp x y)
+                (not (lessp y z))
+                (if (lessp z y)
+                    (not (lessp y x))
+                    (equal (fix x) (fix z)))))
      (equal (meaning (plus-tree (delete x y)) a)
             (if (member x y)
                 (difference (meaning (plus-tree y) a) (meaning x a))
                 (meaning (plus-tree y) a)))
-     (equal (times x (add1 y)) (if (numberp y) (plus x (times x y)) (fix x)))
-     (equal (nth (nil) i) (if (zerop i) (nil) (zero)))
-     (equal (last (append a b)) (if (listp b) (last b) (if (listp a) (cons (car (last a)) b) b)))
-     (equal (equal (lessp x y) z) (if (lessp x y) (equal (t) z) (equal (f) z)))
-     (equal (assignment x (append a b)) (if (assignedp x a) (assignment x a) (assignment x b)))
-     (equal (car (gopher x)) (if (listp x) (car (flatten x)) (zero)))
-     (equal (flatten (cdr (gopher x))) (if (listp x) (cdr (flatten x)) (cons (zero) (nil))))
-     (equal (quotient (times y x) y) (if (zerop y) (zero) (fix x)))
-     (equal (get j (set i val mem)) (if (eqp j i) val (get j mem)))))))
+     (equal (times x (add1 y))
+            (if (numberp y)
+                (plus x (times x y))
+                (fix x)))
+     (equal (nth (nil) i)
+            (if (zerop i)
+                (nil)
+                (zero)))
+     (equal (last (append a b))
+            (if (listp b)
+                (last b)
+                (if (listp a)
+                    (cons (car (last a)) b)
+                    b)))
+     (equal (equal (lessp x y) z)
+            (if (lessp x y)
+                (equal (t) z)
+                (equal (f) z)))
+     (equal (assignment x (append a b))
+            (if (assignedp x a)
+                (assignment x a)
+                (assignment x b)))
+     (equal (car (gopher x))
+            (if (listp x)
+                (car (flatten x))
+                (zero)))
+     (equal (flatten (cdr (gopher x)))
+            (if (listp x)
+                (cdr (flatten x))
+                (cons (zero) (nil))))
+     (equal (quotient (times y x) y)
+            (if (zerop y)
+                (zero)
+                (fix x)))
+     (equal (get j (set i val mem))
+            (if (eqp j i)
+                val
+                (get j mem)))))))
 
 (define (add-lemma-lst lst)
   (cond
@@ -310,7 +372,11 @@
 
 (define (apply-subst-impl alist term)
   (cond
-    [(not (pair? term)) (let ([temp-temp (assq term alist)]) (if temp-temp (cdr temp-temp) term))]
+    [(not (pair? term))
+     (let ([temp-temp (assq term alist)])
+       (if temp-temp
+           (cdr temp-temp)
+           term))]
     [else (cons (car term) (apply-subst-lst alist (cdr term)))]))
 
 (define (apply-subst alist term)
@@ -428,14 +494,12 @@
 ;; use these instead.
 
 (define (term-equal? x y)
-  ; (equal? x y))
   (cond
     [(pair? x)
      (and (pair? y) (symbol-record-equal? (car x) (car y)) (term-args-equal? (cdr x) (cdr y)))]
     [else (equal? x y)]))
 
 (define (term-args-equal? lst1 lst2)
-  ; (equal? lst1 lst2))
   (cond
     [(null? lst1) (null? lst2)]
     [(null? lst2) #f]
@@ -447,14 +511,6 @@
     [(null? lst) #f]
     [(term-equal? x (car lst)) #t]
     [else (term-member? x (cdr lst))]))
-
-; (set! setup-boyer
-;       (lambda ()
-;         (set! *symbol-records-alist* '())
-;         (set! if-constructor (symbol->symbol-record 'if))
-;         (set! false-term (translate-term '(f)))
-;         (set! true-term (translate-term '(t)))
-;         (setup)))
 
 (define setup-boyer
   (lambda ()
@@ -469,12 +525,26 @@
     (set! rewrite-count 0)
     (let ([answer (test alist term n)]) (if answer rewrite-count #f))))
 
-; )
+; (define (run-benchmark)
+;   (let* ([count (read)]
+;          [input (read)]
+;          [output (read)]
+;          [s2 (number->string count)]
+;          [s1 (number->string input)]
+;          [name "nboyer"])
+;     (run-r7rs-benchmark (string-append name ":" s1 ":" s2)
+;                         count
+;                         (lambda ()
+;                           (setup-boyer)
+;                           (test-boyer alist term (hide count input)))
+; (lambda (rewrites) (and (number? rewrites) (= rewrites output))))))
+
+; (with-input-from-file "r7rs-benchmarks/inputs/nboyer.input" run-benchmark)
 
 (define (run-benchmark)
-  (let* ([count (read)]
-         [input (read)]
-         [output (read)]
+  (let* ([count 1]
+         [input 0]
+         [output 95024]
          [s2 (number->string count)]
          [s1 (number->string input)]
          [name "nboyer"])
@@ -485,4 +555,4 @@
                           (test-boyer alist term (hide count input)))
                         (lambda (rewrites) (and (number? rewrites) (= rewrites output))))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/nboyer.input" run-benchmark)
+(run-benchmark)

@@ -111,11 +111,29 @@
       ((= i *random-stress-tests*))
       (test-roundtrip (random-bytevector *random-stress-test-max-size*) utf8->string string->utf8)))
 
+; (define (run-benchmark)
+;   (let* ([count (read)]
+;          [input1 (read)]
+;          [input2 (read)]
+;          [output (read)]
+;          [s3 (number->string count)]
+;          [s2 (number->string input2)]
+;          [s1 (number->string input1)]
+;          [name "bv2string"])
+;     (run-r7rs-benchmark (string-append name ":" s1 ":" s2 ":" s3)
+;                         count
+;                         (lambda ()
+;                           (string-bytevector-tests (hide count input1) (hide count input2))
+;                           (length failed-tests))
+;                         (lambda (result) (equal? result output)))))
+
+; (with-input-from-file "r7rs-benchmarks/inputs/bv2string.input" run-benchmark)
+
 (define (run-benchmark)
-  (let* ([count (read)]
-         [input1 (read)]
-         [input2 (read)]
-         [output (read)]
+  (let* ([count 10]
+         [input1 1000]
+         [input2 1000]
+         [output 0]
          [s3 (number->string count)]
          [s2 (number->string input2)]
          [s1 (number->string input1)]
@@ -127,4 +145,4 @@
                           (length failed-tests))
                         (lambda (result) (equal? result output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/bv2string.input" run-benchmark)
+(run-benchmark)

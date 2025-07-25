@@ -33,12 +33,18 @@
 (require "common.scm")
 
 (define (parsing-benchmark . rest)
-  (let* ([n (if (null? rest) 1000 (car rest))]
-         [input (if (or (null? rest) (null? (cdr rest))) "nboyer.sch" (cadr rest))]
+  (let* ([n (if (null? rest)
+                1000
+                (car rest))]
+         [input (if (or (null? rest) (null? (cdr rest)))
+                    "nboyer.sch"
+                    (cadr rest))]
          [input-string (read-file-as-string input)])
     (let loop ([i 0]
                [result #f])
-      (if (= i n) result (loop (+ i 1) (parse-string input-string))))))
+      (if (= i n)
+          result
+          (loop (+ i 1) (parse-string input-string))))))
 
 (define (read-file-as-string name)
   (call-with-input-file name
@@ -121,7 +127,10 @@
           (consumechar)
           (set! string_accumulator_length 0)
           (loop (scanchar))))
-      (let ([c (scanchar)]) (if (char=? c eof) (accept 'eof) (state0 c))))
+      (let ([c (scanchar)])
+        (if (char=? c eof)
+            (accept 'eof)
+            (state0 c))))
 
     (define (state0 c)
       (case c
@@ -941,7 +950,9 @@
     ;; Like append, but allows the last argument to be a non-list.
 
     (define (pseudoAppend vals terminus)
-      (if (null? vals) terminus (cons (car vals) (pseudoAppend (cdr vals) terminus))))
+      (if (null? vals)
+          terminus
+          (cons (car vals) (pseudoAppend (cdr vals) terminus))))
 
     (define (symBackquote)
       'quasiquote)
