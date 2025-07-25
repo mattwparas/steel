@@ -199,15 +199,13 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 ..
                             },
                     })) if *i == *QUOTE => return Ok(()),
-                    Some(ExprKind::Atom(
-                        ident @ Atom {
-                            syn:
-                                SyntaxObject {
-                                    ty: TokenType::Lambda,
-                                    ..
-                                },
-                        },
-                    )) => {
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Lambda,
+                                ..
+                            },
+                    })) => {
                         if let ExprKind::LambdaFunction(mut lambda) =
                             parse_lambda(ident.clone(), std::mem::take(&mut l.args))?
                         {

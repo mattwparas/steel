@@ -1977,11 +1977,11 @@ dependencies = [
 
 [[package]]
 name = "im-lists"
-version = "0.9.0"
-source = "git+https://github.com/mattwparas/im-lists.git?branch=mwp-ptr-eq-exp#f66838495660195461da5e26ede0b9318f9c9094"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b971d2652e5700514cc92ca020dba64c790352af0ff2b9acb7514868a32d6aa"
 dependencies = [
  "smallvec",
- "triomphe",
 ]
 
 [[package]]
@@ -4267,16 +4267,6 @@ checksum = "97d095ae15e245a057c8e8451bab9b3ee1e1f68e9ba2b4fbc18d0ac5237835f2"
 dependencies = [
  "pin-project",
  "tracing",
-]
-
-[[package]]
-name = "triomphe"
-version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef8f7726da4807b58ea5c96fdc122f80702030edc33b35aff9190a51148ccc85"
-dependencies = [
- "serde",
- "stable_deref_trait",
 ]
 
 [[package]]
