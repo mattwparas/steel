@@ -431,11 +431,11 @@ impl ExprKind {
 }
 
 pub trait ToDoc {
-    fn to_doc(&self) -> RcDoc<()>;
+    fn to_doc(&self) -> RcDoc<'_, ()>;
 }
 
 impl ToDoc for ExprKind {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         match self {
             ExprKind::Atom(a) => a.to_doc(),
             ExprKind::If(i) => i.to_doc(),
@@ -533,7 +533,7 @@ impl fmt::Display for Atom {
 }
 
 impl ToDoc for Atom {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text(self.syn.ty.to_string())
     }
 }
@@ -590,7 +590,7 @@ impl fmt::Display for Let {
 }
 
 impl ToDoc for Let {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(%plain-let")
             .append(RcDoc::space())
             .append(RcDoc::text("("))
@@ -646,7 +646,7 @@ impl fmt::Display for Set {
 }
 
 impl ToDoc for Set {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(set!")
             .append(RcDoc::space())
             .append(self.variable.to_doc())
@@ -673,7 +673,7 @@ pub struct If {
 }
 
 impl ToDoc for If {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(if")
             .append(RcDoc::space())
             .append(self.test_expr.to_doc())
@@ -735,7 +735,7 @@ impl fmt::Display for Define {
 }
 
 impl ToDoc for Define {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(define")
             .append(RcDoc::space())
             .append(self.name.to_doc())
@@ -822,7 +822,7 @@ impl fmt::Display for LambdaFunction {
 }
 
 impl ToDoc for LambdaFunction {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         if self.rest && self.args.len() == 1 {
             RcDoc::text("(λ")
                 .append(RcDoc::space())
@@ -922,7 +922,7 @@ impl fmt::Display for Begin {
 }
 
 impl ToDoc for Begin {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(begin")
             .append(RcDoc::line())
             .nest(5)
@@ -962,7 +962,7 @@ impl Return {
 }
 
 impl ToDoc for Return {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(return")
             .append(RcDoc::line())
             .append(self.expr.to_doc())
@@ -996,7 +996,7 @@ impl Require {
 }
 
 impl ToDoc for Require {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(require")
             .append(RcDoc::line())
             .append(
@@ -1069,7 +1069,7 @@ impl fmt::Display for Vector {
 }
 
 impl ToDoc for Vector {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text(self.prefix().as_str())
             .append("(")
             .append(
@@ -1321,7 +1321,7 @@ impl List {
 }
 
 impl ToDoc for List {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         if let Some(func) = self.first_func().filter(|_| !self.improper) {
             let mut args_iter = self.args.iter();
             args_iter.next();
@@ -1425,7 +1425,7 @@ impl Quote {
 }
 
 impl ToDoc for Quote {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(quote")
             .append(RcDoc::line())
             .append(self.expr.to_doc())
@@ -1462,7 +1462,7 @@ impl fmt::Display for Macro {
 }
 
 impl ToDoc for Macro {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(define-syntax")
             .append(RcDoc::line())
             .append(self.name.to_doc())
@@ -1521,7 +1521,7 @@ impl fmt::Display for SyntaxRules {
 }
 
 impl ToDoc for SyntaxRules {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(syntax-rules")
             .append(RcDoc::line())
             .append(RcDoc::text("("))
@@ -1561,7 +1561,7 @@ impl PatternPair {
 }
 
 impl ToDoc for PatternPair {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("[")
             .append(self.pattern.to_doc())
             .append(RcDoc::line())

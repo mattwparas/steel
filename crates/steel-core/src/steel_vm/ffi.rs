@@ -173,7 +173,7 @@ pub trait IntoFFIVal: Sized {
 }
 
 pub trait IntoFFIArg: Sized {
-    fn into_ffi_arg(&self) -> RResult<FFIArg, RBoxError>;
+    fn into_ffi_arg(&self) -> RResult<FFIArg<'_>, RBoxError>;
 }
 
 pub trait FromFFIArg<'a>: Sized {
