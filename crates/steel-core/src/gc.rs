@@ -798,7 +798,7 @@ pub mod unsafe_erased_pointers {
             std::any::type_name::<Self>()
         }
         fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-            Ok(format!("#<{}>", self.name().to_string()))
+            Ok(format!("#<{}>", self.name()))
         }
         fn visit(&self) {}
         fn drop_mut(&mut self, drop_handler: &mut IterativeDropHandler) {}
@@ -812,7 +812,7 @@ pub mod unsafe_erased_pointers {
             self as &mut dyn Any
         }
         fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-            Ok(format!("#<{}>", self.name().to_string()))
+            Ok(format!("#<{}>", self.name()))
         }
         fn visit(&self) {
             self.walk()

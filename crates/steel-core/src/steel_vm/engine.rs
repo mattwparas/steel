@@ -83,7 +83,7 @@ use steel_parser::{
 use crate::parser::ast::IteratorExtensions;
 
 thread_local! {
-    static KERNEL_BIN_FILE: Cell<Option<&'static [u8]>> = Cell::new(None);
+    static KERNEL_BIN_FILE: Cell<Option<&'static [u8]>> = const { Cell::new(None) };
 }
 
 // Install the binary file to be used during bootup

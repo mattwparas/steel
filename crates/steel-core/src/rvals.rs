@@ -207,7 +207,7 @@ pub trait CustomType: MaybeSendSyncStatic {
     }
     fn inner_type_id(&self) -> TypeId;
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-        Ok(format!("#<{}>", self.name().to_string()))
+        Ok(format!("#<{}>", self.name()))
     }
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
@@ -232,7 +232,7 @@ pub trait CustomType {
     }
     fn inner_type_id(&self) -> TypeId;
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-        Ok(format!("#<{}>", self.name().to_string()))
+        Ok(format!("#<{}>", self.name()))
     }
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
@@ -262,7 +262,7 @@ impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
         if let Some(formatted) = self.fmt() {
             formatted
         } else {
-            Ok(format!("#<{}>", self.name().to_string()))
+            Ok(format!("#<{}>", self.name()))
         }
     }
 

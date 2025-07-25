@@ -51,7 +51,7 @@ type DropHandlerChoice = im_lists::handler::DefaultDropHandler;
 type DropHandlerChoice = list_drop_handler::ListDropHandler;
 
 thread_local! {
-    pub static DEPTH: Cell<usize> = Cell::new(0);
+    pub static DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
 pub struct GcPointerType;

@@ -1702,7 +1702,7 @@ thread_local! {
     static LEFT_QUEUE: RefCell<Vec<SteelVal>> = RefCell::new(Vec::with_capacity(128));
     static RIGHT_QUEUE: RefCell<Vec<SteelVal>> = RefCell::new(Vec::with_capacity(128));
     static VISITED_SET: RefCell<fxhash::FxHashSet<(usize, usize)>> = RefCell::new(fxhash::FxHashSet::default());
-    static EQ_DEPTH: Cell<usize> = Cell::new(0);
+    static EQ_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
 fn increment_eq_depth() {

@@ -1199,8 +1199,8 @@ fn collect_bindings(
                     _ => {
                         if let Some(pat) = non_list_match(&children) {
                             collect_bindings(
-                                &[pat.clone()],
-                                &[child.clone()],
+                                std::slice::from_ref(&pat),
+                                std::slice::from_ref(&child),
                                 bindings,
                                 binding_kind,
                                 false,
