@@ -1781,7 +1781,6 @@ impl SteelVal {
             (Closure(l), Closure(r)) => Gc::ptr_eq(l, r),
             (IterV(l), IterV(r)) => Gc::ptr_eq(l, r),
             (ReducerV(l), ReducerV(r)) => Gc::ptr_eq(l, r),
-            #[allow(clippy::ambiguous_wide_pointer_comparisons)]
             (FutureFunc(l), FutureFunc(r)) => crate::gc::Shared::ptr_eq(l, r),
             (FutureV(l), FutureV(r)) => Gc::ptr_eq(l, r),
             (StreamV(l), StreamV(r)) => Gc::ptr_eq(l, r),
