@@ -1695,10 +1695,7 @@ fn multiply_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
             multiply_complex(x, &y)
         }
         (SteelVal::BigRational(x), SteelVal::Rational(y)) => {
-            let mut res = BigRational::new(
-                BigInt::from(x.numer().clone()),
-                BigInt::from(x.denom().clone()),
-            );
+            let mut res = BigRational::new(x.numer().clone(), x.denom().clone());
             res *= BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
             res.into_steelval()
         }

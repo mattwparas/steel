@@ -1800,7 +1800,7 @@ impl Frame {
             _ => {}
         };
 
-        Ok(expr.into())
+        Ok(expr)
     }
 
     fn push(&mut self, expr: ExprKind) -> Result<()> {

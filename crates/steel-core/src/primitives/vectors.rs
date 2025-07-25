@@ -789,7 +789,7 @@ pub fn mut_vector_copy(
                 dest_guard
                     .iter_mut()
                     .skip(dest_start)
-                    .zip(temporary_buffer.into_iter())
+                    .zip(temporary_buffer)
                     .for_each(|(dest, src)| {
                         *dest = src;
                     })

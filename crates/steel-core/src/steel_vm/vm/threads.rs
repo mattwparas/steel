@@ -641,11 +641,11 @@ pub fn channel_try_recv(receiver: &SteelVal) -> Result<SteelVal> {
 #[cfg(not(feature = "sync"))]
 thread_local! {
     static EMPTY_CHANNEL_OBJECT: once_cell::unsync::Lazy<(SteelVal, crate::values::structs::StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
-        crate::values::structs::make_struct_singleton("#%empty-channel".into())
+        crate::values::structs::make_struct_singleton("#%empty-channel")
     });
 
     static DISCONNECTED_CHANNEL_OBJECT: once_cell::unsync::Lazy<(SteelVal, crate::values::structs::StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
-        crate::values::structs::make_struct_singleton("#%disconnected-channel".into())
+        crate::values::structs::make_struct_singleton("#%disconnected-channel")
     });
 }
 
@@ -653,17 +653,15 @@ thread_local! {
 pub static EMPTY_CHANNEL_OBJECT: once_cell::sync::Lazy<(
     SteelVal,
     crate::values::structs::StructTypeDescriptor,
-)> = once_cell::sync::Lazy::new(|| {
-    crate::values::structs::make_struct_singleton("#%empty-channel".into())
-});
+)> =
+    once_cell::sync::Lazy::new(|| crate::values::structs::make_struct_singleton("#%empty-channel"));
 
 #[cfg(feature = "sync")]
 pub static DISCONNECTED_CHANNEL_OBJECT: once_cell::sync::Lazy<(
     SteelVal,
     crate::values::structs::StructTypeDescriptor,
-)> = once_cell::sync::Lazy::new(|| {
-    crate::values::structs::make_struct_singleton("#%empty-channel".into())
-});
+)> =
+    once_cell::sync::Lazy::new(|| crate::values::structs::make_struct_singleton("#%empty-channel"));
 
 /// Returns `#t` if the value is an empty-channel object.
 ///

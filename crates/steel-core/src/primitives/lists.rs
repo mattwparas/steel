@@ -335,7 +335,7 @@ fn range(args: &[SteelVal]) -> Result<SteelVal> {
     }
 
     Ok(SteelVal::ListV(
-        (lower..upper).into_iter().map(SteelVal::IntV).collect(),
+        (lower..upper).map(SteelVal::IntV).collect(),
     ))
 }
 

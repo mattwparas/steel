@@ -1372,7 +1372,7 @@ impl Engine {
         self.with_mut_reference(obj).consume(|engine, args| {
             let mut args = args.into_iter();
 
-            thunk(engine, args.into_iter().next().unwrap_or(SteelVal::Void))
+            thunk(engine, args.next().unwrap_or(SteelVal::Void))
         })
     }
 
@@ -1389,7 +1389,7 @@ impl Engine {
         self.with_immutable_reference(obj).consume(|engine, args| {
             let mut args = args.into_iter();
 
-            thunk(engine, args.into_iter().next().unwrap_or(SteelVal::Void))
+            thunk(engine, args.next().unwrap_or(SteelVal::Void))
         })
     }
 

@@ -80,7 +80,7 @@ impl Completer for RustylineHelper {
         };
         starting.sort_by(compare);
         containing.sort_by(compare);
-        let candidates = starting.into_iter().chain(containing.into_iter());
+        let candidates = starting.into_iter().chain(containing);
 
         // Apply colors to distinguish completion from typed text
         let completions = candidates

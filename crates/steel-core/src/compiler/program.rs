@@ -19,7 +19,7 @@ use crate::{
     rvals::IntoSteelVal,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, convert::TryInto, time::SystemTime};
+use std::{collections::HashMap, time::SystemTime};
 
 #[cfg(feature = "profiling")]
 use std::time::Instant;
@@ -1155,15 +1155,7 @@ fn extract_spans(
         .map(|x| {
             // let len = x.len();
             x.into_iter()
-                .map(|i| {
-                    DenseInstruction::new(
-                        i.op_code,
-                        i.payload_size.try_into().unwrap_or_else(|_| {
-                            println!("{:?}", i);
-                            panic!("Unable to lower instruction to bytecode!")
-                        }),
-                    )
-                })
+                .map(|i| DenseInstruction::new(i.op_code, i.payload_size))
                 .collect()
         })
         .collect();
