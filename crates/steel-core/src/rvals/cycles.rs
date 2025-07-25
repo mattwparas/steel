@@ -523,7 +523,7 @@ struct CycleCollector<'a> {
 impl<'a> CycleCollector<'a> {
     fn add(&mut self, val: (usize, usize), steelval: &SteelVal) -> bool {
         if !self.found_mutable {
-            false;
+            return false;
         }
 
         if self.visited.contains(&val) {
