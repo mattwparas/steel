@@ -195,8 +195,8 @@ fn vector_copy(
                 let copy: Vec<_> = vector
                     .iter()
                     .skip(start)
-                    .cloned()
                     .take(end - start)
+                    .cloned()
                     .collect();
 
                 let vec = ctx.make_mutable_vector(copy);
@@ -231,8 +231,8 @@ fn immutable_vector_copy(vector: &SteelVector, rest: RestArgsIter<'_, isize>) ->
     let copy: Vector<_> = vector
         .iter()
         .skip(start)
-        .cloned()
         .take(end - start)
+        .cloned()
         .collect();
 
     Ok(SteelVal::VectorV(Gc::new(copy).into()))
@@ -789,7 +789,7 @@ pub fn mut_vector_copy(
                 dest_guard
                     .iter_mut()
                     .skip(dest_start)
-                    .zip(temporary_buffer.into_iter())
+                    .zip(temporary_buffer)
                     .for_each(|(dest, src)| {
                         *dest = src;
                     })

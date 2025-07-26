@@ -14,13 +14,13 @@ use steel_derive::{function, native};
 #[cfg(not(feature = "sync"))]
 thread_local! {
     static EOF_OBJECT: once_cell::unsync::Lazy<(SteelVal, StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
-        make_struct_singleton("eof".into())
+        make_struct_singleton("eof")
     });
 }
 
 #[cfg(feature = "sync")]
 pub static EOF_OBJECT: once_cell::sync::Lazy<(SteelVal, StructTypeDescriptor)> =
-    once_cell::sync::Lazy::new(|| make_struct_singleton("eof".into()));
+    once_cell::sync::Lazy::new(|| make_struct_singleton("eof"));
 
 pub fn port_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ports");
@@ -582,7 +582,7 @@ pub fn read_bytes(amt: usize, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal
             if b.is_empty() {
                 Ok(eof_object())
             } else {
-                Ok(SteelVal::ByteVector(SteelByteVector::new(b).into()))
+                Ok(SteelVal::ByteVector(SteelByteVector::new(b)))
             }
         }
         crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),

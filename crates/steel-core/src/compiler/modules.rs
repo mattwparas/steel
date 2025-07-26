@@ -830,7 +830,7 @@ impl ModuleManager {
     ) {
         let module = compiled_modules
             .get_mut(require_for_syntax)
-            .expect(&format!("Module missing!: {:?}", require_for_syntax));
+            .unwrap_or_else(|| panic!("Module missing!: {:?}", require_for_syntax));
 
         let prefix = module.prefix();
 
@@ -880,7 +880,7 @@ impl ModuleManager {
 
         let module = compiled_modules
             .get_mut(require_for_syntax)
-            .expect(&format!("Module missing!: {:?}", require_for_syntax));
+            .unwrap_or_else(|| panic!("Module missing!: {:?}", require_for_syntax));
 
         let mut name_mangler = NameMangler::new(globals, prefix);
 

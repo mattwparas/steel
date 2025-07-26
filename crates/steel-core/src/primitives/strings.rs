@@ -423,15 +423,15 @@ pub fn substring(
 #[function(name = "make-string")]
 pub fn make_string(k: usize, mut c: RestArgsIter<'_, char>) -> Result<SteelVal> {
     // If the char is there, we want to take it
-    let char = c.next();
+    let char = c.next().transpose()?;
 
     // We want the iterator to be exhaused
     if let Some(next) = c.next() {
         stop!(ArityMismatch => format!("make-string expected 1 or 2 arguments, got an additional argument {}", next?))
     }
 
-    let c = char.unwrap_or(Ok('\0'))?;
-    Ok((0..k).into_iter().map(|_| c).collect::<String>().into())
+    let c = char.unwrap_or('\0');
+    Ok(std::iter::repeat_n(c, k).collect::<String>().into())
 }
 
 /// Replaces all occurrences of a pattern into the given string

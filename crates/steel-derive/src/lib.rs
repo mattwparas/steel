@@ -624,7 +624,7 @@ fn arity_code_injection(
     let (name, numb, end_numb) = arity_number
         .strip_suffix(')')
         .and_then(|stripped| stripped.split_once('('))
-        .and_then(|(name, rest)| {
+        .map(|(name, rest)| {
             if let Some((start, end)) = rest.split_once(',') {
                 // Handle Range(start, end)
                 let start = start
@@ -633,13 +633,13 @@ fn arity_code_injection(
                 let end = end
                     .parse::<usize>()
                     .expect("Arity end value must be an integer");
-                Some((name, start, end))
+                (name, start, end)
             } else {
                 // Handle AtLeast(n) or single-value cases
                 let num = rest
                     .parse::<usize>()
                     .expect("Arity value must be an integer");
-                Some((name, num, 0))
+                (name, num, 0)
             }
         })
         .expect("Arity header is wrongly formatted");
