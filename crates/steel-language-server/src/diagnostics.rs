@@ -587,6 +587,7 @@ fn function_contract(expr: &ExprKind) -> Option<steel::rvals::Result<StaticContr
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[allow(unpredictable_function_pointer_comparisons)]
 pub enum TypeInfo {
     // We don't have enough information to say what this type is
     // Either, the function has come externally or it was unable to be inferred for some reason

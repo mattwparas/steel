@@ -890,7 +890,7 @@ mod lexer_tests {
     use crate::tokens::{IntLiteral, TokenType::*};
     use pretty_assertions::assert_eq;
 
-    fn identifier(ident: &str) -> TokenType<Cow<str>> {
+    fn identifier(ident: &str) -> TokenType<Cow<'_, str>> {
         Identifier(ident.into())
     }
 

@@ -55,7 +55,7 @@ use std::io::Read as _;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::{cell::RefCell, collections::HashMap, iter::Iterator, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, iter::Iterator};
 
 use super::engine::EngineId;
 
@@ -189,7 +189,7 @@ fn check_sizes() {
     println!("stack frame: {:?}", std::mem::size_of::<StackFrame>());
     println!(
         "option rc steelval: {:?}",
-        std::mem::size_of::<Option<Rc<SteelVal>>>()
+        std::mem::size_of::<Option<std::rc::Rc<SteelVal>>>()
     );
     println!(
         "option box steelval: {:?}",
@@ -5253,8 +5253,9 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, PartialOrd, Ord, Debug)]
+#[cfg(feature = "dynamic")]
 pub struct InstructionPattern {
-    pub(crate) block: Rc<[(OpCode, usize)]>,
+    pub(crate) block: std::rc::Rc<[(OpCode, usize)]>,
     pub(crate) pattern: BlockPattern,
 }
 

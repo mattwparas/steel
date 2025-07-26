@@ -171,6 +171,7 @@ pub fn get_function_metadata(function: BuiltInFunctionType) -> Option<FunctionSi
 }
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
+#[allow(unpredictable_function_pointer_comparisons)]
 pub enum BuiltInFunctionType {
     Reference(FunctionSignature),
     Mutable(MutFunctionSignature),
