@@ -76,6 +76,7 @@ use parking_lot::{
 use serde::{Deserialize, Serialize};
 use steel_gen::OpCode;
 use steel_parser::{
+    ast::List,
     parser::{SourceId, SyntaxObject},
     tokens::{IntLiteral, TokenType},
 };
@@ -2561,4 +2562,18 @@ mod derive_macro_tests {
             .run(r#"(TestEnumVariants-Ignored "Hello world")"#)
             .is_err())
     }
+}
+
+#[test]
+fn test_steel_quote_macro() {
+    let foobarbaz = ExprKind::atom("foo");
+    let foobarbaz_list = ExprKind::List(List::new(vec![ExprKind::atom("foo")]));
+
+    let expanded = steel_derive::internal_steel_quote! {
+        (define bananas #foobarbaz)
+        (define x (begin @foobarbaz_list ...))
+    }
+    .unwrap();
+
+    println!("{}", expanded);
 }
