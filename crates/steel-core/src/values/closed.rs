@@ -7,7 +7,7 @@ use crate::{
     compiler::map::SymbolMap,
     gc::{
         shared::{MutContainer, ShareableMut, StandardShared, StandardSharedMut, WeakShared},
-        GcMut, Shared, SharedMut,
+        GcMut,
     },
     rvals::{OpaqueIterator, SteelComplex, SteelVector},
     steel_vm::vm::{Continuation, ContinuationMark, Synchronizer},

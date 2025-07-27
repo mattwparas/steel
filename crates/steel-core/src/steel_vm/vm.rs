@@ -8,7 +8,6 @@ use crate::gc::shared::StandardShared;
 use crate::gc::shared::StandardSharedMut;
 use crate::gc::shared::WeakShared;
 use crate::gc::shared::WeakSharedMut;
-use crate::gc::SharedMut;
 use crate::parser::expander::BindingKind;
 use crate::parser::replace_idents::expand_template;
 use crate::primitives::lists::car;
