@@ -4,6 +4,8 @@ use crate::env::SharedVectorWrapper;
 use crate::gc::shared::MutContainer;
 use crate::gc::shared::ShareableMut;
 use crate::gc::shared::Shared;
+use crate::gc::shared::StandardShared;
+use crate::gc::shared::StandardSharedMut;
 use crate::gc::shared::WeakShared;
 use crate::gc::shared::WeakSharedMut;
 use crate::gc::SharedMut;
@@ -202,7 +204,7 @@ fn check_sizes() {
 }
 
 thread_local! {
-    static THE_EMPTY_INSTRUCTION_SET: Shared<[DenseInstruction]> = Shared::from([]);
+    static THE_EMPTY_INSTRUCTION_SET: StandardShared<[DenseInstruction]> = StandardShared::from([]);
 }
 
 impl StackFrame {
@@ -791,7 +793,13 @@ impl SteelThread {
         let result = instructions
             .iter()
             .zip(spans.iter())
-            .map(|x| self.execute(Shared::clone(x.0), constant_map.clone(), Shared::clone(x.1)))
+            .map(|x| {
+                self.execute(
+                    StandardShared::clone(x.0),
+                    constant_map.clone(),
+                    Shared::clone(x.1),
+                )
+            })
             .collect();
 
         self.constant_map = DEFAULT_CONSTANT_MAP.with(|x| x.clone());
@@ -934,7 +942,7 @@ impl SteelThread {
 
     pub fn execute(
         &mut self,
-        instructions: Shared<[DenseInstruction]>,
+        instructions: StandardShared<[DenseInstruction]>,
         constant_map: ConstantMap,
         spans: Shared<[Span]>,
     ) -> Result<SteelVal> {
@@ -949,7 +957,7 @@ impl SteelThread {
         self.current_frame
             .set_function(Gc::new(ByteCodeLambda::rooted(keep_alive.clone())));
 
-        let raw_keep_alive = Shared::into_raw(keep_alive);
+        let raw_keep_alive = StandardShared::into_raw(keep_alive);
 
         // TODO: Figure out how to keep the first set of instructions around
         // during a continuation? Does it get allocated into something? If its the
@@ -1049,7 +1057,7 @@ impl SteelThread {
                 }
 
                 self.stack.clear();
-                unsafe { Shared::from_raw(raw_keep_alive) };
+                unsafe { StandardShared::from_raw(raw_keep_alive) };
 
                 return Err(e);
             } else {
@@ -1059,7 +1067,7 @@ impl SteelThread {
 
                 // Clean up
                 self.stack.clear();
-                unsafe { Shared::from_raw(raw_keep_alive) };
+                unsafe { StandardShared::from_raw(raw_keep_alive) };
 
                 return result;
             }
@@ -1177,8 +1185,8 @@ impl Continuation {
         let maybe_open_mark = (*this.inner.read()).clone().into_open_mark();
 
         if let Some(open) = maybe_open_mark {
-            let strong_count = Shared::strong_count(&this.inner);
-            let weak_count = Shared::weak_count(&this.inner);
+            let strong_count = StandardShared::strong_count(&this.inner);
+            let weak_count = StandardShared::weak_count(&this.inner);
 
             while let Some(stack_frame) = ctx.thread.stack_frames.pop() {
                 ctx.pop_count -= 1;
@@ -1194,7 +1202,7 @@ impl Continuation {
                         .as_ref()
                         .and_then(|x| WeakShared::upgrade(&x.inner))
                 }) {
-                    if Shared::ptr_eq(&mark, &this.inner) {
+                    if StandardShared::ptr_eq(&mark, &this.inner) {
                         if weak_count == 1
                             && strong_count > 1
                             && Self::close_marks(ctx, &stack_frame)
@@ -1260,7 +1268,7 @@ impl Continuation {
 
             panic!("Failed to find an open continuation on the stack");
         } else {
-            match Shared::try_unwrap(this.inner).map(|x| x.into_inner()) {
+            match StandardShared::try_unwrap(this.inner).map(|x| x.into_inner()) {
                 Ok(cont) => {
                     ctx.set_state_from_continuation(cont.into_closed().unwrap());
                 }
@@ -1274,14 +1282,14 @@ impl Continuation {
     }
 
     pub fn ptr_eq(&self, other: &Self) -> bool {
-        Shared::ptr_eq(&self.inner, &other.inner)
+        StandardShared::ptr_eq(&self.inner, &other.inner)
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct Continuation {
     // TODO: This _might_ need to be a weak reference. We'll see!
-    pub(crate) inner: SharedMut<ContinuationMark>,
+    pub(crate) inner: StandardSharedMut<ContinuationMark>,
 }
 
 impl PartialEq for Continuation {
@@ -1300,7 +1308,7 @@ struct WeakContinuation {
 impl WeakContinuation {
     fn from_strong(cont: &Continuation) -> Self {
         Self {
-            inner: Shared::downgrade(&cont.inner),
+            inner: StandardShared::downgrade(&cont.inner),
         }
     }
 }
@@ -1647,7 +1655,7 @@ impl<'a> VmCore<'a> {
     fn new_open_continuation_from_state(&self) -> Continuation {
         let offset = self.get_offset();
         Continuation {
-            inner: Shared::new(MutContainer::new(ContinuationMark::Open(
+            inner: StandardShared::new(MutContainer::new(ContinuationMark::Open(
                 OpenContinuationMark {
                     current_frame: self.thread.stack_frames.last().unwrap().clone(),
                     stack_frame_offset: self.thread.stack.len(),
@@ -1747,7 +1755,7 @@ impl<'a> VmCore<'a> {
                     .as_ref()
                     .and_then(|x| WeakShared::upgrade(&x.inner))
             }) {
-                marks_still_open.insert(Shared::as_ptr(&cont_mark) as usize);
+                marks_still_open.insert(StandardShared::as_ptr(&cont_mark) as usize);
             }
         }
 
@@ -1763,7 +1771,7 @@ impl<'a> VmCore<'a> {
                     .and_then(|x| WeakShared::upgrade(&x.inner))
             }) {
                 // Close frame if the new continuation doesn't have it
-                if !marks_still_open.contains(&(Shared::as_ptr(&cont_mark) as usize)) {
+                if !marks_still_open.contains(&(StandardShared::as_ptr(&cont_mark) as usize)) {
                     self.thread.stack.truncate(frame.sp);
                     self.ip = frame.ip;
                     self.sp = self.get_last_stack_frame_sp();
@@ -4803,7 +4811,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
     let function_id = crate::compiler::code_gen::fresh_function_id();
     let function = Gc::new(ByteCodeLambda::new(
         function_id as _,
-        Shared::from(bytecode),
+        StandardShared::from(bytecode),
         0,
         false,
         CaptureVec::new(),

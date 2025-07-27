@@ -1,5 +1,6 @@
 use crate::core::instructions::u24;
 use crate::core::labels::Expr;
+use crate::gc::shared::StandardShared;
 use crate::gc::Shared;
 use crate::parser::span_visitor::get_span;
 use crate::rvals::Result;
@@ -1108,7 +1109,7 @@ impl RawProgramWithSymbols {
             time_stamp: None,
             instructions: instructions
                 .into_iter()
-                .map(|x| Shared::from(x.into_boxed_slice()))
+                .map(|x| StandardShared::from(x.into_boxed_slice()))
                 .collect(),
             constant_map: self.constant_map,
             spans,
@@ -1179,7 +1180,7 @@ pub struct Executable {
     pub(crate) name: Shared<String>,
     pub(crate) version: Shared<String>,
     pub(crate) time_stamp: Option<SystemTime>, // TODO -> don't use system time, probably not as portable, prefer date time
-    pub(crate) instructions: Vec<Shared<[DenseInstruction]>>,
+    pub(crate) instructions: Vec<StandardShared<[DenseInstruction]>>,
     pub(crate) constant_map: ConstantMap,
     pub(crate) spans: Vec<Shared<[Span]>>,
 }

@@ -54,16 +54,54 @@ thread_local! {
     pub static DEPTH: Cell<usize> = Cell::new(0);
 }
 
+pub struct TriopmhePointerType;
+
+impl PointerFamily for TriopmhePointerType {
+    type Pointer<T: ?Sized> = triomphe::Arc<T>;
+
+    fn new<T>(value: T) -> Self::Pointer<T> {
+        triomphe::Arc::new(value)
+    }
+
+    fn strong_count<T: ?Sized>(this: &Self::Pointer<T>) -> usize {
+        triomphe::Arc::strong_count(this)
+    }
+
+    fn try_unwrap<T>(this: Self::Pointer<T>) -> Option<T> {
+        triomphe::Arc::try_unwrap(this).ok()
+    }
+
+    fn get_mut<T: ?Sized>(this: &mut Self::Pointer<T>) -> Option<&mut T> {
+        triomphe::Arc::get_mut(this)
+    }
+
+    fn ptr_eq<T: ?Sized>(this: &Self::Pointer<T>, other: &Self::Pointer<T>) -> bool {
+        triomphe::Arc::ptr_eq(this, other)
+    }
+
+    fn make_mut<T: Clone>(ptr: &mut Self::Pointer<T>) -> &mut T {
+        triomphe::Arc::make_mut(ptr)
+    }
+
+    fn clone<T: ?Sized>(ptr: &Self::Pointer<T>) -> Self::Pointer<T> {
+        triomphe::Arc::clone(ptr)
+    }
+
+    fn as_ptr<T: ?Sized>(this: &Self::Pointer<T>) -> *const T {
+        triomphe::Arc::as_ptr(this)
+    }
+}
+
 pub struct GcPointerType;
 
 impl PointerFamily for GcPointerType {
-    type Pointer<T> = Gc<T>;
+    type Pointer<T: ?Sized> = Gc<T>;
 
     fn new<T>(value: T) -> Self::Pointer<T> {
         Gc::new(value)
     }
 
-    fn strong_count<T>(this: &Self::Pointer<T>) -> usize {
+    fn strong_count<T: ?Sized>(this: &Self::Pointer<T>) -> usize {
         Gc::strong_count(this)
     }
 
@@ -71,11 +109,11 @@ impl PointerFamily for GcPointerType {
         Gc::try_unwrap(this).ok()
     }
 
-    fn get_mut<T>(this: &mut Self::Pointer<T>) -> Option<&mut T> {
+    fn get_mut<T: ?Sized>(this: &mut Self::Pointer<T>) -> Option<&mut T> {
         Gc::get_mut(this)
     }
 
-    fn ptr_eq<T>(this: &Self::Pointer<T>, other: &Self::Pointer<T>) -> bool {
+    fn ptr_eq<T: ?Sized>(this: &Self::Pointer<T>, other: &Self::Pointer<T>) -> bool {
         Gc::ptr_eq(this, other)
     }
 
@@ -83,11 +121,11 @@ impl PointerFamily for GcPointerType {
         Gc::make_mut(ptr)
     }
 
-    fn clone<T>(ptr: &Self::Pointer<T>) -> Self::Pointer<T> {
+    fn clone<T: ?Sized>(ptr: &Self::Pointer<T>) -> Self::Pointer<T> {
         Gc::clone(ptr)
     }
 
-    fn as_ptr<T>(this: &Self::Pointer<T>) -> *const T {
+    fn as_ptr<T: ?Sized>(this: &Self::Pointer<T>) -> *const T {
         Gc::as_ptr(this)
     }
 }
@@ -133,7 +171,8 @@ mod list_drop_handler {
                                     | SteelVal::BoxedFunction(_)
                                     | SteelVal::MutFunc(_)
                                     | SteelVal::BuiltIn(_)
-                                    | SteelVal::BigNum(_) => continue,
+                                    | SteelVal::BigNum(_)
+                                    | SteelVal::MutableVector(_) => continue,
                                     _ => {
                                         drop_buffer.push_back(value);
                                     }
@@ -159,7 +198,8 @@ mod list_drop_handler {
                                     | SteelVal::BoxedFunction(_)
                                     | SteelVal::MutFunc(_)
                                     | SteelVal::BuiltIn(_)
-                                    | SteelVal::BigNum(_) => continue,
+                                    | SteelVal::BigNum(_)
+                                    | SteelVal::MutableVector(_) => continue,
                                     _ => {
                                         drop_buffer.push_back(value);
                                     }
@@ -187,7 +227,8 @@ mod list_drop_handler {
                             | SteelVal::BoxedFunction(_)
                             | SteelVal::MutFunc(_)
                             | SteelVal::BuiltIn(_)
-                            | SteelVal::BigNum(_) => continue,
+                            | SteelVal::BigNum(_)
+                            | SteelVal::MutableVector(_) => continue,
                             _ => {
                                 drop_buffer.push_back(value);
                             }
@@ -207,7 +248,8 @@ mod list_drop_handler {
 // #[cfg(feature = "sync")]
 // type PointerType = im_lists::shared::ArcPointer;
 
-type PointerType = GcPointerType;
+// type PointerType = GcPointerType;
+type PointerType = TriopmhePointerType;
 
 pub type SteelList<T> = im_lists::list::GenericList<T, PointerType, 4, 2, DefaultDropHandler>;
 

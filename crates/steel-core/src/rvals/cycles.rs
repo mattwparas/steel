@@ -997,7 +997,9 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     // Walk the whole thing! This includes the stack and all the stack frames
     fn visit_continuation(&mut self, continuation: Continuation) {
-        if let Ok(inner) = crate::gc::Shared::try_unwrap(continuation.inner).map(|x| x.consume()) {
+        if let Ok(inner) =
+            crate::gc::shared::StandardShared::try_unwrap(continuation.inner).map(|x| x.consume())
+        {
             match inner {
                 ContinuationMark::Closed(mut inner) => {
                     for value in std::mem::take(&mut inner.stack) {

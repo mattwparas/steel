@@ -57,11 +57,18 @@ pub mod shared {
     #[cfg(not(feature = "sync"))]
     pub type GcMut<T> = Gc<RefCell<T>>;
 
-    #[cfg(feature = "sync")]
-    pub type Shared<T> = Arc<T>;
+    pub type StandardShared<T> = std::sync::Arc<T>;
+    pub type StandardSharedMut<T> = std::sync::Arc<RwLock<T>>;
+
+    // #[cfg(feature = "sync")]
+    // pub type Shared<T> = Arc<T>;
+    // #[cfg(feature = "sync")]
+    // pub type SharedMut<T> = Arc<RwLock<T>>;
 
     #[cfg(feature = "sync")]
-    pub type SharedMut<T> = Arc<RwLock<T>>;
+    pub type Shared<T> = triomphe::Arc<T>;
+    #[cfg(feature = "sync")]
+    pub type SharedMut<T> = triomphe::Arc<RwLock<T>>;
 
     #[cfg(feature = "sync")]
     pub type GcMut<T> = Gc<RwLock<T>>;
@@ -430,7 +437,6 @@ impl<T: Clone> Gc<T> {
 }
 
 impl<T> Gc<T> {
-    // in order to fully sandbox, I have to check the memory limit
     pub fn new(val: T) -> Gc<T> {
         // OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
         Gc(Shared::new(val))
@@ -462,6 +468,22 @@ impl<T> Gc<T> {
         Ok(())
     }
 
+    pub fn try_unwrap(self) -> Result<T, Gc<T>> {
+        Shared::try_unwrap(self.0).map_err(|x| Gc(x))
+    }
+
+    pub fn check_memory() -> Result<usize, SteelErr> {
+        let mem: usize = OBJECT_COUNT.fetch_add(0, Ordering::SeqCst);
+        if mem > MAXIMUM_OBJECTS {
+            stop!(Generic => "ran out of memory!")
+        }
+        Ok(mem)
+    }
+}
+
+impl<T: ?Sized> Gc<T> {
+    // in order to fully sandbox, I have to check the memory limit
+
     pub fn get_mut(&mut self) -> Option<&mut T> {
         Shared::get_mut(&mut self.0)
     }
@@ -474,20 +496,8 @@ impl<T> Gc<T> {
         Shared::as_ptr(&self.0)
     }
 
-    pub fn try_unwrap(self) -> Result<T, Gc<T>> {
-        Shared::try_unwrap(self.0).map_err(|x| Gc(x))
-    }
-
     pub fn strong_count(this: &Self) -> usize {
         Shared::strong_count(&this.0)
-    }
-
-    pub fn check_memory() -> Result<usize, SteelErr> {
-        let mem: usize = OBJECT_COUNT.fetch_add(0, Ordering::SeqCst);
-        if mem > MAXIMUM_OBJECTS {
-            stop!(Generic => "ran out of memory!")
-        }
-        Ok(mem)
     }
 }
 
@@ -497,7 +507,7 @@ impl<T> AsRef<T> for Gc<T> {
     }
 }
 
-impl<T> Deref for Gc<T> {
+impl<T: ?Sized> Deref for Gc<T> {
     type Target = T;
     fn deref(&self) -> &T {
         self.0.deref()
@@ -649,7 +659,9 @@ pub mod unsafe_erased_pointers {
     use crate::rvals::{AsRefSteelValFromRef, MaybeSendSyncStatic};
     use crate::{rerrs::ErrorKind, rvals::AsRefMutSteelValFromRef, SteelErr, SteelVal};
 
-    use super::shared::{MutContainer, ShareableMut as _, WeakShared, WeakSharedMut};
+    use super::shared::{
+        MutContainer, ShareableMut as _, StandardShared, WeakShared, WeakSharedMut,
+    };
     use super::{Gc, Shared};
 
     // TODO: This needs to be exanded to n args, probably like 8 with a macro
@@ -679,14 +691,14 @@ pub mod unsafe_erased_pointers {
 
             // Wrap the original mutable pointer in an object that respects borrowing
             // rules for runtime borrow checking
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let borrowed = BorrowedObject::new(weak_ptr);
 
             let erased2 = original_b as *mut _;
-            let wrapped2 = Shared::new(MutContainer::new(erased2));
-            let weak_ptr2 = Shared::downgrade(&wrapped2);
+            let wrapped2 = StandardShared::new(MutContainer::new(erased2));
+            let weak_ptr2 = StandardShared::downgrade(&wrapped2);
 
             let borrowed2 = BorrowedObject::new(weak_ptr2);
 
@@ -714,8 +726,8 @@ pub mod unsafe_erased_pointers {
 
             // Wrap the original mutable pointer in an object that respects borrowing
             // rules for runtime borrow checking
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, Arc::new(Mutex::new(0)));
 
@@ -731,8 +743,8 @@ pub mod unsafe_erased_pointers {
 
             // Wrap the original mutable pointer in an object that respects borrowing
             // rules for runtime borrow checking
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let borrowed = BorrowedObject::new(weak_ptr);
 
@@ -836,7 +848,7 @@ pub mod unsafe_erased_pointers {
     /// to be run over this pool - just check the amount of weak pointer allocations to each allocation
     /// and drop those from the vec.
     pub(crate) struct TemporaryObject<T> {
-        pub(crate) ptr: Shared<MutContainer<*mut T>>,
+        pub(crate) ptr: StandardShared<MutContainer<*mut T>>,
     }
 
     #[cfg(feature = "sync")]
@@ -846,7 +858,7 @@ pub mod unsafe_erased_pointers {
 
     // TODO: Probably combine this and the above
     pub(crate) struct ReadOnlyTemporaryObject<T> {
-        pub(crate) ptr: Shared<MutContainer<*const T>>,
+        pub(crate) ptr: StandardShared<MutContainer<*const T>>,
     }
 
     #[cfg(feature = "sync")]
@@ -857,7 +869,7 @@ pub mod unsafe_erased_pointers {
     // Not a reference explicitly. This might contain a reference, but on its own it is a
     // value type. This should probably only deal with immutable references for now.
     pub(crate) struct Temporary<T> {
-        pub(crate) ptr: Shared<T>,
+        pub(crate) ptr: StandardShared<T>,
     }
 
     // #[cfg(feature = "sync")]
@@ -872,7 +884,7 @@ pub mod unsafe_erased_pointers {
     impl<T: MaybeSendSyncStatic> TemporaryObject<T> {
         pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
-                inner: Shared::new(self),
+                inner: StandardShared::new(self),
             }
         }
     }
@@ -880,7 +892,7 @@ pub mod unsafe_erased_pointers {
     impl<T: MaybeSendSyncStatic> ReadOnlyTemporaryObject<T> {
         pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
-                inner: Shared::new(self),
+                inner: StandardShared::new(self),
             }
         }
     }
@@ -888,7 +900,7 @@ pub mod unsafe_erased_pointers {
     impl<T: MaybeSendSyncStatic> Temporary<T> {
         pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
-                inner: Shared::new(self),
+                inner: StandardShared::new(self),
             }
         }
     }
@@ -910,7 +922,7 @@ pub mod unsafe_erased_pointers {
     impl<T: MaybeSendSyncStatic> ReadOnlyTemporary<T> {
         pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
-                inner: Shared::new(self),
+                inner: StandardShared::new(self),
             }
         }
     }
@@ -953,7 +965,7 @@ pub mod unsafe_erased_pointers {
     impl<T: 'static> ReadOnlyBorrowedObject<T> {
         pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
-                inner: Shared::new(self),
+                inner: StandardShared::new(self),
             }
         }
     }
@@ -1089,7 +1101,7 @@ pub mod unsafe_erased_pointers {
     impl<T: 'static> BorrowedObject<T> {
         pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
-                inner: Shared::new(self),
+                inner: StandardShared::new(self),
             }
         }
     }
@@ -1101,7 +1113,8 @@ pub mod unsafe_erased_pointers {
 
     pub(crate) trait Opaque {}
 
-    impl<T> Opaque for Shared<MutContainer<T>> {}
+    // impl<T> Opaque for Shared<MutContainer<T>> {}
+    impl<T> Opaque for StandardShared<MutContainer<T>> {}
 
     // TODO: Use this to chain multiple references together. The engine should be able to accept something
     // `with_reference` and then have the value be scoped to that lifetime.
@@ -1175,8 +1188,8 @@ pub mod unsafe_erased_pointers {
 
             // Wrap the original mutable pointer in an object that respects borrowing
             // rules for runtime borrow checking
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let borrowed = BorrowedObject::new(weak_ptr);
 
@@ -1212,8 +1225,8 @@ pub mod unsafe_erased_pointers {
 
             // Wrap the original mutable pointer in an object that respects borrowing
             // rules for runtime borrow checking
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, Arc::new(Mutex::new(0)));
             // let borrowed = ReadOnlyBorrowedObject::new(weak_ptr);
@@ -1296,7 +1309,7 @@ pub mod unsafe_erased_pointers {
         #[cfg(not(feature = "sync"))]
         inner: Shared<dyn ReferenceCustomType + 'a>,
         #[cfg(feature = "sync")]
-        inner: Shared<dyn ReferenceCustomType + 'a + Send + Sync>,
+        inner: StandardShared<dyn ReferenceCustomType + 'a + Send + Sync>,
     }
 
     impl OpaqueReference<'static> {
@@ -1305,7 +1318,7 @@ pub mod unsafe_erased_pointers {
         }
 
         pub fn drop_mut(&mut self, drop_handler: &mut IterativeDropHandler) {
-            if let Some(inner) = Shared::get_mut(&mut self.inner) {
+            if let Some(inner) = StandardShared::get_mut(&mut self.inner) {
                 inner.drop_mut(drop_handler);
             }
         }
@@ -1384,7 +1397,7 @@ pub mod unsafe_erased_pointers {
                     // The way to fix it is to have a separate trait, with a return type
                     // more akin to a an owned borrow of some kind (like Ref from borrow() on refcell)
                     // This is super suspect but we'll move on for now
-                    return guard.map(|x| unsafe { &*(Shared::as_ptr(&x)) });
+                    return guard.map(|x| unsafe { &*(StandardShared::as_ptr(&x)) });
                 } else {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",

@@ -1578,11 +1578,19 @@ impl From<Arc<String>> for SteelString {
     }
 }
 
+#[cfg(feature = "sync")]
+impl From<std::sync::Arc<String>> for SteelString {
+    fn from(value: Arc<String>) -> Self {
+        SteelString(Gc(triomphe::Arc::new((*value).clone())))
+    }
+}
+
 impl SteelString {
     pub(crate) fn to_arc_string(&self) -> Arc<String> {
         #[cfg(feature = "sync")]
         {
-            self.0 .0.clone()
+            // self.0 .0.clone()
+            Arc::new(self.0.unwrap())
         }
         #[cfg(not(feature = "sync"))]
         Arc::new(self.0.unwrap())
