@@ -60,7 +60,7 @@ smallvec = { version = "1.13.0" }
 # Pretty printing documentation
 termimad = { version = "0.31.1", optional = true }
 
-triomphe = "0.1.14"
+triomphe = { version = "0.1.14", optional = true }
 
 # FFI for dylibs
 abi_stable = { version = "0.11.2", optional = true }
@@ -145,6 +145,7 @@ experimental-drop-handler = []
 unsandboxed-kernel = []
 inline-captures = []
 experimental = []
+triomphe = ["dep:triomphe"]
 
 [[bench]]
 name = "my_benchmark"

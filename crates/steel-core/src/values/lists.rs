@@ -54,8 +54,10 @@ thread_local! {
     pub static DEPTH: Cell<usize> = Cell::new(0);
 }
 
+#[cfg(feature = "triomphe")]
 pub struct TriopmhePointerType;
 
+#[cfg(feature = "triomphe")]
 impl PointerFamily for TriopmhePointerType {
     type Pointer<T: ?Sized> = triomphe::Arc<T>;
 
@@ -242,13 +244,10 @@ mod list_drop_handler {
     }
 }
 
-// #[cfg(not(feature = "sync"))]
-// type PointerType = im_lists::shared::RcPointer;
+#[cfg(not(feature = "triomphe"))]
+type PointerType = GcPointerType;
 
-// #[cfg(feature = "sync")]
-// type PointerType = im_lists::shared::ArcPointer;
-
-// type PointerType = GcPointerType;
+#[cfg(feature = "triomphe")]
 type PointerType = TriopmhePointerType;
 
 pub type SteelList<T> = im_lists::list::GenericList<T, PointerType, 4, 2, DefaultDropHandler>;

@@ -1578,7 +1578,7 @@ impl From<Arc<String>> for SteelString {
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(all(feature = "sync", feature = "triomphe"))]
 impl From<std::sync::Arc<String>> for SteelString {
     fn from(value: Arc<String>) -> Self {
         SteelString(Gc(triomphe::Arc::new((*value).clone())))

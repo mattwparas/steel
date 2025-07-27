@@ -60,14 +60,14 @@ pub mod shared {
     pub type StandardShared<T> = std::sync::Arc<T>;
     pub type StandardSharedMut<T> = std::sync::Arc<RwLock<T>>;
 
-    // #[cfg(feature = "sync")]
-    // pub type Shared<T> = Arc<T>;
-    // #[cfg(feature = "sync")]
-    // pub type SharedMut<T> = Arc<RwLock<T>>;
+    #[cfg(all(feature = "sync", not(feature = "triomphe")))]
+    pub type Shared<T> = Arc<T>;
+    #[cfg(all(feature = "sync", not(feature = "triomphe")))]
+    pub type SharedMut<T> = Arc<RwLock<T>>;
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", feature = "triomphe"))]
     pub type Shared<T> = triomphe::Arc<T>;
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", feature = "triomphe"))]
     pub type SharedMut<T> = triomphe::Arc<RwLock<T>>;
 
     #[cfg(feature = "sync")]
