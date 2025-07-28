@@ -803,6 +803,8 @@ impl SteelThread {
 
         self.constant_map = DEFAULT_CONSTANT_MAP.with(|x| x.clone());
 
+        // super::profiling::profiling_report();
+
         result
     }
 
@@ -2246,6 +2248,9 @@ impl<'a> VmCore<'a> {
         loop {
             self.safepoint_or_interrupt()?;
 
+            // #[cfg(feature = "op-code-profiling")]
+            // crate::steel_vm::profiling::record_start_op(self.instructions[self.ip]);
+
             // Process the op code
             // TODO: Just build up a slice, don't directly store the full vec of op codes
 
@@ -2857,6 +2862,52 @@ impl<'a> VmCore<'a> {
                 //     self.handle_lazy_function_call(func, local_value, const_val)?;
                 // }
                 DenseInstruction {
+                    op_code: OpCode::READLOCAL0CALLGLOBAL,
+                    // payload_size,
+                    ..
+                } => {
+                    // Handling the local
+                    let offset = self.get_offset();
+                    let value = self.thread.stack[offset].clone();
+                    self.thread.stack.push(value);
+                    self.ip += 1;
+
+                    //
+                    let payload_size = self.instructions[self.ip].payload_size;
+                    self.ip += 1;
+                    let next_inst = self.instructions[self.ip];
+
+                    // TODO: Handle lazy function call instead to avoid pushing on
+                    // to the stack if necessary
+                    self.handle_call_global(
+                        payload_size.to_usize(),
+                        next_inst.payload_size.to_usize(),
+                    )?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::READLOCAL1CALLGLOBAL,
+                    // payload_size,
+                    ..
+                } => {
+                    let offset = self.get_offset();
+                    let value = self.thread.stack[offset + 1].clone();
+                    self.thread.stack.push(value);
+                    self.ip += 1;
+
+                    // assert!(self.ip + 2 < self.instructions.len());
+
+                    let payload_size = self.instructions[self.ip].payload_size;
+                    self.ip += 1;
+                    let next_inst = self.instructions[self.ip];
+
+                    self.handle_call_global(
+                        payload_size.to_usize(),
+                        next_inst.payload_size.to_usize(),
+                    )?;
+                }
+
+                DenseInstruction {
                     op_code: OpCode::CALLGLOBAL,
                     payload_size,
                     ..
@@ -3195,6 +3246,9 @@ impl<'a> VmCore<'a> {
                     // );
                 }
             }
+
+            // #[cfg(feature = "op-code-profiling")]
+            // crate::steel_vm::profiling::record_next_op(self.instructions[self.ip]);
         }
     }
 
@@ -6322,7 +6376,26 @@ fn number_equality_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 }
 
 fn list_handler(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, new_list, payload);
+    // handler_inline_primitive_payload!(ctx, new_list, payload);
+    let last_index = ctx.thread.stack.len() - payload;
+    let remaining = ctx.thread.stack.split_off(last_index);
+    let list = SteelVal::ListV(remaining.into());
+    ctx.thread.stack.push(list);
+
+    ctx.ip += 2;
+
+    // let result = match $name(&mut $ctx.thread.stack[last_index..]) {
+    //     Ok(value) => value,
+    //     Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
+    // };
+
+    // This is the old way... lets see if the below way improves the speed
+    // $ctx.thread.stack.truncate(last_index);
+    // $ctx.thread.stack.push(result);
+
+    // $ctx.thread.stack.truncate(last_index + 1);
+    // *$ctx.thread.stack.last_mut().unwrap() = result;
+
     Ok(())
 }
 

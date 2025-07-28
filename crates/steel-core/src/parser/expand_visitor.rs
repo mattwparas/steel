@@ -85,6 +85,7 @@ pub fn extract_macro_defs(
 pub fn expand(expr: &mut ExprKind, map: &FxHashMap<InternedString, SteelMacro>) -> Result<()> {
     let mut expander = Expander {
         depth: 0,
+        overlay: None,
         map,
         changed: false,
         in_scope_values: ScopeSet::default(),
@@ -100,6 +101,7 @@ pub fn expand_with_source_id(
 ) -> Result<()> {
     let mut expander = Expander {
         depth: 0,
+        overlay: None,
         map,
         changed: false,
         in_scope_values: ScopeSet::default(),
@@ -111,6 +113,7 @@ pub fn expand_with_source_id(
 
 pub struct Expander<'a> {
     map: &'a FxHashMap<InternedString, SteelMacro>,
+    overlay: Option<&'a FxHashMap<InternedString, SteelMacro>>,
     pub(crate) changed: bool,
     // We're going to actually check if the macro is in scope
     in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
@@ -122,6 +125,21 @@ impl<'a> Expander<'a> {
     pub fn new(map: &'a FxHashMap<InternedString, SteelMacro>) -> Self {
         Self {
             map,
+            overlay: None,
+            changed: false,
+            in_scope_values: ScopeSet::default(),
+            source_id: SourceId::none(),
+            depth: 0,
+        }
+    }
+
+    pub fn new_with_overlay(
+        map: &'a FxHashMap<InternedString, SteelMacro>,
+        overlay: &'a FxHashMap<InternedString, SteelMacro>,
+    ) -> Self {
+        Self {
+            map,
+            overlay: Some(overlay),
             changed: false,
             in_scope_values: ScopeSet::default(),
             source_id: SourceId::none(),
@@ -234,12 +252,18 @@ impl<'a> VisitorMutRef for Expander<'a> {
                     })) => {
                         // if s.resolve().ends_with("skip-compile") {
                         //     println!("visiting {}", s.resolve());
-                        // for key in self.map.keys() {
-                        // println!("{}", key.resolve());
-                        // }
+                        //     // for key in self.map.keys() {
+                        //     //     println!("{}", key.resolve());
+                        //     // }
                         // }
 
-                        if let Some(m) = self.map.get(s) {
+                        // Interweave the macro expansion
+                        if let Some(m) = self
+                            .overlay
+                            .as_ref()
+                            .and_then(|x| x.get(s))
+                            .or_else(|| self.map.get(s))
+                        {
                             // If this macro has been overwritten by any local value, respect
                             // the local binding and do not expand the macro
                             if !self.in_scope_values.contains(s) && self.source_id.is_none()

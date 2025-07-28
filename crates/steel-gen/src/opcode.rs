@@ -123,7 +123,9 @@ declare_opcodes! {
         BINOPADDTAIL;
         LOADINT0POP; // Load const 0
         LOADINT1POP;
-        LOADINT2POP
+        LOADINT2POP;
+        READLOCAL0CALLGLOBAL;
+        READLOCAL1CALLGLOBAL
     }
 
     // Super instructions
