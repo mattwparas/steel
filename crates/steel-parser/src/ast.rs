@@ -1555,8 +1555,24 @@ pub struct PatternPair {
 }
 
 impl PatternPair {
-    pub fn new(pattern: ExprKind, body: ExprKind) -> Self {
-        PatternPair { pattern, body }
+    pub fn new(pattern: ExprKind, body: ExprKind) -> Result<Self, ParseError> {
+        if let Some(list) = pattern.list() {
+            if list.is_empty() {
+                return Err(ParseError::SyntaxError(
+                    "syntax-rules expects a non empty list for the pattern".to_string(),
+                    list.location,
+                    None,
+                ));
+            }
+        } else {
+            return Err(ParseError::SyntaxError(
+                "syntax-rules expects a list for the pattern".to_string(),
+                pattern.span().unwrap_or_default(),
+                None,
+            ));
+        }
+
+        Ok(PatternPair { pattern, body })
     }
 }
 
@@ -2250,7 +2266,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     let pair_object = PatternPair::new(
                                         pair_iter.next().unwrap(),
                                         pair_iter.next().unwrap(),
-                                    );
+                                    )?;
                                     pairs.push(pair_object);
                                 } else {
                                     return Err(ParseError::SyntaxError(
@@ -2301,7 +2317,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     let pair_object = PatternPair::new(
                                         pair_iter.next().unwrap(),
                                         pair_iter.next().unwrap(),
-                                    );
+                                    )?;
                                     pairs.push(pair_object);
                                 } else {
                                     return Err(ParseError::SyntaxError(
