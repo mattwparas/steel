@@ -234,8 +234,10 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
                 }),
             ..
         } => {
-            let contents = fs::read_to_string(&path)?;
-            let program = vm.emit_raw_program(contents.clone(), path.clone());
+            // let contents = fs::read_to_string(&path)?;
+
+            let program =
+                vm.emit_raw_program_no_path(format!("(require \"{}\")", path.to_str().unwrap()));
 
             match program {
                 Ok(program) => {

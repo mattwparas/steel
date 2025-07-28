@@ -125,7 +125,8 @@ declare_opcodes! {
         LOADINT1POP;
         LOADINT2POP;
         READLOCAL0CALLGLOBAL;
-        READLOCAL1CALLGLOBAL
+        READLOCAL1CALLGLOBAL;
+        LISTREF
     }
 
     // Super instructions

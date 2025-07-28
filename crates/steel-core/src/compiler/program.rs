@@ -287,7 +287,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                             }
                         }
 
-                        _ if ident == *SETBOX || ident == *PRIM_SETBOX && arity == 1 => {
+                        _ if ident == *SETBOX || ident == *PRIM_SETBOX && arity == 2 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::SETBOX;
                                 continue;
@@ -306,6 +306,13 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::LIST;
                                 x.payload_size = u24::from_usize(arity);
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *PRIM_LIST_REF && arity == 2 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::LISTREF;
                                 continue;
                             }
                         }
@@ -368,7 +375,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                     ..
                 }),
             ) => {
-                let arity = *arity;
+                let arity = arity.to_usize();
                 let index = *index;
 
                 if let TokenType::Identifier(ident) = ident.ty {
@@ -381,30 +388,37 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                             }
                         }
 
-                        _ if ident == *BOX || ident == *PRIM_BOX => {
+                        _ if ident == *BOX || ident == *PRIM_BOX && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::NEWBOX;
                                 continue;
                             }
                         }
 
-                        _ if ident == *UNBOX || ident == *PRIM_UNBOX => {
+                        _ if ident == *UNBOX || ident == *PRIM_UNBOX && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::UNBOX;
                                 continue;
                             }
                         }
 
-                        _ if ident == *SETBOX || ident == *PRIM_SETBOX => {
+                        _ if ident == *SETBOX || ident == *PRIM_SETBOX && arity == 2 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::SETBOX;
                                 continue;
                             }
                         }
 
-                        _ if ident == *PRIM_CAR => {
+                        _ if ident == *PRIM_CAR && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CAR;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *PRIM_LIST_REF && arity == 2 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::LISTREF;
                                 continue;
                             }
                         }
@@ -412,7 +426,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                         _ if ident == *PRIM_LIST_SYMBOL => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::LIST;
-                                x.payload_size = arity;
+                                x.payload_size = u24::from_usize(arity);
                                 continue;
                             }
                         }
@@ -522,6 +536,7 @@ define_symbols! {
     PRIM_CONS_SYMBOL => "#%prim.cons",
     LIST_SYMBOL => "list",
     PRIM_LIST_SYMBOL => "#%prim.list",
+    PRIM_LIST_REF => "#%prim.list-ref",
     BOX => "#%box",
     PRIM_BOX => "#%prim.box",
     UNBOX => "#%unbox",

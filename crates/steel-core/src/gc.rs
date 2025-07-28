@@ -57,8 +57,17 @@ pub mod shared {
     #[cfg(not(feature = "sync"))]
     pub type GcMut<T> = Gc<RefCell<T>>;
 
+    #[cfg(feature = "sync")]
     pub type StandardShared<T> = std::sync::Arc<T>;
+
+    #[cfg(feature = "sync")]
     pub type StandardSharedMut<T> = std::sync::Arc<RwLock<T>>;
+
+    #[cfg(not(feature = "sync"))]
+    pub type StandardShared<T> = std::rc::Rc<T>;
+
+    #[cfg(not(feature = "sync"))]
+    pub type StandardSharedMut<T> = std::rc::Rc<RefCell<T>>;
 
     #[cfg(all(feature = "sync", not(feature = "triomphe")))]
     pub type Shared<T> = Arc<T>;

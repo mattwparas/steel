@@ -13,8 +13,8 @@ use crate::parser::replace_idents::expand_template;
 use crate::primitives::lists::car;
 use crate::primitives::lists::cdr;
 use crate::primitives::lists::is_empty;
-use crate::primitives::lists::new as new_list;
 use crate::primitives::lists::steel_cons;
+use crate::primitives::lists::steel_list_ref;
 use crate::primitives::numbers::add_two;
 use crate::rvals::as_underlying_type;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
@@ -2402,6 +2402,13 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     list_handler(self, payload_size.to_usize())?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::LISTREF,
+                    ..
+                } => {
+                    listref_handler(self)?;
                 }
 
                 DenseInstruction {
@@ -6375,6 +6382,11 @@ fn number_equality_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     Ok(())
 }
 
+fn listref_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, steel_list_ref, 2);
+    Ok(())
+}
+
 fn list_handler(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     // handler_inline_primitive_payload!(ctx, new_list, payload);
     let last_index = ctx.thread.stack.len() - payload;
@@ -6383,18 +6395,6 @@ fn list_handler(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     ctx.thread.stack.push(list);
 
     ctx.ip += 2;
-
-    // let result = match $name(&mut $ctx.thread.stack[last_index..]) {
-    //     Ok(value) => value,
-    //     Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
-    // };
-
-    // This is the old way... lets see if the below way improves the speed
-    // $ctx.thread.stack.truncate(last_index);
-    // $ctx.thread.stack.push(result);
-
-    // $ctx.thread.stack.truncate(last_index + 1);
-    // *$ctx.thread.stack.last_mut().unwrap() = result;
 
     Ok(())
 }
