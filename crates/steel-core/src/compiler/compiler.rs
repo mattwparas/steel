@@ -2,7 +2,7 @@ use crate::{
     compiler::{
         constants::ConstantMap,
         map::SymbolMap,
-        modules::MANGLER_PREFIX,
+        modules::{MANGLER_PREFIX, MANGLER_SEPARATOR},
         passes::{
             analysis::SemanticAnalysis, begin::flatten_begins_and_expand_defines,
             shadow::RenameShadowedVariables, VisitorMutRefUnit, VisitorMutUnitRef,
@@ -266,8 +266,17 @@ impl DebruijnIndicesInterner {
 
                     if flat_define.is_some() && self.second_pass_defines.get(s).is_none() {
                         if depth == 0 {
+                            let formatted = if s.resolve().starts_with(MANGLER_PREFIX) {
+                                s.resolve()
+                                    .split_once(MANGLER_SEPARATOR)
+                                    .map(|x| x.1)
+                                    .unwrap_or(s.resolve())
+                            } else {
+                                s.resolve()
+                            };
+
                             let message = format!(
-                                "Cannot reference an identifier before its definition: {s}"
+                                "Cannot reference an identifier before its definition: {formatted}"
                             );
                             stop!(FreeIdentifier => message; *span);
                         } else {
@@ -286,8 +295,17 @@ impl DebruijnIndicesInterner {
                             if flat_define.kind == DefineKind::Flat
                                 && flat_define.location < (index, i)
                             {
+                                let formatted = if s.resolve().starts_with(MANGLER_PREFIX) {
+                                    s.resolve()
+                                        .split_once(MANGLER_SEPARATOR)
+                                        .map(|x| x.1)
+                                        .unwrap_or(s.resolve())
+                                } else {
+                                    s.resolve()
+                                };
+
                                 let message = format!(
-                                    "Cannot reference an identifier before its definition: {s}"
+                                    "Cannot reference an identifier before its definition: {formatted}"
                                 );
                                 stop!(FreeIdentifier => message; *span);
                             }
@@ -325,8 +343,18 @@ impl DebruijnIndicesInterner {
                         && self.second_pass_defines.get(s).is_none()
                         && depth == 0
                     {
-                        let message =
-                            format!("Cannot reference an identifier before its definition: {s}");
+                        let formatted = if s.resolve().starts_with(MANGLER_PREFIX) {
+                            s.resolve()
+                                .split_once(MANGLER_SEPARATOR)
+                                .map(|x| x.1)
+                                .unwrap_or(s.resolve())
+                        } else {
+                            s.resolve()
+                        };
+
+                        let message = format!(
+                            "Cannot reference an identifier before its definition: {formatted}"
+                        );
                         stop!(FreeIdentifier => message; *span);
                     }
 
