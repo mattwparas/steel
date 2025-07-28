@@ -1416,7 +1416,7 @@ pub fn lower_syntax_rules(expr: ExprKind) -> Result<SyntaxRules> {
 
             let mut pair_iter = l.args.into_iter();
             let pair_object =
-                PatternPair::new(pair_iter.next().unwrap(), pair_iter.next().unwrap());
+                PatternPair::new(pair_iter.next().unwrap(), pair_iter.next().unwrap())?;
             pairs.push(pair_object);
         } else {
             return Err(ParseError::SyntaxError(

@@ -157,4 +157,5 @@ test_harness_failure! {
     local_define_does_not_escape_non_const,
     local_struct_inaccessible,
     require_only_in_missing_identifier,
+    syntax_rules_empty_list,
 }
