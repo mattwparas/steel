@@ -556,20 +556,6 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                                 ..
                             },
                     })) => {
-                        // if s.resolve().ends_with("skip-compile") {
-                        //     println!("visiting {}", s.resolve());
-
-                        //     if let Some(overlay) = self.overlay.as_ref() {
-                        //         for key in overlay.keys() {
-                        //             println!("Overlay: {}", key.resolve());
-                        //         }
-                        //     }
-
-                        //     for key in self.map.keys() {
-                        //         println!("{}", key.resolve());
-                        //     }
-                        // }
-
                         let mut found_index = None;
 
                         // Interweave the macro expansion

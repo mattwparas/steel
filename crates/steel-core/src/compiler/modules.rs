@@ -46,7 +46,7 @@ use super::{
     passes::{
         analysis::is_a_builtin_definition,
         begin::FlattenBegin,
-        mangle::{collect_globals, NameMangler, NameUnMangler},
+        mangle::{collect_globals, NameMangler},
     },
     program::{FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
 };
@@ -2248,6 +2248,7 @@ impl<'a> ModuleBuilder<'a> {
             }
         }
 
+        // TODO: Provides also need to have this kind of macro expansion as the above!
         for expr in provides.iter_mut() {
             expand(expr, &self.macro_map)?;
             // .and_then(|x| {
@@ -2340,47 +2341,6 @@ impl<'a> ModuleBuilder<'a> {
             }
         }
 
-        // for expr in ast.iter_mut() {
-        //     println!("Expanding: {}", expr);
-
-        //     // let mut expander = Expander::new
-
-        //     for req_macro in &mut required_macros {
-        //         let mut expander =
-        //             Expander::new_with_overlay(&req_macro.in_scope_macros, &self.macro_map);
-        //         expander.expand(expr)?;
-
-        //         expand_kernel_in_env(
-        //             expr,
-        //             self.kernel.as_mut(),
-        //             self.builtin_modules.clone(),
-        //             // Expanding macros in the environment?
-        //             self.name.to_str().unwrap(),
-        //         )?;
-
-        //         expand(expr, &self.macro_map)?;
-
-        //         if expander.changed {
-        //             // let source_id = self.sources.get_source_id(&module.name).unwrap();
-
-        //             expand(expr, &req_macro.module_macros)?;
-
-        //             // Expanding the kernel with only these macros...
-        //             let changed = expand_kernel_in_env_with_change(
-        //                 expr,
-        //                 self.kernel.as_mut(),
-        //                 // We don't need to expand those here
-        //                 ModuleContainer::default(),
-        //                 &req_macro.module_name,
-        //             )?;
-
-        //             if changed {
-        //                 req_macro.name_mangler.visit(expr);
-        //             }
-        //         }
-        //     }
-        // }
-
         for req_macro in &mut required_macros {
             for expr in provides.iter_mut() {
                 // First expand the in scope macros
@@ -2393,86 +2353,6 @@ impl<'a> ModuleBuilder<'a> {
                 }
             }
         }
-
-        // TODO:
-        // Interleave the expansion so that it all happens at the same time.
-        // We don't need to expand everything so much, but we do want to expand
-        // everything within a certain require object simultaneously; but we
-        // only want things from that scope to be expanded at a time.
-
-        // Look for the modules in the requires for syntax
-        /*
-        for require_object in self.require_objects.iter() {
-            let require_for_syntax = require_object.path.get_path();
-
-            if let PathOrBuiltIn::Path(_) = &require_object.path {
-                downstream.push(require_for_syntax.clone().into_owned());
-            }
-
-            let (module, in_scope_macros, mut name_mangler) = ModuleManager::find_in_scope_macros(
-                self.compiled_modules,
-                require_for_syntax.as_ref(),
-                &require_object,
-                &mut mangled_asts,
-            );
-
-            // let kernel_macros_in_scope: HashSet<_> =
-            //     module.provides_for_syntax.iter().cloned().collect();
-
-            // let module_name = Cow::from(module.name.to_str().unwrap().to_string());
-
-            for expr in ast.iter_mut() {
-                // TODO: Expand with the overlay properly
-                let mut expander = Expander::new_with_overlay(&in_scope_macros, &self.macro_map);
-                expander.expand(expr)?;
-
-                expand_kernel_in_env(
-                    expr,
-                    self.kernel.as_mut(),
-                    self.builtin_modules.clone(),
-                    // Expanding macros in the environment?
-                    self.name.to_str().unwrap(),
-                )?;
-
-                expand(expr, &self.macro_map)?;
-
-                if expander.changed {
-                    // let source_id = self.sources.get_source_id(&module.name).unwrap();
-
-                    let mut fully_expanded = expr;
-                    expand(&mut fully_expanded, &module.macro_map)?;
-
-                    // Expanding the kernel with only these macros...
-                    let changed = expand_kernel_in_env_with_change(
-                        &mut fully_expanded,
-                        self.kernel.as_mut(),
-                        // We don't need to expand those here
-                        ModuleContainer::default(),
-                        &module.name.to_str().unwrap(),
-                        // &kernel_macros_in_scope,
-                    )?;
-
-                    if changed {
-                        name_mangler.visit(&mut fully_expanded);
-                    }
-                }
-            }
-
-            for expr in provides.iter_mut() {
-                // First expand the in scope macros
-                // These are macros
-                let mut expander = Expander::new(&in_scope_macros);
-                expander.expand(expr)?;
-
-                if expander.changed {
-                    expand(expr, &module.macro_map)?
-                }
-                // else {
-                //     Ok(first_round_expanded)
-                // }
-            }
-        }
-        */
 
         // TODO: Check HERE for whether there are more requires than were previously found.
         // If so, we should go back and compile the module again
@@ -2487,9 +2367,6 @@ impl<'a> ModuleBuilder<'a> {
             self.source_ast = ast;
             self.provides = provides;
 
-            // println!("Collecting provides again:");
-            // println!("{}", self.source_ast);
-            // self.source_ast.pretty_print();
             self.collect_provides()?;
 
             provides = std::mem::take(&mut self.provides);
@@ -2507,24 +2384,6 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         mangled_asts.append(&mut ast);
-
-        // mangled_asts = mangled_asts
-        //     .into_iter()
-        //     .map(lower_entire_ast)
-        //     // We want this to at least be flattened for querying later
-        //     .map(|x| {
-        //         x.map(|mut o| {
-        //             FlattenBegin::flatten(&mut o);
-        //             o
-        //         })
-        //     })
-        //     .collect::<std::result::Result<_, ParseError>>()?;
-
-        // Take ast, expand with self modules, then expand with each of the require for-syntaxes
-        // Then mangle the require-for-syntax, include the mangled directly in the ast
-
-        // @Matt: 11/15/2024
-        // Try collecting the provides again?
 
         // TODO: @Matt: 7/3/25
         // Re-exporting macros needs to work here
@@ -2544,33 +2403,7 @@ impl<'a> ModuleBuilder<'a> {
 
         module.set_emitted(true);
 
-        // println!(
-        //     "-------------- Emitting module: {:?} ----------------------",
-        //     self.name
-        // );
-
         let result = module.to_top_level_module(self.compiled_modules, self.global_macro_map)?;
-
-        // println!("{}", result.to_pretty(60));
-
-        // println!("------------------ Finish ----------------------------------");
-
-        // let mut analysis = Analysis::from_exprs(&[result]);
-
-        // let mut semantic = SemanticAnalysis::from_analysis(&mut result, analysis);
-
-        // // This is definitely broken still
-        // semantic
-        //     .remove_unused_globals_with_prefix("mangler");
-
-        // log::debug!(target: "requires", "Adding compiled module: {:?}", self.name);
-        // println!("Adding compiled module: {:?}", self.name);
-        // for (key, smacro) in module.macro_map.iter() {
-        //     println!("{}", key.resolve());
-        //     for expr in smacro.exprs() {
-        //         println!("{}", expr);
-        //     }
-        // }
 
         self.compiled_modules.insert(self.name.clone(), module);
 
