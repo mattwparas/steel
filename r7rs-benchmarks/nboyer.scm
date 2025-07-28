@@ -543,9 +543,10 @@
 
 (define (run-benchmark)
   (let* ([count 1]
-         ; [input 0]
-         [input 5]
-         [output 51507739]
+         [input 0]
+         ; [input 5]
+         ; [output 51507739]
+         [output 95024]
          [s2 (number->string count)]
          [s1 (number->string input)]
          [name "nboyer"])
