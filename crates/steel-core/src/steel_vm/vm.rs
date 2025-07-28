@@ -2248,8 +2248,8 @@ impl<'a> VmCore<'a> {
         loop {
             self.safepoint_or_interrupt()?;
 
-            // #[cfg(feature = "op-code-profiling")]
-            // crate::steel_vm::profiling::record_start_op(self.instructions[self.ip]);
+            #[cfg(feature = "op-code-profiling")]
+            crate::steel_vm::profiling::record_start_op(self.instructions[self.ip]);
 
             // Process the op code
             // TODO: Just build up a slice, don't directly store the full vec of op codes
@@ -3254,8 +3254,8 @@ impl<'a> VmCore<'a> {
                 }
             }
 
-            // #[cfg(feature = "op-code-profiling")]
-            // crate::steel_vm::profiling::record_next_op(self.instructions[self.ip]);
+            #[cfg(feature = "op-code-profiling")]
+            crate::steel_vm::profiling::record_next_op(self.instructions[self.ip]);
         }
     }
 

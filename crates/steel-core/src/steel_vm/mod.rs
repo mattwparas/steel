@@ -10,7 +10,10 @@ pub mod ffi;
 mod lazy_stream;
 mod meta;
 pub mod primitives;
+
+#[cfg(feature = "op-code-profiling")]
 mod profiling;
+
 pub mod register_fn;
 #[cfg(test)]
 mod test_util;

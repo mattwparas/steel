@@ -144,6 +144,7 @@ unsandboxed-kernel = []
 inline-captures = []
 experimental = []
 triomphe = ["dep:triomphe"]
+op-code-profiling = []
 
 [[bench]]
 name = "my_benchmark"

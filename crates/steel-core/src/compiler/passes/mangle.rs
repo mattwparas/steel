@@ -3,10 +3,7 @@ use fxhash::{FxHashMap, FxHashSet};
 use steel_parser::ast::{List, DEFINE};
 
 use crate::{
-    compiler::{
-        modules::MANGLER_PREFIX,
-        program::{BEGIN, QUOTE},
-    },
+    compiler::{modules::MANGLER_PREFIX, program::BEGIN},
     parser::{
         ast::{Atom, ExprKind, Quote},
         interner::InternedString,
