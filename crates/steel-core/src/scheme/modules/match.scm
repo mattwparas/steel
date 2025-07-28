@@ -40,7 +40,10 @@
             (equal? (caaddr pattern) 'append))
 
        (define first (cadr pattern))
-       (define first-depth (if (and (list? first) (not (quoted? first))) 0 (+ 1 depth)))
+       (define first-depth
+         (if (and (list? first) (not (quoted? first)))
+             0
+             (+ 1 depth)))
 
        (define rest (cadr (caddr pattern)))
 
@@ -59,7 +62,10 @@
             (equal? (caddr pattern) '(quote ())))
 
        (define first (cadr pattern))
-       (define first-depth (if (and (list? first) (not (quoted? first))) 0 (+ 1 depth)))
+       (define first-depth
+         (if (and (list? first) (not (quoted? first)))
+             0
+             (+ 1 depth)))
 
        (if (= depth 0)
            (cons 'list (cons (compile-cons-to-list (cadr pattern) first-depth) '()))
@@ -75,8 +81,14 @@
        (define first (cadr pattern))
        (define rest (caddr pattern))
 
-       (define first-depth (if (and (list? first) (not (quoted? first))) 0 (+ 1 depth)))
-       (define rest-depth (if (and (list? rest) (not (quoted? rest))) 0 (+ 1 depth)))
+       (define first-depth
+         (if (and (list? first) (not (quoted? first)))
+             0
+             (+ 1 depth)))
+       (define rest-depth
+         (if (and (list? rest) (not (quoted? rest)))
+             0
+             (+ 1 depth)))
 
        ; (displayln "GETTING HERE with" first " and " rest " " first-depth " " rest-depth " " depth)
 
@@ -114,7 +126,9 @@
 
   (define (equal-or-insert hm key value)
     (define existing-value (hash-try-get hm key))
-    (if existing-value (if (equal? existing-value value) hm #f) (hash-insert hm key value)))
+    (if existing-value
+        (if (equal? existing-value value) hm #f)
+        (hash-insert hm key value)))
 
   (define (number->symbol n)
     (~> n number->string string->symbol))
@@ -146,7 +160,7 @@
 
                #f)]
 
-         [else (error "list pattern must start with `list - found " (car pattern))])]
+         [else (error "list pattern must start with `list - found " (car pattern) pattern)])]
 
       [(and (list? pattern) (not (null? pattern)) (starts-with-many? pattern))
        (if (null? (cddr pattern))
@@ -206,16 +220,17 @@
          (and car-pattern-is-atom? (hashset-contains? bound-vars (car pattern))))
 
        (define remaining
-         (match-p-syntax-object
-          (cdr pattern)
-          cdr-input-depth
-          final-body-expr
-          depth
-          (if car-pattern-is-atom? (hashset-insert bound-vars (car pattern)) bound-vars)
-          should-check-var?
-          ;; Increment the cdr depth since we're traversing across the list
-          (+ 1 cdr-depth)
-          introduced-identifiers))
+         (match-p-syntax-object (cdr pattern)
+                                cdr-input-depth
+                                final-body-expr
+                                depth
+                                (if car-pattern-is-atom?
+                                    (hashset-insert bound-vars (car pattern))
+                                    bound-vars)
+                                should-check-var?
+                                ;; Increment the cdr depth since we're traversing across the list
+                                (+ 1 cdr-depth)
+                                introduced-identifiers))
 
        (if remaining
 
@@ -224,15 +239,16 @@
                 ;; of stuff
                 (let ([,cdr-input-depth (cdr ,input)]
                       [,car-input-depth (car ,input)])
-                  ,(match-p-syntax-object
-                    (car pattern)
-                    car-input-depth
-                    remaining
-                    (+ 1 depth)
-                    (if car-pattern-is-atom? (hashset-insert bound-vars (car pattern)) bound-vars)
-                    should-check-var?
-                    0
-                    introduced-identifiers))
+                  ,(match-p-syntax-object (car pattern)
+                                          car-input-depth
+                                          remaining
+                                          (+ 1 depth)
+                                          (if car-pattern-is-atom?
+                                              (hashset-insert bound-vars (car pattern))
+                                              bound-vars)
+                                          should-check-var?
+                                          0
+                                          introduced-identifiers))
                 #f)
 
            #f)]))
@@ -324,16 +340,17 @@
          (and car-pattern-is-atom? (hashset-contains? bound-vars (car pattern))))
 
        (define remaining
-         (match-p-syntax
-          (cdr pattern)
-          cdr-input-depth
-          final-body-expr
-          depth
-          (if car-pattern-is-atom? (hashset-insert bound-vars (car pattern)) bound-vars)
-          should-check-var?
-          ;; Increment the cdr depth since we're traversing across the list
-          (+ 1 cdr-depth)
-          introduced-identifiers))
+         (match-p-syntax (cdr pattern)
+                         cdr-input-depth
+                         final-body-expr
+                         depth
+                         (if car-pattern-is-atom?
+                             (hashset-insert bound-vars (car pattern))
+                             bound-vars)
+                         should-check-var?
+                         ;; Increment the cdr depth since we're traversing across the list
+                         (+ 1 cdr-depth)
+                         introduced-identifiers))
 
        (if remaining
 
@@ -342,15 +359,16 @@
                 ;; of stuff
                 (let ([,car-input-depth (car ,input)]
                       [,cdr-input-depth (cdr ,input)])
-                  ,(match-p-syntax
-                    (car pattern)
-                    car-input-depth
-                    remaining
-                    (+ 1 depth)
-                    (if car-pattern-is-atom? (hashset-insert bound-vars (car pattern)) bound-vars)
-                    should-check-var?
-                    0
-                    introduced-identifiers))
+                  ,(match-p-syntax (car pattern)
+                                   car-input-depth
+                                   remaining
+                                   (+ 1 depth)
+                                   (if car-pattern-is-atom?
+                                       (hashset-insert bound-vars (car pattern))
+                                       bound-vars)
+                                   should-check-var?
+                                   0
+                                   introduced-identifiers))
                 #f)
 
            #f)]))
@@ -446,7 +464,9 @@
                                      (begin
                                        e2 ...)
                                      #f))])
-       (if (not (equal? #f match?)) match? (match-dispatch expr c0 c1 ...)))]
+       (if (not (equal? #f match?))
+           match?
+           (match-dispatch expr c0 c1 ...)))]
 
     ;; Generic recursive case
     [(match-dispatch expr [p1 e2 ...] c0 c1 ...)
@@ -497,7 +517,9 @@
                                             (begin
                                               e2 ...)
                                             #f))])
-       (if (not (equal? #f match?)) match? (match-syntax-dispatch expr c0 c1 ...)))]
+       (if (not (equal? #f match?))
+           match?
+           (match-syntax-dispatch expr c0 c1 ...)))]
 
     ;; Generic recursive case
     [(match-syntax-dispatch expr [p1 e2 ...] c0 c1 ...)

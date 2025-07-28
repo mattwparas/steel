@@ -14,12 +14,8 @@ use crate::{
     steel_vm::builtin::BuiltInModule,
 };
 use crate::{
-    gc::{unsafe_erased_pointers::increment_borrow_flag, Gc},
-    rvals::MaybeSendSyncStatic,
-    values::lists::List,
-};
-use crate::{
     gc::{
+        shared::StandardShared,
         unsafe_erased_pointers::{
             BorrowedObject, OpaqueReferenceNursery, ReadOnlyBorrowedObject, ReadOnlyTemporary,
             Temporary,
@@ -30,6 +26,11 @@ use crate::{
         AsRefMutSteelValFromRef, AsRefSteelVal, AsRefSteelValFromUnsized, AsSlice, FromSteelVal,
         IntoSteelVal, Result, SteelVal,
     },
+};
+use crate::{
+    gc::{unsafe_erased_pointers::increment_borrow_flag, Gc},
+    rvals::MaybeSendSyncStatic,
+    values::lists::List,
 };
 use crate::{rvals::AsRefSteelValFromRef, stop};
 use crate::{
@@ -793,8 +794,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::TemporaryObject { ptr: wrapped };
@@ -877,8 +878,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
@@ -961,8 +962,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
@@ -1047,8 +1048,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(erased);
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(erased);
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
@@ -1117,8 +1118,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(erased);
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(erased);
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
@@ -1369,8 +1370,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::TemporaryObject { ptr: wrapped };
@@ -1453,8 +1454,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
@@ -1539,8 +1540,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };

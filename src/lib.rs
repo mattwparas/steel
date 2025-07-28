@@ -186,8 +186,11 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
                 ),
             );
 
-            let contents = fs::read_to_string(&path)?;
-            let res = vm.compile_and_run_raw_program_with_path(contents.clone(), path.clone());
+            // let contents = fs::read_to_string(&path)?;
+            // let res = vm.compile_and_run_raw_program_with_path(contents.clone(), path.clone());
+
+            let res =
+                vm.compile_and_run_raw_program(format!("(require \"{}\")", path.to_str().unwrap()));
 
             if let Err(e) = res {
                 vm.raise_error(e.clone());
@@ -231,8 +234,10 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
                 }),
             ..
         } => {
-            let contents = fs::read_to_string(&path)?;
-            let program = vm.emit_raw_program(contents.clone(), path.clone());
+            // let contents = fs::read_to_string(&path)?;
+
+            let program =
+                vm.emit_raw_program_no_path(format!("(require \"{}\")", path.to_str().unwrap()));
 
             match program {
                 Ok(program) => {

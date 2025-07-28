@@ -1,5 +1,6 @@
 use crate::core::instructions::u24;
 use crate::core::labels::Expr;
+use crate::gc::shared::StandardShared;
 use crate::gc::Shared;
 use crate::parser::span_visitor::get_span;
 use crate::rvals::Result;
@@ -158,6 +159,75 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
     Ok(())
 }
 
+// (READLOCAL0, CALLGLOBAL): 1200919
+// (READLOCAL1, CALLGLOBAL): 1088780
+pub fn specialize_call_global_local(instructions: &mut [Instruction]) {
+    if instructions.is_empty() {
+        return;
+    }
+
+    for i in 0..instructions.len() - 1 {
+        let readlocal = instructions.get(i);
+        let callglobal = instructions.get(i + 1);
+
+        match (readlocal, callglobal) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::READLOCAL0,
+                    // payload_size: index,
+                    // contents: Some(Expr::Atom(ident)),
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::CALLGLOBAL,
+                    // payload_size: arity,
+                    ..
+                }),
+            ) => {
+                // TODO:
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::READLOCAL0CALLGLOBAL;
+                    // x.payload_size = index;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    // Leave this as the OpCode::FUNC;
+                    x.op_code = OpCode::PASS;
+                    // x.payload_size = u24::from_usize(arity);
+                }
+            }
+
+            (
+                Some(Instruction {
+                    op_code: OpCode::READLOCAL1,
+                    // payload_size: index,
+                    // contents: Some(Expr::Atom(ident)),
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::CALLGLOBAL,
+                    // payload_size: arity,
+                    ..
+                }),
+            ) => {
+                // TODO:
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::READLOCAL1CALLGLOBAL;
+                    // x.payload_size = index;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    // Leave this as the OpCode::FUNC;
+                    x.op_code = OpCode::PASS;
+                    // x.payload_size = u24::from_usize(arity);
+                }
+            }
+
+            _ => {}
+        }
+    }
+}
+
 pub fn convert_call_globals(instructions: &mut [Instruction]) {
     if instructions.is_empty() {
         return;
@@ -217,7 +287,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                             }
                         }
 
-                        _ if ident == *SETBOX || ident == *PRIM_SETBOX && arity == 1 => {
+                        _ if ident == *SETBOX || ident == *PRIM_SETBOX && arity == 2 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::SETBOX;
                                 continue;
@@ -227,6 +297,22 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                         _ if ident == *PRIM_CAR && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CAR;
+                                continue;
+                            }
+                        }
+
+                        // TODO: Figure out why this isn't working correctly?
+                        _ if ident == *PRIM_LIST_SYMBOL => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::LIST;
+                                x.payload_size = u24::from_usize(arity);
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *PRIM_LIST_REF && arity == 2 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::LISTREF;
                                 continue;
                             }
                         }
@@ -285,11 +371,11 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 }),
                 Some(Instruction {
                     op_code: OpCode::TAILCALL,
-                    // payload_size: arity,
+                    payload_size: arity,
                     ..
                 }),
             ) => {
-                // let arity = *arity;
+                let arity = arity.to_usize();
                 let index = *index;
 
                 if let TokenType::Identifier(ident) = ident.ty {
@@ -302,30 +388,45 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                             }
                         }
 
-                        _ if ident == *BOX || ident == *PRIM_BOX => {
+                        _ if ident == *BOX || ident == *PRIM_BOX && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::NEWBOX;
                                 continue;
                             }
                         }
 
-                        _ if ident == *UNBOX || ident == *PRIM_UNBOX => {
+                        _ if ident == *UNBOX || ident == *PRIM_UNBOX && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::UNBOX;
                                 continue;
                             }
                         }
 
-                        _ if ident == *SETBOX || ident == *PRIM_SETBOX => {
+                        _ if ident == *SETBOX || ident == *PRIM_SETBOX && arity == 2 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::SETBOX;
                                 continue;
                             }
                         }
 
-                        _ if ident == *PRIM_CAR => {
+                        _ if ident == *PRIM_CAR && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CAR;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *PRIM_LIST_REF && arity == 2 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::LISTREF;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *PRIM_LIST_SYMBOL => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::LIST;
+                                x.payload_size = u24::from_usize(arity);
                                 continue;
                             }
                         }
@@ -435,6 +536,7 @@ define_symbols! {
     PRIM_CONS_SYMBOL => "#%prim.cons",
     LIST_SYMBOL => "list",
     PRIM_LIST_SYMBOL => "#%prim.list",
+    PRIM_LIST_REF => "#%prim.list-ref",
     BOX => "#%box",
     PRIM_BOX => "#%prim.box",
     UNBOX => "#%unbox",
@@ -1084,6 +1186,8 @@ impl RawProgramWithSymbols {
             // gimmick_super_instruction(instructions);
             // move_read_local_call_global(instructions);
             specialize_read_local(instructions);
+
+            // specialize_call_global_local(instructions);
         }
         // }
 
@@ -1108,7 +1212,7 @@ impl RawProgramWithSymbols {
             time_stamp: None,
             instructions: instructions
                 .into_iter()
-                .map(|x| Shared::from(x.into_boxed_slice()))
+                .map(|x| StandardShared::from(x.into_boxed_slice()))
                 .collect(),
             constant_map: self.constant_map,
             spans,
@@ -1171,7 +1275,7 @@ pub struct Executable {
     pub(crate) name: Shared<String>,
     pub(crate) version: Shared<String>,
     pub(crate) time_stamp: Option<SystemTime>, // TODO -> don't use system time, probably not as portable, prefer date time
-    pub(crate) instructions: Vec<Shared<[DenseInstruction]>>,
+    pub(crate) instructions: Vec<StandardShared<[DenseInstruction]>>,
     pub(crate) constant_map: ConstantMap,
     pub(crate) spans: Vec<Shared<[Span]>>,
 }

@@ -6,8 +6,8 @@ use std::sync::Mutex;
 use crate::{
     compiler::map::SymbolMap,
     gc::{
-        shared::{MutContainer, ShareableMut, WeakShared},
-        GcMut, Shared, SharedMut,
+        shared::{MutContainer, ShareableMut, StandardShared, StandardSharedMut, WeakShared},
+        GcMut,
     },
     rvals::{OpaqueIterator, SteelComplex, SteelVector},
     steel_vm::vm::{Continuation, ContinuationMark, Synchronizer},
@@ -507,8 +507,11 @@ impl SteelVal {
     }
 }
 
-type HeapValue = SharedMut<HeapAllocated<SteelVal>>;
-type HeapVector = SharedMut<HeapAllocated<Vec<SteelVal>>>;
+// type HeapValue = SharedMut<HeapAllocated<SteelVal>>;
+// type HeapVector = SharedMut<HeapAllocated<Vec<SteelVal>>>;
+
+type HeapValue = StandardSharedMut<HeapAllocated<SteelVal>>;
+type HeapVector = StandardSharedMut<HeapAllocated<Vec<SteelVal>>>;
 
 // Maybe uninitialized
 
@@ -537,8 +540,8 @@ impl FreeList {
         // Drain, moving values around...
         // is that expensive?
 
-        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(value)));
-        let weak_ptr = Shared::downgrade(&pointer);
+        let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(value)));
+        let weak_ptr = StandardShared::downgrade(&pointer);
 
         self.elements[self.cursor] = Some(pointer);
         self.alloc_count += 1;
@@ -579,7 +582,7 @@ impl FreeList {
     }
 
     fn weak_collection(&mut self) -> usize {
-        self.collect_on_condition(|inner| Shared::weak_count(inner) == 0)
+        self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0)
     }
 
     fn strong_collection(&mut self) -> usize {
@@ -672,8 +675,8 @@ impl Heap {
             false,
         );
 
-        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(value)));
-        let weak_ptr = Shared::downgrade(&pointer);
+        let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(value)));
+        let weak_ptr = StandardShared::downgrade(&pointer);
 
         self.memory.push(pointer);
 
@@ -681,8 +684,8 @@ impl Heap {
     }
 
     pub fn allocate_without_collection<'a>(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
-        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(value)));
-        let weak_ptr = Shared::downgrade(&pointer);
+        let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(value)));
+        let weak_ptr = StandardShared::downgrade(&pointer);
 
         self.memory.push(pointer);
 
@@ -710,8 +713,8 @@ impl Heap {
             false,
         );
 
-        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(values)));
-        let weak_ptr = Shared::downgrade(&pointer);
+        let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(values)));
+        let weak_ptr = StandardShared::downgrade(&pointer);
 
         self.vectors.push(pointer);
 
@@ -724,8 +727,8 @@ impl Heap {
     }
 
     pub fn weak_collection(&mut self) {
-        self.memory.retain(|x| Shared::weak_count(x) > 0);
-        self.vectors.retain(|x| Shared::weak_count(x) > 0);
+        self.memory.retain(|x| StandardShared::weak_count(x) > 0);
+        self.vectors.retain(|x| StandardShared::weak_count(x) > 0);
     }
 
     // TODO: Call this in more areas in the VM to attempt to free memory more carefully
@@ -763,8 +766,8 @@ impl Heap {
                 log::debug!(target: "gc", "Small collection");
                 let prior_len = self.memory.len() + self.vector_cells_allocated();
                 log::debug!(target: "gc", "Previous length: {:?}", prior_len);
-                self.memory.retain(|x| Shared::weak_count(x) > 0);
-                self.vectors.retain(|x| Shared::weak_count(x) > 0);
+                self.memory.retain(|x| StandardShared::weak_count(x) > 0);
+                self.vectors.retain(|x| StandardShared::weak_count(x) > 0);
                 let after = self.memory.len() + self.vector_cells_allocated();
                 log::debug!(target: "gc", "Objects freed: {:?}", prior_len - after);
                 log::debug!(target: "gc", "Small collection time: {:?}", now.elapsed());
@@ -996,7 +999,7 @@ impl<T: HeapAble> HeapRef<T> {
         ret
     }
 
-    pub(crate) fn strong_ptr(&self) -> SharedMut<HeapAllocated<T>> {
+    pub(crate) fn strong_ptr(&self) -> StandardSharedMut<HeapAllocated<T>> {
         self.inner.upgrade().unwrap()
     }
 
@@ -1051,7 +1054,10 @@ pub struct MarkAndSweepContext<'a> {
 }
 
 impl<'a> MarkAndSweepContext<'a> {
-    pub(crate) fn mark_heap_reference(&mut self, heap_ref: &SharedMut<HeapAllocated<SteelVal>>) {
+    pub(crate) fn mark_heap_reference(
+        &mut self,
+        heap_ref: &StandardSharedMut<HeapAllocated<SteelVal>>,
+    ) {
         if heap_ref.read().is_reachable() {
             return;
         }
@@ -1066,7 +1072,7 @@ impl<'a> MarkAndSweepContext<'a> {
     // Visit the heap vector, mark it as visited!
     pub(crate) fn mark_heap_vector(
         &mut self,
-        heap_vector: &SharedMut<HeapAllocated<Vec<SteelVal>>>,
+        heap_vector: &StandardSharedMut<HeapAllocated<Vec<SteelVal>>>,
     ) {
         if heap_vector.read().is_reachable() {
             return;

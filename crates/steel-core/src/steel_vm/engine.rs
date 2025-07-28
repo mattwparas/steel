@@ -28,6 +28,7 @@ use crate::{
         labels::Expr,
     },
     gc::{
+        shared::StandardShared,
         unsafe_erased_pointers::{
             BorrowedObject, CustomReference, OpaqueReferenceNursery, ReadOnlyBorrowedObject,
             ReferenceMarker,
@@ -109,7 +110,7 @@ pub struct ModuleContainer {
     // For modules that don't exist in memory. This could be useful for a world
     // in which a builtin module exists BUT we'd like to resolve the module for
     // inference purposes.
-    unresolved_modules: Arc<RwLock<Option<Shared<dyn ModuleResolver>>>>,
+    unresolved_modules: Arc<RwLock<Option<StandardShared<dyn ModuleResolver>>>>,
 }
 
 impl ModuleContainer {
@@ -181,7 +182,7 @@ impl ModuleContainer {
     }
 
     pub fn with_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
-        *self.unresolved_modules.write() = Some(Shared::new(resolver));
+        *self.unresolved_modules.write() = Some(StandardShared::new(resolver));
     }
 }
 

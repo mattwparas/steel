@@ -10,6 +10,7 @@ pub mod ffi;
 mod lazy_stream;
 mod meta;
 pub mod primitives;
+mod profiling;
 pub mod register_fn;
 #[cfg(test)]
 mod test_util;

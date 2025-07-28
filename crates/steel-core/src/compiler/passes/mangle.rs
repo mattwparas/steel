@@ -1,9 +1,12 @@
 use compact_str::CompactString;
-use fxhash::FxHashSet;
-use steel_parser::ast::DEFINE;
+use fxhash::{FxHashMap, FxHashSet};
+use steel_parser::ast::{List, DEFINE};
 
 use crate::{
-    compiler::{modules::MANGLER_PREFIX, program::BEGIN},
+    compiler::{
+        modules::MANGLER_PREFIX,
+        program::{BEGIN, QUOTE},
+    },
     parser::{
         ast::{Atom, ExprKind, Quote},
         interner::InternedString,
@@ -133,11 +136,16 @@ impl<'a> VisitorMutRefUnit for NameUnMangler<'a> {
 pub struct NameMangler {
     pub(crate) globals: FxHashSet<InternedString>,
     prefix: CompactString,
+    mangle_cache: FxHashMap<InternedString, InternedString>,
 }
 
 impl NameMangler {
     pub fn new(globals: FxHashSet<InternedString>, prefix: CompactString) -> Self {
-        Self { globals, prefix }
+        Self {
+            globals,
+            prefix,
+            mangle_cache: FxHashMap::default(),
+        }
     }
 
     pub fn mangle_vars(&mut self, exprs: &mut [ExprKind]) {
@@ -150,7 +158,11 @@ impl NameMangler {
 pub fn mangle_vars_with_prefix(prefix: CompactString, exprs: &mut [ExprKind]) {
     let globals = collect_globals(exprs);
 
-    let mut name_mangler = NameMangler { globals, prefix };
+    let mut name_mangler = NameMangler {
+        globals,
+        prefix,
+        mangle_cache: FxHashMap::default(),
+    };
 
     for expr in exprs {
         name_mangler.visit(expr);
@@ -162,9 +174,16 @@ impl VisitorMutRefUnit for NameMangler {
     fn visit_atom(&mut self, a: &mut Atom) {
         if let TokenType::Identifier(i) = &mut a.syn.ty {
             if self.globals.contains(i) {
-                let new_str = i.resolve();
+                if let Some(new) = self.mangle_cache.get(i) {
+                    *i = *new;
+                } else {
+                    let original = *i;
+                    let new_str = i.resolve();
 
-                *i = (self.prefix.clone() + new_str).into();
+                    *i = (self.prefix.clone() + new_str).into();
+
+                    self.mangle_cache.insert(original, *i);
+                }
             }
         }
     }
@@ -173,6 +192,13 @@ impl VisitorMutRefUnit for NameMangler {
     /// the real name given
     #[inline]
     fn visit_quote(&mut self, _q: &mut Quote) {}
+
+    #[inline]
+    fn visit_list(&mut self, l: &mut List) {
+        for expr in &mut l.args {
+            self.visit(expr);
+        }
+    }
 }
 
 #[cfg(test)]

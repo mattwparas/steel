@@ -3295,6 +3295,8 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
         self.visit(&mut define.body);
     }
 
+    fn visit_quote(&mut self, _: &mut Quote) {}
+
     fn visit_atom(&mut self, a: &mut Atom) {
         if let Some(info) = self.analysis.get(&a.syn) {
             if info.kind != IdentifierStatus::Global && info.kind != IdentifierStatus::Free {
