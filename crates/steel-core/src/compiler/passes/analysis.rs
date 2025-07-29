@@ -5,6 +5,7 @@ use std::{
 
 use crate::{
     compiler::modules::{MANGLER_PREFIX, MODULE_PREFIX},
+    parser::ast::List,
     values::HashMap as ImmutableHashMap,
 };
 use quickscope::ScopeMap;
@@ -22,7 +23,7 @@ use crate::{
     },
     parser::{
         ast::{
-            Atom, Define, ExprKind, LambdaFunction, Let, List, Quote, STANDARD_MODULE_GET,
+            Atom, Define, ExprKind, LambdaFunction, Let, Quote, STANDARD_MODULE_GET,
             UNREADABLE_MODULE_GET,
         },
         expander::SteelMacro,
@@ -2180,7 +2181,7 @@ impl<'a, F> FindCallSiteById<'a, F> {
 
 impl<'a, F> VisitorMutRefUnit for FindCallSiteById<'a, F>
 where
-    F: FnMut(&Analysis, &mut crate::parser::ast::List) -> bool,
+    F: FnMut(&Analysis, &mut List) -> bool,
 {
     fn visit_list(&mut self, l: &mut List) {
         // Go downward and visit each of the arguments (including the function call)
@@ -2233,9 +2234,9 @@ struct FindCallSitesMany<'a, F> {
 
 impl<'a, F> VisitorMutRefUnit for FindCallSitesMany<'a, F>
 where
-    F: FnMut(&Analysis, &mut crate::parser::ast::List),
+    F: FnMut(&Analysis, &mut List),
 {
-    fn visit_list(&mut self, l: &mut crate::parser::ast::List) {
+    fn visit_list(&mut self, l: &mut List) {
         if let Some(name) = l.first_ident() {
             if let Some(semantic_info) = self.analysis.get(l.args[0].atom_syntax_object().unwrap())
             {
@@ -2245,12 +2246,22 @@ where
                     }
                 }
             }
+
+            for arg in &mut l.args[1..] {
+                self.visit(arg);
+            }
+
+            return;
         }
 
         for arg in &mut l.args {
             self.visit(arg);
         }
     }
+
+    // TODO: This shouldn't visit at all
+    #[inline]
+    fn visit_quote(&mut self, _quote: &mut Quote) {}
 }
 
 #[derive(Default)]
@@ -2343,9 +2354,9 @@ impl<'a, F> FindCallSites<'a, F> {
 
 impl<'a, F> VisitorMutUnitRef<'a> for FindCallSites<'a, F>
 where
-    F: FnMut(&Analysis, &crate::parser::ast::List),
+    F: FnMut(&Analysis, &List),
 {
-    fn visit_list(&mut self, l: &'a crate::parser::ast::List) {
+    fn visit_list(&mut self, l: &'a List) {
         if self.is_required_global_function_call(l) {
             (self.func)(self.analysis, l)
         }
@@ -2358,9 +2369,9 @@ where
 
 impl<'a, F> VisitorMutRefUnit for FindCallSites<'a, F>
 where
-    F: FnMut(&Analysis, &mut crate::parser::ast::List),
+    F: FnMut(&Analysis, &mut List),
 {
-    fn visit_list(&mut self, l: &mut crate::parser::ast::List) {
+    fn visit_list(&mut self, l: &mut List) {
         if self.is_required_global_function_call(l) {
             (self.func)(self.analysis, l)
         }
@@ -2547,6 +2558,8 @@ where
             ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
+
+    fn visit_quote(&mut self, _quote: &mut Quote) {}
 }
 
 struct RemoveUnusedDefineImports<'a> {
@@ -3985,21 +3998,62 @@ impl<'a> SemanticAnalysis<'a> {
         query_top_level_define(self.exprs, name)
     }
 
-    // Should inline? Add heuristics for inlining?
-    // How many times should I inline? Detecting the depth of the function call?
-    pub fn estimate_function_size<A: AsRef<str>>(&mut self, name: A) -> Result<(), SteelErr> {
-        // Estimate the function size. If the size of the data structure is... reasonably small,
-        // then we should just inline. For example, anything that is one expression / function call,
-        // or has a limited depth is probably okay to inline.
-        let top_level_define_body = self
-            .query_top_level_define(name.as_ref())
-            .ok_or_else(throw!(TypeMismatch => format!("Cannot inline
-                free identifier!: {}", name.as_ref())))?
-            .body
-            .lambda_function()
-            .ok_or_else(throw!(TypeMismatch => format!("Cannot inline
-            non function for: {}", name.as_ref())))?
-            .clone();
+    pub fn inline_function_calls(&mut self, size: Option<usize>) -> Result<(), SteelErr> {
+        let estimator = self.calculate_function_sizes();
+        let threshold = size.unwrap_or(50);
+
+        // Only do this for functions in which the arity is exactly known
+        let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
+
+        for expr in self.exprs.iter() {
+            match expr {
+                ExprKind::Define(d) => {
+                    if let ExprKind::LambdaFunction(l) = &d.body {
+                        if let Some(count) = estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
+                        {
+                            if *count < threshold {
+                                let l = l.clone();
+                                funcs.insert(
+                                    *d.name.atom_identifier().unwrap(),
+                                    Box::new(move |_: &Analysis, lst: &mut List| {
+                                        println!("Inlining: {} @ {}", l, lst);
+                                        // TODO: Handle arity mismatches if they happen!
+                                        lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                                    }),
+                                );
+                            }
+                        }
+                    }
+                }
+
+                ExprKind::Begin(b) => {
+                    for expr in b.exprs.iter() {
+                        if let ExprKind::Define(d) = expr {
+                            if let ExprKind::LambdaFunction(l) = &d.body {
+                                if let Some(count) =
+                                    estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
+                                {
+                                    if *count < threshold {
+                                        let l = l.clone();
+                                        funcs.insert(
+                                            *d.name.atom_identifier().unwrap(),
+                                            Box::new(move |_: &Analysis, lst: &mut List| {
+                                                println!("Inlining: {} @ {}", l, lst);
+                                                lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                                            }),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                _ => {}
+            }
+        }
+
+        self.find_call_sites_and_modify_with_many(funcs);
 
         Ok(())
     }
@@ -4020,12 +4074,9 @@ impl<'a> SemanticAnalysis<'a> {
             non function for: {}", name.as_ref())))?
             .clone();
 
-        self.find_call_sites_and_modify_with(
-            name.as_ref(),
-            |_: &Analysis, lst: &mut crate::parser::ast::List| {
-                lst.args[0] = ExprKind::LambdaFunction(Box::new(top_level_define_body.clone()));
-            },
-        );
+        self.find_call_sites_and_modify_with(name.as_ref(), |_: &Analysis, lst: &mut List| {
+            lst.args[0] = ExprKind::LambdaFunction(Box::new(top_level_define_body.clone()));
+        });
 
         Ok(())
     }
@@ -4563,6 +4614,8 @@ impl<'a> SemanticAnalysis<'a> {
 
                     *anon = ExprKind::Let(let_expr.into());
 
+                    println!("REPLACED: {}", anon);
+
                     re_run_analysis = true;
                     // log::debug!("Replaced anonymous function call with let");
 
@@ -4617,7 +4670,7 @@ impl<'a> SemanticAnalysis<'a> {
     // on the node
     pub fn find_call_sites_and_call<F>(&self, name: &str, func: F)
     where
-        F: FnMut(&Analysis, &crate::parser::ast::List),
+        F: FnMut(&Analysis, &List),
     {
         let mut find_call_sites = FindCallSites::new(name, &self.analysis, func);
 
@@ -4626,25 +4679,18 @@ impl<'a> SemanticAnalysis<'a> {
         }
     }
 
-    pub fn calculate_function_sizes(&mut self) {
+    fn calculate_function_sizes(&mut self) -> FunctionSizeEstimator {
         let mut estimator = FunctionSizeEstimator::default();
         for expr in self.exprs.iter() {
             estimator.visit(expr);
         }
 
-        let mut counts: Vec<_> = estimator
-            .names
-            .iter()
-            .map(|(key, value)| (key.resolve(), estimator.map.get(value).unwrap()))
-            .collect();
-        counts.sort_by_key(|x| x.1);
-
-        println!("{:#?}", counts);
+        estimator
     }
 
     pub fn find_call_sites_and_modify_with_many<F>(&mut self, mapping: HashMap<InternedString, F>)
     where
-        F: FnMut(&Analysis, &mut crate::parser::ast::List),
+        F: FnMut(&Analysis, &mut List),
     {
         let mut find_call_sites = FindCallSitesMany {
             analysis: &self.analysis,
@@ -4660,7 +4706,7 @@ impl<'a> SemanticAnalysis<'a> {
     // on the node
     pub fn find_call_sites_and_modify_with<F>(&mut self, name: &str, func: F)
     where
-        F: FnMut(&Analysis, &mut crate::parser::ast::List),
+        F: FnMut(&Analysis, &mut List),
     {
         let mut find_call_sites = FindCallSites::new(name, &self.analysis, func);
 

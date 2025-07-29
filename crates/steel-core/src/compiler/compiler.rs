@@ -1232,21 +1232,23 @@ impl Compiler {
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+
+        // Do this, and then inline everything. Do it again
         semantic.replace_anonymous_function_calls_with_plain_lets();
 
-        // steel_parser::ast::AstTools::pretty_print(&semantic.exprs);
+        // semantic.inline_function_calls(None).unwrap();
 
-        semantic.calculate_function_sizes();
+        let mut analysis = semantic.into_analysis();
+        self.shadowed_variable_renamer
+            .rename_shadowed_variables(&mut expanded_statements, false);
 
-        // Inline this bad boy
-        // let first = semantic.inline_function_call("##mm4149__%#__fib");
+        analysis.fresh_from_exprs(&expanded_statements);
+        analysis.populate_captures(&expanded_statements);
+        // analysis.populate_captures(&expanded_statements);
+        // Do this again
+        let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
-        // if first.is_ok() {
-        //     // Have to re run the analysis each time if there are changes w.r.t a specific function it seems like, since
-        //     // the new analysis won't be included in the syntax object id
-        //     semantic.inline_function_call("##mm4149__%#__fib").unwrap();
-        //     steel_parser::ast::AstTools::pretty_print(&semantic.exprs);
-        // }
+        semantic.replace_anonymous_function_calls_with_plain_lets();
 
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
