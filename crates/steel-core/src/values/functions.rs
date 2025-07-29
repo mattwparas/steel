@@ -353,6 +353,11 @@ impl ByteCodeLambda {
         self.arity as usize
     }
 
+    #[inline(always)]
+    pub fn is_multi_arity(self) -> bool {
+        self.is_multi_arity
+    }
+
     // pub fn heap_allocated(&self) -> &RefCell<Vec<HeapRef<SteelVal>>> {
     //     &self.heap_allocated
     // }

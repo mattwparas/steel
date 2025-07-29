@@ -2226,6 +2226,92 @@ where
     }
 }
 
+struct FindCallSitesMany<'a, F> {
+    analysis: &'a Analysis,
+    map: HashMap<InternedString, F>,
+}
+
+impl<'a, F> VisitorMutRefUnit for FindCallSitesMany<'a, F>
+where
+    F: FnMut(&Analysis, &mut crate::parser::ast::List),
+{
+    fn visit_list(&mut self, l: &mut crate::parser::ast::List) {
+        if let Some(name) = l.first_ident() {
+            if let Some(semantic_info) = self.analysis.get(l.args[0].atom_syntax_object().unwrap())
+            {
+                if semantic_info.kind == IdentifierStatus::Global {
+                    if let Some(func) = self.map.get_mut(name) {
+                        (func)(self.analysis, l);
+                    }
+                }
+            }
+        }
+
+        for arg in &mut l.args {
+            self.visit(arg);
+        }
+    }
+}
+
+#[derive(Default)]
+struct FunctionSizeEstimator {
+    count: usize,
+    // Set up the name mapping for the syntax object ids
+    names: HashMap<InternedString, SyntaxObjectId>,
+    map: HashMap<SyntaxObjectId, usize>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for FunctionSizeEstimator {
+    fn visit(&mut self, expr: &ExprKind) {
+        self.count += 1;
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
+    }
+
+    #[inline]
+    fn visit_define(&mut self, define: &Define) {
+        if let ExprKind::LambdaFunction(l) = &define.body {
+            if let Some(name) = define.name.atom_identifier() {
+                self.names.insert(*name, SyntaxObjectId(l.syntax_object_id));
+            }
+        }
+
+        self.visit(&define.name);
+        self.visit(&define.body);
+    }
+
+    #[inline]
+    fn visit_lambda_function(&mut self, lambda_function: &LambdaFunction) {
+        let current_count = self.count;
+
+        self.count = 0;
+
+        for var in &lambda_function.args {
+            self.visit(var);
+        }
+        self.visit(&lambda_function.body);
+
+        self.map
+            .insert(SyntaxObjectId(lambda_function.syntax_object_id), self.count);
+
+        self.count = current_count;
+    }
+}
+
 struct FindCallSites<'a, F> {
     name: &'a str,
     analysis: &'a Analysis,
@@ -4536,6 +4622,36 @@ impl<'a> SemanticAnalysis<'a> {
         let mut find_call_sites = FindCallSites::new(name, &self.analysis, func);
 
         for expr in self.exprs.iter() {
+            find_call_sites.visit(expr);
+        }
+    }
+
+    pub fn calculate_function_sizes(&mut self) {
+        let mut estimator = FunctionSizeEstimator::default();
+        for expr in self.exprs.iter() {
+            estimator.visit(expr);
+        }
+
+        let mut counts: Vec<_> = estimator
+            .names
+            .iter()
+            .map(|(key, value)| (key.resolve(), estimator.map.get(value).unwrap()))
+            .collect();
+        counts.sort_by_key(|x| x.1);
+
+        println!("{:#?}", counts);
+    }
+
+    pub fn find_call_sites_and_modify_with_many<F>(&mut self, mapping: HashMap<InternedString, F>)
+    where
+        F: FnMut(&Analysis, &mut crate::parser::ast::List),
+    {
+        let mut find_call_sites = FindCallSitesMany {
+            analysis: &self.analysis,
+            map: mapping,
+        };
+
+        for expr in self.exprs.iter_mut() {
             find_call_sites.visit(expr);
         }
     }
