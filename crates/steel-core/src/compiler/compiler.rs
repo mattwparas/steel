@@ -1232,9 +1232,19 @@ impl Compiler {
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
-        // semantic.populate_captures();
-
         semantic.replace_anonymous_function_calls_with_plain_lets();
+
+        steel_parser::ast::AstTools::pretty_print(&semantic.exprs);
+
+        // Inline this bad boy
+        let first = semantic.inline_function_call("##mm4149__%#__fib");
+
+        if first.is_ok() {
+            // Have to re run the analysis each time if there are changes w.r.t a specific function it seems like, since
+            // the new analysis won't be included in the syntax object id
+            semantic.inline_function_call("##mm4149__%#__fib").unwrap();
+            steel_parser::ast::AstTools::pretty_print(&semantic.exprs);
+        }
 
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());

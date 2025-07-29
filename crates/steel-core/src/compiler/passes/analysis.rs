@@ -3899,15 +3899,40 @@ impl<'a> SemanticAnalysis<'a> {
         query_top_level_define(self.exprs, name)
     }
 
+    // Should inline? Add heuristics for inlining?
+    // How many times should I inline? Detecting the depth of the function call?
+    pub fn estimate_function_size<A: AsRef<str>>(&mut self, name: A) -> Result<(), SteelErr> {
+        // Estimate the function size. If the size of the data structure is... reasonably small,
+        // then we should just inline. For example, anything that is one expression / function call,
+        // or has a limited depth is probably okay to inline.
+        let top_level_define_body = self
+            .query_top_level_define(name.as_ref())
+            .ok_or_else(throw!(TypeMismatch => format!("Cannot inline
+                free identifier!: {}", name.as_ref())))?
+            .body
+            .lambda_function()
+            .ok_or_else(throw!(TypeMismatch => format!("Cannot inline
+            non function for: {}", name.as_ref())))?
+            .clone();
+
+        Ok(())
+    }
+
     // Takes the function call, and inlines it at the call sites. In theory, with constant evaluation and
     // dead code elimination, this should help streamline some of the more complex cases. This is also just a start.
     pub fn inline_function_call<A: AsRef<str>>(&mut self, name: A) -> Result<(), SteelErr> {
         // TODO: Cloning here is expensive. We should strive to make these trees somehow share the nodes a bit more elegantly.
         // As it stands, each time we close a syntax tree, we're going to do a deep clone of the whole thing, which we really don't
         // want to do.
-        let top_level_define_body = self.query_top_level_define(name.as_ref()).ok_or_else(
-            throw!(TypeMismatch => format!("Cannot inline free identifier!: {}", name.as_ref())),
-        )?.body.lambda_function().ok_or_else(throw!(TypeMismatch => format!("Cannot inline non function for: {}", name.as_ref())))?.clone();
+        let top_level_define_body = self
+            .query_top_level_define(name.as_ref())
+            .ok_or_else(throw!(TypeMismatch => format!("Cannot inline
+                free identifier!: {}", name.as_ref())))?
+            .body
+            .lambda_function()
+            .ok_or_else(throw!(TypeMismatch => format!("Cannot inline
+            non function for: {}", name.as_ref())))?
+            .clone();
 
         self.find_call_sites_and_modify_with(
             name.as_ref(),
@@ -5369,6 +5394,28 @@ mod analysis_pass_tests {
                 var.span,
             );
         }
+    }
+
+    #[test]
+    fn inline_recursive_function_once() {
+        let script = r#"
+
+(define (fib n)
+  (if (<= n 2)
+      1
+      (+ (fib (- n 1)) (fib (- n 2)))))
+
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let mut analysis = SemanticAnalysis::new(&mut exprs);
+        analysis.populate_captures();
+
+        // Inline top level definition -> naively just replace the value with the updated value
+        // This should allow constant propagation to take place. TODO: Log optimization misses
+        analysis.inline_function_call("fib").unwrap();
+
+        analysis.exprs.pretty_print();
     }
 
     #[test]
