@@ -1234,9 +1234,10 @@ impl Compiler {
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
         // Do this, and then inline everything. Do it again
-        semantic.replace_anonymous_function_calls_with_plain_lets();
+        // semantic.replace_anonymous_function_calls_with_plain_lets();
 
-        // semantic.inline_function_calls(None).unwrap();
+        semantic.inline_function_calls(None).unwrap();
+        semantic.refresh_variables();
 
         let mut analysis = semantic.into_analysis();
         self.shadowed_variable_renamer
@@ -1249,6 +1250,8 @@ impl Compiler {
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
         semantic.replace_anonymous_function_calls_with_plain_lets();
+
+        semantic.refresh_variables();
 
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());

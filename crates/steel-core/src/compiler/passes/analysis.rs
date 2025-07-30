@@ -2388,6 +2388,30 @@ impl VisitorMutRefUnit for RefreshVars {
     fn visit_atom(&mut self, a: &mut Atom) {
         a.syn.syntax_object_id = SyntaxObjectId::fresh();
     }
+
+    fn visit_list(&mut self, l: &mut List) {
+        l.syntax_object_id = SyntaxObjectId::fresh().into();
+        for expr in &mut l.args {
+            self.visit(expr);
+        }
+    }
+
+    fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) {
+        lambda_function.syntax_object_id = SyntaxObjectId::fresh().into();
+        for var in &mut lambda_function.args {
+            self.visit(var);
+        }
+        self.visit(&mut lambda_function.body);
+    }
+
+    fn visit_let(&mut self, l: &mut Let) {
+        l.syntax_object_id = SyntaxObjectId::fresh().into();
+        l.bindings.iter_mut().for_each(|x| {
+            self.visit(&mut x.0);
+            self.visit(&mut x.1)
+        });
+        self.visit(&mut l.body_expr);
+    }
 }
 
 struct MutateCallSites<'a, F> {
@@ -4012,11 +4036,12 @@ impl<'a> SemanticAnalysis<'a> {
                         if let Some(count) = estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
                         {
                             if *count < threshold {
+                                let name = d.name.clone();
                                 let l = l.clone();
                                 funcs.insert(
                                     *d.name.atom_identifier().unwrap(),
                                     Box::new(move |_: &Analysis, lst: &mut List| {
-                                        println!("Inlining: {} @ {}", l, lst);
+                                        // println!("Inlining: {}: {} @ {}", name, l, lst);
                                         // TODO: Handle arity mismatches if they happen!
                                         lst.args[0] = ExprKind::LambdaFunction(l.clone());
                                     }),
@@ -4035,10 +4060,11 @@ impl<'a> SemanticAnalysis<'a> {
                                 {
                                     if *count < threshold {
                                         let l = l.clone();
+                                        let name = d.name.clone();
                                         funcs.insert(
                                             *d.name.atom_identifier().unwrap(),
                                             Box::new(move |_: &Analysis, lst: &mut List| {
-                                                println!("Inlining: {} @ {}", l, lst);
+                                                // println!("Inlining: {}: {} @ {}", name, l, lst);
                                                 lst.args[0] = ExprKind::LambdaFunction(l.clone());
                                             }),
                                         );
@@ -4594,7 +4620,11 @@ impl<'a> SemanticAnalysis<'a> {
                     if f.rest {
                         return false;
                     }
+                } else {
+                    return false;
                 }
+
+                // println!("Going to replace: {}", l);
 
                 let function = l.args.remove(0);
 
@@ -4614,7 +4644,7 @@ impl<'a> SemanticAnalysis<'a> {
 
                     *anon = ExprKind::Let(let_expr.into());
 
-                    println!("REPLACED: {}", anon);
+                    // println!("REPLACED: {}", anon);
 
                     re_run_analysis = true;
                     // log::debug!("Replaced anonymous function call with let");
