@@ -4029,21 +4029,42 @@ impl<'a> SemanticAnalysis<'a> {
         // Only do this for functions in which the arity is exactly known
         let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
 
+        // Only inline forwards, as to not run in to any issues with visibility
         for expr in self.exprs.iter() {
             match expr {
                 ExprKind::Define(d) => {
+                    let name = if let Some(name) = d.name.atom_syntax_object() {
+                        name
+                    } else {
+                        continue;
+                    };
+
+                    if let Some(analysis) = self.analysis.get(name) {
+                        if analysis.set_bang {
+                            // println!("Skipping because its mutated: {}", d.name);
+                            continue;
+                        }
+                    }
+
                     if let ExprKind::LambdaFunction(l) = &d.body {
                         if let Some(count) = estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
                         {
                             if *count < threshold {
-                                let name = d.name.clone();
+                                let original_id = l.syntax_object_id;
                                 let l = l.clone();
                                 funcs.insert(
                                     *d.name.atom_identifier().unwrap(),
                                     Box::new(move |_: &Analysis, lst: &mut List| {
-                                        // println!("Inlining: {}: {} @ {}", name, l, lst);
-                                        // TODO: Handle arity mismatches if they happen!
-                                        lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                                        // println!(
+                                        //     "{} - {}",
+                                        //     lst.syntax_object_id, l.syntax_object_id
+                                        // );
+                                        // println!("Trying to inline: {} @ {}", l, lst);
+                                        if lst.syntax_object_id > original_id {
+                                            // println!("Inlining: {} @ {}", l, lst);
+                                            // TODO: Handle arity mismatches if they happen!
+                                            lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                                        }
                                     }),
                                 );
                             }
@@ -4054,18 +4075,40 @@ impl<'a> SemanticAnalysis<'a> {
                 ExprKind::Begin(b) => {
                     for expr in b.exprs.iter() {
                         if let ExprKind::Define(d) = expr {
+                            let name = if let Some(name) = d.name.atom_syntax_object() {
+                                name
+                            } else {
+                                continue;
+                            };
+
+                            if let Some(analysis) = self.analysis.get(name) {
+                                if analysis.set_bang {
+                                    // println!("Skipping because its mutated: {}", d.name);
+                                    continue;
+                                }
+                            }
+
                             if let ExprKind::LambdaFunction(l) = &d.body {
                                 if let Some(count) =
                                     estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
                                 {
                                     if *count < threshold {
+                                        let original_id = l.syntax_object_id;
                                         let l = l.clone();
-                                        let name = d.name.clone();
                                         funcs.insert(
                                             *d.name.atom_identifier().unwrap(),
                                             Box::new(move |_: &Analysis, lst: &mut List| {
-                                                // println!("Inlining: {}: {} @ {}", name, l, lst);
-                                                lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                                                // println!(
+                                                //     "{} - {}",
+                                                //     lst.syntax_object_id, l.syntax_object_id
+                                                // );
+                                                // println!("Trying to inline: {} @ {}", l, lst);
+
+                                                if lst.syntax_object_id > original_id {
+                                                    // println!("Inlining: {} @ {}", l, lst);
+                                                    lst.args[0] =
+                                                        ExprKind::LambdaFunction(l.clone());
+                                                }
                                             }),
                                         );
                                     }
