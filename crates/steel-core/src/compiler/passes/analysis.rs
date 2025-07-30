@@ -3575,6 +3575,44 @@ impl<'a> VisitorMutControlFlow for ExprContainsIds<'a> {
     }
 }
 
+struct FlattenEmptyLets;
+
+impl FlattenEmptyLets {
+    pub fn flatten(exprs: &mut Vec<ExprKind>) {
+        for expr in exprs {
+            Self.visit(expr);
+        }
+    }
+}
+
+impl VisitorMutRefUnit for FlattenEmptyLets {
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => {
+                if l.bindings.is_empty() {
+                    *expr = std::mem::replace(&mut l.body_expr, ExprKind::empty());
+                    self.visit(expr)
+                } else {
+                    self.visit(&mut l.body_expr)
+                }
+            }
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
+    }
+}
+
 struct FlattenAnonymousFunctionCalls<'a> {
     analysis: &'a Analysis,
 }
@@ -5135,6 +5173,10 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn flatten_anonymous_functions(&mut self) {
         FlattenAnonymousFunctionCalls::flatten(&self.analysis, self.exprs);
+    }
+
+    pub fn flatten_empty_lets(&mut self) {
+        FlattenEmptyLets::flatten(self.exprs)
     }
 
     pub fn remove_unused_imports(&mut self) {

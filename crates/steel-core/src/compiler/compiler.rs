@@ -1240,6 +1240,9 @@ impl Compiler {
         semantic.inline_function_calls(None).unwrap();
         semantic.refresh_variables();
 
+        // Perhaps... flattening anonymous functions here might work?
+        // semantic.flatten_anonymous_functions();
+
         let mut analysis = semantic.into_analysis();
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements, false);
@@ -1253,6 +1256,9 @@ impl Compiler {
         semantic.replace_anonymous_function_calls_with_plain_lets();
 
         semantic.refresh_variables();
+
+        // Flatten the empty lets
+        // semantic.flatten_empty_lets();
 
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());

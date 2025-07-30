@@ -848,10 +848,12 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // FUNC 2
         // LETENDSCOPE 0 <- index of the stack when we entered this let expr
 
-        self.push(
-            LabeledInstruction::builder(OpCode::BEGINSCOPE)
-                .payload(*self.local_count.last().unwrap_or(&0)),
-        );
+        if !l.bindings.is_empty() {
+            self.push(
+                LabeledInstruction::builder(OpCode::BEGINSCOPE)
+                    .payload(*self.local_count.last().unwrap_or(&0)),
+            );
+        }
 
         let info = self
             .analysis
@@ -906,7 +908,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // The let will have to keep track of if any of these values are captured, and if they are
         // just insert an instruction to close that upvalue
 
-        self.push(LabeledInstruction::builder(OpCode::LETENDSCOPE).payload(info.stack_offset));
+        if !l.bindings.is_empty() {
+            self.push(LabeledInstruction::builder(OpCode::LETENDSCOPE).payload(info.stack_offset));
+        }
 
         Ok(())
     }
