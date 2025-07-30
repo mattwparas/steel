@@ -1236,7 +1236,7 @@ impl Compiler {
         // Do this, and then inline everything. Do it again
         // semantic.replace_anonymous_function_calls_with_plain_lets();
 
-        semantic.refresh_variables();
+        // semantic.refresh_variables();
         semantic.inline_function_calls(None).unwrap();
         semantic.refresh_variables();
 
