@@ -168,7 +168,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
             let input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
@@ -442,7 +442,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 4 {
+            if args.len() != 3 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
@@ -487,7 +487,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 4 {
+            if args.len() != 3 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
@@ -620,7 +620,7 @@ impl<
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -655,7 +655,7 @@ impl<
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -696,7 +696,7 @@ impl<
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -729,7 +729,7 @@ impl<
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -1164,7 +1164,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 4 {
+            if args.len() != 3 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
@@ -1209,7 +1209,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 4 {
+            if args.len() != 3 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
@@ -1257,8 +1257,8 @@ impl<
         // use std::Borrow();
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 3 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+            if args.len() != 2 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -1285,7 +1285,7 @@ impl<
             SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(3),
+                Some(2),
             ))),
         )
     }
@@ -1296,8 +1296,8 @@ impl<
         let cloned_name = name.clone();
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 3 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+            if args.len() != 2 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -1327,7 +1327,7 @@ impl<
             SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
                 Arc::new(f),
                 Some(cloned_name.into()),
-                Some(3),
+                Some(2),
             ))),
         )
     }
@@ -1705,7 +1705,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
             let mut nursery = <SELF::Nursery>::default();
@@ -1772,7 +1772,7 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref(&args[0]).map_err(|mut e| {
@@ -1807,7 +1807,7 @@ impl<
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -1837,7 +1837,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
             let mut input = <SELF>::as_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -1871,7 +1871,7 @@ impl<
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
             let mut input = <SELF>::as_ref_from_ref(&args[0])?;
@@ -1905,7 +1905,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
             let mut input = <SELF>::as_ref_from_ref(&args[0]).map_err(|mut e| {
