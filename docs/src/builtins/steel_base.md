@@ -147,6 +147,12 @@ Returns the arccosine, or inverse cosine, of a value; output is in radians.
 > (acos 0.5) ;; => 1.0471975511965976
 > (acos 2) ;; => +nan.0
 ```
+### **angle**
+Computes the angle `θ` of a complex number `z` where `z = r * (cos θ + i sin θ)` and `r` is the magnitude.
+
+(angle number) -> number?
+
+- number : number?
 ### **append**
 Appends the given lists together. If provided with no lists, will return the empty list.
 
@@ -491,6 +497,33 @@ Checks if the given value is a complex number
 > (complex? 42) ;; => #t
 > (complex? "hello") ;; => #f
 ```
+### **compose**
+Compose multiple iterators into one iterator
+
+(compose . iters) -> iterator?
+
+#### Examples
+```scheme
+(compose
+(mapping (λ (x) (+ x 1)))
+(filtering odd?)
+(taking 15))
+```
+### **concat-symbols**
+Concatenates zero or more symbols into a new symbol.
+
+(concat-symbols sym1 sym2 …) -> symbol?
+
+* `sym1` : symbol? — the first symbol to append
+* `sym2` : symbol? — the next symbol to append, and so on
+
+#### Examples
+```scheme
+> (concat-symbols 'he 'llo)
+=> 'hello
+> (concat-symbols)
+=> '
+```
 ### **cons**
 Returns a newly allocated list whose first element is `a` and second element is `d`.
 
@@ -601,6 +634,15 @@ Retrieves the denominator of the given rational number.
 Returns `#t` if the value is an disconnected-channel object.
 
 (eof-object? any/c) -> bool?
+### **dropping**
+Creates a taking iterator combinator
+
+(dropping integer?) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 2 3 4 5) (dropping 3) (into-list)) ;; => '(4 5)
+```
 ### **duration->string**
 Returns a string representation of a duration
 
@@ -638,6 +680,15 @@ pattern: string?
 > (ends-with? "foobar" "foo") ;; => #false
 > (ends-with? "foobar" "bar") ;; => #true
 ```
+### **enumerating**
+Create an enumerating iterator
+
+(enumerating) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 3 5) (enumerating) (into-list)) ;; => '((0 1) (1 3) (2 5))
+```
 ### **eof-object**
 Returns an EOF object.
 
@@ -664,17 +715,17 @@ Checks if the given number is even
 > (even? 4.0) ;; => #true
 ```
 ### **exact**
-Returns an exact representation of the input number, coerces an inexact number to an exact form.
+Converts a number to an exact number.
 
-(exact n) -> number?
+(exact num) -> number?
 
-* n : number? - The value to check for exactness.
+* num : number? - The value to convert to exact.
 
 #### Examples
 ```scheme
-> (exact 5.0) ;; => 5
-> (exact 5/3) ;; => 5/3
-> (exact 2) ;; => 2
+> (exact 10.0) ;; => 10
+> (exact 1.5) ;; => 3/2
+> (exact 1.5+2.5i) ;; => 3/2+5/2i
 ```
 ### **exact->inexact**
 Converts an exact number to an inexact number.
@@ -754,6 +805,15 @@ Raises the left operand to the power of the right operand.
 > (expt 2.0 0.5) ;; => 1.4142135623730951
 > (expt 9 0.5) ;; => 3
 ```
+### **extending**
+Create an extending iterator
+
+(extending iterable) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 2 3) (extending (list 4 5 6 7)) (into-list)) ;; => '(1 2 3 4 5 6 7)
+```
 ### **f+**
 Sums all given floats
 
@@ -767,6 +827,8 @@ Sums all given floats
 > (f+ 1.1 2.2) ;; => 3.3
 > (f+ 3.3 3.3 3.3) ;; => 9.9
 ```
+### **file-metadata**
+Access the file metadata for a given path
 ### **file-name**
 Gets the filename for a given path
 
@@ -778,6 +840,15 @@ Gets the filename for a given path
 ```scheme
 > (file-name "logs") ;; => "logs"
 > (file-name "logs/today.json") ;; => "today.json"
+```
+### **filtering**
+Creates a filtering iterator
+
+(filtering proc?) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 2 3 4) (filtering even?) (into-list)) ;; => '(2 4)
 ```
 ### **finite?**
 Returns `#t` if the given number is finite.
@@ -807,6 +878,24 @@ Returns the first element of the list l.
 > (first '(1 2)) ;; => 1
 > (first (cons 2 3)) ;; => 2
 ```
+### **flat-mapping**
+Creates a flat-mapping iterator
+
+(flat-mapping proc?) -> iterator
+
+#### Examples
+```scheme
+(transduce (list 1 2 3) (flat-mapping (λ (x) (range 0 x))) (into-list)) ;; => '(0 0 1 0 1 2)
+```
+### **flattening**
+Creates a flattening iterator that etc
+
+(flattening) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list '(1 2) '(3 4) '(5 6)) (flattening) (into-list)) ;; => '(1 2 3 4 5 6)
+```
 ### **float?**
 Checks if the given value is a floating-point number
 
@@ -833,6 +922,22 @@ Computes the largest integer less than or equal to the given number.
 > (floor 4.99) ;; => 4
 > (floor -2.5) ;; => -3
 ```
+### **fs-metadata-accessed**
+Get the last accessed time from the file metadata
+### **fs-metadata-created**
+Get the created time from the file metadata
+### **fs-metadata-is-dir?**
+Check if this metadata is from a directory
+### **fs-metadata-is-file?**
+Check if this metadata is from a file
+### **fs-metadata-is-symlink?**
+Check if this metadata is from a symlink
+### **fs-metadata-len**
+Get the length of the file in bytes
+### **fs-metadata-modified**
+Get the last modified time from the file metadata
+### **fs-metadata?**
+Checks if this value is a #<Metadata>
 ### **get-output-bytevector**
 Extracts the contents from a port created with `open-output-bytevector`.
 
@@ -1083,6 +1188,13 @@ Test if the hashset contains a given element.
 (hashset-contains? (hashset 10 20) 10) ;; => #true
 (hashset-contains? (hashset 10 20) "foo") ;; => #false
 ```
+### **hashset-difference**
+Finds the difference between the two hash sets.
+
+#### Examples
+```scheme
+(hashset-difference (hashset 10 20 30) (hashset 20 30 40)) ;; => (hashset 40 10)
+```
 ### **hashset-insert**
 Insert a new element into the hashset. Returns a hashset.
 
@@ -1092,6 +1204,13 @@ Insert a new element into the hashset. Returns a hashset.
 (define updated (hashset-insert hs 40))
 (equal? hs (hashset 10 20 30)) ;; => #true
 (equal? updated (hashset 10 20 30 40)) ;; => #true
+```
+### **hashset-intersection**
+Finds the intersection between the two hash sets.
+
+#### Examples
+```scheme
+(hashset-intersection (hashset 10 20) (hashset 20)) ;; => (hashset 10)
 ```
 ### **hashset-length**
 Get the number of elements in the hashset
@@ -1107,6 +1226,13 @@ Check if the left set is a subset of the right set
 ```scheme
 (hashset-subset? (hash 10) (hashset 10 20)) ;; => #true
 (hashset-subset? (hash 100) (hashset 30)) ;; => #false
+```
+### **hashset-union**
+Finds the union between the two hash sets.
+
+#### Examples
+```scheme
+(hashset-union (hashset 10) (hashset 20)) ;; => (hashset 10 20)
 ```
 ### **imag-part**
 Returns the imaginary part of a number
@@ -1129,6 +1255,19 @@ Constructs an immutable vector from the given arguments.
 ```scheme
 > (define V (immutable-vector 1 2 3)) ;;
 > V ;; => '#(1 2 3)
+```
+### **inexact**
+Converts a number to an inexact number.
+
+(inexact num) -> number?
+
+* num : number? - The number to convert from exact to inexact.
+
+#### Examples
+```scheme
+> (inexact 10) ;; => 10
+> (inexact 1/2) ;; => 0.5
+> (inexact 1+2i) ;; => 1+2i
 ```
 ### **inexact->exact**
 Converts an inexact number to an exact number.
@@ -1219,6 +1358,15 @@ Checks if the given value is an integer, an alias for `int?`
 > (integer? 3.14) ;; => #f
 > (integer? "hello") ;; => #f
 ```
+### **interleaving**
+Create an interleaving iterator
+
+(interleaving any/c) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 2 3) (interleaving (list 4 5 6)) (into-list)) ;; => '(1 4 2 5 3 6)
+```
 ### **is-dir?**
 Checks if a path is a directory
 
@@ -1295,6 +1443,30 @@ Convert the given list into a hashset.
 ```scheme
 (list 10 20 30) ;; => (hashset 10 20 30)
 ```
+### **list->string**
+Convert a list of charecters to a string.
+
+(list->string lst) -> string?
+
+* lst : (listof char?)
+
+#### Examples
+```scheme
+(list->string '(#\a #\b #\c)) ;; => "abc"
+```
+### **list-drop**
+Remove a certain number of elements (`n`) from the front of `lst`.
+
+(list-drop lst n) -> any/c
+
+* lst : list?
+* n : int?
+
+#### Examples
+```scheme
+> (list-drop '(1 2 3 4 5) 2) ;; => '(3 4 5)
+> (list-drop '() 3) ;; => '()
+```
 ### **list-ref**
 Returns the value located at the given index. Will raise an error if you try to index out of bounds.
 
@@ -1316,6 +1488,25 @@ error[E11]: Generic
 │
 1 │ (list-ref (list 1 2 3 4) 10)
 │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
+```
+### **list-tail**
+Same as `list-drop`, except raise an error if `n` is greater than the length of `lst`.
+
+(list-tail lst n) -> any/c
+
+* lst : list?
+* n : int?
+
+#### Examples
+```scheme
+> (list-tail '(1 2 3 4 5) 2) ;; => '(3 4 5)
+> (list-tail '() 3)
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (list-tail '() 3)
+│  ^^^^^^^^^ list-tail expects at least 3
+elements in the list, found: 0
 ```
 ### **local-time/now!**
 Returns the local time in the format given by the input string (using `chrono::Local::format`).
@@ -1367,6 +1558,20 @@ Creates a bytevector given a length and a default value.
 ```scheme
 (make-bytes 6 42) ;; => (bytes 42 42 42 42 42)
 ```
+### **make-polar**
+Make a complex number out of a magnitude `r` and an angle `θ`, so that the result is `r * (cos θ + i sin θ)`
+
+(make-polar r θ) -> number?
+
+- r : real?
+- theta : real?
+### **make-rectangular**
+Create a complex number with `re` as the real part and `im` as the imaginary part.
+
+(make-rectangular re im) -> number?
+
+- re : real?
+- im : real?
 ### **make-string**
 Creates a string of a given length, filled with an optional character
 (which defaults to `#\0`).
@@ -1392,6 +1597,15 @@ Creates a mutable vector of a given size, optionally initialized with a specifie
 ```scheme
 > (make-vector 3) ;; => '#(0 0 0)
 > (make-vector 3 42) ;; => '#(42 42 42)
+```
+### **mapping**
+Create a mapping iterator
+
+(mapping proc?) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 2 3) (mapping (λ (x) (+ x 1))) (into-list)) ;; => '(2 3 4)
 ```
 ### **modulo**
 Returns the euclidean remainder of the division of the first number by the second
@@ -1831,7 +2045,7 @@ Reads bytes from an input port.
 ### **read-bytes-into-buf**
 Reads bytes from an input port into a given buffer.
 
-(read-bytes-into-buf buf amt [port]) -> bytes?
+(read-bytes-into-buf buf amt [port]) -> int?
 
 * buf : bytes?
 * amt : (and positive? int?)
@@ -1853,6 +2067,98 @@ Returns the contents of the directory as a list
 ```scheme
 > (read-dir "logs") ;; => '("logs/today.json" "logs/yesterday.json")
 > (read-dir "empty_dir") ;; => '()
+```
+### **read-dir-entry-file-name**
+Returns the file name from a given read-dir-entry.
+### **read-dir-entry-is-dir?**
+Checks whether the read dir entry is a directory.
+
+(read-dir-entry-is-dir? value) -> bool?
+
+* value : read-dir-iter-entry?
+
+#### Examples
+```scheme
+(define my-iter (read-dir-iter "src"))
+(define next (read-dir-iter-next! my-iter))
+
+(read-dir-entry-path) ;; => "src/lib.rs"
+(read-dir-entry-is-dir? next) ;; #false - because this is a file
+
+```
+### **read-dir-entry-is-file?**
+Checks whether the read dir entry is a file.
+
+(read-dir-entry-is-dir? value) -> bool?
+
+* value : read-dir-iter-entry?
+
+#### Examples
+```scheme
+(define my-iter (read-dir-iter "src"))
+(define next (read-dir-iter-next! my-iter))
+
+(read-dir-entry-path) ;; => "src/lib.rs"
+(read-dir-entry-is-dir? next) ;; #true - because this is a file
+
+```
+### **read-dir-entry-is-symlink?**
+Checks whether the read dir entry is a symlink.
+### **read-dir-entry-metadata**
+Extract the file metadata from the #<DirEntry>
+### **read-dir-entry-path**
+Returns the path from a given read-dir-entry.
+### **read-dir-iter**
+Creates an iterator over the contents of the given directory.
+The given path must be a directory.
+
+(read-dir-iter dir) -> #<ReadDir>
+
+* dir : (is-dir?) - the directory to iterate over
+
+#### Examples
+```scheme
+(define my-iter (read-dir-iter "src"))
+(read-dir-iter-next! my-iter) ;; => #<DirEntry> src/lib.rs
+(read-dir-iter-next! my-iter) ;; => #<DirEntry> src/main.rs
+(read-dir-iter-next! my-iter) ;; => #false
+```
+### **read-dir-iter-entry?**
+Checks whether the given value is a #<DirEntry>
+
+(read-dir-iter-entry? value) -> bool?
+
+#### Examples
+```scheme
+(define my-iter (read-dir-iter "src"))
+(define next (read-dir-iter-next! my-iter))
+(read-dir-iter-entry? next) ;; => #true
+```
+### **read-dir-iter-next!**
+Reads one entry from the iterator. Reads a `ReadDir` struct.
+
+(read-dir-iter-next! read-dir-iter) -> #<DirEntry>
+
+* dir : (read-dir-iter?) - the directory to iterate over
+
+#### Examples
+```scheme
+(define my-iter (read-dir-iter "src"))
+(define nex-entry (read-dir-iter-next! my-iter)) ;; => #<DirEntry> src/lib.rs
+(read-dir-entry-is-dir? next-entry) ;; => #false
+(read-dir-entry-is-file? next-entry) ;; => #true
+(read-dir-entry-file-name) ;; => "lib.rs"
+```
+### **read-dir-iter?**
+Checks whether the given value is a #<ReadDir>
+
+(read-dir-iter? value) -> bool?
+
+#### Examples
+```scheme
+(define my-iter (read-dir-iter "src"))
+(read-dir-iter? my-iter) ;; => #true
+(read-dir-iter "not an iter") ;; => #false
 ```
 ### **read-port-to-string**
 Takes a port and reads the entire content into a string
@@ -1915,7 +2221,7 @@ Returns the rest of the list. Will raise an error if the list is empty.
 ```scheme
 > (rest (list 10 20 30)) ;; => '(20 30)
 > (rest (list 10)) ;; => '()
-> (rest (list 10))
+> (rest '() )
 error[E11]: Generic
 ┌─ :1:2
 │
@@ -1928,7 +2234,7 @@ This function takes time proportional to the length of `lst`.
 
 (reverse lst) -> list?
 
-* l : list?
+* lst : list?
 
 #### Examples
 ```scheme
@@ -1964,6 +2270,7 @@ error[E11]: Generic
 │
 1 │ (second '())
 │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+```
 ### **set-tls!**
 Set the value in the the thread local storage. Only this thread will see the updates associated
 with this TLS.
@@ -1985,6 +2292,12 @@ Returns the sine value of the input angle, measured in radians.
 Spawns the given `func` on another thread. It is required that the arity of the
 given function be 0. If the arity of the given function cannot be checked until runtime,
 the thread will be spawned and the function will fail to execute.
+
+```scheme
+(spawn-native-thread func)
+```
+
+func : (-> any?) ;; Function with no arguments, returns anything
 
 #### Examples
 
@@ -2318,6 +2631,54 @@ Creates a substring slicing the characters between two indices.
 (substring "hello" 1 4) ;; => "ell"
 (substring "hello" 10 15) ;; => error
 ```
+### **symbol->string**
+Converts a symbol or quoted list into its string representation.
+
+(symbol->string sym) -> string?
+
+* `sym` : symbol? | list? — a symbol or quoted list to convert
+
+#### Examples
+```scheme
+> (symbol->string 'foo)
+"foo"
+
+> (symbol->string '(a b c))
+"(a b c)"
+
+> (symbol->string 123)
+Error: symbol->string expected a symbol, found 123
+```
+### **symbol=?**
+Compares one or more symbols for pointer‐identity equality.
+
+(symbol=? sym1 sym2 …) -> bool?
+
+* `sym1` : symbol? — the first symbol to compare
+* `sym2` : symbol? — the next symbol to compare, and so on
+
+Returns `#t` if all provided symbols share the same memory pointer,
+`#f` otherwise. At least one argument is required.
+
+#### Examples
+```scheme
+> (define a 'foo)
+> (define b 'foo)
+> (symbol=? a b)
+=> #t
+> (symbol=? 'a 'b)
+=> #f
+> (symbol=? 'x 'x 'x)
+=> #t
+```
+### **system-time-duration-since**
+Gets the duration between two system times.
+
+(system-time-duration-since time earlier)
+### **system-time/now**
+Returns the current `SystemTime`.
+
+(system-time/now) -> SystemTime?
 ### **take**
 Returns the first n elements of the list l as a new list.
 
@@ -2331,6 +2692,15 @@ Returns the first n elements of the list l as a new list.
 ```scheme
 > (take '(1 2 3 4) 2) ;; => '(0 1)
 > (take (range 0 10) 4) ;; => '(0 1 2 3)
+```
+### **taking**
+Creates a taking iterator combinator
+
+(taking number?) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 2 3 4 5) (taking 3) (into-list)) ;; => '(1 2 3)
 ```
 ### **tan**
 Returns the tangent value of the input angle, measured in radians.
@@ -2625,6 +2995,15 @@ Checks if the given real number is zero.
 > (zero? 0.0) ;; => #t
 > (zero? 0.1) ;; => #f
 ```
+### **zipping**
+Create a zipping iterator
+
+(zipping any/c) -> iterator?
+
+#### Examples
+```scheme
+(transduce (list 1 2 3) (zipping (list 4 5 6 7)) (into-list)) ;; => '((1 4) (2 5) (3 6))
+```
 ### **%#interner-memory-usage**
 ### **%iterator?**
 ### **%keyword-hash**
@@ -2647,6 +3026,7 @@ Checks if the given real number is zero.
 ### **Some?**
 ### **TypeId?**
 ### **active-object-count**
+### **arity-object->list**
 ### **arity?**
 ### **assert!**
 ### **atom?**
@@ -2677,18 +3057,17 @@ Checks if the given real number is zero.
 ### **child-stdin**
 ### **child-stdout**
 ### **command**
-### **compose**
-### **concat-symbols**
 ### **continuation?**
 ### **current-function-span**
 ### **current-os!**
 ### **current-thread-id**
-### **dropping**
+### **duration->micros**
+### **duration->millis**
+### **duration->nanos**
 ### **duration->seconds**
 ### **duration-since**
 ### **emit-expanded**
 ### **empty-stream**
-### **enumerating**
 ### **env-var**
 ### **eq?**
 ### **equal?**
@@ -2699,24 +3078,22 @@ Checks if the given real number is zero.
 ### **eval!**
 ### **eval-string**
 ### **expand!**
-### **extending**
 ### **feature-dylib-build?**
-### **filtering**
-### **flat-mapping**
-### **flattening**
 ### **flush-output-port**
+### **function-arity**
 ### **function-name**
 ### **function?**
 ### **future?**
 ### **get-contract-struct**
 ### **get-test-mode**
+### **glob**
+### **glob-iter-next!**
 ### **hash-get**
 ### **hash?**
 ### **immutable-vector?**
 ### **inspect**
 ### **instant/elapsed**
 ### **instant/now**
-### **interleaving**
 ### **into-count**
 ### **into-for-each**
 ### **into-hashmap**
@@ -2734,18 +3111,14 @@ Checks if the given real number is zero.
 ### **iter-next!**
 ### **join!**
 ### **kill**
-### **list->string**
 ### **list->vector**
 ### **list-chunks**
-### **list-drop**
-### **list-tail**
 ### **list?**
 ### **load**
 ### **load-expanded**
 ### **local-executor/block-on**
 ### **make-channels**
 ### **make-struct-type**
-### **mapping**
 ### **maybe-get-env-var**
 ### **memory-address**
 ### **multi-arity?**
@@ -2757,6 +3130,10 @@ Checks if the given real number is zero.
 ### **naive-date-year**
 ### **naive-date-ymd**
 ### **not**
+### **path->string**
+### **path-separator**
+### **platform-dll-extension!**
+### **platform-dll-prefix!**
 ### **plist-get**
 ### **plist-get-kwarg**
 ### **plist-get-positional-arg**
@@ -2783,7 +3160,6 @@ Checks if the given real number is zero.
 ### **set?**
 ### **span-file-id**
 ### **spawn-process**
-### **spawn-thread!**
 ### **stdout**
 ### **stdout-simple-displayln**
 ### **steel-home-location**
@@ -2793,8 +3169,6 @@ Checks if the given real number is zero.
 ### **string?**
 ### **struct->list**
 ### **struct?**
-### **symbol->string**
-### **symbol=?**
 ### **symbol?**
 ### **syntax->datum**
 ### **syntax-e**
@@ -2803,7 +3177,11 @@ Checks if the given real number is zero.
 ### **syntax-span**
 ### **syntax/loc**
 ### **syntax?**
-### **taking**
+### **system-time<=**
+### **system-time<?**
+### **system-time>=**
+### **system-time>?**
+### **target-arch!**
 ### **thread/available-parallelism**
 ### **thread::current/id**
 ### **transduce**
@@ -2820,4 +3198,3 @@ Checks if the given real number is zero.
 ### **which**
 ### **would-block**
 ### **write-line!**
-### **zipping**

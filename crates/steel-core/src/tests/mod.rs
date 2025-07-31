@@ -84,6 +84,7 @@ test_harness_success! {
     closure_value_capture,
     comma_quibbling,
     complex_lets,
+    constant_eval_set,
     define_normal,
     defmacro,
     delim_control,
@@ -103,6 +104,7 @@ test_harness_success! {
     heap_sort,
     help,
     html_table,
+    into_string,
     letrec_mutual_recursion,
     letrec_simple_recursion,
     list_functions,
@@ -136,6 +138,7 @@ test_harness_success! {
     stack_test_with_contract,
     string_append,
     structs,
+    symbols,
     // TODO: @Matt 11/11/2023
     syntax_case,
     threads,
@@ -154,4 +157,5 @@ test_harness_failure! {
     local_define_does_not_escape_non_const,
     local_struct_inaccessible,
     require_only_in_missing_identifier,
+    syntax_rules_empty_list,
 }

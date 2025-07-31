@@ -31,6 +31,8 @@ pub mod vectors;
 // as to not require depending on the system git.
 pub mod git;
 
+pub mod hashes;
+
 use crate::gc::{Gc, GcMut};
 use crate::rvals::{FromSteelVal, IntoSteelVal, SteelByteVector};
 use crate::rvals::{
@@ -51,7 +53,9 @@ pub use fs::{fs_module, fs_module_sandbox};
 pub use io::IoFunctions;
 pub use lists::UnRecoverableResult;
 pub use meta_ops::MetaOperations;
-use num::{BigInt, BigRational, Rational32, ToPrimitive};
+use num_bigint::BigInt;
+use num_rational::{BigRational, Rational32};
+use num_traits::ToPrimitive;
 pub use numbers::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 pub use ports::port_module;
 use std::convert::TryFrom;
@@ -188,6 +192,22 @@ impl IntoSteelVal for usize {
     #[inline]
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
         Ok(SteelVal::from(self))
+    }
+}
+
+impl IntoSteelVal for u128 {
+    fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
+        Ok(SteelVal::from(self))
+    }
+}
+
+impl From<u128> for SteelVal {
+    fn from(value: u128) -> Self {
+        if value > isize::MAX as u128 {
+            SteelVal::BigNum(Gc::new(value.into()))
+        } else {
+            SteelVal::IntV(value as isize)
+        }
     }
 }
 

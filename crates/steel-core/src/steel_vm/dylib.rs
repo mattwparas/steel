@@ -11,7 +11,7 @@ use abi_stable::{
     library::{LibraryError, RootModule},
     package_version_strings,
     sabi_types::VersionStrings,
-    std_types::RBox,
+    std_types::{RBox, RBoxError},
     StableAbi,
 };
 use once_cell::sync::Lazy;
@@ -56,6 +56,67 @@ impl RootModule for GenerateModule_Ref {
 pub fn load_root_module_in_directory(file: &Path) -> Result<GenerateModule_Ref, LibraryError> {
     abi_stable::library::lib_header_from_path(&file)
         .and_then(|x| x.init_root_module::<GenerateModule_Ref>())
+}
+
+pub fn load_root_module_in_directory_manual(
+    file: &Path,
+) -> Result<(GenerateModule_Ref, Option<usize>), LibraryError> {
+    let header = abi_stable::library::lib_header_from_path(&PathBuf::from(file))
+        .expect("plugin library header must be loadable");
+
+    let mut max_enum: Option<usize> = None;
+
+    if let abi_stable::library::IsLayoutChecked::Yes(layout) = header.root_mod_consts().layout() {
+        // Note the full path here, the abi_checking module is hidden from documentation
+        // Also note the arguments have been reversed, passing the plugin's layout first
+        if let Err(errs) = abi_stable::abi_stability::abi_checking::check_layout_compatibility(
+            GenerateModule_Ref::LAYOUT,
+            layout,
+        ) {
+            for err in &errs.errors {
+                for e in &err.errs {
+                    match e {
+                        abi_stable::abi_stability::abi_checking::AI::TooManyVariants(e)
+                        | abi_stable::abi_stability::abi_checking::AI::FieldCountMismatch(e) => {
+                            for trace in &err.stack_trace {
+                                match trace.expected {
+                                    abi_stable::type_layout::TLFieldOrFunction::Field(tlfield) => {
+                                        if tlfield.full_type().name() == "FFIArg" {
+                                            // This is an older plugin. Assuming the FFIArg layout
+                                            // hasn't changed and this is the only issue, then we
+                                            // should be okay to continue.
+                                            if e.found < e.expected {
+                                                // This is going to be the maximum enum variant that we'll
+                                                // allow
+                                                max_enum = Some(e.found - 1);
+                                            }
+                                        }
+                                    }
+                                    abi_stable::type_layout::TLFieldOrFunction::Function(_) => {}
+                                }
+                            }
+
+                            if max_enum.is_none() {
+                                return Err(LibraryError::AbiInstability(RBoxError::new(errs)));
+                            }
+                        }
+                        // IF this isn't one of our known issues, we're just going to bail immediately
+                        _ => return Err(LibraryError::AbiInstability(RBoxError::new(errs))),
+                    }
+                }
+            }
+        }
+    };
+
+    unsafe { header.init_root_module_with_unchecked_layout::<GenerateModule_Ref>() }
+        .map(|x| (x, max_enum))
+
+    // If we want to include version checking, use this instead:
+    // let lib = unsafe {
+    //     header
+    //         .unchecked_layout::<GenerateModule_Ref>()
+    //         .expect("plugin broke while loading")
+    // };
 }
 
 #[derive(Clone)]
@@ -111,7 +172,6 @@ impl DylibContainers {
             let home = steel_home();
 
             if let Some(home) = home {
-                // let guard = LOADED_DYLIBS.lock().unwrap();
                 let mut module_guard = LOADED_MODULES.lock().unwrap();
 
                 let mut home = PathBuf::from(home);
@@ -127,11 +187,7 @@ impl DylibContainers {
                             continue;
                         }
 
-                        let path_name = path
-                            .file_stem()
-                            // .file_name()
-                            .and_then(|x| x.to_str())
-                            .unwrap();
+                        let path_name = path.file_stem().and_then(|x| x.to_str()).unwrap();
 
                         // Didn't match! skip it
                         if path_name != target.as_str() {
@@ -147,14 +203,15 @@ impl DylibContainers {
                         log::info!(target: "dylibs", "Loading dylib: {:?}", path);
 
                         // Load the module in
-                        let container = load_root_module_in_directory(&path).unwrap();
+                        let (container, max_enum) =
+                            load_root_module_in_directory_manual(&path).unwrap();
 
                         let dylib_module = container.generate_module()();
 
                         module_guard.push((module_name, container));
 
                         let external_module =
-                            crate::steel_vm::ffi::FFIWrappedModule::new(dylib_module)
+                            crate::steel_vm::ffi::FFIWrappedModule::new(dylib_module, max_enum)
                                 .expect("dylib failed to load!")
                                 .build();
 

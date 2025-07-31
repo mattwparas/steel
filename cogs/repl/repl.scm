@@ -80,5 +80,5 @@
 
       (displayln "Closing connection.")))))
 
-(unless (get-test-mode)
-  (repl-serve))
+; (unless (get-test-mode)
+;   (repl-serve))

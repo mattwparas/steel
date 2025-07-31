@@ -3,7 +3,7 @@
 use super::{
     builtin::{BuiltInModule, FunctionSignatureMetadata},
     primitives::{register_builtin_modules, CONSTANTS},
-    vm::{SteelThread, Synchronizer, ThreadStateController},
+    vm::{threads::ThreadHandle, SteelThread, Synchronizer, ThreadStateController},
 };
 
 #[cfg(feature = "dylibs")]
@@ -17,13 +17,10 @@ use crate::{
         compiler::{Compiler, SerializableCompiler},
         map::SymbolMap,
         modules::{
-            intern_modules, path_to_module_name, CompiledModule, MANGLER_PREFIX,
-            PRELUDE_WITHOUT_BASE,
+            intern_modules, path_to_module_name, CompiledModule, SourceModuleResolver,
+            MANGLER_PREFIX, PRELUDE_WITHOUT_BASE,
         },
-        program::{
-            number_literal_to_steel, Executable, RawProgramWithSymbols,
-            SerializableRawProgramWithSymbols,
-        },
+        program::{Executable, RawProgramWithSymbols, SerializableRawProgramWithSymbols},
     },
     containers::RegisterValue,
     core::{
@@ -31,6 +28,7 @@ use crate::{
         labels::Expr,
     },
     gc::{
+        shared::StandardShared,
         unsafe_erased_pointers::{
             BorrowedObject, CustomReference, OpaqueReferenceNursery, ReadOnlyBorrowedObject,
             ReferenceMarker,
@@ -87,7 +85,7 @@ use steel_parser::{
 use crate::parser::ast::IteratorExtensions;
 
 thread_local! {
-    static KERNEL_BIN_FILE: Cell<Option<&'static [u8]>> = Cell::new(None);
+    static KERNEL_BIN_FILE: Cell<Option<&'static [u8]>> = const { Cell::new(None) };
 }
 
 // Install the binary file to be used during bootup
@@ -98,11 +96,13 @@ thread_local! {
 #[cfg(not(feature = "sync"))]
 pub trait ModuleResolver {
     fn resolve(&self, name: &str) -> Option<BuiltInModule>;
+    fn names(&self) -> Vec<String>;
 }
 
 #[cfg(feature = "sync")]
 pub trait ModuleResolver: MaybeSendSyncStatic {
     fn resolve(&self, name: &str) -> Option<BuiltInModule>;
+    fn names(&self) -> Vec<String>;
 }
 
 #[derive(Clone, Default)]
@@ -111,7 +111,7 @@ pub struct ModuleContainer {
     // For modules that don't exist in memory. This could be useful for a world
     // in which a builtin module exists BUT we'd like to resolve the module for
     // inference purposes.
-    unresolved_modules: Arc<RwLock<Option<Shared<dyn ModuleResolver>>>>,
+    unresolved_modules: Arc<RwLock<Option<StandardShared<dyn ModuleResolver>>>>,
 }
 
 impl ModuleContainer {
@@ -151,11 +151,24 @@ impl ModuleContainer {
     }
 
     pub fn get(&self, key: &str) -> Option<BuiltInModule> {
-        self.modules.read().get(key).cloned().or_else(|| {
-            self.unresolved_modules
+        let mut guard = self.modules.write();
+        let found = guard.get(key).cloned();
+
+        found.or_else(|| {
+            let res = self
+                .unresolved_modules
                 .read()
                 .as_ref()
-                .and_then(|x| x.resolve(key))
+                .and_then(|x| x.resolve(key));
+
+            if let Some(res) = res {
+                // Define the module now.
+                guard.insert(Shared::from(key), res.clone());
+
+                Some(res)
+            } else {
+                None
+            }
         })
     }
 
@@ -170,7 +183,7 @@ impl ModuleContainer {
     }
 
     pub fn with_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
-        *self.unresolved_modules.write() = Some(Shared::new(resolver));
+        *self.unresolved_modules.write() = Some(StandardShared::new(resolver));
     }
 }
 
@@ -212,7 +225,6 @@ pub struct Engine {
     // still... needs to be shared, but thats fine.
     // pub(crate) compiler: Arc<RwLock<Compiler>>,
     modules: ModuleContainer,
-    sources: Sources,
     #[cfg(feature = "dylibs")]
     dylibs: DylibContainers,
     pub(crate) id: EngineId,
@@ -235,7 +247,32 @@ impl Clone for Engine {
     fn clone(&self) -> Self {
         let mut virtual_machine = self.virtual_machine.clone();
 
+        // Set up child
         virtual_machine.synchronizer = Synchronizer::new();
+
+        let weak_ctx = Arc::downgrade(&virtual_machine.synchronizer.ctx);
+
+        // Get a handle to the current thread?
+        let handle = ThreadHandle {
+            handle: Mutex::new(None),
+            thread: std::thread::current(),
+            thread_state_manager: virtual_machine.synchronizer.state.clone(),
+            forked_thread_handle: None,
+        }
+        .into_steelval()
+        .unwrap();
+
+        // TODO: Entering safepoint should happen often
+        // for the main thread?
+        virtual_machine
+            .synchronizer
+            .threads
+            .lock()
+            .unwrap()
+            .push(super::vm::ThreadContext {
+                ctx: weak_ctx,
+                handle,
+            });
 
         let compiler = Arc::new(RwLock::new(self.virtual_machine.compiler.write().clone()));
 
@@ -245,7 +282,6 @@ impl Clone for Engine {
             virtual_machine,
             // compiler,
             modules: self.modules.clone(),
-            sources: self.sources.clone(),
             #[cfg(feature = "dylibs")]
             dylibs: self.dylibs.clone(),
             id: EngineId::new(),
@@ -260,16 +296,15 @@ impl Default for Engine {
 }
 
 // Pre-parsed ASTs along with the global state to set before we start any further processing
-#[derive(Serialize, Deserialize)]
-struct BootstrapImage {
-    interner: Arc<ThreadedRodeo<lasso::Spur, FxBuildHasher>>,
-    syntax_object_id: usize,
-    sources: Sources,
-    programs: Vec<Vec<ExprKind>>,
-}
+// #[derive(Serialize, Deserialize)]
+// struct BootstrapImage {
+//     interner: Arc<ThreadedRodeo<lasso::Spur, FxBuildHasher>>,
+//     syntax_object_id: usize,
+//     sources: Sources,
+//     programs: Vec<Vec<ExprKind>>,
+// }
 
 // Pre compiled programs along with the global state to set before we start any further processing
-#[derive(Serialize, Deserialize)]
 struct StartupBootstrapImage {
     syntax_object_id: usize,
     function_id: usize,
@@ -280,7 +315,6 @@ struct StartupBootstrapImage {
     compiler: Option<SerializableCompiler>,
 }
 
-#[derive(Serialize, Deserialize)]
 struct KernelImage {
     // Kernel macros
     compiler: SerializableCompiler,
@@ -328,15 +362,12 @@ impl<'a> Drop for LifetimeGuard<'a> {
 impl<'a> LifetimeGuard<'a> {
     pub fn with_immutable_reference<
         'b: 'a,
-        T: CustomReference + 'b,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
         EXT: CustomReference + 'static,
     >(
         self,
         obj: &'a T,
-    ) -> Self
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> Self {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
             std::any::TypeId::of::<EXT>()
@@ -349,13 +380,14 @@ impl<'a> LifetimeGuard<'a> {
         self
     }
 
-    pub fn with_mut_reference<'b: 'a, T: CustomReference + 'b, EXT: CustomReference + 'static>(
+    pub fn with_mut_reference<
+        'b: 'a,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
+        EXT: CustomReference + 'static,
+    >(
         self,
         obj: &'a mut T,
-    ) -> Self
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> Self {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
             std::any::TypeId::of::<EXT>()
@@ -521,14 +553,13 @@ impl Engine {
         let modules = ModuleContainer::with_expected_capacity();
 
         let compiler = Arc::new(RwLock::new(Compiler::default_without_kernel(
-            sources.clone(),
+            sources,
             modules.clone(),
         )));
 
         let mut vm = Engine {
-            virtual_machine: SteelThread::new(sources.clone(), compiler),
+            virtual_machine: SteelThread::new(compiler),
             modules,
-            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
@@ -576,12 +607,32 @@ impl Engine {
         vm
     }
 
+    /// Registers a source module resolvers. This differs from `register_module_resolver` which deals
+    /// specifically with builtin modules, e.g. `BuiltInModule`. This will allow you to embed
+    /// source modules that can be referenced via `(require ...)` at the scheme level.
+    ///
+    /// This is a more flexible version of the api provided by `register_steel_module`, which allows
+    /// you to directly register a module with the name, and the associated text for that module.
+    pub fn register_source_module_resolver<T: SourceModuleResolver + 'static>(
+        &mut self,
+        resolver: T,
+    ) {
+        self.virtual_machine
+            .compiler
+            .write()
+            .register_source_module_resolver(resolver);
+    }
+
     /// Register a module resolver. This is used for creating references to modules
     /// that don't exist within the compiler. Without this, you wouldn't be able to
     /// pre-compile or analyze code that is run within another host application, without
     /// exposing some kind of compiler from that hosts runtime. The requirement then
     /// is to expose some kind of module artifact that we can then consume.
     pub fn register_module_resolver<T: ModuleResolver + 'static>(&mut self, resolver: T) {
+        for name in resolver.names() {
+            self.register_value(&format!("%-builtin-module-{}", name), SteelVal::Void);
+        }
+
         self.modules.with_resolver(resolver);
     }
 
@@ -625,11 +676,11 @@ impl Engine {
         if matches!(option_env!("STEEL_BOOTSTRAP"), Some("false") | None) {
             let mut vm = Engine::new_kernel(sandbox);
 
-            let sources = vm.sources.clone();
+            // let sources = vm.sources.clone();
 
-            vm.register_fn("report-error!", move |error: SteelErr| {
-                raise_error(&sources, error);
-            });
+            // vm.register_fn("report-error!", move |error: SteelErr| {
+            //     raise_error(&sources, error);
+            // });
 
             return vm;
         }
@@ -676,11 +727,11 @@ impl Engine {
         // } else {
         let mut vm = Engine::new_kernel(sandbox);
 
-        let sources = vm.sources.clone();
+        // let sources = vm.sources.clone();
 
-        vm.register_fn("report-error!", move |error: SteelErr| {
-            raise_error(&sources, error);
-        });
+        // vm.register_fn("report-error!", move |error: SteelErr| {
+        //     raise_error(&sources, error);
+        // });
 
         vm
         // }
@@ -730,7 +781,7 @@ impl Engine {
             .emit_raw_program(expr, path)?
             .into_serializable_program()
             .map(|program| NonInteractiveProgramImage {
-                sources: engine.sources.clone(),
+                sources: engine.virtual_machine.compiler.read().sources.clone(),
                 program,
             })
     }
@@ -742,7 +793,7 @@ impl Engine {
         let mut engine = Engine::new();
         let program = crate::steel_vm::engine::NonInteractiveProgramImage::from_bytes(program);
 
-        engine.sources = program.sources;
+        engine.virtual_machine.compiler.write().sources = program.sources;
 
         // TODO: The constant map needs to be brought back as well. Install it here.
         // it needs to get installed in the VM and the compiler. Lets just try that now.
@@ -755,7 +806,7 @@ impl Engine {
         let results = engine.run_raw_program(raw_program);
 
         if let Err(e) = results {
-            raise_error(&engine.sources, e);
+            raise_error(&engine.virtual_machine.compiler.read().sources, e);
         }
 
         Ok(())
@@ -1071,14 +1122,13 @@ impl Engine {
         let modules = ModuleContainer::default();
 
         let compiler = Arc::new(RwLock::new(Compiler::default_with_kernel(
-            sources.clone(),
+            sources,
             modules.clone(),
         )));
 
         Engine {
-            virtual_machine: SteelThread::new(sources.clone(), compiler),
+            virtual_machine: SteelThread::new(compiler),
             modules,
-            sources,
             #[cfg(feature = "dylibs")]
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
@@ -1089,11 +1139,12 @@ impl Engine {
         EngineStatistics {
             rooted_count: self.globals().len(),
             constants_count: self.virtual_machine.compiler.read().constant_map.len(),
-            sources_size: self.sources.size_in_bytes(),
+            sources_size: self.virtual_machine.compiler.read().sources.size_in_bytes(),
         }
     }
 
-    /// Registers a steel module
+    /// Registers a steel module. This is a more streamlined version of the
+    /// api provided by `register_source_module_resolver`.
     pub fn register_steel_module(&mut self, module_name: String, text: String) {
         self.virtual_machine
             .compiler
@@ -1141,7 +1192,7 @@ impl Engine {
         let now = std::time::Instant::now();
 
         if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
-            raise_error(&engine.sources, e);
+            raise_error(&engine.virtual_machine.compiler.read().sources, e);
             panic!("This shouldn't happen!");
         }
 
@@ -1220,15 +1271,12 @@ impl Engine {
     pub fn with_immutable_reference<
         'a,
         'b: 'a,
-        T: CustomReference + 'b,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
         EXT: CustomReference + 'static,
     >(
         &'a mut self,
         obj: &'a T,
-    ) -> LifetimeGuard<'a>
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> LifetimeGuard<'a> {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
             std::any::TypeId::of::<EXT>()
@@ -1241,13 +1289,15 @@ impl Engine {
         LifetimeGuard { engine: self }
     }
 
-    pub fn with_mut_reference<'a, 'b: 'a, T: CustomReference + 'b, EXT: CustomReference + 'static>(
+    pub fn with_mut_reference<
+        'a,
+        'b: 'a,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
+        EXT: CustomReference + 'static,
+    >(
         &'a mut self,
         obj: &'a mut T,
-    ) -> LifetimeGuard<'a>
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> LifetimeGuard<'a> {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
             std::any::TypeId::of::<EXT>()
@@ -1261,15 +1311,17 @@ impl Engine {
     }
 
     // Tie the lifetime of this object to the scope of this execution
-    pub fn run_with_reference<'a, 'b: 'a, T: CustomReference + 'b, EXT: CustomReference + 'static>(
+    pub fn run_with_reference<
+        'a,
+        'b: 'a,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
+        EXT: CustomReference + 'static,
+    >(
         &'a mut self,
         obj: &'a mut T,
         bind_to: &'a str,
         script: &'a str,
-    ) -> Result<SteelVal>
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> Result<SteelVal> {
         self.with_mut_reference(obj).consume(move |engine, args| {
             let mut args = args.into_iter();
 
@@ -1286,7 +1338,7 @@ impl Engine {
     pub fn run_with_reference_from_path<
         'a,
         'b: 'a,
-        T: CustomReference + 'b,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
         EXT: CustomReference + 'static,
     >(
         &'a mut self,
@@ -1294,10 +1346,7 @@ impl Engine {
         bind_to: &'a str,
         script: &'a str,
         path: PathBuf,
-    ) -> Result<SteelVal>
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> Result<SteelVal> {
         self.with_mut_reference(obj).consume(move |engine, args| {
             let mut args = args.into_iter();
 
@@ -1315,40 +1364,34 @@ impl Engine {
     pub fn run_thunk_with_reference<
         'a,
         'b: 'a,
-        T: CustomReference + 'b,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
         EXT: CustomReference + 'static,
     >(
         &'a mut self,
         obj: &'a mut T,
         mut thunk: impl FnMut(&mut Engine, SteelVal) -> Result<SteelVal>,
-    ) -> Result<SteelVal>
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> Result<SteelVal> {
         self.with_mut_reference(obj).consume(|engine, args| {
             let mut args = args.into_iter();
 
-            thunk(engine, args.into_iter().next().unwrap_or(SteelVal::Void))
+            thunk(engine, args.next().unwrap_or(SteelVal::Void))
         })
     }
 
     pub fn run_thunk_with_ro_reference<
         'a,
         'b: 'a,
-        T: CustomReference + 'b,
+        T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
         EXT: CustomReference + 'static,
     >(
         &'a mut self,
         obj: &'a T,
         mut thunk: impl FnMut(&mut Engine, SteelVal) -> Result<SteelVal>,
-    ) -> Result<SteelVal>
-    where
-        T: ReferenceMarker<'b, Static = EXT>,
-    {
+    ) -> Result<SteelVal> {
         self.with_immutable_reference(obj).consume(|engine, args| {
             let mut args = args.into_iter();
 
-            thunk(engine, args.into_iter().next().unwrap_or(SteelVal::Void))
+            thunk(engine, args.next().unwrap_or(SteelVal::Void))
         })
     }
 
@@ -1375,7 +1418,7 @@ impl Engine {
         let now = std::time::Instant::now();
 
         if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
-            raise_error(&engine.sources, e);
+            raise_error(&engine.virtual_machine.compiler.read().sources, e);
             panic!("This shouldn't happen!");
         }
 
@@ -1466,7 +1509,7 @@ impl Engine {
         &mut self,
         module: abi_stable::std_types::RBox<FFIModule>,
     ) -> Result<&mut Self> {
-        let external_module = FFIWrappedModule::new(module)?.build();
+        let external_module = FFIWrappedModule::new(module, None)?.build();
 
         self.modules
             .insert(external_module.name(), external_module.clone());
@@ -1483,10 +1526,12 @@ impl Engine {
         &mut self,
         expr: E,
     ) -> Result<RawProgramWithSymbols> {
-        self.virtual_machine
-            .compiler
-            .write()
-            .compile_executable(expr, None)
+        self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .compile_executable(expr, None)
+        })
     }
 
     pub fn emit_raw_program<E: AsRef<str> + Into<Cow<'static, str>>>(
@@ -1494,10 +1539,12 @@ impl Engine {
         expr: E,
         path: PathBuf,
     ) -> Result<RawProgramWithSymbols> {
-        self.virtual_machine
-            .compiler
-            .write()
-            .compile_executable(expr, Some(path))
+        self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .compile_executable(expr, Some(path))
+        })
     }
 
     #[doc(hidden)]
@@ -1557,11 +1604,11 @@ impl Engine {
         fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
             match &t.ty {
                 TokenType::BooleanLiteral(b) => Ok((*b).into()),
-                TokenType::Number(n) => number_literal_to_steel(n),
+                TokenType::Number(n) => (&**n).into_steelval(),
                 TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
                 TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
                 // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
-                TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
+                TokenType::Keyword(k) => Ok(SteelVal::SymbolV((*k).into())),
                 what => {
                     // println!("getting here in the eval_atom - code_gen");
                     stop!(UnexpectedToken => what; t.span)
@@ -1610,20 +1657,23 @@ impl Engine {
         exprs: E,
         path: PathBuf,
     ) {
-        self.virtual_machine
-            .compiler
-            .write()
-            .fully_expand_to_file(exprs, Some(path))
-            .unwrap();
+        self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .fully_expand_to_file(exprs, Some(path))
+                .unwrap()
+        });
     }
 
     pub fn load_from_expanded_file(&mut self, path: &str) {
-        let program = self
-            .virtual_machine
-            .compiler
-            .write()
-            .load_from_file(path)
-            .unwrap();
+        let program = self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .load_from_file(path)
+                .unwrap()
+        });
 
         self.run_raw_program(program).unwrap();
     }
@@ -1634,11 +1684,12 @@ impl Engine {
         exprs: E,
         path: PathBuf,
     ) -> Result<Vec<SteelVal>> {
-        let program = self
-            .virtual_machine
-            .compiler
-            .write()
-            .compile_executable(exprs, Some(path))?;
+        let program = self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .compile_executable(exprs, Some(path))
+        })?;
 
         self.run_raw_program(program)
     }
@@ -1659,11 +1710,12 @@ impl Engine {
         &mut self,
         exprs: E,
     ) -> Result<Vec<SteelVal>> {
-        let program = self
-            .virtual_machine
-            .compiler
-            .write()
-            .compile_executable(exprs, None)?;
+        let program = self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .compile_executable(exprs, None)
+        })?;
 
         self.run_raw_program(program)
     }
@@ -1681,11 +1733,11 @@ impl Engine {
 
         // Revisit if we need to do this at all?
         if result.is_err() {
-            self.virtual_machine
-                .compiler
-                .write()
-                .symbol_map
-                .roll_back(symbol_map_offset);
+            let mut guard = self.virtual_machine.compiler.write();
+
+            // Reset the compiled modules as well.
+            guard.symbol_map.roll_back(symbol_map_offset);
+            guard.module_manager.rollback_metadata();
         }
 
         result
@@ -1709,15 +1761,16 @@ impl Engine {
             .symbol_map
             .roll_back(checkpoint.symbol_map_offset);
 
-        #[cfg(feature = "sync")]
-        {
-            self.virtual_machine
-                .global_env
-                .bindings_vec
-                .write()
-                .unwrap()
-                .truncate(checkpoint.globals_offset);
-        }
+        // // TODO: Does this even need to happen?
+        // #[cfg(feature = "sync")]
+        // {
+        //     self.virtual_machine
+        //         .global_env
+        //         .bindings_vec
+        //         .write()
+        //         // .unwrap()
+        //         .truncate(checkpoint.globals_offset);
+        // }
 
         #[cfg(not(feature = "sync"))]
         {
@@ -1734,6 +1787,12 @@ impl Engine {
         // TODO: Add hook here to check what values are now unreachable!
         let executable = self.raw_program_to_executable(program)?;
 
+        self.gc_shadowed_roots();
+
+        self.virtual_machine.run_executable(&executable)
+    }
+
+    fn gc_shadowed_roots(&mut self) {
         // Unfortunately, we have to invoke a whole GC algorithm here
         // for shadowed rooted values
         if self
@@ -1745,50 +1804,87 @@ impl Engine {
             .should_collect()
         {
             #[cfg(feature = "sync")]
-            {
-                GlobalSlotRecycler::free_shadowed_rooted_values(
-                    &mut self
-                        .virtual_machine
-                        .global_env
-                        .bindings_vec
-                        .write()
-                        .unwrap(),
-                    &mut self.virtual_machine.compiler.write().symbol_map,
-                    &mut self.virtual_machine.heap.lock().unwrap(),
-                );
-            }
+            self.virtual_machine.with_locked_env(|ctx, env| {
+                #[cfg(feature = "sync")]
+                {
+                    GlobalSlotRecycler::free_shadowed_rooted_values(
+                        // &mut self.virtual_machine.global_env.bindings_vec.write(),
+                        &mut env.0.as_mut_slice(),
+                        // .unwrap(),
+                        &mut ctx.compiler.write().symbol_map,
+                        &mut ctx.heap.lock().unwrap(),
+                    );
+                }
+
+                #[cfg(not(feature = "sync"))]
+                {
+                    GlobalSlotRecycler::free_shadowed_rooted_values(
+                        &mut ctx.global_env.bindings_vec,
+                        &mut ctx.compiler.write().symbol_map,
+                        &mut ctx.heap.lock().unwrap(),
+                    );
+                }
+
+                // Drop the pure functions which have been lifted.
+                ctx.function_interner
+                    .pure_function_interner
+                    .retain(|key, value| crate::gc::Gc::strong_count(value) > 1);
+
+                // TODO:
+                // It is also necessary to keep track of the values to drop
+                // for closures - this can be done by tracking the closure id
+                // throughout the generated bytecode. Same way we keep track of
+                // the referenced globals; we track the referenced closures.
+                // FIXME: Add that code here
+
+                ctx.compiler
+                    .write()
+                    .symbol_map
+                    .free_list
+                    .increment_generation();
+            });
 
             #[cfg(not(feature = "sync"))]
-            {
-                GlobalSlotRecycler::free_shadowed_rooted_values(
-                    &mut self.virtual_machine.global_env.bindings_vec,
-                    &mut self.virtual_machine.compiler.write().symbol_map,
-                    &mut self.virtual_machine.heap.lock().unwrap(),
-                );
-            }
+            self.virtual_machine.with_locked_env(|ctx| {
+                #[cfg(feature = "sync")]
+                {
+                    GlobalSlotRecycler::free_shadowed_rooted_values(
+                        &mut ctx.virtual_machine.global_env.bindings_vec.write(),
+                        // &mut env.0.as_mut_slice(),
+                        // .unwrap(),
+                        &mut ctx.compiler.write().symbol_map,
+                        &mut ctx.heap.lock().unwrap(),
+                    );
+                }
 
-            // Drop the pure functions which have been lifted.
-            self.virtual_machine
-                .function_interner
-                .pure_function_interner
-                .retain(|key, value| crate::gc::Gc::strong_count(value) > 1);
+                #[cfg(not(feature = "sync"))]
+                {
+                    GlobalSlotRecycler::free_shadowed_rooted_values(
+                        &mut ctx.global_env.bindings_vec,
+                        &mut ctx.compiler.write().symbol_map,
+                        &mut ctx.heap.lock().unwrap(),
+                    );
+                }
 
-            // TODO:
-            // It is also necessary to keep track of the values to drop
-            // for closures - this can be done by tracking the closure id
-            // throughout the generated bytecode. Same way we keep track of
-            // the referenced globals; we track the referenced closures.
-            // FIXME: Add that code here
+                // Drop the pure functions which have been lifted.
+                ctx.function_interner
+                    .pure_function_interner
+                    .retain(|key, value| crate::gc::Gc::strong_count(value) > 1);
 
-            self.virtual_machine
-                .compiler
-                .write()
-                .symbol_map
-                .free_list
-                .increment_generation();
+                // TODO:
+                // It is also necessary to keep track of the values to drop
+                // for closures - this can be done by tracking the closure id
+                // throughout the generated bytecode. Same way we keep track of
+                // the referenced globals; we track the referenced closures.
+                // FIXME: Add that code here
+
+                ctx.compiler
+                    .write()
+                    .symbol_map
+                    .free_list
+                    .increment_generation();
+            });
         }
-
-        self.virtual_machine.run_executable(&executable)
     }
 
     pub fn run_executable(&mut self, executable: &Executable) -> Result<Vec<SteelVal>> {
@@ -1801,10 +1897,23 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
+        self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .emit_expanded_ast(expr, path)
+        })
+    }
+
+    fn with_sources_guard<T>(&self, func: impl FnOnce() -> T) -> T {
+        let res = func();
+
         self.virtual_machine
             .compiler
             .write()
-            .emit_expanded_ast(expr, path)
+            .gc_sources(self.virtual_machine.function_interner.spans.values());
+
+        res
     }
 
     pub fn emit_expanded_ast_without_optimizations(
@@ -1812,10 +1921,12 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
-        self.virtual_machine
-            .compiler
-            .write()
-            .emit_expanded_ast_without_optimizations(expr, path)
+        self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .emit_expanded_ast_without_optimizations(expr, path)
+        })
     }
 
     /// Emit the unexpanded AST
@@ -1836,14 +1947,16 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<String> {
-        Ok(self
-            .virtual_machine
-            .compiler
-            .write()
-            .emit_expanded_ast(expr, path)?
-            .into_iter()
-            .map(|x| x.to_pretty(60))
-            .join("\n\n"))
+        self.with_sources_guard(|| {
+            Ok(self
+                .virtual_machine
+                .compiler
+                .write()
+                .emit_expanded_ast(expr, path)?
+                .into_iter()
+                .map(|x| x.to_pretty(60))
+                .join("\n\n"))
+        })
     }
 
     /// Emits the fully expanded AST directly.
@@ -1852,10 +1965,12 @@ impl Engine {
         expr: &str,
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
-        self.virtual_machine
-            .compiler
-            .write()
-            .emit_expanded_ast(expr, path)
+        self.with_sources_guard(|| {
+            self.virtual_machine
+                .compiler
+                .write()
+                .emit_expanded_ast(expr, path)
+        })
     }
 
     /// Registers an external value of any type as long as it implements [`FromSteelVal`](crate::rvals::FromSteelVal) and
@@ -2006,53 +2121,22 @@ impl Engine {
 
     /// Raise the error within the stack trace
     pub fn raise_error(&self, error: SteelErr) {
-        raise_error(&self.sources, error)
+        raise_error(&self.virtual_machine.compiler.read().sources, error)
     }
 
     /// Emit an error string reporing, the back trace.
     pub fn raise_error_to_string(&self, error: SteelErr) -> Option<String> {
-        raise_error_to_string(&self.sources, error)
+        raise_error_to_string(&self.virtual_machine.compiler.read().sources, error)
     }
-
-    /// Execute a program given as the `expr`, and computes a `Vec<SteelVal>` corresponding to the output of each expression given.
-    /// This method contains no path information used for error reporting, and simply runs the expression as is. Modules will be
-    /// imported with the root directory as wherever the executable was started.
-    /// Any parsing, compilation, or runtime error will be reflected here, ideally with span information as well. The error will not
-    /// be reported automatically.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # extern crate steel;
-    /// # use steel::steel_vm::engine::Engine;
-    /// use steel::rvals::SteelVal;
-    /// let mut vm = Engine::new();
-    /// let output = vm.run("(+ 1 2) (* 5 5) (- 10 5)").unwrap();
-    /// assert_eq!(output, vec![SteelVal::IntV(3), SteelVal::IntV(25), SteelVal::IntV(5)]);
-    /// ```
-    // pub fn run(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-    //     let constants = self.constants();
-    //     let program = self.compiler.compile_program(expr, None, constants)?;
-    //     self.virtual_machine.execute_program(program)
-    // }
-
-    /// Execute a program, however do not run any callbacks as registered with `on_progress`.
-    // pub fn run_without_callbacks(&mut self, expr: &str) -> Result<Vec<SteelVal>> {
-    //     let constants = self.constants();
-    //     let program = self.compiler.compile_program(expr, None, constants)?;
-    //     self.virtual_machine
-    //         .execute_program::<DoNotUseCallback, ApplyContract>(program)
-    // }
 
     pub fn add_module(&mut self, path: String) -> Result<()> {
-        self.virtual_machine.compiler.write().compile_module(
-            path.into(),
-            &mut self.sources,
-            self.modules.clone(),
-        )
+        self.virtual_machine
+            .compiler
+            .write()
+            .compile_module(path.into(), self.modules.clone())
     }
 
-    pub fn modules(&self) -> MappedRwLockReadGuard<'_, FxHashMap<PathBuf, CompiledModule>> {
+    pub fn modules(&self) -> MappedRwLockReadGuard<'_, crate::HashMap<PathBuf, CompiledModule>> {
         RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| x.modules())
     }
 
@@ -2094,20 +2178,41 @@ impl Engine {
     }
 
     pub fn get_source_id(&self, path: &PathBuf) -> Option<SourceId> {
-        self.sources.get_source_id(path)
+        self.virtual_machine
+            .compiler
+            .read()
+            .sources
+            .get_source_id(path)
     }
 
     pub fn get_path_for_source_id(&self, source_id: &SourceId) -> Option<PathBuf> {
-        self.sources.get_path(source_id)
+        self.virtual_machine
+            .compiler
+            .read()
+            .sources
+            .get_path(source_id)
     }
 
-    pub fn get_source(&self, source_id: &SourceId) -> Option<Cow<'static, str>> {
-        self.sources
+    pub fn get_source(&self, source_id: &SourceId) -> Option<Arc<Cow<'static, str>>> {
+        self.virtual_machine
+            .compiler
+            .read()
             .sources
-            .lock()
-            .unwrap()
+            .sources
             .get(*source_id)
             .cloned()
+    }
+
+    #[doc(hidden)]
+    pub fn get_doc_for_identifier(&self, ident: &str) -> Option<String> {
+        let value = self.extract_value(ident).ok()?;
+
+        match self.virtual_machine.compiler.read().get_doc(value)? {
+            crate::compiler::compiler::StringOrSteelString::String(s) => Some(s),
+            crate::compiler::compiler::StringOrSteelString::SteelString(steel_string) => {
+                Some(steel_string.as_str().to_string())
+            }
+        }
     }
 }
 
@@ -2160,7 +2265,7 @@ fn raise_error(sources: &Sources, error: SteelErr) {
         let source_id = span.source_id();
 
         if let Some(source_id) = source_id {
-            let sources = sources.sources.lock().unwrap();
+            let sources = &sources.sources;
 
             let file_name = sources.get_path(&source_id);
 
@@ -2182,7 +2287,7 @@ fn raise_error(sources: &Sources, error: SteelErr) {
                                         .and_then(|x| x.to_str())
                                         .unwrap_or_default();
 
-                                    back_trace(&resolved_file_name, &source, *span);
+                                    back_trace(resolved_file_name, source, *span);
                                 }
                             }
                         }
@@ -2191,7 +2296,7 @@ fn raise_error(sources: &Sources, error: SteelErr) {
 
                 let resolved_file_name = file_name.unwrap_or_default();
 
-                error.emit_result(resolved_file_name.to_str().unwrap(), &file_content);
+                error.emit_result(resolved_file_name.to_str().unwrap(), file_content);
                 return;
             }
         }
@@ -2205,7 +2310,7 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
     if let Some(span) = error.span() {
         let source_id = span.source_id();
         if let Some(source_id) = source_id {
-            let sources = sources.sources.lock().unwrap();
+            let sources = &sources.sources;
 
             let file_name = sources.get_path(&source_id);
 
@@ -2236,7 +2341,7 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
                                         .unwrap_or_default();
 
                                     let bt =
-                                        back_trace_to_string(&resolved_file_name, &source, *span);
+                                        back_trace_to_string(resolved_file_name, source, *span);
                                     back_traces.push(bt);
                                 }
                             }
@@ -2246,8 +2351,8 @@ pub(crate) fn raise_error_to_string(sources: &Sources, error: SteelErr) -> Optio
 
                 let resolved_file_name = file_name.unwrap_or_default();
 
-                let final_error = error
-                    .emit_result_to_string(resolved_file_name.to_str().unwrap(), &file_content);
+                let final_error =
+                    error.emit_result_to_string(resolved_file_name.to_str().unwrap(), file_content);
 
                 back_traces.push(final_error);
 
@@ -2389,6 +2494,18 @@ mod engine_sandbox_tests {
 #[cfg(test)]
 mod derive_macro_tests {
     use super::*;
+
+    #[derive(steel_derive::_Steel, PartialEq, Debug)]
+    #[steel(getters)]
+    struct FooBar {
+        baz: usize,
+    }
+
+    #[test]
+    fn test_struct_registered() {
+        let mut module = BuiltInModule::new("foo");
+        FooBar::register_type(&mut module);
+    }
 
     #[derive(steel_derive::_Steel, PartialEq, Debug)]
     #[steel(equality, getters, constructors)]

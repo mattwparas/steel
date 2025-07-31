@@ -196,8 +196,11 @@ mod json_tests {
     #[cfg(not(feature = "sync"))]
     use im_rc::hashmap;
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     use im::hashmap;
+
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    use imbl::hashmap;
 
     #[test]
     fn test_string_to_jsexpr() {

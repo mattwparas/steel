@@ -1,10 +1,11 @@
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use quickscope::ScopeSet;
 use smallvec::SmallVec;
-use steel_parser::ast::{self, parse_lambda, Begin};
+use steel_parser::ast::{self, parse_lambda, Begin, QUOTE};
 use steel_parser::parser::SourceId;
 use steel_parser::tokens::NumberLiteral;
 
+use crate::compiler::modules::RequiredModuleMacros;
 use crate::parser::ast::ExprKind;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::span_visitor::get_span;
@@ -23,7 +24,7 @@ use super::{
 
 use crate::parser::expander::SteelMacro;
 
-static REST_ARG: &'static str = "##%list-args";
+static REST_ARG: &str = "##%list-args";
 
 pub fn extract_macro_defs(
     exprs: &mut Vec<ExprKind>,
@@ -85,6 +86,7 @@ pub fn extract_macro_defs(
 pub fn expand(expr: &mut ExprKind, map: &FxHashMap<InternedString, SteelMacro>) -> Result<()> {
     let mut expander = Expander {
         depth: 0,
+        overlay: None,
         map,
         changed: false,
         in_scope_values: ScopeSet::default(),
@@ -100,6 +102,7 @@ pub fn expand_with_source_id(
 ) -> Result<()> {
     let mut expander = Expander {
         depth: 0,
+        overlay: None,
         map,
         changed: false,
         in_scope_values: ScopeSet::default(),
@@ -111,6 +114,7 @@ pub fn expand_with_source_id(
 
 pub struct Expander<'a> {
     map: &'a FxHashMap<InternedString, SteelMacro>,
+    overlay: Option<&'a FxHashMap<InternedString, SteelMacro>>,
     pub(crate) changed: bool,
     // We're going to actually check if the macro is in scope
     in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
@@ -118,10 +122,61 @@ pub struct Expander<'a> {
     depth: usize,
 }
 
+pub struct RequiredMacroMap<'a> {
+    pub(crate) map: &'a mut RequiredModuleMacros,
+    pub(crate) changed: bool,
+}
+
+pub struct ExpanderMany<'a> {
+    // Base map, but then also we want to include _all_
+    map: &'a FxHashMap<InternedString, SteelMacro>,
+
+    pub(crate) overlays: Vec<RequiredMacroMap<'a>>,
+
+    // We're going to actually check if the macro is in scope
+    in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
+    source_id: Option<SourceId>,
+    depth: usize,
+}
+
+impl<'a> ExpanderMany<'a> {
+    pub fn new(
+        map: &'a FxHashMap<InternedString, SteelMacro>,
+        overlays: Vec<RequiredMacroMap<'a>>,
+    ) -> Self {
+        Self {
+            map,
+            overlays,
+            in_scope_values: ScopeSet::default(),
+            source_id: SourceId::none(),
+            depth: 0,
+        }
+    }
+
+    pub fn expand(&mut self, expr: &mut ExprKind) -> Result<()> {
+        self.visit(expr)
+    }
+}
+
 impl<'a> Expander<'a> {
     pub fn new(map: &'a FxHashMap<InternedString, SteelMacro>) -> Self {
         Self {
             map,
+            overlay: None,
+            changed: false,
+            in_scope_values: ScopeSet::default(),
+            source_id: SourceId::none(),
+            depth: 0,
+        }
+    }
+
+    pub fn new_with_overlay(
+        map: &'a FxHashMap<InternedString, SteelMacro>,
+        overlay: &'a FxHashMap<InternedString, SteelMacro>,
+    ) -> Self {
+        Self {
+            map,
+            overlay: Some(overlay),
             changed: false,
             in_scope_values: ScopeSet::default(),
             source_id: SourceId::none(),
@@ -182,6 +237,21 @@ impl<'a> VisitorMutRef for Expander<'a> {
                     //         unreachable!()
                     //     }
                     // }
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Quote,
+                                ..
+                            },
+                    })) => return Ok(()),
+
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(i),
+                                ..
+                            },
+                    })) if *i == *QUOTE => return Ok(()),
                     Some(ExprKind::Atom(
                         ident @ Atom {
                             syn:
@@ -219,44 +289,327 @@ impl<'a> VisitorMutRef for Expander<'a> {
                     })) => {
                         // if s.resolve().ends_with("skip-compile") {
                         //     println!("visiting {}", s.resolve());
-                        // for key in self.map.keys() {
-                        // println!("{}", key.resolve());
-                        // }
+
+                        //     if let Some(overlay) = self.overlay.as_ref() {
+                        //         for key in overlay.keys() {
+                        //             println!("Overlay: {}", key.resolve());
+                        //         }
+                        //     }
+
+                        //     for key in self.map.keys() {
+                        //         println!("{}", key.resolve());
+                        //     }
                         // }
 
-                        if let Some(m) = self.map.get(s) {
+                        // Interweave the macro expansion
+                        if let Some(m) = self
+                            .overlay
+                            .as_ref()
+                            .and_then(|x| x.get(s))
+                            .or_else(|| self.map.get(s))
+                        {
                             // If this macro has been overwritten by any local value, respect
                             // the local binding and do not expand the macro
-                            if !self.in_scope_values.contains(s) {
-                                if self.source_id.is_none()
-                                    || self.source_id == m.location.source_id()
-                                {
-                                    let span = *sp;
-
-                                    let mut expanded = m.expand(
-                                        List::new_maybe_improper(
-                                            std::mem::take(&mut l.args),
-                                            l.improper,
-                                        ),
-                                        span,
-                                    )?;
-                                    self.changed = true;
-
-                                    self.depth += 1;
-
-                                    self.visit(&mut expanded)?;
-
-                                    self.depth -= 1;
-
-                                    *expr = expanded;
-
-                                    return Ok(());
+                            if !self.in_scope_values.contains(s) && self.source_id.is_none()
+                                || self.source_id == m.location.source_id()
+                            {
+                                if s.resolve().ends_with("skip-compile") {
+                                    println!("Expanding skip compile: {}", l);
                                 }
 
-                                // let expanded = m.expand(l.clone(), *sp)?;
-                                // self.changed = true;
-                                // return self.visit(expanded);
+                                let span = *sp;
+
+                                let mut expanded = m.expand(
+                                    List::new_maybe_improper(
+                                        std::mem::take(&mut l.args),
+                                        l.improper,
+                                    ),
+                                    span,
+                                )?;
+                                self.changed = true;
+
+                                self.depth += 1;
+
+                                self.visit(&mut expanded)?;
+
+                                self.depth -= 1;
+
+                                *expr = expanded;
+
+                                return Ok(());
                             }
+
+                            // let expanded = m.expand(l.clone(), *sp)?;
+                            // self.changed = true;
+                            // return self.visit(expanded);
+                        }
+                    }
+                    _ => {}
+                }
+
+                for expr in l.args.iter_mut() {
+                    self.visit(expr)?;
+                }
+
+                Ok(())
+
+                // l.args = l
+                //     .args
+                //     .into_iter()
+                //     .map(|e| self.visit(e))
+                //     .collect::<Result<Vec<_>>>()?;
+            }
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
+    }
+
+    fn visit_if(&mut self, f: &mut super::ast::If) -> Self::Output {
+        self.visit(&mut f.test_expr)?;
+        self.visit(&mut f.then_expr)?;
+        self.visit(&mut f.else_expr)?;
+        Ok(())
+    }
+
+    fn visit_define(&mut self, define: &mut super::ast::Define) -> Self::Output {
+        self.visit(&mut define.body)?;
+        Ok(())
+    }
+
+    fn visit_lambda_function(
+        &mut self,
+        lambda_function: &mut super::ast::LambdaFunction,
+    ) -> Self::Output {
+        self.in_scope_values.push_layer();
+
+        for value in &lambda_function.args {
+            if let Some(ident) = value.atom_identifier() {
+                self.in_scope_values.define(*ident);
+            }
+        }
+
+        self.visit(&mut lambda_function.body)?;
+
+        self.in_scope_values.pop_layer();
+
+        Ok(())
+    }
+
+    fn visit_begin(&mut self, begin: &mut super::ast::Begin) -> Self::Output {
+        for expr in begin.exprs.iter_mut() {
+            self.visit(expr)?;
+        }
+
+        Ok(())
+    }
+
+    fn visit_return(&mut self, r: &mut super::ast::Return) -> Self::Output {
+        self.visit(&mut r.expr)
+    }
+
+    fn visit_quote(&mut self, _quote: &mut super::ast::Quote) -> Self::Output {
+        // println!("Visiting quote with : {:?}", quote);
+        // quote.expr = self.visit(quote.expr)?;
+        // Ok(ExprKind::Quote(quote))
+        Ok(())
+    }
+
+    fn visit_macro(&mut self, m: &mut super::ast::Macro) -> Self::Output {
+        stop!(BadSyntax => format!("unexpected macro definition in expand visitor: {}", m); m.location.span)
+    }
+
+    fn visit_atom(&mut self, _a: &mut Atom) -> Self::Output {
+        // Ok(ExprKind::Atom(a))
+        Ok(())
+    }
+
+    fn visit_syntax_rules(&mut self, l: &mut super::ast::SyntaxRules) -> Self::Output {
+        stop!(Generic => "unexpected syntax-rules definition"; l.location.span)
+    }
+
+    fn visit_set(&mut self, s: &mut super::ast::Set) -> Self::Output {
+        self.visit(&mut s.variable)?;
+        self.visit(&mut s.expr)?;
+        Ok(())
+    }
+
+    fn visit_require(&mut self, _s: &mut super::ast::Require) -> Self::Output {
+        // Ok(ExprKind::Require(s))
+        Ok(())
+    }
+
+    fn visit_let(&mut self, l: &mut super::ast::Let) -> Self::Output {
+        for (binding, expr) in l.bindings.iter_mut() {
+            self.visit(binding)?;
+            self.visit(expr)?;
+        }
+
+        self.visit(&mut l.body_expr)
+    }
+
+    fn visit_list(&mut self, _l: &mut List) -> Self::Output {
+        Ok(())
+    }
+
+    fn visit_vector(&mut self, _v: &mut super::ast::Vector) -> Self::Output {
+        Ok(())
+    }
+}
+
+impl<'a> VisitorMutRef for ExpanderMany<'a> {
+    type Output = Result<()>;
+
+    fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
+        // println!("expanding: {}", expr);
+
+        if self.depth > 512 {
+            stop!(Generic => "macro expansion depth reached!");
+        }
+
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => {
+                match l.first() {
+                    // TODO: Come back to this?
+                    // Some(ExprKind::Atom(
+                    //     ident @ Atom {
+                    //         syn:
+                    //             SyntaxObject {
+                    //                 ty: TokenType::Identifier(s),
+                    //                 ..
+                    //             },
+                    //     },
+                    // )) if *s == *LAMBDA_SYMBOL || *s == *LAMBDA => {
+                    //     if let ExprKind::LambdaFunction(mut lambda) =
+                    //         parse_lambda(&ident.clone(), l.args.clone())?
+                    //     {
+                    //         self.visit_lambda_function(&mut lambda)?;
+
+                    //         *expr = ExprKind::LambdaFunction(lambda);
+
+                    //         return Ok(());
+
+                    //         // return self.visit_lambda_function(&mut lambda);
+
+                    //         // return self.visit_lambda_function(lambda);
+                    //     } else {
+                    //         unreachable!()
+                    //     }
+                    // }
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Quote,
+                                ..
+                            },
+                    })) => return Ok(()),
+
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(i),
+                                ..
+                            },
+                    })) if *i == *QUOTE => return Ok(()),
+                    Some(ExprKind::Atom(
+                        ident @ Atom {
+                            syn:
+                                SyntaxObject {
+                                    ty: TokenType::Lambda,
+                                    ..
+                                },
+                        },
+                    )) => {
+                        if let ExprKind::LambdaFunction(mut lambda) =
+                            parse_lambda(ident.clone(), std::mem::take(&mut l.args))?
+                        {
+                            if l.improper {
+                                lambda.rest = true;
+                            }
+
+                            self.visit_lambda_function(&mut lambda)?;
+
+                            *expr = ExprKind::LambdaFunction(lambda);
+
+                            return Ok(());
+
+                            // return self.visit_lambda_function(&mut lambda);
+                        } else {
+                            unreachable!()
+                        }
+                    }
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(s),
+                                span: sp,
+                                ..
+                            },
+                    })) => {
+                        let mut found_index = None;
+
+                        // Interweave the macro expansion
+                        if let Some(m) = self
+                            .overlays
+                            .iter()
+                            .enumerate()
+                            .find_map(|(index, x)| {
+                                let res = x.map.in_scope_macros.get(s);
+                                if res.is_some() {
+                                    found_index = Some(index);
+                                }
+
+                                res
+                            })
+                            .or_else(|| self.map.get(s))
+                        {
+                            // If this macro has been overwritten by any local value, respect
+                            // the local binding and do not expand the macro
+                            if !self.in_scope_values.contains(s) && self.source_id.is_none()
+                                || self.source_id == m.location.source_id()
+                            {
+                                if s.resolve().ends_with("skip-compile") {
+                                    println!("Expanding skip compile: {}", l);
+                                }
+
+                                let span = *sp;
+
+                                let mut expanded = m.expand(
+                                    List::new_maybe_improper(
+                                        std::mem::take(&mut l.args),
+                                        l.improper,
+                                    ),
+                                    span,
+                                )?;
+
+                                if let Some(index) = found_index {
+                                    self.overlays[index].changed = true;
+                                }
+
+                                self.depth += 1;
+
+                                self.visit(&mut expanded)?;
+
+                                self.depth -= 1;
+
+                                *expr = expanded;
+
+                                return Ok(());
+                            }
+
+                            // let expanded = m.expand(l.clone(), *sp)?;
+                            // self.changed = true;
+                            // return self.visit(expanded);
                         }
                     }
                     _ => {}
@@ -602,37 +955,35 @@ fn expand_keyword_and_default_arguments(
             }
 
             seen_default_or_kwarg = true;
-        } else {
-            if seen_default_or_kwarg {
-                match next {
-                    ExprKind::Atom(a) => {
-                        if is_rest && iter.peek().is_none() {
-                            positional_args.push(MaybeDefault::Rest(next))
-                        } else {
-                            if seen_default {
-                                stop!(BadSyntax => "positional arg without default found after default argument"; a.syn.span)
-                            }
-
-                            required_positional_arg_count += 1;
-                            positional_args.push(MaybeDefault::Positional(next))
-                        }
-                    }
-                    ExprKind::List(l) => {
-                        if l.len() != 2 {
-                            stop!(BadSyntax => "malformed default argument"; lambda_function.location.span)
+        } else if seen_default_or_kwarg {
+            match next {
+                ExprKind::Atom(a) => {
+                    if is_rest && iter.peek().is_none() {
+                        positional_args.push(MaybeDefault::Rest(next))
+                    } else {
+                        if seen_default {
+                            stop!(BadSyntax => "positional arg without default found after default argument"; a.syn.span)
                         }
 
-                        seen_default = true;
+                        required_positional_arg_count += 1;
+                        positional_args.push(MaybeDefault::Positional(next))
+                    }
+                }
+                ExprKind::List(l) => {
+                    if l.len() != 2 {
+                        stop!(BadSyntax => "malformed default argument"; lambda_function.location.span)
+                    }
 
-                        optional_positional_arg_count += 1;
-                        positional_args.push(MaybeDefault::DefaultArg(
-                            l.get(0).unwrap(),
-                            l.get(1).unwrap(),
-                        ));
-                    }
-                    _ => {
-                        stop!(BadSyntax => "Internal compiler error")
-                    }
+                    seen_default = true;
+
+                    optional_positional_arg_count += 1;
+                    positional_args.push(MaybeDefault::DefaultArg(
+                        l.get(0).unwrap(),
+                        l.get(1).unwrap(),
+                    ));
+                }
+                _ => {
+                    stop!(BadSyntax => "Internal compiler error")
                 }
             }
         }
@@ -882,8 +1233,10 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
         self.visit(&mut r.expr)
     }
 
-    fn visit_quote(&mut self, quote: &mut super::ast::Quote) -> Self::Output {
-        self.visit(&mut quote.expr)
+    fn visit_quote(&mut self, _quote: &mut super::ast::Quote) -> Self::Output {
+        // TODO: We probably should not visit this here
+        // self.visit(&mut quote.expr)
+        Ok(())
     }
 
     fn visit_macro(&mut self, m: &mut super::ast::Macro) -> Self::Output {

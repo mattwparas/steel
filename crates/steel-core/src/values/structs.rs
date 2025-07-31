@@ -74,7 +74,7 @@ impl VTableEntry {
 }
 
 // If they're built in, we want to package the values alongside the
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub enum Properties {
     BuiltIn,
     Local(Gc<HashMap<SteelVal, SteelVal>>),
@@ -96,7 +96,7 @@ pub struct StructTypeDescriptor(usize);
 
 impl Custom for StructTypeDescriptor {
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
-        Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+        Some(SerializableSteelVal::Custom(Box::new(*self)))
     }
 }
 
@@ -332,8 +332,8 @@ impl UserDefinedStruct {
                 let error_message = format!(
                     "{} expected {} arguments, found {}",
                     descriptor.name().clone(),
+                    len,
                     args.len(),
-                    len
                 );
                 stop!(ArityMismatch => error_message);
             }
@@ -347,7 +347,7 @@ impl UserDefinedStruct {
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
             Some(descriptor.name().resolve().to_string().into()),
-            Some(len),
+            Some(len as _),
         )))
     }
 
@@ -361,8 +361,8 @@ impl UserDefinedStruct {
                 let error_message = format!(
                     "{} expected {} arguments, found {}",
                     name.clone(),
+                    len,
                     args.len(),
-                    len
                 );
                 stop!(ArityMismatch => error_message);
             }
@@ -377,7 +377,7 @@ impl UserDefinedStruct {
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
             Some(name.resolve().to_string().into()),
-            Some(len),
+            Some(len as _),
         )))
     }
 
@@ -455,7 +455,7 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => "struct-ref expected one argument");
             }
 
-            let steel_struct = &args[0].clone();
+            let steel_struct = &args[0];
 
             match &steel_struct {
                 SteelVal::CustomStruct(s) => {
@@ -812,7 +812,12 @@ pub static STRUCT_DEFINITIONS: Lazy<Arc<std::sync::RwLock<SymbolMap>>> =
 pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {
     let mut map = fxhash::FxHashMap::default();
 
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "imbl")]
+    let result_options = Gc::new(imbl::hashmap! {
+        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+    });
+
+    #[cfg(not(feature = "imbl"))]
     let result_options = Gc::new(im::hashmap! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
@@ -863,8 +868,13 @@ thread_local! {
 
         let mut map = fxhash::FxHashMap::default();
 
-        #[cfg(feature = "sync")]
+        #[cfg(all(feature = "sync", not(feature = "imbl")))]
         let result_options = Gc::new(im::hashmap! {
+            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+        });
+
+        #[cfg(all(feature = "sync", feature = "imbl"))]
+        let result_options = Gc::new(imbl::hashmap! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
         });
 
@@ -888,8 +898,14 @@ thread_local! {
 
     pub static DEFAULT_PROPERTIES: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(HashMap::new());
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im::hashmap! {
+            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+    });
+
+
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(imbl::hashmap! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
 
@@ -923,11 +939,15 @@ thread_local! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im::hashmap! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
 
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(imbl::hashmap! {
+        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+    });
 
     pub static SOME_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
         Rc::new(Box::new(UserDefinedStruct::constructor_thunk(
@@ -1304,9 +1324,9 @@ impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for std::result::Result<T, E
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::CustomStruct(s) = val {
             if s.is_ok() {
-                Ok(Ok(T::from_steelval(s.fields.get(0).unwrap())?))
+                Ok(Ok(T::from_steelval(s.fields.first().unwrap())?))
             } else if s.is_err() {
-                Ok(Err(E::from_steelval(s.fields.get(0).unwrap())?))
+                Ok(Err(E::from_steelval(s.fields.first().unwrap())?))
             } else {
                 stop!(ConversionError => format!("Failed attempting to convert an instance of a steelval into a result type: {val:?}"))
             }

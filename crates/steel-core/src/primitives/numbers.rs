@@ -1,9 +1,9 @@
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
-use crate::{steelerr, stop};
-use num::Zero;
-use num::{
-    pow::Pow, BigInt, BigRational, CheckedAdd, CheckedMul, Integer, Rational32, Signed, ToPrimitive,
-};
+use crate::{steelerr, stop, throw};
+use num_bigint::BigInt;
+use num_integer::Integer;
+use num_rational::{BigRational, Rational32};
+use num_traits::{pow::Pow, CheckedAdd, CheckedMul, Signed, ToPrimitive, Zero};
 use std::ops::Neg;
 
 /// Checks if the given value is a number
@@ -373,12 +373,11 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "quotient", constant = true, arity = "Exact(2)")]
 pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
-    match &args {
-        [l, r] => match (l, r) {
-            (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r).into_steelval(),
-            _ => steelerr!(TypeMismatch => "quotient only supports integers"),
-        },
-        _ => steelerr!(ArityMismatch => "quotient requires 2 arguments"),
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() / r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => (l.as_ref() / r.as_ref()).into_steelval(),
+        _ => steelerr!(TypeMismatch => "quotient only supports integers"),
     }
 }
 
@@ -399,12 +398,9 @@ pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "modulo", constant = true, arity = "Exact(2)")]
 pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
-    match &args {
-        [l, r] => match (l, r) {
-            (SteelVal::IntV(l), SteelVal::IntV(r)) => ((l % r + r) % r).into_steelval(),
-            _ => steelerr!(TypeMismatch => "modulo only supports integers"),
-        },
-        _ => steelerr!(ArityMismatch => "modulo requires 2 arguments"),
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => ((l % r + r) % r).into_steelval(),
+        _ => steelerr!(TypeMismatch => "modulo only supports integers"),
     }
 }
 
@@ -425,12 +421,9 @@ pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "remainder", constant = true, arity = "Exact(2)")]
 pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
-    match &args {
-        [l, r] => match (l, r) {
-            (SteelVal::IntV(l), SteelVal::IntV(r)) => (l % r).into_steelval(),
-            _ => steelerr!(TypeMismatch => "remainder only supports integers"),
-        },
-        _ => steelerr!(ArityMismatch => "remainder requires 2 arguments"),
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => (l % r).into_steelval(),
+        _ => steelerr!(TypeMismatch => "remainder only supports integers"),
     }
 }
 
@@ -655,30 +648,6 @@ pub fn exactp(value: &SteelVal) -> bool {
     }
 }
 
-/// Returns an exact representation of the input number, coerces an inexact number to an exact form.
-///
-/// (exact n) -> number?
-///
-/// * n : number? - The value to check for exactness.
-///
-/// # Examples
-/// ```scheme
-/// > (exact 5.0) ;; => 5
-/// > (exact 5/3) ;; => 5/3
-/// > (exact 2) ;; => 2
-/// ```
-#[steel_derive::function(name = "exact", constant = true)]
-pub fn exact(value: &SteelVal) -> Result<SteelVal> {
-    match value {
-        SteelVal::IntV(_)
-        | SteelVal::BigNum(_)
-        | SteelVal::Rational(_)
-        | SteelVal::BigRational(_) => Ok(value.clone()),
-        SteelVal::NumV(n) if n.fract() == 0.0 => Ok(SteelVal::IntV(*n as isize)),
-        _ => stop!(Generic => "unable to convert to exact number: {}", value),
-    }
-}
-
 /// Checks if the given value is inexact.
 ///
 /// (inexact? val) -> boolean?
@@ -711,6 +680,31 @@ fn number_to_float(number: &SteelVal) -> Result<f64> {
     Ok(res)
 }
 
+/// Converts a number to an inexact number.
+///
+/// (inexact num) -> number?
+///
+/// * num : number? - The number to convert from exact to inexact.
+///
+/// # Examples
+/// ```scheme
+/// > (inexact 10) ;; => 10
+/// > (inexact 1/2) ;; => 0.5
+/// > (inexact 1+2i) ;; => 1+2i
+/// ```
+#[steel_derive::function(name = "inexact", constant = true)]
+fn inexact(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        SteelVal::IntV(i) => (*i as f64).into_steelval(),
+        SteelVal::Rational(f) => f.to_f64().unwrap().into_steelval(),
+        SteelVal::BigRational(f) => f.to_f64().unwrap().into_steelval(),
+        SteelVal::NumV(n) => n.into_steelval(),
+        SteelVal::BigNum(n) => Ok(SteelVal::NumV(n.to_f64().unwrap())),
+        SteelVal::Complex(x) => SteelComplex::new(inexact(&x.re)?, inexact(&x.im)?).into_steelval(),
+        _ => steelerr!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
+    }
+}
+
 /// Converts an exact number to an inexact number.
 ///
 /// (exact->inexact num) -> number?
@@ -725,15 +719,38 @@ fn number_to_float(number: &SteelVal) -> Result<f64> {
 /// ```
 #[steel_derive::function(name = "exact->inexact", constant = true)]
 fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
+    inexact(number)
+}
+
+/// Converts a number to an exact number.
+///
+/// (exact num) -> number?
+///
+/// * num : number? - The value to convert to exact.
+///
+/// # Examples
+/// ```scheme
+/// > (exact 10.0) ;; => 10
+/// > (exact 1.5) ;; => 3/2
+/// > (exact 1.5+2.5i) ;; => 3/2+5/2i
+/// ```
+#[steel_derive::function(name = "exact", constant = true)]
+pub fn exact(number: &SteelVal) -> Result<SteelVal> {
     match number {
-        SteelVal::IntV(i) => (*i as f64).into_steelval(),
-        SteelVal::Rational(f) => f.to_f64().unwrap().into_steelval(),
-        SteelVal::BigRational(f) => f.to_f64().unwrap().into_steelval(),
-        SteelVal::NumV(n) => n.into_steelval(),
-        SteelVal::BigNum(n) => Ok(SteelVal::NumV(n.to_f64().unwrap())),
-        SteelVal::Complex(x) => {
-            SteelComplex::new(exact_to_inexact(&x.re)?, exact_to_inexact(&x.im)?).into_steelval()
+        SteelVal::IntV(_)
+        | SteelVal::Rational(_)
+        | SteelVal::BigRational(_)
+        | SteelVal::BigNum(_) => Ok(number.clone()),
+        SteelVal::NumV(x) => {
+            if x.fract() == 0. {
+                (*x as isize).into_steelval()
+            } else {
+                BigRational::from_float(*x)
+                    .ok_or_else(throw!(ConversionError => "no exact representation for {}", x))?
+                    .into_steelval()
+            }
         }
+        SteelVal::Complex(x) => SteelComplex::new(exact(&x.re)?, exact(&x.im)?).into_steelval(),
         _ => steelerr!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
     }
 }
@@ -752,23 +769,7 @@ fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "inexact->exact", constant = true)]
 fn inexact_to_exact(number: &SteelVal) -> Result<SteelVal> {
-    match number {
-        SteelVal::IntV(x) => x.into_steelval(),
-        SteelVal::Rational(x) => x.into_steelval(),
-        SteelVal::BigRational(x) => SteelVal::BigRational(x.clone()).into_steelval(),
-        SteelVal::NumV(x) => {
-            let x_isize = *x as isize;
-            if x_isize as f64 == *x {
-                return x_isize.into_steelval();
-            }
-            BigRational::from_float(*x).into_steelval()
-        }
-        SteelVal::BigNum(x) => SteelVal::BigNum(x.clone()).into_steelval(),
-        SteelVal::Complex(x) => {
-            SteelComplex::new(inexact_to_exact(&x.re)?, inexact_to_exact(&x.im)?).into_steelval()
-        }
-        _ => steelerr!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
-    }
+    exact(number)
 }
 
 fn finitep_impl(number: &SteelVal) -> Result<bool> {
@@ -957,8 +958,8 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
 
             let expt = BigInt::from(*l).pow(r.magnitude());
             match r.sign() {
-                num::bigint::Sign::Plus | num::bigint::Sign::NoSign => expt.into_steelval(),
-                num::bigint::Sign::Minus => {
+                num_bigint::Sign::Plus | num_bigint::Sign::NoSign => expt.into_steelval(),
+                num_bigint::Sign::Minus => {
                     BigRational::new_raw(BigInt::from(1), expt).into_steelval()
                 }
             }
@@ -1003,8 +1004,8 @@ fn expt(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => {
             let expt = l.as_ref().clone().pow(r.magnitude());
             match r.sign() {
-                num::bigint::Sign::NoSign | num::bigint::Sign::Plus => expt.into_steelval(),
-                num::bigint::Sign::Minus => {
+                num_bigint::Sign::NoSign | num_bigint::Sign::Plus => expt.into_steelval(),
+                num_bigint::Sign::Minus => {
                     BigRational::new_raw(BigInt::from(1), expt).into_steelval()
                 }
             }
@@ -1269,6 +1270,48 @@ fn sqrt(number: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Create a complex number with `re` as the real part and `im` as the imaginary part.
+///
+/// (make-rectangular re im) -> number?
+///
+/// - re : real?
+/// - im : real?
+#[steel_derive::function(name = "make-rectangular", constant = true)]
+pub fn make_rectangular(re: &SteelVal, im: &SteelVal) -> Result<SteelVal> {
+    ensure_arg_is_real("make-rectangular", re)?;
+    ensure_arg_is_real("make-rectangular", im)?;
+
+    SteelComplex {
+        re: re.clone(),
+        im: im.clone(),
+    }
+    .into_steelval()
+}
+
+/// Make a complex number out of a magnitude `r` and an angle `θ`, so that the result is `r * (cos θ + i sin θ)`
+///
+/// (make-polar r θ) -> number?
+///
+/// - r : real?
+/// - theta : real?
+#[steel_derive::function(name = "make-polar", constant = true)]
+pub fn make_polar(r: &SteelVal, theta: &SteelVal) -> Result<SteelVal> {
+    ensure_arg_is_real("make-polar", r)?;
+    ensure_arg_is_real("make-polar", theta)?;
+
+    let re = multiply_primitive(&[r.clone(), cos(&theta)?])?;
+    let im = multiply_primitive(&[r.clone(), sin(&theta)?])?;
+    SteelComplex { re, im }.into_steelval()
+}
+
+fn ensure_arg_is_real(op: &str, arg: &SteelVal) -> Result<()> {
+    if !realp(arg) {
+        stop!(TypeMismatch => "{op} expects a real number, found: {:?}", arg);
+    } else {
+        Ok(())
+    }
+}
+
 /// Returns the real part of a number
 ///
 /// (real-part number) -> number?
@@ -1341,6 +1384,46 @@ fn magnitude(number: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Computes the angle `θ` of a complex number `z` where `z = r * (cos θ + i sin θ)` and `r` is the magnitude.
+///
+/// (angle number) -> number?
+///
+/// - number : number?
+#[steel_derive::function(name = "angle", constant = true)]
+pub fn angle(number: &SteelVal) -> Result<SteelVal> {
+    let (re, im) = match number {
+        re @ SteelVal::NumV(_)
+        | re @ SteelVal::IntV(_)
+        | re @ SteelVal::Rational(_)
+        | re @ SteelVal::BigNum(_) => (re, &SteelVal::IntV(0)),
+        SteelVal::Complex(complex) => (&complex.re, &complex.im),
+        _ => stop!(TypeMismatch => "angle expects a number, found {number}"),
+    };
+
+    atan2(im, re)
+}
+
+/// Computes the quadratic arctan of `y` and `x`
+fn atan2(y: &SteelVal, x: &SteelVal) -> Result<SteelVal> {
+    let as_f64 = |arg: &_| match arg {
+        SteelVal::NumV(arg) => Ok(*arg),
+        SteelVal::IntV(arg) => Ok(*arg as f64),
+        SteelVal::Rational(arg) => Ok(*arg.numer() as f64 / *arg.denom() as f64),
+        SteelVal::BigNum(arg) => Ok(arg.to_f64().unwrap()),
+        _ => steelerr!(TypeMismatch => "atan2 expects a number, found {arg}"),
+    };
+
+    let y = as_f64(y)?;
+    let x = as_f64(x)?;
+    if y == 0. && x == 0. {
+        // as this is currently only used for `angle`, make the error
+        // message a little better by saying `angle` instead of `atan2`
+        stop!(Generic => "angle: undefined for zero");
+    }
+
+    f64::atan2(y, x).into_steelval()
+}
+
 /// Computes the natural logarithm of the given number.
 ///
 /// (log number [base]) -> number?
@@ -1354,12 +1437,8 @@ fn magnitude(number: &SteelVal) -> Result<SteelVal> {
 /// > (log 100 10) ;; => 2
 /// > (log 27 3) ;; => 3
 /// ```
-#[steel_derive::native(name = "log", arity = "AtLeast(1)")]
+#[steel_derive::native(name = "log", arity = "Range(1,2)")]
 fn log(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() > 2 {
-        stop!(ArityMismatch => "log expects one or two arguments, found: {}", args.len());
-    }
-
     let first = &args[0];
     let base = args
         .get(1)
@@ -1397,11 +1476,11 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
 fn exact_integer_sqrt(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(x) if *x >= 0 => {
-            let (ans, rem) = exact_integer_impl(x);
+            let (ans, rem) = exact_integer_impl::<isize>(x);
             (ans.into_steelval()?, rem.into_steelval()?).into_steelval()
         }
         SteelVal::BigNum(x) if !x.is_negative() => {
-            let (ans, rem) = exact_integer_impl(x.as_ref());
+            let (ans, rem) = exact_integer_impl::<BigInt>(x.as_ref());
             (ans.into_steelval()?, rem.into_steelval()?).into_steelval()
         }
         _ => {
@@ -1412,7 +1491,7 @@ fn exact_integer_sqrt(number: &SteelVal) -> Result<SteelVal> {
 
 fn exact_integer_impl<'a, N>(target: &'a N) -> (N, N)
 where
-    N: num::integer::Roots + Clone,
+    N: num_integer::Roots + Clone,
     &'a N: std::ops::Mul<&'a N, Output = N>,
     N: std::ops::Sub<N, Output = N>,
 {
@@ -1437,18 +1516,15 @@ where
 /// ```
 #[steel_derive::native(name = "arithmetic-shift", constant = true, arity = "Exact(2)")]
 pub fn arithmetic_shift(args: &[SteelVal]) -> Result<SteelVal> {
-    match &args {
-        [n, m] => match (n, m) {
-            (SteelVal::IntV(n), SteelVal::IntV(m)) => {
-                if *m >= 0 {
-                    Ok(SteelVal::IntV(n << m))
-                } else {
-                    Ok(SteelVal::IntV(n >> -m))
-                }
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(n), SteelVal::IntV(m)) => {
+            if *m >= 0 {
+                Ok(SteelVal::IntV(n << m))
+            } else {
+                Ok(SteelVal::IntV(n >> -m))
             }
-            _ => stop!(TypeMismatch => "arithmetic-shift expected 2 integers"),
-        },
-        _ => stop!(ArityMismatch => "arithmetic-shift takes 2 arguments"),
+        }
+        _ => stop!(TypeMismatch => "arithmetic-shift expected 2 integers"),
     }
 }
 
@@ -1512,9 +1588,6 @@ pub fn odd(arg: &SteelVal) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "f+", constant = true, arity = "AtLeast(1)")]
 pub fn float_add(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.is_empty() {
-        stop!(ArityMismatch => "f+ requires at least one argument")
-    }
     let mut sum = 0.0;
 
     for arg in args {
@@ -1531,7 +1604,7 @@ pub fn float_add(args: &[SteelVal]) -> Result<SteelVal> {
 fn ensure_args_are_numbers(op: &str, args: &[SteelVal]) -> Result<()> {
     for arg in args {
         if !numberp(arg) {
-            stop!(TypeMismatch => "{op} expects a number, found: {:?}", arg)
+            stop!(TypeMismatch => "{op} expects a number, found: {:?}", arg);
         }
     }
     Ok(())
@@ -1622,10 +1695,7 @@ fn multiply_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
             multiply_complex(x, &y)
         }
         (SteelVal::BigRational(x), SteelVal::Rational(y)) => {
-            let mut res = BigRational::new(
-                BigInt::from(x.numer().clone()),
-                BigInt::from(x.denom().clone()),
-            );
+            let mut res = BigRational::new(x.numer().clone(), x.denom().clone());
             res *= BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
             res.into_steelval()
         }
@@ -1862,7 +1932,7 @@ mod num_op_tests {
             )
             .unwrap()
             .to_string(),
-            BigRational(Gc::new(num::BigRational::new(
+            BigRational(Gc::new(num_rational::BigRational::new(
                 BigInt::from(1),
                 BigInt::from_str("18446744073709551616").unwrap()
             )))
@@ -2014,7 +2084,7 @@ mod num_op_tests {
         )
         .is_err());
         assert!(exact_integer_sqrt(
-            &num::BigRational::new(
+            &num_rational::BigRational::new(
                 BigInt::from_str("-10000000000000000000000000000000000001").unwrap(),
                 BigInt::from_str("2").unwrap()
             )

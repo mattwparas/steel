@@ -51,7 +51,47 @@ type DropHandlerChoice = im_lists::handler::DefaultDropHandler;
 type DropHandlerChoice = list_drop_handler::ListDropHandler;
 
 thread_local! {
-    pub static DEPTH: Cell<usize> = Cell::new(0);
+    pub static DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+#[cfg(feature = "triomphe")]
+pub struct TriopmhePointerType;
+
+#[cfg(feature = "triomphe")]
+impl PointerFamily for TriopmhePointerType {
+    type Pointer<T> = triomphe::Arc<T>;
+
+    fn new<T>(value: T) -> Self::Pointer<T> {
+        triomphe::Arc::new(value)
+    }
+
+    fn strong_count<T>(this: &Self::Pointer<T>) -> usize {
+        triomphe::Arc::strong_count(this)
+    }
+
+    fn try_unwrap<T>(this: Self::Pointer<T>) -> Option<T> {
+        triomphe::Arc::try_unwrap(this).ok()
+    }
+
+    fn get_mut<T>(this: &mut Self::Pointer<T>) -> Option<&mut T> {
+        triomphe::Arc::get_mut(this)
+    }
+
+    fn ptr_eq<T>(this: &Self::Pointer<T>, other: &Self::Pointer<T>) -> bool {
+        triomphe::Arc::ptr_eq(this, other)
+    }
+
+    fn make_mut<T: Clone>(ptr: &mut Self::Pointer<T>) -> &mut T {
+        triomphe::Arc::make_mut(ptr)
+    }
+
+    fn clone<T>(ptr: &Self::Pointer<T>) -> Self::Pointer<T> {
+        triomphe::Arc::clone(ptr)
+    }
+
+    fn as_ptr<T>(this: &Self::Pointer<T>) -> *const T {
+        triomphe::Arc::as_ptr(this)
+    }
 }
 
 pub struct GcPointerType;
@@ -133,7 +173,8 @@ mod list_drop_handler {
                                     | SteelVal::BoxedFunction(_)
                                     | SteelVal::MutFunc(_)
                                     | SteelVal::BuiltIn(_)
-                                    | SteelVal::BigNum(_) => continue,
+                                    | SteelVal::BigNum(_)
+                                    | SteelVal::MutableVector(_) => continue,
                                     _ => {
                                         drop_buffer.push_back(value);
                                     }
@@ -159,7 +200,8 @@ mod list_drop_handler {
                                     | SteelVal::BoxedFunction(_)
                                     | SteelVal::MutFunc(_)
                                     | SteelVal::BuiltIn(_)
-                                    | SteelVal::BigNum(_) => continue,
+                                    | SteelVal::BigNum(_)
+                                    | SteelVal::MutableVector(_) => continue,
                                     _ => {
                                         drop_buffer.push_back(value);
                                     }
@@ -187,7 +229,8 @@ mod list_drop_handler {
                             | SteelVal::BoxedFunction(_)
                             | SteelVal::MutFunc(_)
                             | SteelVal::BuiltIn(_)
-                            | SteelVal::BigNum(_) => continue,
+                            | SteelVal::BigNum(_)
+                            | SteelVal::MutableVector(_) => continue,
                             _ => {
                                 drop_buffer.push_back(value);
                             }
@@ -201,13 +244,11 @@ mod list_drop_handler {
     }
 }
 
-// #[cfg(not(feature = "sync"))]
-// type PointerType = im_lists::shared::RcPointer;
-
-// #[cfg(feature = "sync")]
-// type PointerType = im_lists::shared::ArcPointer;
-
+#[cfg(not(feature = "triomphe"))]
 type PointerType = GcPointerType;
+
+#[cfg(feature = "triomphe")]
+type PointerType = TriopmhePointerType;
 
 pub type SteelList<T> = im_lists::list::GenericList<T, PointerType, 4, 2, DefaultDropHandler>;
 

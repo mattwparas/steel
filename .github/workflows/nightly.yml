@@ -27,7 +27,7 @@ jobs:
       matrix:
         os: [ 
               { os: ubuntu-latest, arch: x86_64-unknown-linux-gnu }, 
-              { os: macos-latest, arch: aarch64-apple-darwin },
+              # { os: macos-latest, arch: aarch64-apple-darwin },
               { os: windows-latest, arch: x86_64-pc-windows-msvc }
             ]
     needs: check_changes

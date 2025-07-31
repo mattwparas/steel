@@ -228,27 +228,27 @@ impl SteelPortRepr {
         stop!(ConversionError => "unable to decode character, found {:?}", buf);
     }
 
-    pub fn read_bytes(&mut self, buf: &mut [u8]) -> Result<MaybeBlocking<bool>> {
+    pub fn read_bytes_amt(&mut self, buf: &mut [u8]) -> Result<MaybeBlocking<(usize, bool)>> {
         let result = match self {
-            SteelPortRepr::FileInput(_, reader) => reader.read_exact(buf),
-            SteelPortRepr::StdInput(stdin) => stdin.read_exact(buf),
-            SteelPortRepr::ChildStdOutput(output) => output.read_exact(buf),
-            SteelPortRepr::ChildStdError(output) => output.read_exact(buf),
-            SteelPortRepr::StringInput(reader) => reader.read_exact(buf),
-            SteelPortRepr::DynReader(reader) => reader.read_exact(buf),
-            SteelPortRepr::TcpStream(t) => t.read_exact(buf),
+            SteelPortRepr::FileInput(_, reader) => reader.read(buf),
+            SteelPortRepr::StdInput(stdin) => stdin.read(buf),
+            SteelPortRepr::ChildStdOutput(output) => output.read(buf),
+            SteelPortRepr::ChildStdError(output) => output.read(buf),
+            SteelPortRepr::StringInput(reader) => reader.read(buf),
+            SteelPortRepr::DynReader(reader) => reader.read(buf),
+            SteelPortRepr::TcpStream(t) => t.read(buf),
             SteelPortRepr::FileOutput(_, _)
             | SteelPortRepr::StdOutput(_)
             | SteelPortRepr::StdError(_)
             | SteelPortRepr::ChildStdInput(_)
             | SteelPortRepr::StringOutput(_)
             | SteelPortRepr::DynWriter(_) => stop!(ContractViolation => "expected input-port?"),
-            SteelPortRepr::Closed => return Ok(MaybeBlocking::Nonblocking(true)),
+            SteelPortRepr::Closed => return Ok(MaybeBlocking::Nonblocking((0, true))),
         };
 
         if let Err(err) = result {
             if err.kind() == io::ErrorKind::UnexpectedEof {
-                return Ok(MaybeBlocking::Nonblocking(false));
+                return Ok(MaybeBlocking::Nonblocking((0, false)));
             }
 
             if err.kind() == io::ErrorKind::WouldBlock {
@@ -259,7 +259,7 @@ impl SteelPortRepr {
             return Err(err.into());
         }
 
-        Ok(MaybeBlocking::Nonblocking(true))
+        Ok(MaybeBlocking::Nonblocking((result?, true)))
     }
 
     pub fn read_byte(&mut self) -> Result<MaybeBlocking<Option<u8>>> {
@@ -483,6 +483,20 @@ impl SteelPort {
         })
     }
 
+    pub fn new_textual_file_output_with_options(
+        path: &str,
+        open_options: OpenOptions,
+    ) -> Result<SteelPort> {
+        let file = open_options.open(path)?;
+
+        Ok(SteelPort {
+            port: Gc::new_mut(SteelPortRepr::FileOutput(
+                path.to_string(),
+                BufWriter::new(file),
+            )),
+        })
+    }
+
     pub fn new_input_port_string(string: String) -> SteelPort {
         SteelPort {
             port: Gc::new_mut(SteelPortRepr::StringInput(Cursor::new(string.into_bytes()))),
@@ -528,14 +542,17 @@ impl SteelPort {
     pub fn read_bytes(&self, amount: usize) -> Result<MaybeBlocking<Vec<u8>>> {
         // TODO: This is going to allocate unnecessarily
         let mut buf = vec![0; amount];
-        match self.port.write().read_bytes(&mut buf)? {
-            MaybeBlocking::Nonblocking(_) => Ok(MaybeBlocking::Nonblocking(buf)),
+        match self.port.write().read_bytes_amt(&mut buf)? {
+            MaybeBlocking::Nonblocking((amount_read, _)) => {
+                buf.truncate(amount_read);
+                Ok(MaybeBlocking::Nonblocking(buf))
+            }
             MaybeBlocking::WouldBlock => Ok(MaybeBlocking::WouldBlock),
         }
     }
 
-    pub fn read_bytes_into_buf(&self, buf: &mut [u8]) -> Result<MaybeBlocking<bool>> {
-        self.port.write().read_bytes(buf)
+    pub fn read_bytes_into_buf(&self, buf: &mut [u8]) -> Result<MaybeBlocking<(usize, bool)>> {
+        self.port.write().read_bytes_amt(buf)
     }
 
     pub fn peek_byte(&self) -> Result<Option<u8>> {
@@ -627,7 +644,7 @@ impl SteelPort {
 thread_local! {
     pub static WOULD_BLOCK_OBJECT: once_cell::unsync::Lazy<(crate::SteelVal,
         super::structs::StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
-        super::structs::make_struct_singleton("would-block".into())
+        super::structs::make_struct_singleton("would-block")
     });
 }
 
@@ -635,7 +652,7 @@ thread_local! {
 pub static WOULD_BLOCK_OBJECT: once_cell::sync::Lazy<(
     crate::SteelVal,
     super::structs::StructTypeDescriptor,
-)> = once_cell::sync::Lazy::new(|| super::structs::make_struct_singleton("eof".into()));
+)> = once_cell::sync::Lazy::new(|| super::structs::make_struct_singleton("eof"));
 
 pub fn would_block() -> SteelVal {
     #[cfg(feature = "sync")]

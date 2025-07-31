@@ -1,4 +1,4 @@
-use crate::compiler::program::{BEGIN, DEFINE, ELLIPSES_SYMBOL, IF};
+use crate::compiler::program::{BEGIN, DEFINE, ELLIPSES_SYMBOL, IF, LAMBDA};
 use crate::parser::ast::{Atom, ExprKind, List, Macro, PatternPair, Vector};
 use crate::parser::parser::SyntaxObject;
 use crate::parser::rename_idents::RenameIdentifiersVisitor;
@@ -242,6 +242,10 @@ impl SteelMacro {
         }
 
         if let Some(ExprKind::Atom(a)) = expr.first() {
+            for case in &self.cases {
+                println!("{:?}", case.args);
+            }
+
             stop!(BadSyntax => format!("macro expansion unable to match case: {expr}"); a.syn.span);
         } else {
             unreachable!()
@@ -657,6 +661,9 @@ impl MacroPattern {
                     TokenType::Define => {
                         pattern_vec.push(MacroPattern::Syntax(*DEFINE));
                     }
+                    TokenType::Lambda => {
+                        pattern_vec.push(MacroPattern::Syntax(*LAMBDA));
+                    }
                     TokenType::If => {
                         pattern_vec.push(MacroPattern::Syntax(*IF));
                     }
@@ -678,7 +685,7 @@ impl MacroPattern {
                                 stop!(BadSyntax => format!("rationals numbers are not supported: {}", re))
                             }
                         },
-                        c @ NumberLiteral::Complex(_, _) => {
+                        c @ NumberLiteral::Complex(_, _) | c @ NumberLiteral::Polar(_, _) => {
                             stop!(BadSyntax => format!("complex numbers not supported: {}", c))
                         }
                     },
@@ -776,7 +783,7 @@ impl MacroPattern {
 
         if list.improper {
             let rest = pattern_vec.pop().map(|pat| MacroPattern::Rest(pat.into()));
-            pattern_vec.extend(rest.into_iter());
+            pattern_vec.extend(rest);
         }
 
         Ok((pattern_vec, macro_keyword))
@@ -1196,8 +1203,8 @@ fn collect_bindings(
                     _ => {
                         if let Some(pat) = non_list_match(&children) {
                             collect_bindings(
-                                &[pat.clone()],
-                                &[child.clone()],
+                                std::slice::from_ref(&pat),
+                                std::slice::from_ref(&child),
                                 bindings,
                                 binding_kind,
                                 false,

@@ -2,20 +2,23 @@ use crate::{
     compiler::{
         constants::ConstantMap,
         map::SymbolMap,
-        modules::MANGLER_PREFIX,
+        modules::{MANGLER_PREFIX, MANGLER_SEPARATOR},
         passes::{
             analysis::SemanticAnalysis, begin::flatten_begins_and_expand_defines,
-            shadow::RenameShadowedVariables, VisitorMutRefUnit,
+            shadow::RenameShadowedVariables, VisitorMutRefUnit, VisitorMutUnitRef,
         },
     },
     core::{instructions::u24, labels::Expr},
+    gc::Shared,
     parser::{
         expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change},
         interner::InternedString,
         kernel::Kernel,
-        parser::{lower_entire_ast, lower_macro_and_require_definitions},
+        parser::{lower_entire_ast, lower_macro_and_require_definitions, SourcesCollector},
     },
+    rvals::{AsRefSteelVal, SteelString},
     steel_vm::{cache::MemoizationTable, engine::ModuleContainer, primitives::constant_primitives},
+    LambdaMetadataTable,
 };
 use crate::{
     core::{instructions::Instruction, opcode::OpCode},
@@ -31,7 +34,7 @@ use std::{
 // TODO: Replace the usages of hashmap with this directly
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use steel_parser::ast::PROVIDE;
+use steel_parser::{ast::PROVIDE, span::Span};
 
 use crate::rvals::{Result, SteelVal};
 
@@ -49,7 +52,7 @@ use crate::steel_vm::const_evaluation::ConstantEvaluatorManager;
 
 use super::{
     constants::SerializableConstantMap,
-    modules::{CompiledModule, ModuleManager},
+    modules::{steel_search_dirs, CompiledModule, ModuleManager, SourceModuleResolver},
     passes::{analysis::Analysis, mangle::NameMangler},
     program::RawProgramWithSymbols,
 };
@@ -59,15 +62,27 @@ use crate::values::HashMap as ImmutableHashMap;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum DefineKind {
+    Flat,
+    Closure,
+}
+
+struct FlatDefineLocation {
+    kind: DefineKind,
+    location: (usize, usize),
+}
+
 #[derive(Default)]
 pub struct DebruijnIndicesInterner {
-    flat_defines: HashSet<InternedString>,
+    flat_defines: HashMap<InternedString, FlatDefineLocation>,
     second_pass_defines: HashSet<InternedString>,
 }
 
 impl DebruijnIndicesInterner {
     pub fn collect_first_pass_defines(
         &mut self,
+        index: usize,
         instructions: &mut [Instruction],
         symbol_map: &mut SymbolMap,
     ) -> Result<()> {
@@ -99,7 +114,13 @@ impl DebruijnIndicesInterner {
                     flat_defines_non_closure.clear();
 
                     let idx = symbol_map.add(s);
-                    self.flat_defines.insert(s.to_owned());
+                    self.flat_defines.insert(
+                        s.to_owned(),
+                        FlatDefineLocation {
+                            kind: DefineKind::Closure,
+                            location: (index, i),
+                        },
+                    );
 
                     if let Some(x) = instructions.get_mut(i) {
                         x.payload_size = u24::from_usize(idx);
@@ -123,7 +144,13 @@ impl DebruijnIndicesInterner {
                     ..,
                 ) => {
                     let idx = symbol_map.add(s);
-                    self.flat_defines.insert(s.to_owned());
+                    self.flat_defines.insert(
+                        s.to_owned(),
+                        FlatDefineLocation {
+                            kind: DefineKind::Flat,
+                            location: (index, i),
+                        },
+                    );
 
                     if flat_defines_non_closure.contains(s) {
                         stop!(BadSyntax => format!("Cannot reference identifier before its definition: {}", s.resolve()); *span);
@@ -153,6 +180,7 @@ impl DebruijnIndicesInterner {
                     // We're referencing things within the scope
                     flat_defines_non_closure.insert(*s);
                 }
+
                 _ => {}
             }
         }
@@ -162,6 +190,7 @@ impl DebruijnIndicesInterner {
 
     pub fn collect_second_pass_defines(
         &mut self,
+        index: usize,
         instructions: &mut [Instruction],
         symbol_map: &mut SymbolMap,
     ) -> Result<()> {
@@ -233,13 +262,54 @@ impl DebruijnIndicesInterner {
                         })),
                     ..
                 } => {
-                    if self.flat_defines.get(s).is_some()
-                        && self.second_pass_defines.get(s).is_none()
-                        && depth == 0
-                    {
-                        let message =
-                            format!("Cannot reference an identifier before its definition: {s}");
-                        stop!(FreeIdentifier => message; *span);
+                    let flat_define = self.flat_defines.get(s);
+
+                    if flat_define.is_some() && self.second_pass_defines.get(s).is_none() {
+                        if depth == 0 {
+                            let formatted = if s.resolve().starts_with(MANGLER_PREFIX) {
+                                s.resolve()
+                                    .split_once(MANGLER_SEPARATOR)
+                                    .map(|x| x.1)
+                                    .unwrap_or(s.resolve())
+                            } else {
+                                s.resolve()
+                            };
+
+                            let message = format!(
+                                "Cannot reference an identifier before its definition: {formatted}"
+                            );
+                            stop!(FreeIdentifier => message; *span);
+                        } else {
+                            // If the depth is greater than 0, then we're in a weird spot.
+                            // Consider the following:
+                            //
+                            // (define (foo)
+                            //   (list bar 10))
+                            // (define bar (foo))
+                            //
+                            // This should be disallowed, so we need to check if this
+                            // definition came _before_ what we wanted.
+
+                            let flat_define = flat_define.unwrap();
+
+                            if flat_define.kind == DefineKind::Flat
+                                && flat_define.location < (index, i)
+                            {
+                                let formatted = if s.resolve().starts_with(MANGLER_PREFIX) {
+                                    s.resolve()
+                                        .split_once(MANGLER_SEPARATOR)
+                                        .map(|x| x.1)
+                                        .unwrap_or(s.resolve())
+                                } else {
+                                    s.resolve()
+                                };
+
+                                let message = format!(
+                                    "Cannot reference an identifier before its definition: {formatted}"
+                                );
+                                stop!(FreeIdentifier => message; *span);
+                            }
+                        }
                     }
 
                     let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
@@ -273,8 +343,18 @@ impl DebruijnIndicesInterner {
                         && self.second_pass_defines.get(s).is_none()
                         && depth == 0
                     {
-                        let message =
-                            format!("Cannot reference an identifier before its definition: {s}");
+                        let formatted = if s.resolve().starts_with(MANGLER_PREFIX) {
+                            s.resolve()
+                                .split_once(MANGLER_SEPARATOR)
+                                .map(|x| x.1)
+                                .unwrap_or(s.resolve())
+                        } else {
+                            s.resolve()
+                        };
+
+                        let message = format!(
+                            "Cannot reference an identifier before its definition: {formatted}"
+                        );
                         stop!(FreeIdentifier => message; *span);
                     }
 
@@ -313,7 +393,7 @@ pub struct Compiler {
     pub(crate) symbol_map: SymbolMap,
     pub(crate) constant_map: ConstantMap,
     pub(crate) macro_env: FxHashMap<InternedString, SteelMacro>,
-    module_manager: ModuleManager,
+    pub(crate) module_manager: ModuleManager,
     opt_level: OptLevel,
     pub(crate) kernel: Option<Kernel>,
     memoization_table: MemoizationTable,
@@ -335,11 +415,10 @@ pub struct Compiler {
     // just ignore the constants function in general. This unfortunately,
     // is under the hood, shared references to the engine, since we
     // want to have the compiler share everything with the runtime.
-    sources: Sources,
-    builtin_modules: ModuleContainer,
+    pub(crate) sources: Sources,
+    pub(crate) builtin_modules: ModuleContainer,
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct SerializableCompiler {
     pub(crate) symbol_map: SymbolMap,
     pub(crate) constant_map: SerializableConstantMap,
@@ -363,7 +442,110 @@ impl SerializableCompiler {
     }
 }
 
+pub(crate) enum StringOrSteelString {
+    String(String),
+    SteelString(SteelString),
+}
+
 impl Compiler {
+    pub(crate) fn get_doc(&self, value: SteelVal) -> Option<StringOrSteelString> {
+        use crate::gc::shared::ShareableMut;
+
+        for module in self.builtin_modules.inner().values() {
+            let doc = module.search(value.clone());
+
+            // If we found a doc on the fast path, just return
+            if let Some(doc) = doc {
+                let string = doc.doc.map(|x| x.0.to_string());
+                return string.map(StringOrSteelString::String);
+            }
+
+            // If this is specifically the meta doc, we can attempt to
+            // grab a quick one here
+            if module.name().as_ref() == "steel/meta" {
+                let table = module.try_get_ref("#%function-ptr-table").unwrap();
+                let doc = LambdaMetadataTable::as_ref(&table).unwrap().get(value);
+                return doc.map(StringOrSteelString::SteelString);
+            }
+
+            for (key, module_value) in module.module.read().values.iter() {
+                if value.ptr_eq(module_value) {
+                    let doc = module.get_documentation(key);
+                    return doc.map(StringOrSteelString::String);
+                }
+            }
+        }
+
+        None
+    }
+
+    // A better solution _in general_ would be to replace the source
+    // id with some kind of weak pointer. The problem there, is that
+    // we don't have a perfect solution to converting from an expr
+    // representation to a steel representation. Thus, we have to
+    // do this walk, and occasionally have to do some kind of heuristic
+    // for deciding when to clean incremental expressions.
+    //
+    // Note: We _probably_ also have to check the running bytecode?
+    // Note sure how we'd do that besides doing a full walk. We can
+    // probably just check the spans on the interner itself, but that would
+    // require access to the runtime as well.
+    pub(crate) fn gc_sources<'a>(
+        &mut self,
+        runtime_spans: impl Iterator<Item = &'a Shared<[Span]>>,
+    ) {
+        if self.sources.should_gc() {
+            let mut sources = SourcesCollector::default();
+
+            for spans in runtime_spans {
+                for span in spans.iter() {
+                    if let Some(source) = span.source_id() {
+                        sources.add(source);
+                    }
+                }
+            }
+
+            // Visit all of the expressions, make sure those sources
+            // don't get dropped. Figure out a better way to do this, but for
+            // now we can just prune the expressions if it comes to that.
+            // All the macros that exist in the top level macro environment
+            for m in self.macro_env.values() {
+                for expr in m.exprs() {
+                    sources.visit(expr);
+                }
+            }
+
+            // All the macros that exist in the modules macro environments
+            for module in self.modules().values() {
+                for expr in &module.ast {
+                    sources.visit(expr);
+                }
+
+                for m in module.macro_map.values() {
+                    for expr in m.exprs() {
+                        sources.visit(expr);
+                    }
+                }
+            }
+
+            for expression in self
+                .builtin_modules
+                .inner()
+                .values()
+                .map(|x| x.cached_expression())
+            {
+                use crate::gc::shared::ShareableMut;
+                let expression = expression.read();
+                if let Some(expression) = expression.as_ref() {
+                    sources.visit(expression);
+                }
+            }
+
+            self.sources.gc(sources.into_set());
+            // println!("Time taken: {:?}", now.elapsed());
+        }
+    }
+
     #[allow(unused)]
     pub(crate) fn into_serializable_compiler(self) -> Result<SerializableCompiler> {
         Ok(SerializableCompiler {
@@ -398,6 +580,9 @@ impl Compiler {
         sources: Sources,
         builtin_modules: ModuleContainer,
     ) -> Compiler {
+        // Include additional search directories by default
+        let search_dirs = steel_search_dirs();
+
         Compiler {
             symbol_map,
             constant_map,
@@ -411,7 +596,7 @@ impl Compiler {
             lifted_macro_environments: HashSet::new(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
-            search_dirs: Vec::new(),
+            search_dirs,
             sources,
             builtin_modules,
         }
@@ -426,6 +611,8 @@ impl Compiler {
         sources: Sources,
         builtin_modules: ModuleContainer,
     ) -> Compiler {
+        let search_dirs = steel_search_dirs();
+
         Compiler {
             symbol_map,
             constant_map,
@@ -439,7 +626,7 @@ impl Compiler {
             lifted_macro_environments: HashSet::new(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
-            search_dirs: Vec::new(),
+            search_dirs,
             sources,
             builtin_modules,
         }
@@ -485,6 +672,13 @@ impl Compiler {
 
     pub fn register_builtin(&mut self, name: String, contents: String) {
         self.module_manager.add_builtin_module(name, contents);
+    }
+
+    pub fn register_source_module_resolver(
+        &mut self,
+        resolver: impl SourceModuleResolver + 'static,
+    ) {
+        self.module_manager.register_module_resolver(resolver);
     }
 
     pub fn add_search_directory(&mut self, dir: PathBuf) {
@@ -600,19 +794,18 @@ impl Compiler {
     pub fn compile_module(
         &mut self,
         path: PathBuf,
-        sources: &mut Sources,
         builtin_modules: ModuleContainer,
     ) -> Result<()> {
         self.module_manager.add_module(
             path,
             &mut self.macro_env,
             &mut self.kernel,
-            sources,
+            &mut self.sources,
             builtin_modules,
         )
     }
 
-    pub fn modules(&self) -> &FxHashMap<PathBuf, CompiledModule> {
+    pub fn modules(&self) -> &crate::HashMap<PathBuf, CompiledModule> {
         self.module_manager.modules()
     }
 
@@ -681,6 +874,7 @@ impl Compiler {
         Ok(results)
     }
 
+    // TODO: Compare this to the lower_expressions_impl and merge the behavior
     fn expand_ast(&mut self, exprs: Vec<ExprKind>, path: Option<PathBuf>) -> Result<Vec<ExprKind>> {
         let mut expanded_statements = self.expand_expressions(exprs, path)?;
 
@@ -716,15 +910,11 @@ impl Compiler {
                 if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
                     let source_id = self.sources.get_source_id(module).unwrap();
 
-                    // println!("Expanding macros from: {:?}", module);
-
                     crate::parser::expand_visitor::expand_with_source_id(
                         expr,
                         macro_env,
                         Some(source_id),
                     )?
-
-                    // crate::parser::expand_visitor::expand(expr, macro_env)?
                 }
             }
 
@@ -865,13 +1055,7 @@ impl Compiler {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
 
-        // println!("Before expanding macros");
-        // exprs.pretty_print();
-
         let mut expanded_statements = self.expand_expressions(exprs, path)?;
-
-        // println!("After expanding macros");
-        // expanded_statements.pretty_print();
 
         #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Phase 1 module expansion time: {:?}", now.elapsed());
@@ -942,15 +1126,6 @@ impl Compiler {
         log::debug!(target: "pipeline_time", "Top level macro expansion time: {:?}", now.elapsed());
 
         log::debug!(target: "expansion-phase", "Beginning constant folding");
-
-        // steel_parser::ast::AstTools::pretty_print(&expanded_statements);
-
-        // println!(
-        //     "Modules: {:#?}",
-        //     self.module_manager.modules().keys().collect::<Vec<_>>()
-        // );
-
-        // self.sources.debug_sources();
 
         let expanded_statements =
             self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;
@@ -1057,9 +1232,28 @@ impl Compiler {
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
-        // semantic.populate_captures();
+
+        // Do this, and then inline everything. Do it again
+        // TODO: Configure the amount that we inline?
+        semantic.inline_function_calls(None)?;
+        semantic.refresh_variables();
+
+        let mut analysis = semantic.into_analysis();
+        self.shadowed_variable_renamer
+            .rename_shadowed_variables(&mut expanded_statements, false);
+
+        analysis.fresh_from_exprs(&expanded_statements);
+        analysis.populate_captures(&expanded_statements);
+        // analysis.populate_captures(&expanded_statements);
+        // Do this again
+        let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
         semantic.replace_anonymous_function_calls_with_plain_lets();
+
+        semantic.refresh_variables();
+
+        // Flatten the empty lets
+        // semantic.flatten_empty_lets();
 
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
@@ -1070,7 +1264,9 @@ impl Compiler {
         // interactive usages
         self.analysis.shrink_capacity();
 
-        // steel_parser::ast::AstTools::pretty_print(&expanded_statements);
+        if std::env::var("STEEL_DEBUG_AST").is_ok() {
+            steel_parser::ast::AstTools::pretty_print(&expanded_statements);
+        }
 
         Ok(expanded_statements)
 
@@ -1113,10 +1309,7 @@ impl Compiler {
         Ok(raw_program)
     }
 
-    // TODO
-    // figure out how the symbols will work so that a raw program with symbols
-    // can be later pulled in and symbols can be interned correctly
-    fn compile_raw_program(
+    fn compile_raw_program_impl(
         &mut self,
         exprs: Vec<ExprKind>,
         path: Option<PathBuf>,
@@ -1142,6 +1335,27 @@ impl Compiler {
         // raw_program.debug_print_log();
 
         Ok(raw_program)
+    }
+
+    // TODO
+    // figure out how the symbols will work so that a raw program with symbols
+    // can be later pulled in and symbols can be interned correctly
+    fn compile_raw_program(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        path: Option<PathBuf>,
+    ) -> Result<RawProgramWithSymbols> {
+        // Roll back any dependencies that got compiled, assuming they did.
+        let snapshot_modules = self.module_manager.compiled_modules.clone();
+
+        let res = self.compile_raw_program_impl(exprs, path);
+
+        if res.is_err() {
+            self.module_manager.compiled_modules = snapshot_modules;
+            // Also rollback the metadata to match?
+        }
+
+        res
     }
 
     fn _run_const_evaluation_with_memoization(

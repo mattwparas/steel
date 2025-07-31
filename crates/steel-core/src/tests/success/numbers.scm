@@ -235,3 +235,21 @@
 (assert-equal! '(2 1) (exact-integer-sqrt 5))
 (assert-equal! '(10000000000000000000000 4)
                (exact-integer-sqrt 100000000000000000000000000000000000000000004))
+
+(assert-equal! 255 (string->number "ff" 16))
+(assert-equal! 1+2i (string->number "1+10i" 2))
+(assert-equal! 1/8 (string->number "1/10" 8))
+
+(define assert-number-roundtrip!
+  (case-lambda
+    [(num str)
+     (assert-equal! num (string->number str))
+     (assert-equal! str (number->string num))]
+    [(num str radix)
+     (assert-equal! num (string->number str radix))
+     (assert-equal! str (number->string num radix))]))
+
+(assert-number-roundtrip! 255 "ff" 16)
+(assert-number-roundtrip! 1+2i "1+10i" 2)
+(assert-number-roundtrip! -16 "-20" 8)
+(assert-number-roundtrip! 10 "10")

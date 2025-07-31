@@ -226,8 +226,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                 )))),
                 Complex(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     complex_to_literal(x)?.into(),
-                )))
-                .into()),
+                )))),
                 VectorV(lst) => {
                     let items: std::result::Result<Vec<ExprKind>, &'static str> =
                         lst.iter().map(|x| inner_try_from(x, depth + 1)).collect();

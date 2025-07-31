@@ -1,0 +1,12 @@
+1
+5 ; was 4
+51507739 ; if the input is 5
+16445406 ; if the input is 4
+
+
+; The old inputs were:
+
+1
+4
+16445406 ; if the input is 4
+51507739 ; if the input is 5

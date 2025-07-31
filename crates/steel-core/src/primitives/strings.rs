@@ -1,11 +1,12 @@
 use crate::gc::Gc;
 use crate::values::lists::{List, SteelList};
 
-use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
+use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::{stop, Vector};
 
-use num::{BigInt, Num};
+use std::io::Write as _;
+
 use steel_derive::{function, native};
 
 /// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
@@ -108,21 +109,100 @@ pub fn char_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
     monotonic!(rest, |ch1: &_, ch2: &_| ch1 == ch2)
 }
 
-fn number_to_string_impl(value: &SteelVal, radix: Option<u32>) -> Result<SteelVal> {
+mod radix_fmt {
+    use num_bigint::BigInt;
+
+    const DIGITS: [u8; 16] = *b"0123456789abcdef";
+
+    pub fn small(acc: &mut Vec<u8>, value: isize, radix: usize) {
+        let start = acc.len();
+        let numbers = std::iter::successors(Some(value.unsigned_abs()), |n| match n / radix {
+            0 => None,
+            n => Some(n),
+        });
+
+        for number in numbers {
+            let idx = number % radix;
+            let digit = DIGITS[idx];
+            acc.push(digit);
+        }
+        if value < 0 {
+            acc.push(b'-');
+        }
+
+        acc[start..].reverse();
+    }
+
+    pub fn big(acc: &mut Vec<u8>, value: BigInt, radix: usize) {
+        let fmt = value.to_str_radix(radix as u32);
+        acc.extend(fmt.as_bytes());
+    }
+}
+
+fn format_number(acc: &mut Vec<u8>, value: &SteelVal, radix: Option<usize>) -> Result<()> {
     match value {
+        SteelVal::NumV(v) if v.is_nan() => acc.extend(b"+nan.0"),
+        SteelVal::NumV(v) if *v == f64::INFINITY => acc.extend(b"+inf.0"),
+        SteelVal::NumV(v) if *v == f64::NEG_INFINITY => acc.extend(b"-inf.0"),
+        SteelVal::NumV(v) => {
+            let _ = write!(acc, "{}", v);
+        }
         SteelVal::IntV(v) => {
             if let Some(radix) = radix {
-                Ok(SteelVal::StringV(
-                    radix_fmt::radix(*v, radix as u8).to_string().into(),
-                ))
+                radix_fmt::small(acc, *v, radix);
             } else {
-                Ok(SteelVal::StringV(v.to_string().into()))
+                let _ = write!(acc, "{}", v);
             }
         }
-        SteelVal::NumV(n) => Ok(SteelVal::StringV(n.to_string().into())),
-        SteelVal::BigNum(n) => Ok(SteelVal::StringV(n.to_string().into())),
+        SteelVal::BigNum(v) => {
+            if let Some(radix) = radix {
+                radix_fmt::big(acc, v.unwrap(), radix);
+            } else {
+                let _ = write!(acc, "{}", **v);
+            }
+        }
+        SteelVal::Rational(v) => {
+            if let Some(radix) = radix {
+                radix_fmt::small(acc, *v.numer() as isize, radix);
+                acc.push(b'/');
+                radix_fmt::small(acc, *v.denom() as isize, radix);
+            } else {
+                let _ = write!(acc, "{}", v.numer());
+                acc.push(b'/');
+                let _ = write!(acc, "{}", v.denom());
+            }
+        }
+        SteelVal::BigRational(v) => {
+            if let Some(radix) = radix {
+                radix_fmt::big(acc, v.numer().clone(), radix);
+                acc.push(b'/');
+                radix_fmt::big(acc, v.denom().clone(), radix);
+            } else {
+                let _ = write!(acc, "{}", v.numer());
+                acc.push(b'/');
+                let _ = write!(acc, "{}", v.denom());
+            }
+        }
+        SteelVal::Complex(c) => {
+            format_number(acc, &c.re, radix)?;
+            if !c.imaginary_is_negative() && c.imaginary_is_finite() {
+                acc.push(b'+');
+            }
+            format_number(acc, &c.im, radix)?;
+            acc.push(b'i');
+        }
         _ => stop!(TypeMismatch => "number->string expects a number type, found: {}", value),
     }
+
+    Ok(())
+}
+
+fn number_to_string_impl(value: &SteelVal, radix: Option<usize>) -> Result<SteelVal> {
+    let mut accumulator = Vec::new();
+    format_number(&mut accumulator, value, radix.filter(|x| *x != 10))?;
+
+    let string = String::from_utf8(accumulator).expect("should just be ascii");
+    string.into_steelval()
 }
 
 /// Converts the given number to a string.
@@ -137,47 +217,12 @@ pub fn number_to_string(value: &SteelVal, mut rest: RestArgsIter<'_, isize>) -> 
             stop!(ContractViolation => "radix value given to string->number must be between 2 and 16, found: {}", radix);
         }
 
-        Some(radix as u32)
+        Some(radix as usize)
     } else {
         None
     };
 
     number_to_string_impl(value, radix)
-}
-
-fn string_to_number_impl(value: &str, radix: Option<u32>) -> Result<SteelVal> {
-    let expr = crate::parser::parser::Parser::parse(value)?;
-
-    if expr.len() != 1 {
-        return Ok(SteelVal::BoolV(false));
-    }
-
-    let explicit_radix = matches!(
-        value.get(0..2),
-        Some("#x") | Some("#d") | Some("#o") | Some("#b")
-    );
-
-    let implicit_radix = radix.filter(|_| !explicit_radix);
-
-    let number = expr.into_iter().next().unwrap();
-
-    let svalue = SteelVal::try_from(number)?;
-
-    match (svalue, implicit_radix) {
-        (SteelVal::IntV(_), Some(radix)) => match isize::from_str_radix(value, radix) {
-            Ok(parsed) => Ok(SteelVal::IntV(parsed)),
-            Err(_) => Ok(SteelVal::BoolV(false)),
-        },
-        (val @ SteelVal::IntV(_), None) => Ok(val),
-        (SteelVal::BigNum(_), Some(radix)) => match BigInt::from_str_radix(value, radix) {
-            Ok(parsed) => Ok(SteelVal::BigNum(Gc::new(parsed))),
-            Err(_) => Ok(SteelVal::BoolV(false)),
-        },
-
-        (val @ SteelVal::BigNum(_), None) => Ok(val),
-        (svalue @ SteelVal::NumV(_), _) => Ok(svalue),
-        _ => Ok(SteelVal::BoolV(false)),
-    }
 }
 
 /// Converts the given string to a number, with an optional radix.
@@ -206,10 +251,8 @@ pub fn string_to_number(
         None
     };
 
-    match string_to_number_impl(value.as_str(), radix) {
-        Ok(v) => Ok(v),
-        Err(_) => Ok(SteelVal::BoolV(false)),
-    }
+    let number = steel_parser::lexer::parse_number(value, radix);
+    number.into_steelval()
 }
 
 /// Constructs a string from the given characters
@@ -380,15 +423,15 @@ pub fn substring(
 #[function(name = "make-string")]
 pub fn make_string(k: usize, mut c: RestArgsIter<'_, char>) -> Result<SteelVal> {
     // If the char is there, we want to take it
-    let char = c.next();
+    let char = c.next().transpose()?;
 
     // We want the iterator to be exhaused
     if let Some(next) = c.next() {
         stop!(ArityMismatch => format!("make-string expected 1 or 2 arguments, got an additional argument {}", next?))
     }
 
-    let c = char.unwrap_or(Ok('\0'))?;
-    Ok((0..k).into_iter().map(|_| c).collect::<String>().into())
+    let c = char.unwrap_or('\0');
+    Ok(std::iter::repeat_n(c, k).collect::<String>().into())
 }
 
 /// Replaces all occurrences of a pattern into the given string

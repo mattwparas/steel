@@ -1,6 +1,6 @@
 # Macros
 
-Steel contains a limited form of the `syntax-rules` that scheme provides. These macros build on the small primary language constructs that exist. Consider the following:
+Steel contains a an implementation of `syntax-rules` and `syntax-case` that scheme provides. These macros build on the small primary language constructs that exist. Consider the following:
 
 ```scheme
 (define-syntax or

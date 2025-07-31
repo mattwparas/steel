@@ -10,14 +10,13 @@ description = "REPL library for steel"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rustyline = "14.0.0"
-rustyline-derive = "0.7.0"
-colored = "2.0.0"
+rustyline = { version = "14.0.0", features = ["derive"] }
+colored = "3.0.0"
 steel-core = { workspace = true }
-steel-parser = { path = "../steel-parser", version = "0.6.0"}
-dirs = "5.0.1"
+steel-parser = { path = "../steel-parser", version = "0.7.0"}
+env_home = "0.1.0"
 ctrlc = "3.4.4"
-crossbeam = "0.8.4"
+crossbeam-utils = "0.8.21"
 
 [features]
 interrupt = ["steel-core/interrupt"]

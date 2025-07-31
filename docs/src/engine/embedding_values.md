@@ -156,27 +156,3 @@ pub fn main() {
     println!("{:?}", output);
 }
 ```
-
-## IntoSteelVal and FromSteelVal
-
-Types that implement `IntoSteelVal` and `FromSteelVal` and be returned and passed into rust functions, respectively. Take the following for example:
-
-```rust
-
-fn foo(value: isize) -> String {
-    ...
-}
-    
-```
-
-This means that steel values will attempt to be coerced to the type in the function signature, and the value that this function returns will then attempt to be coerced into a that Steel understands.
-
-There are some special case conversions that happen specifically:
-
-### `IntoSteelVal`
-
-* Vec<T> -> Steel list
-* HashMap<K, V> -> Steel hashmap
-* HashSet<T> -> Steel hashset
-* Result<T, E> -> if `Ok(T)` then T else `(error E)`
-* Option<T> -> if `Some(T)` then T else `#false`

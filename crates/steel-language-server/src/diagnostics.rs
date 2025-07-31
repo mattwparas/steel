@@ -9,12 +9,15 @@ use std::{
 use dashmap::DashSet;
 use ropey::Rope;
 use steel::{
-    compiler::passes::{
-        analysis::{
-            query_top_level_define, query_top_level_define_on_condition,
-            RequiredIdentifierInformation, SemanticAnalysis,
+    compiler::{
+        modules::{MANGLED_MODULE_PREFIX, MANGLER_PREFIX, MODULE_PREFIX},
+        passes::{
+            analysis::{
+                query_top_level_define, query_top_level_define_on_condition,
+                RequiredIdentifierInformation, SemanticAnalysis,
+            },
+            VisitorMutUnitRef,
         },
-        VisitorMutUnitRef,
     },
     define_primitive_symbols, define_symbols,
     parser::{
@@ -60,8 +63,16 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
 
                 let resolved = ident.resolve();
 
+                if resolved.starts_with(MANGLER_PREFIX) {
+                    return None;
+                }
+
                 // We can just ignore those as well
                 if resolved.starts_with("mangler") {
+                    return None;
+                }
+
+                if resolved.starts_with(MANGLED_MODULE_PREFIX) {
                     return None;
                 }
 
@@ -162,12 +173,12 @@ impl DiagnosticGenerator for StaticArityChecker {
         for (id, required_identifier) in required_identifier_information {
             match required_identifier {
                 // This is probably going to be annoying?
-                RequiredIdentifierInformation::Resolved(resolved) => {
+                RequiredIdentifierInformation::Resolved(resolved, _, _, _) => {
                     // TODO: When the identifier is already in the given AST, meaning
                     // we don't have to go to another AST in order to resolve it,
                     // we should just do that here.
                 }
-                RequiredIdentifierInformation::Unresolved(interned, name) => {
+                RequiredIdentifierInformation::Unresolved(interned, name, _) => {
                     let module_path_to_check = name
                         .trim_start_matches("mangler")
                         .trim_end_matches(interned.resolve())
@@ -331,7 +342,7 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                     .extract_value(l.first_ident().unwrap().resolve())
                                     .ok()?
                                 {
-                                    b.arity.map(Arity::Exact)
+                                    b.arity.map(|x| Arity::Exact(x as _))
                                 } else {
                                     None
                                 }
@@ -395,8 +406,27 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                     }
                                 }
                             }
-                            // TODO: Handle this arity if it comes up
-                            Some(Arity::Range(n)) => {}
+                            Some(Arity::Range(n, m)) => {
+                                let arg_amount = l.args.len() - 1;
+                                if (arg_amount < n) || (arg_amount > m) {
+                                    let span =
+                                        l.first().unwrap().atom_syntax_object().unwrap().span;
+
+                                    if let Some(diagnostic) = create_diagnostic(
+                                        &self.context.rope,
+                                        &span,
+                                        format!(
+                                    "Arity mismatch: {} expects {} to {} arguments, found {}",
+                                    l.first().unwrap(),
+                                    n,
+                                    m,
+                                    arg_amount
+                                ),
+                                    ) {
+                                        self.diagnostics.push(diagnostic);
+                                    }
+                                }
+                            }
                             None => {}
                         }
                     } else if let Some(refers_to_id) = info.refers_to {
@@ -557,6 +587,7 @@ fn function_contract(expr: &ExprKind) -> Option<steel::rvals::Result<StaticContr
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[allow(unpredictable_function_pointer_comparisons)]
 pub enum TypeInfo {
     // We don't have enough information to say what this type is
     // Either, the function has come externally or it was unable to be inferred for some reason
@@ -693,7 +724,7 @@ fn resolve_contracts() {
     let expression = r#"
 (define/contract (my-fun-contracted-function x y)
   (->/c int? int? int?)
-  (+ x y))        
+  (+ x y))
     "#;
 
     let mut engine = Engine::new();

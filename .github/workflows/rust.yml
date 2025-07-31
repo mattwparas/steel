@@ -162,7 +162,7 @@ jobs:
       - name: Build x86_64-unknown-redox
         run: |
           sudo apt-get update -y && sudo apt-get install fuse3 libfuse3-dev pkg-config -y
-          cargo install redoxer
+          cargo install redoxer --locked
           redoxer build
   
   wasm-build:

@@ -1,11 +1,14 @@
+use crate::compiler::passes::VisitorMutUnitRef;
+use crate::primitives::numbers::make_polar;
 use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
+use crate::HashSet;
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
-use num::BigRational;
+use num_rational::{BigRational, Rational32};
 use std::borrow::Cow;
+use std::path::PathBuf;
 use std::str;
-use std::sync::{Arc, Mutex};
-use std::{collections::HashMap, path::PathBuf};
+use std::sync::Arc;
 use steel_parser::interner::InternedString;
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral, TokenType};
 
@@ -38,28 +41,66 @@ impl FromSteelVal for SourceId {
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
+struct GcMetadata {
+    size_in_bytes: usize,
+
+    threshold: usize,
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub(crate) struct InterierSources {
-    paths: HashMap<SourceId, PathBuf>,
-    reverse: HashMap<PathBuf, SourceId>,
-    sources: Vec<Cow<'static, str>>,
+    paths: crate::HashMap<SourceId, PathBuf>,
+    reverse: crate::HashMap<PathBuf, SourceId>,
+    // TODO: The sources here are just ever growing.
+    // Really, we shouldn't even do this. Having to index
+    // into the list isn't particularly necessary, we could
+    // just use a hashmap, which would allow us to shrink
+    // the sources later by pruning sources that are
+    // duplicate. Expressions that are just eval'd are
+    // eventually going to take up a lot of space
+    // in this. Those expressions should have some kind
+    // of weak reference back to the program that we have.
+    //
+    // Every time the sources are pointing in to this and we want
+    // to do some GC, we will just have to walk all of the sources
+    // and collect the spans. It isn't fun, but it could be
+    // a fine way to remove sources.
+    sources: crate::HashMap<SourceId, Arc<Cow<'static, str>>>,
+
+    counter: usize,
+
+    gc_metadata: GcMetadata,
 }
 
 impl InterierSources {
     pub fn new() -> Self {
-        let sources = InterierSources {
-            paths: HashMap::new(),
-            reverse: HashMap::new(),
-            sources: Vec::new(),
-        };
-
-        sources
+        InterierSources {
+            paths: crate::HashMap::new(),
+            reverse: crate::HashMap::new(),
+            sources: crate::HashMap::new(),
+            counter: 0,
+            gc_metadata: GcMetadata {
+                size_in_bytes: 0,
+                // Start with 8 Mb. Which will grow to 64 if there
+                // is sufficient pressure.
+                threshold: 1024 * 1024 * 8,
+            },
+        }
     }
 
     pub fn size_in_bytes(&self) -> usize {
         self.sources
-            .iter()
-            .map(|x| std::mem::size_of_val(&*x))
+            .values()
+            .map(|x| {
+                let x: &str = x;
+                std::mem::size_of_val(x)
+            })
             .sum()
+    }
+
+    fn gensym(&mut self) -> usize {
+        self.counter += 1;
+        self.counter
     }
 
     // TODO: Source Id should probably be a weak pointer back here rather than an ID
@@ -73,15 +114,23 @@ impl InterierSources {
         // We're overwriting the existing source
         if let Some(path) = &path {
             if let Some(id) = self.reverse.get(path) {
-                self.sources[id.0 as usize] = source.into();
+                let expr = source.into();
+                self.gc_metadata.size_in_bytes += expr.len();
+                let old = self.sources.insert(*id, Arc::new(expr));
+                if let Some(old) = old {
+                    self.gc_metadata.size_in_bytes -= old.len();
+                }
                 return *id;
             }
         }
 
-        let index = self.sources.len();
-        self.sources.push(source.into());
-
+        let index = self.gensym();
         let id = SourceId(index as _);
+        let expr = source.into();
+
+        self.gc_metadata.size_in_bytes += expr.len();
+
+        self.sources.insert(id, Arc::new(expr));
 
         if let Some(path) = path {
             self.paths.insert(id, path.clone());
@@ -91,8 +140,8 @@ impl InterierSources {
         id
     }
 
-    pub fn get(&self, source_id: SourceId) -> Option<&Cow<'static, str>> {
-        self.sources.get(source_id.0 as usize)
+    pub fn get(&self, source_id: SourceId) -> Option<&Arc<Cow<'static, str>>> {
+        self.sources.get(&source_id)
     }
 
     pub fn get_path(&self, source_id: &SourceId) -> Option<PathBuf> {
@@ -102,11 +151,58 @@ impl InterierSources {
     pub fn get_id(&self, path: &PathBuf) -> Option<SourceId> {
         self.reverse.get(path).copied()
     }
+
+    pub fn should_gc(&self) -> bool {
+        self.gc_metadata.size_in_bytes > self.gc_metadata.threshold
+    }
+
+    pub fn gc(&mut self, roots: HashSet<SourceId>) {
+        // let start = self.gc_metadata.size_in_bytes;
+        // println!("Size before: {}", start);
+        // println!("Threshold: {}", self.gc_metadata.threshold);
+        self.sources.retain(|key, _| roots.contains(key));
+        self.paths.retain(|key, _| roots.contains(key));
+        self.reverse.retain(|_, value| roots.contains(value));
+
+        let remaining = self.size_in_bytes();
+        log::debug!("Sources GC: Reclaimed bytes: {}", remaining);
+
+        self.gc_metadata.size_in_bytes = remaining;
+
+        if remaining as f64 > (0.75 * self.gc_metadata.threshold as f64) {
+            // println!("Doubling threshold");
+            self.gc_metadata.threshold = remaining * 2;
+        }
+        // println!("Size after: {}", self.gc_metadata.size_in_bytes);
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct SourcesCollector {
+    sources: HashSet<SourceId>,
+}
+
+impl SourcesCollector {
+    pub fn add(&mut self, id: SourceId) {
+        self.sources.insert(id);
+    }
+
+    pub fn into_set(self) -> HashSet<SourceId> {
+        self.sources
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for SourcesCollector {
+    fn visit_atom(&mut self, a: &'a steel_parser::ast::Atom) {
+        if let Some(source) = a.syn.span.source_id() {
+            self.sources.insert(source);
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Sources {
-    pub(crate) sources: Arc<Mutex<InterierSources>>,
+    pub(crate) sources: InterierSources,
 }
 
 impl Default for Sources {
@@ -118,7 +214,7 @@ impl Default for Sources {
 impl Sources {
     pub fn new() -> Self {
         Sources {
-            sources: Arc::new(Mutex::new(InterierSources::new())),
+            sources: InterierSources::new(),
         }
     }
 
@@ -127,19 +223,29 @@ impl Sources {
         source: impl Into<Cow<'static, str>>,
         path: Option<PathBuf>,
     ) -> SourceId {
-        self.sources.lock().unwrap().add_source(source, path)
+        self.sources.add_source(source, path)
     }
 
     pub fn get_source_id(&self, path: &PathBuf) -> Option<SourceId> {
-        self.sources.lock().unwrap().get_id(path)
+        self.sources.get_id(path)
     }
 
     pub fn get_path(&self, source_id: &SourceId) -> Option<PathBuf> {
-        self.sources.lock().unwrap().get_path(source_id)
+        self.sources.get_path(source_id)
     }
 
     pub fn size_in_bytes(&self) -> usize {
-        self.sources.lock().unwrap().size_in_bytes()
+        self.sources.size_in_bytes()
+    }
+
+    pub(crate) fn should_gc(&self) -> bool {
+        self.sources.should_gc()
+    }
+
+    pub(crate) fn gc(&mut self, roots: HashSet<SourceId>) {
+        // let mut guard = self.sources.lock().unwrap();
+        // Drop anything that isn't present
+        self.sources.gc(roots);
     }
 }
 
@@ -151,8 +257,44 @@ fn real_literal_to_steelval(r: RealLiteral) -> Result<SteelVal, SteelErr> {
     match r {
         RealLiteral::Int(IntLiteral::Small(x)) => x.into_steelval(),
         RealLiteral::Int(IntLiteral::Big(x)) => x.into_steelval(),
-        RealLiteral::Rational(n, d) => BigRational::new(n.into(), d.into()).into_steelval(),
+        RealLiteral::Rational(numer, denom) => match (&numer, &denom) {
+            (IntLiteral::Small(n), IntLiteral::Small(d)) => {
+                match (i32::try_from(*n), i32::try_from(*d)) {
+                    (_, Ok(0)) => steelerr!(BadSyntax => "division by zero in {}/0", numer),
+                    (Ok(n), Ok(d)) => Rational32::new(n, d).into_steelval(),
+                    (_, _) => BigRational::new(numer.into(), denom.into()).into_steelval(),
+                }
+            }
+            (_, _) => BigRational::new(numer.into(), denom.into()).into_steelval(),
+        },
         RealLiteral::Float(f) => f.into_steelval(),
+    }
+}
+
+impl IntoSteelVal for NumberLiteral {
+    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+        match self {
+            NumberLiteral::Real(r) => real_literal_to_steelval(r),
+            NumberLiteral::Complex(re, im) => SteelComplex {
+                re: real_literal_to_steelval(re)?,
+                im: real_literal_to_steelval(im)?,
+            }
+            .into_steelval(),
+            NumberLiteral::Polar(r, theta) => {
+                let r = real_literal_to_steelval(r)?;
+                let theta = real_literal_to_steelval(theta)?;
+
+                make_polar(&r, &theta)
+            }
+        }
+    }
+}
+
+impl<'a> IntoSteelVal for &'a NumberLiteral {
+    fn into_steelval(self) -> Result<SteelVal, SteelErr> {
+        // as we do not have an owned `self`, we have to clone here, as
+        // we need all the BigInts owned
+        self.clone().into_steelval()
     }
 }
 
@@ -172,14 +314,7 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
             CharacterLiteral(x) => Ok(CharV(x)),
             BooleanLiteral(x) => Ok(BoolV(x)),
             Identifier(x) => Ok(SymbolV(x.into())),
-            Number(x) => match *x {
-                NumberLiteral::Real(r) => real_literal_to_steelval(r),
-                NumberLiteral::Complex(re, im) => SteelComplex {
-                    re: real_literal_to_steelval(re)?,
-                    im: real_literal_to_steelval(im)?,
-                }
-                .into_steelval(),
-            },
+            Number(x) => x.into_steelval(),
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => Err(SteelErr::new(ErrorKind::UnexpectedToken, "'".to_string())),
@@ -234,14 +369,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
             CharacterLiteral(x) => Ok(CharV(x)),
             BooleanLiteral(x) => Ok(BoolV(x)),
             Identifier(x) => Ok(SymbolV(x.into())),
-            Number(x) => match *x {
-                NumberLiteral::Real(r) => real_literal_to_steelval(r),
-                NumberLiteral::Complex(re, im) => SteelComplex {
-                    re: real_literal_to_steelval(re)?,
-                    im: real_literal_to_steelval(im)?,
-                }
-                .into_steelval(),
-            },
+            Number(x) => x.into_steelval(),
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => {

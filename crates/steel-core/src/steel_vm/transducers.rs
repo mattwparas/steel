@@ -3,10 +3,7 @@ use crate::values::{lists::List, HashSet};
 // use itertools::Itertools;
 
 // use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
-use super::{
-    lazy_stream::LazyStreamIter,
-    vm::{VmContext, VmCore},
-};
+use super::{lazy_stream::LazyStreamIter, vm::VmCore};
 use crate::{
     gc::Gc,
     parser::span::Span,
@@ -130,59 +127,6 @@ macro_rules! generate_drop {
     }
 }
 
-pub(crate) const TRANSDUCE: SteelVal = SteelVal::BuiltIn(transduce);
-
-// figure out if nested transducers works
-fn transduce(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    if args.len() < 2 {
-        builtin_stop!(ArityMismatch => format!("transduce expects at least 2 arguments, found {}", args.len()))
-    }
-
-    let (reducer, args) = args
-        .split_last()
-        .ok_or_else(throw!(ArityMismatch => "transduce expects 3 arguments, found none"))
-        .unwrap();
-
-    let mut arg_iter = args.iter();
-    let collection = arg_iter.next().unwrap();
-
-    // TODO make this way better
-    let transducers: Vec<_> = arg_iter
-        .map(|x| {
-            if let SteelVal::IterV(i) = x {
-                Ok(i)
-            } else {
-                stop!(TypeMismatch => format!("transduce expects a transducer, found: {x}"))
-            }
-        })
-        .collect::<Result<Vec<_>>>()
-        .unwrap();
-
-    let transducers = transducers
-        .into_iter()
-        .flat_map(|x| x.ops.clone())
-        .collect::<Vec<_>>();
-
-    if let SteelVal::ReducerV(r) = &reducer {
-        // TODO get rid of this unwrap
-        // just pass a reference instead
-
-        if ctx.depth > 32 {
-            #[cfg(feature = "stacker")]
-            return stacker::maybe_grow(32 * 1024, 1024 * 1024, || {
-                Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
-            });
-
-            #[cfg(not(feature = "stacker"))]
-            Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
-        } else {
-            Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
-        }
-    } else {
-        builtin_stop!(TypeMismatch => format!("transduce requires that the last argument be a reducer, found: {reducer}"))
-    }
-}
-
 impl<'global, 'a> VmCore<'a> {
     // With transducers, we also need reducers
     // reducers should define _how_ a value is going to be converted away
@@ -212,7 +156,7 @@ impl<'global, 'a> VmCore<'a> {
             }
             SteelVal::MutableVector(v) => {
                 // Copy over the mutable vector into the nursery
-                *nursery = Some(v.get().clone());
+                *nursery = Some(v.get());
 
                 Ok(Box::new(nursery.as_ref().unwrap().iter().cloned().map(Ok)))
             }
@@ -226,7 +170,7 @@ impl<'global, 'a> VmCore<'a> {
         &mut self,
         ops: &[Transducers],
         root: SteelVal,
-        reducer: Reducer,
+        reducer: &Reducer,
         cur_inst_span: &Span,
     ) -> Result<SteelVal> {
         let vm = Rc::new(RefCell::new(self));
@@ -488,7 +432,7 @@ impl<'global, 'a> VmCore<'a> {
 
     fn into_value(
         vm_ctx: Rc<RefCell<&'global mut Self>>,
-        reducer: Reducer,
+        reducer: &Reducer,
         mut iter: impl Iterator<Item = Result<SteelVal>>,
         cur_inst_span: &Span,
     ) -> Result<SteelVal> {
@@ -524,7 +468,7 @@ impl<'global, 'a> VmCore<'a> {
                 Ok(SteelVal::IntV(iter.count().try_into().unwrap())) // TODO have proper big int
             },
             Reducer::Nth(usize) => {
-                iter.nth(usize).unwrap_or_else(|| stop!(Generic => "`nth` - index given is greater than the length of the iterator"))
+                iter.nth(*usize).unwrap_or_else(|| stop!(Generic => "`nth` - index given is greater than the length of the iterator"))
             },
             Reducer::List => iter.collect::<Result<List<_>>>().map(SteelVal::ListV),
             Reducer::Vector => vec_construct_iter(iter),
@@ -558,7 +502,17 @@ impl<'global, 'a> VmCore<'a> {
                 }).collect::<Result<HashMap<_, _>>>().map(|x| SteelVal::HashMapV(Gc::new(x).into()))
             },
             Reducer::HashSet => iter.collect::<Result<HashSet<_>>>().map(|x| SteelVal::HashSetV(Gc::new(x).into())),
-            Reducer::String => todo!(),
+            Reducer::String => {
+                iter.map(|x| x.map(|x| {
+                    // strings and chars need special treatment
+                    // since their Display implementations emit quotes and hash-backslash respectively
+                    match x {
+                        SteelVal::StringV(s) => s.to_string(),
+                        SteelVal::CharV(c) => c.to_string(),
+                        x => x.to_string(),
+                    }
+                })).collect::<Result<String>>().map(|x| SteelVal::StringV(x.into()))
+            },
             Reducer::Last => iter.last().unwrap_or_else(|| stop!(Generic => "`last` found empty list - `last` requires at least one element in the sequence")),
             Reducer::ForEach(f) => {
                 for value in iter {

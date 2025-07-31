@@ -13,7 +13,7 @@ use fxhash::FxHashSet;
 use crate::{
     core::{instructions::DenseInstruction, opcode::OpCode},
     gc::{
-        shared::{MutContainer, ShareableMut},
+        shared::{MutContainer, ShareableMut, StandardShared},
         Gc, Shared, SharedMut,
     },
     parser::{parser::SyntaxObjectId, span::Span},
@@ -106,7 +106,7 @@ pub struct ByteCodeLambda {
     pub(crate) body_exp: RefCell<Shared<[DenseInstruction]>>,
 
     #[cfg(not(feature = "dynamic"))]
-    pub(crate) body_exp: Shared<[DenseInstruction]>,
+    pub(crate) body_exp: StandardShared<[DenseInstruction]>,
 
     pub(crate) arity: u16,
 
@@ -175,7 +175,7 @@ pub struct RootedInstructions {
     #[cfg(feature = "rooted-instructions")]
     inner: *const [DenseInstruction],
     #[cfg(not(feature = "rooted-instructions"))]
-    inner: Shared<[DenseInstruction]>,
+    inner: StandardShared<[DenseInstruction]>,
 }
 
 #[cfg(feature = "rooted-instructions")]
@@ -186,10 +186,10 @@ unsafe impl Send for RootedInstructions {}
 unsafe impl Sync for RootedInstructions {}
 
 impl RootedInstructions {
-    pub fn new(instructions: Shared<[DenseInstruction]>) -> Self {
+    pub fn new(instructions: StandardShared<[DenseInstruction]>) -> Self {
         Self {
             #[cfg(feature = "rooted-instructions")]
-            inner: Shared::as_ptr(&instructions),
+            inner: StandardShared::as_ptr(&instructions),
             #[cfg(not(feature = "rooted-instructions"))]
             inner: instructions,
         }
@@ -219,7 +219,7 @@ impl std::ops::Deref for RootedInstructions {
 impl ByteCodeLambda {
     pub fn new(
         id: u32,
-        body_exp: Shared<[DenseInstruction]>,
+        body_exp: StandardShared<[DenseInstruction]>,
         arity: usize,
         is_multi_arity: bool,
         captures: CaptureVec,
@@ -265,7 +265,7 @@ impl ByteCodeLambda {
         )
     }
 
-    pub fn rooted(instructions: Shared<[DenseInstruction]>) -> ByteCodeLambda {
+    pub fn rooted(instructions: StandardShared<[DenseInstruction]>) -> ByteCodeLambda {
         Self::new(
             SyntaxObjectId::fresh().into(),
             instructions,
@@ -304,21 +304,21 @@ impl ByteCodeLambda {
 
         #[cfg(not(feature = "rooted-instructions"))]
         return RootedInstructions {
-            inner: Shared::clone(&self.body_exp),
+            inner: StandardShared::clone(&self.body_exp),
         };
 
         #[cfg(feature = "rooted-instructions")]
         return RootedInstructions {
-            inner: Shared::as_ptr(&self.body_exp),
+            inner: StandardShared::as_ptr(&self.body_exp),
         };
     }
 
-    pub fn body_mut_exp(&mut self) -> Shared<[DenseInstruction]> {
+    pub fn body_mut_exp(&mut self) -> StandardShared<[DenseInstruction]> {
         #[cfg(feature = "dynamic")]
-        return Shared::clone(self.body_exp.get_mut());
+        return StandardShared::clone(self.body_exp.get_mut());
 
         #[cfg(not(feature = "dynamic"))]
-        Shared::clone(&self.body_exp)
+        StandardShared::clone(&self.body_exp)
     }
 
     // pub fn spans(&self) -> Rc<[Span]> {
@@ -351,6 +351,11 @@ impl ByteCodeLambda {
     #[inline(always)]
     pub fn arity(&self) -> usize {
         self.arity as usize
+    }
+
+    #[inline(always)]
+    pub fn is_multi_arity(self) -> bool {
+        self.is_multi_arity
     }
 
     // pub fn heap_allocated(&self) -> &RefCell<Vec<HeapRef<SteelVal>>> {
@@ -497,8 +502,8 @@ pub enum StaticOrRcStr {
 pub struct BoxedDynFunction {
     pub function:
         Arc<dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static>,
-    pub name: Option<StaticOrRcStr>,
-    pub arity: Option<usize>,
+    pub name: Option<Arc<String>>,
+    pub arity: Option<u32>,
 }
 
 impl BoxedDynFunction {
@@ -511,13 +516,11 @@ impl BoxedDynFunction {
             dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,
         >,
         name: Option<&str>,
-        arity: Option<usize>,
+        arity: Option<u32>,
     ) -> Self {
         BoxedDynFunction {
             function,
-            name: name
-                .map(|x| Arc::new(x.to_string()))
-                .map(StaticOrRcStr::Owned),
+            name: name.map(|x| Arc::new(x.to_string())),
             arity,
         }
     }
@@ -527,11 +530,11 @@ impl BoxedDynFunction {
             dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,
         >,
         name: Option<Arc<String>>,
-        arity: Option<usize>,
+        arity: Option<u32>,
     ) -> Self {
         BoxedDynFunction {
             function,
-            name: name.map(StaticOrRcStr::Owned),
+            name: name,
             arity,
         }
     }
@@ -544,16 +547,12 @@ impl BoxedDynFunction {
     }
 
     #[inline(always)]
-    pub fn get_arity(&self) -> Option<usize> {
+    pub fn get_arity(&self) -> Option<u32> {
         self.arity
     }
 
     #[inline(always)]
     pub fn name(&self) -> Option<&str> {
-        match &self.name {
-            Some(StaticOrRcStr::Owned(o)) => None, // TODO: Come back here @Matt
-            Some(StaticOrRcStr::Static(s)) => Some(s),
-            None => None,
-        }
+        self.name.as_ref().map(|x| x.as_str())
     }
 }

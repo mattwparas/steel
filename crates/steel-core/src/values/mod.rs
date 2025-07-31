@@ -10,6 +10,8 @@ pub(crate) mod recycler;
 pub(crate) mod structs;
 pub(crate) mod transducers;
 
+pub use functions::LambdaMetadataTable;
+
 pub use closed::RootToken;
 pub use closed::RootedSteelVal;
 pub use port::SteelPortRepr;
@@ -31,7 +33,7 @@ mod im_shims {
     pub type HashMapConsumingIter<K, V> = im_rc::hashmap::ConsumingIter<(K, V)>;
 }
 
-#[cfg(feature = "sync")]
+#[cfg(all(feature = "sync", not(feature = "imbl")))]
 mod im_shims {
     use std::hash::RandomState;
 
@@ -42,4 +44,20 @@ mod im_shims {
     pub type VectorConsumingIter<T> = im::vector::ConsumingIter<T>;
     pub type HashSetConsumingIter<T> = im::hashset::ConsumingIter<T>;
     pub type HashMapConsumingIter<K, V> = im::hashmap::ConsumingIter<(K, V)>;
+}
+
+#[cfg(all(feature = "sync", feature = "imbl"))]
+mod im_shims {
+
+    use std::hash::RandomState;
+
+    use imbl::shared_ptr::DefaultSharedPtr;
+
+    pub type Vector<T> = imbl::Vector<T>;
+    pub type HashMap<K, V, S = RandomState> = imbl::GenericHashMap<K, V, S, DefaultSharedPtr>;
+    pub type HashSet<K, S = RandomState> = imbl::GenericHashSet<K, S, DefaultSharedPtr>;
+
+    pub type VectorConsumingIter<T> = imbl::vector::ConsumingIter<T, DefaultSharedPtr>;
+    pub type HashSetConsumingIter<T> = imbl::hashset::ConsumingIter<T, DefaultSharedPtr>;
+    pub type HashMapConsumingIter<K, V> = imbl::hashmap::ConsumingIter<(K, V), DefaultSharedPtr>;
 }
