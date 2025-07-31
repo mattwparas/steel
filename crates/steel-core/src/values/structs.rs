@@ -74,7 +74,7 @@ impl VTableEntry {
 }
 
 // If they're built in, we want to package the values alongside the
-#[derive(Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub enum Properties {
     BuiltIn,
     Local(Gc<HashMap<SteelVal, SteelVal>>),
@@ -812,7 +812,12 @@ pub static STRUCT_DEFINITIONS: Lazy<Arc<std::sync::RwLock<SymbolMap>>> =
 pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {
     let mut map = fxhash::FxHashMap::default();
 
-    #[cfg(feature = "sync")]
+    #[cfg(feature = "imbl")]
+    let result_options = Gc::new(imbl::hashmap! {
+        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+    });
+
+    #[cfg(not(feature = "imbl"))]
     let result_options = Gc::new(im::hashmap! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
@@ -863,8 +868,13 @@ thread_local! {
 
         let mut map = fxhash::FxHashMap::default();
 
-        #[cfg(feature = "sync")]
+        #[cfg(all(feature = "sync", not(feature = "imbl")))]
         let result_options = Gc::new(im::hashmap! {
+            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+        });
+
+        #[cfg(all(feature = "sync", feature = "imbl"))]
+        let result_options = Gc::new(imbl::hashmap! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
         });
 
@@ -888,8 +898,14 @@ thread_local! {
 
     pub static DEFAULT_PROPERTIES: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(HashMap::new());
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im::hashmap! {
+            SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+    });
+
+
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(imbl::hashmap! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
 
@@ -923,11 +939,15 @@ thread_local! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im::hashmap! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
 
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(imbl::hashmap! {
+        SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
+    });
 
     pub static SOME_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
         Rc::new(Box::new(UserDefinedStruct::constructor_thunk(

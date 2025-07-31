@@ -1163,6 +1163,18 @@ impl From<Gc<Vector<SteelVal>>> for SteelVector {
 #[derive(Clone, PartialEq)]
 pub struct SteelHashMap(pub(crate) Gc<HashMap<SteelVal, SteelVal>>);
 
+#[cfg(feature = "imbl")]
+impl Hash for SteelHashMap {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        for i in self.iter() {
+            i.hash(state);
+        }
+    }
+}
+
 impl Deref for SteelHashMap {
     type Target = HashMap<SteelVal, SteelVal>;
 
@@ -1179,6 +1191,18 @@ impl From<Gc<HashMap<SteelVal, SteelVal>>> for SteelHashMap {
 
 #[derive(Clone, PartialEq)]
 pub struct SteelHashSet(pub(crate) Gc<HashSet<SteelVal>>);
+
+#[cfg(feature = "imbl")]
+impl Hash for SteelHashSet {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        for i in self.iter() {
+            i.hash(state);
+        }
+    }
+}
 
 impl Deref for SteelHashSet {
     type Target = HashSet<SteelVal>;
@@ -2460,8 +2484,11 @@ mod or_else_tests {
 
     use super::*;
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     use im::vector;
+
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    use imbl::vector;
 
     #[cfg(not(feature = "sync"))]
     use im_rc::vector;

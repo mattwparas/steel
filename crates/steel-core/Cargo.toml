@@ -101,6 +101,8 @@ xdg = "3.0.0"
 
 shared_vector = "0.4.4"
 
+imbl = { version = "6", optional = true, features = ["triomphe", "serde"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.3.1", features = ["wasm_js"] }
 
@@ -145,6 +147,7 @@ inline-captures = []
 experimental = []
 triomphe = ["dep:triomphe"]
 op-code-profiling = []
+imbl = ["dep:imbl"]
 
 [[bench]]
 name = "my_benchmark"

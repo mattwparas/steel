@@ -441,11 +441,17 @@ mod hashmap_tests {
     #[cfg(not(feature = "sync"))]
     use im_rc::vector;
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     use im::hashmap;
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     use im::vector;
+
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    use imbl::hashmap;
+
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    use imbl::vector;
 
     use crate::rvals::{SteelString, SteelVal::*};
 
