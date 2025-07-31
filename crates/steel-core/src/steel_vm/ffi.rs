@@ -17,11 +17,7 @@ use crate::{
         as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal,
         MaybeSendSyncStatic, Result, SteelByteVector, SteelHashMap, SteelVal,
     },
-    values::{
-        functions::{BoxedDynFunction, StaticOrRcStr},
-        port::SteelPort,
-        SteelPortRepr,
-    },
+    values::{functions::BoxedDynFunction, port::SteelPort, SteelPortRepr},
     SteelErr,
 };
 
@@ -1865,8 +1861,8 @@ impl FFIBoxedDynFunction {
         };
 
         BoxedDynFunction {
-            name: Some(StaticOrRcStr::Owned(Arc::new(name))),
-            arity: Some(self.arity),
+            name: Some(Arc::new(name)),
+            arity: Some(self.arity as _),
             function: Arc::new(function),
         }
     }
@@ -1904,8 +1900,8 @@ impl From<FFIBoxedDynFunction> for BoxedDynFunction {
         };
 
         BoxedDynFunction {
-            name: Some(StaticOrRcStr::Owned(Arc::new(name))),
-            arity: Some(arity),
+            name: Some(Arc::new(name)),
+            arity: Some(arity as _),
             function: Arc::new(function),
         }
     }
@@ -1953,8 +1949,8 @@ impl BoxedDynFunction {
         };
 
         let func = BoxedDynFunction {
-            name: Some(StaticOrRcStr::Owned(Arc::new(name))),
-            arity: Some(arity),
+            name: Some(Arc::new(name)),
+            arity: Some(arity as _),
             function: Arc::new(function),
         };
 

@@ -502,8 +502,8 @@ pub enum StaticOrRcStr {
 pub struct BoxedDynFunction {
     pub function:
         Arc<dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static>,
-    pub name: Option<StaticOrRcStr>,
-    pub arity: Option<usize>,
+    pub name: Option<Arc<String>>,
+    pub arity: Option<u32>,
 }
 
 impl BoxedDynFunction {
@@ -516,13 +516,11 @@ impl BoxedDynFunction {
             dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,
         >,
         name: Option<&str>,
-        arity: Option<usize>,
+        arity: Option<u32>,
     ) -> Self {
         BoxedDynFunction {
             function,
-            name: name
-                .map(|x| Arc::new(x.to_string()))
-                .map(StaticOrRcStr::Owned),
+            name: name.map(|x| Arc::new(x.to_string())),
             arity,
         }
     }
@@ -532,11 +530,11 @@ impl BoxedDynFunction {
             dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,
         >,
         name: Option<Arc<String>>,
-        arity: Option<usize>,
+        arity: Option<u32>,
     ) -> Self {
         BoxedDynFunction {
             function,
-            name: name.map(StaticOrRcStr::Owned),
+            name: name,
             arity,
         }
     }
@@ -549,16 +547,12 @@ impl BoxedDynFunction {
     }
 
     #[inline(always)]
-    pub fn get_arity(&self) -> Option<usize> {
+    pub fn get_arity(&self) -> Option<u32> {
         self.arity
     }
 
     #[inline(always)]
     pub fn name(&self) -> Option<&str> {
-        match &self.name {
-            Some(StaticOrRcStr::Owned(o)) => None, // TODO: Come back here @Matt
-            Some(StaticOrRcStr::Static(s)) => Some(s),
-            None => None,
-        }
+        self.name.as_ref().map(|x| x.as_str())
     }
 }
