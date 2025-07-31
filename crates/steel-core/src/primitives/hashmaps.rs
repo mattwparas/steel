@@ -72,7 +72,7 @@ pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
                 if key.is_hashable() {
                     hm.insert(key, value);
                 } else {
-                    stop!(TypeMismatch => "hash key not hashable!");
+                    stop!(TypeMismatch => "hash key not hashable!: {}", key);
                 }
             }
             (None, None) => break,
@@ -96,7 +96,7 @@ pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
                 if key.is_hashable() {
                     hm.insert(key, value);
                 } else {
-                    stop!(TypeMismatch => "hash key not hashable!");
+                    stop!(TypeMismatch => "hash key not hashable!: {}", key);
                 }
             }
             (None, None) => break,
@@ -263,7 +263,7 @@ pub fn hash_contains(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> R
     if key.is_hashable() {
         Ok(SteelVal::BoolV(map.contains_key(key)))
     } else {
-        stop!(TypeMismatch => "hash key not hashable!");
+        stop!(TypeMismatch => "hash key not hashable!: {}", key);
     }
 }
 

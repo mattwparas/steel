@@ -1179,7 +1179,10 @@ fn ord_module() -> BuiltInModule {
 
     fn ensure_real(x: &SteelVal) -> Result<&SteelVal> {
         realp(x).then_some(x).ok_or_else(|| {
-            SteelErr::new(ErrorKind::TypeMismatch, "expected real numbers".to_owned())
+            SteelErr::new(
+                ErrorKind::TypeMismatch,
+                format!("expected real numbers, found: {}", x),
+            )
         })
     }
 

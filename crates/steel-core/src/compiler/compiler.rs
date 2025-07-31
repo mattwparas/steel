@@ -5,7 +5,8 @@ use crate::{
         modules::{MANGLER_PREFIX, MANGLER_SEPARATOR},
         passes::{
             analysis::SemanticAnalysis, begin::flatten_begins_and_expand_defines,
-            shadow::RenameShadowedVariables, VisitorMutRefUnit, VisitorMutUnitRef,
+            opt::SingleExprOptimizer, shadow::RenameShadowedVariables, VisitorMutRefUnit,
+            VisitorMutUnitRef,
         },
     },
     core::{instructions::u24, labels::Expr},
@@ -1263,6 +1264,8 @@ impl Compiler {
         // We don't want to leave this allocate memory just hanging around, but leave enough for
         // interactive usages
         self.analysis.shrink_capacity();
+
+        SingleExprOptimizer::run(&mut expanded_statements);
 
         if std::env::var("STEEL_DEBUG_AST").is_ok() {
             steel_parser::ast::AstTools::pretty_print(&expanded_statements);
