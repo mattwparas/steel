@@ -1163,6 +1163,7 @@ impl From<Gc<Vector<SteelVal>>> for SteelVector {
 #[derive(Clone, PartialEq)]
 pub struct SteelHashMap(pub(crate) Gc<HashMap<SteelVal, SteelVal>>);
 
+#[cfg(feature = "imbl")]
 impl Hash for SteelHashMap {
     fn hash<H>(&self, state: &mut H)
     where
@@ -1191,6 +1192,7 @@ impl From<Gc<HashMap<SteelVal, SteelVal>>> for SteelHashMap {
 #[derive(Clone, PartialEq)]
 pub struct SteelHashSet(pub(crate) Gc<HashSet<SteelVal>>);
 
+#[cfg(feature = "imbl")]
 impl Hash for SteelHashSet {
     fn hash<H>(&self, state: &mut H)
     where
