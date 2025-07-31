@@ -342,7 +342,7 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                     .extract_value(l.first_ident().unwrap().resolve())
                                     .ok()?
                                 {
-                                    b.arity.map(Arity::Exact)
+                                    b.arity.map(|x| Arity::Exact(x as _))
                                 } else {
                                     None
                                 }
