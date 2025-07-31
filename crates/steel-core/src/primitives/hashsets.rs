@@ -235,8 +235,11 @@ mod hashset_tests {
     #[cfg(not(feature = "sync"))]
     use im_rc::vector;
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     use im::vector;
+
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    use imbl::vector;
 
     #[test]
     fn hs_construct_normal() {
