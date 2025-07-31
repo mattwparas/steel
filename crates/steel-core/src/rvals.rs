@@ -2459,9 +2459,17 @@ impl PartialOrd for SteelVal {
     }
 }
 
+pub(crate) struct SteelValDisplay<'a>(pub(crate) &'a SteelVal);
+
+impl<'a> fmt::Display for SteelValDisplay<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        CycleDetector::detect_and_display_cycles(&self.0, f, false)
+    }
+}
+
 impl fmt::Display for SteelVal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        CycleDetector::detect_and_display_cycles(self, f)
+        CycleDetector::detect_and_display_cycles(self, f, true)
     }
 }
 
@@ -2475,7 +2483,7 @@ impl fmt::Debug for SteelVal {
         };
         // display_helper(self, f)
 
-        CycleDetector::detect_and_display_cycles(self, f)
+        CycleDetector::detect_and_display_cycles(self, f, true)
     }
 }
 

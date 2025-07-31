@@ -16,6 +16,8 @@ pub(super) struct CycleDetector {
     values: Vec<SteelVal>,
 
     depth: usize,
+
+    external: bool,
 }
 
 /// Specifies how to format for the `format_with_cycles` function.
@@ -26,7 +28,11 @@ enum FormatType {
 }
 
 impl CycleDetector {
-    pub(super) fn detect_and_display_cycles(val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
+    pub(super) fn detect_and_display_cycles(
+        val: &SteelVal,
+        f: &mut fmt::Formatter,
+        external: bool,
+    ) -> fmt::Result {
         // Consider using one shared queue here
         let mut queue = Vec::new();
 
@@ -46,6 +52,7 @@ impl CycleDetector {
             cycles: bfs_detector.cycles,
             values: bfs_detector.values,
             depth: 0,
+            external,
         }
         .start_format(val, f)
     }
@@ -143,7 +150,8 @@ impl CycleDetector {
             Rational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
             BigRational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),
             Complex(x) => write!(f, "{}", x.as_ref()),
-            StringV(s) => write!(f, "{s:?}"),
+            StringV(s) if self.external => write!(f, "{s:?}"),
+            StringV(s) => write!(f, "{s}"),
             ByteVector(b) => {
                 write!(f, "#u8(")?;
 
@@ -160,7 +168,7 @@ impl CycleDetector {
 
                 write!(f, ")")
             }
-            CharV(c) => match c {
+            CharV(c) if self.external => match c {
                 ' ' => write!(f, "#\\space"),
                 '\0' => write!(f, "#\\null"),
                 '\t' => write!(f, "#\\tab"),
@@ -177,6 +185,7 @@ impl CycleDetector {
                     }
                 }
             },
+            CharV(c) => write!(f, "{c}"),
             Pair(p) => {
                 if let Some(value) = self.cycles.get(&(p.as_ptr() as usize, 0)) {
                     write!(f, "#{}#", value)
