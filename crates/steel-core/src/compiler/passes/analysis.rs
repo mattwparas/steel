@@ -4079,7 +4079,6 @@ impl<'a> SemanticAnalysis<'a> {
 
                     if let Some(analysis) = self.analysis.get(name) {
                         if analysis.set_bang {
-                            // println!("Skipping because its mutated: {}", d.name);
                             continue;
                         }
                     }
@@ -4093,14 +4092,7 @@ impl<'a> SemanticAnalysis<'a> {
                                 funcs.insert(
                                     *d.name.atom_identifier().unwrap(),
                                     Box::new(move |_: &Analysis, lst: &mut List| {
-                                        // println!(
-                                        //     "{} - {}",
-                                        //     lst.syntax_object_id, l.syntax_object_id
-                                        // );
-                                        // println!("Trying to inline: {} @ {}", l, lst);
                                         if lst.syntax_object_id > original_id {
-                                            // println!("Inlining: {} @ {}", l, lst);
-                                            // TODO: Handle arity mismatches if they happen!
                                             lst.args[0] = ExprKind::LambdaFunction(l.clone());
                                         }
                                     }),
@@ -4121,7 +4113,6 @@ impl<'a> SemanticAnalysis<'a> {
 
                             if let Some(analysis) = self.analysis.get(name) {
                                 if analysis.set_bang {
-                                    // println!("Skipping because its mutated: {}", d.name);
                                     continue;
                                 }
                             }
@@ -4136,12 +4127,6 @@ impl<'a> SemanticAnalysis<'a> {
                                         funcs.insert(
                                             *d.name.atom_identifier().unwrap(),
                                             Box::new(move |_: &Analysis, lst: &mut List| {
-                                                // println!(
-                                                //     "{} - {}",
-                                                //     lst.syntax_object_id, l.syntax_object_id
-                                                // );
-                                                // println!("Trying to inline: {} @ {}", l, lst);
-
                                                 if lst.syntax_object_id > original_id {
                                                     // println!("Inlining: {} @ {}", l, lst);
                                                     lst.args[0] =
