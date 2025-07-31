@@ -848,10 +848,12 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // FUNC 2
         // LETENDSCOPE 0 <- index of the stack when we entered this let expr
 
+        // if !l.bindings.is_empty() {
         self.push(
             LabeledInstruction::builder(OpCode::BEGINSCOPE)
                 .payload(*self.local_count.last().unwrap_or(&0)),
         );
+        // }
 
         let info = self
             .analysis

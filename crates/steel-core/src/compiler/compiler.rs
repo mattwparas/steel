@@ -1232,9 +1232,28 @@ impl Compiler {
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
-        // semantic.populate_captures();
+
+        // Do this, and then inline everything. Do it again
+        // TODO: Configure the amount that we inline?
+        semantic.inline_function_calls(None)?;
+        semantic.refresh_variables();
+
+        let mut analysis = semantic.into_analysis();
+        self.shadowed_variable_renamer
+            .rename_shadowed_variables(&mut expanded_statements, false);
+
+        analysis.fresh_from_exprs(&expanded_statements);
+        analysis.populate_captures(&expanded_statements);
+        // analysis.populate_captures(&expanded_statements);
+        // Do this again
+        let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
         semantic.replace_anonymous_function_calls_with_plain_lets();
+
+        semantic.refresh_variables();
+
+        // Flatten the empty lets
+        // semantic.flatten_empty_lets();
 
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());

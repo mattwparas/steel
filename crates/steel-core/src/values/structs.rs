@@ -347,7 +347,7 @@ impl UserDefinedStruct {
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
             Some(descriptor.name().resolve().to_string().into()),
-            Some(len),
+            Some(len as _),
         )))
     }
 
@@ -377,7 +377,7 @@ impl UserDefinedStruct {
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
             Some(name.resolve().to_string().into()),
-            Some(len),
+            Some(len as _),
         )))
     }
 
@@ -455,7 +455,7 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => "struct-ref expected one argument");
             }
 
-            let steel_struct = &args[0].clone();
+            let steel_struct = &args[0];
 
             match &steel_struct {
                 SteelVal::CustomStruct(s) => {
