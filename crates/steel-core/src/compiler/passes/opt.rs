@@ -12,6 +12,7 @@ pub struct SingleExprOptimizer;
 
 impl SingleExprOptimizer {
     pub fn run(exprs: &mut Vec<ExprKind>) {
+        // Might be able to parallelize this? If it takes long enough?
         for expr in exprs {
             FlipNotCondition.visit(expr);
             PruneConstantIfBranches.visit(expr);
