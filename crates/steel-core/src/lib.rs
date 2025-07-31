@@ -27,6 +27,7 @@ pub use self::{rerrs::SteelErr, rvals::SteelVal, stdlib::PRELUDE};
 pub use crate::values::{HashMap, HashSet, Vector};
 pub use im_lists::list::List;
 pub use primitives::UnRecoverableResult;
+pub use steel_derive::steel_quote;
 pub use values::LambdaMetadataTable;
 pub use values::RootToken;
 pub use values::RootedSteelVal;
