@@ -480,6 +480,28 @@ fn r7rs_test_suite() {
 }
 
 #[test]
+fn r7rs_benchmark_test_suite_two() {
+    let benches = &[
+        "r7rs-benchmarks/bv2string.scm",
+        "r7rs-benchmarks/mbrotz.scm",
+        "r7rs-benchmarks/sumfp.scm",
+        "r7rs-benchmarks/chudnovsky.scm",
+        "r7rs-benchmarks/nucleic.scm",
+        "r7rs-benchmarks/paraffins.scm",
+    ];
+
+    for bench in benches {
+        let args = SteelCliArgs {
+            action: None,
+            default_file: Some(PathBuf::from(bench)),
+            arguments: vec![],
+        };
+
+        run(args).unwrap();
+    }
+}
+
+#[test]
 fn r7rs_benchmark_test_suite() {
     let benches = &[
         "r7rs-benchmarks/scheme.scm",
@@ -488,10 +510,6 @@ fn r7rs_benchmark_test_suite() {
         "r7rs-benchmarks/triangl.scm",
         "r7rs-benchmarks/nboyer.scm",
         "r7rs-benchmarks/fft.scm",
-        "r7rs-benchmarks/bv2string.scm",
-        "r7rs-benchmarks/mbrotz.scm",
-        "r7rs-benchmarks/sumfp.scm",
-        "r7rs-benchmarks/chudnovsky.scm",
     ];
 
     for bench in benches {

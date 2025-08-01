@@ -17,11 +17,15 @@
                           [lst (loop1 (cdr ps) lst)])
                 (if (null? rads1)
                     lst
-                    (let loop3 ([rads2 (if (= nc1 nc2) rads1 (vector-ref radicals nc2))]
+                    (let loop3 ([rads2 (if (= nc1 nc2)
+                                           rads1
+                                           (vector-ref radicals nc2))]
                                 [lst (loop2 (cdr rads1) lst)])
                       (if (null? rads2)
                           lst
-                          (let loop4 ([rads3 (if (= nc2 nc3) rads2 (vector-ref radicals nc3))]
+                          (let loop4 ([rads3 (if (= nc2 nc3)
+                                                 rads2
+                                                 (vector-ref radicals nc3))]
                                       [lst (loop3 (cdr rads2) lst)])
                             (if (null? rads3)
                                 lst
@@ -55,15 +59,21 @@
                           [lst (loop1 (cdr ps) lst)])
                 (if (null? rads1)
                     lst
-                    (let loop3 ([rads2 (if (= nc1 nc2) rads1 (vector-ref radicals nc2))]
+                    (let loop3 ([rads2 (if (= nc1 nc2)
+                                           rads1
+                                           (vector-ref radicals nc2))]
                                 [lst (loop2 (cdr rads1) lst)])
                       (if (null? rads2)
                           lst
-                          (let loop4 ([rads3 (if (= nc2 nc3) rads2 (vector-ref radicals nc3))]
+                          (let loop4 ([rads3 (if (= nc2 nc3)
+                                                 rads2
+                                                 (vector-ref radicals nc3))]
                                       [lst (loop3 (cdr rads2) lst)])
                             (if (null? rads3)
                                 lst
-                                (let loop5 ([rads4 (if (= nc3 nc4) rads3 (vector-ref radicals nc4))]
+                                (let loop5 ([rads4 (if (= nc3 nc4)
+                                                       rads3
+                                                       (vector-ref radicals nc4))]
                                             [lst (loop4 (cdr rads3) lst)])
                                   (if (null? rads4)
                                       lst
@@ -109,10 +119,24 @@
 (define (nb n)
   (let ([x (gen n)]) (+ (length (vector-ref x 0)) (length (vector-ref x 1)))))
 
+; (define (run-benchmark)
+;   (let* ([count (read)]
+;          [input1 (read)]
+;          [output (read)]
+;          [s2 (number->string count)]
+;          [s1 (number->string input1)]
+;          [name "paraffins"])
+;     (run-r7rs-benchmark (string-append name ":" s1 ":" s2)
+;                         count
+;                         (lambda () (nb (hide count input1)))
+;                         (lambda (result) (= result output)))))
+
+; (with-input-from-file "r7rs-benchmarks/inputs/paraffins.input" run-benchmark)
+
 (define (run-benchmark)
-  (let* ([count (read)]
-         [input1 (read)]
-         [output (read)]
+  (let* ([count 1]
+         [input1 23]
+         [output 5731580]
          [s2 (number->string count)]
          [s1 (number->string input1)]
          [name "paraffins"])
@@ -121,4 +145,4 @@
                         (lambda () (nb (hide count input1)))
                         (lambda (result) (= result output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/paraffins.input" run-benchmark)
+(run-benchmark)
