@@ -97,7 +97,7 @@
                      '((define-syntax no-spread
                          (syntax-rules ()
                            [(_ a ...) a])))
-                     "syntax-rules requires only one pattern to one body")
+                     "A pattern variable capturing multiple datums must appear spread in the template")
 
 (check-syntax-error? "bad spread"
                      '((define-syntax bad-spread
@@ -157,14 +157,6 @@
     [(_) bound-x]))
 
 (let ([bound-x 'inner]) (check-equal? "hygiene, lexical capture" (lexical-capture) 3))
-
-(define-syntax improper-rest
-  (syntax-rules ()
-    [(_ (a . b)) 'b]))
-
-(check-equal? "improper-rest, 0 args" (improper-rest (1)) '())
-(check-equal? "improper-rest, 1 arg" (improper-rest (1 2)) '(2))
-(check-equal? "improper-rest, 2 args" (improper-rest (1 a (b))) '(a (b)))
 
 (check-equal? "improper lists in syntax"
               ;; equivalent to (let [(x 1)] x)
@@ -260,13 +252,15 @@
   (syntax-rules ()
     [(_ ((a) ... . b) ...) (quote (b ...))]))
 
-(check-equal? "improper list pattern, nested, collapses to non-list"
+(check-equal? "improper list pattern, multiple, collapses to non-list"
               (non-list-as-list-multiple "hello" "world")
               '("hello" "world"))
 
 (define-syntax many-literals
   (syntax-rules ()
     [(_ #t ...) 1]))
+
+(check-equal? "ellipsis after literal" (many-literals #t #t #t) 1)
 
 (define-syntax t
   (syntax-rules ()
