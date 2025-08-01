@@ -432,7 +432,7 @@ impl UserDefinedStruct {
                 }
                 _ => {
                     let error_message = format!(
-                        "{} expected a struct and an int, found: {} and {}",
+                        "{} accessor expected a struct and an int, found: {} and {}",
                         descriptor.name(),
                         steel_struct,
                         idx
