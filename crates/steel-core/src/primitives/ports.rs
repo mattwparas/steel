@@ -3,7 +3,9 @@ use std::fs::OpenOptions;
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
 use crate::primitives::lists::plist_get_impl;
-use crate::rvals::{FromSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
+use crate::rvals::{
+    FromSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal, SteelValDisplay,
+};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::values::port::{would_block, SteelPort, SteelPortRepr, WOULD_BLOCK_OBJECT};
 use crate::values::structs::{make_struct_singleton, StructTypeDescriptor};
@@ -25,6 +27,7 @@ pub static EOF_OBJECT: once_cell::sync::Lazy<(SteelVal, StructTypeDescriptor)> =
 pub fn port_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ports");
     module
+        .register_native_fn_definition(DISPLAY_DEFINITION)
         .register_native_fn_definition(OPEN_STDIN_DEFINITION)
         .register_native_fn_definition(OPEN_STDOUT_DEFINITION)
         .register_native_fn_definition(OPEN_INPUT_FILE_DEFINITION)
@@ -66,6 +69,7 @@ pub fn port_module() -> BuiltInModule {
 pub fn port_module_without_filesystem() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ports");
     module
+        .register_native_fn_definition(DISPLAY_DEFINITION)
         .register_native_fn_definition(OPEN_STDIN_DEFINITION)
         .register_native_fn_definition(OPEN_STDOUT_DEFINITION)
         .register_native_fn_definition(OPEN_INPUT_FILE_SANDBOXED_DEFINITION)
@@ -376,6 +380,19 @@ pub fn write_line(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
 pub fn write(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = output_args(rest)?;
     let line = line.to_string();
+    let res = port.write(line.as_str().as_bytes());
+
+    if res.is_ok() {
+        Ok(SteelVal::Void)
+    } else {
+        stop!(Generic => "unable to write string to port");
+    }
+}
+
+#[function(name = "#%raw-display")]
+pub fn display(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = output_args(rest)?;
+    let line = SteelValDisplay(line).to_string();
     let res = port.write(line.as_str().as_bytes());
 
     if res.is_ok() {

@@ -96,7 +96,7 @@
 (define current-error-port (make-parameter (#%default-error-port)))
 
 (define (simple-display x)
-  (#%raw-write-string x (current-output-port)))
+  (#%raw-display x (current-output-port)))
 
 (define write-string #%raw-write-string)
 
