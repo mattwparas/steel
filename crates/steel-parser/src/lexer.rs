@@ -849,7 +849,6 @@ fn parse_real(s: &str, radix: u32) -> Option<RealLiteral> {
     }
 }
 
-// the error boolean means division by zero
 fn try_parse_number(s: &str, radix: Option<u32>) -> Result<Option<NumberLiteral>> {
     let Some(n) = parse_number(s, radix) else {
         return Ok(None);
