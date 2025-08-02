@@ -3399,8 +3399,9 @@ impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
     fn visit_atom(&mut self, a: &'a Atom) {
         // println!("collect references: {}", a);
         if let TokenType::Identifier(ident) = a.syn.ty {
+            // TODO: Figure out a better way to do this. Perhaps have 2 different interned
+            // string namespaces? That way we don't have to mangle the strings?
             if ident.resolve().starts_with(MANGLER_PREFIX) {
-                // println!("Adding: {}", ident.resolve());
                 self.idents.insert(ident);
             }
         }

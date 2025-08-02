@@ -1838,6 +1838,8 @@ impl SteelVal {
     }
 }
 
+// How can we keep track of the provenance of where the pointers go?
+// for pointer equality?
 #[inline]
 fn slow_path_eq_lists(
     _l: &crate::values::lists::List<SteelVal>,
