@@ -260,13 +260,13 @@
   (syntax-rules ()
     [(_ ((a) ... . b) ...) (quote (b ...))]))
 
-(skip-compile (check-equal? "improper list pattern, nested, collapses to non-list"
-                            (non-list-as-list-multiple "hello" "world")
-                            '("hello" "world")))
+(check-equal? "improper list pattern, nested, collapses to non-list"
+              (non-list-as-list-multiple "hello" "world")
+              '("hello" "world"))
 
-(skip-compile (define-syntax many-literals
-                (syntax-rules ()
-                  [(_ #t ...) 1])))
+(define-syntax many-literals
+  (syntax-rules ()
+    [(_ #t ...) 1]))
 
 (define-syntax t
   (syntax-rules ()
