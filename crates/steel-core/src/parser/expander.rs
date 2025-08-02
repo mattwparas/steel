@@ -1,4 +1,4 @@
-use crate::compiler::program::{BEGIN, DEFINE, DOT, ELLIPSES_SYMBOL, IF, LAMBDA};
+use crate::compiler::program::{BEGIN, DEFINE, ELLIPSES_SYMBOL, IF, LAMBDA};
 use crate::parser::ast::{Atom, ExprKind, List, Macro, PatternPair, Vector};
 use crate::parser::parser::SyntaxObject;
 use crate::parser::rename_idents::RenameIdentifiersVisitor;
@@ -364,22 +364,7 @@ impl MacroCase {
 
         let mut bindings = FxHashSet::default();
 
-        let ((mut args, macro_keyword), improper) = if let ExprKind::List(mut l) = pattern {
-            // Can we make this an improper list?
-            // {
-            //     if l.len() > 2 {
-            //         let maybe_dot = l.get(l.len() - 2);
-            //         dbg!(maybe_dot);
-            //         if let Some(maybe_dot) = maybe_dot.and_then(|x| x.atom_syntax_object()) {
-            //             match maybe_dot.ty {
-            //                 TokenType::Dot => l.improper = true,
-            //                 TokenType::Identifier(i) if i == *DOT => l.improper = true,
-            //                 _ => {}
-            //             }
-            //         }
-            //     }
-            // }
-
+        let ((mut args, macro_keyword), improper) = if let ExprKind::List(l) = pattern {
             let improper = l.improper;
 
             (
@@ -820,9 +805,27 @@ impl MacroPattern {
                                 pattern_vec.push(MacroPattern::ManyNested(inner, vec));
                             }
 
-                            Some(MacroPattern::BooleanLiteral(b)) => {
+                            Some(MacroPattern::BytesLiteral(b)) => {
                                 pattern_vec.push(MacroPattern::ManyConstant(
-                                    PatternConstant::BooleanLiteral(b),
+                                    PatternConstant::BytesLiteral(b),
+                                ));
+                            }
+
+                            Some(MacroPattern::FloatLiteral(b)) => {
+                                pattern_vec.push(MacroPattern::ManyConstant(
+                                    PatternConstant::FloatLiteral(b),
+                                ));
+                            }
+
+                            Some(MacroPattern::StringLiteral(b)) => {
+                                pattern_vec.push(MacroPattern::ManyConstant(
+                                    PatternConstant::StringLiteral(b),
+                                ));
+                            }
+
+                            Some(MacroPattern::IntLiteral(b)) => {
+                                pattern_vec.push(MacroPattern::ManyConstant(
+                                    PatternConstant::IntLiteral(b),
                                 ));
                             }
 
@@ -947,8 +950,60 @@ fn match_list_pattern(patterns: &[MacroPattern], list: &[ExprKind], improper: bo
                         ) => {
                             if l == r {
                                 continue;
+                            } else {
+                                return false;
                             }
                         }
+
+                        (
+                            ExprKind::Atom(Atom {
+                                syn:
+                                    SyntaxObject {
+                                        ty: TokenType::StringLiteral(l),
+                                        ..
+                                    },
+                            }),
+                            PatternConstant::StringLiteral(r),
+                        ) => {
+                            if l == r {
+                                continue;
+                            } else {
+                                return false;
+                            }
+                        }
+
+                        (
+                            ExprKind::Atom(Atom {
+                                syn:
+                                    SyntaxObject {
+                                        ty: TokenType::Number(n),
+                                        ..
+                                    },
+                            }),
+                            PatternConstant::IntLiteral(_) | PatternConstant::FloatLiteral(_),
+                        ) => match &**n {
+                            // TODO: Support big nums in the patterns too!
+                            NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(i))) => {
+                                if let PatternConstant::IntLiteral(o) = p {
+                                    if i == o {
+                                        continue;
+                                    } else {
+                                        return false;
+                                    }
+                                }
+                            }
+                            NumberLiteral::Real(RealLiteral::Float(i)) => {
+                                if let PatternConstant::FloatLiteral(o) = p {
+                                    if i == o {
+                                        continue;
+                                    } else {
+                                        return false;
+                                    }
+                                }
+                            }
+                            _ => return false,
+                        },
+
                         _ => return false,
                     }
                 }
@@ -1227,6 +1282,46 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
                 }),
                 PatternConstant::BooleanLiteral(r),
             ) => l == r,
+
+            (
+                ExprKind::Atom(Atom {
+                    syn:
+                        SyntaxObject {
+                            ty: TokenType::StringLiteral(l),
+                            ..
+                        },
+                }),
+                PatternConstant::StringLiteral(r),
+            ) => l == r,
+
+            (
+                ExprKind::Atom(Atom {
+                    syn:
+                        SyntaxObject {
+                            ty: TokenType::Number(n),
+                            ..
+                        },
+                }),
+                PatternConstant::IntLiteral(_) | PatternConstant::FloatLiteral(_),
+            ) => match &**n {
+                // TODO: Support big nums in the patterns too!
+                NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(i))) => {
+                    if let PatternConstant::IntLiteral(o) = pattern_constant {
+                        i == o
+                    } else {
+                        false
+                    }
+                }
+                NumberLiteral::Real(RealLiteral::Float(i)) => {
+                    if let PatternConstant::FloatLiteral(o) = pattern_constant {
+                        i == o
+                    } else {
+                        false
+                    }
+                }
+                _ => return false,
+            },
+
             _ => {
                 panic!("{:?}, {}", pattern_constant, expr);
             }
