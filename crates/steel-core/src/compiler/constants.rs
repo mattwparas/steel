@@ -1,4 +1,8 @@
-use crate::gc::shared::{MutContainer, ShareableMut};
+use crate::gc::shared::MutContainer;
+
+#[cfg(not(feature = "triomphe"))]
+use crate::gc::shared::ShareableMut;
+
 use crate::gc::{Shared, SharedMut};
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 use crate::rvals::{into_serializable_value, Result, SerializableSteelVal, SteelVal};
