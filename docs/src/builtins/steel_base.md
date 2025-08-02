@@ -3084,6 +3084,7 @@ Create a zipping iterator
 ### **function-name**
 ### **function?**
 ### **future?**
+### **futures-join-all**
 ### **get-contract-struct**
 ### **get-test-mode**
 ### **glob**

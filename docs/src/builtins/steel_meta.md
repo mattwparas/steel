@@ -37,6 +37,7 @@ Returns the message of an error object.
 ### **feature-dylib-build?**
 ### **function-arity**
 ### **function-name**
+### **futures-join-all**
 ### **get-contract-struct**
 ### **get-test-mode**
 ### **inspect**
