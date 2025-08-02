@@ -1,12 +1,21 @@
 (require "steel/colors/colors.scm")
 
+; (provide test
+;          (for-syntax check-equal?)
+;          (for-syntax check-err?)
+;          (for-syntax test-module)
+;          get-test-stats
+;          (for-syntax check)
+;          (for-syntax skip-compile))
+
 (provide test
-         (for-syntax check-equal?)
-         (for-syntax check-err?)
-         (for-syntax test-module)
+         check-equal?
+         check-err?
+         test-module
          get-test-stats
-         (for-syntax check)
-         (for-syntax skip-compile))
+         ;; TODO: We should do some validation to say this is a free identifier?
+         ; check
+         skip-compile)
 
 (define *SUCCESS-COUNT* 0)
 (define *FAILURE-COUNT* 0)

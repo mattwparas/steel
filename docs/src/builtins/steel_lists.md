@@ -142,6 +142,30 @@ Returns a newly allocated list containing the vs as its elements.
 > (list 1 2 3 4 5) ;; => '(1 2 3 4 5)
 > (list (list 1 2) (list 3 4)) ;; => '((1 2) (3 4))
 ```
+### **list->string**
+Convert a list of charecters to a string.
+
+(list->string lst) -> string?
+
+* lst : (listof char?)
+
+#### Examples
+```scheme
+(list->string '(#\a #\b #\c)) ;; => "abc"
+```
+### **list-drop**
+Remove a certain number of elements (`n`) from the front of `lst`.
+
+(list-drop lst n) -> any/c
+
+* lst : list?
+* n : int?
+
+#### Examples
+```scheme
+> (list-drop '(1 2 3 4 5) 2) ;; => '(3 4 5)
+> (list-drop '() 3) ;; => '()
+```
 ### **list-ref**
 Returns the value located at the given index. Will raise an error if you try to index out of bounds.
 
@@ -163,6 +187,25 @@ error[E11]: Generic
 │
 1 │ (list-ref (list 1 2 3 4) 10)
 │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
+```
+### **list-tail**
+Same as `list-drop`, except raise an error if `n` is greater than the length of `lst`.
+
+(list-tail lst n) -> any/c
+
+* lst : list?
+* n : int?
+
+#### Examples
+```scheme
+> (list-tail '(1 2 3 4 5) 2) ;; => '(3 4 5)
+> (list-tail '() 3)
+error[E11]: Generic
+┌─ :1:2
+│
+1 │ (list-tail '() 3)
+│  ^^^^^^^^^ list-tail expects at least 3
+elements in the list, found: 0
 ```
 ### **pair?**
 Checks if the given value can be treated as a pair.
@@ -200,7 +243,7 @@ Returns the rest of the list. Will raise an error if the list is empty.
 ```scheme
 > (rest (list 10 20 30)) ;; => '(20 30)
 > (rest (list 10)) ;; => '()
-> (rest (list 10))
+> (rest '() )
 error[E11]: Generic
 ┌─ :1:2
 │
@@ -213,7 +256,7 @@ This function takes time proportional to the length of `lst`.
 
 (reverse lst) -> list?
 
-* l : list?
+* lst : list?
 
 #### Examples
 ```scheme
@@ -236,6 +279,7 @@ error[E11]: Generic
 │
 1 │ (second '())
 │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+```
 ### **take**
 Returns the first n elements of the list l as a new list.
 
@@ -268,11 +312,8 @@ error[E11]: Generic
 │  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
 ```
 ### **cdr-null?**
-### **list->string**
 ### **list->vector**
 ### **list-chunks**
-### **list-drop**
-### **list-tail**
 ### **plist-get**
 ### **plist-get-kwarg**
 ### **plist-get-positional-arg**
@@ -281,5 +322,4 @@ error[E11]: Generic
 ### **plist-try-get-positional-arg**
 ### **plist-validate-args**
 ### **push-back**
-### **transduce**
 ### **try-list-ref**

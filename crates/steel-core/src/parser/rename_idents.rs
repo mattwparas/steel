@@ -30,7 +30,7 @@ impl<'a> RenameIdentifiersVisitor<'a> {
     }
 
     pub fn is_gensym(&self, ident: &InternedString) -> bool {
-        self.introduced_identifiers.contains(ident) || self.pattern_variables.contains(&ident)
+        self.introduced_identifiers.contains(ident) || self.pattern_variables.contains(ident)
     }
 
     pub fn rename_identifiers(&mut self, expr: &mut ExprKind) {
@@ -55,7 +55,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
             } = a.syn
             {
                 // If this is a special pattern variable, don't do any mangling of the variable
-                if !self.pattern_variables.contains(&s) {
+                if !self.pattern_variables.contains(s) {
                     self.add(*s);
                     // a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
                 }
@@ -81,7 +81,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                     ..
                 } = a.syn
                 {
-                    if !self.pattern_variables.contains(&s) {
+                    if !self.pattern_variables.contains(s) {
                         self.add(*s);
                     }
 
@@ -396,7 +396,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                     ..
                 } = a.syn
                 {
-                    if !self.pattern_variables.contains(&s) {
+                    if !self.pattern_variables.contains(s) {
                         self.add(*s);
                     }
 

@@ -1,13 +1,15 @@
 [package]
 name = "cargo-steel-lib"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+repository = "https://github.com/mattwparas/steel"
+license = "MIT OR Apache-2.0"
+description = "Cargo plugin to build dylib for steel"
 
 [dependencies]
-cargo_metadata = "0.15.3"
-home = "0.5.9"
+cargo_metadata = "0.20.0"
+env_home = "0.1.0"
 
 # Keeps the MSRV at v1.70.0
 cargo-platform = "=0.1.7"
+xdg = "3.0.0"

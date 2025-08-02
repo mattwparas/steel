@@ -34,6 +34,12 @@ Spawns the given `func` on another thread. It is required that the arity of the
 given function be 0. If the arity of the given function cannot be checked until runtime,
 the thread will be spawned and the function will fail to execute.
 
+```scheme
+(spawn-native-thread func)
+```
+
+func : (-> any?) ;; Function with no arguments, returns anything
+
 #### Examples
 
 ```scheme
@@ -64,6 +70,5 @@ bytecode instruction that is running.
 ### **channels/new**
 ### **current-thread-id**
 ### **make-channels**
-### **spawn-thread!**
 ### **thread/available-parallelism**
 ### **thread::current/id**

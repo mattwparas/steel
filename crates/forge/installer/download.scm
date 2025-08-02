@@ -17,9 +17,7 @@
 (define SEP (if (equal? (current-os!) "windows") "\\" "/"))
 
 (define (append-with-separator path dir)
-  (if (ends-with? path SEP)
-      (string-append path dir)
-      (string-append path SEP dir)))
+  (if (ends-with? path SEP) (string-append path dir) (string-append path SEP dir)))
 
 (define (path-from-steel-home dir)
   (~> (steel-home-location) (append-with-separator dir)))
@@ -38,9 +36,7 @@
   (define resulting-path
     (string-append installation-dir
                    "/"
-                   (if (symbol? package-name)
-                       (symbol->string package-name)
-                       package-name)))
+                   (if (symbol? package-name) (symbol->string package-name) package-name)))
 
   (displayln "Fetching package from git: " package-name)
 
@@ -54,7 +50,7 @@
 
     ; (~> (command "git" (list "pull")) (in-directory resulting-path) spawn-process Ok->value wait)
 
-    (git-pull resulting-path #f #f)
+    (git-pull resulting-path #f (if (void? *sha*) #f *sha*))
 
     (return! resulting-path))
 
@@ -93,9 +89,7 @@
 (define (wait-for-jobs)
   (unless (empty? *jobs*)
     (displayln "Waiting for dylib builds to finish")
-    (if (feature-dylib-build?)
-        (for-each thread-join! *jobs*)
-        (for-each wait *jobs*))))
+    (if (feature-dylib-build?) (for-each thread-join! *jobs*) (for-each wait *jobs*))))
 
 ;; Run the cargo-steel-lib installer in the target directory
 ; (define (run-dylib-installation target-directory #:subdir [subdir ""])
@@ -103,22 +97,22 @@
 
 ;; At the end, we're gonna await the jobs to finish compilation
 (define (run-dylib-installation target-directory #:subdir [subdir ""])
-  (define process (run-dylib-installation-in-background target-directory #:subdir subdir))
-  (set! *jobs* (cons process *jobs*)))
+  (run-dylib-installation-in-background target-directory #:subdir subdir))
 
 (define (run-dylib-installation-in-background target-directory #:subdir [subdir ""])
   (define target (append-with-separator target-directory subdir))
   (displayln "Running dylib build in: " target)
   (if (feature-dylib-build?)
       ;; Kick off on a new thread
-      (spawn-native-thread
-       (lambda ()
-         (#%build-dylib (list "--manifest-path" (append-with-separator target "Cargo.toml"))
-                        (list (list "CARGO_TARGET_DIR"
-                                    (append-with-separator *CARGO_TARGET_DIR*
-                                                           (file-name target-directory)))))
+      ;; TODO: Properly parallelize this
+      (begin
+        (unless (#%build-dylib (list "--manifest-path" (append-with-separator target "Cargo.toml"))
+                               (list (list "CARGO_TARGET_DIR"
+                                           (append-with-separator *CARGO_TARGET_DIR*
+                                                                  (file-name target-directory)))))
+          (error "Failed to build dylib for" target-directory))
 
-         (displayln "Finished building")))
+        (displayln "Finished building"))
 
       ;; This... should be run in the background?
       (~> (command "cargo-steel-lib" '())
@@ -126,7 +120,8 @@
           (with-env-var "CARGO_TARGET_DIR"
                         (append-with-separator *CARGO_TARGET_DIR* (file-name target-directory)))
           spawn-process
-          Ok->value)))
+          Ok->value
+          wait)))
 
 ;;@doc
 ;; Download cog source to sources directory, and then install from there.

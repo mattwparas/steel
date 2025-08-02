@@ -1,0 +1,4 @@
+100
+1000 ; number of random stress tests
+1000 ; twice average length of random test string
+0 ; number of tests that should fail

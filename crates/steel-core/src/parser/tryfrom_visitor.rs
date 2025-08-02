@@ -591,7 +591,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
         let if_ident = SteelVal::try_from(f.location)?;
 
         let expr = [
-            Syntax::proto(if_ident.clone(), if_ident, span.into()).into(),
+            Syntax::proto(if_ident.clone(), if_ident, span).into(),
             self.visit(f.test_expr)?,
             self.visit(f.then_expr)?,
             self.visit(f.else_expr)?,

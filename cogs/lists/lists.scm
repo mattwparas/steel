@@ -1,6 +1,7 @@
 (provide split-last
          flatten
-         for-each)
+         for-each
+		 repeat)
 
 (define (split-last-loop accum lst)
   (if (empty? (cdr lst))
@@ -42,3 +43,19 @@
 
 ;; Need default arguments here
 ; (define (remove v lst [proc ]))
+
+;;@doc
+;; Repeat a value a number of times
+;; ```scheme
+;; (repeat "a" 4)
+;; ```
+;; will print:
+;; ```
+;; '("a" "a" "a" "a")
+;; ```
+(define (repeat val times)
+  (cond
+	[(and (integer? times) (> times 0))
+		(map (λ (_) val) (range 0 times))]
+	[else
+	  (error 'invalid-arg "'times' must be a positive nonzero integer.")]))

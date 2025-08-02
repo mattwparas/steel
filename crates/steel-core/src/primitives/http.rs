@@ -1,8 +1,9 @@
 use crate::{
     gc::{Gc, ShareableMut},
+    rerrs::ErrorKind,
     rvals::{AsRefSteelVal, Custom, IntoSteelVal, SteelByteVector, SteelHashMap, SteelString},
     steel_vm::builtin::BuiltInModule,
-    SteelVal,
+    SteelErr, SteelVal,
 };
 
 use crate::rvals::Result;
@@ -60,6 +61,39 @@ pub fn version(value: &SteelVal) -> Result<SteelVal> {
     SteelRequest::as_ref(value)
         .map(|x| x.version.clone())
         .map(SteelVal::StringV)
+}
+
+/// Download file from a URL
+#[steel_derive::function(name = "download-file!")]
+fn download_file(_url: &SteelString, _file: &SteelString) -> Result<SteelVal> {
+    #[cfg(not(feature = "ureq"))]
+    {
+        Err(SteelErr::new(
+            ErrorKind::BadSyntax,
+            "download-file! is not implemented".to_string(),
+        ))
+    }
+
+    #[cfg(feature = "ureq")]
+    {
+        use std::{fs, path::PathBuf};
+
+        let url = _url.as_str();
+        let file = PathBuf::from(_file.as_str());
+        let contents = ureq::get(url)
+            .call()
+            .map_err(|err| {
+                SteelErr::new(ErrorKind::Io, format!("failed to call http method: {err}"))
+            })?
+            .body_mut()
+            .read_to_vec()
+            .map_err(|err| SteelErr::new(ErrorKind::Io, format!("http request failed: {err}")))?;
+
+        fs::write(file, contents)
+            .map_err(|err| SteelErr::new(ErrorKind::Io, format!("failed to write: {err}")))?;
+
+        Ok(().into())
+    }
 }
 
 #[steel_derive::function(name = "http-request-body-offset")]
@@ -189,7 +223,8 @@ pub fn http_module() -> BuiltInModule {
         .register_native_fn_definition(BODY_OFFSET_DEFINITION)
         .register_native_fn_definition(HEADERS_DEFINITION)
         .register_native_fn_definition(RESP_HEADERS_DEFINITION)
-        .register_native_fn_definition(PARSE_HTTP_RESPONSE_DEFINITION);
+        .register_native_fn_definition(PARSE_HTTP_RESPONSE_DEFINITION)
+        .register_native_fn_definition(DOWNLOAD_FILE_DEFINITION);
 
     // module
     //     .register_native_fn_definition(TCP_CONNECT_DEFINITION)

@@ -174,9 +174,7 @@ impl<'a> Lexer<'a> {
 
                 let codepoint = u32::from_str_radix(&digits, 16)
                     .map_err(|_| TokenError::MalformedByteEscape)?;
-                let char = char::from_u32(codepoint).ok_or(TokenError::MalformedByteEscape)?;
-
-                char
+                char::from_u32(codepoint).ok_or(TokenError::MalformedByteEscape)?
             }
 
             Some(&start @ (' ' | '\t' | '\n')) => {
@@ -333,19 +331,19 @@ impl<'a> Lexer<'a> {
                 c if c.is_ascii_digit() => {
                     self.eat();
                 }
-                '+' | '-' | '.' | '/' | 'a' | 'A' | 'b' | 'B' | 'c' | 'C' | 'd' | 'D' | 'e'
-                | 'E' | 'f' | 'F' | 'i' | 'n' => {
+                '+' | '-' | '.' | '/' | '@' | 'a' | 'A' | 'b' | 'B' | 'c' | 'C' | 'd' | 'D'
+                | 'e' | 'E' | 'f' | 'F' | 'i' | 'n' => {
                     self.eat();
                 }
                 '(' | ')' | '[' | ']' => {
-                    return if let Some(t) = parse_number(self.slice()) {
+                    return if let Some(t) = parse_number(self.slice(), None) {
                         Ok(t.into())
                     } else {
                         self.read_word()
                     }
                 }
                 c if c.is_whitespace() => {
-                    return if let Some(t) = parse_number(self.slice()) {
+                    return if let Some(t) = parse_number(self.slice(), None) {
                         Ok(t.into())
                     } else {
                         self.read_word()
@@ -354,7 +352,7 @@ impl<'a> Lexer<'a> {
                 _ => return self.read_word(),
             }
         }
-        match parse_number(self.slice()) {
+        match parse_number(self.slice(), None) {
             Some(n) => Ok(n.into()),
             None => self.read_word(),
         }
@@ -530,7 +528,7 @@ impl<'a> IdentBuffer<'a> {
 fn strip_shebang_line(input: &str) -> (&str, usize, usize) {
     if input.starts_with("#!") {
         let stripped = input.trim_start_matches("#!");
-        let result = match stripped.char_indices().skip_while(|x| x.1 != '\n').next() {
+        let result = match stripped.char_indices().find(|x| x.1 == '\n') {
             Some((pos, _)) => &stripped[pos..],
             None => "",
         };
@@ -538,11 +536,7 @@ fn strip_shebang_line(input: &str) -> (&str, usize, usize) {
         let original = input.len();
         let new = result.len();
 
-        (
-            result,
-            original - new,
-            input.as_bytes().len() - result.as_bytes().len(),
-        )
+        (result, original - new, input.len() - result.len())
     } else {
         (input, 0, 0)
     }
@@ -718,7 +712,7 @@ impl<'a> Iterator for Lexer<'a> {
                     Some(Ok(TokenType::Unquote))
                 }
             }
-            Some('+') | Some('-') => {
+            Some('+') | Some('-') | Some('.') => {
                 self.eat();
                 Some(self.read_number())
             }
@@ -735,6 +729,10 @@ impl<'a> Iterator for Lexer<'a> {
                     Some(';') => {
                         self.eat();
                         Ok(TokenType::DatumComment)
+                    }
+                    Some('#') => {
+                        self.eat();
+                        Err(TokenError::UnexpectedChar('#'))
                     }
                     _ => self.read_hash_value(),
                 };
@@ -849,14 +847,20 @@ fn parse_real(s: &str, radix: u32) -> Option<RealLiteral> {
     }
 }
 
-fn parse_number(s: &str) -> Option<NumberLiteral> {
+pub fn parse_number(s: &str, radix: Option<u32>) -> Option<NumberLiteral> {
     let (s, radix) = match s.get(0..2) {
         Some("#x" | "#X") => (&s[2..], 16),
         Some("#d" | "#D") => (&s[2..], 10),
         Some("#o" | "#O") => (&s[2..], 8),
         Some("#b" | "#B") => (&s[2..], 2),
-        _ => (s, 10),
+        _ => (s, radix.unwrap_or(10)),
     };
+
+    if let Some((r, theta)) = s.split_once('@') {
+        let r = parse_real(r, radix)?;
+        let theta = parse_real(theta, radix)?;
+        return Some(NumberLiteral::Polar(r, theta));
+    }
 
     match split_into_complex(s)?.as_slice() {
         [NumPart::Real(x)] => parse_real(x, radix).map(NumberLiteral::from),
@@ -864,7 +868,10 @@ fn parse_number(s: &str) -> Option<NumberLiteral> {
             if !matches!(x.as_bytes().first(), Some(b'+') | Some(b'-')) {
                 return None;
             };
-            Some(NumberLiteral::Complex(IntLiteral::Small(0).into(), parse_real(x, radix)?).into())
+            Some(NumberLiteral::Complex(
+                IntLiteral::Small(0).into(),
+                parse_real(x, radix)?,
+            ))
         }
         [NumPart::Real(re), NumPart::Imaginary(im)] => Some(NumberLiteral::Complex(
             parse_real(re, radix)?,
@@ -883,7 +890,7 @@ mod lexer_tests {
     use crate::tokens::{IntLiteral, TokenType::*};
     use pretty_assertions::assert_eq;
 
-    fn identifier(ident: &str) -> TokenType<Cow<str>> {
+    fn identifier(ident: &str) -> TokenType<Cow<'_, str>> {
         Identifier(ident.into())
     }
 
@@ -1340,6 +1347,7 @@ mod lexer_tests {
                 1/4.0
                 1//4
                 1 / 4
+                .2
 "#,
             true,
             SourceId::none(),
@@ -1417,6 +1425,11 @@ mod lexer_tests {
                     source: "4",
                     span: Span::new(205, 206, SourceId::none()),
                 },
+                Token {
+                    ty: RealLiteral::Float(0.2).into(),
+                    source: ".2",
+                    span: Span::new(223, 225, SourceId::none())
+                }
             ]
         );
     }
@@ -1424,7 +1437,7 @@ mod lexer_tests {
     #[test]
     fn test_complex_numbers() {
         let got: Vec<_> = TokenStream::new(
-            "1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i 2e+4+inf.0i -inf.0-2e-4i",
+            "1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i 2e+4+inf.0i -inf.0-2e-4i 1/2@0 -3/2@1",
             true,
             SourceId::none(),
         )
@@ -1512,6 +1525,24 @@ mod lexer_tests {
                     .into(),
                     source: "-inf.0-2e-4i",
                     span: Span::new(54, 66, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Polar(
+                        RealLiteral::Rational(IntLiteral::Small(1), IntLiteral::Small(2)),
+                        IntLiteral::Small(0).into()
+                    )
+                    .into(),
+                    source: "1/2@0",
+                    span: Span::new(67, 72, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Polar(
+                        RealLiteral::Rational(IntLiteral::Small(-3), IntLiteral::Small(2)),
+                        IntLiteral::Small(1).into()
+                    )
+                    .into(),
+                    source: "-3/2@1",
+                    span: Span::new(73, 79, SourceId::none()),
                 }
             ]
         );

@@ -40,6 +40,32 @@ pub fn replace_identifiers(
     ReplaceExpressions::new(bindings, binding_kind, fallback_bindings).visit(expr)
 }
 
+pub fn expand_template_pair(
+    mut exprs: Vec<ExprKind>,
+    bindings_list: impl IntoIterator<Item = (InternedString, (BindingKind, ExprKind))>,
+) -> Result<ExprKind> {
+    let mut bindings = FxHashMap::default();
+    let mut binding_kind = FxHashMap::default();
+
+    for (key, (kind, expr)) in bindings_list.into_iter() {
+        bindings.insert(key, expr);
+        binding_kind.insert(key, kind);
+    }
+
+    for expr in &mut exprs {
+        expand_template(expr, &mut bindings, &mut binding_kind)?;
+    }
+
+    if exprs.len() == 1 {
+        Ok(exprs.into_iter().next().unwrap())
+    } else {
+        Ok(ExprKind::Begin(Box::new(steel_parser::ast::Begin::new(
+            exprs,
+            SyntaxObject::default(TokenType::Begin),
+        ))))
+    }
+}
+
 pub fn expand_template(
     expr: &mut ExprKind,
     bindings: &mut FxHashMap<InternedString, ExprKind>,
@@ -98,7 +124,7 @@ impl<'a> EllipsesExpanderVisitor<'a> {
             error: None,
         };
 
-        VisitorMutControlFlow::visit(&mut visitor, expr);
+        let _ = VisitorMutControlFlow::visit(&mut visitor, expr);
 
         visitor
     }
@@ -108,23 +134,21 @@ impl<'a> VisitorMutControlFlow for EllipsesExpanderVisitor<'a> {
     fn visit_atom(&mut self, a: &Atom) -> ControlFlow<()> {
         let expansion = a.ident().and_then(|x| self.bindings.get(x));
 
-        if let Some(expansion) = expansion {
-            if let ExprKind::List(found_list) = expansion {
-                if let Some(BindingKind::Many) = a.ident().and_then(|x| self.binding_kind.get(x)) {
-                    if let Some(previously_seen_length) = self.found_length {
-                        // Check that the length is the same
-                        if previously_seen_length != found_list.len() {
-                            self.error =
-                                Some(format!("Mismatched lengths found in ellipses expansion"));
-                            return ControlFlow::Break(());
-                        }
-
-                        // Found this one, use it
-                        self.collected.push(*(a.ident().unwrap()));
-                    } else {
-                        self.found_length = Some(found_list.len());
-                        self.collected.push(*(a.ident().unwrap()));
+        if let Some(ExprKind::List(found_list)) = expansion {
+            if let Some(BindingKind::Many) = a.ident().and_then(|x| self.binding_kind.get(x)) {
+                if let Some(previously_seen_length) = self.found_length {
+                    // Check that the length is the same
+                    if previously_seen_length != found_list.len() {
+                        self.error =
+                            Some(format!("Mismatched lengths found in ellipses expansion"));
+                        return ControlFlow::Break(());
                     }
+
+                    // Found this one, use it
+                    self.collected.push(*(a.ident().unwrap()));
+                } else {
+                    self.found_length = Some(found_list.len());
+                    self.collected.push(*(a.ident().unwrap()));
                 }
             }
         }
@@ -358,7 +382,7 @@ impl<'a> ReplaceExpressions<'a> {
     }
 
     fn vec_expr_datum_to_syntax(&self, vec_exprs: &[ExprKind]) -> Result<Option<ExprKind>> {
-        match vec_exprs.get(0) {
+        match vec_exprs.first() {
             Some(ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {
@@ -417,7 +441,7 @@ impl<'a> ReplaceExpressions<'a> {
             // stop!(ArityMismatch => "#%syntax-span requires 2 arguments, found: {}", vec_exprs.len());
         }
 
-        match vec_exprs.get(0) {
+        match vec_exprs.first() {
             Some(ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {

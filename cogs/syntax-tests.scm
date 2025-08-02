@@ -2,8 +2,10 @@
 (require-builtin steel/transducers)
 (require-builtin steel/meta)
 
-(require "tests/unit-test.scm"
-         (for-syntax "tests/unit-test.scm"))
+; (require "tests/unit-test.scm"
+;          (for-syntax "tests/unit-test.scm"))
+
+(require "tests/unit-test.scm")
 
 (define (check-syntax-error? name input expected . rest)
   (define (impl name input expected)
@@ -11,7 +13,9 @@
     (define message-assert
       (or (string-contains? error-message expected) `(message= ,error-message expected= ,expected)))
     (check-equal? (string-join `(,name " [compilation fails]")) message-assert #t))
-  (if (eq? name 'skip) (skip-compile #f) (impl name input expected)))
+  (if (eq? name 'skip)
+      (skip-compile #f)
+      (impl name input expected)))
 
 (check-syntax-error? "empty transformer"
                      '((define-syntax no-body
@@ -158,9 +162,9 @@
   (syntax-rules ()
     [(_ (a . b)) 'b]))
 
- (check-equal? "improper-rest, 0 args" (improper-rest (1)) '())
- (check-equal? "improper-rest, 1 arg" (improper-rest (1 2)) '(2))
- (check-equal? "improper-rest, 2 args" (improper-rest (1 a (b))) '(a (b)))
+(check-equal? "improper-rest, 0 args" (improper-rest (1)) '())
+(check-equal? "improper-rest, 1 arg" (improper-rest (1 2)) '(2))
+(check-equal? "improper-rest, 2 args" (improper-rest (1 a (b))) '(a (b)))
 
 (check-equal? "improper lists in syntax"
               ;; equivalent to (let [(x 1)] x)
@@ -256,13 +260,13 @@
   (syntax-rules ()
     [(_ ((a) ... . b) ...) (quote (b ...))]))
 
-(skip-compile (check-equal? "improper list pattern, nested, collapses to non-list"
-                            (non-list-as-list-multiple "hello" "world")
-                            '("hello" "world")))
+(check-equal? "improper list pattern, nested, collapses to non-list"
+              (non-list-as-list-multiple "hello" "world")
+              '("hello" "world"))
 
-(skip-compile (define-syntax many-literals
-                (syntax-rules ()
-                  [(_ #t ...) 1])))
+(define-syntax many-literals
+  (syntax-rules ()
+    [(_ #t ...) 1]))
 
 (define-syntax t
   (syntax-rules ()
@@ -276,18 +280,17 @@
 
 (check-equal? "macro expansion correctly works within another syntax rules" (t 10) 11)
 
-
 (define-syntax with-u8
   (syntax-rules ()
-    [(_ #u8(1) a) a]))
+    [(_ #u8 (1) a) a]))
 
-(check-equal? "bytevector patterns" (with-u8 #u8(1) #(a b)) #(a b))
+(check-equal? "bytevector patterns" (with-u8 #u8 (1) #(a b)) #(a b))
 
 (check-syntax-error? "bytevector patterns, unmatched constant"
                      '((define-syntax with-u8
                          (syntax-rules ()
-                           [(_ #u8(1) a) a]))
-                       (with-u8 #u8(3) 1))
+                           [(_ #u8 (1) a) a]))
+                       (with-u8 #u8 (3) 1))
                      "macro expansion unable to match case")
 
 (define-syntax with-vec

@@ -1,5 +1,5 @@
 extern crate rustyline;
-use colored::*;
+use colored::Colorize;
 use steel_parser::interner::InternedString;
 use steel_parser::parser::SourceId;
 use steel_parser::tokens::TokenType;
@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use rustyline::highlight::Highlighter;
 use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 
+use rustyline::Helper;
 use rustyline::{hint::Hinter, Context};
-use rustyline_derive::Helper;
 
 use steel_parser::lexer::TokenStream;
 
@@ -23,14 +23,14 @@ use std::borrow::Cow;
 #[derive(Helper)]
 pub struct RustylineHelper {
     globals: Arc<Mutex<HashSet<InternedString>>>,
-    bracket: crossbeam::atomic::AtomicCell<Option<(u8, usize)>>, // keywords: HashSet<&'static str>,
+    bracket: crossbeam_utils::atomic::AtomicCell<Option<(u8, usize)>>, // keywords: HashSet<&'static str>,
 }
 
 impl RustylineHelper {
     pub fn new(globals: Arc<Mutex<HashSet<InternedString>>>) -> Self {
         Self {
             globals,
-            bracket: crossbeam::atomic::AtomicCell::new(None),
+            bracket: crossbeam_utils::atomic::AtomicCell::new(None),
         }
     }
 }
@@ -80,7 +80,7 @@ impl Completer for RustylineHelper {
         };
         starting.sort_by(compare);
         containing.sort_by(compare);
-        let candidates = starting.into_iter().chain(containing.into_iter());
+        let candidates = starting.into_iter().chain(containing);
 
         // Apply colors to distinguish completion from typed text
         let completions = candidates

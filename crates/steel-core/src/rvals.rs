@@ -77,9 +77,9 @@ use futures_util::future::Shared;
 use futures_util::FutureExt;
 
 use crate::values::lists::List;
-use num::{
-    bigint::ToBigInt, BigInt, BigRational, FromPrimitive, Rational32, Signed, ToPrimitive, Zero,
-};
+use num_bigint::{BigInt, ToBigInt};
+use num_rational::{BigRational, Rational32};
+use num_traits::{FromPrimitive, Signed, ToPrimitive, Zero};
 use steel_parser::tokens::{IntLiteral, RealLiteral};
 
 use self::cycles::{CycleDetector, IterativeDropHandler};
@@ -212,7 +212,7 @@ pub trait CustomType: MaybeSendSyncStatic {
     }
     fn inner_type_id(&self) -> TypeId;
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-        Ok(format!("#<{}>", self.name().to_string()))
+        Ok(format!("#<{}>", self.name()))
     }
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
@@ -237,7 +237,7 @@ pub trait CustomType {
     }
     fn inner_type_id(&self) -> TypeId;
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-        Ok(format!("#<{}>", self.name().to_string()))
+        Ok(format!("#<{}>", self.name()))
     }
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
@@ -267,7 +267,7 @@ impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
         if let Some(formatted) = self.fmt() {
             formatted
         } else {
-            Ok(format!("#<{}>", self.name().to_string()))
+            Ok(format!("#<{}>", self.name()))
         }
     }
 
@@ -1168,6 +1168,18 @@ impl From<Gc<Vector<SteelVal>>> for SteelVector {
 #[derive(Clone, PartialEq)]
 pub struct SteelHashMap(pub(crate) Gc<HashMap<SteelVal, SteelVal>>);
 
+#[cfg(feature = "imbl")]
+impl Hash for SteelHashMap {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        for i in self.iter() {
+            i.hash(state);
+        }
+    }
+}
+
 impl Deref for SteelHashMap {
     type Target = HashMap<SteelVal, SteelVal>;
 
@@ -1184,6 +1196,18 @@ impl From<Gc<HashMap<SteelVal, SteelVal>>> for SteelHashMap {
 
 #[derive(Clone, PartialEq)]
 pub struct SteelHashSet(pub(crate) Gc<HashSet<SteelVal>>);
+
+#[cfg(feature = "imbl")]
+impl Hash for SteelHashSet {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        for i in self.iter() {
+            i.hash(state);
+        }
+    }
+}
 
 impl Deref for SteelHashSet {
     type Target = HashSet<SteelVal>;
@@ -1357,7 +1381,7 @@ impl SteelComplex {
     }
 
     /// Returns `true` if the imaginary part is negative.
-    fn imaginary_is_negative(&self) -> bool {
+    pub(crate) fn imaginary_is_negative(&self) -> bool {
         match &self.im {
             NumV(x) => x.is_negative(),
             IntV(x) => x.is_negative(),
@@ -1368,7 +1392,7 @@ impl SteelComplex {
         }
     }
 
-    fn imaginary_is_finite(&self) -> bool {
+    pub(crate) fn imaginary_is_finite(&self) -> bool {
         match &self.im {
             NumV(x) => x.is_finite(),
             IntV(_) | Rational(_) | BigNum(_) | SteelVal::BigRational(_) => true,
@@ -1566,7 +1590,7 @@ impl SteelVal {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct SteelString(Gc<String>);
+pub struct SteelString(pub(crate) Gc<String>);
 
 impl Deref for SteelString {
     type Target = crate::gc::Shared<String>;
@@ -1583,11 +1607,19 @@ impl From<Arc<String>> for SteelString {
     }
 }
 
+#[cfg(all(feature = "sync", feature = "triomphe"))]
+impl From<std::sync::Arc<String>> for SteelString {
+    fn from(value: Arc<String>) -> Self {
+        SteelString(Gc(triomphe::Arc::new((*value).clone())))
+    }
+}
+
 impl SteelString {
     pub(crate) fn to_arc_string(&self) -> Arc<String> {
         #[cfg(feature = "sync")]
         {
-            self.0 .0.clone()
+            // self.0 .0.clone()
+            Arc::new(self.0.unwrap())
         }
         #[cfg(not(feature = "sync"))]
         Arc::new(self.0.unwrap())
@@ -1778,7 +1810,7 @@ impl SteelVal {
             (Void, Void) => true,
             (StringV(l), StringV(r)) => crate::gc::Shared::ptr_eq(l, r),
             (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
-            (SymbolV(l), SymbolV(r)) => crate::gc::Shared::ptr_eq(l, r),
+            (SymbolV(l), SymbolV(r)) => crate::gc::Shared::ptr_eq(l, r) || l == r,
             (SteelVal::Custom(l), SteelVal::Custom(r)) => Gc::ptr_eq(l, r),
             (HashMapV(l), HashMapV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (HashSetV(l), HashSetV(r)) => Gc::ptr_eq(&l.0, &r.0),
@@ -1786,53 +1818,164 @@ impl SteelVal {
             (Closure(l), Closure(r)) => Gc::ptr_eq(l, r),
             (IterV(l), IterV(r)) => Gc::ptr_eq(l, r),
             (ReducerV(l), ReducerV(r)) => Gc::ptr_eq(l, r),
-            #[allow(clippy::vtable_address_comparisons)]
             (FutureFunc(l), FutureFunc(r)) => crate::gc::Shared::ptr_eq(l, r),
             (FutureV(l), FutureV(r)) => Gc::ptr_eq(l, r),
             (StreamV(l), StreamV(r)) => Gc::ptr_eq(l, r),
             (BoxedFunction(l), BoxedFunction(r)) => Gc::ptr_eq(l, r),
             (ContinuationFunction(l), ContinuationFunction(r)) => Continuation::ptr_eq(l, r),
             (ListV(l), ListV(r)) => {
-                l.ptr_eq(r) || l.storage_ptr_eq(r) || l.is_empty() && r.is_empty()
+                // Happy path
+                l.ptr_eq(r) || l.storage_ptr_eq(r) || (l.is_empty() && r.is_empty()) || {
+                    slow_path_eq_lists(l, r)
+                }
             }
             (MutFunc(l), MutFunc(r)) => *l as usize == *r as usize,
             (BuiltIn(l), BuiltIn(r)) => *l as usize == *r as usize,
             (MutableVector(l), MutableVector(r)) => HeapRef::ptr_eq(l, r),
             (BigNum(l), BigNum(r)) => Gc::ptr_eq(l, r),
             (ByteVector(l), ByteVector(r)) => Gc::ptr_eq(&l.vec, &r.vec),
-            (_, _) => false,
+            (Pair(l), Pair(r)) => Gc::ptr_eq(l, r),
+            (_, _) => {
+                // dbg!(pointers);
+                false
+            }
         }
     }
+}
+
+// How can we keep track of the provenance of where the pointers go?
+// for pointer equality?
+#[inline]
+fn slow_path_eq_lists(
+    _l: &crate::values::lists::List<SteelVal>,
+    _r: &crate::values::lists::List<SteelVal>,
+) -> bool {
+    return false;
+
+    /*
+
+    // If the next pointers are the same,
+    // then we need to check the values of the
+    // current node for equality. There is now the possibility
+    // that the previous version of this doesn't match up, and
+    // we need to keep the history of the previous values in order
+    // to do this properly.
+    //
+    // I think we can only really do this _if_ the next pointer
+    // exists. Otherwise this doesn't really make sense
+    let left_next = l.next_ptr_as_usize();
+    let right_next = r.next_ptr_as_usize();
+
+    if left_next.is_some() && right_next.is_some() && left_next == right_next && l.len() == r.len()
+    {
+        let left_iter = l.current_node_iter();
+        let right_iter = r.current_node_iter();
+
+        for (l, r) in left_iter.zip(right_iter) {
+            if l != r {
+                return false;
+            }
+        }
+
+        true
+    } else {
+        false
+    }
+
+    */
 }
 
 impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
-            BoolV(b) => b.hash(state),
-            NumV(n) => n.to_string().hash(state),
-            IntV(i) => i.hash(state),
-            Rational(f) => f.hash(state),
-            BigNum(n) => n.hash(state),
-            BigRational(f) => f.hash(state),
-            Complex(x) => x.hash(state),
-            CharV(c) => c.hash(state),
-            ListV(l) => l.hash(state),
-            CustomStruct(s) => s.hash(state),
-            VectorV(v) => v.hash(state),
-            v @ Void => v.hash(state),
-            StringV(s) => s.hash(state),
-            FuncV(s) => (*s as *const FunctionSignature).hash(state),
+            BoolV(b) => {
+                state.write_u8(0);
+                b.hash(state)
+            }
+            NumV(n) => {
+                state.write_u8(1);
+                n.to_string().hash(state)
+            }
+            IntV(i) => {
+                state.write_u8(2);
+                i.hash(state)
+            }
+            Rational(f) => {
+                state.write_u8(3);
+                f.hash(state)
+            }
+            BigNum(n) => {
+                state.write_u8(4);
+                n.hash(state)
+            }
+            BigRational(f) => {
+                state.write_u8(5);
+                f.hash(state)
+            }
+            Complex(x) => {
+                state.write_u8(6);
+                x.hash(state)
+            }
+            CharV(c) => {
+                state.write_u8(7);
+                c.hash(state)
+            }
+            ListV(l) => {
+                state.write_u8(8);
+                l.hash(state)
+            }
+            CustomStruct(s) => {
+                state.write_u8(9);
+                s.hash(state)
+            }
+            VectorV(v) => {
+                state.write_u8(10);
+                v.hash(state)
+            }
+            v @ Void => {
+                state.write_u8(11);
+                v.hash(state)
+            }
+            StringV(s) => {
+                state.write_u8(12);
+                s.hash(state)
+            }
+            FuncV(s) => {
+                state.write_u8(13);
+                (*s as *const FunctionSignature).hash(state)
+            }
             SymbolV(sym) => {
-                "symbol".hash(state);
+                state.write_u8(14);
                 sym.hash(state);
             }
-            Closure(b) => b.hash(state),
-            HashMapV(hm) => hm.hash(state),
-            IterV(s) => s.hash(state),
-            HashSetV(hs) => hs.hash(state),
-            SyntaxObject(s) => s.raw.hash(state),
-            Pair(p) => (&**p).hash(state),
-            ByteVector(v) => (&*v).hash(state),
+            Closure(b) => {
+                state.write_u8(15);
+                b.hash(state)
+            }
+            HashMapV(hm) => {
+                state.write_u8(16);
+                hm.hash(state)
+            }
+            IterV(s) => {
+                state.write_u8(17);
+                s.hash(state)
+            }
+            HashSetV(hs) => {
+                state.write_u8(18);
+                hs.hash(state)
+            }
+            SyntaxObject(s) => {
+                state.write_u8(19);
+                s.raw.hash(state)
+            }
+            Pair(p) => {
+                state.write_u8(20);
+                (&**p).hash(state)
+            }
+            ByteVector(v) => {
+                state.write_u8(21);
+                (&*v).hash(state)
+            }
             _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
         }
     }
@@ -2122,7 +2265,7 @@ fn integer_float_equality(int: isize, float: f64) -> bool {
     }
 }
 
-fn bignum_float_equality(bigint: &Gc<num::BigInt>, float: f64) -> bool {
+fn bignum_float_equality(bigint: &Gc<BigInt>, float: f64) -> bool {
     if float.fract() == 0.0 {
         if let Some(promoted) = bigint.to_f64() {
             promoted == float
@@ -2193,13 +2336,13 @@ impl PartialOrd for SteelVal {
                 // the common ground
                 #[cfg(target_pointer_width = "32")]
                 {
-                    let x_rational = num::Rational32::new_raw(*x as i32, 1);
+                    let x_rational = num_rational::Rational32::new_raw(*x as i32, 1);
                     x_rational.partial_cmp(y)
                 }
                 #[cfg(target_pointer_width = "64")]
                 {
-                    let x_rational = num::Rational64::new_raw(*x as i64, 1);
-                    x_rational.partial_cmp(&num::Rational64::new_raw(
+                    let x_rational = num_rational::Rational64::new_raw(*x as i64, 1);
+                    x_rational.partial_cmp(&num_rational::Rational64::new_raw(
                         *y.numer() as i64,
                         *y.denom() as i64,
                     ))
@@ -2245,13 +2388,13 @@ impl PartialOrd for SteelVal {
                 // Same as before, but opposite direction
                 #[cfg(target_pointer_width = "32")]
                 {
-                    let y_rational = num::Rational32::new_raw(*y as i32, 1);
+                    let y_rational = num_rational::Rational32::new_raw(*y as i32, 1);
                     x.partial_cmp(&y_rational)
                 }
                 #[cfg(target_pointer_width = "64")]
                 {
-                    let y_rational = num::Rational64::new_raw(*y as i64, 1);
-                    num::Rational64::new_raw(*x.numer() as i64, *x.denom() as i64)
+                    let y_rational = num_rational::Rational64::new_raw(*y as i64, 1);
+                    num_rational::Rational64::new_raw(*x.numer() as i64, *x.denom() as i64)
                         .partial_cmp(&y_rational)
                 }
             }
@@ -2337,9 +2480,17 @@ impl PartialOrd for SteelVal {
     }
 }
 
+pub(crate) struct SteelValDisplay<'a>(pub(crate) &'a SteelVal);
+
+impl<'a> fmt::Display for SteelValDisplay<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        CycleDetector::detect_and_display_cycles(&self.0, f, false)
+    }
+}
+
 impl fmt::Display for SteelVal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        CycleDetector::detect_and_display_cycles(self, f)
+        CycleDetector::detect_and_display_cycles(self, f, true)
     }
 }
 
@@ -2353,7 +2504,7 @@ impl fmt::Debug for SteelVal {
         };
         // display_helper(self, f)
 
-        CycleDetector::detect_and_display_cycles(self, f)
+        CycleDetector::detect_and_display_cycles(self, f, true)
     }
 }
 
@@ -2362,8 +2513,11 @@ mod or_else_tests {
 
     use super::*;
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     use im::vector;
+
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    use imbl::vector;
 
     #[cfg(not(feature = "sync"))]
     use im_rc::vector;

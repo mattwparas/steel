@@ -1,10 +1,10 @@
 use std::{error::Error, path::PathBuf, process::Command};
 
-use cargo_metadata::{Message, MetadataCommand, Package};
+use cargo_metadata::{Message, MetadataCommand, Package, TargetKind};
 use std::process::Stdio;
 
 fn package_contains_dependency_on_steel(packages: &[Package]) -> Option<&Package> {
-    packages.iter().find(|x| x.name == "steel-core")
+    packages.iter().find(|x| x.name.as_ref() == "steel-core")
 }
 
 /*
@@ -18,27 +18,50 @@ pub fn steel_home() -> Option<PathBuf> {
         .ok()
         .map(PathBuf::from)
         .or_else(|| {
-            let home = home::home_dir();
+            let home = env_home::env_home_dir().map(|x| x.join(".steel"));
 
-            home.map(|mut x: PathBuf| {
-                x.push(".steel");
-
-                // Just go ahead and initialize the directory, even though
-                // this is probably not the best place to do this. This almost
-                // assuredly could be lifted out of this check since failing here
-                // could cause some annoyance.
-                if !x.exists() {
-                    if let Err(_) = std::fs::create_dir(&x) {
-                        eprintln!("Unable to create steel home directory {:?}", x)
-                    }
+            if let Some(home) = home {
+                if home.exists() {
+                    return Some(home);
                 }
 
-                x
-            })
+                #[cfg(target_os = "windows")]
+                {
+                    if let Err(e) = std::fs::create_dir(&home) {
+                        eprintln!("Unable to create steel home directory {:?}: {}", home, e)
+                    }
+
+                    return Some(home);
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                let bd = xdg::BaseDirectories::new();
+                let home = bd.data_home;
+
+                home.map(|mut x: PathBuf| {
+                    x.push("steel");
+
+                    // Just go ahead and initialize the directory, even though
+                    // this is probably not the best place to do this. This almost
+                    // assuredly could be lifted out of this check since failing here
+                    // could cause some annoyance.
+                    if !x.exists() {
+                        if let Err(e) = std::fs::create_dir(&x) {
+                            eprintln!("Unable to create steel home directory {:?}: {}", x, e)
+                        }
+                    }
+
+                    x
+                })
+            }
+
+            #[cfg(target_os = "windows")]
+            None
         })
 }
 
-pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<(), Box<dyn Error>> {
+pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<bool, Box<dyn Error>> {
     let mut steel_home = steel_home().expect("Unable to find STEEL_HOME");
 
     steel_home.push("native");
@@ -102,14 +125,23 @@ pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<(), Box
             .target
             .kind
             .iter()
-            .find(|x| x.as_str() == "cdylib")
+            .find(|x| **x == TargetKind::CDyLib)
             .is_some()
         {
             for file in last.filenames {
-                if matches!(file.extension(), Some("so") | Some("dylib") | Some("lib")) {
+                if file.extension() == Some(std::env::consts::DLL_EXTENSION) {
                     println!("Found a cdylib!");
-                    let filename = file.file_name().unwrap();
+                    let prefix = if cfg!(target_os = "windows") {
+                        "lib"
+                    } else {
+                        ""
+                    };
+                    // Replace all hyphens with lowercase in order to match the naming
+                    // conventions
+                    let filename =
+                        format!("{}{}", prefix, file.file_name().unwrap()).replace("-", "_");
 
+                    // If on windows, prefix with "lib" to match unix
                     steel_home.push(filename);
 
                     println!("Copying {} to {}", file, &steel_home.to_str().unwrap());
@@ -130,7 +162,7 @@ pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<(), Box
 
     println!("Done!");
 
-    command.wait().expect("Couldn't get cargo's exit status");
+    let exit_status = command.wait().expect("Couldn't get cargo's exit status");
 
-    Ok(())
+    Ok(exit_status.success())
 }

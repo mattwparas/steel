@@ -132,7 +132,7 @@ Reads bytes from an input port.
 ### **read-bytes-into-buf**
 Reads bytes from an input port into a given buffer.
 
-(read-bytes-into-buf buf amt [port]) -> bytes?
+(read-bytes-into-buf buf amt [port]) -> int?
 
 * buf : bytes?
 * amt : (and positive? int?)

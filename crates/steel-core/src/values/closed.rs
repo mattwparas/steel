@@ -6,14 +6,15 @@ use std::sync::Mutex;
 use crate::{
     compiler::map::SymbolMap,
     gc::{
-        shared::{MutContainer, ShareableMut, WeakShared},
-        GcMut, Shared, SharedMut,
+        shared::{MutContainer, ShareableMut, StandardShared, StandardSharedMut, WeakShared},
+        GcMut,
     },
     rvals::{OpaqueIterator, SteelComplex, SteelVector},
     steel_vm::vm::{Continuation, ContinuationMark, Synchronizer},
     values::lists::List,
 };
-use num::{BigInt, BigRational, Rational32};
+use num_bigint::BigInt;
+use num_rational::{BigRational, Rational32};
 
 #[cfg(feature = "sync")]
 use once_cell::sync::Lazy;
@@ -60,7 +61,7 @@ pub struct GlobalSlotRecycler {
 
 impl GlobalSlotRecycler {
     pub fn free_shadowed_rooted_values(
-        roots: &mut Vec<SteelVal>,
+        roots: &mut [SteelVal],
         symbol_map: &mut SymbolMap,
         heap: &mut Heap,
     ) {
@@ -72,12 +73,7 @@ impl GlobalSlotRecycler {
     // TODO:
     // Take the global roots, without the shadowed values, and iterate over them,
     // push the values back, visit, mark visited, move on.
-    pub fn recycle(
-        &mut self,
-        roots: &mut Vec<SteelVal>,
-        symbol_map: &mut SymbolMap,
-        heap: &mut Heap,
-    ) {
+    pub fn recycle(&mut self, roots: &mut [SteelVal], symbol_map: &mut SymbolMap, heap: &mut Heap) {
         self.slots.clear();
 
         // TODO: Right now, after one pass, we'll ignore it forever.
@@ -127,14 +123,12 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit(&mut self) -> Self::Output {
         use SteelVal::*;
 
-        let mut ret = self.default_output();
-
         while let Some(value) = self.pop_front() {
             if self.slots.is_empty() {
                 return;
             }
 
-            ret = match value {
+            match value {
                 Closure(c) => self.visit_closure(c),
                 BoolV(b) => self.visit_bool(b),
                 NumV(n) => self.visit_float(n),
@@ -174,8 +168,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                 ByteVector(b) => self.visit_bytevector(b),
             };
         }
-
-        ret
     }
 
     fn push_back(&mut self, value: SteelVal) {
@@ -195,7 +187,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
             | SteelVal::MutFunc(_)
             | SteelVal::BuiltIn(_)
             | SteelVal::ByteVector(_)
-            | SteelVal::BigNum(_) => return,
+            | SteelVal::BigNum(_) => {}
             _ => {
                 self.queue.push(value);
             }
@@ -515,8 +507,11 @@ impl SteelVal {
     }
 }
 
-type HeapValue = SharedMut<HeapAllocated<SteelVal>>;
-type HeapVector = SharedMut<HeapAllocated<Vec<SteelVal>>>;
+// type HeapValue = SharedMut<HeapAllocated<SteelVal>>;
+// type HeapVector = SharedMut<HeapAllocated<Vec<SteelVal>>>;
+
+type HeapValue = StandardSharedMut<HeapAllocated<SteelVal>>;
+type HeapVector = StandardSharedMut<HeapAllocated<Vec<SteelVal>>>;
 
 // Maybe uninitialized
 
@@ -538,15 +533,15 @@ impl FreeList {
 
         self.elements.reserve(Self::EXTEND_CHUNK);
         self.elements
-            .extend(std::iter::repeat(None).take(Self::EXTEND_CHUNK));
+            .extend(std::iter::repeat_n(None, Self::EXTEND_CHUNK));
     }
 
     fn allocate(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
         // Drain, moving values around...
         // is that expensive?
 
-        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(value)));
-        let weak_ptr = Shared::downgrade(&pointer);
+        let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(value)));
+        let weak_ptr = StandardShared::downgrade(&pointer);
 
         self.elements[self.cursor] = Some(pointer);
         self.alloc_count += 1;
@@ -587,7 +582,7 @@ impl FreeList {
     }
 
     fn weak_collection(&mut self) -> usize {
-        self.collect_on_condition(|inner| Shared::weak_count(inner) == 0)
+        self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0)
     }
 
     fn strong_collection(&mut self) -> usize {
@@ -680,8 +675,8 @@ impl Heap {
             false,
         );
 
-        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(value)));
-        let weak_ptr = Shared::downgrade(&pointer);
+        let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(value)));
+        let weak_ptr = StandardShared::downgrade(&pointer);
 
         self.memory.push(pointer);
 
@@ -689,8 +684,8 @@ impl Heap {
     }
 
     pub fn allocate_without_collection<'a>(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
-        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(value)));
-        let weak_ptr = Shared::downgrade(&pointer);
+        let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(value)));
+        let weak_ptr = StandardShared::downgrade(&pointer);
 
         self.memory.push(pointer);
 
@@ -718,8 +713,8 @@ impl Heap {
             false,
         );
 
-        let pointer = Shared::new(MutContainer::new(HeapAllocated::new(values)));
-        let weak_ptr = Shared::downgrade(&pointer);
+        let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(values)));
+        let weak_ptr = StandardShared::downgrade(&pointer);
 
         self.vectors.push(pointer);
 
@@ -732,8 +727,8 @@ impl Heap {
     }
 
     pub fn weak_collection(&mut self) {
-        self.memory.retain(|x| Shared::weak_count(x) > 0);
-        self.vectors.retain(|x| Shared::weak_count(x) > 0);
+        self.memory.retain(|x| StandardShared::weak_count(x) > 0);
+        self.vectors.retain(|x| StandardShared::weak_count(x) > 0);
     }
 
     // TODO: Call this in more areas in the VM to attempt to free memory more carefully
@@ -771,8 +766,8 @@ impl Heap {
                 log::debug!(target: "gc", "Small collection");
                 let prior_len = self.memory.len() + self.vector_cells_allocated();
                 log::debug!(target: "gc", "Previous length: {:?}", prior_len);
-                self.memory.retain(|x| Shared::weak_count(x) > 0);
-                self.vectors.retain(|x| Shared::weak_count(x) > 0);
+                self.memory.retain(|x| StandardShared::weak_count(x) > 0);
+                self.vectors.retain(|x| StandardShared::weak_count(x) > 0);
                 let after = self.memory.len() + self.vector_cells_allocated();
                 log::debug!(target: "gc", "Objects freed: {:?}", prior_len - after);
                 log::debug!(target: "gc", "Small collection time: {:?}", now.elapsed());
@@ -961,12 +956,18 @@ impl HeapAble for Vec<SteelVal> {}
 
 #[derive(Clone, Debug)]
 pub struct HeapRef<T: HeapAble> {
-    inner: WeakShared<MutContainer<HeapAllocated<T>>>,
+    pub(crate) inner: WeakShared<MutContainer<HeapAllocated<T>>>,
 }
 
 impl<T: HeapAble> HeapRef<T> {
     pub fn get(&self) -> T {
         self.inner.upgrade().unwrap().read().value.clone()
+    }
+
+    pub fn borrow<O>(&self, thunk: impl FnOnce(&T) -> O) -> O {
+        let value = self.inner.upgrade().unwrap();
+        let value = value.read();
+        thunk(&value.value)
     }
 
     pub fn as_ptr_usize(&self) -> usize {
@@ -998,7 +999,7 @@ impl<T: HeapAble> HeapRef<T> {
         ret
     }
 
-    pub(crate) fn strong_ptr(&self) -> SharedMut<HeapAllocated<T>> {
+    pub(crate) fn strong_ptr(&self) -> StandardSharedMut<HeapAllocated<T>> {
         self.inner.upgrade().unwrap()
     }
 
@@ -1053,7 +1054,10 @@ pub struct MarkAndSweepContext<'a> {
 }
 
 impl<'a> MarkAndSweepContext<'a> {
-    pub(crate) fn mark_heap_reference(&mut self, heap_ref: &SharedMut<HeapAllocated<SteelVal>>) {
+    pub(crate) fn mark_heap_reference(
+        &mut self,
+        heap_ref: &StandardSharedMut<HeapAllocated<SteelVal>>,
+    ) {
         if heap_ref.read().is_reachable() {
             return;
         }
@@ -1068,7 +1072,7 @@ impl<'a> MarkAndSweepContext<'a> {
     // Visit the heap vector, mark it as visited!
     pub(crate) fn mark_heap_vector(
         &mut self,
-        heap_vector: &SharedMut<HeapAllocated<Vec<SteelVal>>>,
+        heap_vector: &StandardSharedMut<HeapAllocated<Vec<SteelVal>>>,
     ) {
         if heap_vector.read().is_reachable() {
             return;

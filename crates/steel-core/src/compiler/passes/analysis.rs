@@ -5,6 +5,7 @@ use std::{
 
 use crate::{
     compiler::modules::{MANGLER_PREFIX, MODULE_PREFIX},
+    parser::ast::List,
     values::HashMap as ImmutableHashMap,
 };
 use quickscope::ScopeMap;
@@ -22,7 +23,7 @@ use crate::{
     },
     parser::{
         ast::{
-            Atom, Define, ExprKind, LambdaFunction, Let, List, Quote, STANDARD_MODULE_GET,
+            Atom, Define, ExprKind, LambdaFunction, Let, Quote, STANDARD_MODULE_GET,
             UNREADABLE_MODULE_GET,
         },
         expander::SteelMacro,
@@ -468,6 +469,14 @@ impl Analysis {
         }
 
         Some(id)
+    }
+
+    pub fn resolve_reference(&self, mut id: SyntaxObjectId) -> SyntaxObjectId {
+        while let Some(next) = self.info.get(&id).and_then(|x| x.refers_to) {
+            id = next;
+        }
+
+        id
     }
 
     pub fn visit_top_level_define_function_without_body(
@@ -2127,7 +2136,7 @@ pub fn query_top_level_define<A: AsRef<str>>(
         log::debug!(
             "Multiple defines found, unable to find one unique value to associate with a name"
         );
-        return None;
+        return found_defines.into_iter().last();
     }
 
     if found_defines.len() == 1 {
@@ -2172,7 +2181,7 @@ impl<'a, F> FindCallSiteById<'a, F> {
 
 impl<'a, F> VisitorMutRefUnit for FindCallSiteById<'a, F>
 where
-    F: FnMut(&Analysis, &mut crate::parser::ast::List) -> bool,
+    F: FnMut(&Analysis, &mut List) -> bool,
 {
     fn visit_list(&mut self, l: &mut List) {
         // Go downward and visit each of the arguments (including the function call)
@@ -2218,6 +2227,102 @@ where
     }
 }
 
+struct FindCallSitesMany<'a, F> {
+    analysis: &'a Analysis,
+    map: HashMap<InternedString, F>,
+}
+
+impl<'a, F> VisitorMutRefUnit for FindCallSitesMany<'a, F>
+where
+    F: FnMut(&Analysis, &mut List),
+{
+    fn visit_list(&mut self, l: &mut List) {
+        if let Some(name) = l.first_ident() {
+            if let Some(semantic_info) = self.analysis.get(l.args[0].atom_syntax_object().unwrap())
+            {
+                if semantic_info.kind == IdentifierStatus::Global {
+                    if let Some(func) = self.map.get_mut(name) {
+                        (func)(self.analysis, l);
+                    }
+                }
+            }
+
+            for arg in &mut l.args[1..] {
+                self.visit(arg);
+            }
+
+            return;
+        }
+
+        for arg in &mut l.args {
+            self.visit(arg);
+        }
+    }
+
+    // TODO: This shouldn't visit at all
+    #[inline]
+    fn visit_quote(&mut self, _quote: &mut Quote) {}
+}
+
+#[derive(Default)]
+struct FunctionSizeEstimator {
+    count: usize,
+    // Set up the name mapping for the syntax object ids
+    names: HashMap<InternedString, SyntaxObjectId>,
+    map: HashMap<SyntaxObjectId, usize>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for FunctionSizeEstimator {
+    fn visit(&mut self, expr: &ExprKind) {
+        self.count += 1;
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
+    }
+
+    #[inline]
+    fn visit_define(&mut self, define: &Define) {
+        if let ExprKind::LambdaFunction(l) = &define.body {
+            if let Some(name) = define.name.atom_identifier() {
+                self.names.insert(*name, SyntaxObjectId(l.syntax_object_id));
+            }
+        }
+
+        self.visit(&define.name);
+        self.visit(&define.body);
+    }
+
+    #[inline]
+    fn visit_lambda_function(&mut self, lambda_function: &LambdaFunction) {
+        let current_count = self.count;
+
+        self.count = 0;
+
+        for var in &lambda_function.args {
+            self.visit(var);
+        }
+        self.visit(&lambda_function.body);
+
+        self.map
+            .insert(SyntaxObjectId(lambda_function.syntax_object_id), self.count);
+
+        self.count = current_count;
+    }
+}
+
 struct FindCallSites<'a, F> {
     name: &'a str,
     analysis: &'a Analysis,
@@ -2249,9 +2354,9 @@ impl<'a, F> FindCallSites<'a, F> {
 
 impl<'a, F> VisitorMutUnitRef<'a> for FindCallSites<'a, F>
 where
-    F: FnMut(&Analysis, &crate::parser::ast::List),
+    F: FnMut(&Analysis, &List),
 {
-    fn visit_list(&mut self, l: &'a crate::parser::ast::List) {
+    fn visit_list(&mut self, l: &'a List) {
         if self.is_required_global_function_call(l) {
             (self.func)(self.analysis, l)
         }
@@ -2264,9 +2369,9 @@ where
 
 impl<'a, F> VisitorMutRefUnit for FindCallSites<'a, F>
 where
-    F: FnMut(&Analysis, &mut crate::parser::ast::List),
+    F: FnMut(&Analysis, &mut List),
 {
-    fn visit_list(&mut self, l: &mut crate::parser::ast::List) {
+    fn visit_list(&mut self, l: &mut List) {
         if self.is_required_global_function_call(l) {
             (self.func)(self.analysis, l)
         }
@@ -2282,6 +2387,30 @@ struct RefreshVars;
 impl VisitorMutRefUnit for RefreshVars {
     fn visit_atom(&mut self, a: &mut Atom) {
         a.syn.syntax_object_id = SyntaxObjectId::fresh();
+    }
+
+    fn visit_list(&mut self, l: &mut List) {
+        l.syntax_object_id = SyntaxObjectId::fresh().into();
+        for expr in &mut l.args {
+            self.visit(expr);
+        }
+    }
+
+    fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) {
+        lambda_function.syntax_object_id = SyntaxObjectId::fresh().into();
+        for var in &mut lambda_function.args {
+            self.visit(var);
+        }
+        self.visit(&mut lambda_function.body);
+    }
+
+    fn visit_let(&mut self, l: &mut Let) {
+        l.syntax_object_id = SyntaxObjectId::fresh().into();
+        l.bindings.iter_mut().for_each(|x| {
+            self.visit(&mut x.0);
+            self.visit(&mut x.1)
+        });
+        self.visit(&mut l.body_expr);
     }
 }
 
@@ -2453,6 +2582,8 @@ where
             ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
+
+    fn visit_quote(&mut self, _quote: &mut Quote) {}
 }
 
 struct RemoveUnusedDefineImports<'a> {
@@ -2497,6 +2628,24 @@ pub(crate) fn is_a_require_definition(def: &Define) -> bool {
     }
 
     false
+}
+
+#[inline(always)]
+pub(crate) fn require_defitinion_to_original_symbol(def: &Define) -> Option<InternedString> {
+    if let ExprKind::List(l) = &def.body {
+        match l.first_ident() {
+            Some(func) if *func == *PROTO_HASH_GET => {
+                if let Some(ExprKind::Quote(q)) = l.get(2) {
+                    return q.expr.atom_identifier().copied();
+                } else {
+                    return None;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
 }
 
 impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
@@ -2589,6 +2738,7 @@ impl<'a> VisitorMutRefUnit for RemovedUnusedImports<'a> {
                                         _ => false,
                                     },
                                     NumberLiteral::Complex(_, _) => false,
+                                    NumberLiteral::Polar(_, _) => false,
                                 },
                                 _ => false,
                             },
@@ -2755,21 +2905,6 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
         self.visit(&lambda_function.body);
     }
 }
-
-/// Takes functions that have one argument that is used one time, and inline the function
-/// body and replace the call site.
-// struct InlineFunctionsWithArgumentsUsedOnce<'a> {
-//     analysis: &'a Analysis,
-//     functions_to_inline: FxHashMap<InternedString, ExprKind>,
-// }
-
-// struct FunctionInliner {
-//     variable_to_substitute: ExprKind,
-// }
-
-// impl FunctionInliner {
-
-// }
 
 // TODO: If its _not_ a pure function, we need to both assert that the function
 // does not escape, and then find the captured arguments, assert that those also
@@ -3264,8 +3399,9 @@ impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
     fn visit_atom(&mut self, a: &'a Atom) {
         // println!("collect references: {}", a);
         if let TokenType::Identifier(ident) = a.syn.ty {
+            // TODO: Figure out a better way to do this. Perhaps have 2 different interned
+            // string namespaces? That way we don't have to mangle the strings?
             if ident.resolve().starts_with(MANGLER_PREFIX) {
-                // println!("Adding: {}", ident.resolve());
                 self.idents.insert(ident);
             }
         }
@@ -3282,6 +3418,8 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
     fn visit_define(&mut self, define: &mut Define) {
         self.visit(&mut define.body);
     }
+
+    fn visit_quote(&mut self, _: &mut Quote) {}
 
     fn visit_atom(&mut self, a: &mut Atom) {
         if let Some(info) = self.analysis.get(&a.syn) {
@@ -3435,6 +3573,44 @@ impl<'a> VisitorMutControlFlow for ExprContainsIds<'a> {
         }
 
         std::ops::ControlFlow::Continue(())
+    }
+}
+
+struct FlattenEmptyLets;
+
+impl FlattenEmptyLets {
+    pub fn flatten(exprs: &mut Vec<ExprKind>) {
+        for expr in exprs {
+            Self.visit(expr);
+        }
+    }
+}
+
+impl VisitorMutRefUnit for FlattenEmptyLets {
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => {
+                if l.bindings.is_empty() {
+                    *expr = std::mem::replace(&mut l.body_expr, ExprKind::empty());
+                    self.visit(expr)
+                } else {
+                    self.visit(&mut l.body_expr)
+                }
+            }
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
     }
 }
 
@@ -3676,10 +3852,16 @@ pub struct SemanticAnalysis<'a> {
     pub analysis: Analysis,
 }
 
+#[derive(Debug)]
 pub enum RequiredIdentifierInformation<'a> {
-    Resolved(&'a SemanticInformation),
+    Resolved(
+        &'a SemanticInformation,
+        InternedString,
+        String,
+        Option<InternedString>,
+    ),
     // Raw Identifier, Full path
-    Unresolved(InternedString, String),
+    Unresolved(InternedString, String, Option<InternedString>),
 }
 
 impl<'a> SemanticAnalysis<'a> {
@@ -3735,14 +3917,22 @@ impl<'a> SemanticAnalysis<'a> {
 
                         match top_level_define {
                             Some(top_level_define) => {
-                                return self
-                                    .get_identifier(top_level_define.name_id()?)
-                                    .map(RequiredIdentifierInformation::Resolved);
+                                let name = *d.name.atom_identifier()?;
+
+                                return self.get_identifier(top_level_define.name_id()?).map(|x| {
+                                    RequiredIdentifierInformation::Resolved(
+                                        x,
+                                        name,
+                                        prefix,
+                                        require_defitinion_to_original_symbol(&d),
+                                    )
+                                });
                             }
                             None => {
                                 return Some(RequiredIdentifierInformation::Unresolved(
                                     *d.name.atom_identifier()?,
                                     prefix,
+                                    require_defitinion_to_original_symbol(&d),
                                 ))
                             }
                         }
@@ -3766,14 +3956,23 @@ impl<'a> SemanticAnalysis<'a> {
 
                                 match top_level_define {
                                     Some(top_level_define) => {
+                                        let name = *d.name.atom_identifier()?;
                                         return self
                                             .get_identifier(top_level_define.name_id()?)
-                                            .map(RequiredIdentifierInformation::Resolved);
+                                            .map(|x| {
+                                                RequiredIdentifierInformation::Resolved(
+                                                    x,
+                                                    name,
+                                                    prefix,
+                                                    require_defitinion_to_original_symbol(&d),
+                                                )
+                                            });
                                     }
                                     None => {
                                         return Some(RequiredIdentifierInformation::Unresolved(
                                             *d.name.atom_identifier()?,
                                             prefix,
+                                            require_defitinion_to_original_symbol(&d),
                                         ))
                                     }
                                 }
@@ -3811,10 +4010,13 @@ impl<'a> SemanticAnalysis<'a> {
 
                 match top_level_define {
                     Some(top_level_define) => {
+                        let name = *d.name.atom_identifier()?;
+
                         results.push((
                             d.name_id()?,
-                            self.get_identifier(top_level_define.name_id()?)
-                                .map(RequiredIdentifierInformation::Resolved)?,
+                            self.get_identifier(top_level_define.name_id()?).map(|x| {
+                                RequiredIdentifierInformation::Resolved(x, name, prefix, None)
+                            })?,
                         ));
                     }
                     None => {
@@ -3823,6 +4025,7 @@ impl<'a> SemanticAnalysis<'a> {
                             RequiredIdentifierInformation::Unresolved(
                                 *d.name.atom_identifier()?,
                                 prefix,
+                                None,
                             ),
                         ));
                     }
@@ -3858,22 +4061,115 @@ impl<'a> SemanticAnalysis<'a> {
         query_top_level_define(self.exprs, name)
     }
 
+    pub fn inline_function_calls(&mut self, size: Option<usize>) -> Result<(), SteelErr> {
+        let estimator = self.calculate_function_sizes();
+        let threshold = size.unwrap_or(50);
+
+        // Only do this for functions in which the arity is exactly known
+        let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
+
+        // Only inline forwards, as to not run in to any issues with visibility
+        for expr in self.exprs.iter() {
+            match expr {
+                ExprKind::Define(d) => {
+                    let name = if let Some(name) = d.name.atom_syntax_object() {
+                        name
+                    } else {
+                        continue;
+                    };
+
+                    if let Some(analysis) = self.analysis.get(name) {
+                        if analysis.set_bang {
+                            continue;
+                        }
+                    }
+
+                    if let ExprKind::LambdaFunction(l) = &d.body {
+                        if let Some(count) = estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
+                        {
+                            if *count < threshold {
+                                let original_id = l.syntax_object_id;
+                                let l = l.clone();
+                                funcs.insert(
+                                    *d.name.atom_identifier().unwrap(),
+                                    Box::new(move |_: &Analysis, lst: &mut List| {
+                                        if lst.syntax_object_id > original_id {
+                                            lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                                        }
+                                    }),
+                                );
+                            }
+                        }
+                    }
+                }
+
+                ExprKind::Begin(b) => {
+                    for expr in b.exprs.iter() {
+                        if let ExprKind::Define(d) = expr {
+                            let name = if let Some(name) = d.name.atom_syntax_object() {
+                                name
+                            } else {
+                                continue;
+                            };
+
+                            if let Some(analysis) = self.analysis.get(name) {
+                                if analysis.set_bang {
+                                    continue;
+                                }
+                            }
+
+                            if let ExprKind::LambdaFunction(l) = &d.body {
+                                if let Some(count) =
+                                    estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
+                                {
+                                    if *count < threshold {
+                                        let original_id = l.syntax_object_id;
+                                        let l = l.clone();
+                                        funcs.insert(
+                                            *d.name.atom_identifier().unwrap(),
+                                            Box::new(move |_: &Analysis, lst: &mut List| {
+                                                if lst.syntax_object_id > original_id {
+                                                    // println!("Inlining: {} @ {}", l, lst);
+                                                    lst.args[0] =
+                                                        ExprKind::LambdaFunction(l.clone());
+                                                }
+                                            }),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                _ => {}
+            }
+        }
+
+        self.find_call_sites_and_modify_with_many(funcs);
+
+        Ok(())
+    }
+
     // Takes the function call, and inlines it at the call sites. In theory, with constant evaluation and
     // dead code elimination, this should help streamline some of the more complex cases. This is also just a start.
     pub fn inline_function_call<A: AsRef<str>>(&mut self, name: A) -> Result<(), SteelErr> {
         // TODO: Cloning here is expensive. We should strive to make these trees somehow share the nodes a bit more elegantly.
         // As it stands, each time we close a syntax tree, we're going to do a deep clone of the whole thing, which we really don't
         // want to do.
-        let top_level_define_body = self.query_top_level_define(name.as_ref()).ok_or_else(
-            throw!(TypeMismatch => format!("Cannot inline free identifier!: {}", name.as_ref())),
-        )?.body.lambda_function().ok_or_else(throw!(TypeMismatch => format!("Cannot inline non function for: {}", name.as_ref())))?.clone();
+        let top_level_define_body = self
+            .query_top_level_define(name.as_ref())
+            .ok_or_else(throw!(TypeMismatch => format!("Cannot inline
+                free identifier!: {}", name.as_ref())))?
+            .body
+            .lambda_function()
+            .ok_or_else(throw!(TypeMismatch => format!("Cannot inline
+            non function for: {}", name.as_ref())))?
+            .clone();
 
-        self.find_call_sites_and_modify_with(
-            name.as_ref(),
-            |_: &Analysis, lst: &mut crate::parser::ast::List| {
-                lst.args[0] = ExprKind::LambdaFunction(Box::new(top_level_define_body.clone()));
-            },
-        );
+        self.find_call_sites_and_modify_with(name.as_ref(), |_: &Analysis, lst: &mut List| {
+            lst.args[0] = ExprKind::LambdaFunction(Box::new(top_level_define_body.clone()));
+        });
 
         Ok(())
     }
@@ -3986,7 +4282,7 @@ impl<'a> SemanticAnalysis<'a> {
             }
         }
 
-        for module in module_manager.modules_mut() {
+        for module in module_manager.modules_mut().iter_mut() {
             for steel_macro in std::sync::Arc::make_mut(&mut module.1.macro_map).values_mut() {
                 if !steel_macro.is_mangled() {
                     for expr in steel_macro.exprs_mut() {
@@ -4203,19 +4499,17 @@ impl<'a> SemanticAnalysis<'a> {
                                     }
                                 }
                             }
-                        } else {
-                            if let ExprKind::List(l) = expression {
-                                if let Some(func) = l.first_ident() {
-                                    if *func == module_get_interned {
-                                        if l[1].atom_identifier() == Some(&steel_constant_module) {
-                                            if let ExprKind::Quote(q) = &l[2] {
-                                                if q.expr.atom_identifier() == Some(&void)
-                                                    && offset < total_length
-                                                {
-                                                    offset += 1;
-                                                    return false;
-                                                }
-                                            }
+                        } else if let ExprKind::List(l) = expression {
+                            if let Some(func) = l.first_ident() {
+                                if *func == module_get_interned
+                                    && l[1].atom_identifier() == Some(&steel_constant_module)
+                                {
+                                    if let ExprKind::Quote(q) = &l[2] {
+                                        if q.expr.atom_identifier() == Some(&void)
+                                            && offset < total_length
+                                        {
+                                            offset += 1;
+                                            return false;
                                         }
                                     }
                                 }
@@ -4393,7 +4687,11 @@ impl<'a> SemanticAnalysis<'a> {
                     if f.rest {
                         return false;
                     }
+                } else {
+                    return false;
                 }
+
+                // println!("Going to replace: {}", l);
 
                 let function = l.args.remove(0);
 
@@ -4412,6 +4710,8 @@ impl<'a> SemanticAnalysis<'a> {
                     );
 
                     *anon = ExprKind::Let(let_expr.into());
+
+                    // println!("REPLACED: {}", anon);
 
                     re_run_analysis = true;
                     // log::debug!("Replaced anonymous function call with let");
@@ -4467,7 +4767,7 @@ impl<'a> SemanticAnalysis<'a> {
     // on the node
     pub fn find_call_sites_and_call<F>(&self, name: &str, func: F)
     where
-        F: FnMut(&Analysis, &crate::parser::ast::List),
+        F: FnMut(&Analysis, &List),
     {
         let mut find_call_sites = FindCallSites::new(name, &self.analysis, func);
 
@@ -4476,11 +4776,34 @@ impl<'a> SemanticAnalysis<'a> {
         }
     }
 
+    fn calculate_function_sizes(&mut self) -> FunctionSizeEstimator {
+        let mut estimator = FunctionSizeEstimator::default();
+        for expr in self.exprs.iter() {
+            estimator.visit(expr);
+        }
+
+        estimator
+    }
+
+    pub fn find_call_sites_and_modify_with_many<F>(&mut self, mapping: HashMap<InternedString, F>)
+    where
+        F: FnMut(&Analysis, &mut List),
+    {
+        let mut find_call_sites = FindCallSitesMany {
+            analysis: &self.analysis,
+            map: mapping,
+        };
+
+        for expr in self.exprs.iter_mut() {
+            find_call_sites.visit(expr);
+        }
+    }
+
     // Locate the call sites of the given global function, and calls the given function
     // on the node
     pub fn find_call_sites_and_modify_with<F>(&mut self, name: &str, func: F)
     where
-        F: FnMut(&Analysis, &mut crate::parser::ast::List),
+        F: FnMut(&Analysis, &mut List),
     {
         let mut find_call_sites = FindCallSites::new(name, &self.analysis, func);
 
@@ -4664,6 +4987,12 @@ impl<'a> SemanticAnalysis<'a> {
                     let name = d.name.atom_identifier().unwrap();
 
                     if non_builtin_definitions.contains(name) {
+                        let name = if name.resolve().starts_with(MANGLER_PREFIX) {
+                            name.resolve().split_once(MANGLER_SEPARATOR).unwrap().1
+                        } else {
+                            name.resolve()
+                        };
+
                         stop!(BadSyntax => format!("Variable re defined within the top level definition: {}", name); d.location.span);
                     }
 
@@ -4679,6 +5008,12 @@ impl<'a> SemanticAnalysis<'a> {
                             let name = d.name.atom_identifier().unwrap();
 
                             if non_builtin_definitions.contains(name) {
+                                let name = if name.resolve().starts_with(MANGLER_PREFIX) {
+                                    name.resolve().split_once(MANGLER_SEPARATOR).unwrap().1
+                                } else {
+                                    name.resolve()
+                                };
+
                                 stop!(BadSyntax => format!("Variable re defined within the top level definition: {}", name); d.location.span);
                             }
 
@@ -4818,8 +5153,16 @@ impl<'a> SemanticAnalysis<'a> {
         self.analysis.resolve_alias(id)
     }
 
+    pub fn resolve_reference(&self, id: SyntaxObjectId) -> SyntaxObjectId {
+        self.analysis.resolve_reference(id)
+    }
+
     pub fn flatten_anonymous_functions(&mut self) {
         FlattenAnonymousFunctionCalls::flatten(&self.analysis, self.exprs);
+    }
+
+    pub fn flatten_empty_lets(&mut self) {
+        FlattenEmptyLets::flatten(self.exprs)
     }
 
     pub fn remove_unused_imports(&mut self) {
@@ -4851,13 +5194,13 @@ mod analysis_pass_tests {
     fn test_unused_arguments() {
         let script = r#"
 
-(define ##lambda-lifting##loop119067
+(define lambda-lifting##loop119067
   (λ (port sum)
     (%plain-let
      ((next-line (read-line-from-port port)))
      (if (equal? (quote eof) next-line)
          sum
-         (##lambda-lifting##loop119067
+         (lambda-lifting##loop119067
           port
           (+ sum
              (%plain-let ((digits (filter char-digit? next-line)))
@@ -4865,27 +5208,27 @@ mod analysis_pass_tests {
                                      (string->number (list->string (list first-digit
                                                                          second-digit)))))))))))
 
-(define ##lambda-lifting##trie-contains-inner?119977
+(define lambda-lifting##trie-contains-inner?119977
   (λ (node char-list)
     (if (empty? char-list)
         #true
         (if (char=? (trie-char node) (car char-list))
             (%plain-let ((children-matched
                           (map (λ (node4)
-                                 (##lambda-lifting##trie-contains-inner?119977 node4 (cdr char-list)))
+                                 (lambda-lifting##trie-contains-inner?119977 node4 (cdr char-list)))
                                (trie-children node))))
                         (if (empty? children-matched) #true (list? (member #true children-matched))))
             #false))))
 
-(define ##lambda-lifting##loop120600
+(define lambda-lifting##loop120600
   (λ (port sum)
     (%plain-let ((next-line (read-line-from-port port)))
                 (if (equal? (quote eof) next-line)
                     sum
-                    (##lambda-lifting##loop120600 port (+ sum (process-line next-line)))))))
+                    (lambda-lifting##loop120600 port (+ sum (process-line next-line)))))))
 
 (define scan
-  (λ (path) (%plain-let ((file (open-input-file path))) (##lambda-lifting##loop119067 file 0))))
+  (λ (path) (%plain-let ((file (open-input-file path))) (lambda-lifting##loop119067 file 0))))
 
 (displayln (scan "aoc/day1.data"))
 
@@ -5051,7 +5394,7 @@ mod analysis_pass_tests {
      ((root-word-char-list (if (string? word) (string->list word) word)))
      (list? (member #true
                     (map (λ (node)
-                           (##lambda-lifting##trie-contains-inner?119977 node root-word-char-list))
+                           (lambda-lifting##trie-contains-inner?119977 node root-word-char-list))
                          (trie-children root)))))))
 
 (define my-trie
@@ -5102,7 +5445,7 @@ mod analysis_pass_tests {
                 (string->number (apply string-append (list (first result) (last result)))))))
 
 (define scan2
-  (λ (path) (%plain-let ((file (open-input-file path))) (##lambda-lifting##loop120600 file 0))))
+  (λ (path) (%plain-let ((file (open-input-file path))) (lambda-lifting##loop120600 file 0))))
 
 (displayln (scan2 "aoc/day1.data"))
         "#;
@@ -5220,7 +5563,7 @@ mod analysis_pass_tests {
                        value)))
                 void))))
 
-(define ##lambda-lifting##loop118915
+(define lambda-lifting##loop118915
   (λ (mutable-cons3 builder)
     (if (not
          (mcons?
@@ -5234,7 +5577,7 @@ mod analysis_pass_tests {
                     (simple-displayln result)
                     result))))
       (#%prim.cons (mcons-mcar mutable-cons3) builder)
-      (##lambda-lifting##loop118915
+      (lambda-lifting##loop118915
          (mcons-mcdr mutable-cons3)
          (#%prim.cons
             (mcons-mcar mutable-cons3)
@@ -5249,7 +5592,7 @@ mod analysis_pass_tests {
 (define mcons->list
   (λ (mutable-cons)
     (reverse
-       (##lambda-lifting##loop118915
+       (lambda-lifting##loop118915
           mutable-cons
           (quote
             ())))))
@@ -5314,6 +5657,28 @@ mod analysis_pass_tests {
                 var.span,
             );
         }
+    }
+
+    #[test]
+    fn inline_recursive_function_once() {
+        let script = r#"
+
+(define (fib n)
+  (if (<= n 2)
+      1
+      (+ (fib (- n 1)) (fib (- n 2)))))
+
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let mut analysis = SemanticAnalysis::new(&mut exprs);
+        analysis.populate_captures();
+
+        // Inline top level definition -> naively just replace the value with the updated value
+        // This should allow constant propagation to take place. TODO: Log optimization misses
+        analysis.inline_function_call("fib").unwrap();
+
+        analysis.exprs.pretty_print();
     }
 
     #[test]
@@ -5508,18 +5873,18 @@ mod analysis_pass_tests {
         let script = r#"
 (define loop
   (λ ()
-    (%plain-let ((##captured3 123) (##foo3 123))
-      (%plain-let ((####captured34 (#%box ##captured3))
-          (####foo34 (#%box ##foo3)))
-        (%plain-let ((##_____captured04 (list))
-            (##_____foo14 (λ ()
+    (%plain-let ((captured3 123) (foo3 123))
+      (%plain-let ((captured34 (#%box captured3))
+          (foo34 (#%box foo3)))
+        (%plain-let ((_____captured04 (list))
+            (_____foo14 (λ ()
               (begin
-               (cons 10 (#%unbox ####captured34))
-                    ((#%unbox ####foo34))))))
+               (cons 10 (#%unbox captured34))
+                    ((#%unbox foo34))))))
           (begin
-           (#%set-box! ####captured34 ##_____captured04)
-                (#%set-box! ####foo34 ##_____foo14)
-                ((#%unbox ####foo34))))))))
+           (#%set-box! captured34 _____captured04)
+                (#%set-box! foo34 _____foo14)
+                ((#%unbox foo34))))))))
         "#;
 
         let mut exprs = Parser::parse(script).unwrap();
@@ -5741,6 +6106,35 @@ mod analysis_pass_tests {
             let found = analysis.resolve_alias(alias_list_4_id);
 
             assert_eq!(list_id, found.unwrap());
+        }
+    }
+
+    #[test]
+    fn resolve_reference() {
+        let script = r#"
+            (define (double number)
+                (+ number number))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let analysis = SemanticAnalysis::new(&mut exprs);
+
+        let identifiers = analysis
+            .analysis
+            .identifier_info()
+            .iter()
+            .filter(|(_, semantic_info)| semantic_info.kind == IdentifierStatus::Local)
+            .map(|(id, _)| analysis.resolve_reference(*id))
+            .collect::<Vec<_>>();
+
+        assert_eq!(identifiers.len(), 3);
+
+        for window in identifiers.windows(2) {
+            let [left, right] = window else {
+                unreachable!()
+            };
+
+            assert_eq!(left, right);
         }
     }
 

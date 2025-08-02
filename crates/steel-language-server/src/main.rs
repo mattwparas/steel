@@ -75,6 +75,7 @@ async fn main() {
     let (service, socket) = LspService::build(|client| Backend {
         client,
         ast_map: DashMap::new(),
+        lowered_ast_map: DashMap::new(),
         document_map: DashMap::new(),
         _macro_map: DashMap::new(),
         globals_set,

@@ -6,11 +6,139 @@ extern crate quote;
 use std::collections::HashMap;
 
 use proc_macro::TokenStream;
+use proc_macro2::Group;
 use quote::{quote, ToTokens};
 use syn::{
-    punctuated::Punctuated, spanned::Spanned, Attribute, Data, DeriveInput, Expr, ExprGroup,
-    ExprLit, FnArg, Ident, ItemFn, Lit, LitStr, Meta, ReturnType, Signature, Type, TypeReference,
+    punctuated::Punctuated, spanned::Spanned, token::Comma, Attribute, Data, DeriveInput, Expr,
+    ExprGroup, ExprLit, FnArg, Ident, ItemFn, Lit, LitStr, Meta, Pat, ReturnType, Signature, Type,
+    TypeReference,
 };
+
+#[proc_macro]
+pub fn steel_quote(input: TokenStream) -> TokenStream {
+    let token_iter = proc_macro2::TokenStream::from(input).into_iter();
+
+    let mut identifiers: Vec<Ident> = Vec::new();
+    let mut list_identifiers: Vec<Ident> = Vec::new();
+    let mut tokens: Vec<proc_macro2::TokenTree> = Vec::new();
+
+    walk(
+        token_iter,
+        &mut list_identifiers,
+        &mut identifiers,
+        &mut tokens,
+    );
+
+    let original = proc_macro2::TokenStream::from_iter(tokens.into_iter()).to_string();
+
+    let identifier_str: Vec<String> = identifiers.iter().map(|x| x.to_string()).collect();
+
+    let list_identifiers_str: Vec<String> =
+        list_identifiers.iter().map(|x| x.to_string()).collect();
+
+    quote! {
+        ::steel::parser::replace_idents::expand_template_pair(
+            steel::::parser::parser::Parser::parse(#original).unwrap(),
+            vec![
+                #(
+                    (#identifier_str.into(), (::steel::parser::expander::BindingKind::Single, #identifiers)),
+                )*
+
+                #(
+                   (#list_identifiers_str.into(), (::steel::parser::expander::BindingKind::Many, #list_identifiers)),
+                )*
+            ]
+        )
+
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn internal_steel_quote(input: TokenStream) -> TokenStream {
+    let token_iter = proc_macro2::TokenStream::from(input).into_iter();
+
+    let mut identifiers: Vec<Ident> = Vec::new();
+    let mut list_identifiers: Vec<Ident> = Vec::new();
+    let mut tokens: Vec<proc_macro2::TokenTree> = Vec::new();
+
+    walk(
+        token_iter,
+        &mut list_identifiers,
+        &mut identifiers,
+        &mut tokens,
+    );
+
+    let original = proc_macro2::TokenStream::from_iter(tokens.into_iter()).to_string();
+
+    let identifier_str: Vec<String> = identifiers.iter().map(|x| x.to_string()).collect();
+
+    let list_identifiers_str: Vec<String> =
+        list_identifiers.iter().map(|x| x.to_string()).collect();
+
+    quote! {
+        crate::parser::replace_idents::expand_template_pair(
+            crate::parser::parser::Parser::parse(#original).unwrap(),
+            vec![
+                #(
+                    (#identifier_str.into(), (crate::parser::expander::BindingKind::Single, #identifiers)),
+                )*
+
+                #(
+                   (#list_identifiers_str.into(), (crate::parser::expander::BindingKind::Many, #list_identifiers)),
+                )*
+            ]
+        )
+
+    }
+    .into()
+}
+
+fn walk(
+    mut token_iter: proc_macro2::token_stream::IntoIter,
+    list_identifiers: &mut Vec<Ident>,
+    identifiers: &mut Vec<Ident>,
+    tokens: &mut Vec<proc_macro2::TokenTree>,
+) {
+    while let Some(next) = token_iter.next() {
+        match &next {
+            proc_macro2::TokenTree::Group(g) => {
+                let mut child = Vec::new();
+
+                walk(
+                    g.stream().into_iter(),
+                    list_identifiers,
+                    identifiers,
+                    &mut child,
+                );
+
+                tokens.push(proc_macro2::TokenTree::Group(Group::new(
+                    g.delimiter(),
+                    proc_macro2::TokenStream::from_iter(child.into_iter()),
+                )));
+            }
+            proc_macro2::TokenTree::Punct(p) if p.as_char() == '@' => {
+                if let Some(proc_macro2::TokenTree::Ident(next_ident)) = token_iter.next() {
+                    list_identifiers.push(next_ident.clone());
+                    tokens.push(proc_macro2::TokenTree::Ident(next_ident));
+                } else {
+                    panic!();
+                };
+            }
+            proc_macro2::TokenTree::Punct(p) if p.as_char() == '#' => {
+                if let Some(proc_macro2::TokenTree::Ident(next_ident)) = token_iter.next() {
+                    identifiers.push(next_ident.clone());
+                    tokens.push(proc_macro2::TokenTree::Ident(next_ident));
+                } else {
+                    panic!();
+                };
+            }
+            _ => {
+                tokens.push(next);
+            }
+        }
+    }
+}
 
 fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> TokenStream {
     let name = &input.ident;
@@ -57,7 +185,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                                 values.push(quote! {
                                     |value: &#name| {
                                         use #prefix::rvals::IntoSteelVal;
-                                        &value.#field_name.clone().into_steelval()
+                                        value.#field_name.clone().into_steelval()
                                     }
                                 });
                             }
@@ -89,7 +217,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                             values.push(quote! {
                                 |value: &#name| {
                                     use #prefix::rvals::IntoSteelVal;
-                                    &value.#index.clone().into_steelval()
+                                    value.#index.clone().into_steelval()
                                 }
                             });
                         }
@@ -128,6 +256,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                     #[doc = "Registers the struct functions with this module"]
                     fn register_type(module: &mut #prefix::steel_vm::builtin::BuiltInModule) ->
                         &mut #prefix::steel_vm::builtin::BuiltInModule {
+                        use #prefix::steel_vm::register_fn::RegisterFn;
                         #(
                             module.register_fn(#names, #values);
                         )*
@@ -330,6 +459,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                     #[doc = "Registers the enum variant functions with this module"]
                     fn register_enum_variants(module: &mut #prefix::steel_vm::builtin::BuiltInModule) ->
                         &mut #prefix::steel_vm::builtin::BuiltInModule {
+                        use #prefix::steel_vm::register_fn::RegisterFn;
                         #(
                             module.register_fn(#names, #values);
                         )*
@@ -585,18 +715,128 @@ pub fn define_module(
     }
 }
 
-#[proc_macro_attribute]
-pub fn native(
-    args: proc_macro::TokenStream,
-    input: proc_macro::TokenStream,
-) -> proc_macro::TokenStream {
-    let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
+fn arity_code_injection(
+    input: &ItemFn,
+    args: &Punctuated<Meta, Comma>,
+    is_context_function: bool,
+) -> ItemFn {
+    let keyword_map = parse_key_value_pairs(args);
 
+    let arity_number = keyword_map
+        .get("arity")
+        .expect("native definition requires an arity");
+
+    let func_name = input.sig.ident.to_string();
+
+    //Context functions have 'ctx' as the first argument, so we get the second one for them
+    let sig_inputs = if is_context_function {
+        input.sig.inputs.get(1)
+    } else {
+        input.sig.inputs.first()
+    };
+
+    //This is to account for the parameter sometimes being "args", other times "values"
+    let parameter_name = if let FnArg::Typed(pat_type) = sig_inputs.unwrap() {
+        let pat_type = pat_type.clone();
+        if let Pat::Ident(ident) = *pat_type.pat {
+            ident.ident
+        } else {
+            panic!("Could not extract parameter name")
+        }
+    } else {
+        panic!("Could not extract parameter name")
+    };
+
+    // This function extracts the Arity type and integer values
+    let (name, numb, end_numb) = arity_number
+        .strip_suffix(')')
+        .and_then(|stripped| stripped.split_once('('))
+        .map(|(name, rest)| {
+            if let Some((start, end)) = rest.split_once(',') {
+                // Handle Range(start, end)
+                let start = start
+                    .parse::<usize>()
+                    .expect("Arity start value must be an integer");
+                let end = end
+                    .parse::<usize>()
+                    .expect("Arity end value must be an integer");
+                (name, start, end)
+            } else {
+                // Handle AtLeast(n) or single-value cases
+                let num = rest
+                    .parse::<usize>()
+                    .expect("Arity value must be an integer");
+                (name, num, 0)
+            }
+        })
+        .expect("Arity header is wrongly formatted");
+
+    //Context functions return values wrapped in Option, so we must use builtin_stop for them
+    let stop_type = if is_context_function {
+        quote! {crate::builtin_stop!}
+    } else {
+        quote! {stop!}
+    };
+
+    //Determines which line of code to inject into the beginning of the function as an Arity check
+    let injected_code = match name {
+        "AtLeast" => {
+            // If AtLeast = 0 , then do not perform arity check, since any amount is valid
+            if numb == 0 {
+                quote! {{}}
+            } else {
+                quote! {
+                    if #parameter_name.len() < #numb {
+                        #stop_type(ArityMismatch => "{} expects at least {} arguments, found: {}", #func_name, #numb, #parameter_name.len());
+                    }
+                }
+            }
+        }
+
+        "AtMost" => quote! {
+            if #parameter_name.len() > #numb {
+                   #stop_type(ArityMismatch => "{} expects at most {} arguments, found: {}",#func_name, #numb ,#parameter_name.len());
+               }
+        },
+
+        "Exact" => quote! {
+            if #parameter_name.len() != #numb {
+                   #stop_type(ArityMismatch => "{} expects exactly {} arguments, found: {}",#func_name, #numb ,#parameter_name.len());
+               }
+        },
+        "Range" => quote! {
+            if (#parameter_name.len() < #numb) || (#parameter_name.len() > #end_numb) {
+                   #stop_type(ArityMismatch => "{} expects {} to {} arguments, found: {}",#func_name, #numb , #end_numb ,#parameter_name.len());
+               }
+        },
+
+        _ => panic!("Unsupported Arity Type"),
+    };
+    // Inject the new statements at the beginning of the function
+    let mut modified_input = input.clone();
+    modified_input
+        .block
+        .stmts
+        .insert(0, syn::parse_quote!(#injected_code));
+    modified_input
+}
+
+struct NativeMacroComponents {
+    pub doc_field: proc_macro2::TokenStream,
+    pub doc_name: proc_macro2::Ident,
+    pub steel_function_name: String,
+    pub rust_function_name: proc_macro2::Ident,
+    pub arity_number: syn::Expr,
+    pub is_const: bool,
+}
+
+fn native_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> NativeMacroComponents {
     let keyword_map = parse_key_value_pairs(&args);
 
-    let value = keyword_map
+    let steel_function_name = keyword_map
         .get("name")
-        .expect("native definition requires a name!");
+        .expect("native definition requires a name!")
+        .to_string();
 
     let arity_number = keyword_map
         .get("arity")
@@ -610,44 +850,64 @@ pub fn native(
     let arity_number: syn::Expr =
         syn::parse_str(arity_number).expect("Unable to parse arity definition");
 
-    let input = parse_macro_input!(input as ItemFn);
-
-    let modified_input = input.clone();
     let sign: Signature = input.clone().sig;
 
-    let maybe_doc_comments = parse_doc_comment(input);
-    let function_name = sign.ident.clone();
+    let maybe_doc_comments = parse_doc_comment(input.clone());
+    let rust_function_name = sign.ident.clone();
 
     let doc_name = Ident::new(
-        &(function_name.to_string().to_uppercase() + "_DEFINITION"),
+        &(rust_function_name.to_string().to_uppercase() + "_DEFINITION"),
         sign.ident.span(),
     );
-
-    let definition_struct = if let Some(doc) = maybe_doc_comments {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition =
-            crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: &[],
-                func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#function_name),
-                arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
-                is_const: #is_const,
-                signature: None,
-            };
-        }
+    let doc_field = if let Some(doc) = maybe_doc_comments {
+        quote! { Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)) }
     } else {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: &[],
-                func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#function_name),
-                arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: None,
-                is_const: #is_const,
-                signature: None,
-            };
-        }
+        quote! { None }
+    };
+
+    NativeMacroComponents {
+        doc_field,
+        doc_name,
+        steel_function_name,
+        rust_function_name,
+        arity_number,
+        is_const,
+    }
+}
+
+#[proc_macro_attribute]
+pub fn native(
+    args: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
+    let input = parse_macro_input!(input as ItemFn);
+
+    let modified_input = if cfg!(feature = "disable-arity-checking") {
+        input.clone()
+    } else {
+        arity_code_injection(&input, &args, false)
+    };
+
+    let NativeMacroComponents {
+        doc_field,
+        doc_name,
+        steel_function_name,
+        rust_function_name,
+        arity_number,
+        is_const,
+    } = native_macro_setup(&input, &args);
+
+    let definition_struct = quote! {
+        pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+            name: #steel_function_name,
+            aliases: &[],
+            func: crate::steel_vm::builtin::BuiltInFunctionType::Reference(#rust_function_name),
+            arity: crate::steel_vm::builtin::Arity::#arity_number,
+            doc: #doc_field,
+            is_const: #is_const,
+            signature: None,
+        };
     };
 
     let output = quote! {
@@ -671,62 +931,32 @@ pub fn context(
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
-
-    let keyword_map = parse_key_value_pairs(&args);
-
-    let value = keyword_map
-        .get("name")
-        .expect("native definition requires a name!");
-
-    let arity_number = keyword_map
-        .get("arity")
-        .expect("native definition requires an arity");
-
-    let is_const = keyword_map
-        .get("constant")
-        .map(|x| x == "true")
-        .unwrap_or_default();
-
-    let arity_number: syn::Expr =
-        syn::parse_str(arity_number).expect("Unable to parse arity definition");
-
     let input = parse_macro_input!(input as ItemFn);
-
-    let modified_input = input.clone();
-    let sign: Signature = input.clone().sig;
-
-    let maybe_doc_comments = parse_doc_comment(input);
-    let function_name = sign.ident.clone();
-
-    let doc_name = Ident::new(
-        &(function_name.to_string().to_uppercase() + "_DEFINITION"),
-        sign.ident.span(),
-    );
-
-    let definition_struct = if let Some(doc) = maybe_doc_comments {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: &[],
-                func: crate::steel_vm::builtin::BuiltInFunctionType::Context(#function_name),
-                arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
-                is_const: #is_const,
-                signature: None,
-            };
-        }
+    let modified_input = if cfg!(feature = "disable-arity-checking") {
+        input.clone()
     } else {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: &[],
-                func: crate::steel_vm::builtin::BuiltInFunctionType::Context(#function_name),
-                arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: None,
-                is_const: #is_const,
-                signature: None,
-            };
-        }
+        arity_code_injection(&input, &args, true)
+    };
+
+    let NativeMacroComponents {
+        doc_field,
+        doc_name,
+        steel_function_name,
+        rust_function_name,
+        arity_number,
+        is_const,
+    } = native_macro_setup(&input, &args);
+
+    let definition_struct = quote! {
+        pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+            name: #steel_function_name,
+            aliases: &[],
+            func: crate::steel_vm::builtin::BuiltInFunctionType::Context(#rust_function_name),
+            arity: crate::steel_vm::builtin::Arity::#arity_number,
+            doc: #doc_field,
+            is_const: #is_const,
+            signature: None,
+        };
     };
 
     let output = quote! {
@@ -747,62 +977,33 @@ pub fn native_mut(
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let args = parse_macro_input!(args with Punctuated::<Meta, Token![,]>::parse_terminated);
-
-    let keyword_map = parse_key_value_pairs(&args);
-
-    let value = keyword_map
-        .get("name")
-        .expect("native definition requires a name!");
-
-    let arity_number = keyword_map
-        .get("arity")
-        .expect("native definition requires an arity");
-
-    let is_const = keyword_map
-        .get("constant")
-        .map(|x| x == "true")
-        .unwrap_or_default();
-
-    let arity_number: syn::Expr =
-        syn::parse_str(arity_number).expect("Unable to parse arity definition");
-
     let input = parse_macro_input!(input as ItemFn);
 
-    let modified_input = input.clone();
-    let sign: Signature = input.clone().sig;
-
-    let maybe_doc_comments = parse_doc_comment(input);
-    let function_name = sign.ident.clone();
-
-    let doc_name = Ident::new(
-        &(function_name.to_string().to_uppercase() + "_DEFINITION"),
-        sign.ident.span(),
-    );
-
-    let definition_struct = if let Some(doc) = maybe_doc_comments {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: &[],
-                func: crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#function_name),
-                arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
-                is_const: #is_const,
-                signature: None,
-            };
-        }
+    let modified_input = if cfg!(feature = "disable-arity-checking") {
+        input.clone()
     } else {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: &[],
-                func: crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#function_name),
-                arity: crate::steel_vm::builtin::Arity::#arity_number,
-                doc: None,
-                is_const: #is_const,
-                signature: None,
-            };
-        }
+        arity_code_injection(&input, &args, false)
+    };
+
+    let NativeMacroComponents {
+        doc_field,
+        doc_name,
+        steel_function_name,
+        rust_function_name,
+        arity_number,
+        is_const,
+    } = native_macro_setup(&input, &args);
+
+    let definition_struct = quote! {
+        pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+            name: #steel_function_name,
+            aliases: &[],
+            func: crate::steel_vm::builtin::BuiltInFunctionType::Mutable(#rust_function_name),
+            arity: crate::steel_vm::builtin::Arity::#arity_number,
+            doc: #doc_field,
+            is_const: #is_const,
+            signature: None,
+        };
     };
 
     let output = quote! {
@@ -1000,30 +1201,22 @@ pub fn function(
         None => quote! { &[] },
     };
 
-    let definition_struct = if let Some(doc) = maybe_doc_comments {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: #aliases,
-                func: #function_type,
-                arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
-                is_const: #is_const,
-                signature: None,
-            };
-        }
+    let doc_field = if let Some(doc) = maybe_doc_comments {
+        quote! { Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)) }
     } else {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: #aliases,
-                func: #function_type,
-                arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
-                doc: None,
-                is_const: #is_const,
-                signature: None
-            };
-        }
+        quote! { None }
+    };
+
+    let definition_struct = quote! {
+        pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+            name: #value,
+            aliases: #aliases,
+            func: #function_type,
+            arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
+            doc: #doc_field,
+            is_const: #is_const,
+            signature: None,
+        };
     };
 
     // If we have a rest arg, we need to modify passing in values to pass in a slice to the remaining
@@ -1382,30 +1575,22 @@ pub fn custom_function(
         None => quote! { &[] },
     };
 
-    let definition_struct = if let Some(doc) = maybe_doc_comments {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: #aliases,
-                func: #function_type,
-                arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
-                doc: Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)),
-                is_const: #is_const,
-                signature: None,
-            };
-        }
+    let doc_field = if let Some(doc) = maybe_doc_comments {
+        quote! { Some(crate::steel_vm::builtin::MarkdownDoc::from_str(#doc)) }
     } else {
-        quote! {
-            pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
-                name: #value,
-                aliases: #aliases,
-                func: #function_type,
-                arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
-                doc: None,
-                is_const: #is_const,
-                signature: None
-            };
-        }
+        quote! { None }
+    };
+
+    let definition_struct = quote! {
+        pub const #doc_name: crate::steel_vm::builtin::NativeFunctionDefinition = crate::steel_vm::builtin::NativeFunctionDefinition {
+            name: #value,
+            aliases: #aliases,
+            func: #function_type,
+            arity: crate::steel_vm::builtin::Arity::#arity_exactness(#arity_number),
+            doc: #doc_field,
+            is_const: #is_const,
+            signature: None,
+        };
     };
 
     // If we have a rest arg, we need to modify passing in values to pass in a slice to the remaining
