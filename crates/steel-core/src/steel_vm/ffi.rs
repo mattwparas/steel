@@ -134,20 +134,33 @@ impl<'a, In: StableAbi + 'a, Out: StableAbi, F: Fn(In) -> Out + Send + Sync> RFn
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(all(feature = "sync", not(feature = "ffi-format")))]
+#[abi_stable::sabi_trait]
+pub trait OpaqueObject: Send + Sync {}
+
+#[cfg(all(feature = "sync", feature = "ffi-format"))]
 #[abi_stable::sabi_trait]
 pub trait OpaqueObject: Send + Sync {
-    fn obj_ffi_fmt(&self) -> RString;
+    fn obj_ffi_fmt(&self) -> RString {
+        RString::from("#<OpaqueFFIValue>")
+    }
 }
 
-#[cfg(not(feature = "sync"))]
+#[cfg(all(not(feature = "sync"), feature = "ffi-format"))]
 #[abi_stable::sabi_trait]
 pub trait OpaqueObject {
-    fn obj_ffi_fmt(&self) -> RString;
+    fn obj_ffi_fmt(&self) -> RString {
+        RString::from("#<OpaqueFFIValue>")
+    }
 }
+
+#[cfg(all(not(feature = "sync"), not(feature = "ffi-format")))]
+#[abi_stable::sabi_trait]
+pub trait OpaqueObject {}
 
 // Blanket implement this for all things that implement Custom!
 impl<T: Custom + MaybeSendSyncStatic> OpaqueObject for T {
+    #[cfg(feature = "ffi-format")]
     fn obj_ffi_fmt(&self) -> RString {
         self.fmt_ffi()
             .unwrap_or_else(|| format!("#<OpaqueFFIValue:{}>", std::any::type_name::<T>()).into())
@@ -163,7 +176,13 @@ pub struct OpaqueFFIValueReturn {
 
 impl Custom for OpaqueFFIValueReturn {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        Some(Ok(self.inner.obj_ffi_fmt().into_string()))
+        #[cfg(feature = "ffi-format")]
+        {
+            Some(Ok(self.inner.obj_ffi_fmt().into_string()))
+        }
+
+        #[cfg(not(feature = "ffi-format"))]
+        Some(Ok("#<OpaqueFFIValue>".to_string()))
     }
 }
 
