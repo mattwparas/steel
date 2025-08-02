@@ -9,6 +9,7 @@ use crate::parser::span::Span;
 
 use crate::rvals::{IntoSteelVal, Result};
 use std::cell::RefCell;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::{
     collections::HashMap,
@@ -515,9 +516,8 @@ pub enum MacroPattern {
 pub enum PatternConstant {
     CharacterLiteral(char),
     BytesLiteral(Vec<u8>),
-    IntLiteral(isize),
+    NumberLiteral(NumberLiteral),
     StringLiteral(Arc<String>),
-    FloatLiteral(f64),
     BooleanLiteral(bool),
 }
 
@@ -795,21 +795,15 @@ impl MacroPattern {
                                 ));
                             }
 
-                            Some(MacroPattern::FloatLiteral(b)) => {
+                            Some(MacroPattern::NumberLiteral(n)) => {
                                 pattern_vec.push(MacroPattern::ManyConstant(
-                                    PatternConstant::FloatLiteral(b),
+                                    PatternConstant::NumberLiteral(n),
                                 ));
                             }
 
                             Some(MacroPattern::StringLiteral(b)) => {
                                 pattern_vec.push(MacroPattern::ManyConstant(
                                     PatternConstant::StringLiteral(b),
-                                ));
-                            }
-
-                            Some(MacroPattern::IntLiteral(b)) => {
-                                pattern_vec.push(MacroPattern::ManyConstant(
-                                    PatternConstant::IntLiteral(b),
                                 ));
                             }
 
@@ -970,29 +964,22 @@ fn match_list_pattern(patterns: &[MacroPattern], list: &[ExprKind], improper: bo
                                         ..
                                     },
                             }),
-                            PatternConstant::IntLiteral(_) | PatternConstant::FloatLiteral(_),
-                        ) => match &**n {
-                            // TODO: Support big nums in the patterns too!
-                            NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(i))) => {
-                                if let PatternConstant::IntLiteral(o) = p {
-                                    if i == o {
-                                        continue;
-                                    } else {
-                                        return false;
-                                    }
-                                }
+                            PatternConstant::NumberLiteral(p),
+                        ) => {
+                            let Ok(n) = n.deref().clone().into_steelval() else {
+                                return false;
+                            };
+
+                            let Ok(p) = p.into_steelval() else {
+                                return false;
+                            };
+
+                            if n == p {
+                                continue;
+                            } else {
+                                return false;
                             }
-                            NumberLiteral::Real(RealLiteral::Float(i)) => {
-                                if let PatternConstant::FloatLiteral(o) = p {
-                                    if i == o {
-                                        continue;
-                                    } else {
-                                        return false;
-                                    }
-                                }
-                            }
-                            _ => return false,
-                        },
+                        }
 
                         _ => return false,
                     }
@@ -1114,7 +1101,7 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
                         ..
                     },
             }) => true,
-            _ => return false,
+            _ => false,
         },
         MacroPattern::Keyword(k) => match expr {
             ExprKind::Atom(Atom {
@@ -1124,7 +1111,7 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
                         ..
                     },
             }) if s == k => true,
-            _ => return false,
+            _ => false,
         },
         MacroPattern::BooleanLiteral(b) => match expr {
             ExprKind::Atom(Atom {
@@ -1134,7 +1121,7 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
                         ..
                     },
             }) if s == b => true,
-            _ => return false,
+            _ => false,
         },
         MacroPattern::NumberLiteral(n) => match expr {
             ExprKind::Atom(Atom {
@@ -1152,9 +1139,9 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
                     return false;
                 };
 
-                return n == t;
+                n == t
             }
-            _ => return false,
+            _ => false,
         },
         MacroPattern::CharacterLiteral(c) => match expr {
             ExprKind::Atom(Atom {
@@ -1164,7 +1151,7 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
                         ..
                     },
             }) if s == c => true,
-            _ => return false,
+            _ => false,
         },
         MacroPattern::StringLiteral(s) => match expr {
             ExprKind::Atom(Atom {
@@ -1174,7 +1161,7 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
                         ..
                     },
             }) if s.as_str() == b.as_str() => true,
-            _ => return false,
+            _ => false,
         },
         MacroPattern::BytesLiteral(v) => match expr {
             ExprKind::Vector(Vector {
@@ -1198,15 +1185,13 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
             // println!("MATCHING QUOTED EXPR: {}", q);
             match expr {
                 ExprKind::Quote(boxed_q) if q == boxed_q => true,
-                _ => {
-                    return false;
-                }
+                _ => false,
             }
         }
         MacroPattern::Quote(_q) => {
             // println!("MATCHING QUOTE {} with val: {}", q, val);
             match expr {
-                ExprKind::Quote(_) => return true,
+                ExprKind::Quote(_) => true,
 
                 // ExprKind::Atom(Atom {
                 //     syn:
@@ -1230,7 +1215,7 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
                 //     true;
                 // }
                 // ExprKind::Quote()
-                _ => return false,
+                _ => false,
             }
         }
         MacroPattern::Nested(patterns, is_vec) => {
@@ -1286,25 +1271,18 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
                             ..
                         },
                 }),
-                PatternConstant::IntLiteral(_) | PatternConstant::FloatLiteral(_),
-            ) => match &**n {
-                // TODO: Support big nums in the patterns too!
-                NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(i))) => {
-                    if let PatternConstant::IntLiteral(o) = pattern_constant {
-                        i == o
-                    } else {
-                        false
-                    }
-                }
-                NumberLiteral::Real(RealLiteral::Float(i)) => {
-                    if let PatternConstant::FloatLiteral(o) = pattern_constant {
-                        i == o
-                    } else {
-                        false
-                    }
-                }
-                _ => return false,
-            },
+                PatternConstant::NumberLiteral(p),
+            ) => {
+                let Ok(n) = n.deref().clone().into_steelval() else {
+                    return false;
+                };
+
+                let Ok(p) = p.into_steelval() else {
+                    return false;
+                };
+
+                n == p
+            }
 
             _ => {
                 panic!("{:?}, {}", pattern_constant, expr);
