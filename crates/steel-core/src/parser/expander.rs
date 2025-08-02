@@ -829,6 +829,12 @@ impl MacroPattern {
                                 ));
                             }
 
+                            Some(MacroPattern::BooleanLiteral(b)) => {
+                                pattern_vec.push(MacroPattern::ManyConstant(
+                                    PatternConstant::BooleanLiteral(b),
+                                ));
+                            }
+
                             Some(other) => {
                                 stop!(BadSyntax => format!("cannot bind pattern to ellipsis: {:?}", other); span)
                             }
