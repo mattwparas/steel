@@ -1,6 +1,7 @@
 use super::parser::SourceId;
 use crate::tokens::{IntLiteral, Token, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
+use num_bigint::BigInt;
 use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
 use std::char;
@@ -336,14 +337,14 @@ impl<'a> Lexer<'a> {
                     self.eat();
                 }
                 '(' | ')' | '[' | ']' => {
-                    return if let Some(t) = parse_number(self.slice(), None) {
+                    return if let Some(t) = try_parse_number(self.slice(), None)? {
                         Ok(t.into())
                     } else {
                         self.read_word()
                     }
                 }
                 c if c.is_whitespace() => {
-                    return if let Some(t) = parse_number(self.slice(), None) {
+                    return if let Some(t) = try_parse_number(self.slice(), None)? {
                         Ok(t.into())
                     } else {
                         self.read_word()
@@ -352,7 +353,7 @@ impl<'a> Lexer<'a> {
                 _ => return self.read_word(),
             }
         }
-        match parse_number(self.slice(), None) {
+        match try_parse_number(self.slice(), None)? {
             Some(n) => Ok(n.into()),
             None => self.read_word(),
         }
@@ -643,6 +644,7 @@ pub enum TokenError {
     IncompleteComment,
     InvalidEscape,
     InvalidCharacter,
+    MalformedRational,
     MalformedHexInteger,
     MalformedOctalInteger,
     MalformedBinaryInteger,
@@ -845,6 +847,41 @@ fn parse_real(s: &str, radix: u32) -> Option<RealLiteral> {
         let int = IntLiteral::from_str_radix(s, radix).ok()?;
         Some(RealLiteral::Int(int))
     }
+}
+
+// the error boolean means division by zero
+fn try_parse_number(s: &str, radix: Option<u32>) -> Result<Option<NumberLiteral>> {
+    let Some(n) = parse_number(s, radix) else {
+        return Ok(None);
+    };
+
+    fn validate_real_literal(lit: &RealLiteral) -> Result<()> {
+        let RealLiteral::Rational(_, int) = lit else {
+            return Ok(());
+        };
+
+        match int {
+            IntLiteral::Small(n) if *n == 0 => Err(TokenError::MalformedRational),
+            IntLiteral::Big(big_int) if &**big_int == &BigInt::ZERO => {
+                Err(TokenError::MalformedRational)
+            }
+            _ => Ok(()),
+        }
+    }
+
+    match &n {
+        NumberLiteral::Real(real) => validate_real_literal(real)?,
+        NumberLiteral::Complex(r, i) => {
+            validate_real_literal(r)?;
+            validate_real_literal(i)?;
+        }
+        NumberLiteral::Polar(r, theta) => {
+            validate_real_literal(r)?;
+            validate_real_literal(theta)?;
+        }
+    }
+
+    Ok(Some(n))
 }
 
 pub fn parse_number(s: &str, radix: Option<u32>) -> Option<NumberLiteral> {
