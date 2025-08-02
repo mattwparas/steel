@@ -1838,6 +1838,7 @@ fn meta_module() -> BuiltInModule {
             MetaOperations::block_on_with_local_executor(),
         )
         .register_value("join!", MetaOperations::join_futures())
+        .register_value("futures-join-all", MetaOperations::join_futures())
         .register_fn(
             "#%struct-property-ref",
             |value: &UserDefinedStruct, key: SteelVal| UserDefinedStruct::get(value, &key),

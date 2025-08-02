@@ -1492,6 +1492,7 @@ mod expansion_tests {
     use crate::parser::expander::MacroPattern;
 
     use crate::parser::ast::{Begin, If, List};
+    use crate::parser::expander::PatternList;
     use crate::parser::tokens::TokenType;
 
     fn atom_identifier(s: &str) -> ExprKind {
@@ -1514,11 +1515,11 @@ mod expansion_tests {
             "when".into(),
             Vec::new(),
             vec![MacroCase::new(
-                vec![
+                PatternList::new(vec![
                     MacroPattern::Syntax("when".into()),
                     MacroPattern::Single("a".into()),
                     MacroPattern::Many("b".into()),
-                ],
+                ]),
                 If::new(
                     atom_identifier("a"),
                     Begin::new(

@@ -158,7 +158,14 @@ pub fn hashset_intersection(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
 /// ```
 #[steel_derive::function(name = "hashset-difference")]
 pub fn hashset_difference(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
-    SteelVal::HashSetV(SteelHashSet(Gc::new(l.0.unwrap().difference(r.0.unwrap()))))
+    #[cfg(not(feature = "imbl"))]
+    {
+        SteelVal::HashSetV(SteelHashSet(Gc::new(l.0.unwrap().difference(r.0.unwrap()))))
+    }
+    #[cfg(feature = "imbl")]
+    SteelVal::HashSetV(SteelHashSet(Gc::new(
+        l.0.unwrap().symmetric_difference(r.0.unwrap()),
+    )))
 }
 
 /// Creates an immutable vector from this hashset. The order of the vector is not guaranteed.

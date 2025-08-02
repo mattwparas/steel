@@ -163,6 +163,11 @@ pub trait Custom: private::Sealed {
         None
     }
 
+    #[cfg(feature = "dylibs")]
+    fn fmt_ffi(&self) -> Option<abi_stable::std_types::RString> {
+        None
+    }
+
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
     }
@@ -1838,6 +1843,8 @@ impl SteelVal {
     }
 }
 
+// How can we keep track of the provenance of where the pointers go?
+// for pointer equality?
 #[inline]
 fn slow_path_eq_lists(
     _l: &crate::values::lists::List<SteelVal>,

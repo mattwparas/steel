@@ -149,6 +149,8 @@ triomphe = ["dep:triomphe"]
 op-code-profiling = []
 imbl = ["dep:imbl"]
 
+ffi-format = []
+
 [[bench]]
 name = "my_benchmark"
 harness = false

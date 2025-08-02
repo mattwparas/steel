@@ -546,6 +546,7 @@ define_symbols! {
     DEFMACRO => "defmacro",
     BEGIN_FOR_SYNTAX => "begin-for-syntax",
     ELLIPSES_SYMBOL => "...",
+    DOT => ".",
 }
 
 pub fn inline_num_operations(instructions: &mut [Instruction]) {

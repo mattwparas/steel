@@ -1,8 +1,10 @@
 use std::{borrow::Cow, cell::RefCell, sync::Arc};
 
-use crate::gc::shared::{
-    MappedScopedReadContainer, MutContainer, ScopedReadContainer, ShareableMut,
-};
+use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadContainer};
+
+#[cfg(not(feature = "triomphe"))]
+use crate::gc::shared::ShareableMut;
+
 use crate::gc::{Shared, SharedMut};
 use crate::values::HashMap;
 use crate::{
