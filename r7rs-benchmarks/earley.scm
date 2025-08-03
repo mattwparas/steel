@@ -125,6 +125,8 @@
 
 (require "common.scm")
 
+(define deriv-trees-count 0)
+
 (define (make-parser grammar lexer)
 
   (define (non-terminals grammar) ;; return vector of non-terminals in grammar
@@ -471,7 +473,10 @@
                         #f)))
                 #f)))
 
+        ;; This is... cursed
         (define (deriv-trees conf i j enders steps names toks states nb-nts)
+          ; (set! deriv-trees-count (+ deriv-trees-count 1))
+          ; (displayln deriv-trees-count)
           (let ([name (vector-ref names conf)])
 
             (if name ;; `conf' is at the start of a rule (either special or not)
@@ -643,6 +648,9 @@
   (let ([p (make-parser '((s (a) (s s))) (lambda (l) (map (lambda (x) (list x x)) l)))])
     (let ([x (p input)]
           [n (length input)])
+
+      (displayln x)
+
       (length (parse->trees x 's 0 n)))))
 
 (define (run-benchmark)
@@ -658,3 +666,6 @@
                         (lambda (result) (equal? result output)))))
 
 (with-input-from-file "r7rs-benchmarks/inputs/earley.input" run-benchmark)
+
+;; Looking for this:
+; 15943229
