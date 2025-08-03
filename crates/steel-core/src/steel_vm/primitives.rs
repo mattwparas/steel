@@ -881,36 +881,137 @@ fn vector_module() -> BuiltInModule {
     module
 }
 
+/// Returns true if the given value is exactly `#false`.
+///
+/// (not value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (not #false)
+/// #true
+///
+/// > (not #true)
+/// #false
+///
+/// > (not "hello")
+/// #false
+/// ```
 #[steel_derive::function(name = "not", constant = true)]
 fn not(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoolV(false))
 }
 
+/// Returns true if the value is a string.
+///
+/// (string? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (string? "hello")
+/// #true
+///
+/// > (string? 'foo)
+/// #false
+/// ```
 #[steel_derive::function(name = "string?", constant = true)]
 fn stringp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::StringV(_))
 }
 
+/// Returns true if the value is a list.
+///
+/// (list? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (list? '(1 2 3))
+/// #true
+///
+/// > (list? "not-a-list")
+/// #false
+/// ```
 #[steel_derive::function(name = "list?", constant = true)]
 fn listp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::ListV(_))
 }
 
+/// Returns true if the value is a vector (mutable or immutable).
+///
+/// (vector? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (vector? #(1 2 3))
+/// #true
+///
+/// > (vector? 'foo)
+/// #false
+/// ```
 #[steel_derive::function(name = "vector?", constant = true)]
 fn vectorp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::VectorV(_) | SteelVal::MutableVector(_))
 }
 
+/// Returns true if the value is a symbol.
+///
+/// (symbol? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (symbol? 'hello)
+/// #true
+///
+/// > (symbol? "hello")
+/// #false
+/// ```
 #[steel_derive::function(name = "symbol?", constant = true)]
 fn symbolp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::SymbolV(_))
 }
 
+/// Returns true if the value is a hash map.
+///
+/// (hash? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (hash? (hash 'a 10 'b 20))
+/// #true
+///
+/// > (hash? '(a b c))
+/// #false
+/// ```
 #[steel_derive::function(name = "hash?", constant = true)]
 fn hashp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::HashMapV(_))
 }
 
+/// Returns true if the value is a hash set.
+///
+/// (set? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (set? (hashset 10 20 30 40))
+/// #true
+///
+/// > (set? "abc")
+/// #false
+/// ```
 #[steel_derive::function(name = "set?", constant = true)]
 fn hashsetp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::HashSetV(_))
@@ -921,16 +1022,61 @@ fn continuationp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::ContinuationFunction(_))
 }
 
+/// Returns true if the value is a boolean (`#true` or `#false`).
+///
+/// (boolean? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (boolean? #true)
+/// #true
+///
+/// > (boolean? #false)
+/// #true
+///
+/// > (boolean? 0)
+/// #false
+/// ```
 #[steel_derive::function(name = "boolean?", constant = true)]
 fn booleanp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoolV(_))
 }
 
+/// Alias for `boolean?`. Returns true if the value is a boolean.
+///
+/// (bool? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (bool? #false)
+/// #true
+///
+/// > (bool? "hi")
+/// #false
+/// ```
 #[steel_derive::function(name = "bool?", constant = true)]
 fn boolp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoolV(_))
 }
 
+/// Returns true if the value is `void`.
+///
+/// (void? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (void? void)
+/// #true
+///
+/// > (void? 42)
+/// #false
+/// ```
 #[steel_derive::function(name = "void?", constant = true)]
 fn voidp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::Void)
@@ -965,6 +1111,23 @@ fn error_objectp(value: &SteelVal) -> bool {
     as_underlying_type::<SteelErr>(val.read().as_ref()).is_some()
 }
 
+/// Returns true if the value is a function or callable.
+///
+/// (function? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (function? (lambda (x) x))
+/// #true
+///
+/// > (function? map)
+/// #true
+///
+/// > (function? 42)
+/// #false
+/// ```
 #[steel_derive::function(name = "function?", constant = true)]
 fn functionp(value: &SteelVal) -> bool {
     matches!(
