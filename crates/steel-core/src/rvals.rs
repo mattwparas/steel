@@ -19,7 +19,7 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
     values::{
-        closed::{Heap, HeapRef, MarkAndSweepContext},
+        closed::{Heap, HeapRef, MarkAndSweepContext, MarkAndSweepContextRef},
         functions::{BoxedDynFunction, ByteCodeLambda},
         lazy_stream::LazyStream,
         port::{SendablePort, SteelPort},
@@ -219,6 +219,7 @@ pub trait CustomType: MaybeSendSyncStatic {
     }
     fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
     fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
+    fn visit_children_ref(&self, _context: &mut MarkAndSweepContextRef) {}
     fn visit_children_for_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
     fn check_equality_hint(&self, _other: &dyn CustomType) -> bool {
         true

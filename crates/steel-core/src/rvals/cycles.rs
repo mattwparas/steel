@@ -2,6 +2,7 @@ use crate::gc::shared::{MutableContainer, ShareableMut};
 use crate::steel_vm::{builtin::get_function_name, vm::Continuation, vm::ContinuationMark};
 use crate::values::lists::Pair;
 use num_bigint::BigInt;
+use std::borrow::Cow;
 use std::{cell::Cell, collections::VecDeque};
 
 use super::*;
@@ -1616,15 +1617,16 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
 
     fn default_output(&mut self) -> Self::Output;
 
-    fn pop_front(&mut self) -> Option<&'a SteelVal>;
+    // TODO: Don't use the unsafe variant... if possible?
+    fn pop_front(&mut self) -> Option<*const SteelVal>;
 
-    fn push_back(&mut self, value: &'a SteelVal);
+    fn push_back(&mut self, value: &SteelVal);
 
     fn visit(&mut self) -> Self::Output {
         let mut ret = self.default_output();
 
         while let Some(value) = self.pop_front() {
-            ret = match value {
+            ret = match unsafe { &(*value) } {
                 Closure(c) => self.visit_closure(c),
                 BoolV(b) => self.visit_bool(*b),
                 NumV(n) => self.visit_float(*n),

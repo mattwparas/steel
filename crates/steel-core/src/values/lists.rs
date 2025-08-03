@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::{cell::Cell, thread::JoinHandle};
 
 use im_lists::{
     handler::{DefaultDropHandler, DropHandler},
@@ -30,6 +30,14 @@ impl Pair {
 
     pub fn cdr(&self) -> SteelVal {
         self.cdr.clone()
+    }
+
+    pub fn car_ref(&self) -> &SteelVal {
+        &self.car
+    }
+
+    pub fn cdr_ref(&self) -> &SteelVal {
+        &self.cdr
     }
 }
 
@@ -132,16 +140,34 @@ impl PointerFamily for GcPointerType {
     }
 }
 
+// Spawn a dedicated thread for _big_ lists? Have them run on another thread?
+static DROP_THREAD: std::sync::LazyLock<(
+    crossbeam_channel::Sender<List<SteelVal>>,
+    JoinHandle<()>,
+)> = std::sync::LazyLock::new(|| {
+    let (sender, receiver) = crossbeam_channel::unbounded();
+
+    let handle = std::thread::spawn(move || {
+        while let Ok(list) = receiver.recv() {
+            drop(list)
+        }
+    });
+
+    (sender, handle)
+});
+
 #[cfg(not(feature = "without-drop-protection"))]
 mod list_drop_handler {
 
-    use std::collections::VecDeque;
+    use std::{collections::VecDeque, sync::LazyLock};
 
     use super::*;
 
     pub struct ListDropHandler;
 
     use crate::rvals::cycles::{drop_impls::DROP_BUFFER, IterativeDropHandler};
+
+    pub static EMPTY_LIST: std::sync::LazyLock<List<SteelVal>> = LazyLock::new(|| List::new());
 
     impl DropHandler<im_lists::list::GenericList<SteelVal, PointerType, 4, 2, Self>>
         for ListDropHandler
@@ -155,10 +181,32 @@ mod list_drop_handler {
                 if DROP_BUFFER
                     .try_with(|drop_buffer| {
                         if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
+                            // TODO: Don't take this, use a known static default one.
+                            let taken = std::mem::replace(obj, EMPTY_LIST.clone());
+
+                            // let length = taken.len();
+
+                            // println!("Node count: {}", taken.node_count());
+
+                            // Only do this on _big_ lists, that probably are uniquely owned
+                            // if length > 16000
+                            //     && std::thread::current().id() != DROP_THREAD.1.thread().id()
+                            // {
+                            //     DROP_THREAD.0.send(taken).unwrap();
+                            //     return;
+                            // }
+
+                            // if obj.len() >
+
+                            // println!("Length: {}", taken.len());
+
                             // Optimistically check what these values are. If they're
                             // primitives, then we can just skip pushing them back
                             // entirely.
-                            for value in std::mem::take(obj).draining_iterator() {
+
+                            // let now = std::time::Instant::now();
+
+                            for value in taken.draining_iterator() {
                                 match &value {
                                     SteelVal::BoolV(_)
                                     | SteelVal::NumV(_)
@@ -175,17 +223,27 @@ mod list_drop_handler {
                                     | SteelVal::BuiltIn(_)
                                     | SteelVal::BigNum(_)
                                     | SteelVal::MutableVector(_) => continue,
+                                    SteelVal::ListV(l) => {
+                                        // println!("Value: {}", l.strong_count());
+                                        if l.strong_count() == 1 {
+                                            drop_buffer.push_back(value);
+                                        }
+                                    }
                                     _ => {
                                         drop_buffer.push_back(value);
                                     }
                                 }
                             }
 
+                            // println!("{:?}", now.elapsed());
+
                             IterativeDropHandler::bfs(&mut drop_buffer);
                         } else {
                             let mut drop_buffer = VecDeque::new();
 
-                            for value in std::mem::take(obj).draining_iterator() {
+                            for value in
+                                std::mem::replace(obj, EMPTY_LIST.clone()).draining_iterator()
+                            {
                                 match &value {
                                     SteelVal::BoolV(_)
                                     | SteelVal::NumV(_)
@@ -202,6 +260,13 @@ mod list_drop_handler {
                                     | SteelVal::BuiltIn(_)
                                     | SteelVal::BigNum(_)
                                     | SteelVal::MutableVector(_) => continue,
+
+                                    SteelVal::ListV(l) => {
+                                        if l.strong_count() == 1 {
+                                            drop_buffer.push_back(value);
+                                        }
+                                    }
+
                                     _ => {
                                         drop_buffer.push_back(value);
                                     }
@@ -214,7 +279,7 @@ mod list_drop_handler {
                     .is_err()
                 {
                     let mut drop_buffer = VecDeque::new();
-                    for value in std::mem::take(obj).draining_iterator() {
+                    for value in std::mem::replace(obj, EMPTY_LIST.clone()).draining_iterator() {
                         match &value {
                             SteelVal::BoolV(_)
                             | SteelVal::NumV(_)
@@ -231,6 +296,11 @@ mod list_drop_handler {
                             | SteelVal::BuiltIn(_)
                             | SteelVal::BigNum(_)
                             | SteelVal::MutableVector(_) => continue,
+                            SteelVal::ListV(l) => {
+                                if l.strong_count() == 1 {
+                                    drop_buffer.push_back(value);
+                                }
+                            }
                             _ => {
                                 drop_buffer.push_back(value);
                             }
