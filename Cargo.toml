@@ -25,6 +25,8 @@ steel-core = { path = "./crates/steel-core", version = "0.7.0", features = [
     "stacker",
     "sync",
     "rooted-instructions",
+    "triomphe",
+    "imbl"
 ] }
 
 [features]
@@ -32,6 +34,8 @@ default = ["mimalloc"]
 build-info = ["vergen"]
 mimalloc = ["dep:mimalloc"]
 triomphe = ["steel-core/triomphe"]
+imbl = ["steel-core/imbl"]
+
 # Note: It does not appear that this will get propagated to any crate that depends on
 # the workspace feature. This is unfortunate, since we'd like everything to actually
 # use the workspace dependency. For now, if you want to test with sync, you should

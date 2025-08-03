@@ -450,6 +450,7 @@ pub(crate) enum StringOrSteelString {
 
 impl Compiler {
     pub(crate) fn get_doc(&self, value: SteelVal) -> Option<StringOrSteelString> {
+        #[cfg(not(feature = "triomphe"))]
         use crate::gc::shared::ShareableMut;
 
         for module in self.builtin_modules.inner().values() {
@@ -535,6 +536,7 @@ impl Compiler {
                 .values()
                 .map(|x| x.cached_expression())
             {
+                #[cfg(not(feature = "triomphe"))]
                 use crate::gc::shared::ShareableMut;
                 let expression = expression.read();
                 if let Some(expression) = expression.as_ref() {

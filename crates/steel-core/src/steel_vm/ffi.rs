@@ -15,7 +15,7 @@ use crate::{
     rerrs::ErrorKind,
     rvals::{
         as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal,
-        MaybeSendSyncStatic, Result, SteelByteVector, SteelHashMap, SteelVal,
+        MaybeSendSyncStatic, Result, SteelByteVector, SteelHashMap, SteelVal, SteelVector,
     },
     values::{functions::BoxedDynFunction, port::SteelPort, SteelPortRepr},
     SteelErr,
@@ -134,16 +134,38 @@ impl<'a, In: StableAbi + 'a, Out: StableAbi, F: Fn(In) -> Out + Send + Sync> RFn
     }
 }
 
-#[cfg(feature = "sync")]
+#[cfg(all(feature = "sync", not(feature = "ffi-format")))]
 #[abi_stable::sabi_trait]
 pub trait OpaqueObject: Send + Sync {}
 
-#[cfg(not(feature = "sync"))]
+#[cfg(all(feature = "sync", feature = "ffi-format"))]
+#[abi_stable::sabi_trait]
+pub trait OpaqueObject: Send + Sync {
+    fn obj_ffi_fmt(&self) -> RString {
+        RString::from("#<OpaqueFFIValue>")
+    }
+}
+
+#[cfg(all(not(feature = "sync"), feature = "ffi-format"))]
+#[abi_stable::sabi_trait]
+pub trait OpaqueObject {
+    fn obj_ffi_fmt(&self) -> RString {
+        RString::from("#<OpaqueFFIValue>")
+    }
+}
+
+#[cfg(all(not(feature = "sync"), not(feature = "ffi-format")))]
 #[abi_stable::sabi_trait]
 pub trait OpaqueObject {}
 
 // Blanket implement this for all things that implement Custom!
-impl<T: Custom + MaybeSendSyncStatic> OpaqueObject for T {}
+impl<T: Custom + MaybeSendSyncStatic> OpaqueObject for T {
+    #[cfg(feature = "ffi-format")]
+    fn obj_ffi_fmt(&self) -> RString {
+        self.fmt_ffi()
+            .unwrap_or_else(|| format!("#<OpaqueFFIValue:{}>", std::any::type_name::<T>()).into())
+    }
+}
 
 // TODO: Swap this implementation with the above.
 #[repr(C)]
@@ -154,6 +176,12 @@ pub struct OpaqueFFIValueReturn {
 
 impl Custom for OpaqueFFIValueReturn {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        #[cfg(feature = "ffi-format")]
+        {
+            Some(Ok(self.inner.obj_ffi_fmt().into_string()))
+        }
+
+        #[cfg(not(feature = "ffi-format"))]
         Some(Ok("#<OpaqueFFIValue>".to_string()))
     }
 }
@@ -1277,6 +1305,7 @@ pub enum FFIValue {
     ByteVector(RVec<u8>),
     DynWriter(DynWriter),
     DynReader(DynReader),
+    VectorToVector(RVec<FFIValue>),
 }
 
 #[repr(C)]
@@ -1384,6 +1413,7 @@ impl std::fmt::Debug for FFIValue {
             FFIValue::ByteVector(b) => write!(f, "{:?}", b),
             FFIValue::DynWriter(_) => write!(f, "#<ffi-writer>"),
             FFIValue::DynReader(_) => write!(f, "#<ffi-reader>"),
+            FFIValue::VectorToVector(v) => write!(f, "{:?}", v),
         }
     }
 }
@@ -1474,11 +1504,21 @@ impl IntoSteelVal for FFIValue {
             Self::Void => Ok(SteelVal::Void),
             // TODO: I think this might clone the string, its also a little suspect
             Self::StringV(s) => Ok(SteelVal::StringV(s.into_string().into())),
+
+            // Vectors... can probably turn directly into vectors?
             Self::Vector(v) => v
                 .into_iter()
                 .map(|x| x.into_steelval())
                 .collect::<Result<_>>()
                 .map(SteelVal::ListV),
+
+            Self::VectorToVector(v) => v
+                .into_iter()
+                .map(|x| x.into_steelval())
+                .collect::<Result<_>>()
+                .map(Gc::new)
+                .map(SteelVector)
+                .map(SteelVal::VectorV),
 
             Self::HashMap(h) => h
                 .into_iter()

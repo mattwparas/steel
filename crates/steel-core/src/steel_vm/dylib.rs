@@ -81,7 +81,9 @@ pub fn load_root_module_in_directory_manual(
                             for trace in &err.stack_trace {
                                 match trace.expected {
                                     abi_stable::type_layout::TLFieldOrFunction::Field(tlfield) => {
-                                        if tlfield.full_type().name() == "FFIArg" {
+                                        if tlfield.full_type().name() == "FFIArg"
+                                            || tlfield.full_type().name() == "FFIValue"
+                                        {
                                             // This is an older plugin. Assuming the FFIArg layout
                                             // hasn't changed and this is the only issue, then we
                                             // should be okay to continue.
