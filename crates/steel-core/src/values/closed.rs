@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashSet, thread::JoinHandle};
+use std::{cell::RefCell, collections::HashSet};
 
 #[cfg(feature = "sync")]
 use std::sync::Mutex;
@@ -16,7 +16,6 @@ use crate::{
     steel_vm::vm::{Continuation, ContinuationMark, Synchronizer},
     values::lists::List,
 };
-use crossbeam_channel::{Receiver, Sender};
 use num_bigint::BigInt;
 use num_rational::{BigRational, Rational32};
 
@@ -519,54 +518,197 @@ type HeapVector = StandardSharedMut<HeapAllocated<Vec<SteelVal>>>;
 
 type HeapElement<T> = StandardSharedMut<HeapAllocated<T>>;
 
+#[derive(Copy, Clone)]
+enum Reachable {
+    // This is legal to allocate from
+    Dead,
+
+    // Definitely unreachable. These are legal to be allocated from
+    Black,
+    // Maybe reachable. Things that survive a collection
+    Grey,
+    // Reachable. Post collection, we want to reset things to be reachable.
+    White,
+}
+
 // Have free list for vectors and values separately. Can keep some of the vectors pre allocated
 // as well, as necessary
 struct FreeList<T: HeapAble> {
-    elements: Vec<Option<HeapElement<T>>>,
+    // TODO: When we've moved into the from space, we can allocate
+    // explicitly from there, before moving on back to the to space.
+    //
+    // It should be reasonable to allocate (reuse) a field that simply has been
+    // marked as not able to be reached.
+    //
+    // We need 3 modes, Reachable, Maybe reachable, unreachable.
+    // Anything marks as reachable
+    elements: Vec<HeapElement<T>>,
     cursor: usize,
+
+    // Available count
     alloc_count: usize,
+}
+
+#[test]
+fn basic_free_list_usage() {
+    // Pre allocate some slots
+    let mut free_list: FreeList<SteelVal> = FreeList::new();
+
+    let pointers = (0..100)
+        .into_iter()
+        .map(|x| free_list.allocate(SteelVal::IntV(x)))
+        .collect::<Vec<_>>();
+
+    drop(pointers);
+
+    free_list.weak_collection();
+
+    for var in &free_list.elements {
+        assert!(!var.read().is_reachable());
+    }
+}
+
+#[test]
+fn free_list_continues_allocating_when_full() {
+    // Pre allocate some slots
+    let mut free_list: FreeList<SteelVal> = FreeList::new();
+
+    let count: usize = 10000;
+
+    let pointers = (0..count)
+        .into_iter()
+        .map(|x| free_list.allocate(SteelVal::IntV(x as isize)))
+        .collect::<Vec<_>>();
+
+    for var in &free_list.elements[0..count] {
+        assert!(var.read().is_reachable());
+    }
+
+    for var in &free_list.elements[count..] {
+        assert!(!var.read().is_reachable());
+    }
+
+    drop(pointers);
+
+    free_list.weak_collection();
+
+    for var in &free_list.elements {
+        assert!(!var.read().is_reachable());
+    }
+}
+
+#[test]
+fn free_list_continues_allocating_in_the_middle() {
+    // Pre allocate some slots
+    let mut free_list: FreeList<SteelVal> = FreeList::new();
+
+    let count: usize = 10000;
+
+    let mut pointers = (0..count)
+        .into_iter()
+        .map(|x| free_list.allocate(SteelVal::IntV(x as isize)))
+        .collect::<Vec<_>>();
+
+    for var in &free_list.elements[0..count] {
+        assert!(var.read().is_reachable());
+    }
+
+    for var in &free_list.elements[count..] {
+        assert!(!var.read().is_reachable());
+    }
+
+    let right_half = pointers.split_off(100);
+
+    drop(pointers);
+
+    free_list.weak_collection();
+
+    // Check that the first 100 elements are in fact, gone
+
+    for var in &free_list.elements[0..100] {
+        assert!(!var.read().is_reachable());
+    }
+
+    drop(right_half)
 }
 
 impl<T: HeapAble> FreeList<T> {
     const EXTEND_CHUNK: usize = 128;
 
-    fn is_heap_full(&self) -> bool {
-        self.alloc_count == self.elements.len()
+    fn new() -> Self {
+        let mut res = FreeList {
+            elements: Vec::new(),
+            cursor: 0,
+            alloc_count: 0,
+        };
+
+        res.grow();
+
+        res
     }
 
+    fn is_heap_full(&self) -> bool {
+        self.alloc_count == 0
+    }
+
+    fn grow(&mut self) {
+        self.elements.reserve(Self::EXTEND_CHUNK);
+        self.elements.extend(
+            std::iter::repeat_with(|| {
+                StandardShared::new(MutContainer::new(HeapAllocated::new(T::empty())))
+            })
+            .take(Self::EXTEND_CHUNK),
+        );
+
+        self.alloc_count += Self::EXTEND_CHUNK;
+    }
+
+    // Extend the heap
     fn extend_heap(&mut self) {
         self.cursor = self.elements.len();
-
-        self.elements.reserve(Self::EXTEND_CHUNK);
-        self.elements
-            .extend(std::iter::repeat_n(None, Self::EXTEND_CHUNK));
+        self.grow();
     }
 
+    // TODO: Allocate and also mark the roots when we're full!
     fn allocate(&mut self, value: T) -> HeapRef<T> {
         // Drain, moving values around...
         // is that expensive?
 
-        let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(value)));
-        let weak_ptr = StandardShared::downgrade(&pointer);
+        let guard = &mut self.elements[self.cursor];
 
-        self.elements[self.cursor] = Some(pointer);
-        self.alloc_count += 1;
+        // Allocate into this field
+        let mut heap_guard = guard.write();
+        heap_guard.value = value;
+        heap_guard.reachable = true;
+        let weak_ptr = StandardShared::downgrade(&guard);
+        drop(heap_guard);
+
+        // self.elements[self.cursor] = pointer;
+        self.alloc_count -= 1;
 
         // Find where to assign the next slot optimistically
         let next_slot = self.elements[self.cursor..]
             .iter()
-            .position(Option::is_none);
+            .position(|x| !x.read().is_reachable());
 
         if let Some(next_slot) = next_slot {
             self.cursor += next_slot;
         } else {
-            // TODO: Handle compaction and moving things around so the cursor has a chance
-            // to actually find stuff
+            // TODO: Handle compaction and moving things around so the
+            // cursor has a chance to actually find stuff that has been
+            // freed. It would also be nice
             if self.is_heap_full() {
                 // Extend the heap, move the cursor to the end
                 self.extend_heap();
             } else {
-                self.cursor = self.elements.iter().position(Option::is_none).unwrap()
+                dbg!(self.alloc_count);
+
+                // Move to the beginning.
+                self.cursor = self
+                    .elements
+                    .iter()
+                    .position(|x| !x.read().is_reachable())
+                    .unwrap();
             }
         }
 
@@ -579,18 +721,23 @@ impl<T: HeapAble> FreeList<T> {
         let mut amount_dropped = 0;
 
         self.elements.iter_mut().for_each(|x| {
-            if x.as_ref().map(func).unwrap_or_default() {
-                *x = None;
+            // This is... a little gnarly? We don't want to lock each time, but it could
+            // help. Allocations can now be genuinely reused since we're manipulating
+            // what is inside the pointer
+            if func(x) {
+                // *x = None;
+                x.write().reachable = false;
                 amount_dropped += 1;
             }
         });
 
-        self.alloc_count -= amount_dropped;
+        self.alloc_count += amount_dropped;
 
         amount_dropped
     }
 
     fn weak_collection(&mut self) -> usize {
+        // Just mark them to be dead
         self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0)
     }
 
@@ -625,8 +772,6 @@ pub struct Heap {
     maybe_memory_size: usize,
 
     skip_minor_collection: bool,
-
-    off_thread_dropper: OffThreadDropperHandle,
 }
 
 unsafe impl Send for Heap {}
@@ -640,97 +785,6 @@ struct MemorySpace {
 }
 
 type MemoryBlock = (Vec<HeapValue>, Vec<HeapVector>);
-
-struct OffThreadDropperHandle {
-    sender: Sender<MemoryBlock>,
-    receiver: Receiver<MemoryBlock>,
-    thread: JoinHandle<()>,
-}
-
-impl Clone for OffThreadDropperHandle {
-    fn clone(&self) -> Self {
-        Self::new()
-    }
-}
-
-// TODO: Don't do this, since allocating on one thread and freeing on
-// another is bad news for the allocator. We should attempt to build up a
-// free list internally instead. That way the allocating thread has the option of
-// dealing with the dropped values more efficiently; We don't necessarily just
-// have to run a retain (which is nice, for a variety of reasons), but instead
-// we can actually use the free list to skip hitting the global allocator.
-//
-// Also, we can probably do something neat where we inject drops throughout the
-// code, to get some incremental behavior. Given that we'll have marked everything,
-// we basically just need to relieve pressure on the heap by dropping known
-// unreachable entities over time before the next stop the world.
-impl OffThreadDropperHandle {
-    pub fn new() -> Self {
-        let (forward_sender, forward_receiver) = crossbeam_channel::unbounded::<MemoryBlock>();
-        let (backward_sender, backward_receiver) = crossbeam_channel::unbounded::<MemoryBlock>();
-
-        let thread = std::thread::spawn(move || {
-            // Listen for threads
-
-            let mut thread = OffThreadDropperThread {
-                receiver: forward_receiver,
-                sender: backward_sender,
-                memory: Vec::new(),
-                vectors: Vec::new(),
-            };
-
-            // Receive a new one, send the old one back
-            for (memory, vectors) in thread.receiver {
-                let old_memory = std::mem::replace(&mut thread.memory, memory);
-                let old_vectors = std::mem::replace(&mut thread.vectors, vectors);
-
-                // Send the old stuff back
-                thread.sender.send((old_memory, old_vectors)).unwrap();
-
-                log::debug!(target: "gc", "------ STARTING OFF THREAD DROP ------");
-                let now = std::time::Instant::now();
-
-                let prior_len = thread.memory.len() + thread.vectors.len();
-
-                // Drop the old stuff down
-                thread.memory.retain(|x| x.read().is_reachable());
-                thread.vectors.retain(|x| x.read().is_reachable());
-
-                let after_len = thread.memory.len();
-
-                let amount_freed = prior_len - after_len;
-
-                log::debug!(target: "gc", "Freed objects: {:?}", amount_freed);
-                log::debug!(target: "gc", "Objects alive: {:?}", after_len);
-                log::debug!(target: "gc", "-- OFF THREAD DROP TIME --: {:?}", now.elapsed());
-
-                // put them back as unreachable
-                thread.memory.iter().for_each(|x| x.write().reset());
-                thread.vectors.iter().for_each(|x| x.write().reset());
-            }
-        });
-
-        OffThreadDropperHandle {
-            sender: forward_sender,
-            receiver: backward_receiver,
-            thread,
-        }
-    }
-
-    // Send the values back
-    pub fn swap(&mut self, memory: MemoryBlock) -> MemoryBlock {
-        self.sender.send(memory).unwrap();
-        self.receiver.recv().unwrap()
-    }
-}
-
-struct OffThreadDropperThread {
-    receiver: Receiver<MemoryBlock>,
-    sender: Sender<MemoryBlock>,
-
-    memory: Vec<HeapValue>,
-    vectors: Vec<HeapVector>,
-}
 
 impl Heap {
     pub fn new() -> Self {
@@ -751,7 +805,6 @@ impl Heap {
             maybe_memory_size: 0,
 
             skip_minor_collection: false,
-            off_thread_dropper: OffThreadDropperHandle::new(),
         }
     }
 
@@ -765,7 +818,6 @@ impl Heap {
             test_queue: Vec::new(),
             maybe_memory_size: 0,
             skip_minor_collection: false,
-            off_thread_dropper: OffThreadDropperHandle::new(),
         }
     }
 
@@ -1187,14 +1239,6 @@ impl Heap {
         self.memory.iter().for_each(|x| x.write().reset());
         self.vectors.iter().for_each(|x| x.write().reset());
 
-        // let (memory, vectors) = self.off_thread_dropper.swap((
-        //     std::mem::take(&mut self.memory),
-        //     std::mem::take(&mut self.vectors),
-        // ));
-
-        // self.memory = memory;
-        // self.vectors = vectors;
-
         #[cfg(feature = "sync")]
         {
             GLOBAL_ROOTS.lock().unwrap().increment_generation();
@@ -1215,9 +1259,19 @@ impl Heap {
     }
 }
 
-pub trait HeapAble: Clone + std::fmt::Debug + PartialEq + Eq {}
-impl HeapAble for SteelVal {}
-impl HeapAble for Vec<SteelVal> {}
+pub trait HeapAble: Clone + std::fmt::Debug + PartialEq + Eq {
+    fn empty() -> Self;
+}
+impl HeapAble for SteelVal {
+    fn empty() -> Self {
+        SteelVal::Void
+    }
+}
+impl HeapAble for Vec<SteelVal> {
+    fn empty() -> Self {
+        Self::new()
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct HeapRef<T: HeapAble> {
