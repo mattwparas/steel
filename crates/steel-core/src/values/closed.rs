@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashSet};
+use std::{cell::RefCell, collections::HashSet, thread::JoinHandle};
 
 #[cfg(feature = "sync")]
 use std::sync::Mutex;
@@ -16,6 +16,7 @@ use crate::{
     steel_vm::vm::{Continuation, ContinuationMark, Synchronizer},
     values::lists::List,
 };
+use crossbeam_channel::{Receiver, Sender};
 use num_bigint::BigInt;
 use num_rational::{BigRational, Rational32};
 
@@ -622,10 +623,90 @@ pub struct Heap {
     maybe_memory_size: usize,
 
     skip_minor_collection: bool,
+
+    off_thread_dropper: OffThreadDropperHandle,
 }
 
 unsafe impl Send for Heap {}
 unsafe impl Sync for Heap {}
+
+type MemoryBlock = (Vec<HeapValue>, Vec<HeapVector>);
+
+struct OffThreadDropperHandle {
+    sender: Sender<MemoryBlock>,
+    receiver: Receiver<MemoryBlock>,
+    thread: JoinHandle<()>,
+}
+
+impl Clone for OffThreadDropperHandle {
+    fn clone(&self) -> Self {
+        Self::new()
+    }
+}
+
+impl OffThreadDropperHandle {
+    pub fn new() -> Self {
+        let (forward_sender, forward_receiver) = crossbeam_channel::unbounded::<MemoryBlock>();
+        let (backward_sender, backward_receiver) = crossbeam_channel::unbounded::<MemoryBlock>();
+
+        let thread = std::thread::spawn(move || {
+            // Listen for threads
+
+            let mut thread = OffThreadDropperThread {
+                receiver: forward_receiver,
+                sender: backward_sender,
+                memory: Vec::new(),
+                vectors: Vec::new(),
+            };
+
+            // Receive a new one, send the old one back
+            for (memory, vectors) in thread.receiver {
+                let old_memory = std::mem::replace(&mut thread.memory, memory);
+                let old_vectors = std::mem::replace(&mut thread.vectors, vectors);
+
+                // Send the old stuff back
+                thread.sender.send((old_memory, old_vectors)).unwrap();
+
+                let prior_len = thread.memory.len() + thread.vectors.len();
+
+                // Drop the old stuff down
+                thread.memory.retain(|x| x.read().is_reachable());
+                thread.vectors.retain(|x| x.read().is_reachable());
+
+                let after_len = thread.memory.len();
+
+                let amount_freed = prior_len - after_len;
+
+                log::debug!(target: "gc", "Freed objects: {:?}", amount_freed);
+                log::debug!(target: "gc", "Objects alive: {:?}", after_len);
+
+                // put them back as unreachable
+                thread.memory.iter().for_each(|x| x.write().reset());
+                thread.vectors.iter().for_each(|x| x.write().reset());
+            }
+        });
+
+        OffThreadDropperHandle {
+            sender: forward_sender,
+            receiver: backward_receiver,
+            thread,
+        }
+    }
+
+    // Send the values back
+    pub fn swap(&mut self, memory: MemoryBlock) -> MemoryBlock {
+        self.sender.send(memory).unwrap();
+        self.receiver.recv().unwrap()
+    }
+}
+
+struct OffThreadDropperThread {
+    receiver: Receiver<MemoryBlock>,
+    sender: Sender<MemoryBlock>,
+
+    memory: Vec<HeapValue>,
+    vectors: Vec<HeapVector>,
+}
 
 impl Heap {
     pub fn new() -> Self {
@@ -646,6 +727,7 @@ impl Heap {
             maybe_memory_size: 0,
 
             skip_minor_collection: false,
+            off_thread_dropper: OffThreadDropperHandle::new(),
         }
     }
 
@@ -659,6 +741,7 @@ impl Heap {
             test_queue: Vec::new(),
             maybe_memory_size: 0,
             skip_minor_collection: false,
+            off_thread_dropper: OffThreadDropperHandle::new(),
         }
     }
 
@@ -789,8 +872,10 @@ impl Heap {
                     log::debug!(target: "gc", "Small collection");
                     let prior_len = self.memory.len() + self.vector_cells_allocated();
                     log::debug!(target: "gc", "Previous length: {:?}", prior_len);
+
                     self.memory.retain(|x| StandardShared::weak_count(x) > 0);
                     self.vectors.retain(|x| StandardShared::weak_count(x) > 0);
+
                     let after = self.memory.len() + self.vector_cells_allocated();
                     log::debug!(target: "gc", "Objects freed: {:?}", prior_len - after);
                     log::debug!(target: "gc", "Small collection time: {:?}", now.elapsed());
@@ -1015,6 +1100,7 @@ impl Heap {
         let count = std::thread::scope(|s| {
             let mut handles = Vec::new();
 
+            // Divide into n cores?
             for chunk in context.queue.chunks(256) {
                 let handle = s.spawn(|| {
                     let mut ref_queue = chunk.iter().map(|x| x as _).collect();
@@ -1055,9 +1141,10 @@ impl Heap {
         // #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
 
-        #[cfg(feature = "profiling")]
+        // #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
+        /*
         let object_count = context.object_count;
 
         log::debug!(target: "gc", "--- Sweeping ---");
@@ -1078,6 +1165,16 @@ impl Heap {
         self.memory.iter().for_each(|x| x.write().reset());
         self.vectors.iter().for_each(|x| x.write().reset());
 
+        */
+
+        let (memory, vectors) = self.off_thread_dropper.swap((
+            std::mem::take(&mut self.memory),
+            std::mem::take(&mut self.vectors),
+        ));
+
+        self.memory = memory;
+        self.vectors = vectors;
+
         #[cfg(feature = "sync")]
         {
             GLOBAL_ROOTS.lock().unwrap().increment_generation();
@@ -1088,12 +1185,13 @@ impl Heap {
             ROOTS.with(|x| x.borrow_mut().increment_generation());
         }
 
-        #[cfg(feature = "profiling")]
+        // #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
 
         synchronizer.resume_threads();
 
-        object_count.saturating_sub(amount_freed)
+        // object_count.saturating_sub(amount_freed)
+        0
     }
 }
 
@@ -1107,6 +1205,7 @@ pub struct HeapRef<T: HeapAble> {
 }
 
 impl<T: HeapAble> HeapRef<T> {
+    #[inline(always)]
     pub fn get(&self) -> T {
         self.inner.upgrade().unwrap().read().value.clone()
     }

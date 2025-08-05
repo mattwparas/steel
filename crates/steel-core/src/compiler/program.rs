@@ -317,6 +317,13 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                             }
                         }
 
+                        _ if ident == *PRIM_VECTOR_REF && arity == 2 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::VECTORREF;
+                                continue;
+                            }
+                        }
+
                         _ if ident == *PRIM_CDR && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CDR;
@@ -419,6 +426,13 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                         _ if ident == *PRIM_LIST_REF && arity == 2 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::LISTREF;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *PRIM_VECTOR_REF && arity == 2 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::VECTORREF;
                                 continue;
                             }
                         }
@@ -537,6 +551,7 @@ define_symbols! {
     LIST_SYMBOL => "list",
     PRIM_LIST_SYMBOL => "#%prim.list",
     PRIM_LIST_REF => "#%prim.list-ref",
+    PRIM_VECTOR_REF => "#%prim.vector-ref",
     BOX => "#%box",
     PRIM_BOX => "#%prim.box",
     UNBOX => "#%unbox",

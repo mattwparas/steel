@@ -16,6 +16,7 @@ use crate::primitives::lists::is_empty;
 use crate::primitives::lists::steel_cons;
 use crate::primitives::lists::steel_list_ref;
 use crate::primitives::numbers::add_two;
+use crate::primitives::vectors::vec_ref;
 use crate::rvals::as_underlying_type;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
 use crate::rvals::number_equality;
@@ -2402,6 +2403,13 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     list_handler(self, payload_size.to_usize())?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::VECTORREF,
+                    ..
+                } => {
+                    vector_ref_handler(self)?;
                 }
 
                 DenseInstruction {
@@ -6397,6 +6405,11 @@ fn list_handler(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
 
     ctx.ip += 2;
 
+    Ok(())
+}
+
+fn vector_ref_handler(ctx: &mut VmCore<'_>) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, vec_ref, 2);
     Ok(())
 }
 

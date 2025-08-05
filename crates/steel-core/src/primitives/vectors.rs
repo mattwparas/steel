@@ -1183,7 +1183,7 @@ pub fn vec_ref(args: &[SteelVal]) -> Result<SteelVal> {
         match vec {
             SteelVal::MutableVector(v) => {
                 let ptr = v.strong_ptr();
-                let guard = &mut ptr.write().value;
+                let guard = &ptr.read().value;
 
                 if idx_usize >= guard.len() {
                     stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());

@@ -1,10 +1,17 @@
+(require "common.scm")
+(require "../cogs/collections/mpair.scm")
+
 (define (sort-list obj pred)
 
   (define (loop l)
-    (if (and (pair? l) (pair? (cdr l))) (split-list l '() '()) l))
+    (if (and (pair? l) (pair? (cdr l)))
+        (split-list l '() '())
+        l))
 
   (define (split-list l one two)
-    (if (pair? l) (split-list (cdr l) two (cons (car l) one)) (merge (loop one) (loop two))))
+    (if (pair? l)
+        (split-list (cdr l) two (cons (car l) one))
+        (merge (loop one) (loop two))))
 
   (define (merge one two)
     (cond
@@ -18,7 +25,9 @@
 ;; (representation as lists with distinct elements)
 
 (define (adjoin element set)
-  (if (memq element set) set (cons element set)))
+  (if (memq element set)
+      set
+      (cons element set)))
 
 (define (eliminate element set)
   (cond
@@ -34,7 +43,9 @@
       [else (loop (cdr l))])))
 
 (define (union list1 list2)
-  (if (null? list1) list2 (union (cdr list1) (adjoin (car list1) list2))))
+  (if (null? list1)
+      list2
+      (union (cdr list1) (adjoin (car list1) list2))))
 
 ;; GRAPH NODES
 
@@ -57,8 +68,12 @@
   (vector-set! node 3 edges))
 
 (define (make-node name . blue-edges) ;; User's constructor
-  (let ([name (if (symbol? name) (symbol->string name) name)]
-        [blue-edges (if (null? blue-edges) 'NOT-A-NODE-YET (car blue-edges))])
+  (let ([name (if (symbol? name)
+                  (symbol->string name)
+                  name)]
+        [blue-edges (if (null? blue-edges)
+                        'NOT-A-NODE-YET
+                        (car blue-edges))])
     (make-internal-node name '() '() blue-edges)))
 
 (define (copy-node node)
@@ -238,7 +253,9 @@
   (let ([none-comma-any (cons none-node any-node)])
     (lambda (op node) ;; Returns (arg, res)
       (let ([the-edge (lookup-op op node)])
-        (if (not (null? the-edge)) (cons (arg-node the-edge) (res-node the-edge)) none-comma-any)))))
+        (if (not (null? the-edge))
+            (cons (arg-node the-edge) (res-node the-edge))
+            none-comma-any)))))
 
 ;; Selectors from signature
 
@@ -327,7 +344,12 @@
   (list 'TABLE))
 (define (lookup table x y)
   (let ([one (assq x (cdr table))])
-    (if one (let ([two (assq y (cdr one))]) (if two (cdr two) #f)) #f)))
+    (if one
+        (let ([two (assq y (cdr one))])
+          (if two
+              (cdr two)
+              #f))
+        #f)))
 (define (insert! table x y value)
   (define (make-singleton-table x y)
     (list (cons x y)))
@@ -452,3 +474,5 @@
                         count
                         (lambda () (apply test input1))
                         (lambda (result) (equal? result output)))))
+
+(with-input-from-file "r7rs-benchmarks/inputs/conform.input" run-benchmark)
