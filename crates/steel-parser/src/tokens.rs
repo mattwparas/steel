@@ -92,8 +92,6 @@ pub enum TokenType<S> {
     Identifier(S),
     Keyword(S),
     Number(Box<NumberLiteral>),
-    // TODO: Consider using Arc<String> here instead to save
-    // on copies
     StringLiteral(Arc<String>),
     Dot,
     Error,
