@@ -644,6 +644,17 @@ impl Clone for OffThreadDropperHandle {
     }
 }
 
+// TODO: Don't do this, since allocating on one thread and freeing on
+// another is bad news for the allocator. We should attempt to build up a
+// free list internally instead. That way the allocating thread has the option of
+// dealing with the dropped values more efficiently; We don't necessarily just
+// have to run a retain (which is nice, for a variety of reasons), but instead
+// we can actually use the free list to skip hitting the global allocator.
+//
+// Also, we can probably do something neat where we inject drops throughout the
+// code, to get some incremental behavior. Given that we'll have marked everything,
+// we basically just need to relieve pressure on the heap by dropping known
+// unreachable entities over time before the next stop the world.
 impl OffThreadDropperHandle {
     pub fn new() -> Self {
         let (forward_sender, forward_receiver) = crossbeam_channel::unbounded::<MemoryBlock>();
@@ -667,6 +678,9 @@ impl OffThreadDropperHandle {
                 // Send the old stuff back
                 thread.sender.send((old_memory, old_vectors)).unwrap();
 
+                log::debug!(target: "gc", "------ STARTING OFF THREAD DROP ------");
+                let now = std::time::Instant::now();
+
                 let prior_len = thread.memory.len() + thread.vectors.len();
 
                 // Drop the old stuff down
@@ -679,6 +693,7 @@ impl OffThreadDropperHandle {
 
                 log::debug!(target: "gc", "Freed objects: {:?}", amount_freed);
                 log::debug!(target: "gc", "Objects alive: {:?}", after_len);
+                log::debug!(target: "gc", "-- OFF THREAD DROP TIME --: {:?}", now.elapsed());
 
                 // put them back as unreachable
                 thread.memory.iter().for_each(|x| x.write().reset());

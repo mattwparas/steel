@@ -1,4 +1,4 @@
-use std::{cell::Cell, thread::JoinHandle};
+use std::cell::Cell;
 
 use im_lists::{
     handler::{DefaultDropHandler, DropHandler},
@@ -140,22 +140,6 @@ impl PointerFamily for GcPointerType {
     }
 }
 
-// Spawn a dedicated thread for _big_ lists? Have them run on another thread?
-static DROP_THREAD: std::sync::LazyLock<(
-    crossbeam_channel::Sender<List<SteelVal>>,
-    JoinHandle<()>,
-)> = std::sync::LazyLock::new(|| {
-    let (sender, receiver) = crossbeam_channel::unbounded();
-
-    let handle = std::thread::spawn(move || {
-        while let Ok(list) = receiver.recv() {
-            drop(list)
-        }
-    });
-
-    (sender, handle)
-});
-
 #[cfg(not(feature = "without-drop-protection"))]
 mod list_drop_handler {
 
@@ -181,30 +165,7 @@ mod list_drop_handler {
                 if DROP_BUFFER
                     .try_with(|drop_buffer| {
                         if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                            // TODO: Don't take this, use a known static default one.
                             let taken = std::mem::replace(obj, EMPTY_LIST.clone());
-
-                            // let length = taken.len();
-
-                            // println!("Node count: {}", taken.node_count());
-
-                            // Only do this on _big_ lists, that probably are uniquely owned
-                            // if length > 16000
-                            //     && std::thread::current().id() != DROP_THREAD.1.thread().id()
-                            // {
-                            //     DROP_THREAD.0.send(taken).unwrap();
-                            //     return;
-                            // }
-
-                            // if obj.len() >
-
-                            // println!("Length: {}", taken.len());
-
-                            // Optimistically check what these values are. If they're
-                            // primitives, then we can just skip pushing them back
-                            // entirely.
-
-                            // let now = std::time::Instant::now();
 
                             for value in taken.draining_iterator() {
                                 match &value {

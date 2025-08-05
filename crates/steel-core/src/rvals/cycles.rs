@@ -2,7 +2,6 @@ use crate::gc::shared::{MutableContainer, ShareableMut};
 use crate::steel_vm::{builtin::get_function_name, vm::Continuation, vm::ContinuationMark};
 use crate::values::lists::Pair;
 use num_bigint::BigInt;
-use std::borrow::Cow;
 use std::{cell::Cell, collections::VecDeque};
 
 use super::*;
