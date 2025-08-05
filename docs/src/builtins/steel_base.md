@@ -220,6 +220,39 @@ Returns the arctangent, or inverse tangent, of a value; output is in radians.
 > (atan 0.5) ;; => 0.46364760900080615
 > (atan 2) ;; => 1.1071487177940906
 ```
+### **bool?**
+Alias for `boolean?`. Returns true if the value is a boolean.
+
+(bool? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (bool? #false)
+#true
+
+> (bool? "hi")
+#false
+```
+### **boolean?**
+Returns true if the value is a boolean (`#true` or `#false`).
+
+(boolean? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (boolean? #true)
+#true
+
+> (boolean? #false)
+#true
+
+> (boolean? 0)
+#false
+```
 ### **byte?**
 Returns `#t` if the given value is a byte, meaning an exact
 integer between 0 and 255 inclusive, `#f` otherwise.
@@ -938,6 +971,24 @@ Get the length of the file in bytes
 Get the last modified time from the file metadata
 ### **fs-metadata?**
 Checks if this value is a #<Metadata>
+### **function?**
+Returns true if the value is a function or callable.
+
+(function? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (function? (lambda (x) x))
+#true
+
+> (function? map)
+#true
+
+> (function? 42)
+#false
+```
 ### **get-output-bytevector**
 Extracts the contents from a port created with `open-output-bytevector`.
 
@@ -1142,6 +1193,21 @@ map: hash?
 ```scheme
 > (hash-keys->vector (hash 'a 10 'b 20)),
 => [10 10]",
+```
+### **hash?**
+Returns true if the value is a hash map.
+
+(hash? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (hash? (hash 'a 10 'b 20))
+#true
+
+> (hash? '(a b c))
+#false
 ```
 ### **hashset**
 Constructs a new hash set
@@ -1508,6 +1574,21 @@ error[E11]: Generic
 │  ^^^^^^^^^ list-tail expects at least 3
 elements in the list, found: 0
 ```
+### **list?**
+Returns true if the value is a list.
+
+(list? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (list? '(1 2 3))
+#true
+
+> (list? "not-a-list")
+#false
+```
 ### **local-time/now!**
 Returns the local time in the format given by the input string (using `chrono::Local::format`).
 
@@ -1737,6 +1818,24 @@ Checks if the given real number is negative.
 > (negative? 0) ;; => #f
 > (negative? 1) ;; => #f
 > (negative? -1) ;; => #t
+```
+### **not**
+Returns true if the given value is exactly `#false`.
+
+(not value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (not #false)
+#true
+
+> (not #true)
+#false
+
+> (not "hello")
+#false
 ```
 ### **null?**
 Checks if the given list or vector is empty.
@@ -2274,6 +2373,21 @@ error[E11]: Generic
 ### **set-tls!**
 Set the value in the the thread local storage. Only this thread will see the updates associated
 with this TLS.
+### **set?**
+Returns true if the value is a hash set.
+
+(set? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (set? (hashset 10 20 30 40))
+#true
+
+> (set? "abc")
+#false
+```
 ### **sin**
 Returns the sine value of the input angle, measured in radians.
 
@@ -2617,6 +2731,21 @@ Compares strings lexicographically (as in"greater-than").
 (string>? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+### **string?**
+Returns true if the value is a string.
+
+(string? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (string? "hello")
+#true
+
+> (string? 'foo)
+#false
+```
 ### **substring**
 Creates a substring slicing the characters between two indices.
 
@@ -2670,6 +2799,21 @@ Returns `#t` if all provided symbols share the same memory pointer,
 => #f
 > (symbol=? 'x 'x 'x)
 => #t
+```
+### **symbol?**
+Returns true if the value is a symbol.
+
+(symbol? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (symbol? 'hello)
+#true
+
+> (symbol? "hello")
+#false
 ```
 ### **system-time-duration-since**
 Gets the duration between two system times.
@@ -2962,8 +3106,38 @@ Sets the value at a specified index in a mutable vector.
 > (vector-set! A 1 42) ;;
 > A ;; => '#(1 42 3)
 ```
+### **vector?**
+Returns true if the value is a vector (mutable or immutable).
+
+(vector? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (vector? #(1 2 3))
+#true
+
+> (vector? 'foo)
+#false
+```
 ### **void**
 The void value, returned by many forms with side effects, such as `define`.
+### **void?**
+Returns true if the value is `void`.
+
+(void? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (void? void)
+#true
+
+> (void? 42)
+#false
+```
 ### **would-block-object?**
 Returns `#t` if the value is an EOF object.
 
@@ -3032,8 +3206,6 @@ Create a zipping iterator
 ### **atom?**
 ### **attach-contract-struct!**
 ### **block-on**
-### **bool?**
-### **boolean?**
 ### **box**
 ### **box-strong**
 ### **breakpoint!**
@@ -3082,7 +3254,6 @@ Create a zipping iterator
 ### **flush-output-port**
 ### **function-arity**
 ### **function-name**
-### **function?**
 ### **future?**
 ### **futures-join-all**
 ### **get-contract-struct**
@@ -3090,7 +3261,6 @@ Create a zipping iterator
 ### **glob**
 ### **glob-iter-next!**
 ### **hash-get**
-### **hash?**
 ### **immutable-vector?**
 ### **inspect**
 ### **instant/elapsed**
@@ -3114,7 +3284,6 @@ Create a zipping iterator
 ### **kill**
 ### **list->vector**
 ### **list-chunks**
-### **list?**
 ### **load**
 ### **load-expanded**
 ### **local-executor/block-on**
@@ -3130,7 +3299,6 @@ Create a zipping iterator
 ### **naive-date-month**
 ### **naive-date-year**
 ### **naive-date-ymd**
-### **not**
 ### **path->string**
 ### **path-separator**
 ### **platform-dll-extension!**
@@ -3158,7 +3326,6 @@ Create a zipping iterator
 ### **set-piped-stdout!**
 ### **set-strong-box!**
 ### **set-test-mode!**
-### **set?**
 ### **span-file-id**
 ### **spawn-process**
 ### **stdout**
@@ -3167,10 +3334,8 @@ Create a zipping iterator
 ### **stream-car**
 ### **stream-cons**
 ### **stream-empty?**
-### **string?**
 ### **struct->list**
 ### **struct?**
-### **symbol?**
 ### **syntax->datum**
 ### **syntax-e**
 ### **syntax-loc**
@@ -3192,8 +3357,6 @@ Create a zipping iterator
 ### **value->iterator**
 ### **value->string**
 ### **vector-push!**
-### **vector?**
-### **void?**
 ### **wait**
 ### **wait->stdout**
 ### **which**
