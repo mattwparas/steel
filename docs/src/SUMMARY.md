@@ -2,13 +2,6 @@
 
 [Introduction](introduction.md)
 
-- [Foundations](foundations/overview.md)
-    - [Evaluation](foundations/evaluation.md)
-    - [Literals](foundations/literals.md)
-    - [Function calls](foundations/fncalls.md)
-    - [Symbols](foundations/symbols.md)
-    - [Bindings and Scopes](foundations/bindings_scopes.md)
-
 - [Steel](about/about.md)
     - [Features](about/features.md)
     - [Licensing](about/license.md)
