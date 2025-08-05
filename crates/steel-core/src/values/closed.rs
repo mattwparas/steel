@@ -517,15 +517,17 @@ impl SteelVal {
 type HeapValue = StandardSharedMut<HeapAllocated<SteelVal>>;
 type HeapVector = StandardSharedMut<HeapAllocated<Vec<SteelVal>>>;
 
-// Maybe uninitialized
+type HeapElement<T> = StandardSharedMut<HeapAllocated<T>>;
 
-struct FreeList {
-    elements: Vec<Option<HeapValue>>,
+// Have free list for vectors and values separately. Can keep some of the vectors pre allocated
+// as well, as necessary
+struct FreeList<T: HeapAble> {
+    elements: Vec<Option<HeapElement<T>>>,
     cursor: usize,
     alloc_count: usize,
 }
 
-impl FreeList {
+impl<T: HeapAble> FreeList<T> {
     const EXTEND_CHUNK: usize = 128;
 
     fn is_heap_full(&self) -> bool {
@@ -540,7 +542,7 @@ impl FreeList {
             .extend(std::iter::repeat_n(None, Self::EXTEND_CHUNK));
     }
 
-    fn allocate(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
+    fn allocate(&mut self, value: T) -> HeapRef<T> {
         // Drain, moving values around...
         // is that expensive?
 
@@ -558,7 +560,8 @@ impl FreeList {
         if let Some(next_slot) = next_slot {
             self.cursor += next_slot;
         } else {
-            //
+            // TODO: Handle compaction and moving things around so the cursor has a chance
+            // to actually find stuff
             if self.is_heap_full() {
                 // Extend the heap, move the cursor to the end
                 self.extend_heap();
@@ -570,7 +573,9 @@ impl FreeList {
         HeapRef { inner: weak_ptr }
     }
 
-    fn collect_on_condition(&mut self, func: fn(&HeapValue) -> bool) -> usize {
+    // Can incrementally collect with the from / to space, assuming that the collections
+    // are done incrementally from the other side.
+    fn collect_on_condition(&mut self, func: fn(&HeapElement<T>) -> bool) -> usize {
         let mut amount_dropped = 0;
 
         self.elements.iter_mut().for_each(|x| {
@@ -610,9 +615,6 @@ enum CurrentSpace {
 pub struct Heap {
     memory: Vec<HeapValue>,
 
-    // from_space: Vec<HeapValue>,
-    // to_space: Vec<HeapValue>,
-    // current: CurrentSpace,
     vectors: Vec<HeapVector>,
     count: usize,
     threshold: usize,
@@ -629,6 +631,13 @@ pub struct Heap {
 
 unsafe impl Send for Heap {}
 unsafe impl Sync for Heap {}
+
+// Contiguous... no good? Perhaps a free list is actually better here?
+// Can reuse the allocations more effectively, and can compact where needed.
+struct MemorySpace {
+    memory: Vec<HeapValue>,
+    vectors: Vec<HeapVector>,
+}
 
 type MemoryBlock = (Vec<HeapValue>, Vec<HeapVector>);
 
@@ -888,8 +897,7 @@ impl Heap {
                     let prior_len = self.memory.len() + self.vector_cells_allocated();
                     log::debug!(target: "gc", "Previous length: {:?}", prior_len);
 
-                    self.memory.retain(|x| StandardShared::weak_count(x) > 0);
-                    self.vectors.retain(|x| StandardShared::weak_count(x) > 0);
+                    self.weak_collection();
 
                     let after = self.memory.len() + self.vector_cells_allocated();
                     log::debug!(target: "gc", "Objects freed: {:?}", prior_len - after);
@@ -1159,7 +1167,6 @@ impl Heap {
         // #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
-        /*
         let object_count = context.object_count;
 
         log::debug!(target: "gc", "--- Sweeping ---");
@@ -1180,15 +1187,13 @@ impl Heap {
         self.memory.iter().for_each(|x| x.write().reset());
         self.vectors.iter().for_each(|x| x.write().reset());
 
-        */
+        // let (memory, vectors) = self.off_thread_dropper.swap((
+        //     std::mem::take(&mut self.memory),
+        //     std::mem::take(&mut self.vectors),
+        // ));
 
-        let (memory, vectors) = self.off_thread_dropper.swap((
-            std::mem::take(&mut self.memory),
-            std::mem::take(&mut self.vectors),
-        ));
-
-        self.memory = memory;
-        self.vectors = vectors;
+        // self.memory = memory;
+        // self.vectors = vectors;
 
         #[cfg(feature = "sync")]
         {
@@ -1205,8 +1210,8 @@ impl Heap {
 
         synchronizer.resume_threads();
 
-        // object_count.saturating_sub(amount_freed)
-        0
+        object_count.saturating_sub(amount_freed)
+        // 0
     }
 }
 
