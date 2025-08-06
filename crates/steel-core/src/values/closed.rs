@@ -533,7 +533,7 @@ enum Reachable {
 
 // Have free list for vectors and values separately. Can keep some of the vectors pre allocated
 // as well, as necessary
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct FreeList<T: HeapAble> {
     // TODO: When we've moved into the from space, we can allocate
     // explicitly from there, before moving on back to the to space.
@@ -634,7 +634,7 @@ fn free_list_continues_allocating_in_the_middle() {
 }
 
 impl<T: HeapAble> FreeList<T> {
-    const EXTEND_CHUNK: usize = 128;
+    const EXTEND_CHUNK: usize = 128 * 100;
 
     fn new() -> Self {
         let mut res = FreeList {
@@ -648,20 +648,28 @@ impl<T: HeapAble> FreeList<T> {
         res
     }
 
+    fn percent_full(&self) -> f64 {
+        let count = self.elements.len() as f64;
+        (count - self.alloc_count as f64) / count
+    }
+
     fn is_heap_full(&self) -> bool {
         self.alloc_count == 0
     }
 
     fn grow(&mut self) {
-        self.elements.reserve(Self::EXTEND_CHUNK);
+        // Can probably make this a lot bigger
+        let current = self.elements.len().max(Self::EXTEND_CHUNK);
+
+        self.elements.reserve(current);
         self.elements.extend(
             std::iter::repeat_with(|| {
                 StandardShared::new(MutContainer::new(HeapAllocated::new(T::empty())))
             })
-            .take(Self::EXTEND_CHUNK),
+            .take(current),
         );
 
-        self.alloc_count += Self::EXTEND_CHUNK;
+        self.alloc_count += current;
     }
 
     // Extend the heap
@@ -674,7 +682,6 @@ impl<T: HeapAble> FreeList<T> {
     fn allocate(&mut self, value: T) -> HeapRef<T> {
         // Drain, moving values around...
         // is that expensive?
-
         let guard = &mut self.elements[self.cursor];
 
         // Allocate into this field
@@ -773,9 +780,7 @@ pub struct Heap {
     maybe_memory_size: usize,
 
     skip_minor_collection: bool,
-
     memory_free_list: FreeList<SteelVal>,
-
     vector_free_list: FreeList<Vec<SteelVal>>,
 }
 
@@ -842,7 +847,7 @@ impl Heap {
     // Allocate this variable on the heap
     // It explicitly should no longer be on the stack, and variables that
     // reference it should be pointing here now
-    pub fn allocate<'a>(
+    pub fn allocate_old<'a>(
         &mut self,
         value: SteelVal,
         roots: &'a [SteelVal],
@@ -880,7 +885,7 @@ impl Heap {
     }
 
     // Allocate a vector explicitly onto the heap
-    pub fn allocate_vector<'a>(
+    pub fn allocate_vector_old<'a>(
         &mut self,
         values: Vec<SteelVal>,
         roots: &'a [SteelVal],
@@ -977,7 +982,12 @@ impl Heap {
 
             // Mark + Sweep!
             if post_small_collection_size as f64 > (0.25 * original_length as f64) || force_full {
-                log::debug!(target: "gc", "---- Post small collection, running mark and sweep - heap size filled: {:?} - {} ----", post_small_collection_size as f64 / original_length as f64, self.count);
+                log::debug!(target: "gc", "---- Post
+                    small collection,
+                    running mark and sweep -
+                    heap size filled: {:?} - {} ----",
+                    post_small_collection_size as f64 / original_length as f64,
+                    self.count);
 
                 amount = self.mark_and_sweep(
                     root_value,
@@ -995,7 +1005,9 @@ impl Heap {
                     self.skip_minor_collection = false;
                 }
             } else {
-                log::debug!(target: "gc", "---- Skipping mark and sweep - heap size filled: {:?} ----", post_small_collection_size as f64 / original_length as f64);
+                log::debug!(target: "gc", "---- Skipping mark and sweep -
+                    heap size filled: {:?} ----",
+                    post_small_collection_size as f64 / original_length as f64);
             }
 
             self.threshold = (self.threshold + self.memory.len() + self.vector_cells_allocated())
@@ -1020,6 +1032,117 @@ impl Heap {
         0
     }
 
+    // Clean up the values?
+    pub fn allocate<'a>(
+        &mut self,
+        value: SteelVal,
+        roots: &'a [SteelVal],
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
+    ) -> HeapRef<SteelVal> {
+        if self.memory_free_list.percent_full() > 0.95 {
+            // Attempt a weak collection
+            self.weak_collection();
+
+            log::debug!(target: "gc", "Memory size post weak collection: {}", self.memory_free_list.percent_full());
+
+            if self.memory_free_list.percent_full() > 0.95 {
+                self.mark_and_sweep_new(
+                    Some(value.clone()),
+                    None,
+                    roots,
+                    live_functions,
+                    globals,
+                    tls,
+                    synchronizer,
+                );
+
+                self.memory_free_list.grow();
+
+                log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.memory_free_list.percent_full());
+            }
+        }
+
+        self.memory_free_list.allocate(value)
+    }
+
+    pub fn allocate_vector<'a>(
+        &mut self,
+        values: Vec<SteelVal>,
+        roots: &'a [SteelVal],
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
+    ) -> HeapRef<Vec<SteelVal>> {
+        if self.vector_free_list.percent_full() > 0.95 {
+            // Attempt a weak collection
+            self.weak_collection();
+
+            if self.vector_free_list.percent_full() > 0.95 {
+                self.mark_and_sweep_new(
+                    None,
+                    Some(&values),
+                    roots,
+                    live_functions,
+                    globals,
+                    tls,
+                    synchronizer,
+                );
+
+                self.vector_free_list.grow();
+            }
+        }
+
+        // TOOD: Optimize this a lot!
+        self.vector_free_list.allocate(values)
+    }
+
+    fn mark_and_sweep_new<'a>(
+        &mut self,
+        root_value: Option<SteelVal>,
+        root_vector: Option<&Vec<SteelVal>>,
+        roots: &'a [SteelVal],
+        function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
+    ) {
+        let (mut context, count) = self.mark(
+            root_value,
+            root_vector,
+            roots,
+            function_stack,
+            globals,
+            tls,
+            synchronizer,
+        );
+
+        context.object_count = count;
+
+        // #[cfg(feature = "profiling")]
+        let now = std::time::Instant::now();
+
+        #[cfg(feature = "sync")]
+        {
+            GLOBAL_ROOTS.lock().unwrap().increment_generation();
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            ROOTS.with(|x| x.borrow_mut().increment_generation());
+        }
+
+        // #[cfg(feature = "profiling")]
+        log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
+
+        synchronizer.resume_threads();
+
+        // object_count.saturating_sub(amount_freed)
+        // 0
+    }
     fn mark_and_sweep<'a>(
         &mut self,
         root_value: Option<SteelVal>,
@@ -1030,6 +1153,80 @@ impl Heap {
         tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
     ) -> usize {
+        let (mut context, count) = self.mark(
+            root_value,
+            root_vector,
+            roots,
+            function_stack,
+            globals,
+            tls,
+            synchronizer,
+        );
+
+        // Turns this into a reference one:
+        // let mut ref_queue = context.queue.iter().map(|x| x as _).collect();
+
+        // let mut context = MarkAndSweepContextRef {
+        //     queue: &mut ref_queue,
+        //     object_count: context.object_count,
+        // };
+
+        // context.visit();
+
+        context.object_count = count;
+
+        // #[cfg(feature = "profiling")]
+        let now = std::time::Instant::now();
+
+        let object_count = context.object_count;
+
+        log::debug!(target: "gc", "--- Sweeping ---");
+        let prior_len = self.memory.len() + self.vector_cells_allocated();
+
+        // sweep
+        self.memory.retain(|x| x.read().is_reachable());
+        self.vectors.retain(|x| x.read().is_reachable());
+
+        let after_len = self.memory.len();
+
+        let amount_freed = prior_len - after_len;
+
+        log::debug!(target: "gc", "Freed objects: {:?}", amount_freed);
+        log::debug!(target: "gc", "Objects alive: {:?}", after_len);
+
+        // put them back as unreachable
+        self.memory.iter().for_each(|x| x.write().reset());
+        self.vectors.iter().for_each(|x| x.write().reset());
+
+        #[cfg(feature = "sync")]
+        {
+            GLOBAL_ROOTS.lock().unwrap().increment_generation();
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            ROOTS.with(|x| x.borrow_mut().increment_generation());
+        }
+
+        // #[cfg(feature = "profiling")]
+        log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
+
+        synchronizer.resume_threads();
+
+        object_count.saturating_sub(amount_freed)
+        // 0
+    }
+
+    fn mark<'a>(
+        &mut self,
+        root_value: Option<SteelVal>,
+        root_vector: Option<&Vec<SteelVal>>,
+        roots: &[SteelVal],
+        function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: &[SteelVal],
+        tls: &[SteelVal],
+        synchronizer: &mut Synchronizer,
+    ) -> (MarkAndSweepContext<'_>, usize) {
         log::debug!(target: "gc", "Marking the heap");
 
         // #[cfg(feature = "profiling")]
@@ -1179,9 +1376,6 @@ impl Heap {
         log::debug!(target: "gc", "Stack size: {}", context.queue.len());
 
         // Divide up the queue:
-
-        // let mut threads = Vec::new();
-
         let count = std::thread::scope(|s| {
             let mut handles = Vec::new();
 
@@ -1211,61 +1405,8 @@ impl Heap {
             count
         });
 
-        // Turns this into a reference one:
-        // let mut ref_queue = context.queue.iter().map(|x| x as _).collect();
-
-        // let mut context = MarkAndSweepContextRef {
-        //     queue: &mut ref_queue,
-        //     object_count: context.object_count,
-        // };
-
-        // context.visit();
-
-        context.object_count = count;
-
-        // #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
-
-        // #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
-
-        let object_count = context.object_count;
-
-        log::debug!(target: "gc", "--- Sweeping ---");
-        let prior_len = self.memory.len() + self.vector_cells_allocated();
-
-        // sweep
-        self.memory.retain(|x| x.read().is_reachable());
-        self.vectors.retain(|x| x.read().is_reachable());
-
-        let after_len = self.memory.len();
-
-        let amount_freed = prior_len - after_len;
-
-        log::debug!(target: "gc", "Freed objects: {:?}", amount_freed);
-        log::debug!(target: "gc", "Objects alive: {:?}", after_len);
-
-        // put them back as unreachable
-        self.memory.iter().for_each(|x| x.write().reset());
-        self.vectors.iter().for_each(|x| x.write().reset());
-
-        #[cfg(feature = "sync")]
-        {
-            GLOBAL_ROOTS.lock().unwrap().increment_generation();
-        }
-
-        #[cfg(not(feature = "sync"))]
-        {
-            ROOTS.with(|x| x.borrow_mut().increment_generation());
-        }
-
-        // #[cfg(feature = "profiling")]
-        log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
-
-        synchronizer.resume_threads();
-
-        object_count.saturating_sub(amount_freed)
-        // 0
+        (context, count)
     }
 }
 
