@@ -533,6 +533,7 @@ enum Reachable {
 
 // Have free list for vectors and values separately. Can keep some of the vectors pre allocated
 // as well, as necessary
+#[derive(Clone)]
 struct FreeList<T: HeapAble> {
     // TODO: When we've moved into the from space, we can allocate
     // explicitly from there, before moving on back to the to space.
@@ -772,6 +773,10 @@ pub struct Heap {
     maybe_memory_size: usize,
 
     skip_minor_collection: bool,
+
+    memory_free_list: FreeList<SteelVal>,
+
+    vector_free_list: FreeList<Vec<SteelVal>>,
 }
 
 unsafe impl Send for Heap {}
@@ -805,6 +810,9 @@ impl Heap {
             maybe_memory_size: 0,
 
             skip_minor_collection: false,
+
+            memory_free_list: FreeList::new(),
+            vector_free_list: FreeList::new(),
         }
     }
 
@@ -818,6 +826,8 @@ impl Heap {
             test_queue: Vec::new(),
             maybe_memory_size: 0,
             skip_minor_collection: false,
+            memory_free_list: FreeList::new(),
+            vector_free_list: FreeList::new(),
         }
     }
 
