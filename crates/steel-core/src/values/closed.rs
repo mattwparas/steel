@@ -99,6 +99,7 @@ impl GlobalSlotRecycler {
         // Actually walk the tree, looking for unreachable stuff
         self.visit();
 
+        // TODO: Check this stuff!
         // put them back as unreachable
         heap.memory.iter().for_each(|x| x.write().reset());
         heap.vectors.iter().for_each(|x| x.write().reset());
@@ -650,7 +651,7 @@ impl<T: HeapAble> FreeList<T> {
 
     fn percent_full(&self) -> f64 {
         let count = self.elements.len() as f64;
-        (count - self.alloc_count as f64) / count
+        self.alloc_count as f64 / count
     }
 
     fn is_heap_full(&self) -> bool {
@@ -668,6 +669,8 @@ impl<T: HeapAble> FreeList<T> {
             })
             .take(current),
         );
+
+        log::debug!(target: "gc", "Growing the heap by: {}", current);
 
         self.alloc_count += current;
     }
@@ -710,6 +713,17 @@ impl<T: HeapAble> FreeList<T> {
                 self.extend_heap();
             } else {
                 dbg!(self.alloc_count);
+                dbg!(self.elements.len());
+
+                let mut found_free = 0;
+
+                for element in self.elements.iter() {
+                    if !element.read().is_reachable() {
+                        found_free += 1;
+                    }
+                }
+
+                dbg!(found_free);
 
                 // Move to the beginning.
                 self.cursor = self
@@ -726,6 +740,7 @@ impl<T: HeapAble> FreeList<T> {
     // Can incrementally collect with the from / to space, assuming that the collections
     // are done incrementally from the other side.
     fn collect_on_condition(&mut self, func: fn(&HeapElement<T>) -> bool) -> usize {
+        log::debug!(target: "gc", "Free count before weak collection: {}", self.alloc_count);
         let mut amount_dropped = 0;
 
         self.elements.iter_mut().for_each(|x| {
@@ -740,6 +755,7 @@ impl<T: HeapAble> FreeList<T> {
         });
 
         self.alloc_count += amount_dropped;
+        log::debug!(target: "gc", "Free count after weak collection: {}", self.alloc_count);
 
         amount_dropped
     }
@@ -1044,7 +1060,8 @@ impl Heap {
     ) -> HeapRef<SteelVal> {
         if self.memory_free_list.percent_full() > 0.95 {
             // Attempt a weak collection
-            self.weak_collection();
+            log::debug!(target: "gc", "SteelVal gc invocation");
+            self.memory_free_list.weak_collection();
 
             log::debug!(target: "gc", "Memory size post weak collection: {}", self.memory_free_list.percent_full());
 
@@ -1059,7 +1076,9 @@ impl Heap {
                     synchronizer,
                 );
 
-                self.memory_free_list.grow();
+                if self.memory_free_list.percent_full() > 0.75 {
+                    self.memory_free_list.grow();
+                }
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.memory_free_list.percent_full());
             }
@@ -1079,7 +1098,8 @@ impl Heap {
     ) -> HeapRef<Vec<SteelVal>> {
         if self.vector_free_list.percent_full() > 0.95 {
             // Attempt a weak collection
-            self.weak_collection();
+            log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
+            self.vector_free_list.weak_collection();
 
             if self.vector_free_list.percent_full() > 0.95 {
                 self.mark_and_sweep_new(
@@ -1091,6 +1111,10 @@ impl Heap {
                     tls,
                     synchronizer,
                 );
+
+                if self.vector_free_list.percent_full() > 0.75 {
+                    self.vector_free_list.grow();
+                }
 
                 self.vector_free_list.grow();
             }
