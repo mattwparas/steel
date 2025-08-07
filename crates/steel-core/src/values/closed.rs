@@ -97,13 +97,22 @@ impl GlobalSlotRecycler {
             }
         }
 
+        // Mark all unreachable for the purposes of the global
+        // collection.
+        // heap.memory_free_list.mark_all_unreachable();
+        // heap.vector_free_list.mark_all_unreachable();
+
         // Actually walk the tree, looking for unreachable stuff
         self.visit();
 
+        // heap.memory_free_list.recount();
+        // heap.vector_free_list.recount();
+
         // TODO: Check this stuff!
         // put them back as unreachable
-        heap.memory.iter().for_each(|x| x.write().reset());
-        heap.vectors.iter().for_each(|x| x.write().reset());
+
+        // heap.memory.iter().for_each(|x| x.write().reset());
+        // heap.vectors.iter().for_each(|x| x.write().reset());
 
         // Anything that is still remaining will require
         // getting added to the free list that is left.
@@ -552,10 +561,8 @@ struct FreeList<T: HeapAble> {
     alloc_count: usize,
 
     grow_count: usize,
-
-    forward: Sender<Vec<HeapElement<T>>>,
-
-    backward: Receiver<Vec<HeapElement<T>>>,
+    // forward: Sender<Vec<HeapElement<T>>>,
+    // backward: Receiver<Vec<HeapElement<T>>>,
 }
 
 #[test]
@@ -647,27 +654,27 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     const EXTEND_CHUNK: usize = 256 * 1000;
 
     fn new() -> Self {
-        let (forward_sender, forward_receiver) = crossbeam_channel::bounded(0);
-        let (backward_sender, backward_receiver) = crossbeam_channel::bounded(0);
+        // let (forward_sender, forward_receiver) = crossbeam_channel::bounded(0);
+        // let (backward_sender, backward_receiver) = crossbeam_channel::bounded(0);
 
-        // Worker thread, capable of dropping the background values of lists
-        std::thread::spawn(move || {
-            let mut current: Vec<HeapElement<T>> = Vec::new();
-            for mut block in forward_receiver {
-                std::mem::swap(&mut current, &mut block);
-                // Get the value, move on.
-                backward_sender.send(block).unwrap();
-                current.retain(|x| x.read().is_reachable());
-            }
-        });
+        // // Worker thread, capable of dropping the background values of lists
+        // std::thread::spawn(move || {
+        //     let mut current: Vec<HeapElement<T>> = Vec::new();
+        //     for mut block in forward_receiver {
+        //         std::mem::swap(&mut current, &mut block);
+        //         // Get the value, move on.
+        //         backward_sender.send(block).unwrap();
+        //         current.retain(|x| x.read().is_reachable());
+        //     }
+        // });
 
         let mut res = FreeList {
             elements: Vec::new(),
             cursor: 0,
             alloc_count: 0,
             grow_count: 0,
-            forward: forward_sender,
-            backward: backward_receiver,
+            //     forward: forward_sender,
+            //     backward: backward_receiver,
         };
 
         res.grow();
@@ -676,21 +683,21 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     }
 
     // Send the other block to the background for compaction
-    fn swap_blocks(&mut self) {
-        let memory = std::mem::take(&mut self.elements);
-        self.forward.send(memory).unwrap();
-        self.elements = self.backward.recv().unwrap();
+    // fn swap_blocks(&mut self) {
+    //     let memory = std::mem::take(&mut self.elements);
+    //     self.forward.send(memory).unwrap();
+    //     self.elements = self.backward.recv().unwrap();
 
-        self.alloc_count = 0;
-        self.grow_count = 0;
-        self.extend_heap();
-    }
+    //     self.alloc_count = 0;
+    //     self.grow_count = 0;
+    //     self.extend_heap();
+    // }
 
     // Update the counts for things
     fn recount(&mut self) {
         self.alloc_count = 0;
         for element in &mut self.elements {
-            let guard = element.write();
+            let guard = element.read();
             if !guard.is_reachable() {
                 // Replace with an empty value... for now.
                 // Want to keep the memory counts down.
@@ -748,11 +755,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // Allocate into this field
         let mut heap_guard = guard.write();
 
-        // let existing = std::mem::replace(&mut heap_guard.value, value);
         heap_guard.value = value;
-
-        // Send to the back? Or, just swap the whole thing out to a background one?
-        // self.dropper.send(existing).unwrap();
 
         heap_guard.reachable = true;
         let weak_ptr = StandardShared::downgrade(&guard);
@@ -761,7 +764,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // self.elements[self.cursor] = pointer;
         self.alloc_count -= 1;
 
-        // Find where to assign the next slot optimistically
+        // Find where to assign the next slot optimistically?
         let next_slot = self.elements[self.cursor..]
             .iter()
             .position(|x| !x.read().is_reachable());
@@ -828,7 +831,8 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     // Compact every once in a while
     // TODO: Move this on to its own thread
     fn compact(&mut self) {
-        self.elements.retain(|x| x.read().is_reachable());
+        self.elements
+            .retain(|x| StandardShared::weak_count(x) > 0 || x.read().is_reachable());
         log::debug!(target: "gc", "Heap size after compaction: {}", self.elements.len());
         self.alloc_count = 0;
         self.grow_count = 0;
@@ -933,7 +937,7 @@ impl Heap {
     // Allocate this variable on the heap
     // It explicitly should no longer be on the stack, and variables that
     // reference it should be pointing here now
-    pub fn allocate_old<'a>(
+    pub fn allocate<'a>(
         &mut self,
         value: SteelVal,
         roots: &'a [SteelVal],
@@ -971,7 +975,7 @@ impl Heap {
     }
 
     // Allocate a vector explicitly onto the heap
-    pub fn allocate_vector_old<'a>(
+    pub fn allocate_vector<'a>(
         &mut self,
         values: Vec<SteelVal>,
         roots: &'a [SteelVal],
@@ -1119,7 +1123,7 @@ impl Heap {
     }
 
     // Clean up the values?
-    pub fn allocate<'a>(
+    pub fn allocate_new<'a>(
         &mut self,
         value: SteelVal,
         roots: &'a [SteelVal],
@@ -1154,10 +1158,12 @@ impl Heap {
 
                 if self.memory_free_list.grow_count > 5 {
                     // Compact the free list.
-                    self.memory_free_list.compact();
+                    // self.memory_free_list.compact();
                 } else {
                     self.memory_free_list.grow();
                 }
+
+                synchronizer.resume_threads();
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.memory_free_list.percent_full());
             }
@@ -1166,7 +1172,7 @@ impl Heap {
         self.memory_free_list.allocate(value)
     }
 
-    pub fn allocate_vector<'a>(
+    pub fn allocate_vector_new<'a>(
         &mut self,
         values: Vec<SteelVal>,
         roots: &'a [SteelVal],
@@ -1220,7 +1226,7 @@ impl Heap {
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
         tls: &'a [SteelVal],
-        synchronizer: &'a mut Synchronizer,
+        synchronizer: &mut Synchronizer,
     ) {
         let (mut context, count) = self.mark(
             root_value,
@@ -1250,11 +1256,12 @@ impl Heap {
         // #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
 
-        synchronizer.resume_threads();
+        // synchronizer.resume_threads();
 
         // object_count.saturating_sub(amount_freed)
         // 0
     }
+
     fn mark_and_sweep<'a>(
         &mut self,
         root_value: Option<SteelVal>,

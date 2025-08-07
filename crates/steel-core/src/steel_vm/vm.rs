@@ -1624,6 +1624,8 @@ impl<'a> VmCore<'a> {
         SteelVal::HeapAllocated(allocated_var)
     }
 
+    // TODO: Accept a slice instead, or an iterator with a known size.
+    // That way we can take advantage of a pre allocation.
     pub fn make_mutable_vector(&mut self, values: Vec<SteelVal>) -> SteelVal {
         let allocated_var = self.thread.heap.lock().unwrap().allocate_vector(
             values,
