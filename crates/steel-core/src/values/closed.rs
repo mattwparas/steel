@@ -549,6 +549,8 @@ struct FreeList<T: HeapAble> {
 
     // Available count
     alloc_count: usize,
+
+    grow_count: usize,
 }
 
 #[test]
@@ -635,13 +637,16 @@ fn free_list_continues_allocating_in_the_middle() {
 }
 
 impl<T: HeapAble> FreeList<T> {
-    const EXTEND_CHUNK: usize = 128 * 100;
+    // TODO: Calculate the overhead!
+    // How big is this?
+    const EXTEND_CHUNK: usize = 256 * 1000;
 
     fn new() -> Self {
         let mut res = FreeList {
             elements: Vec::new(),
             cursor: 0,
             alloc_count: 0,
+            grow_count: 0,
         };
 
         res.grow();
@@ -649,9 +654,28 @@ impl<T: HeapAble> FreeList<T> {
         res
     }
 
+    // Update the counts for things
+    fn recount(&mut self) {
+        self.alloc_count = 0;
+        for element in &mut self.elements {
+            let mut guard = element.write();
+            if !guard.is_reachable() {
+                // Replace with an empty value... for now.
+                // Want to keep the memory counts down.
+                guard.value = T::empty();
+                self.alloc_count += 1;
+            }
+        }
+    }
+
     fn percent_full(&self) -> f64 {
         let count = self.elements.len() as f64;
-        self.alloc_count as f64 / count
+
+        let percent = (count - self.alloc_count as f64) / count;
+
+        assert!(percent < 1.01);
+
+        percent
     }
 
     fn is_heap_full(&self) -> bool {
@@ -673,6 +697,7 @@ impl<T: HeapAble> FreeList<T> {
         log::debug!(target: "gc", "Growing the heap by: {}", current);
 
         self.alloc_count += current;
+        self.grow_count += 1;
     }
 
     // Extend the heap
@@ -709,6 +734,8 @@ impl<T: HeapAble> FreeList<T> {
             // cursor has a chance to actually find stuff that has been
             // freed. It would also be nice
             if self.is_heap_full() {
+                log::debug!(target: "gc", "Extending the heap in `allocate`");
+
                 // Extend the heap, move the cursor to the end
                 self.extend_heap();
             } else {
@@ -748,9 +775,12 @@ impl<T: HeapAble> FreeList<T> {
             // help. Allocations can now be genuinely reused since we're manipulating
             // what is inside the pointer
             if func(x) {
-                // *x = None;
-                x.write().reachable = false;
-                amount_dropped += 1;
+                let mut guard = x.write();
+
+                if guard.reachable {
+                    guard.reachable = false;
+                    amount_dropped += 1;
+                }
             }
         });
 
@@ -763,6 +793,10 @@ impl<T: HeapAble> FreeList<T> {
     fn weak_collection(&mut self) -> usize {
         // Just mark them to be dead
         self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0)
+    }
+
+    fn compact(&mut self) {
+        todo!()
     }
 
     fn strong_collection(&mut self) -> usize {
@@ -1066,6 +1100,7 @@ impl Heap {
             log::debug!(target: "gc", "Memory size post weak collection: {}", self.memory_free_list.percent_full());
 
             if self.memory_free_list.percent_full() > 0.95 {
+                // Just reset the counter
                 self.mark_and_sweep_new(
                     Some(value.clone()),
                     None,
@@ -1076,8 +1111,14 @@ impl Heap {
                     synchronizer,
                 );
 
+                self.memory_free_list.recount();
+
                 if self.memory_free_list.percent_full() > 0.75 {
                     self.memory_free_list.grow();
+
+                    if self.memory_free_list.grow_count > 5 {
+                        // Compact the free list.
+                    }
                 }
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.memory_free_list.percent_full());
@@ -1111,6 +1152,8 @@ impl Heap {
                     tls,
                     synchronizer,
                 );
+
+                self.vector_free_list.recount();
 
                 if self.vector_free_list.percent_full() > 0.75 {
                     self.vector_free_list.grow();
