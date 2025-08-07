@@ -16,6 +16,7 @@ use crate::{
     steel_vm::vm::{Continuation, ContinuationMark, Synchronizer},
     values::lists::List,
 };
+use crossbeam_channel::{Receiver, Sender};
 use num_bigint::BigInt;
 use num_rational::{BigRational, Rational32};
 
@@ -551,6 +552,10 @@ struct FreeList<T: HeapAble> {
     alloc_count: usize,
 
     grow_count: usize,
+
+    forward: Sender<Vec<HeapElement<T>>>,
+
+    backward: Receiver<Vec<HeapElement<T>>>,
 }
 
 #[test]
@@ -636,17 +641,33 @@ fn free_list_continues_allocating_in_the_middle() {
     drop(right_half)
 }
 
-impl<T: HeapAble> FreeList<T> {
+impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     // TODO: Calculate the overhead!
     // How big is this?
     const EXTEND_CHUNK: usize = 256 * 1000;
 
     fn new() -> Self {
+        let (forward_sender, forward_receiver) = crossbeam_channel::bounded(0);
+        let (backward_sender, backward_receiver) = crossbeam_channel::bounded(0);
+
+        // Worker thread, capable of dropping the background values of lists
+        std::thread::spawn(move || {
+            let mut current: Vec<HeapElement<T>> = Vec::new();
+            for mut block in forward_receiver {
+                std::mem::swap(&mut current, &mut block);
+                // Get the value, move on.
+                backward_sender.send(block).unwrap();
+                current.retain(|x| x.read().is_reachable());
+            }
+        });
+
         let mut res = FreeList {
             elements: Vec::new(),
             cursor: 0,
             alloc_count: 0,
             grow_count: 0,
+            forward: forward_sender,
+            backward: backward_receiver,
         };
 
         res.grow();
@@ -654,15 +675,27 @@ impl<T: HeapAble> FreeList<T> {
         res
     }
 
+    // Send the other block to the background for compaction
+    fn swap_blocks(&mut self) {
+        let memory = std::mem::take(&mut self.elements);
+        self.forward.send(memory).unwrap();
+        self.elements = self.backward.recv().unwrap();
+
+        self.alloc_count = 0;
+        self.grow_count = 0;
+        self.extend_heap();
+    }
+
     // Update the counts for things
     fn recount(&mut self) {
         self.alloc_count = 0;
         for element in &mut self.elements {
-            let mut guard = element.write();
+            let guard = element.write();
             if !guard.is_reachable() {
                 // Replace with an empty value... for now.
                 // Want to keep the memory counts down.
-                guard.value = T::empty();
+                // let value = std::mem::replace(&mut guard.value, T::empty());
+
                 self.alloc_count += 1;
             }
         }
@@ -714,7 +747,13 @@ impl<T: HeapAble> FreeList<T> {
 
         // Allocate into this field
         let mut heap_guard = guard.write();
+
+        // let existing = std::mem::replace(&mut heap_guard.value, value);
         heap_guard.value = value;
+
+        // Send to the back? Or, just swap the whole thing out to a background one?
+        // self.dropper.send(existing).unwrap();
+
         heap_guard.reachable = true;
         let weak_ptr = StandardShared::downgrade(&guard);
         drop(heap_guard);
@@ -739,19 +778,6 @@ impl<T: HeapAble> FreeList<T> {
                 // Extend the heap, move the cursor to the end
                 self.extend_heap();
             } else {
-                dbg!(self.alloc_count);
-                dbg!(self.elements.len());
-
-                let mut found_free = 0;
-
-                for element in self.elements.iter() {
-                    if !element.read().is_reachable() {
-                        found_free += 1;
-                    }
-                }
-
-                dbg!(found_free);
-
                 // Move to the beginning.
                 self.cursor = self
                     .elements
@@ -795,8 +821,18 @@ impl<T: HeapAble> FreeList<T> {
         self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0)
     }
 
+    fn mark_all_unreachable(&mut self) {
+        self.elements.iter_mut().for_each(|x| x.write().reset());
+    }
+
+    // Compact every once in a while
+    // TODO: Move this on to its own thread
     fn compact(&mut self) {
-        todo!()
+        self.elements.retain(|x| x.read().is_reachable());
+        log::debug!(target: "gc", "Heap size after compaction: {}", self.elements.len());
+        self.alloc_count = 0;
+        self.grow_count = 0;
+        self.extend_heap();
     }
 
     fn strong_collection(&mut self) -> usize {
@@ -1100,6 +1136,9 @@ impl Heap {
             log::debug!(target: "gc", "Memory size post weak collection: {}", self.memory_free_list.percent_full());
 
             if self.memory_free_list.percent_full() > 0.95 {
+                // New generation
+                self.memory_free_list.mark_all_unreachable();
+
                 // Just reset the counter
                 self.mark_and_sweep_new(
                     Some(value.clone()),
@@ -1113,12 +1152,11 @@ impl Heap {
 
                 self.memory_free_list.recount();
 
-                if self.memory_free_list.percent_full() > 0.75 {
+                if self.memory_free_list.grow_count > 5 {
+                    // Compact the free list.
+                    self.memory_free_list.compact();
+                } else {
                     self.memory_free_list.grow();
-
-                    if self.memory_free_list.grow_count > 5 {
-                        // Compact the free list.
-                    }
                 }
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.memory_free_list.percent_full());
@@ -1143,6 +1181,8 @@ impl Heap {
             self.vector_free_list.weak_collection();
 
             if self.vector_free_list.percent_full() > 0.95 {
+                self.vector_free_list.mark_all_unreachable();
+
                 self.mark_and_sweep_new(
                     None,
                     Some(&values),
@@ -1155,9 +1195,14 @@ impl Heap {
 
                 self.vector_free_list.recount();
 
-                if self.vector_free_list.percent_full() > 0.75 {
+                // if self.vector_free_list.percent_full() > 0.75 {
+                if self.vector_free_list.grow_count > 5 {
+                    // Compact the free list.
+                    self.vector_free_list.compact();
+                } else {
                     self.vector_free_list.grow();
                 }
+                // }
 
                 self.vector_free_list.grow();
             }
