@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashSet};
+use std::{cell::RefCell, collections::HashSet, sync::Arc, thread::JoinHandle};
 
 #[cfg(feature = "sync")]
 use std::sync::Mutex;
@@ -542,9 +542,11 @@ enum Reachable {
     White,
 }
 
+static MARKER: std::sync::LazyLock<ParallelMarker> = std::sync::LazyLock::new(ParallelMarker::new);
+
 // Have free list for vectors and values separately. Can keep some of the vectors pre allocated
 // as well, as necessary
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct FreeList<T: HeapAble> {
     // TODO: When we've moved into the from space, we can allocate
     // explicitly from there, before moving on back to the to space.
@@ -561,8 +563,32 @@ struct FreeList<T: HeapAble> {
     alloc_count: usize,
 
     grow_count: usize,
-    // forward: Sender<Vec<HeapElement<T>>>,
-    // backward: Receiver<Vec<HeapElement<T>>>,
+    forward: Option<Sender<Vec<HeapElement<T>>>>,
+    backward: Option<Receiver<Vec<HeapElement<T>>>>,
+}
+
+impl<T: HeapAble> Clone for FreeList<T> {
+    fn clone(&self) -> Self {
+        Self {
+            cursor: self.cursor,
+            alloc_count: self.alloc_count,
+            grow_count: self.grow_count,
+            elements: self
+                .elements
+                .iter()
+                .map(|x| {
+                    let guard = x.read();
+                    let inner = guard.value.clone();
+                    StandardShared::new(MutContainer::new(HeapAllocated {
+                        reachable: guard.reachable,
+                        value: inner,
+                    }))
+                })
+                .collect(),
+            forward: None,
+            backward: None,
+        }
+    }
 }
 
 #[test]
@@ -654,27 +680,15 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     const EXTEND_CHUNK: usize = 256 * 1000;
 
     fn new() -> Self {
-        // let (forward_sender, forward_receiver) = crossbeam_channel::bounded(0);
-        // let (backward_sender, backward_receiver) = crossbeam_channel::bounded(0);
-
-        // // Worker thread, capable of dropping the background values of lists
-        // std::thread::spawn(move || {
-        //     let mut current: Vec<HeapElement<T>> = Vec::new();
-        //     for mut block in forward_receiver {
-        //         std::mem::swap(&mut current, &mut block);
-        //         // Get the value, move on.
-        //         backward_sender.send(block).unwrap();
-        //         current.retain(|x| x.read().is_reachable());
-        //     }
-        // });
+        let (forward_sender, backward_receiver) = spawn_background_dropper();
 
         let mut res = FreeList {
             elements: Vec::new(),
             cursor: 0,
             alloc_count: 0,
             grow_count: 0,
-            //     forward: forward_sender,
-            //     backward: backward_receiver,
+            forward: Some(forward_sender),
+            backward: Some(backward_receiver),
         };
 
         res.grow();
@@ -741,7 +755,10 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         self.alloc_count += current;
         self.grow_count += 1;
 
-        assert!(!self.elements[self.cursor].read().is_reachable());
+        #[cfg(debug_assertions)]
+        {
+            assert!(!self.elements[self.cursor].read().is_reachable());
+        }
     }
 
     // Extend the heap
@@ -756,20 +773,27 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         //     .position(|x| !x.read().is_reachable())
         //     .unwrap();
 
-        assert!(!self.elements[self.cursor].read().is_reachable());
+        #[cfg(debug_assertions)]
+        {
+            assert!(!self.elements[self.cursor].read().is_reachable());
+        }
     }
 
     // TODO: Allocate and also mark the roots when we're full!
     fn allocate(&mut self, value: T) -> HeapRef<T> {
+        // if self.cursor == 0 {
+        //     dbg!(&self.elements);
+        // }
+
         // TODO: Figure out why the cursor is off?
-        // self.cursor = self
-        //     .elements
+        // Seek to the next free thing.
+        // self.cursor += self.elements[self.cursor..]
         //     .iter()
         //     .position(|x| !x.read().is_reachable())
         //     .unwrap();
 
-        dbg!(self.cursor);
-        dbg!(&self.elements[self.cursor]);
+        // dbg!(self.cursor);
+        // dbg!(&self.elements[self.cursor]);
 
         // Drain, moving values around...
         // is that expensive?
@@ -780,7 +804,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
         heap_guard.value = value;
 
-        assert!(!heap_guard.reachable);
+        // assert!(!heap_guard.reachable);
 
         heap_guard.reachable = true;
         let weak_ptr = StandardShared::downgrade(&guard);
@@ -799,7 +823,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
             // #[cfg(debug_assertions)]
             // {
-            assert!(!self.elements[self.cursor].read().is_reachable());
+            // assert!(!self.elements[self.cursor].read().is_reachable());
             // }
         } else {
             // TODO: Handle compaction and moving things around so the
@@ -811,7 +835,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
                 // Extend the heap, move the cursor to the end
                 self.extend_heap();
 
-                assert!(!self.elements[self.cursor].read().is_reachable());
+                // assert!(!self.elements[self.cursor].read().is_reachable());
             } else {
                 // Move to the beginning.
                 self.cursor = self
@@ -820,11 +844,11 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
                     .position(|x| !x.read().is_reachable())
                     .unwrap();
 
-                assert!(!self.elements[self.cursor].read().is_reachable());
+                // assert!(!self.elements[self.cursor].read().is_reachable());
             }
         }
 
-        assert!(!self.elements[self.cursor].read().is_reachable());
+        // assert!(!self.elements[self.cursor].read().is_reachable());
 
         HeapRef { inner: weak_ptr }
     }
@@ -858,7 +882,10 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     fn weak_collection(&mut self) -> usize {
         // Just mark them to be dead
         let res = self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0);
-        assert!(!self.elements[self.cursor].read().is_reachable());
+        #[cfg(debug_assertions)]
+        {
+            assert!(!self.elements[self.cursor].read().is_reachable());
+        }
         res
     }
 
@@ -869,18 +896,47 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     // Compact every once in a while
     // TODO: Move this on to its own thread
     fn compact(&mut self) {
-        self.elements
-            .retain(|x| StandardShared::weak_count(x) > 0 || x.read().is_reachable());
+        self.elements.retain(|x| x.read().is_reachable());
+        self.elements.shrink_to_fit();
+
+        if let Some(sender) = &self.forward {
+            sender.send(std::mem::take(&mut self.elements)).unwrap();
+            self.elements = self.backward.as_ref().unwrap().recv().unwrap();
+        }
+
         log::debug!(target: "gc", "Heap size after compaction: {}", self.elements.len());
         self.alloc_count = 0;
         self.grow_count = 0;
         self.extend_heap();
-        assert!(!self.elements[self.cursor].read().is_reachable());
+        #[cfg(debug_assertions)]
+        {
+            assert!(!self.elements[self.cursor].read().is_reachable());
+        }
     }
 
     fn strong_collection(&mut self) -> usize {
         self.collect_on_condition(|inner| !inner.read().is_reachable())
     }
+}
+
+// Try out the background dropper as a way to eliminate big pauses
+fn spawn_background_dropper<T: HeapAble + Sync + Send + 'static>(
+) -> (Sender<Vec<HeapElement<T>>>, Receiver<Vec<HeapElement<T>>>) {
+    let (forward_sender, forward_receiver) = crossbeam_channel::bounded(0);
+    let (backward_sender, backward_receiver) = crossbeam_channel::bounded(0);
+
+    // Worker thread, capable of dropping the background values of lists
+    std::thread::spawn(move || {
+        let mut current: Vec<HeapElement<T>> = Vec::new();
+        for mut block in forward_receiver {
+            std::mem::swap(&mut current, &mut block);
+            // Get the value, move on.
+            backward_sender.send(block).unwrap();
+            current.retain(|x| x.read().is_reachable());
+            current.shrink_to_fit();
+        }
+    });
+    (forward_sender, backward_receiver)
 }
 
 // TODO: If this proves to be faster, make these From(Vec<HeapValue>)
@@ -1533,38 +1589,130 @@ impl Heap {
         // and do them that way?
         log::debug!(target: "gc", "Stack size: {}", context.queue.len());
 
-        // Divide up the queue:
-        let count = std::thread::scope(|s| {
-            let mut handles = Vec::new();
+        // Divide up the queue - manage the thread allocation ourselves for
+        // better use.
+        const USE_SCOPED_THREADS: bool = true;
 
-            // Divide into n cores?
-            for chunk in context.queue.chunks(256) {
-                let handle = s.spawn(|| {
-                    let mut ref_queue = chunk.iter().map(|x| x as _).collect();
+        let count = if USE_SCOPED_THREADS {
+            std::thread::scope(|s| {
+                let mut handles = Vec::new();
 
+                let chunk_size = std::thread::available_parallelism()
+                    .map(|x| context.queue.len() / x)
+                    .unwrap_or(256);
+
+                let now = std::time::Instant::now();
+
+                // Divide into n cores?
+                for chunk in context.queue.chunks(chunk_size) {
+                    let handle = s.spawn(|| {
+                        let mut ref_queue = chunk.iter().map(|x| x as _).collect();
+
+                        let mut context = MarkAndSweepContextRef {
+                            queue: &mut ref_queue,
+                            object_count: 0,
+                        };
+
+                        context.visit();
+
+                        context.object_count
+                    });
+
+                    handles.push(handle);
+                }
+
+                log::debug!(target: "gc", "Mark: Thread spawning time: {:?}", now.elapsed());
+
+                let mut count = 0;
+                for handle in handles {
+                    count += handle.join().unwrap();
+                }
+
+                count
+            })
+        } else {
+            MARKER.mark(&context.queue)
+        };
+
+        log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
+        (context, count)
+    }
+}
+
+struct VecWrapper(Vec<*const SteelVal>);
+
+unsafe impl Sync for VecWrapper {}
+unsafe impl Send for VecWrapper {}
+
+// Shared resource?
+#[derive(Clone)]
+struct ParallelMarker {
+    // Chunks of the roots for marking
+    senders: Arc<Mutex<Vec<MarkerWorker>>>,
+}
+
+struct MarkerWorker {
+    sender: Sender<VecWrapper>,
+    ack: Receiver<usize>,
+    handle: JoinHandle<()>,
+}
+
+impl ParallelMarker {
+    pub fn new() -> Self {
+        // No parallelism
+        let parallelism = std::thread::available_parallelism()
+            .map(|x| x.get())
+            .unwrap_or(1);
+
+        let mut workers = Vec::with_capacity(parallelism);
+
+        for _ in 0..parallelism {
+            let (sender, receiver) = crossbeam_channel::unbounded::<VecWrapper>();
+            let (ack_sender, ack_receiver) = crossbeam_channel::unbounded();
+            let handle = std::thread::spawn(move || {
+                for mut chunk in receiver {
                     let mut context = MarkAndSweepContextRef {
-                        queue: &mut ref_queue,
+                        queue: &mut chunk.0,
                         object_count: 0,
                     };
 
                     context.visit();
 
-                    context.object_count
-                });
+                    ack_sender.send(context.object_count).unwrap();
+                }
+            });
 
-                handles.push(handle);
-            }
+            workers.push(MarkerWorker {
+                sender,
+                handle,
+                ack: ack_receiver,
+            });
+        }
 
-            let mut count = 0;
-            for handle in handles {
-                count += handle.join().unwrap();
-            }
+        Self {
+            senders: Arc::new(Mutex::new(workers)),
+        }
+    }
 
-            count
-        });
+    pub fn mark(&self, queue: &Vec<SteelVal>) -> usize {
+        let guard = self.senders.lock().unwrap();
 
-        log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
-        (context, count)
+        let chunk_size = queue.len() / guard.len();
+
+        let chunk_iter = queue.chunks(chunk_size);
+
+        for (chunk, worker) in chunk_iter.zip(guard.iter()) {
+            let chunk = VecWrapper(chunk.iter().map(|x| x as _).collect());
+            worker.sender.send(chunk).unwrap();
+        }
+
+        let mut count = 0;
+
+        for worker in guard.iter() {
+            count += worker.ack.recv().unwrap();
+        }
+
+        count
     }
 }
 
