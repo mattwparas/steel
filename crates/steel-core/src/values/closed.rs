@@ -726,6 +726,8 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // Can probably make this a lot bigger
         let current = self.elements.len().max(Self::EXTEND_CHUNK);
 
+        self.cursor = self.elements.len();
+
         self.elements.reserve(current);
         self.elements.extend(
             std::iter::repeat_with(|| {
@@ -738,6 +740,8 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
         self.alloc_count += current;
         self.grow_count += 1;
+
+        assert!(!self.elements[self.cursor].read().is_reachable());
     }
 
     // Extend the heap
@@ -746,23 +750,26 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         self.grow();
 
         // TODO: Check that this makes sense?
-        self.cursor = self
-            .elements
-            .iter()
-            .position(|x| !x.read().is_reachable())
-            .unwrap();
+        // self.cursor = self
+        //     .elements
+        //     .iter()
+        //     .position(|x| !x.read().is_reachable())
+        //     .unwrap();
 
-        assert!(self.elements[self.cursor].read().is_reachable());
+        assert!(!self.elements[self.cursor].read().is_reachable());
     }
 
     // TODO: Allocate and also mark the roots when we're full!
     fn allocate(&mut self, value: T) -> HeapRef<T> {
         // TODO: Figure out why the cursor is off?
-        self.cursor = self
-            .elements
-            .iter()
-            .position(|x| !x.read().is_reachable())
-            .unwrap();
+        // self.cursor = self
+        //     .elements
+        //     .iter()
+        //     .position(|x| !x.read().is_reachable())
+        //     .unwrap();
+
+        dbg!(self.cursor);
+        dbg!(&self.elements[self.cursor]);
 
         // Drain, moving values around...
         // is that expensive?
@@ -790,10 +797,10 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         if let Some(next_slot) = next_slot {
             self.cursor += next_slot;
 
-            #[cfg(debug_assertions)]
-            {
-                assert!(!self.elements[self.cursor].read().is_reachable());
-            }
+            // #[cfg(debug_assertions)]
+            // {
+            assert!(!self.elements[self.cursor].read().is_reachable());
+            // }
         } else {
             // TODO: Handle compaction and moving things around so the
             // cursor has a chance to actually find stuff that has been
@@ -803,6 +810,8 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
                 // Extend the heap, move the cursor to the end
                 self.extend_heap();
+
+                assert!(!self.elements[self.cursor].read().is_reachable());
             } else {
                 // Move to the beginning.
                 self.cursor = self
@@ -810,8 +819,12 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
                     .iter()
                     .position(|x| !x.read().is_reachable())
                     .unwrap();
+
+                assert!(!self.elements[self.cursor].read().is_reachable());
             }
         }
+
+        assert!(!self.elements[self.cursor].read().is_reachable());
 
         HeapRef { inner: weak_ptr }
     }
@@ -844,7 +857,9 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
     fn weak_collection(&mut self) -> usize {
         // Just mark them to be dead
-        self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0)
+        let res = self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0);
+        assert!(!self.elements[self.cursor].read().is_reachable());
+        res
     }
 
     fn mark_all_unreachable(&mut self) {
@@ -860,6 +875,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         self.alloc_count = 0;
         self.grow_count = 0;
         self.extend_heap();
+        assert!(!self.elements[self.cursor].read().is_reachable());
     }
 
     fn strong_collection(&mut self) -> usize {
