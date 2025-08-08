@@ -26,10 +26,14 @@ An embeddable and extensible scheme dialect built in Rust.
 
 ## About
 
-`Steel` is an embeddable scheme interpreter, with a standalone interpreter/repl included as well. The language is implemented as a bytecode virtual machine. At the moment, it is mostly compliant with R5RS, only missing `let-syntax` support. Support for R7Rs is underway.
+`Steel` is an embeddable scheme interpreter, with a standalone interpreter/REPL
+included as well. The language is implemented as a bytecode virtual machine. At
+the moment, it is mostly compliant with R5RS, only missing `let-syntax` support.
+Support for R7Rs is underway.
 
 > **Warning**
-> The API is relatively stable, however it may change at any time while pre 1.0. Care will be taken to keep things backwards compatible where possible.
+> The API is relatively stable, however it may change at any time while pre 1.0.
+> Care will be taken to keep things backwards compatible where possible.
 
 
 ## Features
@@ -37,7 +41,8 @@ An embeddable and extensible scheme dialect built in Rust.
 - [R5RS](https://standards.scheme.org/official/r5rs.pdf) support
 - Modules, using `require` and `provide` much like Racket.
 - `syntax-rules` and `syntax-case` macros.
-- Easy integration with native Rust functions and structs, either through embedding or via FFI.
+- Easy integration with native Rust functions and structs, either through
+  embedding or via FFI.
 - Higher order Contracts
 - Built in immutable data structures, including:
   - lists
@@ -45,11 +50,14 @@ An embeddable and extensible scheme dialect built in Rust.
   - hashmaps
   - hashsets
 
-For more details, see the [book](https://mattwparas.github.io/steel/book)
+For more details, see the [book](https://mattwparas.github.io/steel/book).
 
 ## Getting Started
 
-This github repository contains a cli interpreter. To try it out on the online playground, go to the [Steel playground](https://mattwparas.github.io/steel-playground/dev). To get started using a repl with the crates, make sure you first have rust installed.
+This github repository contains a CLI interpreter. To try it out on the online
+playground, go to the [Steel playground](https://mattwparas.github.io/steel-playground/dev).
+To get started using a REPL with the crates, make sure you first have Rust
+installed.
 
 Then, clone the repo and run the following command:
 
@@ -81,8 +89,10 @@ This will install:
 
 ### Packages
 
-If you would like to customize the location of installed packages, please set the `STEEL_HOME` environment variable. Steel currently follows XDG if present, and otherwise assumes the default of `$HOME/.steel` if the `STEEL_HOME` environment variable is not already set.
-
+If you would like to customize the location of installed packages, please set
+the `STEEL_HOME` environment variable. Steel currently follows XDG if present,
+and otherwise assumes the default of `$HOME/.steel` if the `STEEL_HOME`
+environment variable is not already set.
 
 ## License
 
