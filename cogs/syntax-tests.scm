@@ -2,20 +2,17 @@
 (require-builtin steel/transducers)
 (require-builtin steel/meta)
 
-; (require "tests/unit-test.scm"
-;          (for-syntax "tests/unit-test.scm"))
-
 (require "tests/unit-test.scm")
 
-(define (check-syntax-error? name input expected . rest)
-  (define (impl name input expected)
-    (define error-message (~> (run! (Engine::new) input) Err->value error-object-message))
-    (define message-assert
-      (or (string-contains? error-message expected) `(message= ,error-message expected= ,expected)))
-    (check-equal? (string-join `(,name " [compilation fails]")) message-assert #t))
-  (if (eq? name 'skip)
-      (skip-compile #f)
-      (impl name input expected)))
+(define-syntax check-syntax-error? (syntax-rules (skip)
+  [(_ skip name input expected) (skip-compile (check-syntax-error? name input expected))]
+  [(_ name input expected) (check-syntax-error-impl? name input expected)]))
+
+(define (check-syntax-error-impl? name input expected)
+  (define error-message (~> (run! (Engine::new) input) Err->value error-object-message))
+  (define message-assert
+    (or (string-contains? error-message expected) `(message= ,error-message expected= ,expected)))
+  (check-equal? (string-join `(,name " [compilation fails]")) message-assert #t))
 
 (check-syntax-error? "empty transformer"
                      '((define-syntax no-body
@@ -92,7 +89,7 @@
                        (potato 1 2))
                      "Cannot reference an identifier before its definition: potato")
 
-(check-syntax-error? 'skip
+(check-syntax-error? skip
                      "no-spread"
                      '((define-syntax no-spread
                          (syntax-rules ()
@@ -105,6 +102,30 @@
                            [(_ a ...)
                             a ...])))
                      "syntax-rules requires only one pattern to one body")
+
+(define-syntax multiple-ellipsis
+  (syntax-rules ()
+    [(_ (a ...) ...) '((a ...) ...)]))
+
+(check-equal? "multiple, nested ellipsis" (multiple-ellipsis (1) (a b)) '((1) (a b)))
+
+(define-syntax multiple-ellipsis-vectors
+  (syntax-rules ()
+    [(_ #(a ...) ...) #((a ...) ...)]))
+
+(skip-compile (check-equal? "multiple, nested ellipsis, vectors" (multiple-ellipsis-vectors #(1) #(a b)) #((1) (a b))))
+
+(define-syntax vector-spread
+  (syntax-rules ()
+    [(_ a ...) #(a ...)]))
+
+(skip-compile (check-equal? "ellipsis spread in vector" (vector-spread 1 2 3) #(1 2 3)))
+
+(define-syntax vector-spread-multiple
+  (syntax-rules ()
+    [(_ (a ...) ...) '(#((a #f) ...) ...)]))
+
+(skip-compile (check-equal? "ellipsis spread in vector, nested" (vector-spread-multiple (1) (2 3)) '(#((1 #f)) #((2 #f) (3 #f)))))
 
 (define-syntax catchall
   (syntax-rules ()
