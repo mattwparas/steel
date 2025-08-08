@@ -742,12 +742,28 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
     // Extend the heap
     fn extend_heap(&mut self) {
-        self.cursor = self.elements.len();
+        // self.cursor = self.elements.len();
         self.grow();
+
+        // TODO: Check that this makes sense?
+        self.cursor = self
+            .elements
+            .iter()
+            .position(|x| !x.read().is_reachable())
+            .unwrap();
+
+        assert!(self.elements[self.cursor].read().is_reachable());
     }
 
     // TODO: Allocate and also mark the roots when we're full!
     fn allocate(&mut self, value: T) -> HeapRef<T> {
+        // TODO: Figure out why the cursor is off?
+        self.cursor = self
+            .elements
+            .iter()
+            .position(|x| !x.read().is_reachable())
+            .unwrap();
+
         // Drain, moving values around...
         // is that expensive?
         let guard = &mut self.elements[self.cursor];
@@ -756,6 +772,8 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         let mut heap_guard = guard.write();
 
         heap_guard.value = value;
+
+        assert!(!heap_guard.reachable);
 
         heap_guard.reachable = true;
         let weak_ptr = StandardShared::downgrade(&guard);
@@ -771,6 +789,11 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
         if let Some(next_slot) = next_slot {
             self.cursor += next_slot;
+
+            #[cfg(debug_assertions)]
+            {
+                assert!(!self.elements[self.cursor].read().is_reachable());
+            }
         } else {
             // TODO: Handle compaction and moving things around so the
             // cursor has a chance to actually find stuff that has been
@@ -937,7 +960,7 @@ impl Heap {
     // Allocate this variable on the heap
     // It explicitly should no longer be on the stack, and variables that
     // reference it should be pointing here now
-    pub fn allocate<'a>(
+    pub fn allocate_old<'a>(
         &mut self,
         value: SteelVal,
         roots: &'a [SteelVal],
@@ -975,7 +998,7 @@ impl Heap {
     }
 
     // Allocate a vector explicitly onto the heap
-    pub fn allocate_vector<'a>(
+    pub fn allocate_vector_old<'a>(
         &mut self,
         values: Vec<SteelVal>,
         roots: &'a [SteelVal],
@@ -1123,7 +1146,7 @@ impl Heap {
     }
 
     // Clean up the values?
-    pub fn allocate_new<'a>(
+    pub fn allocate<'a>(
         &mut self,
         value: SteelVal,
         roots: &'a [SteelVal],
@@ -1158,7 +1181,7 @@ impl Heap {
 
                 if self.memory_free_list.grow_count > 5 {
                     // Compact the free list.
-                    // self.memory_free_list.compact();
+                    self.memory_free_list.compact();
                 } else {
                     self.memory_free_list.grow();
                 }
@@ -1172,7 +1195,7 @@ impl Heap {
         self.memory_free_list.allocate(value)
     }
 
-    pub fn allocate_vector_new<'a>(
+    pub fn allocate_vector<'a>(
         &mut self,
         values: Vec<SteelVal>,
         roots: &'a [SteelVal],
@@ -1204,7 +1227,7 @@ impl Heap {
                 // if self.vector_free_list.percent_full() > 0.75 {
                 if self.vector_free_list.grow_count > 5 {
                     // Compact the free list.
-                    // self.vector_free_list.compact();
+                    self.vector_free_list.compact();
                 } else {
                     self.vector_free_list.grow();
                 }
