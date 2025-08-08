@@ -1163,7 +1163,7 @@ impl Heap {
                     self.memory_free_list.grow();
                 }
 
-                synchronizer.resume_threads();
+                // synchronizer.resume_threads();
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.memory_free_list.percent_full());
             }
@@ -1204,7 +1204,7 @@ impl Heap {
                 // if self.vector_free_list.percent_full() > 0.75 {
                 if self.vector_free_list.grow_count > 5 {
                     // Compact the free list.
-                    self.vector_free_list.compact();
+                    // self.vector_free_list.compact();
                 } else {
                     self.vector_free_list.grow();
                 }
@@ -1256,7 +1256,7 @@ impl Heap {
         // #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
 
-        // synchronizer.resume_threads();
+        synchronizer.resume_threads();
 
         // object_count.saturating_sub(amount_freed)
         // 0

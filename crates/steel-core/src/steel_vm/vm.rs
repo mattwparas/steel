@@ -531,6 +531,10 @@ impl Synchronizer {
                                 context.push_back(value.clone());
                             }
 
+                            for value in &live_ctx.thread_local_storage {
+                                context.push_back(value.clone());
+                            }
+
                             context.visit();
                         }
 
@@ -557,6 +561,10 @@ impl Synchronizer {
 
                                             for value in live_ctx.current_frame.function.captures()
                                             {
+                                                context.push_back(value.clone());
+                                            }
+
+                                            for value in &live_ctx.thread_local_storage {
                                                 context.push_back(value.clone());
                                             }
 
