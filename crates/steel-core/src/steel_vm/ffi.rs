@@ -474,7 +474,7 @@ impl<'a> FromFFIArg<'a> for isize {
                 RResult::ROk(i as isize)
             }
         } else {
-            conversion_error!(usize, val)
+            conversion_error!(isize, val)
         }
     }
 }
@@ -488,7 +488,7 @@ impl<'a> FromFFIArg<'a> for i64 {
                 RResult::ROk(i as i64)
             }
         } else {
-            conversion_error!(usize, val)
+            conversion_error!(i64, val)
         }
     }
 }
