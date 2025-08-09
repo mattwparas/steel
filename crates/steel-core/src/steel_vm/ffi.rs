@@ -465,6 +465,34 @@ impl<'a> FromFFIArg<'a> for usize {
     }
 }
 
+impl<'a> FromFFIArg<'a> for isize {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        if let FFIArg::IntV(i) = val {
+            if i < 0 {
+                conversion_error!(isize, val)
+            } else {
+                RResult::ROk(i as isize)
+            }
+        } else {
+            conversion_error!(usize, val)
+        }
+    }
+}
+
+impl<'a> FromFFIArg<'a> for i64 {
+    fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
+        if let FFIArg::IntV(i) = val {
+            if i < 0 {
+                conversion_error!(i64, val)
+            } else {
+                RResult::ROk(i as i64)
+            }
+        } else {
+            conversion_error!(usize, val)
+        }
+    }
+}
+
 impl<'a> FromFFIArg<'a> for char {
     fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
         if let FFIArg::CharV { c } = val {
