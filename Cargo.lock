@@ -3690,6 +3690,7 @@ dependencies = [
  "cranelift-module",
  "criterion",
  "crossbeam-channel",
+ "crossbeam-queue",
  "crossbeam-utils",
  "env_home",
  "futures-executor",

@@ -17,9 +17,13 @@ use crate::{
     },
     primitives::numbers::realp,
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
+    steel_vm::vm::{
+        threads::closure_into_serializable, BuiltInSignature, Continuation, ContinuationMark,
+    },
     values::{
-        closed::{Heap, HeapRef, MarkAndSweepContext, MarkAndSweepContextRef},
+        closed::{
+            Heap, HeapRef, MarkAndSweepContext, MarkAndSweepContextRef, MarkAndSweepContextRefQueue,
+        },
         functions::{BoxedDynFunction, ByteCodeLambda},
         lazy_stream::LazyStream,
         port::{SendablePort, SteelPort},
@@ -67,6 +71,7 @@ macro_rules! list {
 }
 
 use bigdecimal::BigDecimal;
+use parking_lot::RwLock;
 use smallvec::SmallVec;
 use SteelVal::*;
 
@@ -220,6 +225,7 @@ pub trait CustomType: MaybeSendSyncStatic {
     fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
     fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
     fn visit_children_ref(&self, _context: &mut MarkAndSweepContextRef) {}
+    fn visit_children_ref_queue(&self, _context: &mut MarkAndSweepContextRefQueue) {}
     fn visit_children_for_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
     fn check_equality_hint(&self, _other: &dyn CustomType) -> bool {
         true
@@ -1322,6 +1328,29 @@ pub enum SteelVal {
     Complex(Gc<SteelComplex>),
     // Byte vectors
     ByteVector(SteelByteVector),
+}
+
+// Avoid as much dropping as possible. Otherwise we thrash the drop impl
+// on steel values.
+#[cfg(feature = "sync")]
+pub(crate) enum SteelValPointer {
+    /// Represents a bytecode closure.
+    Closure(*const ByteCodeLambda),
+    VectorV(*const Vector<SteelVal>),
+    Custom(*const RwLock<Box<dyn CustomType>>), // TODO: @Matt - consider using just a mutex here, to relax some of the bounds?
+    HashMapV(*const HashMap<SteelVal, SteelVal>),
+    HashSetV(*const HashSet<SteelVal>),
+    CustomStruct(*const UserDefinedStruct),
+    IterV(*const Transducer),
+    ReducerV(*const Reducer),
+    StreamV(*const LazyStream),
+    ContinuationFunction(*const RwLock<ContinuationMark>),
+    ListV(crate::values::lists::List<SteelVal>),
+    Pair(*const crate::values::lists::Pair),
+    MutableVector(HeapRef<Vec<SteelVal>>),
+    BoxedIterator(GcMut<OpaqueIterator>),
+    Boxed(*const RwLock<SteelVal>),
+    HeapAllocated(HeapRef<SteelVal>),
 }
 
 #[cfg(feature = "sync")]

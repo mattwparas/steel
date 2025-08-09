@@ -1591,7 +1591,8 @@ impl Heap {
 
         // Divide up the queue - manage the thread allocation ourselves for
         // better use.
-        const USE_SCOPED_THREADS: bool = true;
+        const USE_SCOPED_THREADS: bool = false;
+        const USE_SHARED_QUEUE: bool = true;
 
         let count = if USE_SCOPED_THREADS {
             std::thread::scope(|s| {
@@ -1610,6 +1611,47 @@ impl Heap {
 
                         let mut context = MarkAndSweepContextRef {
                             queue: &mut ref_queue,
+                            object_count: 0,
+                        };
+
+                        context.visit();
+
+                        context.object_count
+                    });
+
+                    handles.push(handle);
+                }
+
+                log::debug!(target: "gc", "Mark: Thread spawning time: {:?}", now.elapsed());
+
+                let mut count = 0;
+                for handle in handles {
+                    count += handle.join().unwrap();
+                }
+
+                count
+            })
+        } else if USE_SHARED_QUEUE {
+            let mut queue = Vec::new();
+            for value in context.queue.iter() {
+                queue.push(value.clone());
+            }
+
+            let queue = Mutex::new(queue);
+
+            std::thread::scope(|s| {
+                let mut handles = Vec::new();
+
+                let chunk_size = std::thread::available_parallelism()
+                    .map(|x| context.queue.len() / x)
+                    .unwrap_or(1);
+
+                let now = std::time::Instant::now();
+
+                for _ in 0..chunk_size {
+                    let handle = s.spawn(|| {
+                        let mut context = MarkAndSweepContextRefQueue {
+                            queue: &queue,
                             object_count: 0,
                         };
 
@@ -1649,7 +1691,11 @@ unsafe impl Send for VecWrapper {}
 struct ParallelMarker {
     // Chunks of the roots for marking
     senders: Arc<Mutex<Vec<MarkerWorker>>>,
+    queue: Arc<crossbeam_queue::SegQueue<PointerWrapper>>,
 }
+
+unsafe impl Sync for ParallelMarker {}
+unsafe impl Send for ParallelMarker {}
 
 struct MarkerWorker {
     sender: Sender<VecWrapper>,
@@ -1657,26 +1703,46 @@ struct MarkerWorker {
     handle: JoinHandle<()>,
 }
 
+struct PointerWrapper(*const SteelVal);
+unsafe impl Sync for PointerWrapper {}
+unsafe impl Send for PointerWrapper {}
+
 impl ParallelMarker {
     pub fn new() -> Self {
         // No parallelism
         let parallelism = std::thread::available_parallelism()
-            .map(|x| x.get())
+            .map(|x| x.get() + 1)
             .unwrap_or(1);
 
         let mut workers = Vec::with_capacity(parallelism);
+        let queue = Arc::new(crossbeam_queue::SegQueue::new());
 
         for _ in 0..parallelism {
+            let cloned_queue = queue.clone();
             let (sender, receiver) = crossbeam_channel::unbounded::<VecWrapper>();
             let (ack_sender, ack_receiver) = crossbeam_channel::unbounded();
             let handle = std::thread::spawn(move || {
-                for mut chunk in receiver {
-                    let mut context = MarkAndSweepContextRef {
-                        queue: &mut chunk.0,
+                let cloned_queue = cloned_queue;
+                for chunk in receiver {
+                    let now = std::time::Instant::now();
+
+                    for c in chunk.0 {
+                        cloned_queue.push(PointerWrapper(c));
+                    }
+
+                    let mut context = MarkAndSweepContextRefQueue {
+                        queue: todo!(),
                         object_count: 0,
                     };
 
                     context.visit();
+
+                    println!(
+                        "{:?}: {:?} -> {}",
+                        std::thread::current().id(),
+                        now.elapsed(),
+                        context.object_count
+                    );
 
                     ack_sender.send(context.object_count).unwrap();
                 }
@@ -1691,15 +1757,22 @@ impl ParallelMarker {
 
         Self {
             senders: Arc::new(Mutex::new(workers)),
+            queue,
         }
     }
 
     pub fn mark(&self, queue: &Vec<SteelVal>) -> usize {
         let guard = self.senders.lock().unwrap();
 
-        let chunk_size = queue.len() / guard.len();
+        let denominator = (guard.len() - 1).max(1);
+
+        let chunk_size = queue.len() / denominator;
 
         let chunk_iter = queue.chunks(chunk_size);
+
+        dbg!(queue.chunks(chunk_size).count());
+        dbg!(guard.len());
+        assert!(queue.chunks(chunk_size).count() <= guard.len());
 
         for (chunk, worker) in chunk_iter.zip(guard.iter()) {
             let chunk = VecWrapper(chunk.iter().map(|x| x as _).collect());
@@ -1871,6 +1944,46 @@ pub struct MarkAndSweepContextRef<'a> {
 }
 
 impl<'a> MarkAndSweepContext<'a> {
+    pub(crate) fn mark_heap_reference(
+        &mut self,
+        heap_ref: &StandardSharedMut<HeapAllocated<SteelVal>>,
+    ) {
+        if heap_ref.read().is_reachable() {
+            return;
+        }
+
+        {
+            heap_ref.write().mark_reachable();
+        }
+
+        self.push_back(heap_ref.read().value.clone());
+    }
+
+    // Visit the heap vector, mark it as visited!
+    pub(crate) fn mark_heap_vector(
+        &mut self,
+        heap_vector: &StandardSharedMut<HeapAllocated<Vec<SteelVal>>>,
+    ) {
+        if heap_vector.read().is_reachable() {
+            return;
+        }
+
+        {
+            heap_vector.write().mark_reachable();
+        }
+
+        for value in heap_vector.read().value.iter() {
+            self.push_back(value.clone());
+        }
+    }
+}
+
+pub struct MarkAndSweepContextRefQueue<'a> {
+    queue: &'a Mutex<Vec<SteelVal>>,
+    object_count: usize,
+}
+
+impl<'a> MarkAndSweepContextRefQueue<'a> {
     pub(crate) fn mark_heap_reference(
         &mut self,
         heap_ref: &StandardSharedMut<HeapAllocated<SteelVal>>,
@@ -2142,6 +2255,59 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor<'a> for MarkAndSweepContextR
         self.queue.pop()
     }
 
+    fn visit(&mut self) -> Self::Output {
+        use SteelVal::*;
+
+        let mut ret = self.default_output();
+
+        // Check the queue here, and otherwise send to a background worker for when the task is complete?
+        // Check if queue is empty, forward to queue?
+
+        while let Some(value) = self.pop_front() {
+            ret = match unsafe { &(*value) } {
+                Closure(c) => self.visit_closure(c),
+                BoolV(b) => self.visit_bool(*b),
+                NumV(n) => self.visit_float(*n),
+                IntV(i) => self.visit_int(*i),
+                Rational(x) => self.visit_rational(*x),
+                BigRational(x) => self.visit_bigrational(x),
+                Complex(_) => unimplemented!(),
+                CharV(c) => self.visit_char(*c),
+                VectorV(v) => self.visit_immutable_vector(v),
+                Void => self.visit_void(),
+                StringV(s) => self.visit_string(s),
+                FuncV(f) => self.visit_function_pointer(*f),
+                SymbolV(s) => self.visit_symbol(s),
+                SteelVal::Custom(c) => self.visit_custom_type(c),
+                HashMapV(h) => self.visit_hash_map(h),
+                HashSetV(s) => self.visit_hash_set(s),
+                CustomStruct(c) => self.visit_steel_struct(c),
+                PortV(p) => self.visit_port(p),
+                IterV(t) => self.visit_transducer(t),
+                ReducerV(r) => self.visit_reducer(r),
+                FutureFunc(f) => self.visit_future_function(f),
+                FutureV(f) => self.visit_future(f),
+                StreamV(s) => self.visit_stream(s),
+                BoxedFunction(b) => self.visit_boxed_function(b),
+                ContinuationFunction(c) => self.visit_continuation(c),
+                ListV(l) => self.visit_list(l),
+                MutFunc(m) => self.visit_mutable_function(m),
+                BuiltIn(b) => self.visit_builtin_function(b),
+                MutableVector(b) => self.visit_mutable_vector(b),
+                BoxedIterator(b) => self.visit_boxed_iterator(b),
+                SteelVal::SyntaxObject(s) => self.visit_syntax_object(s),
+                Boxed(b) => self.visit_boxed_value(b),
+                Reference(r) => self.visit_reference_value(r),
+                BigNum(b) => self.visit_bignum(b),
+                HeapAllocated(b) => self.visit_heap_allocated(b),
+                Pair(p) => self.visit_pair(p),
+                ByteVector(b) => self.visit_bytevector(b),
+            };
+        }
+
+        ret
+    }
+
     fn push_back(&mut self, value: &SteelVal) {
         self.object_count += 1;
 
@@ -2166,6 +2332,12 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor<'a> for MarkAndSweepContextR
                 self.queue.push(value as _);
             }
         }
+
+        // if self.queue.len() > 4096 {
+        //     log::debug!(target: "gc", "Thread: {:?} -> {}", std::thread::current().id(), self.queue.len());
+        // }
+
+        // If the queue is big enough, chunk it up and send it on the queue?
     }
 
     fn visit_bytevector(&mut self, _bytevector: &crate::rvals::SteelByteVector) -> Self::Output {}
@@ -2356,5 +2528,299 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor<'a> for MarkAndSweepContextR
     fn visit_pair(&mut self, pair: &Gc<super::lists::Pair>) -> Self::Output {
         self.push_back(pair.car_ref());
         self.push_back(pair.cdr_ref());
+    }
+}
+
+// BreadthFirstSearchSteelValVisitor
+// impl<'a> BreadthFirstSearchSteelValReferenceVisitor<'a> for MarkAndSweepContextRefQueue<'a> {
+impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContextRefQueue<'a> {
+    type Output = ();
+
+    fn default_output(&mut self) -> Self::Output {
+        ()
+    }
+
+    fn visit_complex(&mut self, _: Gc<SteelComplex>) -> Self::Output {}
+
+    fn pop_front(&mut self) -> Option<SteelVal> {
+        self.queue.lock().unwrap().pop()
+    }
+
+    fn visit(&mut self) -> Self::Output {
+        use SteelVal::*;
+
+        let mut ret = self.default_output();
+
+        // Check the queue here, and otherwise send to a background worker for when the task is complete?
+        // Check if queue is empty, forward to queue?
+
+        while let Some(value) = self.pop_front() {
+            ret = match value {
+                Closure(c) => self.visit_closure(c),
+                BoolV(b) => self.visit_bool(b),
+                NumV(n) => self.visit_float(n),
+                IntV(i) => self.visit_int(i),
+                Rational(x) => self.visit_rational(x),
+                BigRational(x) => self.visit_bigrational(x),
+                Complex(_) => unimplemented!(),
+                CharV(c) => self.visit_char(c),
+                VectorV(v) => self.visit_immutable_vector(v),
+                Void => self.visit_void(),
+                StringV(s) => self.visit_string(s),
+                FuncV(f) => self.visit_function_pointer(f),
+                SymbolV(s) => self.visit_symbol(s),
+                SteelVal::Custom(c) => self.visit_custom_type(c),
+                HashMapV(h) => self.visit_hash_map(h),
+                HashSetV(s) => self.visit_hash_set(s),
+                CustomStruct(c) => self.visit_steel_struct(c),
+                PortV(p) => self.visit_port(p),
+                IterV(t) => self.visit_transducer(t),
+                ReducerV(r) => self.visit_reducer(r),
+                FutureFunc(f) => self.visit_future_function(f),
+                FutureV(f) => self.visit_future(f),
+                StreamV(s) => self.visit_stream(s),
+                BoxedFunction(b) => self.visit_boxed_function(b),
+                ContinuationFunction(c) => self.visit_continuation(c),
+                ListV(l) => self.visit_list(l),
+                MutFunc(m) => self.visit_mutable_function(m),
+                BuiltIn(b) => self.visit_builtin_function(b),
+                MutableVector(b) => self.visit_mutable_vector(b),
+                BoxedIterator(b) => self.visit_boxed_iterator(b),
+                SteelVal::SyntaxObject(s) => self.visit_syntax_object(s),
+                Boxed(b) => self.visit_boxed_value(b),
+                Reference(r) => self.visit_reference_value(r),
+                BigNum(b) => self.visit_bignum(b),
+                HeapAllocated(b) => self.visit_heap_allocated(b),
+                Pair(p) => self.visit_pair(p),
+                ByteVector(b) => self.visit_bytevector(b),
+            };
+        }
+
+        ret
+    }
+
+    fn push_back(&mut self, value: SteelVal) {
+        self.object_count += 1;
+
+        // TODO: Determine if all numbers should push back.
+        match value {
+            SteelVal::BoolV(_)
+            | SteelVal::NumV(_)
+            | SteelVal::IntV(_)
+            | SteelVal::CharV(_)
+            | SteelVal::Void
+            | SteelVal::StringV(_)
+            | SteelVal::FuncV(_)
+            | SteelVal::SymbolV(_)
+            | SteelVal::FutureFunc(_)
+            | SteelVal::FutureV(_)
+            | SteelVal::BoxedFunction(_)
+            | SteelVal::MutFunc(_)
+            | SteelVal::BuiltIn(_)
+            | SteelVal::ByteVector(_)
+            | SteelVal::BigNum(_) => return,
+            _ => {
+                // I guess this doesn't work great if we're doing stuff
+                // in parallel, because the references to the slots are invalidated.
+                self.queue.lock().unwrap().push(value);
+            }
+        }
+
+        // if self.queue.len() > 4096 {
+        //     log::debug!(target: "gc", "Thread: {:?} -> {}", std::thread::current().id(), self.queue.len());
+        // }
+
+        // If the queue is big enough, chunk it up and send it on the queue?
+    }
+
+    fn visit_bytevector(&mut self, _bytevector: crate::rvals::SteelByteVector) -> Self::Output {}
+    fn visit_bignum(&mut self, _: Gc<BigInt>) -> Self::Output {}
+    fn visit_bool(&mut self, _boolean: bool) -> Self::Output {}
+    fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) -> Self::Output {}
+    // TODO: Revisit this when the boxed iterator is cleaned up
+    fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) -> Self::Output {
+        self.push_back(iterator.read().root.clone());
+    }
+    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output {
+        self.push_back(boxed_value.read().clone());
+    }
+
+    fn visit_builtin_function(&mut self, _function: BuiltInSignature) -> Self::Output {}
+
+    fn visit_char(&mut self, _c: char) -> Self::Output {}
+    fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) -> Self::Output {
+        // for heap_ref in closure.heap_allocated.borrow().iter() {
+        //     self.mark_heap_reference(&heap_ref.strong_ptr())
+        // }
+
+        for capture in closure.captures() {
+            self.push_back(capture.clone());
+        }
+
+        if let Some(contract) = closure.get_contract_information().as_ref() {
+            self.push_back(contract.clone());
+        }
+    }
+    fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output {
+        // TODO: Don't clone this here!
+        let continuation = continuation.inner.read();
+
+        match &(*continuation) {
+            ContinuationMark::Closed(continuation) => {
+                for value in &continuation.stack {
+                    self.push_back(value.clone());
+                }
+
+                for value in &continuation.current_frame.function.captures {
+                    self.push_back(value.clone());
+                }
+
+                for frame in &continuation.stack_frames {
+                    for value in &frame.function.captures {
+                        self.push_back(value.clone());
+                    }
+
+                    // if let Some(handler) = &frame.handler {
+                    //     self.push_back((*handler.as_ref()).clone());
+                    // }
+
+                    if let Some(handler) =
+                        frame.attachments.as_ref().and_then(|x| x.handler.clone())
+                    {
+                        self.push_back(handler.clone());
+                    }
+                }
+            }
+
+            ContinuationMark::Open(continuation) => {
+                for value in &continuation.current_stack_values {
+                    self.push_back(value.clone());
+                }
+
+                for value in &continuation.current_frame.function.captures {
+                    self.push_back(value.clone());
+                }
+            }
+        }
+    }
+    // TODO: Come back to this
+    fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output {
+        // todo!()
+        custom_type.read().visit_children_ref_queue(self);
+
+        // todo!()
+    }
+
+    fn visit_float(&mut self, _float: f64) -> Self::Output {}
+
+    fn visit_function_pointer(&mut self, _ptr: FunctionSignature) -> Self::Output {}
+
+    fn visit_future(&mut self, _future: Gc<FutureResult>) -> Self::Output {}
+
+    fn visit_future_function(&mut self, _function: BoxedAsyncFunctionSignature) -> Self::Output {}
+
+    fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output {
+        for (key, value) in hashmap.iter() {
+            self.push_back(key.clone());
+            self.push_back(value.clone());
+        }
+    }
+
+    fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output {
+        for value in hashset.iter() {
+            self.push_back(value.clone());
+        }
+    }
+
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
+        self.mark_heap_reference(&heap_ref.strong_ptr());
+    }
+
+    fn visit_immutable_vector(&mut self, vector: SteelVector) -> Self::Output {
+        for value in vector.iter() {
+            self.push_back(value.clone());
+        }
+    }
+    fn visit_int(&mut self, _int: isize) -> Self::Output {}
+    fn visit_rational(&mut self, _: Rational32) -> Self::Output {}
+    fn visit_bigrational(&mut self, _: Gc<BigRational>) -> Self::Output {}
+
+    fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output {
+        for value in list {
+            self.push_back(value);
+        }
+    }
+
+    fn visit_mutable_function(&mut self, _function: MutFunctionSignature) -> Self::Output {}
+
+    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
+        self.mark_heap_vector(&vector.strong_ptr())
+    }
+
+    fn visit_port(&mut self, _port: SteelPort) -> Self::Output {}
+
+    fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output {
+        match reducer.as_ref() {
+            Reducer::ForEach(f) => self.push_back(f.clone()),
+            Reducer::Generic(rf) => {
+                self.push_back(rf.initial_value.clone());
+                self.push_back(rf.function.clone());
+            }
+            _ => {}
+        }
+    }
+
+    // TODO: Revisit this
+    fn visit_reference_value(&mut self, _reference: Gc<OpaqueReference<'static>>) -> Self::Output {}
+
+    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output {
+        for field in steel_struct.fields.iter() {
+            self.push_back(field.clone());
+        }
+    }
+
+    fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output {
+        self.push_back(stream.initial_value.clone());
+        self.push_back(stream.stream_thunk.clone());
+    }
+
+    fn visit_string(&mut self, _string: SteelString) -> Self::Output {}
+
+    fn visit_symbol(&mut self, _symbol: SteelString) -> Self::Output {}
+
+    fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output {
+        if let Some(raw) = syntax_object.raw.clone() {
+            self.push_back(raw.clone());
+        }
+
+        self.push_back(syntax_object.syntax.clone());
+    }
+
+    fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output {
+        for transducer in transducer.ops.iter() {
+            match transducer.clone() {
+                crate::values::transducers::Transducers::Map(m) => self.push_back(m),
+                crate::values::transducers::Transducers::Filter(v) => self.push_back(v),
+                crate::values::transducers::Transducers::Take(t) => self.push_back(t),
+                crate::values::transducers::Transducers::Drop(d) => self.push_back(d),
+                crate::values::transducers::Transducers::FlatMap(fm) => self.push_back(fm),
+                crate::values::transducers::Transducers::Flatten => {}
+                crate::values::transducers::Transducers::Window(w) => self.push_back(w),
+                crate::values::transducers::Transducers::TakeWhile(tw) => self.push_back(tw),
+                crate::values::transducers::Transducers::DropWhile(dw) => self.push_back(dw),
+                crate::values::transducers::Transducers::Extend(e) => self.push_back(e),
+                crate::values::transducers::Transducers::Cycle => {}
+                crate::values::transducers::Transducers::Enumerating => {}
+                crate::values::transducers::Transducers::Zipping(z) => self.push_back(z),
+                crate::values::transducers::Transducers::Interleaving(i) => self.push_back(i),
+            }
+        }
+    }
+
+    fn visit_void(&mut self) -> Self::Output {}
+
+    fn visit_pair(&mut self, pair: Gc<super::lists::Pair>) -> Self::Output {
+        self.push_back(pair.car());
+        self.push_back(pair.cdr());
     }
 }

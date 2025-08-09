@@ -82,6 +82,7 @@ bigdecimal = "0.4.5"
 # Also for sync stuff
 crossbeam-channel = "0.5.15"
 crossbeam-utils = "0.8.21"
+crossbeam-queue = "0.3.12"
 
 httparse = "1.9.4"
 
