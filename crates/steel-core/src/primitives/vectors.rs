@@ -724,11 +724,13 @@ pub fn mut_vec_construct_vec(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
 pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn make_vector_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
         match &args {
-            &[SteelVal::IntV(i)] if *i >= 0 => {
-                Ok(ctx.make_mutable_vector(vec![SteelVal::IntV(0); *i as usize]))
-            }
+            &[SteelVal::IntV(i)] if *i >= 0 => Ok(ctx
+                .make_mutable_vector_iter(std::iter::repeat(SteelVal::IntV(0)).take(*i as usize))),
             &[SteelVal::IntV(i), initial_value] if *i >= 0 => {
-                Ok(ctx.make_mutable_vector(vec![initial_value.clone(); *i as usize]))
+                // Ok(ctx.make_mutable_vector(vec![initial_value.clone(); *i as usize]))
+                Ok(ctx.make_mutable_vector_iter(
+                    std::iter::repeat(initial_value.clone()).take(*i as usize),
+                ))
             }
             _ => {
                 stop!(TypeMismatch => "make-vector expects a positive integer, and optionally a value to initialize the vector with, found: {:?}", args)

@@ -549,18 +549,22 @@ enum Reachable {
 
 static MARKER: std::sync::LazyLock<ParallelMarker> = std::sync::LazyLock::new(ParallelMarker::new);
 
+// This can get pretty big. Don't want to have to re allocate every time it grows.
+// "Growing" in this case is going to be putting a new block on to the back of the
+// pointers. Yes, we'll do some pointer chasing, but it should be okay.
+struct MemoryBlocks<T: HeapAble> {
+    // We should always have one pinned memory block.
+    blocks: Vec<Vec<HeapElement<T>>>,
+}
+
 // Have free list for vectors and values separately. Can keep some of the vectors pre allocated
 // as well, as necessary
 #[derive(Debug)]
 struct FreeList<T: HeapAble> {
-    // TODO: When we've moved into the from space, we can allocate
-    // explicitly from there, before moving on back to the to space.
-    //
-    // It should be reasonable to allocate (reuse) a field that simply has been
-    // marked as not able to be reached.
-    //
-    // We need 3 modes, Reachable, Maybe reachable, unreachable.
-    // Anything marks as reachable
+    // TODO: Make this a linked list of vectors. Can reuse im-lists?
+    // Pointer chasing may not be worth it. The issue is every doubling of size _also_
+    // allocate a whole bunch more. Can probably just get away with a vec of vecs to avoid
+    // copying everything.
     elements: Vec<HeapElement<T>>,
     cursor: usize,
 
@@ -742,6 +746,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     }
 
     fn grow(&mut self) {
+        let now = std::time::Instant::now();
         // Can probably make this a lot bigger
         let current = self.elements.len().max(Self::EXTEND_CHUNK);
 
@@ -755,7 +760,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
             .take(current),
         );
 
-        log::debug!(target: "gc", "Growing the heap by: {}", current);
+        log::debug!(target: "gc", "Growing the heap by: {} -> {:?}", current, now.elapsed());
 
         self.alloc_count += current;
         self.grow_count += 1;
@@ -903,7 +908,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 }
 
 impl FreeList<Vec<SteelVal>> {
-    fn allocate_vec(&mut self, value: &[SteelVal]) -> HeapRef<Vec<SteelVal>> {
+    fn allocate_vec(&mut self, value: impl Iterator<Item = SteelVal>) -> HeapRef<Vec<SteelVal>> {
         // Drain, moving values around...
         // is that expensive?
         let guard = &mut self.elements[self.cursor];
@@ -912,13 +917,12 @@ impl FreeList<Vec<SteelVal>> {
         let mut heap_guard = guard.write();
 
         // Check that this fits:
-        // heap_guard.value = value;
-
-        heap_guard.value.shrink_to(value.len());
-        heap_guard.value.truncate(value.len());
-        for (idx, v) in value.iter().enumerate() {
-            heap_guard.value[idx] = v.clone();
+        heap_guard.value.clear();
+        for v in value {
+            heap_guard.value.push(v);
         }
+
+        heap_guard.value.shrink_to_fit();
 
         heap_guard.reachable = true;
         let weak_ptr = StandardShared::downgrade(&guard);
@@ -1165,7 +1169,7 @@ impl Heap {
     pub fn collect<'a>(
         &mut self,
         root_value: Option<SteelVal>,
-        root_vector: impl Iterator<Item = &'a SteelVal>,
+        root_vector: impl Iterator<Item = SteelVal>,
         roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
@@ -1286,6 +1290,7 @@ impl Heap {
             self.memory_free_list.weak_collection();
 
             log::debug!(target: "gc", "Memory size post weak collection: {}", self.memory_free_list.percent_full());
+            log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.memory_free_list.percent_full() > 0.95 {
                 // New generation
@@ -1302,7 +1307,13 @@ impl Heap {
                     synchronizer,
                 );
 
+                // TODO: Inline recounting with the mark and sweeping! Just have the parallel marking
+                // count how many items are going to be freed by calculating how many items are reachable.
+                //
+                // The new result will be total length - reachable = unreachable count.
+                let recount_time = std::time::Instant::now();
                 self.memory_free_list.recount();
+                log::debug!(target: "gc", "Recounting time: {:?}", recount_time.elapsed());
 
                 // Estimate what that memory size is?
                 if self.memory_free_list.grow_count > 7 {
@@ -1332,67 +1343,21 @@ impl Heap {
         tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<Vec<SteelVal>> {
-        todo!();
+        // todo!();
 
-        // if self.vector_free_list.percent_full() > 0.95 {
-        //     // Attempt a weak collection
-        //     log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
-        //     self.vector_free_list.weak_collection();
-
-        //     if self.vector_free_list.percent_full() > 0.95 {
-        //         self.vector_free_list.mark_all_unreachable();
-
-        //         let iter = values.iter();
-
-        //         self.mark_and_sweep_new(
-        //             None,
-        //             iter,
-        //             roots,
-        //             live_functions,
-        //             globals,
-        //             tls,
-        //             synchronizer,
-        //         );
-
-        //         self.vector_free_list.recount();
-
-        //         // if self.vector_free_list.percent_full() > 0.75 {
-        //         if self.vector_free_list.grow_count > 7 {
-        //             // Compact the free list.
-        //             self.vector_free_list.compact();
-        //         } else {
-        //             self.vector_free_list.grow();
-        //         }
-        //         // }
-
-        //         self.vector_free_list.grow();
-        //     }
-        // }
-
-        // TOOD: Optimize this a lot!
-        self.vector_free_list.allocate(values)
-    }
-
-    pub fn allocate_vector_slice<'a>(
-        &mut self,
-        values: &'a [SteelVal],
-        roots: &'a [SteelVal],
-        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: &'a [SteelVal],
-        tls: &'a [SteelVal],
-        synchronizer: &'a mut Synchronizer,
-    ) -> HeapRef<Vec<SteelVal>> {
         if self.vector_free_list.percent_full() > 0.95 {
+            let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
             self.vector_free_list.weak_collection();
+            log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.vector_free_list.percent_full() > 0.95 {
                 self.vector_free_list.mark_all_unreachable();
 
                 self.mark_and_sweep_new(
                     None,
-                    values.iter(),
+                    values.clone().into_iter(),
                     roots,
                     live_functions,
                     globals,
@@ -1415,15 +1380,13 @@ impl Heap {
             }
         }
 
-        // todo!()
-
         // TOOD: Optimize this a lot!
-        self.vector_free_list.allocate_vec(values)
+        self.vector_free_list.allocate(values)
     }
 
     pub fn allocate_vector_iter<'a>(
         &mut self,
-        values: impl Iterator<Item = &'a SteelVal> + Clone,
+        values: impl Iterator<Item = SteelVal> + Clone,
         roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
@@ -1431,9 +1394,11 @@ impl Heap {
         synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<Vec<SteelVal>> {
         if self.vector_free_list.percent_full() > 0.95 {
+            let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
             self.vector_free_list.weak_collection();
+            log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.vector_free_list.percent_full() > 0.95 {
                 self.vector_free_list.mark_all_unreachable();
@@ -1463,16 +1428,16 @@ impl Heap {
             }
         }
 
-        todo!()
+        // todo!()
 
         // TOOD: Optimize this a lot!
-        // self.vector_free_list.allocate_vec(values)
+        self.vector_free_list.allocate_vec(values)
     }
 
     fn mark_and_sweep_new<'a>(
         &mut self,
         root_value: Option<SteelVal>,
-        root_vector: impl Iterator<Item = &'a SteelVal>,
+        root_vector: impl Iterator<Item = SteelVal>,
         roots: &'a [SteelVal],
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
@@ -1516,7 +1481,7 @@ impl Heap {
     fn mark_and_sweep<'a>(
         &mut self,
         root_value: Option<SteelVal>,
-        root_vector: impl Iterator<Item = &'a SteelVal>,
+        root_vector: impl Iterator<Item = SteelVal>,
         roots: &'a [SteelVal],
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
@@ -1590,7 +1555,7 @@ impl Heap {
     fn mark<'a>(
         &mut self,
         root_value: Option<SteelVal>,
-        root_vector: impl Iterator<Item = &'a SteelVal>,
+        root_vector: impl Iterator<Item = SteelVal>,
         roots: &[SteelVal],
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &[SteelVal],
@@ -1691,10 +1656,8 @@ impl Heap {
             context.push_back(root_value);
         }
 
-        if let Some(root_vector) = root_vector {
-            for value in root_vector {
-                context.push_back(value.clone());
-            }
+        for value in root_vector {
+            context.push_back(value.clone());
         }
 
         for root in tls {
@@ -1748,7 +1711,7 @@ impl Heap {
         // Divide up the queue - manage the thread allocation ourselves for
         // better use.
         const USE_SCOPED_THREADS: bool = false;
-        const USE_SHARED_QUEUE: bool = true;
+        const USE_SHARED_QUEUE: bool = false;
 
         let count = if USE_SCOPED_THREADS {
             std::thread::scope(|s| {
@@ -1852,21 +1815,18 @@ unsafe impl Send for VecWrapper {}
 struct ParallelMarker {
     // Chunks of the roots for marking
     senders: Arc<Mutex<Vec<MarkerWorker>>>,
-    queue: Arc<crossbeam_queue::SegQueue<PointerWrapper>>,
+    queue: Arc<crossbeam_queue::SegQueue<SteelValPointer>>,
 }
 
 unsafe impl Sync for ParallelMarker {}
 unsafe impl Send for ParallelMarker {}
 
 struct MarkerWorker {
-    sender: Sender<VecWrapper>,
+    // Tell the thread to wake up
+    sender: Sender<()>,
     ack: Receiver<usize>,
     handle: JoinHandle<()>,
 }
-
-struct PointerWrapper(*const SteelVal);
-unsafe impl Sync for PointerWrapper {}
-unsafe impl Send for PointerWrapper {}
 
 impl ParallelMarker {
     pub fn new() -> Self {
@@ -1880,22 +1840,18 @@ impl ParallelMarker {
 
         for _ in 0..parallelism {
             let cloned_queue = queue.clone();
-            let (sender, receiver) = crossbeam_channel::unbounded::<VecWrapper>();
+            let (sender, receiver) = crossbeam_channel::unbounded();
             let (ack_sender, ack_receiver) = crossbeam_channel::unbounded();
+
             let handle = std::thread::spawn(move || {
                 let cloned_queue = cloned_queue;
-                for chunk in receiver {
+                for _ in receiver {
                     let now = std::time::Instant::now();
 
-                    for c in chunk.0 {
-                        cloned_queue.push(PointerWrapper(c));
-                    }
-
                     let mut context = MarkAndSweepContextRefQueue {
-                        queue: todo!(),
+                        queue: &cloned_queue,
                         object_count: 0,
-                        // TODO: Check the capacity here
-                        local_queue: Vec::new(),
+                        local_queue: Vec::with_capacity(4096),
                     };
 
                     context.visit();
@@ -1927,19 +1883,15 @@ impl ParallelMarker {
     pub fn mark(&self, queue: &Vec<SteelVal>) -> usize {
         let guard = self.senders.lock().unwrap();
 
-        let denominator = (guard.len() - 1).max(1);
+        for value in queue.iter() {
+            if let Some(p) = SteelValPointer::from_value(value) {
+                // Start with a local queue first?
+                self.queue.push(p);
+            }
+        }
 
-        let chunk_size = queue.len() / denominator;
-
-        let chunk_iter = queue.chunks(chunk_size);
-
-        dbg!(queue.chunks(chunk_size).count());
-        dbg!(guard.len());
-        assert!(queue.chunks(chunk_size).count() <= guard.len());
-
-        for (chunk, worker) in chunk_iter.zip(guard.iter()) {
-            let chunk = VecWrapper(chunk.iter().map(|x| x as _).collect());
-            worker.sender.send(chunk).unwrap();
+        for worker in guard.iter() {
+            worker.sender.send(()).unwrap();
         }
 
         let mut count = 0;

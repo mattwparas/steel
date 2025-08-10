@@ -1647,8 +1647,11 @@ impl<'a> VmCore<'a> {
         SteelVal::MutableVector(allocated_var)
     }
 
-    pub fn make_mutable_vector_from_slice(&mut self, values: &[SteelVal]) -> SteelVal {
-        let allocated_var = self.thread.heap.lock().unwrap().allocate_vector_slice(
+    pub fn make_mutable_vector_iter(
+        &mut self,
+        values: impl Iterator<Item = SteelVal> + Clone,
+    ) -> SteelVal {
+        let allocated_var = self.thread.heap.lock().unwrap().allocate_vector_iter(
             values,
             &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
@@ -1663,7 +1666,7 @@ impl<'a> VmCore<'a> {
     pub(crate) fn gc_collect(&mut self) -> usize {
         self.thread.heap.lock().unwrap().collect(
             None,
-            None,
+            std::iter::empty(),
             &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
             self.thread.global_env.roots(),
