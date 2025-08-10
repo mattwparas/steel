@@ -553,8 +553,36 @@ static MARKER: std::sync::LazyLock<ParallelMarker> = std::sync::LazyLock::new(Pa
 // "Growing" in this case is going to be putting a new block on to the back of the
 // pointers. Yes, we'll do some pointer chasing, but it should be okay.
 struct MemoryBlocks<T: HeapAble> {
-    // We should always have one pinned memory block.
+    current_block: usize,
+
+    // We should always have one pinned memory block. We probably can use like
+    // Arc<[Foo]> since we don't actually need that capacity. Dropping can just be popping
+    // off blocks that we don't need anymore.
     blocks: Vec<Vec<HeapElement<T>>>,
+}
+
+impl<T: HeapAble> MemoryBlocks<T> {
+    pub fn new() -> Self {
+        Self {
+            current_block: 0,
+            blocks: Vec::new(),
+        }
+    }
+
+    pub fn grow(&mut self) {
+        let current_block = &self.blocks[self.current_block];
+        let size = current_block.len();
+        let new_block = 2 * size;
+
+        // Append new block.
+        self.blocks.push(
+            std::iter::repeat_with(|| {
+                StandardShared::new(MutContainer::new(HeapAllocated::new(T::empty())))
+            })
+            .take(new_block)
+            .collect(),
+        );
+    }
 }
 
 // Have free list for vectors and values separately. Can keep some of the vectors pre allocated
