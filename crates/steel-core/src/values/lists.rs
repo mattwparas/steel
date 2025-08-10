@@ -100,6 +100,14 @@ impl PointerFamily for TriopmhePointerType {
     fn as_ptr<T>(this: &Self::Pointer<T>) -> *const T {
         triomphe::Arc::as_ptr(this)
     }
+
+    fn into_raw<T>(this: Self::Pointer<T>) -> *const T {
+        triomphe::Arc::into_raw(this)
+    }
+
+    unsafe fn from_raw<T>(this: *const T) -> Self::Pointer<T> {
+        triomphe::Arc::from_raw(this)
+    }
 }
 
 pub struct GcPointerType;
@@ -137,6 +145,14 @@ impl PointerFamily for GcPointerType {
 
     fn as_ptr<T>(this: &Self::Pointer<T>) -> *const T {
         Gc::as_ptr(this)
+    }
+
+    fn into_raw<T>(this: Self::Pointer<T>) -> *const T {
+        Gc::into_raw(this)
+    }
+
+    unsafe fn from_raw<T>(this: *const T) -> Self::Pointer<T> {
+        Gc::from_raw(this)
     }
 }
 
@@ -284,6 +300,8 @@ type PointerType = TriopmhePointerType;
 pub type SteelList<T> = im_lists::list::GenericList<T, PointerType, 4, 2, DefaultDropHandler>;
 
 pub type List<T> = im_lists::list::GenericList<T, PointerType, 4, 2, DropHandlerChoice>;
+
+pub(crate) type CellPointer<T> = im_lists::list::RawCell<T, PointerType, 4, 2, DropHandlerChoice>;
 
 pub type ConsumingIterator<T> =
     im_lists::list::ConsumingIter<T, PointerType, 4, 2, DropHandlerChoice>;

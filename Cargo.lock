@@ -1992,9 +1992,7 @@ dependencies = [
 
 [[package]]
 name = "im-lists"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "442c94fa6c19a6cb6f987f7aec67b6f74bcfa08c6bc3a65e4fd07f50f7679223"
+version = "0.10.1"
 dependencies = [
  "smallvec",
 ]

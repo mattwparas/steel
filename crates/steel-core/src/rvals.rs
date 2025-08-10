@@ -1345,12 +1345,45 @@ pub(crate) enum SteelValPointer {
     ReducerV(*const Reducer),
     StreamV(*const LazyStream),
     ContinuationFunction(*const RwLock<ContinuationMark>),
-    ListV(crate::values::lists::List<SteelVal>),
+    ListV(crate::values::lists::CellPointer<SteelVal>),
     Pair(*const crate::values::lists::Pair),
     MutableVector(HeapRef<Vec<SteelVal>>),
-    BoxedIterator(GcMut<OpaqueIterator>),
+    SyntaxObject(*const Syntax),
+    BoxedIterator(*const RwLock<OpaqueIterator>),
     Boxed(*const RwLock<SteelVal>),
     HeapAllocated(HeapRef<SteelVal>),
+}
+
+#[cfg(feature = "sync")]
+unsafe impl Sync for SteelValPointer {}
+#[cfg(feature = "sync")]
+unsafe impl Send for SteelValPointer {}
+
+#[cfg(feature = "sync")]
+impl SteelValPointer {
+    pub(crate) fn from_value(value: &SteelVal) -> Option<Self> {
+        match value {
+            Closure(gc) => Some(Self::Closure(gc.as_ptr())),
+            VectorV(steel_vector) => Some(Self::VectorV(steel_vector.0.as_ptr())),
+            SteelVal::Custom(gc) => Some(Self::Custom(gc.as_ptr())),
+            HashMapV(steel_hash_map) => Some(Self::HashMapV(steel_hash_map.0.as_ptr())),
+            HashSetV(steel_hash_set) => Some(Self::HashSetV(steel_hash_set.0.as_ptr())),
+            CustomStruct(gc) => Some(Self::CustomStruct(gc.as_ptr())),
+            IterV(gc) => Some(Self::IterV(gc.as_ptr())),
+            ReducerV(gc) => Some(Self::ReducerV(gc.as_ptr())),
+            StreamV(gc) => Some(Self::StreamV(gc.as_ptr())),
+            ListV(generic_list) => Some(Self::ListV(generic_list.as_ptr())),
+            Pair(gc) => Some(Self::Pair(gc.as_ptr())),
+            // TODO: See if we can avoid these clones?
+            MutableVector(heap_ref) => Some(Self::MutableVector(heap_ref.clone())),
+            BoxedIterator(gc) => Some(Self::BoxedIterator(gc.as_ptr())),
+            SteelVal::SyntaxObject(gc) => Some(Self::SyntaxObject(gc.as_ptr())),
+            Boxed(gc) => Some(Self::Boxed(gc.as_ptr())),
+            // TODO: See if we can avoid these clones?
+            HeapAllocated(heap_ref) => Some(Self::HeapAllocated(heap_ref.clone())),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(feature = "sync")]
