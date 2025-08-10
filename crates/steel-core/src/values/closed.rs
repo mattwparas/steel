@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashSet, sync::Arc, thread::JoinHandle};
+use std::{borrow::Borrow, cell::RefCell, collections::HashSet, sync::Arc, thread::JoinHandle};
 
 #[cfg(feature = "sync")]
 use std::sync::Mutex;
@@ -768,15 +768,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
     // Extend the heap
     fn extend_heap(&mut self) {
-        // self.cursor = self.elements.len();
         self.grow();
-
-        // TODO: Check that this makes sense?
-        // self.cursor = self
-        //     .elements
-        //     .iter()
-        //     .position(|x| !x.read().is_reachable())
-        //     .unwrap();
 
         #[cfg(debug_assertions)]
         {
@@ -786,20 +778,6 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
     // TODO: Allocate and also mark the roots when we're full!
     fn allocate(&mut self, value: T) -> HeapRef<T> {
-        // if self.cursor == 0 {
-        //     dbg!(&self.elements);
-        // }
-
-        // TODO: Figure out why the cursor is off?
-        // Seek to the next free thing.
-        // self.cursor += self.elements[self.cursor..]
-        //     .iter()
-        //     .position(|x| !x.read().is_reachable())
-        //     .unwrap();
-
-        // dbg!(self.cursor);
-        // dbg!(&self.elements[self.cursor]);
-
         // Drain, moving values around...
         // is that expensive?
         let guard = &mut self.elements[self.cursor];
@@ -921,6 +899,72 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
     fn strong_collection(&mut self) -> usize {
         self.collect_on_condition(|inner| !inner.read().is_reachable())
+    }
+}
+
+impl FreeList<Vec<SteelVal>> {
+    fn allocate_vec(&mut self, value: &[SteelVal]) -> HeapRef<Vec<SteelVal>> {
+        // Drain, moving values around...
+        // is that expensive?
+        let guard = &mut self.elements[self.cursor];
+
+        // Allocate into this field
+        let mut heap_guard = guard.write();
+
+        // Check that this fits:
+        // heap_guard.value = value;
+
+        heap_guard.value.shrink_to(value.len());
+        heap_guard.value.truncate(value.len());
+        for (idx, v) in value.iter().enumerate() {
+            heap_guard.value[idx] = v.clone();
+        }
+
+        heap_guard.reachable = true;
+        let weak_ptr = StandardShared::downgrade(&guard);
+        drop(heap_guard);
+
+        // self.elements[self.cursor] = pointer;
+        self.alloc_count -= 1;
+
+        // Find where to assign the next slot optimistically?
+        let next_slot = self.elements[self.cursor..]
+            .iter()
+            .position(|x| !x.read().is_reachable());
+
+        if let Some(next_slot) = next_slot {
+            self.cursor += next_slot;
+
+            // #[cfg(debug_assertions)]
+            // {
+            // assert!(!self.elements[self.cursor].read().is_reachable());
+            // }
+        } else {
+            // TODO: Handle compaction and moving things around so the
+            // cursor has a chance to actually find stuff that has been
+            // freed. It would also be nice
+            if self.is_heap_full() {
+                log::debug!(target: "gc", "Extending the heap in `allocate`");
+
+                // Extend the heap, move the cursor to the end
+                self.extend_heap();
+
+                // assert!(!self.elements[self.cursor].read().is_reachable());
+            } else {
+                // Move to the beginning.
+                self.cursor = self
+                    .elements
+                    .iter()
+                    .position(|x| !x.read().is_reachable())
+                    .unwrap();
+
+                // assert!(!self.elements[self.cursor].read().is_reachable());
+            }
+        }
+
+        // assert!(!self.elements[self.cursor].read().is_reachable());
+
+        HeapRef { inner: weak_ptr }
     }
 }
 
@@ -1048,7 +1092,7 @@ impl Heap {
     ) -> HeapRef<SteelVal> {
         self.collect(
             Some(value.clone()),
-            None,
+            std::iter::empty(),
             roots,
             live_functions,
             globals,
@@ -1084,23 +1128,26 @@ impl Heap {
         tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<Vec<SteelVal>> {
-        self.collect(
-            None,
-            Some(&values),
-            roots,
-            live_functions,
-            globals,
-            tls,
-            synchronizer,
-            false,
-        );
+        // let item = values.iter();
+        // self.collect(
+        //     None,
+        //     item,
+        //     roots,
+        //     live_functions,
+        //     globals,
+        //     tls,
+        //     synchronizer,
+        //     false,
+        // );
 
-        let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(values)));
-        let weak_ptr = StandardShared::downgrade(&pointer);
+        todo!();
 
-        self.vectors.push(pointer);
+        // let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(values)));
+        // let weak_ptr = StandardShared::downgrade(&pointer);
 
-        HeapRef { inner: weak_ptr }
+        // self.vectors.push(pointer);
+
+        // HeapRef { inner: weak_ptr }
     }
 
     fn vector_cells_allocated(&self) -> usize {
@@ -1118,7 +1165,7 @@ impl Heap {
     pub fn collect<'a>(
         &mut self,
         root_value: Option<SteelVal>,
-        root_vector: Option<&Vec<SteelVal>>,
+        root_vector: impl Iterator<Item = &'a SteelVal>,
         roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
@@ -1233,6 +1280,7 @@ impl Heap {
         synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<SteelVal> {
         if self.memory_free_list.percent_full() > 0.95 {
+            let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "SteelVal gc invocation");
             self.memory_free_list.weak_collection();
@@ -1246,7 +1294,7 @@ impl Heap {
                 // Just reset the counter
                 self.mark_and_sweep_new(
                     Some(value.clone()),
-                    None,
+                    std::iter::empty(),
                     roots,
                     live_functions,
                     globals,
@@ -1267,6 +1315,8 @@ impl Heap {
                 // synchronizer.resume_threads();
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.memory_free_list.percent_full());
+
+                log::debug!(target: "gc", "---- TOTAL GC TIME: {:?} ----", now.elapsed());
             }
         }
 
@@ -1276,6 +1326,56 @@ impl Heap {
     pub fn allocate_vector<'a>(
         &mut self,
         values: Vec<SteelVal>,
+        roots: &'a [SteelVal],
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
+    ) -> HeapRef<Vec<SteelVal>> {
+        todo!();
+
+        // if self.vector_free_list.percent_full() > 0.95 {
+        //     // Attempt a weak collection
+        //     log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
+        //     self.vector_free_list.weak_collection();
+
+        //     if self.vector_free_list.percent_full() > 0.95 {
+        //         self.vector_free_list.mark_all_unreachable();
+
+        //         let iter = values.iter();
+
+        //         self.mark_and_sweep_new(
+        //             None,
+        //             iter,
+        //             roots,
+        //             live_functions,
+        //             globals,
+        //             tls,
+        //             synchronizer,
+        //         );
+
+        //         self.vector_free_list.recount();
+
+        //         // if self.vector_free_list.percent_full() > 0.75 {
+        //         if self.vector_free_list.grow_count > 7 {
+        //             // Compact the free list.
+        //             self.vector_free_list.compact();
+        //         } else {
+        //             self.vector_free_list.grow();
+        //         }
+        //         // }
+
+        //         self.vector_free_list.grow();
+        //     }
+        // }
+
+        // TOOD: Optimize this a lot!
+        self.vector_free_list.allocate(values)
+    }
+
+    pub fn allocate_vector_slice<'a>(
+        &mut self,
+        values: &'a [SteelVal],
         roots: &'a [SteelVal],
         live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
@@ -1292,7 +1392,7 @@ impl Heap {
 
                 self.mark_and_sweep_new(
                     None,
-                    Some(&values),
+                    values.iter(),
                     roots,
                     live_functions,
                     globals,
@@ -1315,14 +1415,64 @@ impl Heap {
             }
         }
 
+        // todo!()
+
         // TOOD: Optimize this a lot!
-        self.vector_free_list.allocate(values)
+        self.vector_free_list.allocate_vec(values)
+    }
+
+    pub fn allocate_vector_iter<'a>(
+        &mut self,
+        values: impl Iterator<Item = &'a SteelVal> + Clone,
+        roots: &'a [SteelVal],
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
+    ) -> HeapRef<Vec<SteelVal>> {
+        if self.vector_free_list.percent_full() > 0.95 {
+            // Attempt a weak collection
+            log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
+            self.vector_free_list.weak_collection();
+
+            if self.vector_free_list.percent_full() > 0.95 {
+                self.vector_free_list.mark_all_unreachable();
+
+                self.mark_and_sweep_new(
+                    None,
+                    values.clone(),
+                    roots,
+                    live_functions,
+                    globals,
+                    tls,
+                    synchronizer,
+                );
+
+                self.vector_free_list.recount();
+
+                // if self.vector_free_list.percent_full() > 0.75 {
+                if self.vector_free_list.grow_count > 7 {
+                    // Compact the free list.
+                    self.vector_free_list.compact();
+                } else {
+                    self.vector_free_list.grow();
+                }
+                // }
+
+                self.vector_free_list.grow();
+            }
+        }
+
+        todo!()
+
+        // TOOD: Optimize this a lot!
+        // self.vector_free_list.allocate_vec(values)
     }
 
     fn mark_and_sweep_new<'a>(
         &mut self,
         root_value: Option<SteelVal>,
-        root_vector: Option<&Vec<SteelVal>>,
+        root_vector: impl Iterator<Item = &'a SteelVal>,
         roots: &'a [SteelVal],
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
@@ -1366,7 +1516,7 @@ impl Heap {
     fn mark_and_sweep<'a>(
         &mut self,
         root_value: Option<SteelVal>,
-        root_vector: Option<&Vec<SteelVal>>,
+        root_vector: impl Iterator<Item = &'a SteelVal>,
         roots: &'a [SteelVal],
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &'a [SteelVal],
@@ -1440,7 +1590,7 @@ impl Heap {
     fn mark<'a>(
         &mut self,
         root_value: Option<SteelVal>,
-        root_vector: Option<&Vec<SteelVal>>,
+        root_vector: impl Iterator<Item = &'a SteelVal>,
         roots: &[SteelVal],
         function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
         globals: &[SteelVal],
@@ -1815,6 +1965,11 @@ impl HeapAble for Vec<SteelVal> {
         Self::new()
     }
 }
+
+// fn test_borrow() {
+//     let mut value = vec![1, 2, 3, 4, 5];
+//     HeapAble::reuse(&mut value, &[1, 2, 3, 4, 5]);
+// }
 
 #[derive(Clone, Debug)]
 pub struct HeapRef<T: HeapAble> {
