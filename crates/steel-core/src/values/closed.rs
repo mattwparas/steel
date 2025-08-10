@@ -1297,7 +1297,7 @@ impl Heap {
                 self.memory_free_list.mark_all_unreachable();
 
                 // Just reset the counter
-                self.mark_and_sweep_new(
+                let stats = self.mark_and_sweep_new(
                     Some(value.clone()),
                     std::iter::empty(),
                     roots,
@@ -1307,13 +1307,11 @@ impl Heap {
                     synchronizer,
                 );
 
-                // TODO: Inline recounting with the mark and sweeping! Just have the parallel marking
-                // count how many items are going to be freed by calculating how many items are reachable.
-                //
-                // The new result will be total length - reachable = unreachable count.
-                let recount_time = std::time::Instant::now();
-                self.memory_free_list.recount();
-                log::debug!(target: "gc", "Recounting time: {:?}", recount_time.elapsed());
+                self.memory_free_list.alloc_count =
+                    self.memory_free_list.elements.len() - stats.memory_reached_count;
+
+                self.vector_free_list.alloc_count =
+                    self.vector_free_list.elements.len() - stats.vector_reached_count;
 
                 // Estimate what that memory size is?
                 if self.memory_free_list.grow_count > 7 {
@@ -1355,7 +1353,7 @@ impl Heap {
             if self.vector_free_list.percent_full() > 0.95 {
                 self.vector_free_list.mark_all_unreachable();
 
-                self.mark_and_sweep_new(
+                let stats = self.mark_and_sweep_new(
                     None,
                     values.clone().into_iter(),
                     roots,
@@ -1365,7 +1363,11 @@ impl Heap {
                     synchronizer,
                 );
 
-                self.vector_free_list.recount();
+                self.vector_free_list.alloc_count =
+                    self.vector_free_list.elements.len() - stats.vector_reached_count;
+
+                self.memory_free_list.alloc_count =
+                    self.memory_free_list.elements.len() - stats.memory_reached_count;
 
                 // if self.vector_free_list.percent_full() > 0.75 {
                 if self.vector_free_list.grow_count > 7 {
@@ -1403,7 +1405,7 @@ impl Heap {
             if self.vector_free_list.percent_full() > 0.95 {
                 self.vector_free_list.mark_all_unreachable();
 
-                self.mark_and_sweep_new(
+                let stats = self.mark_and_sweep_new(
                     None,
                     values.clone(),
                     roots,
@@ -1413,7 +1415,11 @@ impl Heap {
                     synchronizer,
                 );
 
-                self.vector_free_list.recount();
+                self.vector_free_list.alloc_count =
+                    self.vector_free_list.elements.len() - stats.vector_reached_count;
+
+                self.memory_free_list.alloc_count =
+                    self.memory_free_list.elements.len() - stats.memory_reached_count;
 
                 // if self.vector_free_list.percent_full() > 0.75 {
                 if self.vector_free_list.grow_count > 7 {
@@ -1443,8 +1449,8 @@ impl Heap {
         globals: &'a [SteelVal],
         tls: &'a [SteelVal],
         synchronizer: &mut Synchronizer,
-    ) {
-        let (mut context, count) = self.mark(
+    ) -> MarkAndSweepStats {
+        let stats = self.mark(
             root_value,
             root_vector,
             roots,
@@ -1453,8 +1459,6 @@ impl Heap {
             tls,
             synchronizer,
         );
-
-        context.object_count = count;
 
         // #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
@@ -1474,6 +1478,8 @@ impl Heap {
 
         synchronizer.resume_threads();
 
+        stats
+
         // object_count.saturating_sub(amount_freed)
         // 0
     }
@@ -1488,7 +1494,7 @@ impl Heap {
         tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
     ) -> usize {
-        let (mut context, count) = self.mark(
+        let stats = self.mark(
             root_value,
             root_vector,
             roots,
@@ -1508,12 +1514,8 @@ impl Heap {
 
         // context.visit();
 
-        context.object_count = count;
-
         // #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
-
-        let object_count = context.object_count;
 
         log::debug!(target: "gc", "--- Sweeping ---");
         let prior_len = self.memory.len() + self.vector_cells_allocated();
@@ -1548,7 +1550,8 @@ impl Heap {
 
         synchronizer.resume_threads();
 
-        object_count.saturating_sub(amount_freed)
+        stats.object_count
+
         // 0
     }
 
@@ -1561,7 +1564,7 @@ impl Heap {
         globals: &[SteelVal],
         tls: &[SteelVal],
         synchronizer: &mut Synchronizer,
-    ) -> (MarkAndSweepContext<'_>, usize) {
+    ) -> MarkAndSweepStats {
         log::debug!(target: "gc", "Marking the heap");
 
         // #[cfg(feature = "profiling")]
@@ -1710,98 +1713,11 @@ impl Heap {
 
         // Divide up the queue - manage the thread allocation ourselves for
         // better use.
-        const USE_SCOPED_THREADS: bool = false;
         const USE_SHARED_QUEUE: bool = false;
 
-        let count = if USE_SCOPED_THREADS {
-            std::thread::scope(|s| {
-                let mut handles = Vec::new();
-
-                let chunk_size = std::thread::available_parallelism()
-                    .map(|x| context.queue.len() / x)
-                    .unwrap_or(256);
-
-                let now = std::time::Instant::now();
-
-                // Divide into n cores?
-                for chunk in context.queue.chunks(chunk_size) {
-                    let handle = s.spawn(|| {
-                        let mut ref_queue = chunk.iter().map(|x| x as _).collect();
-
-                        let mut context = MarkAndSweepContextRef {
-                            queue: &mut ref_queue,
-                            object_count: 0,
-                        };
-
-                        context.visit();
-
-                        context.object_count
-                    });
-
-                    handles.push(handle);
-                }
-
-                log::debug!(target: "gc", "Mark: Thread spawning time: {:?}", now.elapsed());
-
-                let mut count = 0;
-                for handle in handles {
-                    count += handle.join().unwrap();
-                }
-
-                count
-            })
-        } else if USE_SHARED_QUEUE {
-            let queue = SegQueue::new();
-            for value in context.queue.iter() {
-                if let Some(p) = SteelValPointer::from_value(value) {
-                    queue.push(p);
-                }
-            }
-
-            // let queue = Mutex::new(queue);
-
-            std::thread::scope(|s| {
-                let mut handles = Vec::new();
-
-                let chunk_size = std::thread::available_parallelism()
-                    .map(|x| x.get())
-                    .unwrap_or(1);
-
-                let now = std::time::Instant::now();
-
-                for _ in 0..chunk_size {
-                    let handle = s.spawn(|| {
-                        let now = std::time::Instant::now();
-                        let mut context = MarkAndSweepContextRefQueue {
-                            local_queue: Vec::with_capacity(4096),
-                            queue: &queue,
-                            object_count: 0,
-                        };
-
-                        context.visit();
-                        log::debug!(target: "gc", "Thread: {:?} -> {:?}", std::thread::current().id(), now.elapsed());
-
-                        context.object_count
-                    });
-
-                    handles.push(handle);
-                }
-
-                log::debug!(target: "gc", "Mark: Thread spawning time: {:?}", now.elapsed());
-
-                let mut count = 0;
-                for handle in handles {
-                    count += handle.join().unwrap();
-                }
-
-                count
-            })
-        } else {
-            MARKER.mark(&context.queue)
-        };
-
+        let count = MARKER.mark(&context.queue);
         log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
-        (context, count)
+        count
     }
 }
 
@@ -1824,7 +1740,7 @@ unsafe impl Send for ParallelMarker {}
 struct MarkerWorker {
     // Tell the thread to wake up
     sender: Sender<()>,
-    ack: Receiver<usize>,
+    ack: Receiver<MarkAndSweepStats>,
     handle: JoinHandle<()>,
 }
 
@@ -1850,20 +1766,20 @@ impl ParallelMarker {
 
                     let mut context = MarkAndSweepContextRefQueue {
                         queue: &cloned_queue,
-                        object_count: 0,
                         local_queue: Vec::with_capacity(4096),
+                        stats: MarkAndSweepStats::default(),
                     };
 
                     context.visit();
 
-                    println!(
-                        "{:?}: {:?} -> {}",
+                    log::debug!(target: "gc",
+                        "{:?}: {:?} -> {:?}",
                         std::thread::current().id(),
                         now.elapsed(),
-                        context.object_count
+                        context.stats
                     );
 
-                    ack_sender.send(context.object_count).unwrap();
+                    ack_sender.send(context.stats).unwrap();
                 }
             });
 
@@ -1880,7 +1796,7 @@ impl ParallelMarker {
         }
     }
 
-    pub fn mark(&self, queue: &Vec<SteelVal>) -> usize {
+    pub fn mark(&self, queue: &Vec<SteelVal>) -> MarkAndSweepStats {
         let guard = self.senders.lock().unwrap();
 
         for value in queue.iter() {
@@ -1894,10 +1810,10 @@ impl ParallelMarker {
             worker.sender.send(()).unwrap();
         }
 
-        let mut count = 0;
+        let mut count = MarkAndSweepStats::default();
 
         for worker in guard.iter() {
-            count += worker.ack.recv().unwrap();
+            count = count + worker.ack.recv().unwrap();
         }
 
         count
@@ -2098,12 +2014,30 @@ impl<'a> MarkAndSweepContext<'a> {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct MarkAndSweepStats {
+    object_count: usize,
+    memory_reached_count: usize,
+    vector_reached_count: usize,
+}
+
+impl std::ops::Add for MarkAndSweepStats {
+    type Output = MarkAndSweepStats;
+
+    fn add(mut self, rhs: Self) -> Self::Output {
+        self.object_count += rhs.object_count;
+        self.memory_reached_count += rhs.memory_reached_count;
+        self.vector_reached_count += rhs.vector_reached_count;
+        self
+    }
+}
+
 pub struct MarkAndSweepContextRefQueue<'a> {
     // Thread local queue + larger queue when it runs out?
     // Try to push on to local queue first.
     local_queue: Vec<SteelValPointer>,
     queue: &'a crossbeam_queue::SegQueue<SteelValPointer>,
-    object_count: usize,
+    stats: MarkAndSweepStats,
 }
 
 impl<'a> MarkAndSweepContextRefQueue<'a> {
@@ -2118,6 +2052,8 @@ impl<'a> MarkAndSweepContextRefQueue<'a> {
         {
             heap_ref.write().mark_reachable();
         }
+
+        self.stats.memory_reached_count += 1;
 
         self.push_back(&heap_ref.read().value);
     }
@@ -2134,6 +2070,8 @@ impl<'a> MarkAndSweepContextRefQueue<'a> {
         {
             heap_vector.write().mark_reachable();
         }
+
+        self.stats.vector_reached_count += 1;
 
         for value in heap_vector.read().value.iter() {
             self.push_back(&value);
@@ -2668,7 +2606,7 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
     }
 
     fn push_back(&mut self, value: &SteelVal) {
-        self.object_count += 1;
+        self.stats.object_count += 1;
 
         // TODO: Determine if all numbers should push back.
         match value {
