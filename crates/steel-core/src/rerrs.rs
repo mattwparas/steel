@@ -122,12 +122,10 @@ impl fmt::Display for ErrorKind {
 
 impl From<ParseError> for Repr {
     fn from(v: ParseError) -> Self {
-        // unimplemented!()
         let (span, _source) = match &v {
-            ParseError::UnexpectedEOF(source) => (None, source),
-            ParseError::Unexpected(_, s, source)
+            ParseError::UnexpectedEOF(s, source)
+            | ParseError::MismatchedParen(_, s, source)
             | ParseError::UnexpectedChar(_, s, source)
-            | ParseError::IncompleteString(_, s, source)
             | ParseError::SyntaxError(_, s, source)
             | ParseError::ArityMismatch(_, s, source) => (Some(*s), source),
         };
@@ -136,7 +134,6 @@ impl From<ParseError> for Repr {
             kind: ErrorKind::Parse,
             message: v.to_string(),
             span,
-            // source: source.clone(),
             stack_trace: None,
         }
     }

@@ -13,7 +13,7 @@ use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::Helper;
 use rustyline::{hint::Hinter, Context};
 
-use steel_parser::lexer::TokenStream;
+use steel_parser::lexer::{TokenError, TokenStream};
 
 use rustyline::completion::Completer;
 use rustyline::completion::Pair;
@@ -45,8 +45,9 @@ impl Completer for RustylineHelper {
         _ctx: &Context<'_>,
     ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
         // Only do completions if we're in an identifier
-        let Some((span, symbol)) =
-            TokenStream::new(line, true, SourceId::none()).find_map(|token| match token.ty {
+        let Some((span, symbol)) = TokenStream::new(line, true, SourceId::none())
+            .filter_map(Result::ok)
+            .find_map(|token| match token.ty {
                 TokenType::Identifier(ref symbol) => (
                     // Inclusive range as curser usually placed directly after the symbol
                     token.span().start()..=token.span().end()
@@ -102,6 +103,7 @@ impl Completer for RustylineHelper {
     ) {
         // Cursor can be anywhere in the identifier, so find its span again.
         if let Some(end) = TokenStream::new(line, true, SourceId::none())
+            .filter_map(Result::ok)
             .find_map(|token| (token.span().start() == start).then_some(token.span().end()))
         {
             line.replace(start..end, elected, cl);
@@ -120,17 +122,24 @@ impl Validator for RustylineHelper {
         let mut unfinished = false;
 
         for token in token_stream {
+            let token = match token {
+                Ok(token) => token,
+                Err(err) => {
+                    unfinished = std::matches!(
+                        err.ty,
+                        TokenError::IncompleteString | TokenError::IncompleteIdentifier
+                    );
+
+                    break;
+                }
+            };
+
             match token.ty {
                 TokenType::OpenParen(..) => {
                     balance += 1;
                 }
                 TokenType::CloseParen(_) => {
                     balance -= 1;
-                }
-                TokenType::Error => {
-                    unfinished = token.source.starts_with("\"") || token.source.starts_with("#|");
-
-                    break;
                 }
                 _ => {}
             }
@@ -165,7 +174,9 @@ impl Highlighter for RustylineHelper {
 
         let mut line_to_highlight = line.to_owned();
 
-        let mut token_stream = TokenStream::new(line, true, SourceId::none()).peekable();
+        let mut token_stream = TokenStream::new(line, true, SourceId::none())
+            .filter_map(Result::ok)
+            .peekable();
 
         let mut ranges_to_replace: Vec<(std::ops::Range<usize>, String)> = Vec::new();
 
@@ -175,12 +186,6 @@ impl Highlighter for RustylineHelper {
         let mut paren_to_highlight = None;
 
         while let Some(token) = token_stream.next() {
-            // todo!()
-
-            // if token.span().end() > pos {
-            //     return self.highlighter.highlight(line, pos);
-            // }
-
             match token.typ() {
                 TokenType::OpenParen(paren, paren_mod) if paren_to_highlight.is_none() => {
                     let open_span = TokenType::open_span(token.span, *paren_mod);

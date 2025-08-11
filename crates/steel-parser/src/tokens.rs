@@ -94,7 +94,6 @@ pub enum TokenType<S> {
     Number(Box<NumberLiteral>),
     StringLiteral(Arc<String>),
     Dot,
-    Error,
 }
 
 impl<T> TokenType<T> {
@@ -321,7 +320,6 @@ impl<'a> TokenType<Cow<'a, str>> {
             Unquote => Unquote,
             QuasiQuote => QuasiQuote,
             UnquoteSplice => UnquoteSplice,
-            Error => Error,
             Comment => Comment,
             DatumComment => DatumComment,
             If => If,
@@ -359,7 +357,6 @@ impl<'a> TokenType<Cow<'a, str>> {
             Unquote => Unquote,
             QuasiQuote => QuasiQuote,
             UnquoteSplice => UnquoteSplice,
-            Error => Error,
             Comment => Comment,
             DatumComment => DatumComment,
             If => If,
@@ -429,7 +426,6 @@ impl<T: Display> fmt::Display for TokenType<T> {
             QuasiQuoteSyntax => write!(f, "#`"),
             UnquoteSyntax => write!(f, "#,"),
             UnquoteSpliceSyntax => write!(f, "#,@"),
-            Error => write!(f, "error"),
             DatumComment => write!(f, "#;"),
             Comment => write!(f, ""),
             If => write!(f, "if"),
@@ -451,15 +447,15 @@ impl<T: Display> fmt::Display for TokenType<T> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Token<'a, T> {
-    pub ty: TokenType<T>,
+pub struct TokenLike<'a, TY> {
+    pub ty: TY,
     pub source: &'a str,
     pub span: Span,
 }
 
-impl<'a, T> Token<'a, T> {
+impl<'a, TY> TokenLike<'a, TY> {
     pub const fn new(
-        ty: TokenType<T>,
+        ty: TY,
         source: &'a str,
         range: ops::Range<usize>,
         source_id: Option<SourceId>,
@@ -470,7 +466,11 @@ impl<'a, T> Token<'a, T> {
             span: Span::new(range.start, range.end, source_id),
         }
     }
+}
 
+pub type Token<'a, T> = TokenLike<'a, TokenType<T>>;
+
+impl<'a, T> Token<'a, T> {
     pub fn typ(&self) -> &TokenType<T> {
         &self.ty
     }

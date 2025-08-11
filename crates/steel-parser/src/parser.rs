@@ -17,9 +17,9 @@ use crate::{
         RAW_UNSYNTAX_SPLICING, REQUIRE, RETURN, SET, SYNTAX_QUOTE, UNQUOTE, UNQUOTE_SPLICING,
     },
     interner::InternedString,
-    lexer::{OwnedTokenStream, ToOwnedString, TokenStream},
+    lexer::{OwnedTokenStream, ToOwnedString, TokenError, TokenStream},
     span::Span,
-    tokens::{Paren, ParenMod, Token, TokenType},
+    tokens::{Paren, ParenMod, Token, TokenLike, TokenType},
 };
 
 #[derive(
@@ -216,23 +216,38 @@ impl From<&Token<'_, InternedString>> for SyntaxObject {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ParseError {
-    Unexpected(TokenType<String>, Span, Option<Rc<PathBuf>>),
-    UnexpectedEOF(Option<Rc<PathBuf>>),
+    MismatchedParen(Paren, Span, Option<Rc<PathBuf>>),
+    UnexpectedEOF(Span, Option<Rc<PathBuf>>),
     UnexpectedChar(char, Span, Option<Rc<PathBuf>>),
-    IncompleteString(String, Span, Option<Rc<PathBuf>>),
     SyntaxError(String, Span, Option<Rc<PathBuf>>),
     ArityMismatch(String, Span, Option<Rc<PathBuf>>),
+}
+
+impl From<TokenLike<'_, TokenError>> for ParseError {
+    fn from(value: TokenLike<'_, TokenError>) -> Self {
+        match value.ty {
+            TokenError::IncompleteString
+            | TokenError::IncompleteIdentifier
+            | TokenError::IncompleteComment => ParseError::UnexpectedEOF(value.span, None),
+            _ => ParseError::SyntaxError(format!("{}", value.ty), value.span, None),
+        }
+    }
 }
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseError::Unexpected(l, _, _) => write!(f, "Parse: Unexpected token: {:?}", l),
-            ParseError::UnexpectedEOF(_) => write!(f, "Parse: Unexpected EOF"),
+            ParseError::MismatchedParen(paren, _, _) => {
+                write!(
+                    f,
+                    "Parse: Mismatched parenthesis, expected \"{}\"",
+                    paren.close()
+                )
+            }
+            ParseError::UnexpectedEOF(..) => write!(f, "Parse: Unexpected EOF"),
             ParseError::UnexpectedChar(l, _, _) => {
                 write!(f, "Parse: Unexpected character: {:?}", l)
             }
-            ParseError::IncompleteString(l, _, _) => write!(f, "Parse: Incomplete String: {}", l),
             ParseError::SyntaxError(l, _, _) => write!(f, "Parse: Syntax Error: {}", l),
             ParseError::ArityMismatch(l, _, _) => write!(f, "Parse: Arity mismatch: {}", l),
         }
@@ -242,25 +257,22 @@ impl std::fmt::Display for ParseError {
 impl std::error::Error for ParseError {}
 
 impl ParseError {
-    pub fn span(&self) -> Option<Span> {
+    pub fn span(&self) -> Span {
         match self {
-            // ParseError::TokenError(_) => None,
-            ParseError::Unexpected(_, s, _) => Some(*s),
-            ParseError::UnexpectedEOF(_) => None,
-            ParseError::UnexpectedChar(_, s, _) => Some(*s),
-            ParseError::IncompleteString(_, s, _) => Some(*s),
-            ParseError::SyntaxError(_, s, _) => Some(*s),
-            ParseError::ArityMismatch(_, s, _) => Some(*s),
+            ParseError::MismatchedParen(_, s, _) => *s,
+            ParseError::UnexpectedEOF(s, _) => *s,
+            ParseError::UnexpectedChar(_, s, _) => *s,
+            ParseError::SyntaxError(_, s, _) => *s,
+            ParseError::ArityMismatch(_, s, _) => *s,
         }
     }
 
     pub fn set_source(self, source: Option<Rc<PathBuf>>) -> Self {
         use ParseError::*;
         match self {
-            ParseError::Unexpected(l, s, _) => Unexpected(l, s, source),
-            ParseError::UnexpectedEOF(_) => UnexpectedEOF(source),
+            ParseError::MismatchedParen(l, s, _) => MismatchedParen(l, s, source),
+            ParseError::UnexpectedEOF(s, _) => UnexpectedEOF(s, source),
             ParseError::UnexpectedChar(l, s, _) => UnexpectedChar(l, s, source),
-            ParseError::IncompleteString(l, s, _) => IncompleteString(l, s, source),
             ParseError::SyntaxError(l, s, _) => SyntaxError(l, s, source),
             ParseError::ArityMismatch(l, s, _) => ArityMismatch(l, s, source),
         }
@@ -326,18 +338,6 @@ impl<'a> Parser<'a> {
 }
 
 pub type Result<T> = result::Result<T, ParseError>;
-
-fn tokentype_error_to_parse_error(t: &Token<'_, InternedString>) -> ParseError {
-    if let TokenType::Error = t.ty {
-        if t.source.starts_with('\"') {
-            ParseError::IncompleteString(t.source.to_string(), t.span, None)
-        } else {
-            ParseError::UnexpectedChar(t.source.chars().next().unwrap(), t.span, None)
-        }
-    } else {
-        ParseError::UnexpectedEOF(None)
-    }
-}
 
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str, source_id: Option<SourceId>) -> Self {
@@ -559,6 +559,7 @@ impl<'a> Parser<'a> {
         &mut self,
         (open, paren, paren_mod): (Span, Paren, Option<ParenMod>),
     ) -> Result<ExprKind> {
+        let mut last = open;
         let mut stack: Vec<Frame> = Vec::new();
 
         let mut current_frame = Frame {
@@ -575,7 +576,10 @@ impl<'a> Parser<'a> {
         // println!("READING FROM TOKENS");
         // self.quasiquote_depth = 0;
 
-        while let Some(token) = self.tokenizer.next() {
+        while let Some(token) = self.next_token() {
+            let token = token?;
+            last = token.span;
+
             match token.ty {
                 TokenType::Dot => {
                     if current_frame.dot.is_some() {
@@ -619,12 +623,14 @@ impl<'a> Parser<'a> {
                 TokenType::DatumComment => {
                     current_frame.comment += 1;
                 }
-                TokenType::Error => return Err(tokentype_error_to_parse_error(&token)), // TODO
 
                 TokenType::QuoteSyntax => {
                     let quote_inner = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            token.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| self.construct_syntax(x, token.span))?;
 
                     current_frame.push(quote_inner)?
@@ -633,7 +639,10 @@ impl<'a> Parser<'a> {
                 TokenType::QuasiQuoteSyntax => {
                     let quote_inner = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            token.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| self.construct_quasiquote_syntax(x, token.span))?;
 
                     current_frame.push(quote_inner)?
@@ -642,7 +651,10 @@ impl<'a> Parser<'a> {
                 TokenType::UnquoteSyntax => {
                     let quote_inner = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            token.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| self.construct_quasiunquote_syntax(x, token.span))?;
 
                     current_frame.push(quote_inner)?
@@ -651,7 +663,10 @@ impl<'a> Parser<'a> {
                 TokenType::UnquoteSpliceSyntax => {
                     let quote_inner = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            token.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| self.construct_quasiunquote_syntax_splicing(x, token.span))?;
 
                     current_frame.push(quote_inner)?
@@ -674,7 +689,10 @@ impl<'a> Parser<'a> {
 
                     let quote_inner = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            token.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| {
                             // if self.quasiquote_depth == 0 {
                             self.construct_quote(x, token.span)
@@ -713,7 +731,10 @@ impl<'a> Parser<'a> {
 
                     let quote_inner = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            token.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| {
                             // dbg!(self.quasiquote_depth);
                             // dbg!(self.quote_context);
@@ -744,7 +765,10 @@ impl<'a> Parser<'a> {
 
                     let quote_inner = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            token.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| self.construct_quasiquote(x, token.span));
 
                     // self.context.pop();
@@ -773,7 +797,10 @@ impl<'a> Parser<'a> {
 
                     let quote_inner = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            token.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| {
                             if self.quasiquote_depth == 0 && !self.quote_context {
                                 self.construct_raw_unquote_splicing(x, token.span)
@@ -813,8 +840,8 @@ impl<'a> Parser<'a> {
                     // As we close the current context, we check what our current state is -
 
                     if paren != current_frame.paren {
-                        return Err(ParseError::Unexpected(
-                            TokenType::CloseParen(paren),
+                        return Err(ParseError::MismatchedParen(
+                            current_frame.paren,
                             token.span,
                             self.source_name.clone(),
                         ));
@@ -1075,7 +1102,13 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Err(ParseError::UnexpectedEOF(self.source_name.clone()))
+        Err(ParseError::UnexpectedEOF(last, self.source_name.clone()))
+    }
+
+    fn next_token(&mut self) -> Option<Result<Token<'a, InternedString>>> {
+        let res = self.tokenizer.next()?;
+
+        Some(res.map_err(|err| ParseError::from(err).set_source(self.source_name.clone())))
     }
 }
 
@@ -1109,7 +1142,14 @@ impl<'a> Parser<'a> {
             }};
         }
 
-        while let Some(res) = self.tokenizer.next() {
+        while let Some(res) = self.next_token() {
+            let res = match res {
+                Ok(res) => res,
+                Err(err) => {
+                    return Some(Err(err));
+                }
+            };
+
             match res.ty {
                 TokenType::Comment => {
                     if self.comment_buffer.is_empty()
@@ -1152,7 +1192,10 @@ impl<'a> Parser<'a> {
                 TokenType::QuoteSyntax => {
                     let value = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            res.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| self.construct_syntax(x, res.span));
 
                     maybe_return![value];
@@ -1161,7 +1204,10 @@ impl<'a> Parser<'a> {
                 TokenType::QuasiQuoteSyntax => {
                     let value = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            res.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| self.construct_quasiquote_syntax(x, res.span));
 
                     maybe_return![value];
@@ -1170,7 +1216,10 @@ impl<'a> Parser<'a> {
                 TokenType::UnquoteSyntax => {
                     let quote_inner = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            res.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| self.construct_quasiunquote_syntax(x, res.span));
 
                     maybe_return!(quote_inner);
@@ -1179,7 +1228,10 @@ impl<'a> Parser<'a> {
                 TokenType::UnquoteSpliceSyntax => {
                     let quote_inner = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            res.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| self.construct_quasiunquote_syntax_splicing(x, res.span));
 
                     maybe_return!(quote_inner);
@@ -1202,7 +1254,10 @@ impl<'a> Parser<'a> {
 
                     let value = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            res.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| self.construct_quote_vec(x, res.span));
 
                     self.shorthand_quote_stack.pop();
@@ -1239,7 +1294,10 @@ impl<'a> Parser<'a> {
 
                     let value = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            res.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| {
                             // dbg!(&self.quasiquote_depth);
                             if self.quasiquote_depth == 0 && !self.quote_context {
@@ -1269,7 +1327,10 @@ impl<'a> Parser<'a> {
 
                     let value = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            res.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| {
                             if self.quasiquote_depth == 0 && !self.quote_context {
                                 self.construct_raw_unquote_splicing(x, res.span)
@@ -1298,7 +1359,10 @@ impl<'a> Parser<'a> {
 
                     let value = self
                         .next()
-                        .unwrap_or(Err(ParseError::UnexpectedEOF(self.source_name.clone())))
+                        .unwrap_or(Err(ParseError::UnexpectedEOF(
+                            res.span,
+                            self.source_name.clone(),
+                        )))
                         .map(|x| self.construct_quasiquote(x, res.span));
 
                     let popped_value = self.context.pop();
@@ -1317,19 +1381,15 @@ impl<'a> Parser<'a> {
                         .read_from_tokens((res.span, paren, paren_mod))
                         .map_err(|err| err.set_source(self.source_name.clone()));
 
-                    // self.quote_stack.clear();
-                    // self.context.clear();
-
                     maybe_return![value];
                 }
                 TokenType::CloseParen(paren) => {
-                    maybe_return!(Err(ParseError::Unexpected(
-                        TokenType::CloseParen(paren),
+                    maybe_return!(Err(ParseError::UnexpectedChar(
+                        paren.close(),
                         res.span,
                         self.source_name.clone(),
                     )))
                 }
-                TokenType::Error => maybe_return!(Err(tokentype_error_to_parse_error(&res))),
                 _ => {
                     maybe_return![Ok(ExprKind::Atom(Atom::new(SyntaxObject::from(&res))))];
                 }
@@ -1913,11 +1973,6 @@ mod parser_tests {
         assert_eq!(a.as_slice(), result);
     }
 
-    fn assert_parse_err(s: &str, err: ParseError) {
-        let a: Result<Vec<ExprKind>> = Parser::new(s, SourceId::none()).collect();
-        assert_eq!(a, Err(err));
-    }
-
     fn assert_syntax_err(s: &str, expected: &str) {
         let a: Result<Vec<ExprKind>> = Parser::new(s, SourceId::none()).collect();
         let Err(ParseError::SyntaxError(err, _, _)) = a else {
@@ -2086,34 +2141,32 @@ mod parser_tests {
         assert_parse("#\\(", &[character('(')])
     }
 
+    macro_rules! assert_matches {
+        ($expr:expr, $pat:pat) => {{
+            let value = $expr;
+            match value {
+                $pat => {}
+                _ => panic!("{value:?} does not match"),
+            }
+        }};
+    }
+
     #[test]
     fn test_error() {
-        assert_parse_err("(", ParseError::UnexpectedEOF(None));
-        assert_parse_err("(abc", ParseError::UnexpectedEOF(None));
-        assert_parse_err("(ab 1 2", ParseError::UnexpectedEOF(None));
-        assert_parse_err("((((ab 1 2) (", ParseError::UnexpectedEOF(None));
-        assert!(matches!(
-            parse_err("())"),
-            ParseError::Unexpected(TokenType::CloseParen(Paren::Round), _, None),
-        ));
-        assert_parse_err("() ((((", ParseError::UnexpectedEOF(None));
-        assert!(matches!(
-            parse_err("')"),
-            ParseError::Unexpected(TokenType::CloseParen(Paren::Round), _, None),
-        ));
-        assert!(matches!(
-            parse_err("(')"),
-            ParseError::Unexpected(TokenType::CloseParen(Paren::Round), _, None),
-        ));
-        assert_parse_err("('", ParseError::UnexpectedEOF(None));
-        assert!(matches!(
-            parse_err(r#""abc"#),
-            ParseError::IncompleteString(_, _, None),
-        ));
-        assert!(matches!(
+        assert_matches![parse_err("("), ParseError::UnexpectedEOF(..)];
+        assert_matches![parse_err("(abc"), ParseError::UnexpectedEOF(..)];
+        assert_matches![parse_err("(ab 1 2"), ParseError::UnexpectedEOF(..)];
+        assert_matches![parse_err("((((ab 1 2) ("), ParseError::UnexpectedEOF(..)];
+        assert_matches![parse_err("())"), ParseError::UnexpectedChar(')', ..)];
+        assert_matches![parse_err("() (((("), ParseError::UnexpectedEOF(..)];
+        assert_matches![parse_err("')"), ParseError::UnexpectedChar(')', ..)];
+        assert_matches![parse_err("(')"), ParseError::UnexpectedChar(')', ..)];
+        assert_matches![parse_err("('"), ParseError::UnexpectedEOF(..)];
+        assert_matches![parse_err(r#""abc"#), ParseError::UnexpectedEOF(..)];
+        assert_matches![
             parse_err("(]"),
-            ParseError::Unexpected(TokenType::CloseParen(Paren::Square), _, None)
-        ));
+            ParseError::MismatchedParen(Paren::Round, _, None)
+        ];
     }
 
     #[test]
