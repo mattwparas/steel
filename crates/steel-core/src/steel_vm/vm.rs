@@ -1676,6 +1676,8 @@ impl<'a> VmCore<'a> {
         )
     }
 
+    // TODO: Expose a function for this! Or alternatively, set up an incremental
+    // way of doing things
     pub fn weak_collection(&mut self) {
         self.thread.heap.lock().unwrap().weak_collection();
     }

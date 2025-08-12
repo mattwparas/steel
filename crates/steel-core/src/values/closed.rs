@@ -20,10 +20,12 @@ use crate::{
             BreadthFirstSearchSteelValReferenceVisitor,
             BreadthFirstSearchSteelValReferenceVisitor2, BreadthFirstSearchSteelValVisitor2,
         },
-        OpaqueIterator, SteelComplex, SteelValPointer, SteelVector,
+        AsRefSteelVal, Custom, IntoSteelVal, OpaqueIterator, RestArgsIter, SteelComplex,
+        SteelValPointer, SteelVector,
     },
-    steel_vm::vm::{Continuation, ContinuationMark, Synchronizer},
+    steel_vm::vm::{Continuation, ContinuationMark, Synchronizer, VmCore},
     values::lists::List,
+    SteelErr,
 };
 use crossbeam_channel::{Receiver, Sender};
 use crossbeam_queue::SegQueue;
@@ -589,6 +591,60 @@ impl<T: HeapAble> MemoryBlocks<T> {
             .take(new_block)
             .collect(),
         );
+    }
+}
+
+// Not considered part of the reachability graph? i.e. we simply don't traverse it.
+pub struct WeakBox {
+    value: HeapRef<SteelVal>,
+}
+
+impl Custom for WeakBox {}
+
+/// Allocates a weak box.
+///
+/// A weak box is similar to a box, but when the garbage collector can prove
+/// that the value of a weak box is only reachable through weak references,
+/// the weak box value will always return #false.
+///
+/// In other words, a weak box does not keep the value contained alive through
+/// a gc collection.
+#[steel_derive::context(name = "make-weak-box", arity = "Exact(1)")]
+pub fn make_weak_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
+    let value = args[0].clone();
+    if let SteelVal::HeapAllocated(made_box) = ctx.make_box(value) {
+        Some(WeakBox { value: made_box }.into_steelval())
+    } else {
+        unreachable!()
+    }
+}
+
+/// Returns the value contained in the weak box.
+/// If the garbage collector has proven that the previous content
+/// value of weak-box was reachable only through a weak reference,
+/// then default-value (which defaults to #f) is returned.
+///
+/// ```scheme
+/// (define value (make-weak-box 10))
+/// (weak-box-value value) ;; => 10
+/// (set! value #f) ;; Wipe out the previous value
+/// (#%gc-collect)
+/// (weak-box-value value) ;; => #false
+/// ```
+#[steel_derive::function(name = "weak-box-value")]
+pub fn weak_box_value(
+    value: &SteelVal,
+    mut rest: RestArgsIter<&SteelVal>,
+) -> Result<SteelVal, SteelErr> {
+    let inner = WeakBox::as_ref(value)?;
+
+    if let Some(value) = inner.value.maybe_get() {
+        Ok(value)
+    } else {
+        Ok(rest
+            .next()
+            .map(|x| x.unwrap().clone())
+            .unwrap_or(SteelVal::BoolV(false)))
     }
 }
 
@@ -1897,6 +1953,10 @@ impl<T: HeapAble> HeapRef<T> {
         self.inner.upgrade().unwrap().read().value.clone()
     }
 
+    pub fn maybe_get(&self) -> Option<T> {
+        self.inner.upgrade().map(|x| x.read().value.clone())
+    }
+
     pub fn borrow<O>(&self, thunk: impl FnOnce(&T) -> O) -> O {
         let value = self.inner.upgrade().unwrap();
         let value = value.read();
@@ -1943,16 +2003,14 @@ impl<T: HeapAble> HeapRef<T> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeapAllocated<T: Clone + std::fmt::Debug + PartialEq + Eq> {
+    // TODO: We have room for more bits here. We can add a destructor
+    // flag and have minor collections run more frequently on allocation.
+    //
+    // These will send the unreachable values out of view to a background
+    // thread where the value will _then_ be called with a destructor.
     pub(crate) reachable: bool,
     pub(crate) value: T,
 }
-
-// Adding generation information should be doable here
-// struct Test {
-//     pub(crate) reachable: bool,
-//     pub(crate) generation: u32,
-//     pub(crate) value: SteelVal,
-// }
 
 #[test]
 fn check_size_of_heap_allocated_value() {
