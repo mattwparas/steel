@@ -1,4 +1,10 @@
-use std::{borrow::Borrow, cell::RefCell, collections::HashSet, sync::Arc, thread::JoinHandle};
+use std::{
+    borrow::Borrow,
+    cell::RefCell,
+    collections::HashSet,
+    sync::{atomic::AtomicBool, Arc},
+    thread::JoinHandle,
+};
 
 #[cfg(feature = "sync")]
 use std::sync::Mutex;
@@ -21,6 +27,7 @@ use crate::{
 };
 use crossbeam_channel::{Receiver, Sender};
 use crossbeam_queue::SegQueue;
+use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::BigInt;
 use num_rational::{BigRational, Rational32};
 
@@ -586,7 +593,11 @@ impl<T: HeapAble> MemoryBlocks<T> {
 }
 
 // Have free list for vectors and values separately. Can keep some of the vectors pre allocated
-// as well, as necessary
+// as well, as necessary.
+//
+// Also -> implement will / executor functionality for implementing destructors for objects.
+// This should be _relatively_ straightforward. When allocating a value, send it on the destructor
+// thread.
 #[derive(Debug)]
 struct FreeList<T: HeapAble> {
     // TODO: Make this a linked list of vectors. Can reuse im-lists?
@@ -781,6 +792,14 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         self.cursor = self.elements.len();
 
         self.elements.reserve(current);
+
+        log::debug!(target: "gc", "Time to extend the heap vec -> {:?}", now.elapsed());
+
+        let now = std::time::Instant::now();
+
+        // Can we pre allocate this somewhere else? Incrementally allocate the values?
+        // So basically we can have the elements be allocated vs not, and just have them
+        // be snatched on demand?
         self.elements.extend(
             std::iter::repeat_with(|| {
                 StandardShared::new(MutContainer::new(HeapAllocated::new(T::empty())))
