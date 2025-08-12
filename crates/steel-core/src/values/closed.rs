@@ -884,7 +884,6 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         }
     }
 
-    // TODO: Allocate and also mark the roots when we're full!
     fn allocate(&mut self, value: T) -> HeapRef<T> {
         // Drain, moving values around...
         // is that expensive?
@@ -970,6 +969,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         amount_dropped
     }
 
+    // Full weak collection
     fn weak_collection(&mut self) -> usize {
         // Just mark them to be dead
         let res = self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0);
@@ -2008,6 +2008,11 @@ pub struct HeapAllocated<T: Clone + std::fmt::Debug + PartialEq + Eq> {
     //
     // These will send the unreachable values out of view to a background
     // thread where the value will _then_ be called with a destructor.
+    //
+    // Also add a flag for whether this is pointed to be a weak box.
+    // This can let us eagerly free on a weak collection, since anything
+    // thrown inside the box could stop being help reasonably quickly and
+    // would allow us to avoid running a gc collection to free things.
     pub(crate) reachable: bool,
     pub(crate) value: T,
 }
