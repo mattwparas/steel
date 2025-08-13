@@ -1,10 +1,4 @@
-use std::{
-    borrow::Borrow,
-    cell::RefCell,
-    collections::HashSet,
-    sync::{atomic::AtomicBool, Arc},
-    thread::JoinHandle,
-};
+use std::{cell::RefCell, collections::HashSet, sync::Arc, thread::JoinHandle};
 
 #[cfg(feature = "sync")]
 use std::sync::Mutex;
@@ -23,13 +17,11 @@ use crate::{
         AsRefSteelVal, Custom, IntoSteelVal, OpaqueIterator, RestArgsIter, SteelComplex,
         SteelValPointer, SteelVector,
     },
-    steel_vm::vm::{Continuation, ContinuationMark, Synchronizer, VmCore},
+    steel_vm::vm::{apply, Continuation, ContinuationMark, Synchronizer, VmCore},
     values::lists::List,
     SteelErr,
 };
 use crossbeam_channel::{Receiver, Sender};
-use crossbeam_queue::SegQueue;
-use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::BigInt;
 use num_rational::{BigRational, Rational32};
 
@@ -53,6 +45,7 @@ use crate::{
 use super::{
     functions::BoxedDynFunction,
     lazy_stream::LazyStream,
+    lists::Pair,
     port::SteelPort,
     structs::UserDefinedStruct,
     transducers::{Reducer, Transducer},
@@ -594,6 +587,176 @@ impl<T: HeapAble> MemoryBlocks<T> {
     }
 }
 
+// Allocate a box, and put it in here
+// to be marked as reachable?
+pub struct WillExecutor {
+    // Determining if these are reachable should be either:
+    // * Value is a weak reference: then you use weak references
+    // * value is contained within _other_ will executors, so the will executors need to have references to
+    //   each other to check if ther value is contained within other ones.
+    values: Mutex<Vec<Option<Pair>>>,
+
+    // The incoming queue. We'll drain on this when the reified buffer of values
+    // is empty since we need to scan the values to find the right one.
+    incoming: Receiver<Pair>,
+
+    sender: Sender<Pair>,
+}
+
+// Check the strong counts. If the strong count is 1 for a value if its a GC pointer,
+// then we can can drop it and call the thunk. It should probably get placed into a weak
+// box?
+impl WillExecutor {
+    fn block_until_incoming(&self) {
+        if let Ok(next) = self.incoming.recv() {
+            self.values.lock().unwrap().push(Some(next));
+        }
+    }
+
+    // Returns the pair of values next to be used. Not the best data structure choice.
+    fn find_next(&self) -> Option<Pair> {
+        // Proactively check if the value is ready to be received.
+        // TODO: Merge the behavior below and above since we can just return this value
+        // immediately without putting on to the queue.
+        let top_guard = self.values.lock().unwrap();
+        if top_guard.is_empty() && self.incoming.is_empty() {
+            drop(top_guard);
+
+            // Block until the next thing is pushed on
+            if let Ok(next) = self.incoming.recv() {
+                self.values.lock().unwrap().push(Some(next));
+            }
+        } else {
+            drop(top_guard);
+        }
+
+        let mut guard = self.values.lock().unwrap();
+
+        // Drain the incoming, push them in to the values:
+
+        while let Ok(incoming) = self.incoming.try_recv() {
+            // TODO: Use a free list here instead? That way we can
+            // re-use the space provided from earlier? Run some compaction
+            // every one in a while?
+            guard.push(Some(incoming));
+        }
+
+        for pair_slot in guard.iter_mut() {
+            if let Some(value) = pair_slot {
+                let is_sole_reference = match value.car_ref() {
+                    SteelVal::Closure(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::VectorV(steel_vector) => Gc::strong_count(&steel_vector.0) == 1,
+                    SteelVal::StringV(steel_string) => Gc::strong_count(&steel_string.0) == 1,
+                    SteelVal::SymbolV(steel_string) => Gc::strong_count(&steel_string.0) == 1,
+                    SteelVal::Custom(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::HashMapV(steel_hash_map) => Gc::strong_count(&steel_hash_map.0) == 1,
+                    SteelVal::HashSetV(steel_hash_set) => Gc::strong_count(&steel_hash_set.0) == 1,
+                    SteelVal::CustomStruct(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::PortV(steel_port) => Gc::strong_count(&steel_port.port) == 1,
+                    SteelVal::IterV(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::ReducerV(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::FutureV(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::StreamV(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::BoxedFunction(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::ContinuationFunction(continuation) => {
+                        StandardShared::strong_count(&continuation.inner) == 1
+                    }
+                    SteelVal::ListV(generic_list) => generic_list.strong_count() == 1,
+                    SteelVal::Pair(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::MutableVector(heap_ref) => todo!(),
+                    SteelVal::BoxedIterator(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::SyntaxObject(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::Boxed(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::HeapAllocated(heap_ref) => todo!(),
+                    SteelVal::Reference(gc) => todo!(),
+                    SteelVal::BigNum(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::BigRational(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::Complex(gc) => Gc::strong_count(gc) == 1,
+                    SteelVal::ByteVector(steel_byte_vector) => {
+                        Gc::strong_count(&steel_byte_vector.vec) == 1
+                    }
+                    _ => false,
+                };
+
+                if is_sole_reference {
+                    let value = std::mem::take(pair_slot).unwrap();
+                    return Some(value);
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn register(&self, key: SteelVal, func: SteelVal) -> Result<(), SteelErr> {
+        if !func.is_function() {
+            stop!(TypeMismatch => "will-register expects a function, found: {}", func)
+        }
+
+        self.sender
+            .send(Pair {
+                car: key,
+                cdr: func,
+            })
+            .unwrap();
+
+        Ok(())
+    }
+}
+
+// Doesn't reach the children values?
+impl Custom for WillExecutor {}
+
+#[steel_derive::function(name = "make-will-executor")]
+pub fn make_will_executor() -> Result<SteelVal, SteelErr> {
+    let (sender, incoming) = crossbeam_channel::unbounded();
+    WillExecutor {
+        values: Mutex::new(Vec::new()),
+        sender,
+        incoming,
+    }
+    .into_steelval()
+}
+
+#[steel_derive::context(name = "will-execute", arity = "Exact(1)")]
+pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
+    let executor = WillExecutor::as_ref(&args[0]).unwrap();
+
+    // TODO: Make this find the next thing? Perhaps just have this be a channel
+    // or something that waits until the next thing is found?
+    // How to do this _with_ blocking? Maybe have a queue for values that are being registered,
+    // and then otherwise drain the vector and put them in when found.
+    if let SteelVal::Pair(pair) = ctx
+        .thread
+        .enter_safepoint(|_| loop {
+            if let Some(value) = executor.find_next() {
+                return Ok(SteelVal::Pair(Gc::new(value)));
+            } else {
+                // Control frequency here, but for when there is no throughput,
+                // we want to at least poll a bit
+                executor.block_until_incoming();
+            }
+        })
+        .unwrap()
+    {
+        let Pair { car, cdr } = pair.try_unwrap().unwrap();
+        apply(ctx, &[cdr, SteelVal::ListV(vec![car].into())])
+    } else {
+        unreachable!()
+    }
+}
+
+#[steel_derive::function(name = "will-register")]
+pub fn will_register(
+    will: SteelVal,
+    value: SteelVal,
+    func: SteelVal,
+) -> Result<SteelVal, SteelErr> {
+    let will = WillExecutor::as_ref(&will)?;
+    will.register(value, func)?;
+    Ok(SteelVal::Void)
+}
+
 // Not considered part of the reachability graph? i.e. we simply don't traverse it.
 pub struct WeakBox {
     value: HeapRef<SteelVal>,
@@ -638,7 +801,8 @@ pub fn weak_box_value(
 ) -> Result<SteelVal, SteelErr> {
     let inner = WeakBox::as_ref(value)?;
 
-    if let Some(value) = inner.value.maybe_get() {
+    // Check if its reachable?
+    if let Some(value) = inner.value.maybe_get_from_weak() {
         Ok(value)
     } else {
         Ok(rest
@@ -685,6 +849,7 @@ impl<T: HeapAble> Clone for FreeList<T> {
                     let inner = guard.value.clone();
                     StandardShared::new(MutContainer::new(HeapAllocated {
                         reachable: guard.reachable,
+                        finalizer: guard.finalizer,
                         value: inner,
                     }))
                 })
@@ -884,6 +1049,11 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         }
     }
 
+    // if it points to another thing, consider marking it as unreachable?
+    fn seek_to_next_free(&mut self) {
+        todo!()
+    }
+
     fn allocate(&mut self, value: T) -> HeapRef<T> {
         // Drain, moving values around...
         // is that expensive?
@@ -892,9 +1062,10 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // Allocate into this field
         let mut heap_guard = guard.write();
 
+        // TODO: If the guard is registered with a will executor,
+        // then we shouldn't mark this value as eligible to be
+        // freed?
         heap_guard.value = value;
-
-        // assert!(!heap_guard.reachable);
 
         heap_guard.reachable = true;
         let weak_ptr = StandardShared::downgrade(&guard);
@@ -1088,6 +1259,9 @@ fn spawn_background_dropper<T: HeapAble + Sync + Send + 'static>(
             std::mem::swap(&mut current, &mut block);
             // Get the value, move on.
             backward_sender.send(block).unwrap();
+
+            // TODO: when compacting, keep values that have been registered with a will
+            // executor.
             current.retain(|x| x.read().is_reachable());
             current.shrink_to_fit();
         }
@@ -1376,6 +1550,26 @@ impl Heap {
         0
     }
 
+    pub fn collection<'a>(
+        &mut self,
+        roots: &'a [SteelVal],
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
+        force_full: bool,
+    ) {
+        self.value_collection(
+            &SteelVal::Void,
+            roots,
+            live_functions,
+            globals,
+            tls,
+            synchronizer,
+            force_full,
+        );
+    }
+
     // Clean up the values?
     pub fn allocate<'a>(
         &mut self,
@@ -1386,7 +1580,29 @@ impl Heap {
         tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<SteelVal> {
-        if self.memory_free_list.percent_full() > 0.95 {
+        self.value_collection(
+            &value,
+            roots,
+            live_functions,
+            globals,
+            tls,
+            synchronizer,
+            false,
+        );
+        self.memory_free_list.allocate(value)
+    }
+
+    fn value_collection<'a>(
+        &mut self,
+        value: &SteelVal,
+        roots: &'a [SteelVal],
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &mut Synchronizer,
+        force: bool,
+    ) {
+        if self.memory_free_list.percent_full() > 0.95 || force {
             let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "SteelVal gc invocation");
@@ -1395,9 +1611,10 @@ impl Heap {
             log::debug!(target: "gc", "Memory size post weak collection: {}", self.memory_free_list.percent_full());
             log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
-            if self.memory_free_list.percent_full() > 0.95 {
+            if self.memory_free_list.percent_full() > 0.95 || force {
                 // New generation
                 self.memory_free_list.mark_all_unreachable();
+                self.vector_free_list.mark_all_unreachable();
 
                 // Just reset the counter
                 let stats = self.mark_and_sweep_new(
@@ -1431,8 +1648,6 @@ impl Heap {
                 log::debug!(target: "gc", "---- TOTAL GC TIME: {:?} ----", now.elapsed());
             }
         }
-
-        self.memory_free_list.allocate(value)
     }
 
     pub fn allocate_vector<'a>(
@@ -1446,6 +1661,30 @@ impl Heap {
     ) -> HeapRef<Vec<SteelVal>> {
         // todo!();
 
+        self.vector_collection(
+            &values,
+            roots,
+            live_functions,
+            globals,
+            tls,
+            synchronizer,
+            false,
+        );
+
+        // TOOD: Optimize this a lot!
+        self.vector_free_list.allocate(values)
+    }
+
+    fn vector_collection<'a>(
+        &mut self,
+        values: &[SteelVal],
+        roots: &'a [SteelVal],
+        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
+        globals: &'a [SteelVal],
+        tls: &'a [SteelVal],
+        synchronizer: &'a mut Synchronizer,
+        force: bool,
+    ) {
         if self.vector_free_list.percent_full() > 0.95 {
             let now = std::time::Instant::now();
             // Attempt a weak collection
@@ -1458,7 +1697,7 @@ impl Heap {
 
                 let stats = self.mark_and_sweep_new(
                     None,
-                    values.clone().into_iter(),
+                    values.into_iter().cloned(),
                     roots,
                     live_functions,
                     globals,
@@ -1484,9 +1723,6 @@ impl Heap {
                 self.vector_free_list.grow();
             }
         }
-
-        // TOOD: Optimize this a lot!
-        self.vector_free_list.allocate(values)
     }
 
     pub fn allocate_vector_iter<'a>(
@@ -1953,8 +2189,31 @@ impl<T: HeapAble> HeapRef<T> {
         self.inner.upgrade().unwrap().read().value.clone()
     }
 
-    pub fn maybe_get(&self) -> Option<T> {
-        self.inner.upgrade().map(|x| x.read().value.clone())
+    /// Get the value if the pointer is still valid.
+    /// If this is the only thing pointing at it, then we need to drop it.
+    pub(crate) fn maybe_get_from_weak(&self) -> Option<T> {
+        let inner = self.inner.upgrade()?;
+        dbg!(StandardShared::weak_count(&inner));
+
+        // Check if this thing is reachable? How?
+        if StandardShared::weak_count(&inner) == 1 {
+            // We can go ahead and nuke this since we're
+            // the only things pointing to it
+            let mut value = inner.write();
+
+            if value.is_reachable() {
+                return Some(value.value.clone());
+            } else {
+                value.reachable = false;
+                value.value = T::empty();
+                return None;
+            }
+        } else {
+            // Get the inner value on this, assuming we are calling
+            // this just from the heap ref. Anywhere else, we'll want
+            // to eliminate this?
+            Some(inner.read().value.clone())
+        }
     }
 
     pub fn borrow<O>(&self, thunk: impl FnOnce(&T) -> O) -> O {
@@ -2014,6 +2273,9 @@ pub struct HeapAllocated<T: Clone + std::fmt::Debug + PartialEq + Eq> {
     // thrown inside the box could stop being help reasonably quickly and
     // would allow us to avoid running a gc collection to free things.
     pub(crate) reachable: bool,
+
+    pub(crate) finalizer: bool,
+
     pub(crate) value: T,
 }
 
@@ -2027,6 +2289,7 @@ impl<T: Clone + std::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {
     pub fn new(value: T) -> Self {
         Self {
             reachable: false,
+            finalizer: false,
             value,
         }
     }

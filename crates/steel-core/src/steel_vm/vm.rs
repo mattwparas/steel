@@ -677,7 +677,9 @@ impl SteelThread {
         &mut self,
         thunk: F,
     ) -> T {
+        log::info!("Stopping threads...");
         self.synchronizer.stop_threads();
+        log::info!("Stopped threads.");
 
         let mut env = self.global_env.drain_env();
 
@@ -697,9 +699,12 @@ impl SteelThread {
 
         self.global_env.update_env(env);
 
+        log::info!("Resuming threads...");
+
         // Resume.
         // Apply these to all of the things.
         self.synchronizer.resume_threads();
+        log::info!("Threads resumed.");
 
         out
     }
@@ -1663,17 +1668,15 @@ impl<'a> VmCore<'a> {
         SteelVal::MutableVector(allocated_var)
     }
 
-    pub(crate) fn gc_collect(&mut self) -> usize {
-        self.thread.heap.lock().unwrap().collect(
-            None,
-            std::iter::empty(),
+    pub(crate) fn gc_collect(&mut self) {
+        self.thread.heap.lock().unwrap().collection(
             &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
             self.thread.global_env.roots(),
             &self.thread.thread_local_storage,
             &mut self.thread.synchronizer,
             true,
-        )
+        );
     }
 
     // TODO: Expose a function for this! Or alternatively, set up an incremental

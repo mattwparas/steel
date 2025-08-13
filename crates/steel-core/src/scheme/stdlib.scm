@@ -57,7 +57,9 @@
          *shift
          force
          values
-         call-with-values)
+         call-with-values
+         #%register-struct-finalizer
+         #%start-will-executor)
 
 ; (define-syntax steel/base
 ;   (syntax-rules ()
@@ -75,6 +77,28 @@
   (hash))
 (define (#%syntax-binding-kind)
   (hash))
+
+(define #%global-will-executor (#%prim.make-will-executor))
+
+(define #%will-executor-running (box #f))
+
+(define (#%start-will-executor)
+  (unless (unbox #%will-executor-running)
+    (#%run-will-executor)))
+
+(define (#%run-will-executor)
+  (define (loop)
+    ; (stdout-simple-displayln "Running loop")
+    (will-execute #%global-will-executor)
+    (loop))
+  (define will (spawn-native-thread loop))
+  (set-box! #%will-executor-running #true))
+
+(define (#%register-struct-finalizer value finalizer)
+  ; (stdout-simple-displayln "Registering finalizer")
+  (#%prim.will-register #%global-will-executor value finalizer)
+  ; (stdout-simple-displayln "Done registering")
+  value)
 
 ;; Note: The syntax-bindings and binding-kind will get updated in the kernel
 (define-syntax syntax

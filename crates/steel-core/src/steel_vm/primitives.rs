@@ -59,7 +59,10 @@ use crate::{
         vm::threads::threading_module,
     },
     values::{
-        closed::HeapRef,
+        closed::{
+            HeapRef, MAKE_WEAK_BOX_DEFINITION, MAKE_WILL_EXECUTOR_DEFINITION,
+            WEAK_BOX_VALUE_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
+        },
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
         lists::{List, SteelList},
         structs::{
@@ -1925,9 +1928,9 @@ fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
         ));
     }
 
-    let count = ctx.gc_collect();
+    ctx.gc_collect();
 
-    Some(Ok(SteelVal::IntV(count as _)))
+    Some(Ok(SteelVal::Void))
 }
 
 fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
@@ -2079,6 +2082,11 @@ fn meta_module() -> BuiltInModule {
         .register_fn("box-strong", SteelVal::boxed)
         .register_native_fn_definition(UNBOX_DEFINITION)
         .register_native_fn_definition(SET_BOX_DEFINITION)
+        .register_native_fn_definition(MAKE_WEAK_BOX_DEFINITION)
+        .register_native_fn_definition(WEAK_BOX_VALUE_DEFINITION)
+        .register_native_fn_definition(WILL_EXECUTE_DEFINITION)
+        .register_native_fn_definition(WILL_REGISTER_DEFINITION)
+        .register_native_fn_definition(MAKE_WILL_EXECUTOR_DEFINITION)
         .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
         .register_value("#%gc-collect", SteelVal::BuiltIn(gc_collection))
         .register_value("box", SteelVal::BuiltIn(make_mutable_box))
