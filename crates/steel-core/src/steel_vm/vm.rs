@@ -56,6 +56,7 @@ use crate::{
 use std::io::Read as _;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::{cell::RefCell, collections::HashMap, iter::Iterator};
 
@@ -2849,6 +2850,23 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => self.handle_set_local(payload_size.to_usize()),
+
+                DenseInstruction {
+                    op_code: OpCode::TRUE,
+                    ..
+                } => {
+                    self.thread.stack.push(SteelVal::BoolV(true));
+                    self.ip += 1;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::FALSE,
+                    ..
+                } => {
+                    self.thread.stack.push(SteelVal::BoolV(false));
+                    self.ip += 1;
+                }
+
                 DenseInstruction {
                     op_code: OpCode::LOADINT0,
                     ..
@@ -3441,6 +3459,19 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn handle_pop_pure(&mut self) -> Option<Result<SteelVal>> {
+        // Just collect things to drop, dump them at once at a safe point?
+        // static DROP_THREAD: LazyLock<crossbeam_channel::Sender<SteelVal>> = LazyLock::new(|| {
+        //     let (sender, receiver) = crossbeam_channel::unbounded();
+
+        //     std::thread::spawn(move || {
+        //         for value in receiver {
+        //             drop(value)
+        //         }
+        //     });
+
+        //     sender
+        // });
+
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
         // println!("{} - {}", self.pop_count, self.thread.stack_frames.len());
@@ -3463,6 +3494,16 @@ impl<'a> VmCore<'a> {
                 .thread
                 .stack
                 .drain(rollback_index..self.thread.stack.len() - 1);
+
+            // TODO: Delay running the destructors until a safepoint?
+            // for value in values {
+            //     match value {
+            //         SteelVal::ListV(_) => {
+            //             DROP_THREAD.send(value).unwrap();
+            //         }
+            //         _ => {}
+            //     }
+            // }
 
             self.ip = last.ip;
             self.instructions = last.instructions;

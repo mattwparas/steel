@@ -127,7 +127,9 @@ declare_opcodes! {
         READLOCAL0CALLGLOBAL;
         READLOCAL1CALLGLOBAL;
         LISTREF;
-        VECTORREF
+        VECTORREF;
+        TRUE;
+        FALSE
     }
 
     // Super instructions

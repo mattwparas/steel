@@ -149,6 +149,8 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
                     SteelVal::IntV(0) => OpCode::LOADINT0,
                     SteelVal::IntV(1) => OpCode::LOADINT1,
                     SteelVal::IntV(2) => OpCode::LOADINT2,
+                    SteelVal::BoolV(true) => OpCode::TRUE,
+                    SteelVal::BoolV(false) => OpCode::FALSE,
                     _ => continue,
                 };
                 instructions.get_mut(i).unwrap().op_code = opcode;

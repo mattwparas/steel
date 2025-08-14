@@ -172,6 +172,7 @@ mod list_drop_handler {
     impl DropHandler<im_lists::list::GenericList<SteelVal, PointerType, 4, 2, Self>>
         for ListDropHandler
     {
+        #[inline(always)]
         fn drop_handler(obj: &mut im_lists::list::GenericList<SteelVal, PointerType, 4, 2, Self>) {
             if obj.strong_count() == 1 {
                 if obj.is_empty() {
