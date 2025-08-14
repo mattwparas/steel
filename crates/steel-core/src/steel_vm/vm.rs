@@ -62,6 +62,8 @@ use std::{cell::RefCell, collections::HashMap, iter::Iterator};
 
 use super::engine::EngineId;
 
+use crossbeam_channel::Receiver;
+use crossbeam_channel::Sender;
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
@@ -310,6 +312,70 @@ pub enum ThreadState {
     PausedAtSafepoint,
 }
 
+// Multiple buffers
+// / When each one fills, send it to the back
+// static BACKGROUND_DROPPER: LazyLock<DropBufferPool> = LazyLock::new(|| {
+//     let (forward_sender, forward_receiver) = crossbeam_channel::bounded::<Vec<_>>(6);
+//     let (backward_sender, backward_receiver) = crossbeam_channel::bounded(6);
+
+//     std::thread::spawn(move || {
+//         // Have many ready in the queue
+//         backward_sender.send(Vec::with_capacity(1024)).unwrap();
+//         backward_sender.send(Vec::with_capacity(1024)).unwrap();
+//         backward_sender.send(Vec::with_capacity(1024)).unwrap();
+//         backward_sender.send(Vec::with_capacity(1024)).unwrap();
+//         backward_sender.send(Vec::with_capacity(1024)).unwrap();
+
+//         for mut vec in forward_receiver {
+//             vec.clear();
+
+//             backward_sender.send(vec).unwrap()
+//         }
+//     });
+
+//     DropBufferPool {
+//         forward_sender,
+//         backward_receiver,
+//     }
+// });
+
+// struct DropBufferPool {
+//     forward_sender: Sender<Vec<SteelVal>>,
+//     backward_receiver: Receiver<Vec<SteelVal>>,
+// }
+
+// #[derive(Clone)]
+// pub(crate) struct DelayedDropper {
+//     buffer: Vec<SteelVal>,
+// }
+
+// impl DelayedDropper {
+//     // Attempt to just write to a local buffer
+//     // to avoid drops.
+//     fn new() -> Self {
+//         Self {
+//             buffer: Vec::with_capacity(1024),
+//         }
+//     }
+
+//     // Extend with a drain?
+//     pub fn push(&mut self, value: SteelVal) {
+//         // If we're going to reallocate,
+//         // request a new buffer from the back.
+//         if self.buffer.len() == 1024 {
+//             // Atomic swap with a background thread?
+
+//             BACKGROUND_DROPPER
+//                 .forward_sender
+//                 .send(std::mem::take(&mut self.buffer))
+//                 .unwrap();
+//             self.buffer = BACKGROUND_DROPPER.backward_receiver.recv().unwrap();
+//         } else {
+//             self.buffer.push(value);
+//         }
+//     }
+// }
+
 /// The thread execution context
 #[derive(Clone)]
 pub struct SteelThread {
@@ -340,6 +406,7 @@ pub struct SteelThread {
     pub(crate) id: EngineId,
 
     pub(crate) safepoints_enabled: bool,
+    // pub(crate) delayed_dropper: DelayedDropper,
 }
 
 #[derive(Clone)]
@@ -665,6 +732,7 @@ impl SteelThread {
             // Only incur the cost of the actual safepoint behavior
             // if multiple threads are enabled
             safepoints_enabled: false,
+            // delayed_dropper: DelayedDropper::new(),
         }
     }
 
@@ -3007,13 +3075,13 @@ impl<'a> VmCore<'a> {
                 } => {
                     self.ip += 1;
                     let next_inst = self.instructions[self.ip];
-                    // If its
                     let res = self.handle_call_global_no_stack(
                         payload_size.to_usize(),
                         next_inst.payload_size.to_usize(),
                     )?;
 
-                    // If there is something, then we can move on to the if
+                    // If there is something, then we can move on to the if. Otherwise
+                    // we've yielded control back to the calling function.
                     if let Some(value) = res {
                         if value.is_truthy() {
                             self.ip += 1;
@@ -3534,6 +3602,10 @@ impl<'a> VmCore<'a> {
                 .thread
                 .stack
                 .drain(rollback_index..self.thread.stack.len() - 1);
+
+            // for value in other {
+            //     self.thread.delayed_dropper.push(value);
+            // }
 
             // TODO: Delay running the destructors until a safepoint?
             // for value in values {
@@ -4550,6 +4622,13 @@ impl<'a> VmCore<'a> {
         payload_size: usize,
     ) -> Result<()> {
         use SteelVal::*;
+
+        // if let SteelVal::Closure(_) = &stack_func {
+        //     println!(
+        //         "Calling: {:?}",
+        //         crate::steel_vm::primitives::lookup_function_name(stack_func.clone())
+        //     );
+        // }
 
         match stack_func {
             Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size),

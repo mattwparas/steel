@@ -1550,7 +1550,7 @@ fn error_object_message(val: &SteelVal) -> Result<SteelVal> {
     Ok(error.message().to_string().into())
 }
 
-fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
+pub fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
     match value {
         SteelVal::BoxedFunction(f) => f.name().map(|x| x.into_steelval().unwrap()),
         SteelVal::FuncV(f) => get_function_name(f).map(|x| x.name.into_steelval().unwrap()),
