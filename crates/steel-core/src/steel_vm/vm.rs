@@ -818,7 +818,8 @@ impl SteelThread {
 
         self.constant_map = DEFAULT_CONSTANT_MAP.with(|x| x.clone());
 
-        // super::profiling::profiling_report();
+        #[cfg(feature = "op-code-profiling")]
+        super::profiling::profiling_report();
 
         result
     }
@@ -2737,6 +2738,21 @@ impl<'a> VmCore<'a> {
                 }
 
                 DenseInstruction {
+                    op_code: OpCode::NULLIF,
+                    ..
+                } => {
+                    // Simply fast path case for checking null or empty
+                    let last = self.thread.stack.pop().unwrap();
+                    let result = is_empty(&last);
+                    self.ip += 2;
+                    if result {
+                        self.ip += 1;
+                    } else {
+                        self.ip = self.instructions[self.ip].payload_size.to_usize();
+                    }
+                }
+
+                DenseInstruction {
                     op_code: OpCode::LTE,
                     payload_size,
                     ..
@@ -2983,6 +2999,30 @@ impl<'a> VmCore<'a> {
                         next_inst.payload_size.to_usize(),
                     )?;
                 }
+
+                DenseInstruction {
+                    op_code: OpCode::CALLGLOBALIF,
+                    payload_size,
+                    ..
+                } => {
+                    self.ip += 1;
+                    let next_inst = self.instructions[self.ip];
+                    // If its
+                    let res = self.handle_call_global_no_stack(
+                        payload_size.to_usize(),
+                        next_inst.payload_size.to_usize(),
+                    )?;
+
+                    // If there is something, then we can move on to the if
+                    if let Some(value) = res {
+                        if value.is_truthy() {
+                            self.ip += 1;
+                        } else {
+                            self.ip = self.instructions[self.ip].payload_size.to_usize();
+                        }
+                    }
+                }
+
                 DenseInstruction {
                     op_code: OpCode::CALLGLOBALTAIL,
                     payload_size,
@@ -3578,6 +3618,18 @@ impl<'a> VmCore<'a> {
         // Boxed functions probably _should_ be rooted in the modules?
         let func = self.thread.global_env.repl_lookup_idx(index);
         self.handle_global_function_call(func, payload_size)
+    }
+
+    #[inline(always)]
+    fn handle_call_global_no_stack(
+        &mut self,
+        index: usize,
+        payload_size: usize,
+    ) -> Result<Option<SteelVal>> {
+        // TODO: Lazily fetch the function. Avoid cloning where relevant.
+        // Boxed functions probably _should_ be rooted in the modules?
+        let func = self.thread.global_env.repl_lookup_idx(index);
+        self.handle_global_function_call_no_stack(func, payload_size)
     }
 
     #[inline(always)]
@@ -4307,12 +4359,6 @@ impl<'a> VmCore<'a> {
     ) -> Result<()> {
         let last_index = self.thread.stack.len() - payload_size;
 
-        // Register safepoint
-        // let result = self
-        //     .thread
-        //     .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
-        //     .map_err(|e| e.set_span_if_none(self.current_span()))?;
-
         let result = match self
             .thread
             .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
@@ -4514,6 +4560,134 @@ impl<'a> VmCore<'a> {
             ContinuationFunction(cc) => self.call_continuation(cc),
             BuiltIn(f) => self.call_builtin_func(f, payload_size),
             CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+            _ => {
+                cold();
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn handle_global_function_call_no_stack(
+        &mut self,
+        stack_func: SteelVal,
+        payload_size: usize,
+    ) -> Result<Option<SteelVal>> {
+        use SteelVal::*;
+
+        match stack_func {
+            Closure(closure) => {
+                self.handle_function_call_closure_jit(closure, payload_size)?;
+                Ok(None)
+            }
+            FuncV(f) => {
+                let this = &mut *self;
+                let last_index = this.thread.stack.len() - payload_size;
+
+                let result = match this
+                    .thread
+                    .enter_safepoint(move |ctx: &SteelThread| f(&ctx.stack[last_index..]))
+                {
+                    Ok(v) => v,
+                    Err(e) => return Err(e.set_span_if_none(this.current_span())),
+                };
+
+                // This is the old way... lets see if the below way improves the speed
+                this.thread.stack.truncate(last_index);
+                this.ip += 1;
+                Ok(Some(result))
+            }
+            BoxedFunction(f) => {
+                let this = &mut *self;
+                let func: &dyn Fn(&[SteelVal]) -> Result<SteelVal> = f.func();
+                let last_index = this.thread.stack.len() - payload_size;
+
+                let result = this
+                    .thread
+                    .enter_safepoint(|ctx| func(&ctx.stack[last_index..]))
+                    .map_err(|x| x.set_span_if_none(this.current_span()))?;
+
+                // TODO: Drain, and push onto another thread to drop?
+                this.thread.stack.truncate(last_index);
+                this.ip += 1;
+                Ok(Some(result))
+            }
+            MutFunc(f) => {
+                let this = &mut *self;
+                let last_index = this.thread.stack.len() - payload_size;
+
+                // These kinds of functions aren't valid for a safepoint.
+                let result = f(&mut this.thread.stack[last_index..])
+                    .map_err(|x| x.set_span_if_none(this.current_span()))?;
+
+                this.thread.stack.truncate(last_index);
+                this.ip += 1;
+                Ok(Some(result))
+            }
+            FutureFunc(f) => {
+                let this = &mut *self;
+                let last_index = this.thread.stack.len() - payload_size;
+
+                let result = SteelVal::FutureV(Gc::new(f(&this.thread.stack[last_index..])?));
+
+                this.thread.stack.truncate(last_index);
+                this.ip += 1;
+                Ok(Some(result))
+            }
+            ContinuationFunction(cc) => {
+                self.call_continuation(cc)?;
+                Ok(None)
+            }
+            BuiltIn(f) => {
+                let this = &mut *self;
+                // println!("Calling builtin function");
+
+                // Note: We Advance the pointer here. In the event we're calling a builtin that fusses with
+                // the instruction pointer, we allow the function to override this. For example, call/cc will
+                // advance the pointer - or perhaps, even fuss with the control flow.
+                this.ip += 1;
+
+                // TODO: Don't do this - just read directly from the stack
+                let args = this
+                    .thread
+                    .stack
+                    .drain(this.thread.stack.len() - payload_size..)
+                    .collect::<SmallVec<[_; 4]>>();
+
+                let result = f(this, &args).map(|x| {
+                    x.map_err(|x| {
+                        if x.has_span() {
+                            x
+                        } else {
+                            x.set_span_if_none(this.current_span())
+                        }
+                    })
+                });
+
+                if let Some(result) = result {
+                    // this.thread.stack.push(result?);
+
+                    Ok(Some(result?))
+                } else {
+                    Ok(None)
+                }
+
+                // self.stack.push(result);
+                // Ok(())
+            }
+            CustomStruct(s) => {
+                let this = &mut *self;
+                let s: &UserDefinedStruct = &s;
+                if let Some(procedure) = s.maybe_proc() {
+                    if let SteelVal::HeapAllocated(h) = procedure {
+                        this.handle_global_function_call_no_stack(h.get(), payload_size)
+                    } else {
+                        this.handle_global_function_call_no_stack(procedure.clone(), payload_size)
+                    }
+                } else {
+                    stop!(Generic => "Attempted to call struct as a function - no procedure found!");
+                }
+            }
             _ => {
                 cold();
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());

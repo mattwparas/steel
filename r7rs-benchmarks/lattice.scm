@@ -10,7 +10,9 @@
 (define xreverse! reverse)
 
 (define (map-inner func accum lst)
-  (if (empty? lst) (reverse accum) (map-inner func (cons (func (car lst)) accum) (cdr lst))))
+  (if (empty? lst)
+      (reverse accum)
+      (map-inner func (cons (func (car lst)) accum) (cdr lst))))
 
 (define (map func lst)
   (map-inner func '() lst))
@@ -60,7 +62,11 @@
       (lambda (ac lst)
         (if (null? lst)
             (xreverse! ac)
-            (select-a (let ([head (car lst)]) (if (test head) (cons head ac) ac)) (cdr lst)))))
+            (select-a (let ([head (car lst)])
+                        (if (test head)
+                            (cons head ac)
+                            ac))
+                      (cdr lst)))))
     (select-a '() lst)))
 
 ; (define xreverse!
@@ -79,7 +85,11 @@
       (lambda (ac lst)
         (if (null? lst)
             (xreverse! ac)
-            (select-a (let ([head (car lst)]) (if (test head) (cons (func head) ac) ac)) (cdr lst)))))
+            (select-a (let ([head (car lst)])
+                        (if (test head)
+                            (cons (func head) ac)
+                            ac))
+                      (cdr lst)))))
     (select-a '() lst)))
 
 ;; This version of map-and tail-recurses on the last test.
@@ -91,7 +101,9 @@
                   (lambda (lst)
                     ; (let ([rest (cdr lst)])
                     ;   (if (null? rest) (proc (car lst)) (and (proc (car lst)) (drudge rest)))))])
-                    (if (cdr-null? lst) (proc (car lst)) (and (proc (car lst)) (drudge (cdr lst)))))])
+                    (if (cdr-null? lst)
+                        (proc (car lst))
+                        (and (proc (car lst)) (drudge (cdr lst)))))])
           (drudge lst)))))
 
 (define (maps-1 source target pas new)
@@ -132,7 +144,9 @@
   (maps-rest source target '() (car source) (lambda (x) 1) sum))
 
 (define (sum lst)
-  (if (null? lst) 0 (+ (car lst) (sum (cdr lst)))))
+  (if (null? lst)
+      0
+      (+ (car lst) (sum (cdr lst)))))
 
 (define (run k)
   (let* ([l2 (make-lattice '(low high)
@@ -176,3 +190,5 @@
                         (lambda (result) (= result output)))))
 
 (with-input-from-file "r7rs-benchmarks/inputs/lattice.input" run-benchmark)
+
+; (inspect maps-rest)

@@ -48,6 +48,36 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
     }
 }
 
+// Call global if -> merge with if, when possible
+pub fn merge_call_global_if(instructions: &mut [Instruction]) {
+    if instructions.len() < 3 {
+        return;
+    }
+
+    for i in 0..instructions.len() - 2 {
+        let maybe_call_global = instructions.get(i);
+        let maybe_if = instructions.get(i + 2);
+
+        match (
+            maybe_call_global.map(|x| x.op_code),
+            maybe_if.map(|x| x.op_code),
+        ) {
+            (Some(OpCode::CALLGLOBAL), Some(OpCode::IF)) => {
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::CALLGLOBALIF;
+                }
+            }
+
+            (Some(OpCode::NULL), Some(OpCode::IF)) => {
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::NULLIF;
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 pub fn specialize_read_local(instructions: &mut [Instruction]) {
     for i in 0..instructions.len() {
         let read_local = instructions.get(i);
@@ -1204,6 +1234,8 @@ impl RawProgramWithSymbols {
             // gimmick_super_instruction(instructions);
             // move_read_local_call_global(instructions);
             specialize_read_local(instructions);
+
+            merge_call_global_if(instructions);
 
             // specialize_call_global_local(instructions);
         }

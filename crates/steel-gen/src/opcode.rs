@@ -129,7 +129,9 @@ declare_opcodes! {
         LISTREF;
         VECTORREF;
         TRUE;
-        FALSE
+        FALSE;
+        CALLGLOBALIF;
+        NULLIF
     }
 
     // Super instructions

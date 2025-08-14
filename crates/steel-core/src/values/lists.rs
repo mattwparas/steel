@@ -174,11 +174,11 @@ mod list_drop_handler {
     {
         #[inline(always)]
         fn drop_handler(obj: &mut im_lists::list::GenericList<SteelVal, PointerType, 4, 2, Self>) {
-            if obj.strong_count() == 1 {
-                if obj.is_empty() {
-                    return;
-                }
+            if obj.is_empty() {
+                return;
+            }
 
+            if obj.strong_count() == 1 {
                 if DROP_BUFFER
                     .try_with(|drop_buffer| {
                         if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
