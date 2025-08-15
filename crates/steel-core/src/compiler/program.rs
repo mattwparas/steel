@@ -260,6 +260,68 @@ pub fn specialize_call_global_local(instructions: &mut [Instruction]) {
     }
 }
 
+pub fn unbox_function_call(instructions: &mut [Instruction]) {
+    if instructions.is_empty() {
+        return;
+    }
+
+    // Should look like:
+    for i in 0..instructions.len() {
+        let push = instructions.get(i);
+        let func = instructions.get(i + 1);
+        let unbox_call = instructions.get(i + 2);
+
+        match (push, func, unbox_call) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::PUSH,
+                    contents: Some(Expr::Atom(ident)),
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::FUNC,
+                    payload_size: unbox_arity,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::FUNC | OpCode::TAILCALL,
+                    payload_size: unbox_call_arity,
+                    ..
+                }),
+            ) => {
+                let arity = unbox_arity.to_usize();
+                let unbox_call_arity = *unbox_call_arity;
+
+                let call_kind = unbox_call.unwrap().op_code;
+
+                if let TokenType::Identifier(ident) = ident.ty {
+                    match ident {
+                        _ if ident == *UNBOX || ident == *PRIM_UNBOX && arity == 1 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::UNBOXCALL;
+
+                                if call_kind == OpCode::FUNC {
+                                    x.op_code = OpCode::UNBOXCALL;
+                                } else {
+                                    x.op_code = OpCode::UNBOXTAIL;
+                                }
+
+                                x.payload_size = unbox_call_arity;
+                                continue;
+                            }
+                        }
+
+                        _ => {
+                            // println!("Converting call global: {}", ident);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 pub fn convert_call_globals(instructions: &mut [Instruction]) {
     if instructions.is_empty() {
         return;
@@ -1109,6 +1171,7 @@ impl RawProgramWithSymbols {
         // Run down the optimizations here
         for instructions in &mut self.instructions {
             inline_num_operations(instructions);
+            unbox_function_call(instructions);
             convert_call_globals(instructions);
             specialize_read_local(instructions);
             merge_conditions_with_if(instructions);

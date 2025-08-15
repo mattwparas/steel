@@ -20,6 +20,7 @@ use crate::primitives::vectors::vec_ref;
 use crate::rvals::as_underlying_type;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
 use crate::rvals::number_equality;
+use crate::rvals::AsRefMutSteelVal;
 use crate::rvals::BoxedAsyncFunctionSignature;
 use crate::rvals::FromSteelVal as _;
 use crate::rvals::SteelString;
@@ -2531,7 +2532,45 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::UNBOX,
                     ..
                 } => {
-                    unbox_handler(self)?;
+                    // unbox_handler(self)?;
+
+                    let last = self.thread.stack.last_mut().unwrap();
+                    if let SteelVal::HeapAllocated(var) = last {
+                        *last = var.get();
+                    } else {
+                        stop!(TypeMismatch => format!("Unable to unbox non box: {}", last); self.current_span())
+                    }
+                    self.ip += 2;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::UNBOXCALL,
+                    payload_size,
+                    ..
+                } => {
+                    let mut last = self.thread.stack.pop().unwrap();
+                    if let SteelVal::HeapAllocated(var) = last {
+                        last = var.get();
+                    } else {
+                        stop!(TypeMismatch => format!("Unable to unbox non box: {}", last); self.current_span())
+                    }
+                    self.ip += 2;
+                    self.handle_function_call(last, payload_size.to_usize())?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::UNBOXTAIL,
+                    payload_size,
+                    ..
+                } => {
+                    let mut last = self.thread.stack.pop().unwrap();
+                    if let SteelVal::HeapAllocated(var) = last {
+                        last = var.get();
+                    } else {
+                        stop!(TypeMismatch => format!("Unable to unbox non box: {}", last); self.current_span())
+                    }
+                    self.ip += 2;
+                    self.handle_tail_call(last, payload_size.to_usize())?
                 }
 
                 DenseInstruction {
@@ -5521,6 +5560,44 @@ pub(crate) fn macro_case_bindings(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 #[steel_derive::context(name = "#%match-syntax-case", arity = "Exact(2)")]
 pub(crate) fn match_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(match_syntax_case_impl(ctx, args))
+}
+
+pub struct CallStackCapture {
+    sampling_rate: usize,
+    timer: HashMap<u32, usize>,
+}
+
+impl crate::rvals::Custom for CallStackCapture {}
+
+#[steel_derive::context(name = "#%snapshot-stacks", arity = "Exact(1)")]
+pub(crate) fn sample_stacks(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let mut capture = CallStackCapture::as_mut_ref(&args[0]).unwrap();
+
+    log::info!("Stopping threads...");
+    ctx.thread.synchronizer.stop_threads();
+    log::info!("Stopped threads.");
+
+    unsafe {
+        ctx.thread.synchronizer.call_per_ctx(|thread| {
+            // Can we snag the values without locking...
+            for frame in thread.stack_frames.iter() {
+                capture
+                    .timer
+                    .entry(frame.function.id)
+                    .and_modify(|x| *x += 1)
+                    .or_default();
+            }
+        });
+    }
+
+    // Resume.
+    // Apply these to all of the things.
+    ctx.thread.synchronizer.resume_threads();
+    log::info!("Threads resumed.");
+
+    // out
+
+    Some(Ok(SteelVal::Void))
 }
 
 /// Applies the given `function` with arguments as the contents of the `list`.

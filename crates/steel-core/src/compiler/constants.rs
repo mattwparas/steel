@@ -191,6 +191,7 @@ impl ConstantMap {
 
     pub fn get_value(&self, idx: usize) -> SteelVal {
         self.reified_values.load()[idx].clone()
+        // self.values.read()[idx].clone()
     }
 
     pub fn try_get(&self, idx: usize) -> Option<SteelVal> {

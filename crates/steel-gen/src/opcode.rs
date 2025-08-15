@@ -131,7 +131,9 @@ declare_opcodes! {
         TRUE;
         FALSE;
         CALLGLOBALIF;
-        NULLIF
+        NULLIF;
+        UNBOXCALL;
+        UNBOXTAIL
     }
 
     // Super instructions

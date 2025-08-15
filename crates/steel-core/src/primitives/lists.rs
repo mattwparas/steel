@@ -84,9 +84,36 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(PLIST_GET_POSITIONAL_LIST_DEFINITION)
         .register_native_fn_definition(PLIST_VALIDATE_ARGS_DEFINITION)
         .register_native_fn_definition(DROP_START_DEFINITION)
-        .register_native_fn_definition(CHUNKS_DEFINITION);
+        .register_native_fn_definition(CHUNKS_DEFINITION)
+        .register_native_fn_definition(MEMBER_DEFINITION)
+        .register_native_fn_definition(LIST_CONTAINS_DEFINITION);
 
     module
+}
+
+#[steel_derive::function(name = "member")]
+pub fn member(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
+    let mut list = list.clone();
+    while let Some(first) = list.first() {
+        if first == value {
+            return Ok(SteelVal::ListV(list));
+        }
+
+        list.cdr_mut();
+    }
+
+    Ok(SteelVal::BoolV(false))
+}
+
+#[steel_derive::function(name = "list-contains")]
+pub fn list_contains(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
+    for item in list.iter() {
+        if item == value {
+            return Ok(SteelVal::BoolV(true));
+        }
+    }
+
+    Ok(SteelVal::BoolV(false))
 }
 
 #[steel_derive::function(name = "list-chunks", constant = true)]
