@@ -21,6 +21,7 @@ use crate::rvals::as_underlying_type;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
 use crate::rvals::number_equality;
 use crate::rvals::AsRefMutSteelVal;
+use crate::rvals::AsRefSteelVal;
 use crate::rvals::BoxedAsyncFunctionSignature;
 use crate::rvals::FromSteelVal as _;
 use crate::rvals::SteelString;
@@ -515,7 +516,63 @@ impl Synchronizer {
         }
     }
 
-    pub(crate) unsafe fn call_per_ctx(&mut self, mut func: impl FnMut(&mut SteelThread)) {
+    pub(crate) unsafe fn maybe_call_per_ctx(
+        &self,
+        mut func: impl FnMut(&mut SteelThread),
+        timeout_ms: u128,
+    ) {
+        let guard = self.threads.lock().unwrap();
+
+        // IMPORTANT - This needs to be all threads except the currently
+        // executing one.
+        for ThreadContext { ctx, handle } in guard.iter() {
+            if let Some(ctx) = ctx.upgrade() {
+                if Arc::ptr_eq(&ctx, &self.ctx) {
+                    continue;
+                }
+
+                let now = std::time::Instant::now();
+
+                // TODO: Have to use a condvar
+                while now.elapsed().as_millis() < timeout_ms {
+                    if let Some(ctx) = ctx.load() {
+                        unsafe {
+                            let live_ctx = &mut (*ctx);
+                            (func)(live_ctx)
+                        }
+
+                        break;
+                    } else {
+                        if let SteelVal::Custom(c) = &handle {
+                            if let Some(inner) =
+                                as_underlying_type::<ThreadHandle>(c.read().as_ref())
+                            {
+                                if let Some(forked_thread_handle) = &inner.forked_thread_handle {
+                                    if let Some(upgraded) = forked_thread_handle.upgrade() {
+                                        if let Ok(mut live_ctx) = upgraded.try_lock() {
+                                            (func)(&mut live_ctx);
+
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // TODO:
+                        // If the thread was spawned via the make_thread function,
+                        // then we need to check if that thread is even running to begin with.
+
+                        // println!("Waiting for thread...")
+                    }
+                }
+            } else {
+                continue;
+            }
+        }
+    }
+
+    pub(crate) unsafe fn call_per_ctx(&self, mut func: impl FnMut(&mut SteelThread)) {
         let guard = self.threads.lock().unwrap();
 
         // IMPORTANT - This needs to be all threads except the currently
@@ -5563,8 +5620,69 @@ pub(crate) fn match_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<R
 }
 
 pub struct CallStackCapture {
+    // Polling rate
     sampling_rate: usize,
+
     timer: HashMap<u32, usize>,
+
+    // Map the name of the function to the name, if we have it
+    names: HashMap<u32, InternedString>,
+}
+
+#[steel_derive::function(name = "dump-profiler")]
+pub fn dump_profiler(value: &SteelVal) -> Result<SteelVal> {
+    let capture = CallStackCapture::as_ref(value)?;
+
+    let mut values = Vec::new();
+    let mut total_count = 0;
+
+    for (id, count) in &capture.timer {
+        let name = capture.names.get(id);
+        total_count += count;
+
+        if let Some(name) = name {
+            values.push((name.resolve().to_string(), count));
+            // println!("{} : {}", name, count);
+        } else {
+            values.push((id.to_string(), count));
+            // println!("{} : {}", id, count);
+        }
+    }
+
+    values.sort_by(|a, b| b.1.cmp(a.1));
+
+    for (key, count) in values {
+        println!("{} | {}", key, (*count as f64 / total_count as f64) * 100.0);
+    }
+
+    Ok(SteelVal::Void)
+}
+
+#[steel_derive::function(name = "make-callstack-profiler")]
+pub fn make_callstack_profiler(sampling_rate: usize) -> Result<SteelVal> {
+    CallStackCapture {
+        sampling_rate,
+        timer: HashMap::default(),
+        names: HashMap::default(),
+    }
+    .into_steelval()
+}
+
+#[steel_derive::context(name = "callstack-hydrate-names", arity = "Exact(1)")]
+pub fn callstack_hydrate_names(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let mut capture = CallStackCapture::as_mut_ref(&args[0]).unwrap();
+
+    // Map the name back to the value
+    for (idx, global) in ctx.thread.global_env.roots().iter().enumerate() {
+        // Find the name for this function, if possible?
+        if let SteelVal::Closure(c) = global {
+            if let Some(name) = ctx.thread.compiler.read().symbol_map.values().get(idx) {
+                capture.names.insert(c.id, *name);
+            }
+        }
+    }
+
+    Some(Ok(SteelVal::Void))
 }
 
 impl crate::rvals::Custom for CallStackCapture {}
@@ -5573,28 +5691,31 @@ impl crate::rvals::Custom for CallStackCapture {}
 pub(crate) fn sample_stacks(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut capture = CallStackCapture::as_mut_ref(&args[0]).unwrap();
 
+    // if let Ok(_) = ctx.thread.heap.try_lock() {
     log::info!("Stopping threads...");
     ctx.thread.synchronizer.stop_threads();
     log::info!("Stopped threads.");
-
     unsafe {
-        ctx.thread.synchronizer.call_per_ctx(|thread| {
-            // Can we snag the values without locking...
-            for frame in thread.stack_frames.iter() {
-                capture
-                    .timer
-                    .entry(frame.function.id)
-                    .and_modify(|x| *x += 1)
-                    .or_default();
-            }
-        });
+        ctx.thread.synchronizer.maybe_call_per_ctx(
+            |thread| {
+                // Can we snag the values without locking...
+                for frame in thread.stack_frames.iter() {
+                    capture
+                        .timer
+                        .entry(frame.function.id)
+                        .and_modify(|x| *x += 1)
+                        .or_default();
+                }
+            },
+            100,
+        );
     }
 
     // Resume.
     // Apply these to all of the things.
     ctx.thread.synchronizer.resume_threads();
     log::info!("Threads resumed.");
-
+    // }
     // out
 
     Some(Ok(SteelVal::Void))

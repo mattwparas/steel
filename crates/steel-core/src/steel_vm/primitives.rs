@@ -4,10 +4,12 @@ use super::{
     engine::Engine,
     register_fn::RegisterFn,
     vm::{
-        get_test_mode, list_modules, set_test_mode, VmCore, CALL_CC_DEFINITION,
-        CALL_WITH_EXCEPTION_HANDLER_DEFINITION, EVAL_DEFINITION, EVAL_FILE_DEFINITION,
-        EVAL_STRING_DEFINITION, EXPAND_SYNTAX_CASE_DEFINITION, EXPAND_SYNTAX_OBJECTS_DEFINITION,
-        INSPECT_DEFINITION, MACRO_CASE_BINDINGS_DEFINITION, MATCH_SYNTAX_CASE_DEFINITION,
+        get_test_mode, list_modules, set_test_mode, VmCore, CALLSTACK_HYDRATE_NAMES_DEFINITION,
+        CALL_CC_DEFINITION, CALL_WITH_EXCEPTION_HANDLER_DEFINITION, DUMP_PROFILER_DEFINITION,
+        EVAL_DEFINITION, EVAL_FILE_DEFINITION, EVAL_STRING_DEFINITION,
+        EXPAND_SYNTAX_CASE_DEFINITION, EXPAND_SYNTAX_OBJECTS_DEFINITION, INSPECT_DEFINITION,
+        MACRO_CASE_BINDINGS_DEFINITION, MAKE_CALLSTACK_PROFILER_DEFINITION,
+        MATCH_SYNTAX_CASE_DEFINITION, SAMPLE_STACKS_DEFINITION,
     },
 };
 use crate::{
@@ -2094,6 +2096,10 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(UNBOX_MUTABLE_DEFINITION)
         .register_native_fn_definition(PLAIN_UNBOX_MUTABLE_DEFINITION)
         .register_native_fn_definition(PLAIN_SET_BOX_MUTABLE_DEFINITION)
+        .register_native_fn_definition(MAKE_CALLSTACK_PROFILER_DEFINITION)
+        .register_native_fn_definition(CALLSTACK_HYDRATE_NAMES_DEFINITION)
+        .register_native_fn_definition(SAMPLE_STACKS_DEFINITION)
+        .register_native_fn_definition(DUMP_PROFILER_DEFINITION)
         .register_value(
             "attach-contract-struct!",
             SteelVal::FuncV(attach_contract_struct),
