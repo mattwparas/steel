@@ -627,12 +627,12 @@
 (define mem-helper
   (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 
-(define memq
-  (lambda (x los)
-    (cond
-      [(null? los) #f]
-      [(eq? x (car los)) los]
-      [else (memq x (cdr los))])))
+; (define memq
+;   (lambda (x los)
+;     (cond
+;       [(null? los) #f]
+;       [(eq? x (car los)) los]
+;       [else (memq x (cdr los))])))
 
 (define memv
   (lambda (x los)

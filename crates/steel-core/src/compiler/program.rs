@@ -658,6 +658,23 @@ define_symbols! {
     DOT => ".",
 }
 
+pub fn flatten_equal_const(instructions: &mut [Instruction]) {
+    for i in 0..instructions.len() {
+        let push_const = instructions.get(i);
+        let equal = instructions.get(i + 1);
+
+        match (push_const.map(|x| x.op_code), equal.map(|x| x.op_code)) {
+            (Some(OpCode::PUSHCONST), Some(OpCode::EQUAL2)) => {
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::EQUALCONST;
+                }
+            }
+
+            _ => {}
+        }
+    }
+}
+
 pub fn inline_num_operations(instructions: &mut [Instruction]) {
     for i in 0..instructions.len() - 1 {
         let push = instructions.get(i);
@@ -693,6 +710,7 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
                 x if x == *PRIM_DIV && payload_size > 0 => Some(OpCode::DIV),
                 x if x == *PRIM_STAR && payload_size > 0 => Some(OpCode::MUL),
                 x if x == *PRIM_NUM_EQUAL && payload_size == 2 => Some(OpCode::NUMEQUAL),
+                x if x == *PRIM_EQUAL && payload_size == 2 => Some(OpCode::EQUAL2),
                 x if x == *PRIM_EQUAL && payload_size > 0 => Some(OpCode::EQUAL),
                 x if x == *PRIM_LTE && payload_size > 0 => Some(OpCode::LTE),
                 _ => None,
@@ -1171,6 +1189,7 @@ impl RawProgramWithSymbols {
         // Run down the optimizations here
         for instructions in &mut self.instructions {
             inline_num_operations(instructions);
+            flatten_equal_const(instructions);
             unbox_function_call(instructions);
             convert_call_globals(instructions);
             specialize_read_local(instructions);

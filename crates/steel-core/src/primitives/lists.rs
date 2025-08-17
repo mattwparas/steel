@@ -86,6 +86,7 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(DROP_START_DEFINITION)
         .register_native_fn_definition(CHUNKS_DEFINITION)
         .register_native_fn_definition(MEMBER_DEFINITION)
+        .register_native_fn_definition(MEMQ_DEFINITION)
         .register_native_fn_definition(LIST_CONTAINS_DEFINITION);
 
     module
@@ -96,6 +97,20 @@ pub fn member(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
     let mut list = list.clone();
     while let Some(first) = list.first() {
         if first == value {
+            return Ok(SteelVal::ListV(list));
+        }
+
+        list.cdr_mut();
+    }
+
+    Ok(SteelVal::BoolV(false))
+}
+
+#[steel_derive::function(name = "memq")]
+pub fn memq(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
+    let mut list = list.clone();
+    while let Some(first) = list.first() {
+        if SteelVal::ptr_eq(first, value) {
             return Ok(SteelVal::ListV(list));
         }
 

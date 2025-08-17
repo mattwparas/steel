@@ -2884,6 +2884,30 @@ impl<'a> VmCore<'a> {
                 }
 
                 DenseInstruction {
+                    op_code: OpCode::EQUAL2,
+                    ..
+                } => {
+                    let top = self.thread.stack.pop().unwrap();
+                    let last = self.thread.stack.last_mut().unwrap();
+                    *last = SteelVal::BoolV(last == &top);
+                    self.ip += 2;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::EQUALCONST,
+                    payload_size,
+                } => {
+                    self.constants
+                        .get_map(payload_size.to_usize(), |const_value: &SteelVal| {
+                            let last = self.thread.stack.last_mut().unwrap();
+                            let res = last == const_value;
+                            *last = SteelVal::BoolV(res);
+                        });
+
+                    self.ip += 3;
+                }
+
+                DenseInstruction {
                     op_code: OpCode::NUMEQUAL,
                     ..
                 } => {

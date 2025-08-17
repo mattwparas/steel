@@ -204,8 +204,14 @@ impl ConstantMap {
     }
 
     pub fn get_value(&self, idx: usize) -> SteelVal {
-        // self.reified_values.load()[idx].clone()
-        self.values.read()[idx].clone()
+        self.reified_values.load()[idx].clone()
+        // self.values.read()[idx].clone()
+    }
+
+    pub fn get_map<T>(&self, idx: usize, func: impl FnOnce(&SteelVal) -> T) -> T {
+        // let value = &self.values.read()[idx];
+        let value = &self.reified_values.load()[idx];
+        func(value)
     }
 
     pub fn try_get(&self, idx: usize) -> Option<SteelVal> {
