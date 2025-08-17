@@ -18,6 +18,7 @@ use crate::{
     SteelErr,
 };
 use crossbeam_channel::{Receiver, Sender};
+use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::BigInt;
 use num_rational::{BigRational, Rational32};
 
@@ -2179,10 +2180,17 @@ pub struct HeapRef<T: HeapAble> {
     pub(crate) inner: WeakShared<MutContainer<HeapAllocated<T>>>,
 }
 
+const USE_UNSAFE: bool = true;
+
 impl<T: HeapAble> HeapRef<T> {
     #[inline(always)]
     pub fn get(&self) -> T {
-        self.inner.upgrade().unwrap().read().value.clone()
+        // Atomic cell instead? That way we can just do an atomic swap rather than a rw lock?
+        if USE_UNSAFE {
+            unsafe { &*self.inner.as_ptr() }.read().value.clone()
+        } else {
+            self.inner.upgrade().unwrap().read().value.clone()
+        }
     }
 
     /// Get the value if the pointer is still valid.

@@ -4124,18 +4124,6 @@ impl<'a> VmCore<'a> {
                         let value = self.thread.stack[n.to_usize() + offset].clone();
                         captures.push(value);
                     }
-                    // (OpCode::COPYCAPTURECLOSURE, n) => {
-                    //     debug_assert!(
-                    //         !self.thread.stack_frames.is_empty(),
-                    //         "Trying to capture from closure that doesn't exist",
-                    //     );
-
-                    //     debug_assert!((n.to_usize()) < guard.function.captures().len());
-
-                    //     let value = guard.function.captures()[n.to_usize()].clone();
-
-                    //     captures.push(value);
-                    // }
                     (l, _) => {
                         panic!(
                             "Something went wrong in closure construction!, found: {:?} @ {}",
