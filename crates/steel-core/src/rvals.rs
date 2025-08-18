@@ -1371,6 +1371,9 @@ impl SteelValPointer {
             StreamV(gc) => Some(Self::StreamV(gc.as_ptr())),
             ListV(generic_list) => Some(Self::ListV(generic_list.as_ptr())),
             Pair(gc) => Some(Self::Pair(gc.as_ptr())),
+            SteelVal::ContinuationFunction(continuation) => Some(Self::ContinuationFunction(
+                crate::gc::shared::StandardShared::as_ptr(&continuation.inner),
+            )),
             // TODO: See if we can avoid these clones?
             MutableVector(heap_ref) => Some(Self::MutableVector(heap_ref.clone())),
             BoxedIterator(gc) => Some(Self::BoxedIterator(gc.as_ptr())),

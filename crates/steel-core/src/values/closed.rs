@@ -18,7 +18,6 @@ use crate::{
     SteelErr,
 };
 use crossbeam_channel::{Receiver, Sender};
-use crossbeam_utils::atomic::AtomicCell;
 use num_bigint::BigInt;
 use num_rational::{BigRational, Rational32};
 
