@@ -1,4 +1,5 @@
 use super::parser::SourceId;
+use crate::interner::InternedString;
 use crate::tokens::{IntLiteral, Token, TokenLike, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
 use num_bigint::BigInt;
@@ -35,9 +36,11 @@ pub struct Lexer<'a> {
     /// An iterator over the characters.
     chars: Peekable<Chars<'a>>,
     /// The  next token to return or `None` if it should be parsed.
-    queued: Option<TokenType<Cow<'a, str>>>,
-    token_start: usize,
-    token_end: usize,
+    queued: Option<TokenType<InternedString>>,
+    token_start: u32,
+    token_end: u32,
+
+    ident_buffer: String,
 }
 
 impl<'a> Lexer<'a> {
@@ -48,12 +51,13 @@ impl<'a> Lexer<'a> {
             queued: None,
             token_start: 0,
             token_end: 0,
+            ident_buffer: String::new(),
         }
     }
 
     fn eat(&mut self) -> Option<char> {
         if let Some(c) = self.chars.next() {
-            self.token_end += c.len_utf8();
+            self.token_end += c.len_utf8() as u32;
             Some(c)
         } else {
             None
@@ -73,7 +77,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_string(&mut self) -> Result<TokenType<Cow<'a, str>>> {
+    fn read_string(&mut self) -> Result<TokenType<InternedString>> {
         // Skip the opening quote.
         self.eat();
 
@@ -211,7 +215,7 @@ impl<'a> Lexer<'a> {
         Ok(Some(c))
     }
 
-    fn read_hash_value(&mut self) -> Result<TokenType<Cow<'a, str>>> {
+    fn read_hash_value(&mut self) -> Result<TokenType<InternedString>> {
         fn parse_char(slice: &str) -> Option<char> {
             use std::str::FromStr;
 
@@ -326,7 +330,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_number(&mut self) -> Result<TokenType<Cow<'a, str>>> {
+    fn read_number(&mut self) -> Result<TokenType<InternedString>> {
         while let Some(&c) = self.chars.peek() {
             match c {
                 c if c.is_ascii_digit() => {
@@ -367,14 +371,17 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_word(&mut self) -> Result<TokenType<Cow<'a, str>>> {
+    fn read_word(&mut self) -> Result<TokenType<InternedString>> {
         let escaped_identifier = self.chars.peek().copied() == Some('|');
 
         if escaped_identifier {
             self.eat();
         }
 
-        let mut ident_buffer = IdentBuffer::new(self.chars.clone());
+        let mut buffer = std::mem::take(&mut self.ident_buffer);
+        buffer.clear();
+
+        let mut ident_buffer = IdentBuffer::new(self.chars.clone(), &mut buffer);
 
         while let Some(&c) = self.chars.peek() {
             match c {
@@ -417,20 +424,19 @@ impl<'a> Lexer<'a> {
 
         let token = match self.slice() {
             "." => TokenType::Dot,
-            "define" | "defn" | "#%define" => TokenType::Define,
+            "if" => TokenType::If,
             "let" => TokenType::Let,
+            "define" | "defn" | "#%define" => TokenType::Define,
             "%plain-let" => TokenType::TestLet,
             "return!" => TokenType::Return,
             "begin" => TokenType::Begin,
             "lambda" | "fn" | "#%plain-lambda" | "λ" => TokenType::Lambda,
             "quote" => TokenType::Quote,
-            // "unquote" => TokenType::Unquote,
             "syntax-rules" => TokenType::SyntaxRules,
             "define-syntax" => TokenType::DefineSyntax,
             "..." => TokenType::Ellipses,
             "set!" => TokenType::Set,
             "require" => TokenType::Require,
-            "if" => TokenType::If,
             identifier => {
                 debug_assert!(!identifier.is_empty());
 
@@ -443,10 +449,11 @@ impl<'a> Lexer<'a> {
                         if ident_buffer.ident.is_empty() {
                             TokenType::Identifier((&identifier[1..identifier.len() - 1]).into())
                         } else {
-                            TokenType::Identifier(ident_buffer.ident.into())
+                            TokenType::Identifier(ident_buffer.ident.as_str().into())
                         }
                     }
                     _ if escaped_identifier => {
+                        ident_buffer.ident.clear();
                         return Err(TokenError::IncompleteIdentifier);
                     }
                     _ => TokenType::Identifier(identifier.into()),
@@ -454,10 +461,13 @@ impl<'a> Lexer<'a> {
             }
         };
 
+        ident_buffer.ident.clear();
+        self.ident_buffer = buffer;
+
         Ok(token)
     }
 
-    fn read_nestable_comment(&mut self) -> Result<TokenType<Cow<'a, str>>> {
+    fn read_nestable_comment(&mut self) -> Result<TokenType<InternedString>> {
         self.eat();
 
         let mut depth = 1;
@@ -488,20 +498,20 @@ impl<'a> Lexer<'a> {
     }
 }
 
-struct IdentBuffer<'a> {
+struct IdentBuffer<'b, 'a: 'b> {
     chars: Peekable<Chars<'a>>,
-    ident: String,
+    ident: &'b mut String,
     // works as Either:
     //  - Ok: saw a non-trivial escape, buffering into ident
     //  - Err: "trivial" string, keeping count of its len
     mode: std::result::Result<(), usize>,
 }
 
-impl<'a> IdentBuffer<'a> {
-    fn new(chars: Peekable<Chars<'a>>) -> Self {
+impl<'b, 'a: 'b> IdentBuffer<'b, 'a> {
+    fn new(chars: Peekable<Chars<'a>>, buffer: &'b mut String) -> Self {
         Self {
             chars,
-            ident: Default::default(),
+            ident: buffer,
             mode: Err(0),
         }
     }
@@ -546,6 +556,10 @@ fn strip_shebang_line(input: &str) -> (&str, usize, usize) {
 impl<'a> Lexer<'a> {
     #[inline]
     pub fn span(&self) -> Span {
+        self.token_start as _..self.token_end as _
+    }
+
+    pub fn small_span(&self) -> std::ops::Range<u32> {
         self.token_start..self.token_end
     }
 
@@ -571,8 +585,8 @@ impl<'a> TokenStream<'a> {
             source_id, // skip_doc_comments,
         };
 
-        res.lexer.token_start += bytes_offset;
-        res.lexer.token_end += bytes_offset;
+        res.lexer.token_start += bytes_offset as u32;
+        res.lexer.token_end += bytes_offset as u32;
 
         for _ in 0..char_offset {
             res.lexer.chars.next();
@@ -581,44 +595,30 @@ impl<'a> TokenStream<'a> {
         res
     }
 
-    pub fn into_owned<T, F: ToOwnedString<T>>(self, adapter: F) -> OwnedTokenStream<'a, T, F> {
-        OwnedTokenStream {
-            stream: self,
-            adapter,
-            _token_type: PhantomData,
-        }
+    pub fn into_owned<T, F: ToOwnedString<T>>(self, adapter: F) -> OwnedTokenStream<'a> {
+        OwnedTokenStream { stream: self }
     }
 }
 
-pub struct OwnedTokenStream<'a, T, F> {
+pub struct OwnedTokenStream<'a> {
     pub(crate) stream: TokenStream<'a>,
-    adapter: F,
-    _token_type: PhantomData<T>,
 }
 
-impl<'a, T, F: ToOwnedString<T>> Iterator for OwnedTokenStream<'a, T, F> {
-    type Item = std::result::Result<Token<'a, T>, TokenLike<'a, TokenError>>;
+impl<'a> Iterator for OwnedTokenStream<'a> {
+    type Item = std::result::Result<Token<'a, InternedString>, TokenLike<'a, TokenError>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let res = self.stream.next()?;
-
-        let owned = res.map(|token| Token {
-            ty: token.ty.map(|ty| self.adapter.own(ty)),
-            source: token.source,
-            span: token.span,
-        });
-
-        Some(owned)
+        self.stream.next()
     }
 }
 
-impl<'a, T, F: ToOwnedString<T>> OwnedTokenStream<'a, T, F> {
+impl<'a> OwnedTokenStream<'a> {
     pub fn offset(&self) -> usize {
         self.stream.lexer.span().end
     }
 }
 impl<'a> Iterator for TokenStream<'a> {
-    type Item = std::result::Result<Token<'a, Cow<'a, str>>, TokenLike<'a, TokenError>>;
+    type Item = std::result::Result<Token<'a, InternedString>, TokenLike<'a, TokenError>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.lexer.next().and_then(|token| {
@@ -628,13 +628,18 @@ impl<'a> Iterator for TokenStream<'a> {
                     return Some(Err(TokenLike::new(
                         err,
                         self.lexer.slice(),
-                        self.lexer.span(),
+                        self.lexer.small_span(),
                         self.source_id,
                     )))
                 }
             };
 
-            let token = Token::new(token, self.lexer.slice(), self.lexer.span(), self.source_id);
+            let token = Token::new(
+                token,
+                self.lexer.slice(),
+                self.lexer.small_span(),
+                self.source_id,
+            );
             match token.ty {
                 // TokenType::Space => self.next(),
                 TokenType::Comment if self.skip_comments => self.next(),
@@ -677,7 +682,7 @@ impl std::fmt::Display for TokenError {
 }
 
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<TokenType<Cow<'a, str>>>;
+    type Item = Result<TokenType<InternedString>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(t) = self.queued.take() {
@@ -951,11 +956,11 @@ mod lexer_tests {
     use crate::tokens::{IntLiteral, TokenType::*};
     use pretty_assertions::assert_eq;
 
-    fn identifier(ident: &str) -> TokenType<Cow<'_, str>> {
+    fn identifier(ident: &str) -> TokenType<InternedString> {
         Identifier(ident.into())
     }
 
-    fn token_stream(source: &str) -> impl Iterator<Item = Token<Cow<str>>> {
+    fn token_stream(source: &str) -> impl Iterator<Item = Token<InternedString>> {
         TokenStream::new(source, true, None).map(|t| t.expect("unexpected parsing error"))
     }
 
@@ -1739,7 +1744,7 @@ mod lexer_tests {
         let s = token_stream("(apples (function a b) (+ a b))");
         let res: Vec<_> = s.collect();
 
-        let expected: Vec<Token<Cow<str>>> = vec![
+        let expected: Vec<Token<InternedString>> = vec![
             Token {
                 ty: OpenParen(Paren::Round, None),
                 source: "(",
@@ -1817,7 +1822,7 @@ mod lexer_tests {
 
         let expected_bigint = Box::new("9223372036854775808".parse().unwrap());
 
-        let expected: Vec<Token<Cow<str>>> = vec![Token {
+        let expected: Vec<Token<InternedString>> = vec![Token {
             ty: IntLiteral::Big(expected_bigint).into(),
             source: "9223372036854775808",
             span: Span::new(0, 19, SourceId::none()),
@@ -1833,7 +1838,7 @@ mod lexer_tests {
 
         let expected_bigint = Box::new("-9223372036854775809".parse().unwrap());
 
-        let expected: Vec<Token<Cow<str>>> = vec![Token {
+        let expected: Vec<Token<InternedString>> = vec![Token {
             ty: IntLiteral::Big(expected_bigint).into(),
             source: "-9223372036854775809",
             span: Span::new(0, 20, SourceId::none()),
@@ -1846,7 +1851,7 @@ mod lexer_tests {
     fn identifier_test() {
         let s = token_stream("a b(c`d'e\"www\"f,g;");
 
-        let tokens: Vec<(TokenType<Cow<str>>, &str)> =
+        let tokens: Vec<(TokenType<InternedString>, &str)> =
             s.map(|token| (token.ty, token.source)).collect();
 
         assert_eq!(tokens[0], (identifier("a"), "a"));

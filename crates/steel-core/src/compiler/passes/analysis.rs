@@ -2813,7 +2813,7 @@ struct FindContextsWithOffset<'a> {
 
 impl<'a> VisitorMutUnitRef<'a> for FindContextsWithOffset<'a> {
     fn visit_lambda_function(&mut self, lambda_function: &'a LambdaFunction) {
-        if lambda_function.location.span.end >= self.offset {
+        if lambda_function.location.span.end as usize >= self.offset {
             return;
         }
 
@@ -2825,7 +2825,7 @@ impl<'a> VisitorMutUnitRef<'a> for FindContextsWithOffset<'a> {
 
         // This counts, save analysis.
         // TODO: Memoize the span analysis, this is not performant
-        if span.range().contains(&self.offset) {
+        if span.range().contains(&(self.offset as u32)) {
             // TODO: Don't clone this
             if let Some(info) = self.analysis.get_function_info(lambda_function) {
                 if lambda_function.location.span.source_id == Some(self.source_id) {
@@ -2839,14 +2839,14 @@ impl<'a> VisitorMutUnitRef<'a> for FindContextsWithOffset<'a> {
     }
 
     fn visit_let(&mut self, l: &'a Let) {
-        if l.location.span.end >= self.offset {
+        if l.location.span.end as usize >= self.offset {
             return;
         }
 
         let mut span = get_span(&l.body_expr);
         span.start = l.location.span.start;
 
-        if span.range().contains(&self.offset) {
+        if span.range().contains(&(self.offset as u32)) {
             if let Some(info) = self.analysis.let_info.get(&l.syntax_object_id) {
                 if l.location.span.source_id() == Some(self.source_id) {
                     self.contexts
@@ -4901,7 +4901,7 @@ impl<'a> SemanticAnalysis<'a> {
         source_id: SourceId,
     ) -> Option<(&SyntaxObjectId, &SemanticInformation)> {
         self.analysis.info.iter().find(|(_, x)| {
-            x.span.range().contains(&offset) && x.span.source_id() == Some(source_id)
+            x.span.range().contains(&(offset as u32)) && x.span.source_id() == Some(source_id)
         })
     }
 

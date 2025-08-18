@@ -4975,7 +4975,7 @@ fn inspect_impl(ctx: &VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
                 let source = guard.get(source_id);
                 if let Some(span) = span {
                     if let Some(source) = source {
-                        let range = source.get(span.start..span.end);
+                        let range = source.get(span.start as usize..span.end as usize);
 
                         if let Some(range) =
                             range.and_then(|x| if x.len() > 30 { x.get(0..30) } else { Some(x) })
@@ -5036,7 +5036,7 @@ pub fn breakpoint(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVa
                     let source = guard.get(source_id);
 
                     if let Some(source) = source {
-                        let range = source.get(span.start..span.end);
+                        let range = source.get(span.start as usize..span.end as usize);
 
                         println!(
                             "x{} = {:?} = {}",
@@ -5058,7 +5058,7 @@ pub fn breakpoint(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVa
                     let source = guard.get(source_id);
 
                     if let Some(source) = source {
-                        let range = source.get(span.start..span.end);
+                        let range = source.get(span.start as usize..span.end as usize);
 
                         let value = ctx.thread.stack_frames.last().unwrap().function.captures()
                             [payload_size.to_usize()]
