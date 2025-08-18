@@ -9,13 +9,24 @@
 
 (define xreverse! reverse)
 
-(define (map-inner func accum lst)
-  (if (empty? lst)
+; (define (map-inner func accum lst)
+;   (if (empty? lst)
+;       (reverse accum)
+;       (map-inner func (cons (func (car lst)) accum) (cdr lst))))
+
+; (define (map func lst)
+;   (map-inner func '() lst))
+
+(define (iterator-map iter func accum)
+  (define next-value (iter-next! iter))
+  (if (eq? next-value #%iterator-finished)
       (reverse accum)
-      (map-inner func (cons (func (car lst)) accum) (cdr lst))))
+      (iterator-map iter func (cons (func next-value) accum))))
 
 (define (map func lst)
-  (map-inner func '() lst))
+  (define iterator (value->iterator lst))
+  ;; Walk the list, and do something with it
+  (iterator-map iterator func '()))
 
 ;; Given a comparison routine that returns one of
 ;;       less

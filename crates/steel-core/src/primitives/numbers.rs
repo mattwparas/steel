@@ -376,6 +376,7 @@ pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() / r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => (l / r.as_ref()).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => (l.as_ref() / r.as_ref()).into_steelval(),
         _ => steelerr!(TypeMismatch => "quotient only supports integers"),
     }
