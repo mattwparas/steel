@@ -2,41 +2,42 @@
 ;; The quick-1 benchmark.  (Figure 35, page 132.)
 
 (require "common.scm")
+(require "steel/time/time.scm")
 
 ;; Original:
-; (define (quick-1 v less?)
-
-;   (define (helper left right)
-;     (if (< left right)
-;         (let ([median (partition v left right less?)])
-;           (if (< (- median left) (- right median))
-;               (begin
-;                 (helper left (- median 1))
-;                 (helper (+ median 1) right))
-;               (begin
-;                 (helper (+ median 1) right)
-;                 (helper left (- median 1)))))
-;         v))
-
-;   (helper 0 (- (vector-length v) 1)))
-
-(define (helper left right v less?)
-  (if (< left right)
-      (let ([median (partition v left right less?)])
-        (if (< (- median left) (- right median))
-            (begin
-              (helper left (- median 1) v less?)
-              (helper (+ median 1) right v less?))
-            (begin
-              (helper (+ median 1) right v less?)
-              (helper left (- median 1) v less?))))
-      v))
-
 (define (quick-1 v less?)
-  (helper 0 (- (vector-length v) 1) v less?))
+  (define (helper left right)
+    (if (< left right)
+        (let ([median (partition v left right less?)])
+          (if (< (- median left) (- right median))
+              (begin
+                (helper left (- median 1))
+                (helper (+ median 1) right))
+              (begin
+                (helper (+ median 1) right)
+                (helper left (- median 1)))))
+        v))
+
+  (define res (helper 0 (- (vector-length v) 1)))
+
+  res)
+
+; (define (helper left right v less?)
+;   (set! counter (+ counter 1))
+;   (if (< left right)
+;       (let ([median (partition v left right less?)])
+;         (if (< (- median left) (- right median))
+;             (begin
+;               (helper left (- median 1) v less?)
+;               (helper (+ median 1) right v less?))
+;             (begin
+;               (helper (+ median 1) right v less?)
+;               (helper left (- median 1) v less?))))
+;       v))
 
 ;; This is super duper slow?
 (define (partition v left right less?)
+
   (let ([mid (vector-ref v right)])
 
     ;; Opts that need to happen for this to work.
@@ -71,10 +72,10 @@
           (if (< i j)
               (ploop i j)
               (begin
-                ; (vector-set! v j (vector-ref v i))
-                ; (vector-set! v i (vector-ref v right))
-                (vector-swap! v j i)
-                (vector-swap! v i right)
+                (vector-set! v j (vector-ref v i))
+                (vector-set! v i (vector-ref v right))
+                ; (vector-swap! v j i)
+                ; (vector-swap! v i right)
                 (vector-set! v right tmp)
                 i)))))
 
@@ -183,7 +184,9 @@
                         ;; My guess is that something wonky is going on here.
                         ;; Mapping the values over the vector yields a strange result
                         ; (lambda () (quick-1 (vector-map values v) less?))
-                        (lambda () (quick-1 v less?))
+                        (lambda ()
+                          ;; TODO: Copy the vector!
+                          (quick-1 (vector-copy v) less?))
                         (lambda (v)
                           (call-with-current-continuation (lambda (return)
                                                             (do ((i 1 (+ i 1)))
@@ -191,5 +194,7 @@
                                                                 (unless (<= (vector-ref v (- i 1))
                                                                             (vector-ref v i))
                                                                   (return #f)))))))))
+
+(provide run-benchmark)
 
 (with-input-from-file "r7rs-benchmarks/inputs/quicksort.input" run-benchmark)
