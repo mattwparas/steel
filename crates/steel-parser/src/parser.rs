@@ -562,13 +562,13 @@ impl<'a> Parser<'a> {
         let mut last = open;
 
         // Can we reuse this?
-        let mut stack: Recycle<Vec<Frame>> = Recycle::new();
+        let mut stack: Vec<Frame> = Vec::new();
 
         let mut current_frame = Frame {
             open,
             paren,
             paren_mod,
-            exprs: Vec::with_capacity(4),
+            exprs: Vec::new(),
             dot: None,
             comment: 0,
         };
@@ -615,7 +615,7 @@ impl<'a> Parser<'a> {
                             None,
                         ));
                     } else {
-                        current_frame.dot = Some((current_frame.exprs.len(), token.span));
+                        current_frame.dot = Some((current_frame.exprs.len() as _, token.span));
                     }
                 }
                 TokenType::Comment => {
@@ -1808,12 +1808,13 @@ pub fn lower_entire_ast(expr: &mut ExprKind) -> Result<()> {
     ASTLowerPass { quote_depth: 0 }.lower(expr)
 }
 
+#[derive(Debug)]
 struct Frame {
     open: Span,
     paren: Paren,
     paren_mod: Option<ParenMod>,
     exprs: Vec<ExprKind>,
-    dot: Option<(usize, Span)>,
+    dot: Option<(u32, Span)>,
     comment: u8,
 }
 
@@ -1869,8 +1870,8 @@ impl Frame {
         if let Some(idx) = self.dot.as_ref().map(|x| x.0) {
             debug_assert!(!self.exprs.is_empty());
 
-            if idx != self.exprs.len() {
-                debug_assert_eq!(idx + 1, self.exprs.len());
+            if idx as usize != self.exprs.len() {
+                debug_assert_eq!(idx + 1, self.exprs.len() as _);
 
                 return Err(ParseError::SyntaxError(
                     "improper list must have a single cdr".to_owned(),
@@ -1907,9 +1908,9 @@ impl Frame {
 
     fn improper(&self) -> Result<bool> {
         match self.dot {
-            Some((idx, _)) if idx + 1 == self.exprs.len() => Ok(true),
+            Some((idx, _)) if idx + 1 == self.exprs.len() as _ => Ok(true),
             Some((idx, span)) => {
-                debug_assert_eq!(idx, self.exprs.len());
+                debug_assert_eq!(idx, self.exprs.len() as _);
 
                 return Err(ParseError::SyntaxError(
                     "improper list must have a single cdr".into(),
@@ -3154,7 +3155,17 @@ macro_rules! impl_recyclable {
                     if let Ok(mut p) = p {
                         // This _should_ be cleared, but it seems it is not!
                         // debug_assert!(self.is_empty());
+                        // self.clear();
+
+                        // for frame in &self {
+                        //     for expr in &frame.exprs {
+                        //         println!("dropping: {}", expr);
+                        //     }
+                        // }
+
+                        // dbg!(&self);
                         self.clear();
+
                         p.push(self);
                     }
                 });

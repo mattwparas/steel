@@ -1817,11 +1817,24 @@ impl Reader {
         if let Some(buffer) = self.buffer.get(self.offset..) {
             let mut parser = crate::parser::parser::Parser::new_flat(buffer, SourceId::none());
 
+            // TODO: This reparses everything while it hasn't yet finished the expression.
+            // What we need to do is keep the parser around while we finish it.
+            // For that, we should leave the parser around, and just leak buffer?
+            // or swap in something else? I think the stack needs to be saved
+            // in between runs. If we hit a situation where we EOF, we want to
+            // resume where we were, and keep the stack in the proper spot. Otherwise,
+            // we reparse everything up to that point since we're reading line by line?
             if let Some(raw) = parser.next() {
-                let next = if let Ok(next) = raw {
-                    next
-                } else {
-                    return Ok(SteelVal::Void);
+                let next = match raw {
+                    Ok(next) => next,
+                    // Err(steel_parser::parser::ParseError::UnexpectedEOF(_, _)) => {
+                    //     return Ok(SteelVal::Void);
+                    // }
+                    _ => {
+                        dbg!(parser.offset());
+
+                        return Ok(SteelVal::Void);
+                    }
                 };
 
                 self.offset += parser.offset();

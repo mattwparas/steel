@@ -571,7 +571,7 @@ impl<'a> Lexer<'a> {
 
 pub struct TokenStream<'a> {
     pub(crate) lexer: Lexer<'a>,
-    skip_comments: bool,
+    pub(crate) skip_comments: bool,
     source_id: Option<SourceId>,
 }
 
