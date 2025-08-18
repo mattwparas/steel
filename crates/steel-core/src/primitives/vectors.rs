@@ -954,6 +954,35 @@ pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> R
     Ok(SteelVal::Void)
 }
 
+/// Swaps the value at a specified indices in a mutable vector.
+///
+/// (vector-set! vec index value) -> void?
+///
+/// * vec : vector? - The mutable vector to modify.
+/// * index : integer? - The position in `vec` to update (must be within bounds).
+/// * value : any? - The new value to store at `index`.
+///
+/// # Examples
+/// ```scheme
+/// > (define A (mutable-vector 1 2 3)) ;;
+/// > (vector-set! A 1 42) ;;
+/// > A ;; => '#(1 42 3)
+/// ```
+#[steel_derive::function(name = "vector-swap!")]
+pub fn mut_vec_swap(vec: &HeapRef<Vec<SteelVal>>, i: usize, j: usize) -> Result<SteelVal> {
+    let ptr = vec.strong_ptr();
+
+    let guard = &mut ptr.write().value;
+
+    if i as usize > guard.len() {
+        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
+    }
+
+    guard.swap(i, j);
+
+    Ok(SteelVal::Void)
+}
+
 /// Constructs an immutable vector from the given arguments.
 ///
 /// (immutable-vector . vals) -> vector?
@@ -1168,11 +1197,8 @@ pub fn vec_append(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (define B (mutable-vector 5 15 25)) ;;
 /// > (vector-ref B 2) ;; => 25
 /// ```
-#[steel_derive::native(name = "vector-ref", constant = true, arity = "Exact(2)")]
-pub fn vec_ref(args: &[SteelVal]) -> Result<SteelVal> {
-    let vec = &args[0];
-    let idx = &args[1];
-
+#[steel_derive::function(name = "vector-ref", constant = true)]
+pub fn vec_ref(vec: &SteelVal, idx: &SteelVal) -> Result<SteelVal> {
     // First, ensure the index is a valid non-negative integer
     if let SteelVal::IntV(i) = idx {
         if *i < 0 {
@@ -1184,8 +1210,13 @@ pub fn vec_ref(args: &[SteelVal]) -> Result<SteelVal> {
         // Now match on the vector type
         match vec {
             SteelVal::MutableVector(v) => {
-                let ptr = v.strong_ptr();
-                let guard = &ptr.read().value;
+                // TODO: If we move this into a context aware function,
+                // then we can avoid the lookup cost since we won't be in a safepoint.
+                // let ptr = v.strong_ptr();
+
+                // let guard = &ptr.read().value;
+
+                let guard = &unsafe { &*v.inner.as_ptr() }.read().value;
 
                 if idx_usize >= guard.len() {
                     stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());

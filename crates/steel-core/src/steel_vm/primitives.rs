@@ -43,10 +43,10 @@ use crate::{
             MUTABLE_VECTOR_POP_DEFINITION, MUTABLE_VECTOR_TO_STRING_DEFINITION,
             MUT_VECTOR_COPY_DEFINITION, MUT_VEC_APPEND_DEFINITION, MUT_VEC_CONSTRUCT_DEFINITION,
             MUT_VEC_CONSTRUCT_VEC_DEFINITION, MUT_VEC_GET_DEFINITION, MUT_VEC_LENGTH_DEFINITION,
-            MUT_VEC_PUSH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_TO_LIST_DEFINITION,
-            VECTOR_FILL_DEFINITION, VEC_APPEND_DEFINITION, VEC_CAR_DEFINITION, VEC_CDR_DEFINITION,
-            VEC_CONS_DEFINITION, VEC_LENGTH_DEFINITION, VEC_PUSH_DEFINITION, VEC_RANGE_DEFINITION,
-            VEC_REF_DEFINITION,
+            MUT_VEC_PUSH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_SWAP_DEFINITION,
+            MUT_VEC_TO_LIST_DEFINITION, VECTOR_FILL_DEFINITION, VEC_APPEND_DEFINITION,
+            VEC_CAR_DEFINITION, VEC_CDR_DEFINITION, VEC_CONS_DEFINITION, VEC_LENGTH_DEFINITION,
+            VEC_PUSH_DEFINITION, VEC_RANGE_DEFINITION, VEC_REF_DEFINITION,
         },
         ControlOperations, IoFunctions, MetaOperations, StreamOperations,
     },
@@ -858,6 +858,7 @@ fn vector_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/vectors");
     module
         .register_native_fn_definition(MUT_VEC_CONSTRUCT_DEFINITION)
+        .register_native_fn_definition(MUT_VEC_SWAP_DEFINITION)
         .register_native_fn_definition(MUT_VEC_CONSTRUCT_VEC_DEFINITION)
         .register_native_fn_definition(MAKE_VECTOR_DEFINITION)
         .register_native_fn_definition(MUT_VEC_TO_LIST_DEFINITION)
@@ -1237,6 +1238,7 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::MULTIPLY_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::DIVIDE_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::SUBTRACT_PRIMITIVE_DEFINITION)
+        .register_native_fn_definition(numbers::TRUNCATE_DEFINITION)
         .register_native_fn_definition(numbers::EVEN_DEFINITION)
         .register_native_fn_definition(numbers::ODD_DEFINITION)
         .register_native_fn_definition(numbers::ARITHMETIC_SHIFT_DEFINITION)
