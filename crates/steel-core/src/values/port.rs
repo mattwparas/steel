@@ -376,6 +376,14 @@ impl SteelPortRepr {
         )
     }
 
+    pub fn is_string_input(&self) -> bool {
+        matches!(self, SteelPortRepr::StringInput(_))
+    }
+
+    pub fn is_file_input(&self) -> bool {
+        matches!(self, SteelPortRepr::FileInput(_, _))
+    }
+
     pub fn is_output(&self) -> bool {
         matches!(
             self,
@@ -581,6 +589,14 @@ impl SteelPort {
     //
     pub fn is_input(&self) -> bool {
         self.port.read().is_input()
+    }
+
+    pub fn is_string_input(&self) -> bool {
+        self.port.read().is_string_input()
+    }
+
+    pub fn is_file_input(&self) -> bool {
+        self.port.read().is_file_input()
     }
 
     pub fn is_output(&self) -> bool {

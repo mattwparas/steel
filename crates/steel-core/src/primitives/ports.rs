@@ -44,6 +44,8 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(GET_OUTPUT_STRING_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(IS_INPUT_DEFINITION)
+        .register_native_fn_definition(IS_STRING_INPUT_DEFINITION)
+        .register_native_fn_definition(IS_FILE_INPUT_DEFINITION)
         .register_native_fn_definition(IS_OUTPUT_DEFINITION)
         .register_native_fn_definition(DEFAULT_INPUT_PORT_DEFINITION)
         .register_native_fn_definition(DEFAULT_OUTPUT_PORT_DEFINITION)
@@ -324,6 +326,44 @@ pub fn read_port_to_string(port: &SteelPort) -> Result<SteelVal> {
 pub fn is_input(maybe_port: &SteelVal) -> bool {
     if let SteelVal::PortV(port) = maybe_port {
         port.is_input()
+    } else {
+        false
+    }
+}
+
+/// Checks if a given value is a string input port
+///
+/// (string-input-port? any/c) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (string-input-port? (stdin)) ;; => #false
+/// > (string-input-port? (open-input-string "foo")) ;; => #true
+/// ```
+#[function(name = "#%string-input-port?")]
+pub fn is_string_input(maybe_port: &SteelVal) -> bool {
+    if let SteelVal::PortV(port) = maybe_port {
+        port.is_string_input()
+    } else {
+        false
+    }
+}
+
+/// Checks if a given value is a file input port
+///
+/// (file-input-port? any/c) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (file-input-port? (stdin)) ;; => #false
+/// > (file-input-port? (open-input-file "foo.scm")) ;; => #true
+/// ```
+#[function(name = "#%file-input-port?")]
+pub fn is_file_input(maybe_port: &SteelVal) -> bool {
+    if let SteelVal::PortV(port) = maybe_port {
+        port.is_file_input()
     } else {
         false
     }

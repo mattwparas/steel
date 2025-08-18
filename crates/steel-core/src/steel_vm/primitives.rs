@@ -1831,7 +1831,7 @@ impl Reader {
                     //     return Ok(SteelVal::Void);
                     // }
                     _ => {
-                        dbg!(parser.offset());
+                        // dbg!(parser.offset());
 
                         return Ok(SteelVal::Void);
                     }
@@ -1877,7 +1877,12 @@ impl Reader {
 #[steel_derive::context(name = "#%intern", arity = "Exact(1)")]
 pub fn intern_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut guard = ctx.thread.compiler.write();
-    let interned_index = guard.constant_map.add_or_get(args[0].clone());
+    let arg = args[0].clone();
+    if let SteelVal::Void = arg {
+        return Some(Ok(arg));
+    }
+
+    let interned_index = guard.constant_map.add_or_get(arg);
     let value = guard.constant_map.get(interned_index);
     Some(Ok(value))
 }

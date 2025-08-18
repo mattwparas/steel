@@ -299,6 +299,7 @@ pub struct Parser<'a> {
     comment_buffer: Vec<&'a str>,
     collecting_comments: bool,
     keep_lists: bool,
+    stack: Vec<Frame>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -352,6 +353,7 @@ impl<'a> Parser<'a> {
             comment_buffer: Vec::new(),
             collecting_comments: false,
             keep_lists: false,
+            stack: Vec::new(),
         }
     }
 
@@ -372,6 +374,7 @@ impl<'a> Parser<'a> {
             comment_buffer: Vec::new(),
             collecting_comments: false,
             keep_lists: true,
+            stack: Vec::new(),
         }
     }
 
@@ -391,6 +394,7 @@ impl<'a> Parser<'a> {
             comment_buffer: Vec::new(),
             collecting_comments: false,
             keep_lists: false,
+            stack: Vec::new(),
         }
     }
 
@@ -407,6 +411,7 @@ impl<'a> Parser<'a> {
             comment_buffer: Vec::new(),
             collecting_comments: false,
             keep_lists: false,
+            stack: Vec::new(),
         }
     }
 
@@ -562,7 +567,15 @@ impl<'a> Parser<'a> {
         let mut last = open;
 
         // Can we reuse this?
+        // TODO: I think we have to shove this into the parser state.
+        // Alongside the current frame and anything else.
+        //
+        // That way, we can just keep it around if we hit an EOF and
+        // we're in incremental mode, where we can keep feeding data
+        // in and it can continue to produce parsed values.
         let mut stack: Vec<Frame> = Vec::new();
+
+        // self.stack.clear();
 
         let mut current_frame = Frame {
             open,
