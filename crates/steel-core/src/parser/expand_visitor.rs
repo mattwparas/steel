@@ -1518,7 +1518,7 @@ mod expansion_tests {
                 PatternList::new(vec![
                     MacroPattern::Syntax("when".into()),
                     MacroPattern::Single("a".into()),
-                    MacroPattern::Many("b".into()),
+                    MacroPattern::Many(MacroPattern::Single("b".into()).into()),
                 ]),
                 If::new(
                     atom_identifier("a"),
