@@ -321,10 +321,6 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
             Unquote => Err(SteelErr::new(ErrorKind::UnexpectedToken, ",".to_string())),
             QuasiQuote => Err(SteelErr::new(ErrorKind::UnexpectedToken, "`".to_string())),
             UnquoteSplice => Err(SteelErr::new(ErrorKind::UnexpectedToken, ",@".to_string())),
-            Error => Err(SteelErr::new(
-                ErrorKind::UnexpectedToken,
-                "error".to_string(),
-            )),
             Comment => Err(SteelErr::new(
                 ErrorKind::UnexpectedToken,
                 "comment".to_string(),
@@ -383,9 +379,6 @@ impl TryFrom<SyntaxObject> for SteelVal {
             }
             UnquoteSplice => {
                 Err(SteelErr::new(ErrorKind::UnexpectedToken, ",@".to_string()).with_span(span))
-            }
-            Error => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "error".to_string()).with_span(span))
             }
             Comment => Err(
                 SteelErr::new(ErrorKind::UnexpectedToken, "comment".to_string()).with_span(span),
