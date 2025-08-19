@@ -2096,12 +2096,15 @@ impl ParallelMarker {
 
             let handle = std::thread::spawn(move || {
                 let cloned_queue = cloned_queue;
+                let mut local_queue = Vec::with_capacity(4096);
                 for _ in receiver {
                     let now = std::time::Instant::now();
 
                     let mut context = MarkAndSweepContextRefQueue {
                         queue: &cloned_queue,
-                        local_queue: Vec::with_capacity(4096),
+                        keep_alive: Vec::new(),
+                        // Allocate this queue once, don't keep allocating per thread.
+                        local_queue: &mut local_queue,
                         stats: MarkAndSweepStats::default(),
                     };
 
@@ -2368,10 +2371,14 @@ impl std::ops::Add for MarkAndSweepStats {
     }
 }
 
+// TODO: This should still use the queue, but instead we have to stash object with
+// which we have to acquire a read guard on. Otherwise it is possible we'll be
+// reading from invalid pointers.
 pub struct MarkAndSweepContextRefQueue<'a> {
     // Thread local queue + larger queue when it runs out?
     // Try to push on to local queue first.
-    local_queue: Vec<SteelValPointer>,
+    local_queue: &'a mut Vec<SteelValPointer>,
+    keep_alive: Vec<SteelVal>,
     queue: &'a crossbeam_queue::SegQueue<SteelValPointer>,
     stats: MarkAndSweepStats,
 }
