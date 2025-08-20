@@ -222,7 +222,8 @@ pub trait CustomType: MaybeSendSyncStatic {
     }
     fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
     fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
-    fn visit_children_ref_queue(&self, _context: &mut MarkAndSweepContextRefQueue) {}
+    // TODO: Add this back at some point
+    // fn visit_children_ref_queue(&self, _context: &mut MarkAndSweepContextRefQueue) {}
     fn visit_children_for_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
     fn check_equality_hint(&self, _other: &dyn CustomType) -> bool {
         true
@@ -1325,6 +1326,12 @@ pub enum SteelVal {
     Complex(Gc<SteelComplex>),
     // Byte vectors
     ByteVector(SteelByteVector),
+}
+
+impl Default for SteelVal {
+    fn default() -> Self {
+        SteelVal::Void
+    }
 }
 
 // Avoid as much dropping as possible. Otherwise we thrash the drop impl

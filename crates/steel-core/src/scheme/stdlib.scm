@@ -59,7 +59,8 @@
          values
          call-with-values
          #%register-struct-finalizer
-         #%start-will-executor)
+         #%start-will-executor
+         with-finalizer)
 
 ; (define-syntax steel/base
 ;   (syntax-rules ()
@@ -99,6 +100,8 @@
   (#%prim.will-register #%global-will-executor value finalizer)
   ; (stdout-simple-displayln "Done registering")
   value)
+
+(define with-finalizer #%register-struct-finalizer)
 
 ;; Note: The syntax-bindings and binding-kind will get updated in the kernel
 (define-syntax syntax

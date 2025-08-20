@@ -604,6 +604,7 @@ pub struct WillExecutor {
 // box?
 impl WillExecutor {
     fn block_until_incoming(&self) {
+        log::debug!(target: "will", "Blocking until something shows in the queue");
         if let Ok(next) = self.incoming.recv() {
             self.values.lock().unwrap().push(Some(next));
         }
@@ -611,20 +612,26 @@ impl WillExecutor {
 
     // Returns the pair of values next to be used. Not the best data structure choice.
     fn find_next(&self) -> Option<Pair> {
+        log::debug!(target: "will", "Finding the next value in the will executor list");
         // Proactively check if the value is ready to be received.
         // TODO: Merge the behavior below and above since we can just return this value
         // immediately without putting on to the queue.
         let top_guard = self.values.lock().unwrap();
         if top_guard.is_empty() && self.incoming.is_empty() {
+            log::debug!(target: "will", "Initial values list is empty. Waiting on the queue.");
             drop(top_guard);
 
             // Block until the next thing is pushed on
             if let Ok(next) = self.incoming.recv() {
+                log::debug!(target: "will", "Found a value off the queue, trying to lock the values.");
+
                 self.values.lock().unwrap().push(Some(next));
             }
         } else {
             drop(top_guard);
         }
+
+        log::debug!(target: "will", "Done optimistically checking off the queue. Locking the values.");
 
         let mut guard = self.values.lock().unwrap();
 
@@ -637,6 +644,10 @@ impl WillExecutor {
             guard.push(Some(incoming));
         }
 
+        log::debug!(target: "will", "Iterating over the values to drop");
+
+        // TODO:
+        // Periodically run a compaction on this
         for pair_slot in guard.iter_mut() {
             if let Some(value) = pair_slot {
                 let is_sole_reference = match value.car_ref() {
@@ -659,12 +670,21 @@ impl WillExecutor {
                     }
                     SteelVal::ListV(generic_list) => generic_list.strong_count() == 1,
                     SteelVal::Pair(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::MutableVector(heap_ref) => todo!(),
+
+                    // In theory, if this is a weak value, this can be the thing to check
+                    // the values.
+                    SteelVal::MutableVector(heap_ref) => {
+                        WeakShared::weak_count(&heap_ref.inner) == 1
+                            || !heap_ref.inner.upgrade().unwrap().read().is_reachable()
+                    }
                     SteelVal::BoxedIterator(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::SyntaxObject(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::Boxed(gc) => Gc::strong_count(gc) == 1,
-                    SteelVal::HeapAllocated(heap_ref) => todo!(),
-                    SteelVal::Reference(gc) => todo!(),
+                    SteelVal::HeapAllocated(heap_ref) => {
+                        WeakShared::weak_count(&heap_ref.inner) == 1
+                            || !heap_ref.inner.upgrade().unwrap().read().is_reachable()
+                    }
+                    SteelVal::Reference(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::BigNum(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::BigRational(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::Complex(gc) => Gc::strong_count(gc) == 1,
@@ -681,10 +701,14 @@ impl WillExecutor {
             }
         }
 
+        // Compact the values
+        guard.retain(|x| x.is_some());
+
         None
     }
 
     pub fn register(&self, key: SteelVal, func: SteelVal) -> Result<(), SteelErr> {
+        log::debug!(target: "will", "Registering: {}", key);
         if !func.is_function() {
             stop!(TypeMismatch => "will-register expects a function, found: {}", func)
         }
@@ -1347,45 +1371,7 @@ impl Heap {
         }
     }
 
-    // #[inline(always)]
-    // pub fn memory(&mut self) -> &mut Vec<HeapValue> {
-    //     match self.current {
-    //         CurrentSpace::From => &mut self.from_space,
-    //         CurrentSpace::To => &mut self.to_space,
-    //     }
-    // }
-
-    // Allocate this variable on the heap
-    // It explicitly should no longer be on the stack, and variables that
-    // reference it should be pointing here now
-    pub fn allocate_old<'a>(
-        &mut self,
-        value: SteelVal,
-        roots: &'a [SteelVal],
-        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: &'a [SteelVal],
-        tls: &'a [SteelVal],
-        synchronizer: &'a mut Synchronizer,
-    ) -> HeapRef<SteelVal> {
-        self.collect(
-            Some(value.clone()),
-            std::iter::empty(),
-            roots,
-            live_functions,
-            globals,
-            tls,
-            synchronizer,
-            false,
-        );
-
-        let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(value)));
-        let weak_ptr = StandardShared::downgrade(&pointer);
-
-        self.memory.push(pointer);
-
-        HeapRef { inner: weak_ptr }
-    }
-
+    // TODO: Get rid of this
     pub fn allocate_without_collection<'a>(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
         let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(value)));
         let weak_ptr = StandardShared::downgrade(&pointer);
@@ -1393,38 +1379,6 @@ impl Heap {
         self.memory.push(pointer);
 
         HeapRef { inner: weak_ptr }
-    }
-
-    // Allocate a vector explicitly onto the heap
-    pub fn allocate_vector_old<'a>(
-        &mut self,
-        values: Vec<SteelVal>,
-        roots: &'a [SteelVal],
-        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: &'a [SteelVal],
-        tls: &'a [SteelVal],
-        synchronizer: &'a mut Synchronizer,
-    ) -> HeapRef<Vec<SteelVal>> {
-        // let item = values.iter();
-        // self.collect(
-        //     None,
-        //     item,
-        //     roots,
-        //     live_functions,
-        //     globals,
-        //     tls,
-        //     synchronizer,
-        //     false,
-        // );
-
-        todo!();
-
-        // let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(values)));
-        // let weak_ptr = StandardShared::downgrade(&pointer);
-
-        // self.vectors.push(pointer);
-
-        // HeapRef { inner: weak_ptr }
     }
 
     fn vector_cells_allocated(&self) -> usize {
@@ -2199,7 +2153,6 @@ impl<T: HeapAble> HeapRef<T> {
     /// If this is the only thing pointing at it, then we need to drop it.
     pub(crate) fn maybe_get_from_weak(&self) -> Option<T> {
         let inner = self.inner.upgrade()?;
-        dbg!(StandardShared::weak_count(&inner));
 
         // Check if this thing is reachable? How?
         if StandardShared::weak_count(&inner) == 1 {
@@ -2419,6 +2372,10 @@ impl<'a> MarkAndSweepContextRefQueue<'a> {
         for value in heap_vector.read().value.iter() {
             self.push_back(&value);
         }
+    }
+
+    pub(crate) fn save(&mut self, value: SteelVal) {
+        self.keep_alive.push(value);
     }
 }
 
@@ -2662,7 +2619,6 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
     fn push_back(&mut self, value: &SteelVal) {
         self.stats.object_count += 1;
 
-        // TODO: Determine if all numbers should push back.
         match value {
             SteelVal::BoolV(_)
             | SteelVal::NumV(_)
@@ -2689,27 +2645,22 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
                 }
             }
         }
-
-        // if self.queue.len() > 4096 {
-        //     log::debug!(target: "gc", "Thread: {:?} -> {}", std::thread::current().id(), self.queue.len());
-        // }
-
-        // If the queue is big enough, chunk it up and send it on the queue?
     }
 
     // TODO: Revisit this when the boxed iterator is cleaned up
     fn visit_boxed_iterator(&mut self, iterator: &MutContainer<OpaqueIterator>) -> Self::Output {
-        self.push_back(&iterator.read().root);
+        let guard = iterator.read();
+        self.save(guard.root.clone());
+        self.push_back(&guard.root);
     }
+
     fn visit_boxed_value(&mut self, boxed_value: &MutContainer<SteelVal>) -> Self::Output {
-        self.push_back(&boxed_value.read());
+        let guard = boxed_value.read();
+        self.save(guard.clone());
+        self.push_back(&guard);
     }
 
     fn visit_closure(&mut self, closure: &ByteCodeLambda) -> Self::Output {
-        // for heap_ref in closure.heap_allocated.borrow().iter() {
-        //     self.mark_heap_reference(&heap_ref.strong_ptr())
-        // }
-
         for capture in closure.captures() {
             self.push_back(&capture);
         }
@@ -2728,25 +2679,25 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
         match &(*continuation) {
             ContinuationMark::Closed(continuation) => {
                 for value in &continuation.stack {
+                    self.save(value.clone());
                     self.push_back(&value);
                 }
 
                 for value in &continuation.current_frame.function.captures {
+                    self.save(value.clone());
                     self.push_back(&value);
                 }
 
                 for frame in &continuation.stack_frames {
                     for value in &frame.function.captures {
+                        self.save(value.clone());
                         self.push_back(&value);
                     }
-
-                    // if let Some(handler) = &frame.handler {
-                    //     self.push_back((*handler.as_ref()).clone());
-                    // }
 
                     if let Some(handler) =
                         frame.attachments.as_ref().and_then(|x| x.handler.clone())
                     {
+                        self.save(handler.clone());
                         self.push_back(&handler);
                     }
                 }
@@ -2754,10 +2705,12 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
 
             ContinuationMark::Open(continuation) => {
                 for value in &continuation.current_stack_values {
+                    self.save(value.clone());
                     self.push_back(value);
                 }
 
                 for value in &continuation.current_frame.function.captures {
+                    self.save(value.clone());
                     self.push_back(value);
                 }
             }
@@ -2768,9 +2721,21 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
         &mut self,
         custom_type: &'a MutContainer<Box<dyn CustomType>>,
     ) -> Self::Output {
+        // Use mark and sweep queue:
+        let mut queue = Vec::new();
+        let mut temporary_queue = MarkAndSweepContext {
+            queue: &mut queue,
+            object_count: 0,
+        };
+
         // Intercept the downstream ones, keep them alive by using
         // a local queue first, and then spilling over to the larger one.
-        custom_type.read().visit_children_ref_queue(self);
+        custom_type.read().visit_children(&mut temporary_queue);
+
+        for value in queue {
+            self.push_back(&value);
+            self.save(value);
+        }
     }
 
     fn visit_hash_map(&mut self, hashmap: &super::HashMap<SteelVal, SteelVal>) -> Self::Output {
