@@ -2763,15 +2763,14 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
             }
         }
     }
-    // TODO: Come back to this
+    // TODO: Come back to this?
     fn visit_custom_type(
         &mut self,
         custom_type: &'a MutContainer<Box<dyn CustomType>>,
     ) -> Self::Output {
-        // todo!()
+        // Intercept the downstream ones, keep them alive by using
+        // a local queue first, and then spilling over to the larger one.
         custom_type.read().visit_children_ref_queue(self);
-
-        // todo!()
     }
 
     fn visit_hash_map(&mut self, hashmap: &super::HashMap<SteelVal, SteelVal>) -> Self::Output {

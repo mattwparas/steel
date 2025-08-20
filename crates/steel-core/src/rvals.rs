@@ -1334,7 +1334,7 @@ pub(crate) enum SteelValPointer {
     /// Represents a bytecode closure.
     Closure(*const ByteCodeLambda),
     VectorV(*const Vector<SteelVal>),
-    Custom(*const RwLock<Box<dyn CustomType>>), // TODO: @Matt - consider using just a mutex here, to relax some of the bounds?
+    Custom(*const RwLock<Box<dyn CustomType>>),
     HashMapV(*const HashMap<SteelVal, SteelVal>),
     HashSetV(*const HashSet<SteelVal>),
     CustomStruct(*const UserDefinedStruct),

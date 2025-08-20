@@ -3199,6 +3199,7 @@ impl<'a> VmCore<'a> {
                     )?;
                 }
 
+                /*
                 DenseInstruction {
                     op_code: OpCode::CALLGLOBALIF,
                     payload_size,
@@ -3221,7 +3222,7 @@ impl<'a> VmCore<'a> {
                         }
                     }
                 }
-
+                */
                 DenseInstruction {
                     op_code: OpCode::CALLGLOBALTAIL,
                     payload_size,

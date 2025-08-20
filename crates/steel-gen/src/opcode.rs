@@ -119,7 +119,6 @@ declare_opcodes! {
         VEC;
         Apply;
         POPJMP;
-        CALLGLOBALTAILPOP;
         BINOPADDTAIL;
         LOADINT0POP; // Load const 0
         LOADINT1POP;
@@ -130,7 +129,6 @@ declare_opcodes! {
         VECTORREF;
         TRUE;
         FALSE;
-        CALLGLOBALIF;
         NULLIF;
         UNBOXCALL;
         UNBOXTAIL;

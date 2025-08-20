@@ -62,12 +62,11 @@ pub fn merge_call_global_if(instructions: &mut [Instruction]) {
             maybe_call_global.map(|x| x.op_code),
             maybe_if.map(|x| x.op_code),
         ) {
-            (Some(OpCode::CALLGLOBAL), Some(OpCode::IF)) => {
-                if let Some(x) = instructions.get_mut(i) {
-                    x.op_code = OpCode::CALLGLOBALIF;
-                }
-            }
-
+            // (Some(OpCode::CALLGLOBAL), Some(OpCode::IF)) => {
+            //     if let Some(x) = instructions.get_mut(i) {
+            //         x.op_code = OpCode::CALLGLOBALIF;
+            //     }
+            // }
             (Some(OpCode::NULL), Some(OpCode::IF)) => {
                 if let Some(x) = instructions.get_mut(i) {
                     x.op_code = OpCode::NULLIF;
