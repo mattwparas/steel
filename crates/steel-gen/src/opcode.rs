@@ -133,7 +133,14 @@ declare_opcodes! {
         UNBOXCALL;
         UNBOXTAIL;
         EQUALCONST;
-        EQUAL2
+        EQUAL2;
+        // Calling functions w/o arity checks, if we can statically assert
+        // that the arity check is correct. If the arity check _isn't_
+        // correct, then we won't report it at compile time.
+        CALLGLOBALNOARITY;
+        CALLGLOBALTAILNOARITY;
+        FUNCNOARITY;
+        TAILCALLNOARITY
     }
 
     // Super instructions

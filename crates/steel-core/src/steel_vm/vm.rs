@@ -2330,6 +2330,31 @@ impl<'a> VmCore<'a> {
         self.call_with_instructions_and_reset_state(closure.body_exp())
     }
 
+    pub(crate) fn call_with_one_arg_test<const M: bool>(
+        &mut self,
+        closure: &Gc<ByteCodeLambda>,
+        arg: SteelVal,
+    ) -> Result<SteelVal> {
+        let prev_length = self.thread.stack.len();
+
+        self.thread.stack_frames.push(StackFrame::new(
+            prev_length,
+            Gc::clone(closure),
+            0,
+            RootedInstructions::new(THE_EMPTY_INSTRUCTION_SET.with(|x| x.clone())),
+        ));
+
+        self.sp = prev_length;
+
+        self.thread.stack.push(arg);
+
+        if M {
+            self.adjust_stack_for_multi_arity(closure, 1, &mut 0)?;
+        }
+
+        self.call_with_instructions_and_reset_state(closure.body_exp())
+    }
+
     pub(crate) fn vm(&mut self) -> Result<SteelVal> {
         // if self.depth > 1024 {
         if self.depth > 1024 * 128 {
