@@ -733,9 +733,13 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         };
 
         if let Some(call_info) = self.analysis.call_info.get(&l.syntax_object_id) {
+            // TODO: Check the arity of the function call, against the arity
+            // of the bound identifier. This can probably be included in the analysis
+            // assuming we have it?
             let op_code = match call_info.kind {
                 Normal => OpCode::FUNC,
                 TailCall => OpCode::TAILCALL,
+                // Elide the arity checks, if we can
                 SelfTailCall(_) => {
                     // We don't need to push the function onto the stack if we're doing a self
                     // tail call
