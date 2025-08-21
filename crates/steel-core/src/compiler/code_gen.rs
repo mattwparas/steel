@@ -739,6 +739,14 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             let op_code = match call_info.kind {
                 Normal => OpCode::FUNC,
                 TailCall => OpCode::TAILCALL,
+                super::passes::analysis::CallKind::NoArityNormal => OpCode::FUNCNOARITY,
+                super::passes::analysis::CallKind::NoArityTailCall => OpCode::TAILCALLNOARITY,
+                super::passes::analysis::CallKind::NoAritySelfTailCall(_) => {
+                    // panic!();
+                    self.instructions.pop();
+                    // OpCode::SELFTAILCALLNOARITY
+                    OpCode::TCOJMP
+                }
                 // Elide the arity checks, if we can
                 SelfTailCall(_) => {
                     // We don't need to push the function onto the stack if we're doing a self

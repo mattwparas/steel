@@ -106,7 +106,9 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
         .register_native_fn_definition(READ_BYTES_DEFINITION)
         .register_native_fn_definition(READ_BYTES_INTO_BUF_DEFINITION)
         .register_native_fn_definition(WOULD_BLOCK_OBJECTP_DEFINITION)
-        .register_native_fn_definition(WOULD_BLOCK_OBJECT_DEFINITION);
+        .register_native_fn_definition(WOULD_BLOCK_OBJECT_DEFINITION)
+        .register_native_fn_definition(IS_STRING_INPUT_DEFINITION)
+        .register_native_fn_definition(IS_FILE_INPUT_DEFINITION);
     module
 }
 

@@ -339,13 +339,14 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                     ..
                 }),
                 Some(Instruction {
-                    op_code: OpCode::FUNC,
+                    op_code: func_op @ OpCode::FUNC | func_op @ OpCode::FUNCNOARITY,
                     payload_size: arity,
                     ..
                 }),
             ) => {
                 let arity = arity.to_usize();
                 let index = *index;
+                let func_op = *func_op;
 
                 if let TokenType::Identifier(ident) = ident.ty {
                     match ident {
@@ -452,7 +453,11 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 
                 // TODO:
                 if let Some(x) = instructions.get_mut(i) {
-                    x.op_code = OpCode::CALLGLOBAL;
+                    if func_op == OpCode::FUNC {
+                        x.op_code = OpCode::CALLGLOBAL;
+                    } else {
+                        x.op_code = OpCode::CALLGLOBALNOARITY;
+                    }
                     x.payload_size = index;
                 }
 
@@ -470,13 +475,14 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                     ..
                 }),
                 Some(Instruction {
-                    op_code: OpCode::TAILCALL,
+                    op_code: tail_op @ OpCode::TAILCALL | tail_op @ OpCode::TAILCALLNOARITY,
                     payload_size: arity,
                     ..
                 }),
             ) => {
                 let arity = arity.to_usize();
                 let index = *index;
+                let tail_op = *tail_op;
 
                 if let TokenType::Identifier(ident) = ident.ty {
                     match ident {
@@ -547,7 +553,11 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 }
 
                 if let Some(x) = instructions.get_mut(i) {
-                    x.op_code = OpCode::CALLGLOBALTAIL;
+                    if tail_op == OpCode::TAILCALL {
+                        x.op_code = OpCode::CALLGLOBALTAIL;
+                    } else {
+                        x.op_code = OpCode::CALLGLOBALTAILNOARITY;
+                    }
                     x.payload_size = index;
                 }
 
@@ -681,7 +691,12 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
 
         if let (
             Some(Instruction {
-                op_code: OpCode::PUSH | OpCode::CALLGLOBAL | OpCode::CALLGLOBALTAIL,
+                op_code:
+                    OpCode::PUSH
+                    | OpCode::CALLGLOBAL
+                    | OpCode::CALLGLOBALTAIL
+                    | OpCode::CALLGLOBALNOARITY
+                    | OpCode::CALLGLOBALTAILNOARITY,
                 ..
             }),
             Some(Instruction {

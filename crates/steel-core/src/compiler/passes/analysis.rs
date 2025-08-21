@@ -247,6 +247,10 @@ pub enum CallKind {
     Normal,
     TailCall,
     SelfTailCall(usize),
+
+    NoArityNormal,
+    NoArityTailCall,
+    NoAritySelfTailCall(usize),
     // TODO: Add variants here to elide bounds check
 }
 
@@ -2228,6 +2232,44 @@ where
     }
 }
 
+struct FindCallSitesManyMut<'a, F> {
+    analysis: &'a mut Analysis,
+    sets: HashSet<InternedString>,
+    func: F,
+}
+
+impl<'a, F> VisitorMutRefUnit for FindCallSitesManyMut<'a, F>
+where
+    F: FnMut(&mut Analysis, &mut List),
+{
+    fn visit_list(&mut self, l: &mut List) {
+        if let Some(name) = l.first_ident() {
+            if let Some(semantic_info) = self.analysis.get(l.args[0].atom_syntax_object().unwrap())
+            {
+                if semantic_info.kind == IdentifierStatus::Global {
+                    if self.sets.contains(name) {
+                        (self.func)(self.analysis, l);
+                    }
+                }
+            }
+
+            for arg in &mut l.args[1..] {
+                self.visit(arg);
+            }
+
+            return;
+        }
+
+        for arg in &mut l.args {
+            self.visit(arg);
+        }
+    }
+
+    // TODO: This shouldn't visit at all
+    #[inline]
+    fn visit_quote(&mut self, _quote: &mut Quote) {}
+}
+
 struct FindCallSitesMany<'a, F> {
     analysis: &'a Analysis,
     map: HashMap<InternedString, F>,
@@ -4063,23 +4105,73 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     pub fn analyze_arity_checks(&mut self) -> Result<(), SteelErr> {
-        // can we do this...
-        // First, do a pass and map function name(?) to the slot that is resides
-        let mut map: HashMap<u32, (usize, Option<usize>)> = HashMap::new();
+        // First, collect the arity of the function calls, and then
+        // otherwise annontate them with the fact that they are multi arity. Then we're going
+        // to walk through and update the call information with the arity, assuming
+        // the arity matches appropriately.
+        let mut map: HashMap<InternedString, usize> = HashMap::new();
 
         for expr in self.exprs.iter() {
             match expr {
                 ExprKind::Begin(b) => {
-                    todo!()
+                    for expr in b.exprs.iter() {
+                        if let ExprKind::Define(d) = expr {
+                            if let ExprKind::LambdaFunction(l) = &d.body {
+                                if let Some(name) = d.name.atom_identifier() {
+                                    if !l.rest {
+                                        if let Some(so) = d.name.atom_syntax_object() {
+                                            if let Some(analysis) = self.analysis.get(so) {
+                                                // Its not set, so we're okay to do this, assuming
+                                                // its also not accessible at the top level.
+                                                if !analysis.set_bang
+                                                    && name.resolve().starts_with("##")
+                                                {
+                                                    map.insert(*name, l.args.len());
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 ExprKind::Define(d) => {
-                    todo!()
+                    if let ExprKind::LambdaFunction(l) = &d.body {
+                        if let Some(name) = d.name.atom_identifier() {
+                            if !l.rest {
+                                if let Some(so) = d.name.atom_syntax_object() {
+                                    if let Some(analysis) = self.analysis.get(so) {
+                                        // Its not set, so we're okay to do this, assuming
+                                        // its also not accessible at the top level.
+                                        if !analysis.set_bang && name.resolve().starts_with("##") {
+                                            map.insert(*name, l.args.len());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 _ => {}
             }
         }
 
-        todo!()
+        let sets = map.keys().copied().collect::<HashSet<_>>();
+        let func = move |analysis: &mut Analysis, call_site: &mut List| {
+            let call_site_id = call_site.syntax_object_id;
+            if let Some(call) = analysis.call_info.get_mut(&call_site_id) {
+                match call.kind {
+                    CallKind::Normal => call.kind = CallKind::NoArityNormal,
+                    CallKind::TailCall => call.kind = CallKind::NoArityTailCall,
+                    CallKind::SelfTailCall(a) => call.kind = CallKind::NoAritySelfTailCall(a),
+                    _ => {}
+                }
+            }
+        };
+        self.find_call_sites_and_modify_with_many_mut(sets, func);
+
+        Ok(())
     }
 
     pub fn inline_function_calls(&mut self, size: Option<usize>) -> Result<(), SteelErr> {
@@ -4813,6 +4905,24 @@ impl<'a> SemanticAnalysis<'a> {
         let mut find_call_sites = FindCallSitesMany {
             analysis: &self.analysis,
             map: mapping,
+        };
+
+        for expr in self.exprs.iter_mut() {
+            find_call_sites.visit(expr);
+        }
+    }
+
+    pub fn find_call_sites_and_modify_with_many_mut<F>(
+        &mut self,
+        sets: HashSet<InternedString>,
+        func: F,
+    ) where
+        F: FnMut(&mut Analysis, &mut List),
+    {
+        let mut find_call_sites = FindCallSitesManyMut {
+            analysis: &mut self.analysis,
+            sets,
+            func,
         };
 
         for expr in self.exprs.iter_mut() {

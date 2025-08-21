@@ -140,7 +140,8 @@ declare_opcodes! {
         CALLGLOBALNOARITY;
         CALLGLOBALTAILNOARITY;
         FUNCNOARITY;
-        TAILCALLNOARITY
+        TAILCALLNOARITY;
+        SELFTAILCALLNOARITY
     }
 
     // Super instructions

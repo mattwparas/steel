@@ -168,7 +168,7 @@ impl DebruijnIndicesInterner {
                 }
                 (
                     Instruction {
-                        op_code: OpCode::CALLGLOBAL,
+                        op_code: OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY,
                         contents:
                             Some(Expr::Atom(SyntaxObject {
                                 ty: TokenType::Identifier(s),
@@ -321,7 +321,7 @@ impl DebruijnIndicesInterner {
                     }
                 }
                 Instruction {
-                    op_code: OpCode::CALLGLOBAL,
+                    op_code: OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY,
                     contents:
                         Some(Expr::Atom(SyntaxObject {
                             ty: TokenType::Identifier(s),
@@ -331,7 +331,7 @@ impl DebruijnIndicesInterner {
                     ..
                 }
                 | Instruction {
-                    op_code: OpCode::CALLGLOBALTAIL,
+                    op_code: OpCode::CALLGLOBALTAIL | OpCode::CALLGLOBALTAILNOARITY,
                     contents:
                         Some(Expr::Atom(SyntaxObject {
                             ty: TokenType::Identifier(s),
@@ -837,7 +837,7 @@ impl Compiler {
 
     fn generate_instructions_for_executable(
         &mut self,
-        expanded_statements: Vec<ExprKind>,
+        mut expanded_statements: Vec<ExprKind>,
     ) -> Result<Vec<Vec<Instruction>>> {
         let mut results = Vec::with_capacity(expanded_statements.len());
         // let mut instruction_buffer = Vec::new();
@@ -854,6 +854,10 @@ impl Compiler {
             // analysis.populate_captures(&expanded_statements);
             analysis
         };
+
+        let mut analysis = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+        analysis.analyze_arity_checks()?;
+        let analysis = analysis.into_analysis();
 
         for expr in expanded_statements {
             let instructions =
@@ -1254,6 +1258,9 @@ impl Compiler {
         semantic.replace_anonymous_function_calls_with_plain_lets();
 
         semantic.refresh_variables();
+
+        // Lets see what this does...
+        // semantic.analyze_arity_checks();
 
         // Flatten the empty lets
         // semantic.flatten_empty_lets();

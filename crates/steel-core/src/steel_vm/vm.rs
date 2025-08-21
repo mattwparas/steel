@@ -59,14 +59,11 @@ use crate::{
 use std::io::Read as _;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::sync::LazyLock;
 use std::sync::Mutex;
 use std::{cell::RefCell, collections::HashMap, iter::Iterator};
 
 use super::engine::EngineId;
 
-use crossbeam_channel::Receiver;
-use crossbeam_channel::Sender;
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
@@ -3224,6 +3221,19 @@ impl<'a> VmCore<'a> {
                     )?;
                 }
 
+                DenseInstruction {
+                    op_code: OpCode::CALLGLOBALNOARITY,
+                    payload_size,
+                    ..
+                } => {
+                    self.ip += 1;
+                    let next_inst = self.instructions[self.ip];
+                    self.handle_call_global_no_arity(
+                        payload_size.to_usize(),
+                        next_inst.payload_size.to_usize(),
+                    )?;
+                }
+
                 /*
                 DenseInstruction {
                     op_code: OpCode::CALLGLOBALIF,
@@ -3305,8 +3315,67 @@ impl<'a> VmCore<'a> {
                         }
                     }?
                 }
+
                 DenseInstruction {
-                    op_code: OpCode::FUNC,
+                    op_code: OpCode::CALLGLOBALTAILNOARITY,
+                    payload_size,
+                    ..
+                } => {
+                    let next_inst = self.instructions[self.ip + 1];
+                    // self.handle_tail_call_global(
+                    //     payload_size.to_usize(),
+                    //     next_inst.payload_size.to_usize(),
+                    // )?;
+
+                    let stack_func = self
+                        .thread
+                        .global_env
+                        .repl_lookup_idx(payload_size.to_usize());
+                    self.ip += 1;
+                    let payload_size = next_inst.payload_size.to_usize();
+                    // self.handle_tail_call(stack_func, next_inst.payload_size.to_usize());
+
+                    use SteelVal::*;
+
+                    match stack_func {
+                        FuncV(f) => {
+                            let last_index = self.thread.stack.len() - payload_size;
+                            let result =
+                                match self.thread.enter_safepoint(move |ctx: &SteelThread| {
+                                    f(&ctx.stack[last_index..])
+                                }) {
+                                    Ok(v) => v,
+                                    Err(e) => return Err(e.set_span_if_none(self.current_span())),
+                                };
+
+                            // This is the old way... lets see if the below way improves the speed
+                            self.thread.stack.truncate(last_index);
+                            if let Some(r) = self.handle_pop_pure_value(result) {
+                                return r;
+                            }
+                            Ok(())
+                        }
+                        MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
+                        BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
+                        Closure(closure) => {
+                            self.new_handle_tail_call_closure(closure, payload_size)
+                        }
+                        BuiltIn(f) => self.call_builtin_func(f, payload_size),
+                        CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+                        ContinuationFunction(cc) => self.call_continuation(cc),
+                        _ => {
+                            // println!("{:?}", self.stack);
+                            // println!("{:?}", self.stack_index);
+                            // println!("Bad tail call");
+                            // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                            stop!(BadSyntax => format!("TailCall - Application not a procedure or function type
+                    not supported: {stack_func}"); self.current_span());
+                        }
+                    }?
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::FUNC | OpCode::FUNCNOARITY,
                     payload_size,
                     ..
                 } => {
@@ -3317,7 +3386,7 @@ impl<'a> VmCore<'a> {
                 // Tail call basically says "hey this function is exiting"
                 // In the closure case, transfer ownership of the stack to the called function
                 DenseInstruction {
-                    op_code: OpCode::TAILCALL,
+                    op_code: OpCode::TAILCALL | OpCode::TAILCALLNOARITY,
                     payload_size,
                     ..
                 } => {
@@ -3847,6 +3916,14 @@ impl<'a> VmCore<'a> {
         // Boxed functions probably _should_ be rooted in the modules?
         let func = self.thread.global_env.repl_lookup_idx(index);
         self.handle_global_function_call(func, payload_size)
+    }
+
+    #[inline(always)]
+    fn handle_call_global_no_arity(&mut self, index: usize, payload_size: usize) -> Result<()> {
+        // TODO: Lazily fetch the function. Avoid cloning where relevant.
+        // Boxed functions probably _should_ be rooted in the modules?
+        let func = self.thread.global_env.repl_lookup_idx(index);
+        self.handle_global_function_call_no_arity(func, payload_size)
     }
 
     #[inline(always)]
@@ -4715,17 +4792,46 @@ impl<'a> VmCore<'a> {
         closure: Gc<ByteCodeLambda>,
         payload_size: usize,
     ) -> Result<()> {
-        // Record the end of the existing sequence
-        // self.cut_sequence();
+        self.adjust_stack_for_multi_arity(&closure, payload_size, &mut 0)?;
+        self.sp = self.thread.stack.len() - closure.arity();
 
-        // Jit profiling -> Make sure that we really only trace once we pass a certain threshold
-        // For instance, if this function
-        #[cfg(feature = "dynamic")]
+        #[cfg(not(feature = "rooted-instructions"))]
         {
-            closure.increment_call_count();
+            let mut instructions = closure.body_exp();
+
+            std::mem::swap(&mut instructions, &mut self.instructions);
+
+            // Do this _after_ the multi arity business
+            // TODO: can these rcs be avoided
+            self.thread.stack_frames.push(
+                StackFrame::new(self.sp, closure, self.ip + 1, instructions), // .with_span(self.current_span()),
+            );
         }
 
-        self.adjust_stack_for_multi_arity(&closure, payload_size, &mut 0)?;
+        #[cfg(feature = "rooted-instructions")]
+        {
+            let frame = StackFrame {
+                sp: self.sp,
+                function: closure,
+                ip: self.ip + 1,
+                instructions: self.instructions,
+                attachments: None,
+            };
+            self.instructions = frame.function.body_exp();
+            self.thread.stack_frames.push(frame);
+        }
+
+        self.check_stack_overflow()?;
+        self.pop_count += 1;
+        self.ip = 0;
+        Ok(())
+    }
+
+    #[inline(always)]
+    fn handle_function_call_closure_jit_no_arity(
+        &mut self,
+        closure: Gc<ByteCodeLambda>,
+    ) -> Result<()> {
         self.sp = self.thread.stack.len() - closure.arity();
 
         #[cfg(not(feature = "rooted-instructions"))]
@@ -4768,13 +4874,6 @@ impl<'a> VmCore<'a> {
     ) -> Result<()> {
         use SteelVal::*;
 
-        // if let SteelVal::Closure(_) = &stack_func {
-        //     println!(
-        //         "Calling: {:?}",
-        //         crate::steel_vm::primitives::lookup_function_name(stack_func.clone())
-        //     );
-        // }
-
         match stack_func {
             Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size),
             FuncV(f) => self.call_primitive_func(f, payload_size),
@@ -4791,6 +4890,29 @@ impl<'a> VmCore<'a> {
         }
     }
 
+    #[inline(always)]
+    fn handle_global_function_call_no_arity(
+        &mut self,
+        stack_func: SteelVal,
+        payload_size: usize,
+    ) -> Result<()> {
+        use SteelVal::*;
+
+        match stack_func {
+            Closure(closure) => self.handle_function_call_closure_jit_no_arity(closure),
+            FuncV(f) => self.call_primitive_func(f, payload_size),
+            BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
+            MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
+            FutureFunc(f) => self.call_future_func(f, payload_size),
+            ContinuationFunction(cc) => self.call_continuation(cc),
+            BuiltIn(f) => self.call_builtin_func(f, payload_size),
+            CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+            _ => {
+                cold();
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); self.current_span());
+            }
+        }
+    }
     #[inline(always)]
     fn handle_global_function_call_no_stack(
         &mut self,
@@ -5279,7 +5401,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
 
     let tail_call = matches!(
         current_instruction.op_code,
-        OpCode::TAILCALL | OpCode::CALLGLOBALTAIL
+        OpCode::TAILCALL | OpCode::CALLGLOBALTAIL | OpCode::CALLGLOBALTAILNOARITY
     );
 
     let Executable {
@@ -5788,7 +5910,7 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 
     let tail_call = matches!(
         current_instruction.op_code,
-        OpCode::TAILCALL | OpCode::CALLGLOBALTAIL
+        OpCode::TAILCALL | OpCode::CALLGLOBALTAIL | OpCode::CALLGLOBALTAILNOARITY
     );
 
     let mut arg_iter = args.iter();

@@ -245,7 +245,11 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
             match instruction.op_code {
                 // If this instruction touches this global variable,
                 // then we want to mark it as possibly referenced here.
-                OpCode::CALLGLOBAL | OpCode::PUSH | OpCode::CALLGLOBALTAIL => {
+                OpCode::CALLGLOBAL
+                | OpCode::PUSH
+                | OpCode::CALLGLOBALTAIL
+                | OpCode::CALLGLOBALNOARITY
+                | OpCode::CALLGLOBALTAILNOARITY => {
                     self.slots.remove(&(instruction.payload_size.to_usize()));
                 }
                 _ => {}
