@@ -247,6 +247,7 @@ pub enum CallKind {
     Normal,
     TailCall,
     SelfTailCall(usize),
+    // TODO: Add variants here to elide bounds check
 }
 
 #[derive(Debug, Clone)]
@@ -4059,6 +4060,26 @@ impl<'a> SemanticAnalysis<'a> {
         name: A,
     ) -> Option<&crate::parser::ast::Define> {
         query_top_level_define(self.exprs, name)
+    }
+
+    pub fn analyze_arity_checks(&mut self) -> Result<(), SteelErr> {
+        // can we do this...
+        // First, do a pass and map function name(?) to the slot that is resides
+        let mut map: HashMap<u32, (usize, Option<usize>)> = HashMap::new();
+
+        for expr in self.exprs.iter() {
+            match expr {
+                ExprKind::Begin(b) => {
+                    todo!()
+                }
+                ExprKind::Define(d) => {
+                    todo!()
+                }
+                _ => {}
+            }
+        }
+
+        todo!()
     }
 
     pub fn inline_function_calls(&mut self, size: Option<usize>) -> Result<(), SteelErr> {
