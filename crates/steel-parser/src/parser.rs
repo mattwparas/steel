@@ -299,7 +299,6 @@ pub struct Parser<'a> {
     comment_buffer: Vec<&'a str>,
     collecting_comments: bool,
     keep_lists: bool,
-    stack: Vec<Frame>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -343,7 +342,7 @@ pub type Result<T> = result::Result<T, ParseError>;
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str, source_id: Option<SourceId>) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(),
             quote_stack: Vec::new(),
             quasiquote_depth: 0,
             quote_context: false,
@@ -353,7 +352,6 @@ impl<'a> Parser<'a> {
             comment_buffer: Vec::new(),
             collecting_comments: false,
             keep_lists: false,
-            stack: Vec::new(),
         }
     }
 
@@ -364,7 +362,7 @@ impl<'a> Parser<'a> {
 
     pub fn new_flat(input: &'a str, source_id: Option<SourceId>) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(),
             quote_stack: Vec::new(),
             quasiquote_depth: 0,
             quote_context: false,
@@ -374,7 +372,6 @@ impl<'a> Parser<'a> {
             comment_buffer: Vec::new(),
             collecting_comments: false,
             keep_lists: true,
-            stack: Vec::new(),
         }
     }
 
@@ -384,7 +381,7 @@ impl<'a> Parser<'a> {
         source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(),
             quote_stack: Vec::new(),
             quasiquote_depth: 0,
             quote_context: false,
@@ -394,14 +391,13 @@ impl<'a> Parser<'a> {
             comment_buffer: Vec::new(),
             collecting_comments: false,
             keep_lists: false,
-            stack: Vec::new(),
         }
     }
 
     // Attach comments!
     pub fn doc_comment_parser(input: &'a str, source_id: Option<SourceId>) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(),
             quote_stack: Vec::new(),
             quasiquote_depth: 0,
             quote_context: false,
@@ -411,7 +407,6 @@ impl<'a> Parser<'a> {
             comment_buffer: Vec::new(),
             collecting_comments: false,
             keep_lists: false,
-            stack: Vec::new(),
         }
     }
 

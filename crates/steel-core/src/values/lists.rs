@@ -62,54 +62,6 @@ thread_local! {
     pub static DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
-#[cfg(feature = "triomphe")]
-pub struct TriopmhePointerType;
-
-#[cfg(feature = "triomphe")]
-impl PointerFamily for TriopmhePointerType {
-    type Pointer<T: 'static> = triomphe::Arc<T>;
-
-    fn new<T: 'static>(value: T) -> Self::Pointer<T> {
-        triomphe::Arc::new(value)
-    }
-
-    fn strong_count<T: 'static>(this: &Self::Pointer<T>) -> usize {
-        triomphe::Arc::strong_count(this)
-    }
-
-    fn try_unwrap<T: 'static>(this: Self::Pointer<T>) -> Option<T> {
-        triomphe::Arc::try_unwrap(this).ok()
-    }
-
-    fn get_mut<T: 'static>(this: &mut Self::Pointer<T>) -> Option<&mut T> {
-        triomphe::Arc::get_mut(this)
-    }
-
-    fn ptr_eq<T: 'static>(this: &Self::Pointer<T>, other: &Self::Pointer<T>) -> bool {
-        triomphe::Arc::ptr_eq(this, other)
-    }
-
-    fn make_mut<T: Clone + 'static>(ptr: &mut Self::Pointer<T>) -> &mut T {
-        triomphe::Arc::make_mut(ptr)
-    }
-
-    fn clone<T: 'static>(ptr: &Self::Pointer<T>) -> Self::Pointer<T> {
-        triomphe::Arc::clone(ptr)
-    }
-
-    fn as_ptr<T: 'static>(this: &Self::Pointer<T>) -> *const T {
-        triomphe::Arc::as_ptr(this)
-    }
-
-    fn into_raw<T: 'static>(this: Self::Pointer<T>) -> *const T {
-        triomphe::Arc::into_raw(this)
-    }
-
-    unsafe fn from_raw<T: 'static>(this: *const T) -> Self::Pointer<T> {
-        triomphe::Arc::from_raw(this)
-    }
-}
-
 pub struct GcPointerType;
 
 impl PointerFamily for GcPointerType {
@@ -292,11 +244,7 @@ mod list_drop_handler {
     }
 }
 
-#[cfg(not(feature = "triomphe"))]
 type PointerType = GcPointerType;
-
-#[cfg(feature = "triomphe")]
-type PointerType = TriopmhePointerType;
 
 pub type SteelList<T> = im_lists::list::GenericList<T, PointerType, 4, 2, DefaultDropHandler>;
 

@@ -7,7 +7,6 @@ use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
 use std::char;
 use std::iter::Iterator;
-use std::marker::PhantomData;
 use std::sync::Arc;
 use std::{iter::Peekable, str::Chars};
 
@@ -595,7 +594,7 @@ impl<'a> TokenStream<'a> {
         res
     }
 
-    pub fn into_owned<T, F: ToOwnedString<T>>(self, adapter: F) -> OwnedTokenStream<'a> {
+    pub fn into_owned(self) -> OwnedTokenStream<'a> {
         OwnedTokenStream { stream: self }
     }
 }

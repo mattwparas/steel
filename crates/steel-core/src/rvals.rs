@@ -21,7 +21,7 @@ use crate::{
         threads::closure_into_serializable, BuiltInSignature, Continuation, ContinuationMark,
     },
     values::{
-        closed::{Heap, HeapRef, MarkAndSweepContext, MarkAndSweepContextRefQueue},
+        closed::{Heap, HeapRef, MarkAndSweepContext},
         functions::{BoxedDynFunction, ByteCodeLambda},
         lazy_stream::LazyStream,
         port::{SendablePort, SteelPort},

@@ -3,6 +3,9 @@ use std::{cell::RefCell, collections::HashSet, sync::Arc, thread::JoinHandle};
 #[cfg(feature = "sync")]
 use std::sync::Mutex;
 
+#[cfg(feature = "sync")]
+use crate::rvals::cycles::BreadthFirstSearchSteelValReferenceVisitor2;
+
 use crate::{
     compiler::map::SymbolMap,
     gc::{
@@ -10,8 +13,8 @@ use crate::{
         GcMut,
     },
     rvals::{
-        cycles::BreadthFirstSearchSteelValReferenceVisitor2, AsRefSteelVal, Custom, IntoSteelVal,
-        OpaqueIterator, RestArgsIter, SteelComplex, SteelValPointer, SteelVector,
+        AsRefSteelVal, Custom, IntoSteelVal, OpaqueIterator, RestArgsIter, SteelComplex,
+        SteelValPointer, SteelVector,
     },
     steel_vm::vm::{apply, Continuation, ContinuationMark, Synchronizer, VmCore},
     values::lists::List,
@@ -301,7 +304,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output {
         let mut queue = MarkAndSweepContext {
             queue: &mut self.queue,
-            object_count: 0,
+            stats: MarkAndSweepStats::default(),
         };
 
         custom_type.read().visit_children(&mut queue);
@@ -331,7 +334,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output {
         let mut queue = MarkAndSweepContext {
             queue: &mut self.queue,
-            object_count: 0,
+            stats: MarkAndSweepStats::default(),
         };
 
         queue.mark_heap_reference(&heap_ref.strong_ptr());
@@ -357,7 +360,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output {
         let mut queue = MarkAndSweepContext {
             queue: &mut self.queue,
-            object_count: 0,
+            stats: MarkAndSweepStats::default(),
         };
 
         queue.mark_heap_vector(&vector.strong_ptr())
@@ -433,7 +436,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
 
 const GC_THRESHOLD: usize = 256 * 1000;
 const GC_GROW_FACTOR: usize = 2;
-const RESET_LIMIT: usize = 6;
+const RESET_LIMIT: usize = 8;
 
 // TODO: Do these roots needs to be truly global?
 // Replace this with a lazy static
@@ -528,26 +531,10 @@ impl SteelVal {
     }
 }
 
-// type HeapValue = SharedMut<HeapAllocated<SteelVal>>;
-// type HeapVector = SharedMut<HeapAllocated<Vec<SteelVal>>>;
-
 type HeapValue = StandardSharedMut<HeapAllocated<SteelVal>>;
 type HeapVector = StandardSharedMut<HeapAllocated<Vec<SteelVal>>>;
 
 type HeapElement<T> = StandardSharedMut<HeapAllocated<T>>;
-
-#[derive(Copy, Clone)]
-enum Reachable {
-    // This is legal to allocate from
-    Dead,
-
-    // Definitely unreachable. These are legal to be allocated from
-    Black,
-    // Maybe reachable. Things that survive a collection
-    Grey,
-    // Reachable. Post collection, we want to reset things to be reachable.
-    White,
-}
 
 static MARKER: std::sync::LazyLock<ParallelMarker> = std::sync::LazyLock::new(ParallelMarker::new);
 
@@ -855,7 +842,10 @@ struct FreeList<T: HeapAble> {
     alloc_count: usize,
 
     grow_count: usize,
+
+    #[cfg(feature = "sync")]
     forward: Option<Sender<Vec<HeapElement<T>>>>,
+    #[cfg(feature = "sync")]
     backward: Option<Receiver<Vec<HeapElement<T>>>>,
 }
 
@@ -878,7 +868,9 @@ impl<T: HeapAble> Clone for FreeList<T> {
                     }))
                 })
                 .collect(),
+            #[cfg(feature = "sync")]
             forward: None,
+            #[cfg(feature = "sync")]
             backward: None,
         }
     }
@@ -973,6 +965,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     const EXTEND_CHUNK: usize = 256 * 100;
 
     fn new() -> Self {
+        #[cfg(feature = "sync")]
         let (forward_sender, backward_receiver) = spawn_background_dropper();
 
         let mut res = FreeList {
@@ -980,7 +973,9 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
             cursor: 0,
             alloc_count: 0,
             grow_count: 0,
+            #[cfg(feature = "sync")]
             forward: Some(forward_sender),
+            #[cfg(feature = "sync")]
             backward: Some(backward_receiver),
         };
 
@@ -988,17 +983,6 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
         res
     }
-
-    // Send the other block to the background for compaction
-    // fn swap_blocks(&mut self) {
-    //     let memory = std::mem::take(&mut self.elements);
-    //     self.forward.send(memory).unwrap();
-    //     self.elements = self.backward.recv().unwrap();
-
-    //     self.alloc_count = 0;
-    //     self.grow_count = 0;
-    //     self.extend_heap();
-    // }
 
     // Update the counts for things
     fn recount(&mut self) {
@@ -1009,7 +993,6 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
                 // Replace with an empty value... for now.
                 // Want to keep the memory counts down.
                 // let value = std::mem::replace(&mut guard.value, T::empty());
-
                 self.alloc_count += 1;
             }
         }
@@ -1182,12 +1165,19 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     // Compact every once in a while
     // TODO: Move this on to its own thread
     fn compact(&mut self) {
-        // self.elements.retain(|x| x.read().is_reachable());
-        // self.elements.shrink_to_fit();
-
+        #[cfg(feature = "sync")]
         if let Some(sender) = &self.forward {
             sender.send(std::mem::take(&mut self.elements)).unwrap();
             self.elements = self.backward.as_ref().unwrap().recv().unwrap();
+        } else {
+            self.elements.retain(|x| x.read().is_reachable());
+            self.elements.shrink_to_fit();
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            self.elements.retain(|x| x.read().is_reachable());
+            self.elements.shrink_to_fit();
         }
 
         log::debug!(target: "gc", "Heap size after compaction: {}", self.elements.len());
@@ -1444,7 +1434,7 @@ impl Heap {
                     self.vector_free_list.elements.len() - stats.vector_reached_count;
 
                 // Estimate what that memory size is?
-                if self.memory_free_list.grow_count > 7 {
+                if self.memory_free_list.grow_count > RESET_LIMIT {
                     // Compact the free list.
                     self.memory_free_list.compact();
                 } else {
@@ -1495,14 +1485,14 @@ impl Heap {
         synchronizer: &'a mut Synchronizer,
         force: bool,
     ) {
-        if self.vector_free_list.percent_full() > 0.95 {
+        if self.vector_free_list.percent_full() > 0.95 || force {
             let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
             self.vector_free_list.weak_collection();
             log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
-            if self.vector_free_list.percent_full() > 0.95 {
+            if self.vector_free_list.percent_full() > 0.95 || force {
                 self.vector_free_list.mark_all_unreachable();
 
                 let stats = self.mark_and_sweep_new(
@@ -1522,13 +1512,12 @@ impl Heap {
                     self.memory_free_list.elements.len() - stats.memory_reached_count;
 
                 // if self.vector_free_list.percent_full() > 0.75 {
-                if self.vector_free_list.grow_count > 7 {
+                if self.vector_free_list.grow_count > RESET_LIMIT {
                     // Compact the free list.
                     self.vector_free_list.compact();
                 } else {
                     self.vector_free_list.grow();
                 }
-                // }
 
                 self.vector_free_list.grow();
             }
@@ -1650,7 +1639,7 @@ impl Heap {
 
         let mut context = MarkAndSweepContext {
             queue: &mut self.mark_and_sweep_queue,
-            object_count: 0,
+            stats: MarkAndSweepStats::default(),
         };
 
         // Pause all threads
@@ -1682,10 +1671,6 @@ impl Heap {
         }
 
         for function in function_stack {
-            // for heap_ref in function.heap_allocated.borrow().iter() {
-            //     context.mark_heap_reference(&heap_ref.strong_ptr())
-            // }
-
             for value in function.captures() {
                 context.push_back(value.clone());
             }
@@ -1715,19 +1700,19 @@ impl Heap {
         // and do them that way?
         log::debug!(target: "gc", "Stack size: {}", context.queue.len());
 
-        // Just use the old one... if its not sync
+        #[cfg(feature = "sync")]
         let count = MARKER.mark(&context.queue);
+
+        {
+            context.visit();
+        }
+
         log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
         count
     }
 }
 
-struct VecWrapper(Vec<*const SteelVal>);
-
-unsafe impl Sync for VecWrapper {}
-unsafe impl Send for VecWrapper {}
-
-// Shared resource?
+#[cfg(feature = "sync")]
 #[derive(Clone)]
 struct ParallelMarker {
     // Chunks of the roots for marking
@@ -1735,9 +1720,12 @@ struct ParallelMarker {
     queue: Arc<crossbeam_queue::SegQueue<SteelValPointer>>,
 }
 
+#[cfg(feature = "sync")]
 unsafe impl Sync for ParallelMarker {}
+#[cfg(feature = "sync")]
 unsafe impl Send for ParallelMarker {}
 
+#[cfg(feature = "sync")]
 struct MarkerWorker {
     // Tell the thread to wake up
     sender: Sender<()>,
@@ -1745,6 +1733,7 @@ struct MarkerWorker {
     handle: JoinHandle<()>,
 }
 
+#[cfg(feature = "sync")]
 impl ParallelMarker {
     pub fn new() -> Self {
         // No parallelism
@@ -1837,27 +1826,15 @@ impl HeapAble for Vec<SteelVal> {
     }
 }
 
-// fn test_borrow() {
-//     let mut value = vec![1, 2, 3, 4, 5];
-//     HeapAble::reuse(&mut value, &[1, 2, 3, 4, 5]);
-// }
-
 #[derive(Clone, Debug)]
 pub struct HeapRef<T: HeapAble> {
     pub(crate) inner: WeakShared<MutContainer<HeapAllocated<T>>>,
 }
 
-const USE_UNSAFE: bool = true;
-
 impl<T: HeapAble> HeapRef<T> {
     #[inline(always)]
     pub fn get(&self) -> T {
-        // Atomic cell instead? That way we can just do an atomic swap rather than a rw lock?
-        if USE_UNSAFE {
-            unsafe { &*self.inner.as_ptr() }.read().value.clone()
-        } else {
-            self.inner.upgrade().unwrap().read().value.clone()
-        }
+        self.inner.upgrade().unwrap().read().value.clone()
     }
 
     /// Get the value if the pointer is still valid.
@@ -1932,27 +1909,14 @@ impl<T: HeapAble> HeapRef<T> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HeapAllocated<T: Clone + std::fmt::Debug + PartialEq + Eq> {
-    // TODO: We have room for more bits here. We can add a destructor
-    // flag and have minor collections run more frequently on allocation.
-    //
-    // These will send the unreachable values out of view to a background
-    // thread where the value will _then_ be called with a destructor.
-    //
-    // Also add a flag for whether this is pointed to be a weak box.
-    // This can let us eagerly free on a weak collection, since anything
-    // thrown inside the box could stop being help reasonably quickly and
-    // would allow us to avoid running a gc collection to free things.
     pub(crate) reachable: bool,
-
     pub(crate) finalizer: bool,
-
     pub(crate) value: T,
 }
 
 #[test]
 fn check_size_of_heap_allocated_value() {
     println!("{:?}", std::mem::size_of::<HeapAllocated<SteelVal>>());
-    // println!("{:?}", std::mem::size_of::<Test>());
 }
 
 impl<T: Clone + std::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {
@@ -1979,7 +1943,7 @@ impl<T: Clone + std::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {
 
 pub struct MarkAndSweepContext<'a> {
     queue: &'a mut Vec<SteelVal>,
-    object_count: usize,
+    stats: MarkAndSweepStats,
 }
 
 impl<'a> MarkAndSweepContext<'a> {
@@ -1994,6 +1958,8 @@ impl<'a> MarkAndSweepContext<'a> {
         {
             heap_ref.write().mark_reachable();
         }
+
+        self.stats.memory_reached_count += 1;
 
         self.push_back(heap_ref.read().value.clone());
     }
@@ -2010,6 +1976,8 @@ impl<'a> MarkAndSweepContext<'a> {
         {
             heap_vector.write().mark_reachable();
         }
+
+        self.stats.vector_reached_count += 1;
 
         for value in heap_vector.read().value.iter() {
             self.push_back(value.clone());
@@ -2036,9 +2004,7 @@ impl std::ops::Add for MarkAndSweepStats {
     }
 }
 
-// TODO: This should still use the queue, but instead we have to stash object with
-// which we have to acquire a read guard on. Otherwise it is possible we'll be
-// reading from invalid pointers.
+#[cfg(feature = "sync")]
 pub struct MarkAndSweepContextRefQueue<'a> {
     // Thread local queue + larger queue when it runs out?
     // Try to push on to local queue first.
@@ -2101,7 +2067,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     }
 
     fn push_back(&mut self, value: SteelVal) {
-        self.object_count += 1;
+        self.stats.object_count += 1;
 
         // TODO: Determine if all numbers should push back.
         match &value {
@@ -2316,6 +2282,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
     }
 }
 
+#[cfg(feature = "sync")]
 impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContextRefQueue<'a> {
     type Output = ();
 
@@ -2436,12 +2403,16 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
         let mut queue = Vec::new();
         let mut temporary_queue = MarkAndSweepContext {
             queue: &mut queue,
-            object_count: 0,
+            stats: MarkAndSweepStats::default(),
         };
 
         // Intercept the downstream ones, keep them alive by using
         // a local queue first, and then spilling over to the larger one.
         custom_type.read().visit_children(&mut temporary_queue);
+
+        self.stats.memory_reached_count += temporary_queue.stats.memory_reached_count;
+        self.stats.object_count += temporary_queue.stats.object_count;
+        self.stats.vector_reached_count += temporary_queue.stats.vector_reached_count;
 
         for value in queue {
             self.push_back(&value);
