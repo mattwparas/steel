@@ -61,10 +61,7 @@ use crate::{
         vm::threads::threading_module,
     },
     values::{
-        closed::{
-            HeapRef, MAKE_WEAK_BOX_DEFINITION, MAKE_WILL_EXECUTOR_DEFINITION,
-            WEAK_BOX_VALUE_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
-        },
+        closed::{HeapRef, MAKE_WEAK_BOX_DEFINITION, WEAK_BOX_VALUE_DEFINITION},
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
         lists::{List, SteelList},
         structs::{
@@ -73,6 +70,11 @@ use crate::{
         },
     },
 };
+
+use crate::values::closed::{
+    MAKE_WILL_EXECUTOR_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
+};
+
 use crate::{
     rvals::IntoSteelVal,
     values::structs::{build_option_structs, build_result_structs},
@@ -2106,9 +2108,6 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(SET_BOX_DEFINITION)
         .register_native_fn_definition(MAKE_WEAK_BOX_DEFINITION)
         .register_native_fn_definition(WEAK_BOX_VALUE_DEFINITION)
-        .register_native_fn_definition(WILL_EXECUTE_DEFINITION)
-        .register_native_fn_definition(WILL_REGISTER_DEFINITION)
-        .register_native_fn_definition(MAKE_WILL_EXECUTOR_DEFINITION)
         .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
         .register_value("#%gc-collect", SteelVal::BuiltIn(gc_collection))
         .register_value("box", SteelVal::BuiltIn(make_mutable_box))
@@ -2145,6 +2144,11 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(ERROR_OBJECT_MESSAGE_DEFINITION)
         .register_fn("steel-home-location", steel_home)
         .register_fn("%#interner-memory-usage", interned_current_memory_usage);
+
+    module
+        .register_native_fn_definition(WILL_EXECUTE_DEFINITION)
+        .register_native_fn_definition(WILL_REGISTER_DEFINITION)
+        .register_native_fn_definition(MAKE_WILL_EXECUTOR_DEFINITION);
 
     #[cfg(not(feature = "dylibs"))]
     module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);

@@ -1212,11 +1212,8 @@ pub fn vec_ref(vec: &SteelVal, idx: &SteelVal) -> Result<SteelVal> {
             SteelVal::MutableVector(v) => {
                 // TODO: If we move this into a context aware function,
                 // then we can avoid the lookup cost since we won't be in a safepoint.
-                // let ptr = v.strong_ptr();
-
-                // let guard = &ptr.read().value;
-
-                let guard = &unsafe { &*v.inner.as_ptr() }.read().value;
+                let ptr = v.strong_ptr();
+                let guard = &ptr.read().value;
 
                 if idx_usize >= guard.len() {
                     stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());

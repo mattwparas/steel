@@ -1,10 +1,16 @@
-use std::{cell::RefCell, collections::HashSet, sync::Arc, thread::JoinHandle};
+use std::{cell::RefCell, collections::HashSet};
+
+#[cfg(feature = "sync")]
+use std::{sync::Arc, thread::JoinHandle};
 
 #[cfg(feature = "sync")]
 use std::sync::Mutex;
 
 #[cfg(feature = "sync")]
 use crate::rvals::cycles::BreadthFirstSearchSteelValReferenceVisitor2;
+
+#[cfg(feature = "sync")]
+use crate::rvals::SteelValPointer;
 
 use crate::{
     compiler::map::SymbolMap,
@@ -14,13 +20,19 @@ use crate::{
     },
     rvals::{
         AsRefSteelVal, Custom, IntoSteelVal, OpaqueIterator, RestArgsIter, SteelComplex,
-        SteelValPointer, SteelVector,
+        SteelVector,
     },
-    steel_vm::vm::{apply, Continuation, ContinuationMark, Synchronizer, VmCore},
+    steel_vm::vm::{Continuation, ContinuationMark, Synchronizer, VmCore},
     values::lists::List,
     SteelErr,
 };
+
+#[cfg(feature = "sync")]
+use crate::steel_vm::vm::apply;
+
+#[cfg(feature = "sync")]
 use crossbeam_channel::{Receiver, Sender};
+
 use num_bigint::BigInt;
 use num_rational::{BigRational, Rational32};
 
@@ -44,12 +56,16 @@ use crate::{
 use super::{
     functions::BoxedDynFunction,
     lazy_stream::LazyStream,
-    lists::Pair,
     port::SteelPort,
     structs::UserDefinedStruct,
     transducers::{Reducer, Transducer},
-    Vector,
 };
+
+#[cfg(feature = "sync")]
+use super::lists::Pair;
+
+#[cfg(feature = "sync")]
+use super::Vector;
 
 #[derive(Default)]
 pub struct GlobalSlotRecycler {
@@ -536,46 +552,10 @@ type HeapVector = StandardSharedMut<HeapAllocated<Vec<SteelVal>>>;
 
 type HeapElement<T> = StandardSharedMut<HeapAllocated<T>>;
 
+#[cfg(feature = "sync")]
 static MARKER: std::sync::LazyLock<ParallelMarker> = std::sync::LazyLock::new(ParallelMarker::new);
 
-// This can get pretty big. Don't want to have to re allocate every time it grows.
-// "Growing" in this case is going to be putting a new block on to the back of the
-// pointers. Yes, we'll do some pointer chasing, but it should be okay.
-struct MemoryBlocks<T: HeapAble> {
-    current_block: usize,
-
-    // We should always have one pinned memory block. We probably can use like
-    // Arc<[Foo]> since we don't actually need that capacity. Dropping can just be popping
-    // off blocks that we don't need anymore.
-    blocks: Vec<Vec<HeapElement<T>>>,
-}
-
-impl<T: HeapAble> MemoryBlocks<T> {
-    pub fn new() -> Self {
-        Self {
-            current_block: 0,
-            blocks: Vec::new(),
-        }
-    }
-
-    pub fn grow(&mut self) {
-        let current_block = &self.blocks[self.current_block];
-        let size = current_block.len();
-        let new_block = 2 * size;
-
-        // Append new block.
-        self.blocks.push(
-            std::iter::repeat_with(|| {
-                StandardShared::new(MutContainer::new(HeapAllocated::new(T::empty())))
-            })
-            .take(new_block)
-            .collect(),
-        );
-    }
-}
-
-// Allocate a box, and put it in here
-// to be marked as reachable?
+#[cfg(feature = "sync")]
 pub struct WillExecutor {
     // Determining if these are reachable should be either:
     // * Value is a weak reference: then you use weak references
@@ -590,9 +570,10 @@ pub struct WillExecutor {
     sender: Sender<Pair>,
 }
 
-// Check the strong counts. If the strong count is 1 for a value if its a GC pointer,
-// then we can can drop it and call the thunk. It should probably get placed into a weak
-// box?
+#[cfg(not(feature = "sync"))]
+pub struct WillExecutor {}
+
+#[cfg(feature = "sync")]
 impl WillExecutor {
     fn block_until_incoming(&self) {
         log::debug!(target: "will", "Blocking until something shows in the queue");
@@ -715,9 +696,9 @@ impl WillExecutor {
     }
 }
 
-// Doesn't reach the children values?
 impl Custom for WillExecutor {}
 
+#[cfg(feature = "sync")]
 #[steel_derive::function(name = "make-will-executor")]
 pub fn make_will_executor() -> Result<SteelVal, SteelErr> {
     let (sender, incoming) = crossbeam_channel::unbounded();
@@ -729,6 +710,13 @@ pub fn make_will_executor() -> Result<SteelVal, SteelErr> {
     .into_steelval()
 }
 
+#[cfg(not(feature = "sync"))]
+#[steel_derive::function(name = "make-will-executor")]
+pub fn make_will_executor() -> Result<SteelVal, SteelErr> {
+    WillExecutor {}.into_steelval()
+}
+
+#[cfg(feature = "sync")]
 #[steel_derive::context(name = "will-execute", arity = "Exact(1)")]
 pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
     let executor = WillExecutor::as_ref(&args[0]).unwrap();
@@ -757,6 +745,14 @@ pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     }
 }
 
+#[cfg(not(feature = "sync"))]
+#[steel_derive::context(name = "will-execute", arity = "Exact(1)")]
+pub fn will_execute(_ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal, SteelErr>> {
+    let _ = WillExecutor::as_ref(&args[0]).unwrap();
+    Some(Ok(SteelVal::Void))
+}
+
+#[cfg(feature = "sync")]
 #[steel_derive::function(name = "will-register")]
 pub fn will_register(
     will: SteelVal,
@@ -765,6 +761,16 @@ pub fn will_register(
 ) -> Result<SteelVal, SteelErr> {
     let will = WillExecutor::as_ref(&will)?;
     will.register(value, func)?;
+    Ok(SteelVal::Void)
+}
+
+#[cfg(not(feature = "sync"))]
+#[steel_derive::function(name = "will-register")]
+pub fn will_register(
+    _will: SteelVal,
+    _value: SteelVal,
+    _func: SteelVal,
+) -> Result<SteelVal, SteelErr> {
     Ok(SteelVal::Void)
 }
 
@@ -959,7 +965,245 @@ fn free_list_continues_allocating_in_the_middle() {
     drop(right_half)
 }
 
+#[cfg(feature = "sync")]
 impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
+    // TODO: Calculate the overhead!
+    // How big is this?
+    const EXTEND_CHUNK: usize = 256 * 100;
+
+    fn new() -> Self {
+        #[cfg(feature = "sync")]
+        let (forward_sender, backward_receiver) = spawn_background_dropper();
+
+        let mut res = FreeList {
+            elements: Vec::new(),
+            cursor: 0,
+            alloc_count: 0,
+            grow_count: 0,
+            #[cfg(feature = "sync")]
+            forward: Some(forward_sender),
+            #[cfg(feature = "sync")]
+            backward: Some(backward_receiver),
+        };
+
+        res.grow();
+
+        res
+    }
+
+    // Update the counts for things
+    fn recount(&mut self) {
+        self.alloc_count = 0;
+        for element in &mut self.elements {
+            let guard = element.read();
+            if !guard.is_reachable() {
+                // Replace with an empty value... for now.
+                // Want to keep the memory counts down.
+                // let value = std::mem::replace(&mut guard.value, T::empty());
+                self.alloc_count += 1;
+            }
+        }
+    }
+
+    fn percent_full(&self) -> f64 {
+        let count = self.elements.len() as f64;
+
+        let percent = (count - self.alloc_count as f64) / count;
+
+        assert!(percent < 1.01);
+
+        percent
+    }
+
+    fn is_heap_full(&self) -> bool {
+        self.alloc_count == 0
+    }
+
+    fn grow(&mut self) {
+        let now = std::time::Instant::now();
+        // Can probably make this a lot bigger
+        let current = self.elements.len().max(Self::EXTEND_CHUNK);
+
+        self.cursor = self.elements.len();
+
+        self.elements.reserve(current);
+
+        log::debug!(target: "gc", "Time to extend the heap vec -> {:?}", now.elapsed());
+
+        let now = std::time::Instant::now();
+
+        // Can we pre allocate this somewhere else? Incrementally allocate the values?
+        // So basically we can have the elements be allocated vs not, and just have them
+        // be snatched on demand?
+        self.elements.extend(
+            std::iter::repeat_with(|| {
+                StandardShared::new(MutContainer::new(HeapAllocated::new(T::empty())))
+            })
+            .take(current),
+        );
+
+        log::debug!(target: "gc", "Growing the heap by: {} -> {:?}", current, now.elapsed());
+
+        self.alloc_count += current;
+        self.grow_count += 1;
+
+        #[cfg(debug_assertions)]
+        {
+            assert!(!self.elements[self.cursor].read().is_reachable());
+        }
+    }
+
+    // Extend the heap
+    fn extend_heap(&mut self) {
+        self.grow();
+
+        #[cfg(debug_assertions)]
+        {
+            assert!(!self.elements[self.cursor].read().is_reachable());
+        }
+    }
+
+    // if it points to another thing, consider marking it as unreachable?
+    fn seek_to_next_free(&mut self) {
+        todo!()
+    }
+
+    fn allocate(&mut self, value: T) -> HeapRef<T> {
+        // Drain, moving values around...
+        // is that expensive?
+        let guard = &mut self.elements[self.cursor];
+
+        // Allocate into this field
+        let mut heap_guard = guard.write();
+
+        // TODO: If the guard is registered with a will executor,
+        // then we shouldn't mark this value as eligible to be
+        // freed?
+        heap_guard.value = value;
+
+        heap_guard.reachable = true;
+        let weak_ptr = StandardShared::downgrade(&guard);
+        drop(heap_guard);
+
+        // self.elements[self.cursor] = pointer;
+        self.alloc_count -= 1;
+
+        // Find where to assign the next slot optimistically?
+        let next_slot = self.elements[self.cursor..]
+            .iter()
+            .position(|x| !x.read().is_reachable());
+
+        if let Some(next_slot) = next_slot {
+            self.cursor += next_slot;
+
+            // #[cfg(debug_assertions)]
+            // {
+            // assert!(!self.elements[self.cursor].read().is_reachable());
+            // }
+        } else {
+            // TODO: Handle compaction and moving things around so the
+            // cursor has a chance to actually find stuff that has been
+            // freed. It would also be nice
+            if self.is_heap_full() {
+                log::debug!(target: "gc", "Extending the heap in `allocate`");
+
+                // Extend the heap, move the cursor to the end
+                self.extend_heap();
+
+                // assert!(!self.elements[self.cursor].read().is_reachable());
+            } else {
+                // Move to the beginning.
+                self.cursor = self
+                    .elements
+                    .iter()
+                    .position(|x| !x.read().is_reachable())
+                    .unwrap();
+
+                // assert!(!self.elements[self.cursor].read().is_reachable());
+            }
+        }
+
+        // assert!(!self.elements[self.cursor].read().is_reachable());
+
+        HeapRef { inner: weak_ptr }
+    }
+
+    // Can incrementally collect with the from / to space, assuming that the collections
+    // are done incrementally from the other side.
+    fn collect_on_condition(&mut self, func: fn(&HeapElement<T>) -> bool) -> usize {
+        log::debug!(target: "gc", "Free count before weak collection: {}", self.alloc_count);
+        let mut amount_dropped = 0;
+
+        self.elements.iter_mut().for_each(|x| {
+            // This is... a little gnarly? We don't want to lock each time, but it could
+            // help. Allocations can now be genuinely reused since we're manipulating
+            // what is inside the pointer
+            if func(x) {
+                let mut guard = x.write();
+
+                if guard.reachable {
+                    guard.reachable = false;
+                    amount_dropped += 1;
+                }
+            }
+        });
+
+        self.alloc_count += amount_dropped;
+        log::debug!(target: "gc", "Free count after weak collection: {}", self.alloc_count);
+
+        amount_dropped
+    }
+
+    // Full weak collection
+    fn weak_collection(&mut self) -> usize {
+        // Just mark them to be dead
+        let res = self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0);
+        #[cfg(debug_assertions)]
+        {
+            assert!(!self.elements[self.cursor].read().is_reachable());
+        }
+        res
+    }
+
+    fn mark_all_unreachable(&mut self) {
+        self.elements.iter_mut().for_each(|x| x.write().reset());
+    }
+
+    // Compact every once in a while
+    // TODO: Move this on to its own thread
+    fn compact(&mut self) {
+        #[cfg(feature = "sync")]
+        if let Some(sender) = &self.forward {
+            sender.send(std::mem::take(&mut self.elements)).unwrap();
+            self.elements = self.backward.as_ref().unwrap().recv().unwrap();
+        } else {
+            self.elements.retain(|x| x.read().is_reachable());
+            self.elements.shrink_to_fit();
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            self.elements.retain(|x| x.read().is_reachable());
+            self.elements.shrink_to_fit();
+        }
+
+        log::debug!(target: "gc", "Heap size after compaction: {}", self.elements.len());
+        self.alloc_count = 0;
+        self.grow_count = 0;
+        self.extend_heap();
+        #[cfg(debug_assertions)]
+        {
+            assert!(!self.elements[self.cursor].read().is_reachable());
+        }
+    }
+
+    fn strong_collection(&mut self) -> usize {
+        self.collect_on_condition(|inner| !inner.read().is_reachable())
+    }
+}
+
+#[cfg(not(feature = "sync"))]
+impl<T: HeapAble + 'static> FreeList<T> {
     // TODO: Calculate the overhead!
     // How big is this?
     const EXTEND_CHUNK: usize = 256 * 100;
@@ -1260,7 +1504,7 @@ impl FreeList<Vec<SteelVal>> {
     }
 }
 
-// Try out the background dropper as a way to eliminate big pauses
+#[cfg(feature = "sync")]
 fn spawn_background_dropper<T: HeapAble + Sync + Send + 'static>(
 ) -> (Sender<Vec<HeapElement<T>>>, Receiver<Vec<HeapElement<T>>>) {
     let (forward_sender, forward_receiver) = crossbeam_channel::bounded(0);
@@ -1283,13 +1527,6 @@ fn spawn_background_dropper<T: HeapAble + Sync + Send + 'static>(
     (forward_sender, backward_receiver)
 }
 
-// TODO: If this proves to be faster, make these From(Vec<HeapValue>)
-#[derive(Copy, Clone)]
-enum CurrentSpace {
-    From,
-    To,
-}
-
 /// The heap for steel currently uses an allocation scheme based on weak references
 /// to reference counted pointers. Allocation is just a `Vec<Rc<RefCell<T>>>`, where
 /// allocating simply pushes and allocates a value at the end. When we do a collection,
@@ -1299,7 +1536,6 @@ enum CurrentSpace {
 pub struct Heap {
     count: usize,
     mark_and_sweep_queue: Vec<SteelVal>,
-    test_queue: Vec<*const SteelVal>,
 
     maybe_memory_size: usize,
 
@@ -1308,7 +1544,9 @@ pub struct Heap {
     vector_free_list: FreeList<Vec<SteelVal>>,
 }
 
+#[cfg(feature = "sync")]
 unsafe impl Send for Heap {}
+#[cfg(feature = "sync")]
 unsafe impl Sync for Heap {}
 
 // Contiguous... no good? Perhaps a free list is actually better here?
@@ -1327,8 +1565,6 @@ impl Heap {
             // mark_and_sweep_queue: VecDeque::with_capacity(256),
             mark_and_sweep_queue: Vec::with_capacity(256),
 
-            test_queue: Vec::with_capacity(256),
-
             maybe_memory_size: 0,
 
             skip_minor_collection: false,
@@ -1342,7 +1578,6 @@ impl Heap {
         Heap {
             count: 0,
             mark_and_sweep_queue: Vec::new(),
-            test_queue: Vec::new(),
             maybe_memory_size: 0,
             skip_minor_collection: false,
             memory_free_list: FreeList::new(),
@@ -1703,9 +1938,11 @@ impl Heap {
         #[cfg(feature = "sync")]
         let count = MARKER.mark(&context.queue);
 
-        {
+        #[cfg(not(feature = "sync"))]
+        let count = {
             context.visit();
-        }
+            context.stats
+        };
 
         log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
         count
@@ -2013,6 +2250,7 @@ pub struct MarkAndSweepContextRefQueue<'a> {
     stats: MarkAndSweepStats,
 }
 
+#[cfg(feature = "sync")]
 impl<'a> MarkAndSweepContextRefQueue<'a> {
     pub(crate) fn mark_heap_reference(
         &mut self,

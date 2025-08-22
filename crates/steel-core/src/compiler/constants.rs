@@ -1,6 +1,9 @@
 use crate::gc::shared::MutContainer;
 
-#[cfg(not(feature = "triomphe"))]
+// #[cfg(not(feature = "triomphe"))]
+// use crate::gc::shared::ShareableMut;
+
+#[cfg(not(feature = "sync"))]
 use crate::gc::shared::ShareableMut;
 
 use crate::gc::{Shared, SharedMut};
