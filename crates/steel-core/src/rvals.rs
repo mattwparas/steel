@@ -979,22 +979,26 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
 
                         if let Some(value) = value {
                             let value = from_serializable_value(ctx, value);
-                            let allocation = ctx.heap.allocate_without_collection(value);
 
-                            ctx.fake_heap
-                                .insert(v, SerializedHeapRef::Closed(allocation.clone()));
+                            todo!()
+                            // let allocation = ctx.heap.allocate_without_collection(value);
 
-                            SteelVal::HeapAllocated(allocation)
+                            // ctx.fake_heap
+                            //     .insert(v, SerializedHeapRef::Closed(allocation.clone()));
+
+                            // SteelVal::HeapAllocated(allocation)
                         } else {
                             // println!("If we're getting here - it means the value from the heap has already
                             // been converting. if so, we should do something...");
 
-                            let fake_allocation =
-                                ctx.heap.allocate_without_collection(SteelVal::Void);
+                            todo!()
 
-                            ctx.values_to_fill_in.insert(v, fake_allocation.clone());
+                            // let fake_allocation =
+                            //     ctx.heap.allocate_without_collection(SteelVal::Void);
 
-                            SteelVal::HeapAllocated(fake_allocation)
+                            // ctx.values_to_fill_in.insert(v, fake_allocation.clone());
+
+                            // SteelVal::HeapAllocated(fake_allocation)
                         }
                     }
 
@@ -1003,12 +1007,14 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             } else {
                 // Shouldn't silently fail here, but we will... for now
 
-                let allocation = ctx.heap.allocate_without_collection(SteelVal::Void);
+                // let allocation = ctx.heap.allocate_without_collection(SteelVal::Void);
 
-                ctx.fake_heap
-                    .insert(v, SerializedHeapRef::Closed(allocation.clone()));
+                // ctx.fake_heap
+                //     .insert(v, SerializedHeapRef::Closed(allocation.clone()));
 
-                SteelVal::HeapAllocated(allocation)
+                // SteelVal::HeapAllocated(allocation)
+
+                todo!()
             }
         }
         SerializableSteelVal::Pair(pair) => {

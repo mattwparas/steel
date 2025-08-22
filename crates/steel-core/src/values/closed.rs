@@ -433,7 +433,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
 
 const GC_THRESHOLD: usize = 256 * 1000;
 const GC_GROW_FACTOR: usize = 2;
-const RESET_LIMIT: usize = 5;
+const RESET_LIMIT: usize = 6;
 
 // TODO: Do these roots needs to be truly global?
 // Replace this with a lazy static
@@ -970,7 +970,7 @@ fn free_list_continues_allocating_in_the_middle() {
 impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     // TODO: Calculate the overhead!
     // How big is this?
-    const EXTEND_CHUNK: usize = 256 * 1000;
+    const EXTEND_CHUNK: usize = 256 * 100;
 
     fn new() -> Self {
         let (forward_sender, backward_receiver) = spawn_background_dropper();
@@ -1307,13 +1307,8 @@ enum CurrentSpace {
 /// pointing to it.
 #[derive(Clone)]
 pub struct Heap {
-    memory: Vec<HeapValue>,
-
-    vectors: Vec<HeapVector>,
     count: usize,
-    threshold: usize,
     mark_and_sweep_queue: Vec<SteelVal>,
-
     test_queue: Vec<*const SteelVal>,
 
     maybe_memory_size: usize,
@@ -1338,14 +1333,7 @@ type MemoryBlock = (Vec<HeapValue>, Vec<HeapVector>);
 impl Heap {
     pub fn new() -> Self {
         Heap {
-            memory: Vec::with_capacity(256),
-
-            // from_space: Vec::with_capacity(256),
-            // to_space: Vec::with_capacity(256),
-            // current: CurrentSpace::From,
-            vectors: Vec::with_capacity(256),
             count: 0,
-            threshold: GC_THRESHOLD,
             // mark_and_sweep_queue: VecDeque::with_capacity(256),
             mark_and_sweep_queue: Vec::with_capacity(256),
 
@@ -1362,10 +1350,7 @@ impl Heap {
 
     pub fn new_empty() -> Self {
         Heap {
-            memory: Vec::new(),
-            vectors: Vec::new(),
             count: 0,
-            threshold: GC_THRESHOLD,
             mark_and_sweep_queue: Vec::new(),
             test_queue: Vec::new(),
             maybe_memory_size: 0,
@@ -1373,135 +1358,6 @@ impl Heap {
             memory_free_list: FreeList::new(),
             vector_free_list: FreeList::new(),
         }
-    }
-
-    // TODO: Get rid of this
-    pub fn allocate_without_collection<'a>(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
-        let pointer = StandardShared::new(MutContainer::new(HeapAllocated::new(value)));
-        let weak_ptr = StandardShared::downgrade(&pointer);
-
-        self.memory.push(pointer);
-
-        HeapRef { inner: weak_ptr }
-    }
-
-    fn vector_cells_allocated(&self) -> usize {
-        // self.vectors.iter().map(|x| x.borrow().value.len()).sum()
-        self.vectors.len()
-    }
-
-    pub fn weak_collection(&mut self) {
-        self.memory.retain(|x| StandardShared::weak_count(x) > 0);
-        self.vectors.retain(|x| StandardShared::weak_count(x) > 0);
-    }
-
-    // TODO: Call this in more areas in the VM to attempt to free memory more carefully
-    // Also - come up with generational scheme if possible
-    pub fn collect<'a>(
-        &mut self,
-        root_value: Option<SteelVal>,
-        root_vector: impl Iterator<Item = SteelVal>,
-        roots: &'a [SteelVal],
-        live_functions: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: &'a [SteelVal],
-        tls: &'a [SteelVal],
-        synchronizer: &'a mut Synchronizer,
-        force_full: bool,
-    ) -> usize {
-        let memory_size = self.memory.len() + self.vector_cells_allocated();
-
-        if memory_size > self.threshold || force_full {
-            log::debug!(target: "gc", "Freeing memory");
-
-            let original_length = memory_size;
-
-            // Do at least one small collection, where we immediately drop
-            // anything that has weak counts of 0, meaning there are no alive
-            // references and we can avoid doing a full collection
-            //
-            // In the event that the collection does not yield a substantial
-            // change in the heap size, we should also enqueue a larger mark and
-            // sweep collection.
-            let mut changed = true;
-            let mut i = 0;
-
-            // From the prior run. If we made no progress from a minor collection,
-            // we should simply skip it this time. Since its likely that we won't
-            // continue to make progress with running a minor collection.
-            if !self.skip_minor_collection {
-                while changed && i < 3 {
-                    let now = std::time::Instant::now();
-
-                    log::debug!(target: "gc", "Small collection");
-                    let prior_len = self.memory.len() + self.vector_cells_allocated();
-                    log::debug!(target: "gc", "Previous length: {:?}", prior_len);
-
-                    self.weak_collection();
-
-                    let after = self.memory.len() + self.vector_cells_allocated();
-                    log::debug!(target: "gc", "Objects freed: {:?}", prior_len - after);
-                    log::debug!(target: "gc", "Small collection time: {:?}", now.elapsed());
-
-                    changed = prior_len != after;
-
-                    i += 1;
-                }
-            }
-
-            let post_small_collection_size = self.memory.len() + self.vector_cells_allocated();
-
-            let mut amount = 0;
-
-            // Mark + Sweep!
-            if post_small_collection_size as f64 > (0.25 * original_length as f64) || force_full {
-                log::debug!(target: "gc", "---- Post
-                    small collection,
-                    running mark and sweep -
-                    heap size filled: {:?} - {} ----",
-                    post_small_collection_size as f64 / original_length as f64,
-                    self.count);
-
-                amount = self.mark_and_sweep(
-                    root_value,
-                    root_vector,
-                    roots,
-                    live_functions,
-                    globals,
-                    tls,
-                    synchronizer,
-                );
-
-                if i == 1 && !changed {
-                    self.skip_minor_collection = true;
-                } else {
-                    self.skip_minor_collection = false;
-                }
-            } else {
-                log::debug!(target: "gc", "---- Skipping mark and sweep -
-                    heap size filled: {:?} ----",
-                    post_small_collection_size as f64 / original_length as f64);
-            }
-
-            self.threshold = (self.threshold + self.memory.len() + self.vector_cells_allocated())
-                * GC_GROW_FACTOR;
-
-            self.count += 1;
-
-            // Drive it down!
-            if self.count > RESET_LIMIT {
-                log::debug!(target: "gc", "Shrinking the heap");
-
-                self.threshold = GC_THRESHOLD;
-                self.count = 0;
-
-                self.memory.shrink_to(GC_THRESHOLD * GC_GROW_FACTOR);
-                self.vectors.shrink_to(GC_THRESHOLD * GC_GROW_FACTOR);
-            }
-
-            return amount;
-        }
-
-        0
     }
 
     pub fn collection<'a>(
@@ -1777,77 +1633,6 @@ impl Heap {
         // 0
     }
 
-    fn mark_and_sweep<'a>(
-        &mut self,
-        root_value: Option<SteelVal>,
-        root_vector: impl Iterator<Item = SteelVal>,
-        roots: &'a [SteelVal],
-        function_stack: impl Iterator<Item = &'a ByteCodeLambda>,
-        globals: &'a [SteelVal],
-        tls: &'a [SteelVal],
-        synchronizer: &'a mut Synchronizer,
-    ) -> usize {
-        let stats = self.mark(
-            root_value,
-            root_vector,
-            roots,
-            function_stack,
-            globals,
-            tls,
-            synchronizer,
-        );
-
-        // Turns this into a reference one:
-        // let mut ref_queue = context.queue.iter().map(|x| x as _).collect();
-
-        // let mut context = MarkAndSweepContextRef {
-        //     queue: &mut ref_queue,
-        //     object_count: context.object_count,
-        // };
-
-        // context.visit();
-
-        // #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
-
-        log::debug!(target: "gc", "--- Sweeping ---");
-        let prior_len = self.memory.len() + self.vector_cells_allocated();
-
-        // sweep
-        self.memory.retain(|x| x.read().is_reachable());
-        self.vectors.retain(|x| x.read().is_reachable());
-
-        let after_len = self.memory.len();
-
-        let amount_freed = prior_len - after_len;
-
-        log::debug!(target: "gc", "Freed objects: {:?}", amount_freed);
-        log::debug!(target: "gc", "Objects alive: {:?}", after_len);
-
-        // put them back as unreachable
-        self.memory.iter().for_each(|x| x.write().reset());
-        self.vectors.iter().for_each(|x| x.write().reset());
-
-        #[cfg(feature = "sync")]
-        {
-            GLOBAL_ROOTS.lock().unwrap().increment_generation();
-        }
-
-        #[cfg(not(feature = "sync"))]
-        {
-            ROOTS.with(|x| x.borrow_mut().increment_generation());
-        }
-
-        // #[cfg(feature = "profiling")]
-        log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
-
-        synchronizer.resume_threads();
-
-        stats.object_count
-
-        // 0
-    }
-
     fn mark<'a>(
         &mut self,
         root_value: Option<SteelVal>,
@@ -1862,80 +1647,6 @@ impl Heap {
 
         // #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
-
-        /*
-
-        let mut context = MarkAndSweepContext {
-            queue: &mut self.mark_and_sweep_queue,
-            object_count: 0,
-        };
-
-        // Pause all threads
-        synchronizer.stop_threads();
-        unsafe {
-            synchronizer.enumerate_stacks(&mut context);
-        }
-
-        if let Some(root_value) = root_value {
-            context.push_back(root_value);
-        }
-
-        if let Some(root_vector) = root_vector {
-            for value in root_vector {
-                context.push_back(value.clone());
-            }
-        }
-
-        for root in tls {
-            context.push_back(root.clone());
-        }
-
-        for root in roots {
-            context.push_back(root.clone());
-        }
-
-        context.visit();
-
-        for root in globals {
-            context.push_back(root.clone());
-        }
-
-        context.visit();
-
-        for function in function_stack {
-            // for heap_ref in function.heap_allocated.borrow().iter() {
-            //     context.mark_heap_reference(&heap_ref.strong_ptr())
-            // }
-
-            for value in function.captures() {
-                context.push_back(value.clone());
-            }
-        }
-
-        context.visit();
-
-        #[cfg(feature = "sync")]
-        {
-            GLOBAL_ROOTS
-                .lock()
-                .unwrap()
-                .roots
-                .values()
-                .for_each(|value| context.push_back(value.clone()))
-        }
-
-        #[cfg(not(feature = "sync"))]
-        {
-            ROOTS.with(|x| {
-                x.borrow()
-                    .roots
-                    .values()
-                    .for_each(|value| context.push_back(value.clone()))
-            });
-        }
-
-        context.visit();
-        */
 
         let mut context = MarkAndSweepContext {
             queue: &mut self.mark_and_sweep_queue,
@@ -2004,10 +1715,7 @@ impl Heap {
         // and do them that way?
         log::debug!(target: "gc", "Stack size: {}", context.queue.len());
 
-        // Divide up the queue - manage the thread allocation ourselves for
-        // better use.
-        const USE_SHARED_QUEUE: bool = false;
-
+        // Just use the old one... if its not sync
         let count = MARKER.mark(&context.queue);
         log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
         count
@@ -2054,14 +1762,13 @@ impl ParallelMarker {
 
             let handle = std::thread::spawn(move || {
                 let cloned_queue = cloned_queue;
+                // This... might be too big?
                 let mut local_queue = Vec::with_capacity(4096);
                 for _ in receiver {
                     let now = std::time::Instant::now();
 
                     let mut context = MarkAndSweepContextRefQueue {
                         queue: &cloned_queue,
-                        keep_alive: Vec::new(),
-                        // Allocate this queue once, don't keep allocating per thread.
                         local_queue: &mut local_queue,
                         stats: MarkAndSweepStats::default(),
                     };
@@ -2310,11 +2017,12 @@ impl<'a> MarkAndSweepContext<'a> {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 struct MarkAndSweepStats {
     object_count: usize,
     memory_reached_count: usize,
     vector_reached_count: usize,
+    keep_alive: Vec<SteelVal>,
 }
 
 impl std::ops::Add for MarkAndSweepStats {
@@ -2335,7 +2043,6 @@ pub struct MarkAndSweepContextRefQueue<'a> {
     // Thread local queue + larger queue when it runs out?
     // Try to push on to local queue first.
     local_queue: &'a mut Vec<SteelValPointer>,
-    keep_alive: Vec<SteelVal>,
     queue: &'a crossbeam_queue::SegQueue<SteelValPointer>,
     stats: MarkAndSweepStats,
 }
@@ -2379,7 +2086,7 @@ impl<'a> MarkAndSweepContextRefQueue<'a> {
     }
 
     pub(crate) fn save(&mut self, value: SteelVal) {
-        self.keep_alive.push(value);
+        self.stats.keep_alive.push(value);
     }
 }
 
