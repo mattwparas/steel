@@ -70,6 +70,14 @@
 (assert! (not (nan? 1)))
 (assert! (not (nan? -1)))
 
+;; min / max
+(assert-equal! 4 (max 0 4 3.9))
+(assert-equal! +inf.0 (max +inf.0 0 -inf.0))
+(assert-equal! -1 (max -1))
+(assert-equal! 0 (min 0 4 0.1))
+(assert-equal! -inf.0 (min +inf.0 0 -inf.0))
+(assert-equal! +inf.0 (min +inf.0))
+
 ;; Addition
 (assert-equal! 10 (+ 1 2 3 4))
 (assert-equal! 10.0 (+ 1 2 3.0 4))
