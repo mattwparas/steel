@@ -210,7 +210,9 @@
 
     ;; Internal, we don't do anything special
     [(quasisyntax #%internal-crunch x)
-     (if (empty? 'x) (#%syntax/raw '() '() (#%syntax-span x)) (#%syntax/raw 'x 'x (#%syntax-span x)))]
+     (if (empty? 'x)
+         (#%syntax/raw '() '() (#%syntax-span x))
+         (#%syntax/raw 'x 'x (#%syntax-span x)))]
 
     [(quasisyntax (x xs ...))
      (syntax (#%syntax/raw (quote (x xs ...))
@@ -580,7 +582,9 @@
 (define curry2 (lambda (func arg1) (lambda (arg2 arg3) (func arg1 arg2 arg3))))
 
 (define (foldl func accum lst)
-  (if (null? lst) accum (foldl func (func (car lst) accum) (cdr lst))))
+  (if (null? lst)
+      accum
+      (foldl func (func (car lst) accum) (cdr lst))))
 
 ;;@doc
 ;; Applies `func` to the elements of the `lsts` from the first
@@ -600,7 +604,9 @@
     (and (pair? list) (or (function (car list)) (some? function (cdr list)))))
 
   (define (map1 func accum lst)
-    (if (null? lst) (reverse accum) (map1 func (cons (func (car lst)) accum) (cdr lst))))
+    (if (null? lst)
+        (reverse accum)
+        (map1 func (cons (func (car lst)) accum) (cdr lst))))
 
   (define (map-many func accum lsts)
     (if (some? null? lsts)
@@ -610,14 +616,21 @@
   (if (null? more-lists)
       (map1 function '() list1)
       (let ([lists (cons list1 more-lists)])
-        (if (some? null? lists) '() (map-many function '() lists)))))
+        (if (some? null? lists)
+            '()
+            (map-many function '() lists)))))
 
 (define foldr
-  (lambda (func accum lst) (if (null? lst) accum (func (car lst) (foldr func accum (cdr lst))))))
+  (lambda (func accum lst)
+    (if (null? lst)
+        accum
+        (func (car lst) (foldr func accum (cdr lst))))))
 
 (define unfold
   (lambda (func init pred)
-    (if (pred init) (cons init '()) (cons init (unfold func (func init) pred)))))
+    (if (pred init)
+        (cons init '())
+        (cons init (unfold func (func init) pred)))))
 
 (define fold (lambda (f a l) (foldl f a l)))
 (define reduce (lambda (f a l) (fold f a l)))
@@ -645,13 +658,25 @@
     [else (contains? pred? (cdr lst))]))
 
 (define (assoc thing alist)
-  (if (null? alist) #f (if (equal? (car (car alist)) thing) (car alist) (assoc thing (cdr alist)))))
+  (if (null? alist)
+      #f
+      (if (equal? (car (car alist)) thing)
+          (car alist)
+          (assoc thing (cdr alist)))))
 
 (define (assq thing alist)
-  (if (null? alist) #f (if (eq? (car (car alist)) thing) (car alist) (assq thing (cdr alist)))))
+  (if (null? alist)
+      #f
+      (if (eq? (car (car alist)) thing)
+          (car alist)
+          (assq thing (cdr alist)))))
 
 (define (assv thing alist)
-  (if (null? alist) #f (if (eq? (car (car alist)) thing) (car alist) (assv thing (cdr alist)))))
+  (if (null? alist)
+      #f
+      (if (eq? (car (car alist)) thing)
+          (car alist)
+          (assv thing (cdr alist)))))
 
 ;;@doc
 ;; Returns new list, keeping elements from `lst` which applying `pred` to the element
@@ -674,8 +699,16 @@
 
   (filter-inner function '() lst))
 
-(define even-rec? (lambda (x) (if (= x 0) #t (odd-rec? (- x 1)))))
-(define odd-rec? (lambda (x) (if (= x 0) #f (even-rec? (- x 1)))))
+(define even-rec?
+  (lambda (x)
+    (if (= x 0)
+        #t
+        (odd-rec? (- x 1)))))
+(define odd-rec?
+  (lambda (x)
+    (if (= x 0)
+        #f
+        (even-rec? (- x 1)))))
 
 (define sum (lambda (x) (reduce + 0 x)))
 (define (add1 n)
@@ -685,10 +718,28 @@
 (define (zero? n)
   (= n 0))
 
+;;@doc
+;; Returns the list l after the first n elements.
+;;
+;; (drop l n) -> list?
+;;
+;; * l : list?
+;; * n : (and/c positive? int?)
+;;
+;; # Examples
+;;
+;; ```scheme
+;; > (drop '(1 2 3 4) 2) ;; => '(3 4)
+;; > (drop (range 0 10) 6) ;; => '(6 7 8 9)
+;; ```
 (define (drop lst n)
-  (define (loop x l)
-    (if (zero? x) l (loop (sub1 x) (cdr l))))
-  (loop n lst))
+  (define (loop lst n)
+    (if (zero? n)
+        lst
+        (loop (cdr lst) (sub1 n))))
+  (if (< n 0)
+      (error 'drop "expects a positive number")
+      (loop lst n)))
 
 (define (slice l offset n)
   (take (drop l offset) n))
@@ -705,7 +756,9 @@
     [else (gcd b (modulo a b))]))
 
 (define (lcm a b)
-  (if (or (zero? a) (zero? b)) 0 (abs (* b (floor (/ a (gcd a b)))))))
+  (if (or (zero? a) (zero? b))
+      0
+      (abs (* b (floor (/ a (gcd a b)))))))
 
 (define (for-each func lst)
   (if (null? lst)
@@ -936,7 +989,9 @@
 ;; syntax
 (define-syntax delay
   (syntax-rules ()
-    [(delay expr) (lambda () expr)]))
+    [(delay
+       expr)
+     (lambda () expr)]))
 
 (define values list)
 
@@ -947,7 +1002,9 @@
     ;; Does this work?
     [else
      (define res (apply consumer result))
-     (if (and (list? res) (= (length res) 1)) (car res) res)]))
+     (if (and (list? res) (= (length res) 1))
+         (car res)
+         res)]))
 
 (define-syntax @doc
   (syntax-rules (struct define/contract)

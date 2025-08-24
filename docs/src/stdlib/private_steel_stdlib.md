@@ -1,6 +1,20 @@
 # #%private/steel/stdlib
 **this module is in the prelude and therefore automatically available when running steel.**
 
+### **drop**
+Returns the list l after the first n elements.
+
+(drop l n) -> list?
+
+* l : list?
+* n : (and/c positive? int?)
+
+#### Examples
+
+```scheme
+> (drop '(1 2 3 4) 2) ;; => '(3 4)
+> (drop (range 0 10) 6) ;; => '(6 7 8 9)
+```
 ### **filter**
 Returns new list, keeping elements from `lst` which applying `pred` to the element
 returns #t.
@@ -61,7 +75,6 @@ containing each result of `func` in order.
 ### **contains?**
 ### **curry**
 ### **curry2**
-### **drop**
 ### **even-rec?**
 ### **flatten**
 ### **flip**
