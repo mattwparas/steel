@@ -1,13 +1,10 @@
 use crate::compiler::compiler::Compiler;
 use crate::core::instructions::u24;
 use crate::env::SharedVectorWrapper;
-use crate::gc::shared::MutContainer;
-use crate::gc::shared::ShareableMut;
-use crate::gc::shared::Shared;
-use crate::gc::shared::StandardShared;
-use crate::gc::shared::StandardSharedMut;
-use crate::gc::shared::WeakShared;
-use crate::gc::shared::WeakSharedMut;
+use crate::gc::shared::{
+    MutContainer, ShareableMut, Shared, StandardShared, StandardSharedMut, WeakShared,
+    WeakSharedMut,
+};
 use crate::parser::expander::BindingKind;
 use crate::parser::replace_idents::expand_template;
 use crate::primitives::lists::car;
@@ -16,7 +13,6 @@ use crate::primitives::lists::is_empty;
 use crate::primitives::lists::steel_cons;
 use crate::primitives::lists::steel_list_ref;
 use crate::primitives::numbers::add_two;
-use crate::primitives::vectors::steel_vec_ref;
 use crate::primitives::vectors::vec_ref;
 use crate::rvals::as_underlying_type;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
@@ -3927,6 +3923,7 @@ impl<'a> VmCore<'a> {
         self.handle_global_function_call_no_arity(func, payload_size)
     }
 
+    #[allow(unused)]
     #[inline(always)]
     fn handle_call_global_no_stack(
         &mut self,
@@ -5792,9 +5789,6 @@ pub(crate) fn match_syntax_case(ctx: &mut VmCore, args: &[SteelVal]) -> Option<R
 }
 
 pub struct CallStackCapture {
-    // Polling rate
-    sampling_rate: usize,
-
     timer: HashMap<u32, usize>,
 
     // Map the name of the function to the name, if we have it
@@ -5831,9 +5825,8 @@ pub fn dump_profiler(value: &SteelVal) -> Result<SteelVal> {
 }
 
 #[steel_derive::function(name = "make-callstack-profiler")]
-pub fn make_callstack_profiler(sampling_rate: usize) -> Result<SteelVal> {
+pub fn make_callstack_profiler() -> Result<SteelVal> {
     CallStackCapture {
-        sampling_rate,
         timer: HashMap::default(),
         names: HashMap::default(),
     }
@@ -7056,6 +7049,7 @@ fn new_box_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     Ok(())
 }
 
+#[allow(unused)]
 fn unbox_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     handler_inline_primitive_payload!(ctx, steel_unbox_mutable, 1);
     Ok(())
@@ -7100,11 +7094,6 @@ fn list_handler(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
 
     ctx.ip += 2;
 
-    Ok(())
-}
-
-fn vector_ref_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    handler_inline_primitive_payload!(ctx, steel_vec_ref, 2);
     Ok(())
 }
 

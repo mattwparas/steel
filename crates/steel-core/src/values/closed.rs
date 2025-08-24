@@ -121,14 +121,14 @@ impl GlobalSlotRecycler {
 
         // Mark all unreachable for the purposes of the global
         // collection.
-        // heap.memory_free_list.mark_all_unreachable();
-        // heap.vector_free_list.mark_all_unreachable();
+        heap.memory_free_list.mark_all_unreachable();
+        heap.vector_free_list.mark_all_unreachable();
 
         // Actually walk the tree, looking for unreachable stuff
         self.visit();
 
-        // heap.memory_free_list.recount();
-        // heap.vector_free_list.recount();
+        heap.memory_free_list.recount();
+        heap.vector_free_list.recount();
 
         // TODO: Check this stuff!
         // put them back as unreachable
