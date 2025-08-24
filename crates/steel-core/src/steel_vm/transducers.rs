@@ -207,7 +207,7 @@ impl<'global, 'a> VmCore<'a> {
                             func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
                         })),
                         SteelVal::Closure(closure) => {
-                            let multi_arity = if closure.arity != 1 {
+                            let multi_arity = if !closure.is_multi_arity() && closure.arity != 1 {
                                 stop!(ArityMismatch => "map expects a function with one arg");
                             } else {
                                 closure.is_multi_arity()
