@@ -358,6 +358,18 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     multiply_primitive_impl(args)
 }
 
+#[steel_derive::function(name = "truncate", constant = true)]
+pub fn truncate(arg: &SteelVal) -> Result<SteelVal> {
+    match arg {
+        SteelVal::NumV(n) => n.trunc().into_steelval(),
+        SteelVal::IntV(i) => Ok(SteelVal::IntV(*i)),
+        // SteelVal::Rational(ratio) => ratio.trunc(),
+        SteelVal::BigNum(gc) => Ok(SteelVal::BigNum(gc.clone())),
+        // SteelVal::BigRational(gc) => gc.trunc(),
+        _ => stop!(TypeMismatch => "truncate expects a real number, found: {}", arg),
+    }
+}
+
 /// Returns quotient of dividing numerator by denomintator.
 ///
 /// (quotient numerator denominator) -> integer?
@@ -376,6 +388,7 @@ pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() / r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => (l / r.as_ref()).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => (l.as_ref() / r.as_ref()).into_steelval(),
         _ => steelerr!(TypeMismatch => "quotient only supports integers"),
     }

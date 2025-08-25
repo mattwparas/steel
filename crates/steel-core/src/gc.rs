@@ -505,6 +505,14 @@ impl<T: ?Sized> Gc<T> {
         Shared::as_ptr(&self.0)
     }
 
+    pub fn into_raw(self) -> *const T {
+        Shared::into_raw(self.0)
+    }
+
+    pub unsafe fn from_raw(this: *const T) -> Self {
+        Self(Shared::from_raw(this))
+    }
+
     pub fn strong_count(this: &Self) -> usize {
         Shared::strong_count(&this.0)
     }

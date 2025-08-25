@@ -13,6 +13,8 @@ pub struct SingleExprOptimizer;
 impl SingleExprOptimizer {
     pub fn run(exprs: &mut Vec<ExprKind>) {
         // Might be able to parallelize this? If it takes long enough?
+        // TODO: Have some heuristic for how big the expressions would have to
+        // be to justify a parallelization. Same thing for module expansion.
         for expr in exprs {
             FlipNotCondition.visit(expr);
             PruneConstantIfBranches.visit(expr);
@@ -48,6 +50,10 @@ impl VisitorMutRefUnit for FlipNotCondition {
             f.test_expr = inner;
             std::mem::swap(&mut f.then_expr, &mut f.else_expr);
         }
+
+        self.visit(&mut f.test_expr);
+        self.visit(&mut f.then_expr);
+        self.visit(&mut f.then_expr);
     }
 }
 

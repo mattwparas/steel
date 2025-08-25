@@ -52,7 +52,7 @@ impl Completer for RustylineHelper {
                     // Inclusive range as curser usually placed directly after the symbol
                     token.span().start()..=token.span().end()
                 )
-                    .contains(&pos)
+                    .contains(&(pos as u32))
                     .then_some((token.span(), symbol.clone())),
                 _ => None,
             })
@@ -65,9 +65,9 @@ impl Completer for RustylineHelper {
         let mut containing = Vec::new();
         for interned in self.globals.lock().unwrap().iter() {
             let str = interned.resolve();
-            if str.starts_with(symbol.as_ref()) {
+            if str.starts_with(symbol.resolve()) {
                 starting.push(str.to_owned());
-            } else if str.contains(symbol.as_ref()) {
+            } else if str.contains(symbol.resolve()) {
                 containing.push(str.to_owned())
             }
         }
@@ -91,7 +91,7 @@ impl Completer for RustylineHelper {
             })
             .collect();
 
-        Ok((span.start(), completions))
+        Ok((span.start() as usize, completions))
     }
 
     fn update(
@@ -104,9 +104,11 @@ impl Completer for RustylineHelper {
         // Cursor can be anywhere in the identifier, so find its span again.
         if let Some(end) = TokenStream::new(line, true, SourceId::none())
             .filter_map(Result::ok)
-            .find_map(|token| (token.span().start() == start).then_some(token.span().end()))
+            .find_map(|token| {
+                (token.span().start() as usize == start).then_some(token.span().end())
+            })
         {
-            line.replace(start..end, elected, cl);
+            line.replace(start..end as usize, elected, cl);
         }
     }
 }
@@ -190,7 +192,9 @@ impl Highlighter for RustylineHelper {
                 TokenType::OpenParen(paren, paren_mod) if paren_to_highlight.is_none() => {
                     let open_span = TokenType::open_span(token.span, *paren_mod);
 
-                    if open_span.start == pos || (open_span.start == pos + 1 && cursor.is_none()) {
+                    if open_span.start as usize == pos
+                        || (open_span.start as usize == pos + 1 && cursor.is_none())
+                    {
                         cursor = Some((*paren, open_span));
                     }
 
@@ -198,9 +202,9 @@ impl Highlighter for RustylineHelper {
                 }
 
                 TokenType::CloseParen(paren) if paren_to_highlight.is_none() => {
-                    let mut matches = token.span.start == pos;
+                    let mut matches = token.span.start as usize == pos;
 
-                    if token.span.end == pos {
+                    if token.span.end as usize == pos {
                         let next_span = match token_stream.peek() {
                             Some(steel_parser::tokens::Token {
                                 ty: TokenType::CloseParen(_),
@@ -218,7 +222,7 @@ impl Highlighter for RustylineHelper {
                         };
 
                         matches = match next_span {
-                            Some(span) => span.start > pos,
+                            Some(span) => span.start as usize > pos,
 
                             _ => true,
                         }
@@ -253,7 +257,7 @@ impl Highlighter for RustylineHelper {
                 | TokenType::Require => {
                     let highlighted = format!("{}", token.source().bright_purple());
 
-                    ranges_to_replace.push((token.span().range(), highlighted));
+                    ranges_to_replace.push((token.span().usize_range(), highlighted));
 
                     // line_to_highlight.replace_range(token.span().range(), &highlighted);
                 }
@@ -267,19 +271,14 @@ impl Highlighter for RustylineHelper {
                 // steel::parser::tokens::TokenType::Comment => todo!(),
                 TokenType::BooleanLiteral(_) => {
                     let highlighted = format!("{}", token.source().bright_magenta());
-                    ranges_to_replace.push((token.span().range(), highlighted));
+                    ranges_to_replace.push((token.span().usize_range(), highlighted));
                 }
                 TokenType::Identifier(ident) => {
                     // If its a free identifier, nix it?
 
-                    if self
-                        .globals
-                        .lock()
-                        .unwrap()
-                        .contains(&InternedString::from(&**ident))
-                    {
+                    if self.globals.lock().unwrap().contains(ident) {
                         let highlighted = format!("{}", token.source().bright_blue());
-                        ranges_to_replace.push((token.span().range(), highlighted));
+                        ranges_to_replace.push((token.span().usize_range(), highlighted));
                     }
 
                     // TODO:
@@ -292,11 +291,11 @@ impl Highlighter for RustylineHelper {
                 // steel::parser::tokens::TokenType::Keyword(_) => todo!(),
                 TokenType::Number(_) => {
                     let highlighted = format!("{}", token.source().bright_yellow());
-                    ranges_to_replace.push((token.span().range(), highlighted));
+                    ranges_to_replace.push((token.span().usize_range(), highlighted));
                 }
                 TokenType::StringLiteral(_) => {
                     let highlighted = format!("{}", token.source().bright_green());
-                    ranges_to_replace.push((token.span().range(), highlighted));
+                    ranges_to_replace.push((token.span().usize_range(), highlighted));
                 }
                 // steel::parser::tokens::TokenType::Error => todo!(),
                 _ => {}
@@ -322,7 +321,7 @@ impl Highlighter for RustylineHelper {
 
             // TODO just store the updated location back in
             if let Some(pos) = paren_to_highlight {
-                if start <= pos {
+                if start <= pos as _ {
                     offset += new_length - old_length;
                 }
             }
@@ -340,7 +339,7 @@ impl Highlighter for RustylineHelper {
 
         // highlight matching brace/bracket/parenthesis if it exists
         if let Some(pos) = paren_to_highlight {
-            let idx = if pos == 0 { 0 } else { pos + offset };
+            let idx = if pos == 0 { 0 } else { pos as usize + offset };
 
             line_to_highlight.replace_range(
                 idx..=idx,

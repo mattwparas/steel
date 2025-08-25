@@ -70,9 +70,9 @@
 ;; - thunk : procedure?
 (define (with-input-from-file file thunk)
   (call-with-input-file file
-                           (lambda (port)
-                             (parameterize ([current-input-port port])
-                               (thunk)))))
+                        (lambda (port)
+                          (parameterize ([current-input-port port])
+                            (thunk)))))
 
 ;; Calls the given *proc* with an output string port created with `open-output-string`.
 ;; If *proc* returns, then the content from the string port will be returned.

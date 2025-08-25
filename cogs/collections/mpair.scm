@@ -2,6 +2,13 @@
 
 ; (require "steel/result")
 
+(provide cons
+         set-car!
+         set-cdr!
+         car
+         cdr
+         caar)
+
 (struct mcons (mcar mcdr)
   #:mutable
   #:printer (lambda (obj printer)
@@ -20,6 +27,9 @@
 
 (define set-car! set-mcons-mcar!)
 (define set-cdr! set-mcons-mcdr!)
+
+(define (caar x)
+  (car (car x)))
 
 ;; Mutable cons!
 (define (mcons->list mutable-cons)
@@ -50,10 +60,14 @@
     [else (#%prim.cons a b)]))
 
 (define (car a)
-  (if (mcons? a) (mcons-mcar a) (#%prim.car a)))
+  (if (mcons? a)
+      (mcons-mcar a)
+      (#%prim.car a)))
 
 (define (cdr a)
-  (if (mcons? a) (mcons-mcdr a) (#%prim.cdr a)))
+  (if (mcons? a)
+      (mcons-mcdr a)
+      (#%prim.cdr a)))
 
 ; (cons 10 20 #:mutable #true)
 

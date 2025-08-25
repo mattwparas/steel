@@ -207,9 +207,23 @@ impl<'global, 'a> VmCore<'a> {
                             func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
                         })),
                         SteelVal::Closure(closure) => {
-                            Box::new(iter.map(move |arg| {
-                                vm_copy.borrow_mut().call_with_one_arg(closure, arg?)
-                            }))
+                            let multi_arity = if !closure.is_multi_arity() && closure.arity != 1 {
+                                stop!(ArityMismatch => "map expects a function with one arg");
+                            } else {
+                                closure.is_multi_arity()
+                            };
+
+                            if multi_arity {
+                                Box::new(iter.map(move |arg| {
+                                    vm_copy
+                                        .borrow_mut()
+                                        .call_with_one_arg_test::<true>(closure, arg?)
+                                }))
+                            } else {
+                                Box::new(iter.map(move |arg| {
+                                    vm_copy.borrow_mut().call_with_one_arg(closure, arg?)
+                                }))
+                            }
                         }
                         _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
                     }

@@ -312,10 +312,6 @@ impl LanguageServer for Backend {
 
             let location = source_id_to_uri(resulting_span.source_id()?)?;
 
-            // log::debug!("Location: {:?}", location);
-            // log::debug!("Rope length: {:?}", rope.len_chars());
-            // log::debug!("span: {:?}", maybe_definition.span);
-
             if location != uri {
                 // log::debug!("Jumping to definition that is not yet in the document map!");
 
@@ -333,16 +329,10 @@ impl LanguageServer for Backend {
                 self.document_map.insert(location.to_string(), rope.clone());
             }
 
-            // log::debug!("Location: {:?}", location);
-            // log::debug!("Rope length: {:?}", rope.len_chars());
-            // log::debug!("span: {:?}", maybe_definition.span);
-
-            let start_position = offset_to_position(resulting_span.start, &rope)?;
-            let end_position = offset_to_position(resulting_span.end, &rope)?;
+            let start_position = offset_to_position(resulting_span.start as _, &rope)?;
+            let end_position = offset_to_position(resulting_span.end as _, &rope)?;
 
             let range = Range::new(start_position, end_position);
-
-            // log::debug!("{:?}", range);
 
             Some(GotoDefinitionResponse::Scalar(Location::new(
                 location, range,
@@ -516,8 +506,8 @@ impl LanguageServer for Backend {
                 semantic.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
 
             let range = Range::new(
-                offset_to_position(identifier.span.start, &rope)?,
-                offset_to_position(identifier.span.end, &rope)?,
+                offset_to_position(identifier.span.start as _, &rope)?,
+                offset_to_position(identifier.span.end as _, &rope)?,
             );
 
             Some((identifier.clone(), range))
@@ -584,8 +574,8 @@ impl LanguageServer for Backend {
                 .map(|(_, information)| (information.span.start, information.span.end))
                 .filter_map(|(start, end)| {
                     Some(Range::new(
-                        offset_to_position(start, &rope)?,
-                        offset_to_position(end, &rope)?,
+                        offset_to_position(start as _, &rope)?,
+                        offset_to_position(end as _, &rope)?,
                     ))
                 })
                 .map(|range| TextEdit::new(range, params.new_name.clone()))
@@ -950,8 +940,8 @@ impl Backend {
 
                     if let Some(span) = e.span() {
                         let diagnostics = || {
-                            let start_position = offset_to_position(span.start, &rope)?;
-                            let end_position = offset_to_position(span.end, &rope)?;
+                            let start_position = offset_to_position(span.start as _, &rope)?;
+                            let end_position = offset_to_position(span.end as _, &rope)?;
 
                             Some(vec![Diagnostic::new_simple(
                                 Range::new(start_position, end_position),
@@ -1252,8 +1242,8 @@ impl UserDefinedLintEngine {
             .unwrap()
             .drain(..)
             .filter_map(|d| {
-                let start_position = offset_to_position(d.span.start, &rope)?;
-                let end_position = offset_to_position(d.span.end, &rope)?;
+                let start_position = offset_to_position(d.span.start as _, &rope)?;
+                let end_position = offset_to_position(d.span.end as _, &rope)?;
 
                 Some(Diagnostic::new_simple(
                     Range::new(start_position, end_position),

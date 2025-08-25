@@ -80,8 +80,8 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
                     return None;
                 }
 
-                let start_position = offset_to_position(span.start, &context.rope)?;
-                let end_position = offset_to_position(span.end, &context.rope)?;
+                let start_position = offset_to_position(span.start as _, &context.rope)?;
+                let end_position = offset_to_position(span.end as _, &context.rope)?;
 
                 // TODO: Publish the diagnostics for each file separately, if we have them
                 Some(make_error(Diagnostic::new_simple(
@@ -118,8 +118,8 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
                             }
                         }
 
-                        let start_position = offset_to_position(span.start, &context.rope)?;
-                        let end_position = offset_to_position(span.end, &context.rope)?;
+                        let start_position = offset_to_position(span.start as _, &context.rope)?;
+                        let end_position = offset_to_position(span.end as _, &context.rope)?;
 
                         let mut diagnostic = Diagnostic::new_simple(
                             Range::new(start_position, end_position),
@@ -301,8 +301,8 @@ impl<'a, 'b> StaticCallSiteArityChecker<'a, 'b> {
 }
 
 fn create_diagnostic(rope: &Rope, span: &Span, message: String) -> Option<Diagnostic> {
-    let start_position = offset_to_position(span.start, &rope)?;
-    let end_position = offset_to_position(span.end, &rope)?;
+    let start_position = offset_to_position(span.start as _, &rope)?;
+    let end_position = offset_to_position(span.end as _, &rope)?;
 
     let mut diagnostic = Diagnostic::new_simple(Range::new(start_position, end_position), message);
 

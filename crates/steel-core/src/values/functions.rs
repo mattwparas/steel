@@ -354,7 +354,7 @@ impl ByteCodeLambda {
     }
 
     #[inline(always)]
-    pub fn is_multi_arity(self) -> bool {
+    pub fn is_multi_arity(&self) -> bool {
         self.is_multi_arity
     }
 

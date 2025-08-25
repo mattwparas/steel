@@ -119,6 +119,7 @@ declare_builtins!(
 );
 
 create_prelude!(
+    "#%private/steel/stdlib",
     "#%private/steel/control",
     "#%private/steel/contract",
     "#%private/steel/print",

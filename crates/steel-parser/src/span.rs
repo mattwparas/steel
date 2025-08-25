@@ -7,14 +7,14 @@ use super::parser::SourceId;
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
 #[repr(C)]
 pub struct Span {
-    pub start: usize,
-    pub end: usize,
+    pub start: u32,
+    pub end: u32,
     pub source_id: Option<SourceId>,
 }
 
 impl Span {
     #[inline]
-    pub const fn new(start: usize, end: usize, source_id: Option<SourceId>) -> Self {
+    pub const fn new(start: u32, end: u32, source_id: Option<SourceId>) -> Self {
         Self {
             start,
             end,
@@ -23,7 +23,7 @@ impl Span {
     }
 
     #[inline]
-    pub const fn double(span: usize, source_id: Option<SourceId>) -> Self {
+    pub const fn double(span: u32, source_id: Option<SourceId>) -> Self {
         Self {
             start: span,
             end: span,
@@ -32,18 +32,23 @@ impl Span {
     }
 
     #[inline]
-    pub const fn start(&self) -> usize {
+    pub const fn start(&self) -> u32 {
         self.start
     }
 
     #[inline]
-    pub const fn end(&self) -> usize {
+    pub const fn end(&self) -> u32 {
         self.end
     }
 
     #[inline]
-    pub const fn range(&self) -> Range<usize> {
+    pub const fn range(&self) -> Range<u32> {
         self.start..self.end
+    }
+
+    #[inline]
+    pub const fn usize_range(&self) -> Range<usize> {
+        self.start as _..self.end as _
     }
 
     #[inline]
@@ -58,7 +63,7 @@ impl Span {
     }
 
     #[inline]
-    pub const fn width(&self) -> usize {
+    pub const fn width(&self) -> u32 {
         self.end - self.start
     }
 
@@ -88,19 +93,25 @@ impl fmt::Debug for Span {
     }
 }
 
-impl From<Span> for Range<usize> {
+impl From<Span> for Range<u32> {
     fn from(span: Span) -> Self {
         span.start..span.end
     }
 }
 
-impl From<Span> for (usize, usize) {
+impl From<Span> for Range<usize> {
+    fn from(span: Span) -> Self {
+        span.start as usize..span.end as usize
+    }
+}
+
+impl From<Span> for (u32, u32) {
     fn from(span: Span) -> Self {
         (span.start, span.end)
     }
 }
 
-impl From<Span> for [usize; 2] {
+impl From<Span> for [u32; 2] {
     fn from(span: Span) -> Self {
         [span.start, span.end]
     }

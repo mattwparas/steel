@@ -167,8 +167,14 @@ pub fn hash_remove(map: &mut SteelVal, key: SteelVal) -> Result<SteelVal> {
 ///     }>
 /// ```
 #[function(name = "hash-insert")]
-pub fn hash_insert(map: &mut SteelVal, key: SteelVal, value: SteelVal) -> Result<SteelVal> {
+pub fn hash_insert(
+    map: &mut SteelVal,
+    key: &mut SteelVal,
+    value: &mut SteelVal,
+) -> Result<SteelVal> {
     if key.is_hashable() {
+        let key = std::mem::take(key);
+        let value = std::mem::take(value);
         if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
             match Gc::get_mut(m) {
                 Some(m) => {
