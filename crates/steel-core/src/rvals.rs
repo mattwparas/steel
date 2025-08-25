@@ -1145,10 +1145,10 @@ pub fn into_serializable_value(
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SteelMutableVector(pub(crate) Gc<RefCell<Vec<SteelVal>>>);
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SteelVector(pub(crate) Gc<Vector<SteelVal>>);
 
 impl Deref for SteelVector {
