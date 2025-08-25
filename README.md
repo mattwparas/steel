@@ -79,6 +79,17 @@ This will install:
 - The steel language server
 - The standard library, found under the `cogs` directory
 
+#### Nix
+
+Steel can also be installed with Nix. Add the following to your Home Manager
+config:
+
+```nix
+home.packages = [
+  pkgs.steel
+];
+```
+
 ### Packages
 
 If you would like to customize the location of installed packages, please set the `STEEL_HOME` environment variable. Steel currently follows XDG if present, and otherwise assumes the default of `$HOME/.steel` if the `STEEL_HOME` environment variable is not already set.
