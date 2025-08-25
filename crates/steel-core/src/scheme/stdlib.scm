@@ -563,9 +563,11 @@
 (define fold (lambda (f a l) (foldl f a l)))
 (define reduce (lambda (f a l) (fold f a l)))
 
-(define max (lambda (x . num-list) (fold (lambda (y z) (if (> y z) y z)) x (cons 0 num-list))))
-(define min
-  (lambda (x . num-list) (fold (lambda (y z) (if (< y z) y z)) x (cons 536870911 num-list))))
+(define (max x . rest)
+  (fold (lambda (y z) (if (> y z) y z)) x rest))
+
+(define (min x . rest)
+  (fold (lambda (y z) (if (< y z) y z)) x rest))
 
 (define mem-helper
   (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
