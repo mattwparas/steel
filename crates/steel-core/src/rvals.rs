@@ -1165,7 +1165,7 @@ impl From<Gc<Vector<SteelVal>>> for SteelVector {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SteelHashMap(pub(crate) Gc<HashMap<SteelVal, SteelVal>>);
 
 #[cfg(feature = "imbl")]
@@ -1194,7 +1194,7 @@ impl From<Gc<HashMap<SteelVal, SteelVal>>> for SteelHashMap {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SteelHashSet(pub(crate) Gc<HashSet<SteelVal>>);
 
 #[cfg(feature = "imbl")]
@@ -1333,7 +1333,7 @@ fn check_send_sync() {
     handle.join().unwrap();
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SteelByteVector {
     pub(crate) vec: GcMut<Vec<u8>>,
 }
