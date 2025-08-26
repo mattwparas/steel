@@ -17,7 +17,11 @@ use crate::{
         as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal,
         MaybeSendSyncStatic, Result, SteelByteVector, SteelHashMap, SteelVal, SteelVector,
     },
-    values::{functions::BoxedDynFunction, port::SteelPort, SteelPortRepr},
+    values::{
+        functions::BoxedDynFunction,
+        port::{Peekable, SteelPort},
+        SteelPortRepr,
+    },
     SteelErr,
 };
 
@@ -1052,7 +1056,7 @@ pub struct DynReader {
 
 impl DynReader {
     fn into_port(self) -> SteelPortRepr {
-        SteelPortRepr::DynReader(BufReader::new(Box::new(self.reader)))
+        SteelPortRepr::DynReader(Peekable::new(BufReader::new(Box::new(self.reader))))
     }
 }
 

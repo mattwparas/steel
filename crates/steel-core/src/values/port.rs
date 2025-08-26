@@ -52,25 +52,116 @@ impl std::fmt::Display for SteelPort {
 //     fn into_port(self) -> SteelVal {}
 // }
 
+#[derive(Debug)]
+pub struct Peekable<R> {
+    inner: R,
+    peek: Option<u8>,
+}
+
+impl<T> Peekable<T> {
+    pub fn new(inner: T) -> Self {
+        Peekable { inner, peek: None }
+    }
+}
+
+impl<R: Read> Peekable<R> {
+    fn read_byte(&mut self) -> Result<MaybeBlocking<Option<u8>>> {
+        if let Some(peek) = self.peek.take() {
+            return Ok(MaybeBlocking::Nonblocking(Some(peek)));
+        }
+
+        let mut byte = [0];
+        if let Err(err) = self.inner.read_exact(&mut byte) {
+            if err.kind() == io::ErrorKind::UnexpectedEof {
+                return Ok(MaybeBlocking::Nonblocking(None));
+            }
+
+            if err.kind() == io::ErrorKind::WouldBlock {
+                return Ok(MaybeBlocking::WouldBlock);
+            }
+
+            return Err(err.into());
+        }
+
+        Ok(MaybeBlocking::Nonblocking(Some(byte[0])))
+    }
+
+    fn peek_byte(&mut self) -> Result<MaybeBlocking<Option<u8>>> {
+        if let Some(peek) = self.peek {
+            Ok(MaybeBlocking::Nonblocking(Some(peek)))
+        } else {
+            match self.read_byte()? {
+                MaybeBlocking::Nonblocking(peek) => {
+                    self.peek = peek;
+                    Ok(MaybeBlocking::Nonblocking(peek))
+                }
+                MaybeBlocking::WouldBlock => Ok(MaybeBlocking::WouldBlock),
+            }
+        }
+    }
+
+    pub fn read_bytes_amt(&mut self, mut buf: &mut [u8]) -> Result<MaybeBlocking<usize>> {
+        let mut amt = 0;
+        if !buf.is_empty() {
+            if let Some(peek) = self.peek.take() {
+                amt += 1;
+                buf[0] = peek;
+                buf = &mut buf[1..]
+            }
+        }
+
+        match read_full(&mut self.inner, buf)? {
+            MaybeBlocking::Nonblocking(n) => amt += n,
+            MaybeBlocking::WouldBlock => return Ok(MaybeBlocking::WouldBlock),
+        };
+
+        Ok(MaybeBlocking::Nonblocking(amt))
+    }
+}
+
+fn read_full<R: Read>(mut reader: R, mut buf: &mut [u8]) -> Result<MaybeBlocking<usize>> {
+    let mut amt = 0;
+    while !buf.is_empty() {
+        match reader.read(buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                amt += n;
+                buf = &mut buf[n..];
+            }
+            Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                if amt == 0 {
+                    return Ok(MaybeBlocking::WouldBlock);
+                } else {
+                    break;
+                }
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+
+    Ok(MaybeBlocking::Nonblocking(amt))
+}
+
 // #[derive(Debug)]
 pub enum SteelPortRepr {
-    FileInput(String, BufReader<File>),
+    FileInput(String, Peekable<BufReader<File>>),
     FileOutput(String, BufWriter<File>),
-    StdInput(Stdin),
+    StdInput(Peekable<Stdin>),
     StdOutput(Stdout),
     StdError(Stderr),
-    ChildStdOutput(BufReader<ChildStdout>),
-    ChildStdError(BufReader<ChildStderr>),
+    ChildStdOutput(Peekable<BufReader<ChildStdout>>),
+    ChildStdError(Peekable<BufReader<ChildStderr>>),
     ChildStdInput(BufWriter<ChildStdin>),
-    StringInput(Cursor<Vec<u8>>),
+    StringInput(Peekable<Cursor<Vec<u8>>>),
     StringOutput(Vec<u8>),
 
     // TODO: This does not need to be Arc<Mutex<dyn ...>> - it can
     // get away with just Box<dyn ...> - and also it should be dyn Portlike
     // with blanket trait impls to do the thing otherwise.
     DynWriter(Arc<Mutex<dyn Write + Send + Sync>>),
-    DynReader(BufReader<Box<dyn Read + Send + Sync>>),
-    TcpStream(TcpStream),
+    DynReader(Peekable<BufReader<Box<dyn Read + Send + Sync>>>),
+    TcpStream(Peekable<TcpStream>),
     // DynReader(Box<dyn Read>),
     Closed,
 }
@@ -152,7 +243,7 @@ impl SteelPort {
     pub fn from_sendable_port(value: SendablePort) -> Self {
         match value {
             SendablePort::StdInput(s) => SteelPort {
-                port: Gc::new_mut(SteelPortRepr::StdInput(s)),
+                port: Gc::new_mut(SteelPortRepr::StdInput(Peekable::new(s))),
             },
             SendablePort::StdOutput(s) => SteelPort {
                 port: Gc::new_mut(SteelPortRepr::StdOutput(s)),
@@ -170,48 +261,24 @@ impl SteelPort {
     }
 }
 
-#[macro_export]
-macro_rules! port_read_str_fn(
-    ($br: ident, $fn: ident) => {{
+macro_rules! port_read_str_fn {
+    ($br: expr, $fn: ident) => {{
         let mut result = String::new();
         let size = $br.$fn(&mut result)?;
         Ok((size, result))
     }};
-);
-
-fn read_full<R: Read>(mut reader: R, mut buf: &mut [u8]) -> Result<MaybeBlocking<usize>> {
-    let mut amt = 0;
-    while !buf.is_empty() {
-        match reader.read(buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                amt += n;
-                buf = &mut buf[n..];
-            }
-            Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
-            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                if amt == 0 {
-                    return Ok(MaybeBlocking::WouldBlock);
-                } else {
-                    break;
-                }
-            }
-            Err(err) => return Err(err.into()),
-        }
-    }
-
-    Ok(MaybeBlocking::Nonblocking(amt))
 }
 
 impl SteelPortRepr {
     pub fn read_line(&mut self) -> Result<(usize, String)> {
         match self {
-            SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br, read_line),
-            SteelPortRepr::StdInput(br) => port_read_str_fn!(br, read_line),
-            SteelPortRepr::StringInput(s) => port_read_str_fn!(s, read_line),
-            SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_line),
-            SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_line),
-            SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_line),
+            SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br.inner, read_line),
+            SteelPortRepr::StdInput(br) => port_read_str_fn!(br.inner, read_line),
+            SteelPortRepr::StringInput(s) => port_read_str_fn!(s.inner, read_line),
+            SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br.inner, read_line),
+            SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br.inner, read_line),
+            SteelPortRepr::DynReader(br) => port_read_str_fn!(br.inner, read_line),
+            // FIXME: fix this and the functions below
             _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
     }
@@ -230,12 +297,12 @@ impl SteelPortRepr {
 
     pub fn read_all_str(&mut self) -> Result<(usize, String)> {
         match self {
-            SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br, read_to_string),
-            SteelPortRepr::StdInput(br) => port_read_str_fn!(br, read_to_string),
-            SteelPortRepr::StringInput(s) => port_read_str_fn!(s, read_to_string),
-            SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_to_string),
-            SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_to_string),
-            SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_to_string),
+            SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br.inner, read_to_string),
+            SteelPortRepr::StdInput(br) => port_read_str_fn!(br.inner, read_to_string),
+            SteelPortRepr::StringInput(s) => port_read_str_fn!(s.inner, read_to_string),
+            SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br.inner, read_to_string),
+            SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br.inner, read_to_string),
+            SteelPortRepr::DynReader(br) => port_read_str_fn!(br.inner, read_to_string),
             _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
     }
@@ -280,13 +347,13 @@ impl SteelPortRepr {
 
     pub fn read_bytes_amt(&mut self, buf: &mut [u8]) -> Result<MaybeBlocking<usize>> {
         match self {
-            SteelPortRepr::FileInput(_, reader) => read_full(reader, buf),
-            SteelPortRepr::StdInput(stdin) => read_full(stdin, buf),
-            SteelPortRepr::ChildStdOutput(output) => read_full(output, buf),
-            SteelPortRepr::ChildStdError(output) => read_full(output, buf),
-            SteelPortRepr::StringInput(reader) => read_full(reader, buf),
-            SteelPortRepr::DynReader(reader) => read_full(reader, buf),
-            SteelPortRepr::TcpStream(t) => read_full(t, buf),
+            SteelPortRepr::FileInput(_, reader) => reader.read_bytes_amt(buf),
+            SteelPortRepr::StdInput(stdin) => stdin.read_bytes_amt(buf),
+            SteelPortRepr::ChildStdOutput(output) => output.read_bytes_amt(buf),
+            SteelPortRepr::ChildStdError(output) => output.read_bytes_amt(buf),
+            SteelPortRepr::StringInput(reader) => reader.read_bytes_amt(buf),
+            SteelPortRepr::DynReader(reader) => reader.read_bytes_amt(buf),
+            SteelPortRepr::TcpStream(t) => t.read_bytes_amt(buf),
             SteelPortRepr::FileOutput(_, _)
             | SteelPortRepr::StdOutput(_)
             | SteelPortRepr::StdError(_)
@@ -300,24 +367,14 @@ impl SteelPortRepr {
     }
 
     pub fn read_byte(&mut self) -> Result<MaybeBlocking<Option<u8>>> {
-        let mut byte = [0];
-
-        let result = match self {
-            SteelPortRepr::FileInput(_, reader) => reader.read_exact(&mut byte),
-            SteelPortRepr::StdInput(stdin) => stdin.read_exact(&mut byte),
-            SteelPortRepr::ChildStdOutput(output) => output.read_exact(&mut byte),
-            SteelPortRepr::ChildStdError(output) => output.read_exact(&mut byte),
-            SteelPortRepr::StringInput(reader) => reader.read_exact(&mut byte),
-            SteelPortRepr::DynReader(reader) => reader.read_exact(&mut byte),
-            SteelPortRepr::TcpStream(t) => {
-                let amount = t.read(&mut byte)?;
-
-                if amount == 0 {
-                    stop!(Generic => "unexpected eof");
-                } else {
-                    Ok(())
-                }
-            }
+        match self {
+            SteelPortRepr::FileInput(_, reader) => reader.read_byte(),
+            SteelPortRepr::StdInput(stdin) => stdin.read_byte(),
+            SteelPortRepr::ChildStdOutput(output) => output.read_byte(),
+            SteelPortRepr::ChildStdError(output) => output.read_byte(),
+            SteelPortRepr::StringInput(reader) => reader.read_byte(),
+            SteelPortRepr::DynReader(reader) => reader.read_byte(),
+            SteelPortRepr::TcpStream(t) => t.read_byte(),
             SteelPortRepr::FileOutput(_, _)
             | SteelPortRepr::StdOutput(_)
             | SteelPortRepr::StdError(_)
@@ -327,58 +384,18 @@ impl SteelPortRepr {
                 stop!(ContractViolation => "expected input-port?, found {}", self)
             }
             SteelPortRepr::Closed => return Ok(MaybeBlocking::Nonblocking(None)),
-        };
-
-        if let Err(err) = result {
-            if err.kind() == io::ErrorKind::UnexpectedEof {
-                return Ok(MaybeBlocking::Nonblocking(None));
-            }
-
-            if err.kind() == io::ErrorKind::WouldBlock {
-                return Ok(MaybeBlocking::WouldBlock);
-            }
-
-            return Err(err.into());
-        }
-
-        Ok(MaybeBlocking::Nonblocking(Some(byte[0])))
-    }
-
-    pub fn peek_byte(&mut self) -> Result<Option<u8>> {
-        let mut buf = [0];
-
-        let result = self.peek(&mut buf)?;
-
-        if result == 0 {
-            Ok(None)
-        } else {
-            Ok(Some(buf[0]))
         }
     }
 
-    // This would not work for `peek_char`, since a `BufRead` will not work for this purpose.
-    // We need a way to force-fill the internal buffer up to 4 bytes. `fill_buf()` only tries to
-    // fill _if_ the internal buffer is empty, and without any guarantees of returned size.
-    fn peek(&mut self, buf: &mut [u8]) -> Result<usize> {
-        let copy = |src: &[u8]| {
-            let len = src.len().min(buf.len());
-
-            buf.copy_from_slice(&src[0..len]);
-
-            len
-        };
-
-        let result = match self {
-            SteelPortRepr::FileInput(_, reader) => reader.fill_buf().map(copy),
-            SteelPortRepr::StdInput(stdin) => {
-                let mut lock = stdin.lock();
-                lock.fill_buf().map(copy)
-            }
-            SteelPortRepr::ChildStdOutput(output) => output.fill_buf().map(copy),
-            SteelPortRepr::ChildStdError(output) => output.fill_buf().map(copy),
-            SteelPortRepr::StringInput(reader) => reader.fill_buf().map(copy),
-            SteelPortRepr::DynReader(reader) => reader.fill_buf().map(copy),
-            SteelPortRepr::TcpStream(tcp) => tcp.peek(buf),
+    pub fn peek_byte(&mut self) -> Result<MaybeBlocking<Option<u8>>> {
+        match self {
+            SteelPortRepr::FileInput(_, reader) => reader.peek_byte(),
+            SteelPortRepr::StdInput(stdin) => stdin.peek_byte(),
+            SteelPortRepr::ChildStdOutput(output) => output.peek_byte(),
+            SteelPortRepr::ChildStdError(output) => output.peek_byte(),
+            SteelPortRepr::StringInput(reader) => reader.peek_byte(),
+            SteelPortRepr::DynReader(reader) => reader.peek_byte(),
+            SteelPortRepr::TcpStream(t) => t.peek_byte(),
             SteelPortRepr::FileOutput(_, _)
             | SteelPortRepr::StdOutput(_)
             | SteelPortRepr::StdError(_)
@@ -387,10 +404,8 @@ impl SteelPortRepr {
             | SteelPortRepr::DynWriter(_) => {
                 stop!(ContractViolation => "expected input-port?, found {}", self)
             }
-            SteelPortRepr::Closed => return Ok(0),
-        }?;
-
-        Ok(result)
+            SteelPortRepr::Closed => return Ok(MaybeBlocking::Nonblocking(None)),
+        }
     }
 
     pub fn write_char(&mut self, c: char) -> Result<()> {
@@ -476,7 +491,7 @@ impl SteelPortRepr {
             SteelPortRepr::StringOutput(writer) => writer.write_all(buf)?,
             SteelPortRepr::DynWriter(writer) => writer.lock().unwrap().write_all(buf)?,
             // TODO: Should tcp streams be both input and output ports?
-            SteelPortRepr::TcpStream(tcp) => tcp.write_all(buf)?,
+            SteelPortRepr::TcpStream(tcp) => tcp.inner.write_all(buf)?,
             SteelPortRepr::FileInput(_, _)
             | SteelPortRepr::StdInput(_)
             | SteelPortRepr::DynReader(_)
@@ -504,7 +519,7 @@ impl SteelPort {
         Ok(SteelPort {
             port: Gc::new_mut(SteelPortRepr::FileInput(
                 path.to_string(),
-                BufReader::new(file),
+                Peekable::new(BufReader::new(file)),
             )),
         })
     }
@@ -540,13 +555,15 @@ impl SteelPort {
 
     pub fn new_input_port_string(string: String) -> SteelPort {
         SteelPort {
-            port: Gc::new_mut(SteelPortRepr::StringInput(Cursor::new(string.into_bytes()))),
+            port: Gc::new_mut(SteelPortRepr::StringInput(Peekable::new(Cursor::new(
+                string.into_bytes(),
+            )))),
         }
     }
 
     pub fn new_input_port_bytevector(vec: Vec<u8>) -> SteelPort {
         SteelPort {
-            port: Gc::new_mut(SteelPortRepr::StringInput(Cursor::new(vec))),
+            port: Gc::new_mut(SteelPortRepr::StringInput(Peekable::new(Cursor::new(vec)))),
         }
     }
 
@@ -596,7 +613,7 @@ impl SteelPort {
         self.port.write().read_bytes_amt(buf)
     }
 
-    pub fn peek_byte(&self) -> Result<Option<u8>> {
+    pub fn peek_byte(&self) -> Result<MaybeBlocking<Option<u8>>> {
         self.port.write().peek_byte()
     }
 
@@ -636,7 +653,7 @@ impl SteelPort {
 
     pub fn default_current_input_port() -> Self {
         SteelPort {
-            port: Gc::new_mut(SteelPortRepr::StdInput(io::stdin())),
+            port: Gc::new_mut(SteelPortRepr::StdInput(Peekable::new(io::stdin()))),
         }
     }
 
