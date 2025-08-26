@@ -208,7 +208,9 @@ impl SteelPortRepr {
                     if i == 0 {
                         return Ok(MaybeBlocking::Nonblocking(None));
                     } else {
-                        stop!(ConversionError => "unable to decode character, found {:?}", &buf[0..=i]);
+                        return Ok(MaybeBlocking::Nonblocking(Some(
+                            char::REPLACEMENT_CHARACTER,
+                        )));
                     }
                 }
                 MaybeBlocking::WouldBlock => return Ok(MaybeBlocking::WouldBlock),
@@ -219,13 +221,17 @@ impl SteelPortRepr {
             match std::str::from_utf8(&buf[0..=i]) {
                 Ok(s) => return Ok(MaybeBlocking::Nonblocking(s.chars().next())),
                 Err(err) if err.error_len().is_some() => {
-                    stop!(ConversionError => "unable to decode character, found {:?}", &buf[0..=i]);
+                    return Ok(MaybeBlocking::Nonblocking(Some(
+                        char::REPLACEMENT_CHARACTER,
+                    )));
                 }
                 _ => {}
             }
         }
 
-        stop!(ConversionError => "unable to decode character, found {:?}", buf);
+        Ok(MaybeBlocking::Nonblocking(Some(
+            char::REPLACEMENT_CHARACTER,
+        )))
     }
 
     pub fn read_bytes_amt(&mut self, buf: &mut [u8]) -> Result<MaybeBlocking<(usize, bool)>> {
