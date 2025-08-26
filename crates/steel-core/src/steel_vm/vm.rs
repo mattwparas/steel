@@ -1,5 +1,5 @@
 use crate::compiler::compiler::Compiler;
-use crate::core::instructions::u24;
+use crate::core::instructions::{disassemble, pretty_print_dense_instructions, u24};
 use crate::env::SharedVectorWrapper;
 use crate::gc::shared::{
     MutContainer, ShareableMut, Shared, StandardShared, StandardSharedMut, WeakShared,
@@ -5363,8 +5363,6 @@ fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result
     // TODO: Looks like this isn't correctly parsing / pushing down macros!
     // This needs to extract macros
 
-    // println!("EVAL => {}", expr.to_pretty(60));
-
     let res = ctx
         .thread
         .compiler
@@ -5410,6 +5408,8 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
     let mut bytecode = Vec::new();
     let mut new_spans = Vec::new();
 
+    let mut global_offset = 0;
+
     // Rewrite relative jumps at the top level into absolute jumps.
     for (instr, span) in instructions.into_iter().zip(spans) {
         let mut depth = 0;
@@ -5432,6 +5432,61 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
                 } => {
                     if depth == 0 {
                         *payload_size = *payload_size + u24::from_usize(offset);
+                    }
+                }
+                DenseInstruction {
+                    op_code: OpCode::BIND,
+                    payload_size,
+                } => {
+                    let mut compiler_guard = ctx.thread.compiler.write();
+                    if compiler_guard
+                        .symbol_map
+                        .free_list
+                        .recently_freed
+                        .contains(&payload_size.to_usize())
+                    {
+                        compiler_guard
+                            .symbol_map
+                            .free_list
+                            .recently_freed
+                            .remove(&payload_size.to_usize());
+                    } else {
+                        global_offset += 1;
+                    }
+                }
+                DenseInstruction {
+                    op_code:
+                        OpCode::PUSH
+                        | OpCode::CALLGLOBAL
+                        | OpCode::CALLGLOBALTAIL
+                        | OpCode::CALLGLOBALNOARITY
+                        | OpCode::CALLGLOBALTAILNOARITY,
+                    payload_size,
+                } => {
+                    if depth == 0 {
+                        if payload_size.to_usize() >= ctx.thread.global_env.len() + global_offset {
+                            stop!(Generic => "Free identifier: eval referenced an identifier before it was bound");
+                        }
+
+                        let compiler_guard = ctx.thread.compiler.read();
+
+                        // TODO: Figure out how to make the recently freed list
+                        // move down in size. Eval is the only way that we could
+                        // reclaim these slots, so assuming there isn't any
+                        // eval, we'll want to make sure this goes down in size.
+                        if compiler_guard
+                            .symbol_map
+                            .free_list
+                            .recently_freed
+                            .contains(&payload_size.to_usize())
+                            && ctx
+                                .thread
+                                .global_env
+                                .repl_maybe_lookup_idx(payload_size.to_usize())
+                                == Some(SteelVal::Void)
+                        {
+                            stop!(Generic => "Free identifier: eval (maybe) referenced an identifier before it was bound");
+                        }
                     }
                 }
                 DenseInstruction {
@@ -5485,6 +5540,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
         ctx.ip -= 1;
         ctx.handle_function_call_closure(function, 0).unwrap();
     }
+
     Ok(())
 }
 
@@ -5567,6 +5623,7 @@ fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> R
         .compiler
         .write()
         .compile_executable(exprs, Some(std::path::PathBuf::from(path.as_str())));
+
     ctx.thread
         .compiler
         .write()
