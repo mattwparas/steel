@@ -31,7 +31,7 @@ steel-core = { path = "./crates/steel-core", version = "0.7.0", features = [
 ] }
 
 [features]
-default = ["snmalloc"]
+default = ["mimalloc"]
 build-info = ["vergen"]
 mimalloc = ["dep:mimalloc"]
 snmalloc = ["dep:snmalloc-rs"]
