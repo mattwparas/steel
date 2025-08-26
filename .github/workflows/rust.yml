@@ -93,7 +93,7 @@ jobs:
     runs-on: ${{ matrix.os.os }}
     # It seems that occasionally things get stuck. Not sure why since I'm unable to
     # reproduce locally. But this stops the jobs from running for 6 hours.
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
