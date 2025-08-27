@@ -452,7 +452,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
 
 const GC_THRESHOLD: usize = 256 * 1000;
 const GC_GROW_FACTOR: usize = 2;
-const RESET_LIMIT: usize = 8;
+const RESET_LIMIT: usize = 9;
 
 // TODO: Do these roots needs to be truly global?
 // Replace this with a lazy static
@@ -1729,6 +1729,7 @@ impl Heap {
 
             if self.vector_free_list.percent_full() > 0.95 || force {
                 self.vector_free_list.mark_all_unreachable();
+                self.memory_free_list.mark_all_unreachable();
 
                 let stats = self.mark_and_sweep_new(
                     None,
@@ -1754,7 +1755,9 @@ impl Heap {
                     self.vector_free_list.grow();
                 }
 
-                self.vector_free_list.grow();
+                log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.vector_free_list.percent_full());
+
+                log::debug!(target: "gc", "---- TOTAL VECTOR GC TIME: {:?} ----", now.elapsed());
             }
         }
     }
@@ -1777,6 +1780,7 @@ impl Heap {
 
             if self.vector_free_list.percent_full() > 0.95 {
                 self.vector_free_list.mark_all_unreachable();
+                self.memory_free_list.mark_all_unreachable();
 
                 let stats = self.mark_and_sweep_new(
                     None,
@@ -1795,21 +1799,19 @@ impl Heap {
                     self.memory_free_list.elements.len() - stats.memory_reached_count;
 
                 // if self.vector_free_list.percent_full() > 0.75 {
-                if self.vector_free_list.grow_count > 7 {
+                if self.vector_free_list.grow_count > RESET_LIMIT {
                     // Compact the free list.
                     self.vector_free_list.compact();
                 } else {
                     self.vector_free_list.grow();
                 }
-                // }
 
-                self.vector_free_list.grow();
+                log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.vector_free_list.percent_full());
+
+                log::debug!(target: "gc", "---- TOTAL VECTOR GC TIME: {:?} ----", now.elapsed());
             }
         }
 
-        // todo!()
-
-        // TOOD: Optimize this a lot!
         self.vector_free_list.allocate_vec(values)
     }
 

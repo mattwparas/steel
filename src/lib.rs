@@ -524,6 +524,21 @@ fn r7rs_benchmark_test_suite() {
 }
 
 #[test]
+fn r7rs_benchmark_test_suite_three() {
+    let benches = &["r7rs-benchmarks/cat.scm", "r7rs-benchmarks/deriv.scm"];
+
+    for bench in benches {
+        let args = SteelCliArgs {
+            action: None,
+            default_file: Some(PathBuf::from(bench)),
+            arguments: vec![],
+        };
+
+        run(args).unwrap();
+    }
+}
+
+#[test]
 fn syntax_test_suite() {
     let args = SteelCliArgs {
         action: None,

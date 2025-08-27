@@ -33,4 +33,4 @@
                         (lambda () (go (hide count input1) (hide count input2)))
                         (lambda (result) #t))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/cat.input" run-benchmark)
+(with-input-from-file "r7rs-benchmarks/small-inputs/cat.input" run-benchmark)

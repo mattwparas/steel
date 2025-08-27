@@ -132,9 +132,7 @@
   (define (non-terminals grammar) ;; return vector of non-terminals in grammar
 
     (define (add-nt nt nts)
-      (if (member nt nts)
-          nts
-          (cons nt nts))) ;; use equal? for equality tests
+      (if (member nt nts) nts (cons nt nts))) ;; use equal? for equality tests
 
     (let def-loop ([defs grammar]
                    [nts '()])
@@ -155,11 +153,7 @@
 
   (define (ind nt nts) ;; return index of non-terminal `nt' in `nts'
     (let loop ([i (- (vector-length nts) 1)])
-      (if (>= i 0)
-          (if (equal? (vector-ref nts i) nt)
-              i
-              (loop (- i 1)))
-          #f)))
+      (if (>= i 0) (if (equal? (vector-ref nts i) nt) i (loop (- i 1))) #f)))
 
   (define (nb-configurations grammar) ;; return nb of configurations in grammar
     (let def-loop ([defs grammar]
@@ -245,20 +239,13 @@
 
         (define (ind nt nts) ;; return index of non-terminal `nt' in `nts'
           (let loop ([i (- (vector-length nts) 1)])
-            (if (>= i 0)
-                (if (equal? (vector-ref nts i) nt)
-                    i
-                    (loop (- i 1)))
-                #f)))
+            (if (>= i 0) (if (equal? (vector-ref nts i) nt) i (loop (- i 1))) #f)))
 
         (define (comp-tok tok nts) ;; transform token to parsing format
           (let loop ([l1 (cdr tok)]
                      [l2 '()])
             (if (pair? l1)
-                (let ([i (ind (car l1) nts)])
-                  (if i
-                      (loop (cdr l1) (cons i l2))
-                      (loop (cdr l1) l2)))
+                (let ([i (ind (car l1) nts)]) (if i (loop (cdr l1) (cons i l2)) (loop (cdr l1) l2)))
                 (cons (car tok) (reverse l2)))))
 
         (define (input->tokens input lexer nts)
@@ -303,9 +290,7 @@
 
         (define (conf-set-member? state conf i)
           (let ([conf-set (vector-ref state (+ conf 1))])
-            (if conf-set
-                (conf-set-next conf-set i)
-                #f)))
+            (if conf-set (conf-set-next conf-set i) #f)))
 
         (define (conf-set-adjoin state conf-set conf i)
           (let ([tail (vector-ref conf-set 3)]) ;; put new element at tail
@@ -484,9 +469,7 @@
                   (let loop ([l (vector-ref enders nt*)])
                     (if (pair? l)
                         (let ([conf (car l)])
-                          (if (conf-set-member? (vector-ref states j) conf i)
-                              #t
-                              (loop (cdr l))))
+                          (if (conf-set-member? (vector-ref states j) conf i) #t (loop (cdr l))))
                         #f)))
                 #f)))
 
@@ -497,9 +480,7 @@
           (let ([name (vector-ref names conf)])
 
             (if name ;; `conf' is at the start of a rule (either special or not)
-                (if (< conf nb-nts)
-                    (list (list name (car (vector-ref toks i))))
-                    (list (list name)))
+                (if (< conf nb-nts) (list (list name (car (vector-ref toks i)))) (list (list name)))
 
                 (let ([prev (- conf 1)])
                   (let loop1 ([l1 (vector-ref enders (vector-ref steps prev))]
@@ -667,8 +648,6 @@
   (let ([p (make-parser '((s (a) (s s))) (lambda (l) (map (lambda (x) (list x x)) l)))])
     (let ([x (p input)]
           [n (length input)])
-
-      (displayln x)
 
       (length (parse->trees x 's 0 n)))))
 

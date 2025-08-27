@@ -192,7 +192,8 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_to_string),
             SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_to_string),
             SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_to_string),
-            _x => stop!(Generic => "read-all-str"),
+            SteelPortRepr::StringInput(br) => port_read_str_fn!(br, read_to_string),
+            x => stop!(Generic => "read-all-str: {:?}", x),
         }
     }
 
