@@ -308,10 +308,7 @@
 
 (define (#%display obj collector)
   (cond
-    [(string? obj)
-     (display "\"")
-     (simple-display obj)
-     (display "\"")]
+    [(string? obj) (simple-display obj)]
     [(symbol? obj) (simple-display (symbol->string obj))]
     [(atom? obj) (simple-display obj)]
     [(function? obj) (simple-display obj)]
