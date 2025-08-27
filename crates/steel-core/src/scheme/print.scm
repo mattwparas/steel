@@ -29,10 +29,6 @@
                 (newline)))
             (#%private-cycle-collector-values cycle-collector))
 
-  ;; Symbols are funny
-  (when (or (symbol? obj) (list? obj))
-    (simple-display "'"))
-
   (#%top-level-print obj cycle-collector))
 
 (define display
