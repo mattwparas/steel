@@ -3,9 +3,7 @@ use std::fs::OpenOptions;
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
 use crate::primitives::lists::plist_get_impl;
-use crate::rvals::{
-    FromSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal, SteelValDisplay,
-};
+use crate::rvals::{FromSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::values::port::{would_block, SteelPort, SteelPortRepr, WOULD_BLOCK_OBJECT};
 use crate::values::structs::{make_struct_singleton, StructTypeDescriptor};
@@ -379,7 +377,7 @@ pub fn write_line(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
 #[function(name = "#%raw-write")]
 pub fn write(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = output_args(rest)?;
-    let line = line.to_string();
+    let line = format!("{:?}", line);
     let res = port.write(line.as_str().as_bytes());
 
     if res.is_ok() {
@@ -392,7 +390,7 @@ pub fn write(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal
 #[function(name = "#%raw-display")]
 pub fn display(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = output_args(rest)?;
-    let line = SteelValDisplay(line).to_string();
+    let line = line.to_string();
     let res = port.write(line.as_str().as_bytes());
 
     if res.is_ok() {
