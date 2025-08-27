@@ -3402,6 +3402,40 @@ impl<'a> VmCore<'a> {
                         self.ip = payload_size.to_usize();
                     }
                 }
+
+                DenseInstruction {
+                    op_code: OpCode::SELFTAILCALLNOARITY,
+                    payload_size,
+                } => {
+                    let current_arity = payload_size.to_usize();
+
+                    let last_stack_frame = self.thread.stack_frames.last().unwrap();
+
+                    #[cfg(feature = "dynamic")]
+                    {
+                        last_stack_frame.function.increment_call_count();
+                    }
+
+                    self.instructions = last_stack_frame.function.body_exp();
+                    self.sp = last_stack_frame.sp;
+
+                    self.ip = 0;
+
+                    // TODO: Adjust the stack for multiple arity functions
+                    let offset = last_stack_frame.sp;
+
+                    // We should have arity at this point, drop the stack up to this point
+                    // take the last arity off the stack, go back and replace those in order
+                    // [... arg1 arg2 arg3]
+                    //      ^^^ <- back = this index
+                    // offset = the start of the stack frame
+                    // Copy the arg1 arg2 arg3 values to
+                    // [... frame-start ... arg1 arg2 arg3]
+                    //      ^^^^^^~~~~~~~~
+                    let back = self.thread.stack.len() - current_arity;
+                    let _ = self.thread.stack.drain(offset..back);
+                }
+
                 DenseInstruction {
                     op_code: OpCode::TCOJMP,
                     payload_size,

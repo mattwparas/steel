@@ -745,7 +745,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     // panic!();
                     self.instructions.pop();
                     // OpCode::SELFTAILCALLNOARITY
-                    OpCode::TCOJMP
+                    OpCode::SELFTAILCALLNOARITY
                 }
                 // Elide the arity checks, if we can
                 SelfTailCall(_) => {
