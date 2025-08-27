@@ -82,14 +82,7 @@ fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
     match res {
         Ok(r) => r.into_iter().for_each(|x| match x {
             SteelVal::Void => {}
-            SteelVal::StringV(s) => {
-                println!("{} {:?}", "=>".bright_blue().bold(), s);
-            }
-            _ => {
-                print!("{} ", "=>".bright_blue().bold());
-                vm.call_function_by_name_with_args("displayln", vec![x])
-                    .unwrap();
-            }
+            _ => println!("{} {}", "=>".bright_blue().bold(), x),
         }),
         Err(e) => {
             vm.raise_error(e);
@@ -118,14 +111,7 @@ fn finish_or_interrupt(vm: &mut Engine, line: String) {
 
         match value {
             SteelVal::Void => {}
-            SteelVal::StringV(s) => {
-                println!("{} {:?}", "=>".bright_blue().bold(), s);
-            }
-            _ => {
-                print!("{} ", "=>".bright_blue().bold());
-                vm.call_function_by_name_with_args("displayln", vec![value])
-                    .unwrap();
-            }
+            _ => println!("{} {}", "=>".bright_blue().bold(), value),
         }
     }
 }
