@@ -160,16 +160,11 @@ impl SteelPortRepr {
             SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br, read_line),
             SteelPortRepr::StdInput(br) => port_read_str_fn!(br, read_line),
             SteelPortRepr::StringInput(s) => port_read_str_fn!(s, read_line),
-
-            SteelPortRepr::ChildStdOutput(br) => {
-                port_read_str_fn!(br, read_line)
-            }
-
+            SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_line),
+            SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_line),
             SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_line),
-
-            // SteelPort::ChildStdOutput(br) => port_read_str_fn!(br, read_line),
             // FIXME: fix this and the functions below
-            _x => stop!(Generic => "read-line"),
+            _ => stop!(TypeMismatch => "expected an input port"),
         }
     }
 
@@ -189,11 +184,11 @@ impl SteelPortRepr {
         match self {
             SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br, read_to_string),
             SteelPortRepr::StdInput(br) => port_read_str_fn!(br, read_to_string),
+            SteelPortRepr::StringInput(s) => port_read_str_fn!(s, read_to_string),
             SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_to_string),
             SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_to_string),
             SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_to_string),
-            SteelPortRepr::StringInput(br) => port_read_str_fn!(br, read_to_string),
-            x => stop!(Generic => "read-all-str: {:?}", x),
+            _ => stop!(TypeMismatch => "expected an input port"),
         }
     }
 
