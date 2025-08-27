@@ -529,6 +529,8 @@ fn r7rs_benchmark_test_suite_three() {
         "r7rs-benchmarks/cat.scm",
         "r7rs-benchmarks/deriv.scm",
         "r7rs-benchmarks/graphs.scm",
+        "r7rs-benchmarks/pi.scm",
+        "r7rs-benchmarks/pnpoly.scm",
     ];
 
     for bench in benches {

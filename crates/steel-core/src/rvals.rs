@@ -978,7 +978,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                         let value = std::mem::take(value);
 
                         if let Some(value) = value {
-                            let value = from_serializable_value(ctx, value);
+                            let _ = from_serializable_value(ctx, value);
 
                             todo!()
                             // let allocation = ctx.heap.allocate_without_collection(value);

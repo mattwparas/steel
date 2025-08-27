@@ -60,4 +60,4 @@
                         (lambda () (run (hide count input1) (hide count input2)))
                         (lambda (result) (and (number? result) (= result output))))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/pnpoly.input" run-benchmark)
+(with-input-from-file "r7rs-benchmarks/small-inputs/pnpoly.input" run-benchmark)

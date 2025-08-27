@@ -1,5 +1,5 @@
 use crate::compiler::compiler::Compiler;
-use crate::core::instructions::{disassemble, pretty_print_dense_instructions, u24};
+use crate::core::instructions::u24;
 use crate::env::SharedVectorWrapper;
 use crate::gc::shared::{
     MutContainer, ShareableMut, Shared, StandardShared, StandardSharedMut, WeakShared,
