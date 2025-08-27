@@ -84,7 +84,7 @@ impl EngineWrapper {
             SteelVal::ListV(list) => {
                 let values = list
                     .iter()
-                    .map(|x| x.to_string())
+                    .map(|x| format!("{:?}", x))
                     .map(|x| {
                         self.0.compile_and_run_raw_program(Cow::from(
                             x.trim_start_matches('\'').to_string(),
