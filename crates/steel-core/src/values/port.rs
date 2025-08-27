@@ -55,18 +55,28 @@ impl std::fmt::Display for SteelPort {
 #[derive(Debug)]
 pub struct Peekable<R> {
     inner: R,
-    peek: Option<u8>,
+    peek: [u8; 4],
+    idx: usize,
 }
 
 impl<T> Peekable<T> {
     pub fn new(inner: T) -> Self {
-        Peekable { inner, peek: None }
+        Peekable {
+            inner,
+            peek: [0; 4],
+            idx: 0,
+        }
     }
 }
 
 impl<R: Read> Peekable<R> {
     fn read_byte(&mut self) -> Result<MaybeBlocking<Option<u8>>> {
-        if let Some(peek) = self.peek.take() {
+        if self.idx > 0 {
+            let peek = self.peek[0];
+
+            self.peek[..].rotate_left(1);
+            self.idx -= 1;
+
             return Ok(MaybeBlocking::Nonblocking(Some(peek)));
         }
 
@@ -87,13 +97,15 @@ impl<R: Read> Peekable<R> {
     }
 
     fn peek_byte(&mut self) -> Result<MaybeBlocking<Option<u8>>> {
-        if let Some(peek) = self.peek {
-            Ok(MaybeBlocking::Nonblocking(Some(peek)))
+        if self.idx > 0 {
+            Ok(MaybeBlocking::Nonblocking(Some(self.peek[0])))
         } else {
             match self.read_byte()? {
-                MaybeBlocking::Nonblocking(peek) => {
-                    self.peek = peek;
-                    Ok(MaybeBlocking::Nonblocking(peek))
+                MaybeBlocking::Nonblocking(None) => Ok(MaybeBlocking::Nonblocking(None)),
+                MaybeBlocking::Nonblocking(Some(peek)) => {
+                    self.peek[0] = peek;
+                    self.idx += 1;
+                    Ok(MaybeBlocking::Nonblocking(Some(peek)))
                 }
                 MaybeBlocking::WouldBlock => Ok(MaybeBlocking::WouldBlock),
             }
@@ -102,12 +114,18 @@ impl<R: Read> Peekable<R> {
 
     pub fn read_bytes_amt(&mut self, mut buf: &mut [u8]) -> Result<MaybeBlocking<usize>> {
         let mut amt = 0;
-        if !buf.is_empty() {
-            if let Some(peek) = self.peek.take() {
-                amt += 1;
-                buf[0] = peek;
-                buf = &mut buf[1..]
+
+        if !buf.is_empty() && self.idx > 0 {
+            let len = usize::min(buf.len(), self.idx);
+            for i in 0..len {
+                buf[i] = self.peek[i];
             }
+
+            amt += len;
+            buf = &mut buf[len..];
+
+            self.idx -= len;
+            self.peek[..].rotate_left(len);
         }
 
         match read_full(&mut self.inner, buf)? {
