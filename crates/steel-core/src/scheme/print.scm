@@ -6,7 +6,17 @@
          display
          #%display
          #%top-level-display
-         print)
+         print
+         println)
+
+(define println
+  (case-lambda
+    [(obj)
+     (print obj)
+     (newline)]
+    [(obj port)
+     (print obj port)
+     (newline port)]))
 
 (define print
   (case-lambda
