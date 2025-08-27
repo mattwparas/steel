@@ -115,6 +115,7 @@ test_harness_success! {
     ncsubseq,
     numbers,
     pascals,
+    print,
     permutations,
     quicksort,
     read,
