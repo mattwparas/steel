@@ -4,8 +4,8 @@
 
 (provide displayln
          display
-         #%print
-         #%top-level-print)
+         #%display
+         #%top-level-display)
 
 (define (for-each func lst)
   (if (null? lst)
@@ -25,7 +25,7 @@
                 (simple-display "#")
                 (simple-display (#%private-cycle-collector-get cycle-collector obj))
                 (simple-display "=")
-                (#%top-level-print obj cycle-collector)
+                (#%top-level-display obj cycle-collector)
                 (newline)))
             (#%private-cycle-collector-values cycle-collector))
 
@@ -33,7 +33,7 @@
   (when (or (symbol? obj) (list? obj))
     (simple-display "'"))
 
-  (#%top-level-print obj cycle-collector))
+  (#%top-level-display obj cycle-collector))
 
 (define display
   (case-lambda
@@ -65,7 +65,7 @@
                objs)
      (newline)]))
 
-(define (#%top-level-print obj collector)
+(define (#%top-level-display obj collector)
   (cond
     [(symbol? obj) (simple-display (symbol->string obj))]
     [(atom? obj) (simple-display obj)]
@@ -76,10 +76,10 @@
     [(list? obj)
      (simple-display "(")
      (when (not (empty? obj))
-       (#%print (car obj) collector)
+       (#%display (car obj) collector)
        (for-each (λ (obj)
                    (simple-display " ")
-                   (#%print obj collector))
+                   (#%display obj collector))
                  (cdr obj)))
      (simple-display ")")]
 
@@ -88,7 +88,7 @@
      (let ([printer (#%struct-property-ref obj '#:printer)])
 
        (cond
-         [(function? printer) (printer obj (lambda (x) (#%print x collector)))]
+         [(function? printer) (printer obj (lambda (x) (#%display x collector)))]
 
          ;; Truthiness here needs to be addressed
          [printer
@@ -106,10 +106,10 @@
 
         (let ([set-as-list (hashset->list obj)])
 
-          (#%print (car set-as-list) collector)
+          (#%display (car set-as-list) collector)
           (for-each (λ (obj)
                       (simple-display " ")
-                      (#%print obj collector)
+                      (#%display obj collector)
                       collector)
                     (cdr set-as-list))
           (simple-display ")"))])]
@@ -118,10 +118,10 @@
      (let ([list-obj (vector->list obj)])
        (simple-display "'#(")
        (when (not (empty? list-obj))
-         (#%print (car list-obj) collector)
+         (#%display (car list-obj) collector)
          (for-each (λ (obj)
                      (simple-display " ")
-                     (#%print obj collector))
+                     (#%display obj collector))
                    (cdr list-obj)))
        (simple-display ")"))]
 
@@ -135,16 +135,16 @@
          [else
 
           (simple-display "(")
-          (#%print (caar hash-as-list-of-pairs) collector)
+          (#%display (caar hash-as-list-of-pairs) collector)
           (simple-display " . ")
-          (#%print (cadar hash-as-list-of-pairs) collector)
+          (#%display (cadar hash-as-list-of-pairs) collector)
           (simple-display ")")
 
           (for-each (λ (obj)
                       (simple-display " (")
-                      (#%print (car obj) collector)
+                      (#%display (car obj) collector)
                       (simple-display " . ")
-                      (#%print (list-ref obj 1) collector)
+                      (#%display (list-ref obj 1) collector)
                       (simple-display ")"))
                     (cdr hash-as-list-of-pairs))
 
@@ -152,7 +152,7 @@
 
     [else (simple-display obj)]))
 
-(define (#%print obj collector)
+(define (#%display obj collector)
   (cond
     [(string? obj)
      (display "\"")
@@ -170,10 +170,10 @@
     [(list? obj)
      (simple-display "(")
      (when (not (empty? obj))
-       (#%print (car obj) collector)
+       (#%display (car obj) collector)
        (for-each (λ (obj)
                    (simple-display " ")
-                   (#%print obj collector))
+                   (#%display obj collector))
                  (cdr obj)))
      (simple-display ")")]
 
@@ -182,7 +182,7 @@
      (let ([printer (#%struct-property-ref obj '#:printer)])
 
        (cond
-         [(function? printer) (printer obj (lambda (x) (#%print x collector)))]
+         [(function? printer) (printer obj (lambda (x) (#%display x collector)))]
          [printer
           (simple-display "#<")
           (simple-display (symbol->string (#%struct-property-ref obj '#:name)))
@@ -194,10 +194,10 @@
      (let ([list-obj (vector->list obj)])
        (simple-display "#(")
        (when (not (empty? list-obj))
-         (#%print (car list-obj) collector)
+         (#%display (car list-obj) collector)
          (for-each (λ (obj)
                      (simple-display " ")
-                     (#%print obj collector))
+                     (#%display obj collector))
                    (cdr list-obj)))
        (simple-display ")"))]
 
@@ -209,10 +209,10 @@
 
         (let ([set-as-list (hashset->list obj)])
 
-          (#%print (car set-as-list) collector)
+          (#%display (car set-as-list) collector)
           (for-each (λ (obj)
                       (simple-display " ")
-                      (#%print obj collector)
+                      (#%display obj collector)
                       collector)
                     (cdr set-as-list))
           (simple-display ")"))])]
@@ -227,16 +227,16 @@
          [else
 
           (simple-display "(")
-          (#%print (caar hash-as-list-of-pairs) collector)
+          (#%display (caar hash-as-list-of-pairs) collector)
           (simple-display " . ")
-          (#%print (cadar hash-as-list-of-pairs) collector)
+          (#%display (cadar hash-as-list-of-pairs) collector)
           (simple-display ")")
 
           (for-each (λ (obj)
                       (simple-display " (")
-                      (#%print (car obj) collector)
+                      (#%display (car obj) collector)
                       (simple-display " . ")
-                      (#%print (list-ref obj 1) collector)
+                      (#%display (list-ref obj 1) collector)
                       (simple-display ")"))
                     (cdr hash-as-list-of-pairs))
 
