@@ -59,6 +59,7 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(OPEN_INPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(READ_BYTE_DEFINITION)
         .register_native_fn_definition(READ_CHAR_DEFINITION)
+        .register_native_fn_definition(PEEK_CHAR_DEFINITION)
         .register_native_fn_definition(WRITE_BYTE_DEFINITION)
         .register_native_fn_definition(WRITE_BYTES_DEFINITION)
         .register_native_fn_definition(PEEK_BYTE_DEFINITION)
@@ -102,6 +103,7 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
         .register_native_fn_definition(OPEN_INPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(READ_BYTE_DEFINITION)
         .register_native_fn_definition(READ_CHAR_DEFINITION)
+        .register_native_fn_definition(PEEK_CHAR_DEFINITION)
         .register_native_fn_definition(WRITE_BYTE_DEFINITION)
         .register_native_fn_definition(WRITE_BYTES_DEFINITION)
         .register_native_fn_definition(PEEK_BYTE_DEFINITION)
@@ -750,6 +752,23 @@ pub fn read_char(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = input_args(rest)?;
 
     match port.read_char()? {
+        crate::values::port::MaybeBlocking::Nonblocking(c) => {
+            Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
+        }
+        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+    }
+}
+
+/// Peeks the next character from an input port.
+///
+/// (peek-char [port]) -> char?
+///
+/// * port : input-port? = (current-input-port)
+#[function(name = "peek-char")]
+pub fn peek_char(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = input_args(rest)?;
+
+    match port.peek_char()? {
         crate::values::port::MaybeBlocking::Nonblocking(c) => {
             Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
         }

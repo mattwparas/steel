@@ -96,6 +96,41 @@ impl<R: Read> Peekable<R> {
         Ok(MaybeBlocking::Nonblocking(Some(byte[0])))
     }
 
+    fn peek_char(&mut self) -> Result<MaybeBlocking<Option<char>>> {
+        match read_full(&mut self.inner, &mut self.peek[self.idx..])? {
+            MaybeBlocking::Nonblocking(n) => self.idx += n,
+            MaybeBlocking::WouldBlock => return Ok(MaybeBlocking::WouldBlock),
+        };
+
+        if self.idx == 0 {
+            return Ok(MaybeBlocking::Nonblocking(None));
+        }
+
+        match std::str::from_utf8(&self.peek[0..self.idx]) {
+            Ok(str) => Ok(MaybeBlocking::Nonblocking(str.chars().next())),
+            Err(err) => {
+                if err.valid_up_to() > 0 {
+                    let s = std::str::from_utf8(&self.peek[0..err.valid_up_to()]).unwrap();
+                    Ok(MaybeBlocking::Nonblocking(s.chars().next()))
+                } else if let Some(len) = err.error_len() {
+                    self.idx -= len;
+                    self.peek[..].rotate_left(len);
+                    Ok(MaybeBlocking::Nonblocking(Some(
+                        char::REPLACEMENT_CHARACTER,
+                    )))
+                } else {
+                    // if error_len is None, it means that there should be more
+                    // bytes coming after, but we tried to fill the buf to a len
+                    // of 4, the maximum, so that just means we got incomplete utf8
+                    self.idx = 0;
+                    Ok(MaybeBlocking::Nonblocking(Some(
+                        char::REPLACEMENT_CHARACTER,
+                    )))
+                }
+            }
+        }
+    }
+
     fn peek_byte(&mut self) -> Result<MaybeBlocking<Option<u8>>> {
         if self.idx > 0 {
             Ok(MaybeBlocking::Nonblocking(Some(self.peek[0])))
@@ -363,6 +398,18 @@ impl SteelPortRepr {
         )))
     }
 
+    pub fn peek_char(&mut self) -> Result<MaybeBlocking<Option<char>>> {
+        match self {
+            SteelPortRepr::FileInput(_, br) => br.peek_char(),
+            SteelPortRepr::StdInput(br) => br.peek_char(),
+            SteelPortRepr::StringInput(s) => s.peek_char(),
+            SteelPortRepr::ChildStdOutput(br) => br.peek_char(),
+            SteelPortRepr::ChildStdError(br) => br.peek_char(),
+            SteelPortRepr::DynReader(br) => br.peek_char(),
+            _ => stop!(TypeMismatch => "expected an input port"),
+        }
+    }
+
     pub fn read_bytes_amt(&mut self, buf: &mut [u8]) -> Result<MaybeBlocking<usize>> {
         match self {
             SteelPortRepr::FileInput(_, reader) => reader.read_bytes_amt(buf),
@@ -609,6 +656,10 @@ impl SteelPort {
 
     pub fn read_char(&self) -> Result<MaybeBlocking<Option<char>>> {
         self.port.write().read_char()
+    }
+
+    pub fn peek_char(&self) -> Result<MaybeBlocking<Option<char>>> {
+        self.port.write().peek_char()
     }
 
     pub fn read_byte(&self) -> Result<MaybeBlocking<Option<u8>>> {
