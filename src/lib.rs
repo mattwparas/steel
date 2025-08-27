@@ -525,7 +525,11 @@ fn r7rs_benchmark_test_suite() {
 
 #[test]
 fn r7rs_benchmark_test_suite_three() {
-    let benches = &["r7rs-benchmarks/cat.scm", "r7rs-benchmarks/deriv.scm"];
+    let benches = &[
+        "r7rs-benchmarks/cat.scm",
+        "r7rs-benchmarks/deriv.scm",
+        "r7rs-benchmarks/graphs.scm",
+    ];
 
     for bench in benches {
         let args = SteelCliArgs {
