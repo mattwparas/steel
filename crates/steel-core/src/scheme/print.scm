@@ -187,10 +187,6 @@
                 (newline)))
             (#%private-cycle-collector-values cycle-collector))
 
-  ;; Symbols are funny
-  (when (or (symbol? obj) (list? obj))
-    (simple-display "'"))
-
   (#%top-level-display obj cycle-collector))
 
 (define display
