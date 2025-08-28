@@ -31,6 +31,14 @@ impl Pair {
     pub fn cdr(&self) -> SteelVal {
         self.cdr.clone()
     }
+
+    pub fn car_ref(&self) -> &SteelVal {
+        &self.car
+    }
+
+    pub fn cdr_ref(&self) -> &SteelVal {
+        &self.cdr
+    }
 }
 
 impl From<Pair> for SteelVal {
@@ -54,81 +62,49 @@ thread_local! {
     pub static DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
-#[cfg(feature = "triomphe")]
-pub struct TriopmhePointerType;
-
-#[cfg(feature = "triomphe")]
-impl PointerFamily for TriopmhePointerType {
-    type Pointer<T> = triomphe::Arc<T>;
-
-    fn new<T>(value: T) -> Self::Pointer<T> {
-        triomphe::Arc::new(value)
-    }
-
-    fn strong_count<T>(this: &Self::Pointer<T>) -> usize {
-        triomphe::Arc::strong_count(this)
-    }
-
-    fn try_unwrap<T>(this: Self::Pointer<T>) -> Option<T> {
-        triomphe::Arc::try_unwrap(this).ok()
-    }
-
-    fn get_mut<T>(this: &mut Self::Pointer<T>) -> Option<&mut T> {
-        triomphe::Arc::get_mut(this)
-    }
-
-    fn ptr_eq<T>(this: &Self::Pointer<T>, other: &Self::Pointer<T>) -> bool {
-        triomphe::Arc::ptr_eq(this, other)
-    }
-
-    fn make_mut<T: Clone>(ptr: &mut Self::Pointer<T>) -> &mut T {
-        triomphe::Arc::make_mut(ptr)
-    }
-
-    fn clone<T>(ptr: &Self::Pointer<T>) -> Self::Pointer<T> {
-        triomphe::Arc::clone(ptr)
-    }
-
-    fn as_ptr<T>(this: &Self::Pointer<T>) -> *const T {
-        triomphe::Arc::as_ptr(this)
-    }
-}
-
 pub struct GcPointerType;
 
 impl PointerFamily for GcPointerType {
-    type Pointer<T> = Gc<T>;
+    type Pointer<T: 'static> = Gc<T>;
 
-    fn new<T>(value: T) -> Self::Pointer<T> {
+    fn new<T: 'static>(value: T) -> Self::Pointer<T> {
         Gc::new(value)
     }
 
-    fn strong_count<T>(this: &Self::Pointer<T>) -> usize {
+    fn strong_count<T: 'static>(this: &Self::Pointer<T>) -> usize {
         Gc::strong_count(this)
     }
 
-    fn try_unwrap<T>(this: Self::Pointer<T>) -> Option<T> {
+    fn try_unwrap<T: 'static>(this: Self::Pointer<T>) -> Option<T> {
         Gc::try_unwrap(this).ok()
     }
 
-    fn get_mut<T>(this: &mut Self::Pointer<T>) -> Option<&mut T> {
+    fn get_mut<T: 'static>(this: &mut Self::Pointer<T>) -> Option<&mut T> {
         Gc::get_mut(this)
     }
 
-    fn ptr_eq<T>(this: &Self::Pointer<T>, other: &Self::Pointer<T>) -> bool {
+    fn ptr_eq<T: 'static>(this: &Self::Pointer<T>, other: &Self::Pointer<T>) -> bool {
         Gc::ptr_eq(this, other)
     }
 
-    fn make_mut<T: Clone>(ptr: &mut Self::Pointer<T>) -> &mut T {
+    fn make_mut<T: Clone + 'static>(ptr: &mut Self::Pointer<T>) -> &mut T {
         Gc::make_mut(ptr)
     }
 
-    fn clone<T>(ptr: &Self::Pointer<T>) -> Self::Pointer<T> {
+    fn clone<T: 'static>(ptr: &Self::Pointer<T>) -> Self::Pointer<T> {
         Gc::clone(ptr)
     }
 
-    fn as_ptr<T>(this: &Self::Pointer<T>) -> *const T {
+    fn as_ptr<T: 'static>(this: &Self::Pointer<T>) -> *const T {
         Gc::as_ptr(this)
+    }
+
+    fn into_raw<T: 'static>(this: Self::Pointer<T>) -> *const T {
+        Gc::into_raw(this)
+    }
+
+    unsafe fn from_raw<T: 'static>(this: *const T) -> Self::Pointer<T> {
+        Gc::from_raw(this)
     }
 }
 
@@ -146,19 +122,19 @@ mod list_drop_handler {
     impl DropHandler<im_lists::list::GenericList<SteelVal, PointerType, 4, 2, Self>>
         for ListDropHandler
     {
+        #[inline(always)]
         fn drop_handler(obj: &mut im_lists::list::GenericList<SteelVal, PointerType, 4, 2, Self>) {
-            if obj.strong_count() == 1 {
-                if obj.is_empty() {
-                    return;
-                }
+            if obj.is_empty() {
+                return;
+            }
 
+            if obj.strong_count() == 1 {
                 if DROP_BUFFER
                     .try_with(|drop_buffer| {
                         if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                            // Optimistically check what these values are. If they're
-                            // primitives, then we can just skip pushing them back
-                            // entirely.
-                            for value in std::mem::take(obj).draining_iterator() {
+                            let taken = std::mem::take(obj);
+
+                            for value in taken.draining_iterator() {
                                 match &value {
                                     SteelVal::BoolV(_)
                                     | SteelVal::NumV(_)
@@ -175,11 +151,19 @@ mod list_drop_handler {
                                     | SteelVal::BuiltIn(_)
                                     | SteelVal::BigNum(_)
                                     | SteelVal::MutableVector(_) => continue,
+                                    SteelVal::ListV(l) => {
+                                        // println!("Value: {}", l.strong_count());
+                                        if l.strong_count() == 1 {
+                                            drop_buffer.push_back(value);
+                                        }
+                                    }
                                     _ => {
                                         drop_buffer.push_back(value);
                                     }
                                 }
                             }
+
+                            // println!("{:?}", now.elapsed());
 
                             IterativeDropHandler::bfs(&mut drop_buffer);
                         } else {
@@ -202,6 +186,13 @@ mod list_drop_handler {
                                     | SteelVal::BuiltIn(_)
                                     | SteelVal::BigNum(_)
                                     | SteelVal::MutableVector(_) => continue,
+
+                                    SteelVal::ListV(l) => {
+                                        if l.strong_count() == 1 {
+                                            drop_buffer.push_back(value);
+                                        }
+                                    }
+
                                     _ => {
                                         drop_buffer.push_back(value);
                                     }
@@ -231,6 +222,11 @@ mod list_drop_handler {
                             | SteelVal::BuiltIn(_)
                             | SteelVal::BigNum(_)
                             | SteelVal::MutableVector(_) => continue,
+                            SteelVal::ListV(l) => {
+                                if l.strong_count() == 1 {
+                                    drop_buffer.push_back(value);
+                                }
+                            }
                             _ => {
                                 drop_buffer.push_back(value);
                             }
@@ -244,15 +240,13 @@ mod list_drop_handler {
     }
 }
 
-#[cfg(not(feature = "triomphe"))]
 type PointerType = GcPointerType;
-
-#[cfg(feature = "triomphe")]
-type PointerType = TriopmhePointerType;
 
 pub type SteelList<T> = im_lists::list::GenericList<T, PointerType, 4, 2, DefaultDropHandler>;
 
 pub type List<T> = im_lists::list::GenericList<T, PointerType, 4, 2, DropHandlerChoice>;
+
+pub(crate) type CellPointer<T> = im_lists::list::RawCell<T, PointerType, 4, 2, DropHandlerChoice>;
 
 pub type ConsumingIterator<T> =
     im_lists::list::ConsumingIter<T, PointerType, 4, 2, DropHandlerChoice>;

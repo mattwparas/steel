@@ -17,7 +17,9 @@ use crate::{
     },
     primitives::numbers::realp,
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
+    steel_vm::vm::{
+        threads::closure_into_serializable, BuiltInSignature, Continuation, ContinuationMark,
+    },
     values::{
         closed::{Heap, HeapRef, MarkAndSweepContext},
         functions::{BoxedDynFunction, ByteCodeLambda},
@@ -67,6 +69,7 @@ macro_rules! list {
 }
 
 use bigdecimal::BigDecimal;
+use parking_lot::RwLock;
 use smallvec::SmallVec;
 use SteelVal::*;
 
@@ -219,6 +222,8 @@ pub trait CustomType: MaybeSendSyncStatic {
     }
     fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
     fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
+    // TODO: Add this back at some point
+    // fn visit_children_ref_queue(&self, _context: &mut MarkAndSweepContextRefQueue) {}
     fn visit_children_for_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
     fn check_equality_hint(&self, _other: &dyn CustomType) -> bool {
         true
@@ -973,23 +978,27 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                         let value = std::mem::take(value);
 
                         if let Some(value) = value {
-                            let value = from_serializable_value(ctx, value);
-                            let allocation = ctx.heap.allocate_without_collection(value);
+                            let _ = from_serializable_value(ctx, value);
 
-                            ctx.fake_heap
-                                .insert(v, SerializedHeapRef::Closed(allocation.clone()));
+                            todo!()
+                            // let allocation = ctx.heap.allocate_without_collection(value);
 
-                            SteelVal::HeapAllocated(allocation)
+                            // ctx.fake_heap
+                            //     .insert(v, SerializedHeapRef::Closed(allocation.clone()));
+
+                            // SteelVal::HeapAllocated(allocation)
                         } else {
                             // println!("If we're getting here - it means the value from the heap has already
                             // been converting. if so, we should do something...");
 
-                            let fake_allocation =
-                                ctx.heap.allocate_without_collection(SteelVal::Void);
+                            todo!()
 
-                            ctx.values_to_fill_in.insert(v, fake_allocation.clone());
+                            // let fake_allocation =
+                            //     ctx.heap.allocate_without_collection(SteelVal::Void);
 
-                            SteelVal::HeapAllocated(fake_allocation)
+                            // ctx.values_to_fill_in.insert(v, fake_allocation.clone());
+
+                            // SteelVal::HeapAllocated(fake_allocation)
                         }
                     }
 
@@ -998,12 +1007,14 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             } else {
                 // Shouldn't silently fail here, but we will... for now
 
-                let allocation = ctx.heap.allocate_without_collection(SteelVal::Void);
+                // let allocation = ctx.heap.allocate_without_collection(SteelVal::Void);
 
-                ctx.fake_heap
-                    .insert(v, SerializedHeapRef::Closed(allocation.clone()));
+                // ctx.fake_heap
+                //     .insert(v, SerializedHeapRef::Closed(allocation.clone()));
 
-                SteelVal::HeapAllocated(allocation)
+                // SteelVal::HeapAllocated(allocation)
+
+                todo!()
             }
         }
         SerializableSteelVal::Pair(pair) => {
@@ -1321,6 +1332,71 @@ pub enum SteelVal {
     Complex(Gc<SteelComplex>),
     // Byte vectors
     ByteVector(SteelByteVector),
+}
+
+impl Default for SteelVal {
+    fn default() -> Self {
+        SteelVal::Void
+    }
+}
+
+// Avoid as much dropping as possible. Otherwise we thrash the drop impl
+// on steel values.
+#[cfg(feature = "sync")]
+pub(crate) enum SteelValPointer {
+    /// Represents a bytecode closure.
+    Closure(*const ByteCodeLambda),
+    VectorV(*const Vector<SteelVal>),
+    Custom(*const RwLock<Box<dyn CustomType>>),
+    HashMapV(*const HashMap<SteelVal, SteelVal>),
+    HashSetV(*const HashSet<SteelVal>),
+    CustomStruct(*const UserDefinedStruct),
+    IterV(*const Transducer),
+    ReducerV(*const Reducer),
+    StreamV(*const LazyStream),
+    ContinuationFunction(*const RwLock<ContinuationMark>),
+    ListV(crate::values::lists::CellPointer<SteelVal>),
+    Pair(*const crate::values::lists::Pair),
+    MutableVector(HeapRef<Vec<SteelVal>>),
+    SyntaxObject(*const Syntax),
+    BoxedIterator(*const RwLock<OpaqueIterator>),
+    Boxed(*const RwLock<SteelVal>),
+    HeapAllocated(HeapRef<SteelVal>),
+}
+
+#[cfg(feature = "sync")]
+unsafe impl Sync for SteelValPointer {}
+#[cfg(feature = "sync")]
+unsafe impl Send for SteelValPointer {}
+
+#[cfg(feature = "sync")]
+impl SteelValPointer {
+    pub(crate) fn from_value(value: &SteelVal) -> Option<Self> {
+        match value {
+            Closure(gc) => Some(Self::Closure(gc.as_ptr())),
+            VectorV(steel_vector) => Some(Self::VectorV(steel_vector.0.as_ptr())),
+            SteelVal::Custom(gc) => Some(Self::Custom(gc.as_ptr())),
+            HashMapV(steel_hash_map) => Some(Self::HashMapV(steel_hash_map.0.as_ptr())),
+            HashSetV(steel_hash_set) => Some(Self::HashSetV(steel_hash_set.0.as_ptr())),
+            CustomStruct(gc) => Some(Self::CustomStruct(gc.as_ptr())),
+            IterV(gc) => Some(Self::IterV(gc.as_ptr())),
+            ReducerV(gc) => Some(Self::ReducerV(gc.as_ptr())),
+            StreamV(gc) => Some(Self::StreamV(gc.as_ptr())),
+            ListV(generic_list) => Some(Self::ListV(generic_list.as_ptr())),
+            Pair(gc) => Some(Self::Pair(gc.as_ptr())),
+            SteelVal::ContinuationFunction(continuation) => Some(Self::ContinuationFunction(
+                crate::gc::shared::StandardShared::as_ptr(&continuation.inner),
+            )),
+            // TODO: See if we can avoid these clones?
+            MutableVector(heap_ref) => Some(Self::MutableVector(heap_ref.clone())),
+            BoxedIterator(gc) => Some(Self::BoxedIterator(gc.as_ptr())),
+            SteelVal::SyntaxObject(gc) => Some(Self::SyntaxObject(gc.as_ptr())),
+            Boxed(gc) => Some(Self::Boxed(gc.as_ptr())),
+            // TODO: See if we can avoid these clones?
+            HeapAllocated(heap_ref) => Some(Self::HeapAllocated(heap_ref.clone())),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(feature = "sync")]

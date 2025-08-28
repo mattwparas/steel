@@ -563,7 +563,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        IntLiteral::Small(123).into(),
+                        IntLiteral::Small(0).into(),
                     ))));
                     let name_prime = ExprKind::atom(compact_str::format_compact!(
                         "_____{}{}",
@@ -584,7 +584,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        IntLiteral::Small(123).into(),
+                        IntLiteral::Small(0).into(),
                     ))));
                     let name_prime = ExprKind::atom(compact_str::format_compact!(
                         "_____{}{}",
@@ -616,7 +616,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        IntLiteral::Small(123).into(),
+                        IntLiteral::Small(0).into(),
                     ))));
                     let name_prime = ExprKind::atom(compact_str::format_compact!(
                         "_____{}{}",

@@ -1611,20 +1611,117 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_bytevector(&mut self, bytevector: SteelByteVector) -> Self::Output;
 }
 
-pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
+pub trait BreadthFirstSearchSteelValVisitor2 {
     type Output;
 
     fn default_output(&mut self) -> Self::Output;
 
-    fn pop_front(&mut self) -> Option<&'a SteelVal>;
+    fn pop_front(&mut self) -> Option<SteelVal>;
 
-    fn push_back(&mut self, value: &'a SteelVal);
+    fn push_back(&mut self, value: &SteelVal);
 
     fn visit(&mut self) -> Self::Output {
         let mut ret = self.default_output();
 
         while let Some(value) = self.pop_front() {
             ret = match value {
+                Closure(c) => self.visit_closure(c),
+                BoolV(b) => self.visit_bool(b),
+                NumV(n) => self.visit_float(n),
+                IntV(i) => self.visit_int(i),
+                Rational(x) => self.visit_rational(x),
+                BigRational(x) => self.visit_bigrational(x),
+                BigNum(b) => self.visit_bignum(b),
+                Complex(x) => self.visit_complex(x),
+                CharV(c) => self.visit_char(c),
+                VectorV(v) => self.visit_immutable_vector(v),
+                Void => self.visit_void(),
+                StringV(s) => self.visit_string(s),
+                FuncV(f) => self.visit_function_pointer(f),
+                SymbolV(s) => self.visit_symbol(s),
+                SteelVal::Custom(c) => self.visit_custom_type(c),
+                HashMapV(h) => self.visit_hash_map(h),
+                HashSetV(s) => self.visit_hash_set(s),
+                CustomStruct(c) => self.visit_steel_struct(c),
+                PortV(p) => self.visit_port(p),
+                IterV(t) => self.visit_transducer(t),
+                ReducerV(r) => self.visit_reducer(r),
+                FutureFunc(f) => self.visit_future_function(f),
+                FutureV(f) => self.visit_future(f),
+                StreamV(s) => self.visit_stream(s),
+                BoxedFunction(b) => self.visit_boxed_function(b),
+                ContinuationFunction(c) => self.visit_continuation(c),
+                ListV(l) => self.visit_list(l),
+                MutFunc(m) => self.visit_mutable_function(m),
+                BuiltIn(b) => self.visit_builtin_function(b),
+                MutableVector(b) => self.visit_mutable_vector(b),
+                BoxedIterator(b) => self.visit_boxed_iterator(b),
+                SteelVal::SyntaxObject(s) => self.visit_syntax_object(s),
+                Boxed(b) => self.visit_boxed_value(b),
+                Reference(r) => self.visit_reference_value(r),
+                HeapAllocated(b) => self.visit_heap_allocated(b),
+                Pair(p) => self.visit_pair(p),
+                ByteVector(b) => self.visit_bytevector(b),
+            };
+        }
+
+        ret
+    }
+
+    fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) -> Self::Output;
+    fn visit_bool(&mut self, _: bool) -> Self::Output;
+    fn visit_float(&mut self, _: f64) -> Self::Output;
+    fn visit_int(&mut self, _: isize) -> Self::Output;
+    fn visit_rational(&mut self, _: Rational32) -> Self::Output;
+    fn visit_bigrational(&mut self, _: Gc<BigRational>) -> Self::Output;
+    fn visit_bignum(&mut self, _: Gc<BigInt>) -> Self::Output;
+    fn visit_complex(&mut self, _: Gc<SteelComplex>) -> Self::Output;
+    fn visit_char(&mut self, _: char) -> Self::Output;
+    fn visit_immutable_vector(&mut self, vector: SteelVector) -> Self::Output;
+    fn visit_void(&mut self) -> Self::Output;
+    fn visit_string(&mut self, string: SteelString) -> Self::Output;
+    fn visit_function_pointer(&mut self, ptr: FunctionSignature) -> Self::Output;
+    fn visit_symbol(&mut self, symbol: SteelString) -> Self::Output;
+    fn visit_custom_type(&mut self, custom_type: GcMut<Box<dyn CustomType>>) -> Self::Output;
+    fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output;
+    fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output;
+    fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output;
+    fn visit_port(&mut self, port: SteelPort) -> Self::Output;
+    fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output;
+    fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output;
+    fn visit_future_function(&mut self, function: BoxedAsyncFunctionSignature) -> Self::Output;
+    fn visit_future(&mut self, future: Gc<FutureResult>) -> Self::Output;
+    fn visit_stream(&mut self, stream: Gc<LazyStream>) -> Self::Output;
+    fn visit_boxed_function(&mut self, function: Gc<BoxedDynFunction>) -> Self::Output;
+    fn visit_continuation(&mut self, continuation: Continuation) -> Self::Output;
+    fn visit_list(&mut self, list: List<SteelVal>) -> Self::Output;
+    fn visit_mutable_function(&mut self, function: MutFunctionSignature) -> Self::Output;
+    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output;
+    fn visit_builtin_function(&mut self, function: BuiltInSignature) -> Self::Output;
+    fn visit_boxed_iterator(&mut self, iterator: GcMut<OpaqueIterator>) -> Self::Output;
+    fn visit_syntax_object(&mut self, syntax_object: Gc<Syntax>) -> Self::Output;
+    fn visit_boxed_value(&mut self, boxed_value: GcMut<SteelVal>) -> Self::Output;
+    fn visit_reference_value(&mut self, reference: Gc<OpaqueReference<'static>>) -> Self::Output;
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output;
+    fn visit_pair(&mut self, pair: Gc<Pair>) -> Self::Output;
+    fn visit_bytevector(&mut self, bytevector: SteelByteVector) -> Self::Output;
+}
+
+pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
+    type Output;
+
+    fn default_output(&mut self) -> Self::Output;
+
+    // TODO: Don't use the unsafe variant... if possible?
+    fn pop_front(&mut self) -> Option<*const SteelVal>;
+
+    fn push_back(&mut self, value: &SteelVal);
+
+    fn visit(&mut self) -> Self::Output {
+        let mut ret = self.default_output();
+
+        while let Some(value) = self.pop_front() {
+            ret = match unsafe { &(*value) } {
                 Closure(c) => self.visit_closure(c),
                 BoolV(b) => self.visit_bool(*b),
                 NumV(n) => self.visit_float(*n),
@@ -1707,6 +1804,65 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     ) -> Self::Output;
     fn visit_heap_allocated(&mut self, heap_ref: &'a HeapRef<SteelVal>) -> Self::Output;
     fn visit_pair(&mut self, pair: &'a Gc<Pair>) -> Self::Output;
+}
+
+#[cfg(feature = "sync")]
+pub(crate) trait BreadthFirstSearchSteelValReferenceVisitor2<'a> {
+    type Output;
+
+    fn default_output(&mut self) -> Self::Output;
+
+    fn pop_front(&mut self) -> Option<SteelValPointer>;
+
+    fn push_back(&mut self, value: &SteelVal);
+
+    fn visit(&mut self) -> Self::Output {
+        let mut ret = self.default_output();
+
+        while let Some(value) = self.pop_front() {
+            ret = match value {
+                SteelValPointer::Closure(p) => self.visit_closure(unsafe { &(*p) }),
+                SteelValPointer::VectorV(p) => self.visit_immutable_vector(unsafe { &(*p) }),
+                SteelValPointer::Custom(p) => self.visit_custom_type(unsafe { &(*p) }),
+                SteelValPointer::HashMapV(p) => self.visit_hash_map(unsafe { &(*p) }),
+                SteelValPointer::HashSetV(p) => self.visit_hash_set(unsafe { &(*p) }),
+                SteelValPointer::CustomStruct(p) => self.visit_steel_struct(unsafe { &(*p) }),
+                SteelValPointer::IterV(p) => self.visit_transducer(unsafe { &(*p) }),
+                SteelValPointer::ReducerV(p) => self.visit_reducer(unsafe { &(*p) }),
+                SteelValPointer::StreamV(p) => self.visit_stream(unsafe { &(*p) }),
+                SteelValPointer::ContinuationFunction(p) => {
+                    self.visit_continuation(unsafe { &(*p) })
+                }
+                SteelValPointer::ListV(raw_cell) => self.visit_list(raw_cell),
+                SteelValPointer::Pair(p) => self.visit_pair(unsafe { &(*p) }),
+                SteelValPointer::MutableVector(heap_ref) => self.visit_mutable_vector(heap_ref),
+                SteelValPointer::SyntaxObject(p) => self.visit_syntax_object(unsafe { &(*p) }),
+                SteelValPointer::BoxedIterator(p) => self.visit_boxed_iterator(unsafe { &(*p) }),
+                SteelValPointer::Boxed(p) => self.visit_boxed_value(unsafe { &(*p) }),
+                SteelValPointer::HeapAllocated(heap_ref) => self.visit_heap_allocated(heap_ref),
+            };
+        }
+
+        ret
+    }
+
+    fn visit_closure(&mut self, _: &'a ByteCodeLambda) -> Self::Output;
+    fn visit_immutable_vector(&mut self, vector: &'a Vector<SteelVal>) -> Self::Output;
+    fn visit_custom_type(&mut self, custom_type: &'a RwLock<Box<dyn CustomType>>) -> Self::Output;
+    fn visit_hash_map(&mut self, hashmap: &'a crate::HashMap<SteelVal, SteelVal>) -> Self::Output;
+    fn visit_hash_set(&mut self, hashset: &'a crate::HashSet<SteelVal>) -> Self::Output;
+    fn visit_steel_struct(&mut self, steel_struct: &'a UserDefinedStruct) -> Self::Output;
+    fn visit_transducer(&mut self, transducer: &'a Transducer) -> Self::Output;
+    fn visit_reducer(&mut self, reducer: &'a Reducer) -> Self::Output;
+    fn visit_stream(&mut self, stream: &'a LazyStream) -> Self::Output;
+    fn visit_continuation(&mut self, continuation: &'a RwLock<ContinuationMark>) -> Self::Output;
+    fn visit_list(&mut self, list: crate::values::lists::CellPointer<SteelVal>) -> Self::Output;
+    fn visit_mutable_vector(&mut self, vector: HeapRef<Vec<SteelVal>>) -> Self::Output;
+    fn visit_boxed_iterator(&mut self, iterator: &'a RwLock<OpaqueIterator>) -> Self::Output;
+    fn visit_syntax_object(&mut self, syntax_object: &'a Syntax) -> Self::Output;
+    fn visit_boxed_value(&mut self, boxed_value: &'a RwLock<SteelVal>) -> Self::Output;
+    fn visit_heap_allocated(&mut self, heap_ref: HeapRef<SteelVal>) -> Self::Output;
+    fn visit_pair(&mut self, pair: &'a Pair) -> Self::Output;
 }
 
 thread_local! {

@@ -1,12 +1,12 @@
 use super::parser::SourceId;
-use crate::tokens::{IntLiteral, Token, TokenType};
+use crate::interner::InternedString;
+use crate::tokens::{IntLiteral, Token, TokenLike, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
 use num_bigint::BigInt;
 use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
 use std::char;
 use std::iter::Iterator;
-use std::marker::PhantomData;
 use std::sync::Arc;
 use std::{iter::Peekable, str::Chars};
 
@@ -35,9 +35,11 @@ pub struct Lexer<'a> {
     /// An iterator over the characters.
     chars: Peekable<Chars<'a>>,
     /// The  next token to return or `None` if it should be parsed.
-    queued: Option<TokenType<Cow<'a, str>>>,
-    token_start: usize,
-    token_end: usize,
+    queued: Option<TokenType<InternedString>>,
+    token_start: u32,
+    token_end: u32,
+
+    ident_buffer: String,
 }
 
 impl<'a> Lexer<'a> {
@@ -48,12 +50,13 @@ impl<'a> Lexer<'a> {
             queued: None,
             token_start: 0,
             token_end: 0,
+            ident_buffer: String::new(),
         }
     }
 
     fn eat(&mut self) -> Option<char> {
         if let Some(c) = self.chars.next() {
-            self.token_end += c.len_utf8();
+            self.token_end += c.len_utf8() as u32;
             Some(c)
         } else {
             None
@@ -73,7 +76,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_string(&mut self) -> Result<TokenType<Cow<'a, str>>> {
+    fn read_string(&mut self) -> Result<TokenType<InternedString>> {
         // Skip the opening quote.
         self.eat();
 
@@ -211,7 +214,7 @@ impl<'a> Lexer<'a> {
         Ok(Some(c))
     }
 
-    fn read_hash_value(&mut self) -> Result<TokenType<Cow<'a, str>>> {
+    fn read_hash_value(&mut self) -> Result<TokenType<InternedString>> {
         fn parse_char(slice: &str) -> Option<char> {
             use std::str::FromStr;
 
@@ -326,7 +329,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_number(&mut self) -> Result<TokenType<Cow<'a, str>>> {
+    fn read_number(&mut self) -> Result<TokenType<InternedString>> {
         while let Some(&c) = self.chars.peek() {
             match c {
                 c if c.is_ascii_digit() => {
@@ -367,14 +370,17 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_word(&mut self) -> Result<TokenType<Cow<'a, str>>> {
+    fn read_word(&mut self) -> Result<TokenType<InternedString>> {
         let escaped_identifier = self.chars.peek().copied() == Some('|');
 
         if escaped_identifier {
             self.eat();
         }
 
-        let mut ident_buffer = IdentBuffer::new(self.chars.clone());
+        let mut buffer = std::mem::take(&mut self.ident_buffer);
+        buffer.clear();
+
+        let mut ident_buffer = IdentBuffer::new(self.chars.clone(), &mut buffer);
 
         while let Some(&c) = self.chars.peek() {
             match c {
@@ -417,20 +423,19 @@ impl<'a> Lexer<'a> {
 
         let token = match self.slice() {
             "." => TokenType::Dot,
-            "define" | "defn" | "#%define" => TokenType::Define,
+            "if" => TokenType::If,
             "let" => TokenType::Let,
+            "define" | "defn" | "#%define" => TokenType::Define,
             "%plain-let" => TokenType::TestLet,
             "return!" => TokenType::Return,
             "begin" => TokenType::Begin,
             "lambda" | "fn" | "#%plain-lambda" | "λ" => TokenType::Lambda,
             "quote" => TokenType::Quote,
-            // "unquote" => TokenType::Unquote,
             "syntax-rules" => TokenType::SyntaxRules,
             "define-syntax" => TokenType::DefineSyntax,
             "..." => TokenType::Ellipses,
             "set!" => TokenType::Set,
             "require" => TokenType::Require,
-            "if" => TokenType::If,
             identifier => {
                 debug_assert!(!identifier.is_empty());
 
@@ -443,10 +448,11 @@ impl<'a> Lexer<'a> {
                         if ident_buffer.ident.is_empty() {
                             TokenType::Identifier((&identifier[1..identifier.len() - 1]).into())
                         } else {
-                            TokenType::Identifier(ident_buffer.ident.into())
+                            TokenType::Identifier(ident_buffer.ident.as_str().into())
                         }
                     }
                     _ if escaped_identifier => {
+                        ident_buffer.ident.clear();
                         return Err(TokenError::IncompleteIdentifier);
                     }
                     _ => TokenType::Identifier(identifier.into()),
@@ -454,10 +460,13 @@ impl<'a> Lexer<'a> {
             }
         };
 
+        ident_buffer.ident.clear();
+        self.ident_buffer = buffer;
+
         Ok(token)
     }
 
-    fn read_nestable_comment(&mut self) -> Result<TokenType<Cow<'a, str>>> {
+    fn read_nestable_comment(&mut self) -> Result<TokenType<InternedString>> {
         self.eat();
 
         let mut depth = 1;
@@ -488,20 +497,20 @@ impl<'a> Lexer<'a> {
     }
 }
 
-struct IdentBuffer<'a> {
+struct IdentBuffer<'b, 'a: 'b> {
     chars: Peekable<Chars<'a>>,
-    ident: String,
+    ident: &'b mut String,
     // works as Either:
     //  - Ok: saw a non-trivial escape, buffering into ident
     //  - Err: "trivial" string, keeping count of its len
     mode: std::result::Result<(), usize>,
 }
 
-impl<'a> IdentBuffer<'a> {
-    fn new(chars: Peekable<Chars<'a>>) -> Self {
+impl<'b, 'a: 'b> IdentBuffer<'b, 'a> {
+    fn new(chars: Peekable<Chars<'a>>, buffer: &'b mut String) -> Self {
         Self {
             chars,
-            ident: Default::default(),
+            ident: buffer,
             mode: Err(0),
         }
     }
@@ -546,6 +555,10 @@ fn strip_shebang_line(input: &str) -> (&str, usize, usize) {
 impl<'a> Lexer<'a> {
     #[inline]
     pub fn span(&self) -> Span {
+        self.token_start as _..self.token_end as _
+    }
+
+    pub fn small_span(&self) -> std::ops::Range<u32> {
         self.token_start..self.token_end
     }
 
@@ -557,7 +570,7 @@ impl<'a> Lexer<'a> {
 
 pub struct TokenStream<'a> {
     pub(crate) lexer: Lexer<'a>,
-    skip_comments: bool,
+    pub(crate) skip_comments: bool,
     source_id: Option<SourceId>,
 }
 
@@ -571,8 +584,8 @@ impl<'a> TokenStream<'a> {
             source_id, // skip_doc_comments,
         };
 
-        res.lexer.token_start += bytes_offset;
-        res.lexer.token_end += bytes_offset;
+        res.lexer.token_start += bytes_offset as u32;
+        res.lexer.token_end += bytes_offset as u32;
 
         for _ in 0..char_offset {
             res.lexer.chars.next();
@@ -581,54 +594,56 @@ impl<'a> TokenStream<'a> {
         res
     }
 
-    pub fn into_owned<T, F: ToOwnedString<T>>(self, adapter: F) -> OwnedTokenStream<'a, T, F> {
-        OwnedTokenStream {
-            stream: self,
-            adapter,
-            _token_type: PhantomData,
-        }
+    pub fn into_owned(self) -> OwnedTokenStream<'a> {
+        OwnedTokenStream { stream: self }
     }
 }
 
-pub struct OwnedTokenStream<'a, T, F> {
+pub struct OwnedTokenStream<'a> {
     pub(crate) stream: TokenStream<'a>,
-    adapter: F,
-    _token_type: PhantomData<T>,
 }
 
-impl<'a, T, F: ToOwnedString<T>> Iterator for OwnedTokenStream<'a, T, F> {
-    type Item = Token<'a, T>;
+impl<'a> Iterator for OwnedTokenStream<'a> {
+    type Item = std::result::Result<Token<'a, InternedString>, TokenLike<'a, TokenError>>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.stream.next().map(|x| Token {
-            ty: x.ty.map(|x| self.adapter.own(x)),
-            source: x.source,
-            span: x.span,
-        })
+        self.stream.next()
     }
 }
 
-impl<'a, T, F: ToOwnedString<T>> OwnedTokenStream<'a, T, F> {
+impl<'a> OwnedTokenStream<'a> {
     pub fn offset(&self) -> usize {
         self.stream.lexer.span().end
     }
 }
 impl<'a> Iterator for TokenStream<'a> {
-    type Item = Token<'a, Cow<'a, str>>;
+    type Item = std::result::Result<Token<'a, InternedString>, TokenLike<'a, TokenError>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.lexer.next().and_then(|token| {
             let token = match token {
                 Ok(token) => token,
-                Err(_) => TokenType::Error,
+                Err(err) => {
+                    return Some(Err(TokenLike::new(
+                        err,
+                        self.lexer.slice(),
+                        self.lexer.small_span(),
+                        self.source_id,
+                    )))
+                }
             };
 
-            let token = Token::new(token, self.lexer.slice(), self.lexer.span(), self.source_id);
+            let token = Token::new(
+                token,
+                self.lexer.slice(),
+                self.lexer.small_span(),
+                self.source_id,
+            );
             match token.ty {
                 // TokenType::Space => self.next(),
                 TokenType::Comment if self.skip_comments => self.next(),
                 // TokenType::DocComment if self.skip_doc_comments => self.next(),
-                _ => Some(token),
+                _ => Some(Ok(token)),
             }
         })
     }
@@ -644,15 +659,29 @@ pub enum TokenError {
     IncompleteComment,
     InvalidEscape,
     InvalidCharacter,
-    MalformedRational,
-    MalformedHexInteger,
-    MalformedOctalInteger,
-    MalformedBinaryInteger,
+    ZeroDenominator,
     MalformedByteEscape,
 }
 
+impl std::fmt::Display for TokenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TokenError::UnexpectedChar(_) => write!(f, "unexpected char"),
+            TokenError::IncompleteString => write!(f, "incomplete string"),
+            TokenError::IncompleteIdentifier => write!(f, "incomplete identifier"),
+            TokenError::IncompleteComment => write!(f, "incomplete comment"),
+            TokenError::InvalidEscape => write!(f, "invalid escape"),
+            TokenError::InvalidCharacter => write!(f, "invalid character"),
+            TokenError::ZeroDenominator => {
+                write!(f, "division by zero is not allowed in rational literals")
+            }
+            TokenError::MalformedByteEscape => write!(f, "malformed byte escape"),
+        }
+    }
+}
+
 impl<'a> Iterator for Lexer<'a> {
-    type Item = Result<TokenType<Cow<'a, str>>>;
+    type Item = Result<TokenType<InternedString>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(t) = self.queued.take() {
@@ -860,9 +889,9 @@ fn try_parse_number(s: &str, radix: Option<u32>) -> Result<Option<NumberLiteral>
         };
 
         match int {
-            IntLiteral::Small(n) if *n == 0 => Err(TokenError::MalformedRational),
+            IntLiteral::Small(n) if *n == 0 => Err(TokenError::ZeroDenominator),
             IntLiteral::Big(big_int) if &**big_int == &BigInt::ZERO => {
-                Err(TokenError::MalformedRational)
+                Err(TokenError::ZeroDenominator)
             }
             _ => Ok(()),
         }
@@ -926,8 +955,12 @@ mod lexer_tests {
     use crate::tokens::{IntLiteral, TokenType::*};
     use pretty_assertions::assert_eq;
 
-    fn identifier(ident: &str) -> TokenType<Cow<'_, str>> {
+    fn identifier(ident: &str) -> TokenType<InternedString> {
         Identifier(ident.into())
+    }
+
+    fn token_stream(source: &str) -> impl Iterator<Item = Token<InternedString>> {
+        TokenStream::new(source, true, None).map(|t| t.expect("unexpected parsing error"))
     }
 
     // TODO: Figure out why this just cause an infinite loop when parsing it?
@@ -986,7 +1019,7 @@ mod lexer_tests {
 
     #[test]
     fn test_chars() {
-        let mut s = TokenStream::new("#\\a #\\b #\\λ", true, SourceId::none());
+        let mut s = token_stream("#\\a #\\b #\\λ");
 
         assert_eq!(
             s.next(),
@@ -1016,11 +1049,7 @@ mod lexer_tests {
 
     #[test]
     fn test_unicode_escapes() {
-        let mut s = TokenStream::new(
-            r#"  #\xAb #\u{0D300} #\u0540 "\x00D;" "\u1044;" "\u{045}"  "#,
-            true,
-            SourceId::none(),
-        );
+        let mut s = token_stream(r#"  #\xAb #\u{0D300} #\u0540 "\x00D;" "\u1044;" "\u{045}"  "#);
 
         assert_eq!(
             s.next().unwrap(),
@@ -1090,19 +1119,16 @@ mod lexer_tests {
         ];
 
         for token in tokens {
-            let mut s = TokenStream::new(token, true, SourceId::none());
+            let mut s = TokenStream::new(token, true, None);
 
-            assert_eq!(s.next().unwrap().ty, Error, "{:?} should be invalid", token);
+            // FIXME: concrete errors
+            assert!(s.next().unwrap().is_err(), "{token:?} should be invalid");
         }
     }
 
     #[test]
     fn test_string_newlines() {
-        let mut s = TokenStream::new(
-            " \"foo\nbar\" \"foo \\  \n   bar\" ",
-            true,
-            SourceId::none(),
-        );
+        let mut s = token_stream(" \"foo\nbar\" \"foo \\  \n   bar\" ");
 
         assert_eq!(
             s.next().unwrap(),
@@ -1125,7 +1151,7 @@ mod lexer_tests {
 
     #[test]
     fn test_unexpected_char() {
-        let mut s = TokenStream::new("($)", true, SourceId::none());
+        let mut s = token_stream("($)");
         assert_eq!(
             s.next(),
             Some(Token {
@@ -1154,7 +1180,7 @@ mod lexer_tests {
 
     #[test]
     fn test_words() {
-        let mut s = TokenStream::new("foo FOO _123_ Nil #f #t", true, SourceId::none());
+        let mut s = token_stream("foo FOO _123_ Nil #f #t");
 
         assert_eq!(
             s.next(),
@@ -1215,9 +1241,7 @@ mod lexer_tests {
 
     #[test]
     fn test_almost_literals() {
-        let got: Vec<_> =
-            TokenStream::new("1e 1ee 1.2e5.4 1E10/4 1.45# 3- e10", true, SourceId::none())
-                .collect();
+        let got: Vec<_> = token_stream("1e 1ee 1.2e5.4 1E10/4 1.45# 3- e10").collect();
         assert_eq!(
             got.as_slice(),
             &[
@@ -1262,12 +1286,9 @@ mod lexer_tests {
 
     #[test]
     fn test_real_numbers() {
-        let got: Vec<_> = TokenStream::new(
-            "0 -0 -1.2 +2.3 999 1. 1e2 1E2 1.2e2 1.2E2 +inf.0 -inf.0 2e-4 2e+10",
-            true,
-            SourceId::none(),
-        )
-        .collect();
+        let got: Vec<_> =
+            token_stream("0 -0 -1.2 +2.3 999 1. 1e2 1E2 1.2e2 1.2E2 +inf.0 -inf.0 2e-4 2e+10")
+                .collect();
         assert_eq!(
             got.as_slice(),
             &[
@@ -1348,9 +1369,7 @@ mod lexer_tests {
     #[test]
     fn test_nan() {
         // nan does not equal nan so we have to run the is_nan predicate.
-        let got = TokenStream::new("+nan.0", true, SourceId::none())
-            .next()
-            .unwrap();
+        let got = token_stream("+nan.0").next().unwrap();
 
         match got.ty {
             TokenType::Number(n) => {
@@ -1360,7 +1379,7 @@ mod lexer_tests {
             _ => panic!("Didn't match"),
         }
 
-        let got = TokenStream::new("-nan.0", true, None).next().unwrap();
+        let got = token_stream("-nan.0").next().unwrap();
 
         match got.ty {
             TokenType::Number(n) => {
@@ -1373,7 +1392,7 @@ mod lexer_tests {
 
     #[test]
     fn test_rationals() {
-        let got: Vec<_> = TokenStream::new(
+        let got: Vec<_> = token_stream(
             r#"
                 1/4
                 (1/4 1/3)
@@ -1385,8 +1404,6 @@ mod lexer_tests {
                 1 / 4
                 .2
 "#,
-            true,
-            SourceId::none(),
         )
         .collect();
         assert_eq!(
@@ -1472,10 +1489,8 @@ mod lexer_tests {
 
     #[test]
     fn test_complex_numbers() {
-        let got: Vec<_> = TokenStream::new(
+        let got: Vec<_> = token_stream(
             "1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i 2e+4+inf.0i -inf.0-2e-4i 1/2@0 -3/2@1",
-            true,
-            SourceId::none(),
         )
         .collect();
         assert_eq!(
@@ -1586,12 +1601,7 @@ mod lexer_tests {
 
     #[test]
     fn test_numbers_with_radix() {
-        let got = TokenStream::new(
-            "#xff #xce #o777 #o1/20 #b1/10 #x10+ffi #d1.0",
-            true,
-            SourceId::none(),
-        )
-        .collect::<Vec<_>>();
+        let got = token_stream("#xff #xce #o777 #o1/20 #b1/10 #x10+ffi #d1.0").collect::<Vec<_>>();
 
         assert_eq!(
             &*got,
@@ -1649,8 +1659,7 @@ mod lexer_tests {
 
     #[test]
     fn test_malformed_complex_numbers_are_identifiers() {
-        let got: Vec<_> =
-            TokenStream::new("i -i 1i+1i 4+i -4+-2i", true, SourceId::none()).collect();
+        let got: Vec<_> = token_stream("i -i 1i+1i 4+i -4+-2i").collect();
         assert_eq!(
             got.as_slice(),
             &[
@@ -1685,8 +1694,7 @@ mod lexer_tests {
 
     #[test]
     fn test_string() {
-        let got: Vec<_> =
-            TokenStream::new(r#" "" "Foo bar" "\"\\" "#, true, SourceId::none()).collect();
+        let got: Vec<_> = token_stream(r#" "" "Foo bar" "\"\\" "#).collect();
         assert_eq!(
             got.as_slice(),
             &[
@@ -1711,35 +1719,31 @@ mod lexer_tests {
 
     #[test]
     fn test_comment() {
-        let mut s = TokenStream::new(";!/usr/bin/gate\n   ; foo\n", true, SourceId::none());
+        let mut s = token_stream(";!/usr/bin/gate\n   ; foo\n");
         assert_eq!(s.next(), None);
     }
 
     #[test]
     fn function_definition() {
-        let s = TokenStream::new(
-            "(define odd-rec? (lambda (x) (if (= x 0) #f (even-rec? (- x 1)))))",
-            true,
-            SourceId::none(),
-        );
-        let res: Vec<Token<Cow<str>>> = s.collect();
+        let s = token_stream("(define odd-rec? (lambda (x) (if (= x 0) #f (even-rec? (- x 1)))))");
+        let res: Vec<_> = s.collect();
 
         println!("{:#?}", res);
     }
 
     #[test]
     fn lex_string_with_escape_chars() {
-        let s = TokenStream::new("\"\0\0\0\"", true, SourceId::none());
-        let res: Vec<Token<Cow<str>>> = s.collect();
+        let s = token_stream("\"\0\0\0\"");
+        let res: Vec<_> = s.collect();
         println!("{:#?}", res);
     }
 
     #[test]
     fn scheme_statement() {
-        let s = TokenStream::new("(apples (function a b) (+ a b))", true, SourceId::none());
-        let res: Vec<Token<Cow<str>>> = s.collect();
+        let s = token_stream("(apples (function a b) (+ a b))");
+        let res: Vec<_> = s.collect();
 
-        let expected: Vec<Token<Cow<str>>> = vec![
+        let expected: Vec<Token<InternedString>> = vec![
             Token {
                 ty: OpenParen(Paren::Round, None),
                 source: "(",
@@ -1812,12 +1816,12 @@ mod lexer_tests {
 
     #[test]
     fn test_bigint() {
-        let s = TokenStream::new("9223372036854775808", true, SourceId::none()); // isize::MAX + 1
-        let res: Vec<Token<Cow<str>>> = s.collect();
+        let s = token_stream("9223372036854775808"); // isize::MAX + 1
+        let res: Vec<_> = s.collect();
 
         let expected_bigint = Box::new("9223372036854775808".parse().unwrap());
 
-        let expected: Vec<Token<Cow<str>>> = vec![Token {
+        let expected: Vec<Token<InternedString>> = vec![Token {
             ty: IntLiteral::Big(expected_bigint).into(),
             source: "9223372036854775808",
             span: Span::new(0, 19, SourceId::none()),
@@ -1828,12 +1832,12 @@ mod lexer_tests {
 
     #[test]
     fn negative_test_bigint() {
-        let s = TokenStream::new("-9223372036854775809", true, SourceId::none()); // isize::MIN - 1
-        let res: Vec<Token<Cow<str>>> = s.collect();
+        let s = token_stream("-9223372036854775809"); // isize::MIN - 1
+        let res: Vec<_> = s.collect();
 
         let expected_bigint = Box::new("-9223372036854775809".parse().unwrap());
 
-        let expected: Vec<Token<Cow<str>>> = vec![Token {
+        let expected: Vec<Token<InternedString>> = vec![Token {
             ty: IntLiteral::Big(expected_bigint).into(),
             source: "-9223372036854775809",
             span: Span::new(0, 20, SourceId::none()),
@@ -1844,9 +1848,9 @@ mod lexer_tests {
 
     #[test]
     fn identifier_test() {
-        let s = TokenStream::new("a b(c`d'e\"www\"f,g;", true, SourceId::none());
+        let s = token_stream("a b(c`d'e\"www\"f,g;");
 
-        let tokens: Vec<(TokenType<Cow<str>>, &str)> =
+        let tokens: Vec<(TokenType<InternedString>, &str)> =
             s.map(|token| (token.ty, token.source)).collect();
 
         assert_eq!(tokens[0], (identifier("a"), "a"));
@@ -1860,10 +1864,9 @@ mod lexer_tests {
 
     #[test]
     fn vector_test() {
-        let s = TokenStream::new("a b #(c d)", true, None);
-
-        let tokens: Vec<(TokenType<Cow<str>>, &str)> =
-            s.map(|token| (token.ty, token.source)).collect();
+        let tokens: Vec<_> = token_stream("a b #(c d)")
+            .map(|token| (token.ty, token.source))
+            .collect();
 
         assert_eq!(tokens[0], (identifier("a"), "a"));
         assert_eq!(tokens[1], (identifier("b"), "b"));
@@ -1880,10 +1883,9 @@ mod lexer_tests {
 
     #[test]
     fn bytevector_test() {
-        let s = TokenStream::new("a b #u8(1 2)", true, None);
-
-        let tokens: Vec<(TokenType<Cow<str>>, &str)> =
-            s.map(|token| (token.ty, token.source)).collect();
+        let tokens: Vec<_> = token_stream("a b #u8(1 2)")
+            .map(|token| (token.ty, token.source))
+            .collect();
 
         assert_eq!(tokens[0], (identifier("a"), "a"));
         assert_eq!(tokens[1], (identifier("b"), "b"));
@@ -1924,7 +1926,7 @@ mod lexer_tests {
 
     #[test]
     fn escaped_identifier_test() {
-        let mut s = TokenStream::new(r#"|a| |a b| |\x61;| |.|"#, true, SourceId::none());
+        let mut s = token_stream(r#"|a| |a b| |\x61;| |.|"#);
 
         assert_eq!(
             s.next().unwrap(),
@@ -1962,7 +1964,7 @@ mod lexer_tests {
             },
         );
 
-        let mut s = TokenStream::new("|a\\\nb|", true, SourceId::none());
+        let mut s = token_stream("|a\\\nb|");
 
         assert_eq!(
             s.next().unwrap(),

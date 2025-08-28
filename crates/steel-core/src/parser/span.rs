@@ -20,8 +20,8 @@ impl FromSteelVal for Span {
             }
 
             Ok(Span {
-                start: usize::from_steelval(l.get(0).unwrap())?,
-                end: usize::from_steelval(l.get(1).unwrap())?,
+                start: u32::from_steelval(l.get(0).unwrap())?,
+                end: u32::from_steelval(l.get(1).unwrap())?,
                 source_id: l
                     .get(2)
                     .map(Option::<u32>::from_steelval)

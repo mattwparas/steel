@@ -11,6 +11,14 @@
 
 (require "common.scm")
 
+; (define (map2 func accum lst)
+;   (if (empty? lst)
+;       accum
+;       (map2 func (cons (func (car lst)) accum) (cdr lst))))
+
+; (define (map3 func lst)
+;   (reverse (map2 func '() lst)))
+
 (define (deriv a)
   (cond
     ;; TODO: Add a pass from the reader to intern the result! That way it matches
@@ -39,4 +47,4 @@
                         (lambda () (deriv (hide count input1)))
                         (lambda (result) (equal? result output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/deriv.input" run-benchmark)
+(with-input-from-file "r7rs-benchmarks/small-inputs/deriv.input" run-benchmark)

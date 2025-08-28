@@ -94,7 +94,6 @@ pub enum TokenType<S> {
     Number(Box<NumberLiteral>),
     StringLiteral(Arc<String>),
     Dot,
-    Error,
 }
 
 impl<T> TokenType<T> {
@@ -321,7 +320,6 @@ impl<'a> TokenType<Cow<'a, str>> {
             Unquote => Unquote,
             QuasiQuote => QuasiQuote,
             UnquoteSplice => UnquoteSplice,
-            Error => Error,
             Comment => Comment,
             DatumComment => DatumComment,
             If => If,
@@ -359,7 +357,6 @@ impl<'a> TokenType<Cow<'a, str>> {
             Unquote => Unquote,
             QuasiQuote => QuasiQuote,
             UnquoteSplice => UnquoteSplice,
-            Error => Error,
             Comment => Comment,
             DatumComment => DatumComment,
             If => If,
@@ -429,7 +426,6 @@ impl<T: Display> fmt::Display for TokenType<T> {
             QuasiQuoteSyntax => write!(f, "#`"),
             UnquoteSyntax => write!(f, "#,"),
             UnquoteSpliceSyntax => write!(f, "#,@"),
-            Error => write!(f, "error"),
             DatumComment => write!(f, "#;"),
             Comment => write!(f, ""),
             If => write!(f, "if"),
@@ -451,17 +447,17 @@ impl<T: Display> fmt::Display for TokenType<T> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Token<'a, T> {
-    pub ty: TokenType<T>,
+pub struct TokenLike<'a, TY> {
+    pub ty: TY,
     pub source: &'a str,
     pub span: Span,
 }
 
-impl<'a, T> Token<'a, T> {
+impl<'a, TY> TokenLike<'a, TY> {
     pub const fn new(
-        ty: TokenType<T>,
+        ty: TY,
         source: &'a str,
-        range: ops::Range<usize>,
+        range: ops::Range<u32>,
         source_id: Option<SourceId>,
     ) -> Self {
         Self {
@@ -470,7 +466,11 @@ impl<'a, T> Token<'a, T> {
             span: Span::new(range.start, range.end, source_id),
         }
     }
+}
 
+pub type Token<'a, T> = TokenLike<'a, TokenType<T>>;
+
+impl<'a, T> Token<'a, T> {
     pub fn typ(&self) -> &TokenType<T> {
         &self.ty
     }
@@ -479,7 +479,7 @@ impl<'a, T> Token<'a, T> {
         self.span
     }
 
-    pub const fn range(&self) -> ops::Range<usize> {
+    pub const fn range(&self) -> ops::Range<u32> {
         self.span.start()..self.span.end()
     }
 
@@ -500,37 +500,37 @@ impl<T> From<&Token<'_, T>> for Span {
     }
 }
 
-impl<T> From<Token<'_, T>> for ops::Range<usize> {
+impl<T> From<Token<'_, T>> for ops::Range<u32> {
     fn from(token: Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl<T> From<&Token<'_, T>> for ops::Range<usize> {
+impl<T> From<&Token<'_, T>> for ops::Range<u32> {
     fn from(token: &Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl<T> From<Token<'_, T>> for (usize, usize) {
+impl<T> From<Token<'_, T>> for (u32, u32) {
     fn from(token: Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl<T> From<&Token<'_, T>> for (usize, usize) {
+impl<T> From<&Token<'_, T>> for (u32, u32) {
     fn from(token: &Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl<T> From<Token<'_, T>> for [usize; 2] {
+impl<T> From<Token<'_, T>> for [u32; 2] {
     fn from(token: Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl<T> From<&Token<'_, T>> for [usize; 2] {
+impl<T> From<&Token<'_, T>> for [u32; 2] {
     fn from(token: &Token<'_, T>) -> Self {
         token.span().into()
     }
