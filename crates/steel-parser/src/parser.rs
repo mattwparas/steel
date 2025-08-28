@@ -289,7 +289,7 @@ impl ToOwnedString<InternedString> for InternString {
 
 // #[derive(Debug)]
 pub struct Parser<'a> {
-    tokenizer: OwnedTokenStream<'a, InternedString, InternString>,
+    tokenizer: OwnedTokenStream<'a>,
     quote_stack: Vec<usize>,
     quasiquote_depth: isize,
     quote_context: bool,
@@ -342,7 +342,7 @@ pub type Result<T> = result::Result<T, ParseError>;
 impl<'a> Parser<'a> {
     pub fn new(input: &'a str, source_id: Option<SourceId>) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(),
             quote_stack: Vec::new(),
             quasiquote_depth: 0,
             quote_context: false,
@@ -362,7 +362,7 @@ impl<'a> Parser<'a> {
 
     pub fn new_flat(input: &'a str, source_id: Option<SourceId>) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(),
             quote_stack: Vec::new(),
             quasiquote_depth: 0,
             quote_context: false,
@@ -381,7 +381,7 @@ impl<'a> Parser<'a> {
         source_id: Option<SourceId>,
     ) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(),
             quote_stack: Vec::new(),
             quasiquote_depth: 0,
             quote_context: false,
@@ -397,7 +397,7 @@ impl<'a> Parser<'a> {
     // Attach comments!
     pub fn doc_comment_parser(input: &'a str, source_id: Option<SourceId>) -> Self {
         Parser {
-            tokenizer: TokenStream::new(input, false, source_id).into_owned(InternString),
+            tokenizer: TokenStream::new(input, false, source_id).into_owned(),
             quote_stack: Vec::new(),
             quasiquote_depth: 0,
             quote_context: false,
@@ -560,13 +560,23 @@ impl<'a> Parser<'a> {
         (open, paren, paren_mod): (Span, Paren, Option<ParenMod>),
     ) -> Result<ExprKind> {
         let mut last = open;
+
+        // Can we reuse this?
+        // TODO: I think we have to shove this into the parser state.
+        // Alongside the current frame and anything else.
+        //
+        // That way, we can just keep it around if we hit an EOF and
+        // we're in incremental mode, where we can keep feeding data
+        // in and it can continue to produce parsed values.
         let mut stack: Vec<Frame> = Vec::new();
+
+        // self.stack.clear();
 
         let mut current_frame = Frame {
             open,
             paren,
             paren_mod,
-            exprs: vec![],
+            exprs: Vec::new(),
             dot: None,
             comment: 0,
         };
@@ -613,7 +623,7 @@ impl<'a> Parser<'a> {
                             None,
                         ));
                     } else {
-                        current_frame.dot = Some((current_frame.exprs.len(), token.span));
+                        current_frame.dot = Some((current_frame.exprs.len() as _, token.span));
                     }
                 }
                 TokenType::Comment => {
@@ -828,7 +838,7 @@ impl<'a> Parser<'a> {
                     current_frame = Frame {
                         open: token.span,
                         paren_mod,
-                        exprs: vec![],
+                        exprs: Vec::with_capacity(4),
                         dot: None,
                         paren,
                         comment: 0,
@@ -1806,12 +1816,13 @@ pub fn lower_entire_ast(expr: &mut ExprKind) -> Result<()> {
     ASTLowerPass { quote_depth: 0 }.lower(expr)
 }
 
+#[derive(Debug)]
 struct Frame {
     open: Span,
     paren: Paren,
     paren_mod: Option<ParenMod>,
     exprs: Vec<ExprKind>,
-    dot: Option<(usize, Span)>,
+    dot: Option<(u32, Span)>,
     comment: u8,
 }
 
@@ -1864,11 +1875,11 @@ impl Frame {
     }
 
     fn push(&mut self, expr: ExprKind) -> Result<()> {
-        if let Some((idx, _)) = self.dot {
+        if let Some(idx) = self.dot.as_ref().map(|x| x.0) {
             debug_assert!(!self.exprs.is_empty());
 
-            if idx != self.exprs.len() {
-                debug_assert_eq!(idx + 1, self.exprs.len());
+            if idx as usize != self.exprs.len() {
+                debug_assert_eq!(idx + 1, self.exprs.len() as _);
 
                 return Err(ParseError::SyntaxError(
                     "improper list must have a single cdr".to_owned(),
@@ -1905,9 +1916,9 @@ impl Frame {
 
     fn improper(&self) -> Result<bool> {
         match self.dot {
-            Some((idx, _)) if idx + 1 == self.exprs.len() => Ok(true),
+            Some((idx, _)) if idx + 1 == self.exprs.len() as _ => Ok(true),
             Some((idx, span)) => {
-                debug_assert_eq!(idx, self.exprs.len());
+                debug_assert_eq!(idx, self.exprs.len() as _);
 
                 return Err(ParseError::SyntaxError(
                     "improper list must have a single cdr".into(),
@@ -3070,3 +3081,121 @@ mod parser_tests {
         );
     }
 }
+
+use std::cell::RefCell;
+use std::default::Default;
+use std::ops::{Deref, DerefMut};
+
+pub trait Recyclable {
+    fn put(self);
+    fn get() -> Self;
+    fn get_with_capacity(capacity: usize) -> Self;
+}
+
+pub struct Recycle<T: Recyclable + Default> {
+    t: T,
+}
+
+impl<T: Recyclable + Default> Recycle<T> {
+    pub fn new() -> Self {
+        Recycle { t: T::get() }
+    }
+
+    pub fn new_with_capacity(capacity: usize) -> Self {
+        Recycle {
+            t: T::get_with_capacity(capacity),
+        }
+    }
+}
+
+impl<T: Recyclable + Default> Drop for Recycle<T> {
+    fn drop(&mut self) {
+        T::put(std::mem::take(&mut self.t))
+    }
+}
+
+impl<T: Recyclable + Default> Deref for Recycle<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.t
+    }
+}
+
+impl<T: Recyclable + Default + 'static> DerefMut for Recycle<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.t
+    }
+}
+
+impl<T: Recyclable + Clone + Default> Clone for Recycle<T> {
+    fn clone(&self) -> Self {
+        Recycle { t: self.t.clone() }
+    }
+}
+
+impl<T: Recyclable + std::fmt::Debug + Default> std::fmt::Debug for Recycle<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Recycle").field("t", &self.t).finish()
+    }
+}
+
+impl<T: Recyclable + std::hash::Hash + Default> std::hash::Hash for Recycle<T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.t.hash(state);
+    }
+}
+
+macro_rules! impl_recyclable {
+    ($tl:ident, $t:ty) => {
+        impl_recyclable!($tl, $t, Default::default(), Self::with_capacity);
+    };
+    ($tl:ident, $t:ty, $constructor:expr, $constructor_capacity:expr) => {
+        thread_local! {
+            static $tl: RefCell<Vec<$t>> = RefCell::new(Vec::new())
+        }
+
+        impl Recyclable for $t {
+            fn put(mut self) {
+                let _ = $tl.try_with(|p| {
+                    let p = p.try_borrow_mut();
+
+                    if let Ok(mut p) = p {
+                        // This _should_ be cleared, but it seems it is not!
+                        // debug_assert!(self.is_empty());
+                        // self.clear();
+
+                        // for frame in &self {
+                        //     for expr in &frame.exprs {
+                        //         println!("dropping: {}", expr);
+                        //     }
+                        // }
+
+                        // dbg!(&self);
+                        self.clear();
+
+                        p.push(self);
+                    }
+                });
+            }
+
+            fn get() -> Self {
+                $tl.with(|p| {
+                    let mut p = p.borrow_mut();
+                    p.pop()
+                })
+                .unwrap_or($constructor)
+            }
+
+            fn get_with_capacity(capacity: usize) -> Self {
+                $tl.with(|p| {
+                    let mut p = p.borrow_mut();
+                    p.pop()
+                })
+                .unwrap_or(($constructor_capacity)(capacity))
+            }
+        }
+    };
+}
+
+impl_recyclable!(TL_V_STEELVAL, Vec<Frame>);

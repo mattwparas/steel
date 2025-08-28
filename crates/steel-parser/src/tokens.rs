@@ -457,7 +457,7 @@ impl<'a, TY> TokenLike<'a, TY> {
     pub const fn new(
         ty: TY,
         source: &'a str,
-        range: ops::Range<usize>,
+        range: ops::Range<u32>,
         source_id: Option<SourceId>,
     ) -> Self {
         Self {
@@ -479,7 +479,7 @@ impl<'a, T> Token<'a, T> {
         self.span
     }
 
-    pub const fn range(&self) -> ops::Range<usize> {
+    pub const fn range(&self) -> ops::Range<u32> {
         self.span.start()..self.span.end()
     }
 
@@ -500,37 +500,37 @@ impl<T> From<&Token<'_, T>> for Span {
     }
 }
 
-impl<T> From<Token<'_, T>> for ops::Range<usize> {
+impl<T> From<Token<'_, T>> for ops::Range<u32> {
     fn from(token: Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl<T> From<&Token<'_, T>> for ops::Range<usize> {
+impl<T> From<&Token<'_, T>> for ops::Range<u32> {
     fn from(token: &Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl<T> From<Token<'_, T>> for (usize, usize) {
+impl<T> From<Token<'_, T>> for (u32, u32) {
     fn from(token: Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl<T> From<&Token<'_, T>> for (usize, usize) {
+impl<T> From<&Token<'_, T>> for (u32, u32) {
     fn from(token: &Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl<T> From<Token<'_, T>> for [usize; 2] {
+impl<T> From<Token<'_, T>> for [u32; 2] {
     fn from(token: Token<'_, T>) -> Self {
         token.span().into()
     }
 }
 
-impl<T> From<&Token<'_, T>> for [usize; 2] {
+impl<T> From<&Token<'_, T>> for [u32; 2] {
     fn from(token: &Token<'_, T>) -> Self {
         token.span().into()
     }

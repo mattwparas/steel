@@ -4,10 +4,12 @@ use super::{
     engine::Engine,
     register_fn::RegisterFn,
     vm::{
-        get_test_mode, list_modules, set_test_mode, VmCore, CALL_CC_DEFINITION,
-        CALL_WITH_EXCEPTION_HANDLER_DEFINITION, EVAL_DEFINITION, EVAL_FILE_DEFINITION,
-        EVAL_STRING_DEFINITION, EXPAND_SYNTAX_CASE_DEFINITION, EXPAND_SYNTAX_OBJECTS_DEFINITION,
-        INSPECT_DEFINITION, MACRO_CASE_BINDINGS_DEFINITION, MATCH_SYNTAX_CASE_DEFINITION,
+        get_test_mode, list_modules, set_test_mode, VmCore, CALLSTACK_HYDRATE_NAMES_DEFINITION,
+        CALL_CC_DEFINITION, CALL_WITH_EXCEPTION_HANDLER_DEFINITION, DUMP_PROFILER_DEFINITION,
+        EVAL_DEFINITION, EVAL_FILE_DEFINITION, EVAL_STRING_DEFINITION,
+        EXPAND_SYNTAX_CASE_DEFINITION, EXPAND_SYNTAX_OBJECTS_DEFINITION, INSPECT_DEFINITION,
+        MACRO_CASE_BINDINGS_DEFINITION, MAKE_CALLSTACK_PROFILER_DEFINITION,
+        MATCH_SYNTAX_CASE_DEFINITION, SAMPLE_STACKS_DEFINITION,
     },
 };
 use crate::{
@@ -41,10 +43,10 @@ use crate::{
             MUTABLE_VECTOR_POP_DEFINITION, MUTABLE_VECTOR_TO_STRING_DEFINITION,
             MUT_VECTOR_COPY_DEFINITION, MUT_VEC_APPEND_DEFINITION, MUT_VEC_CONSTRUCT_DEFINITION,
             MUT_VEC_CONSTRUCT_VEC_DEFINITION, MUT_VEC_GET_DEFINITION, MUT_VEC_LENGTH_DEFINITION,
-            MUT_VEC_PUSH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_TO_LIST_DEFINITION,
-            VECTOR_FILL_DEFINITION, VEC_APPEND_DEFINITION, VEC_CAR_DEFINITION, VEC_CDR_DEFINITION,
-            VEC_CONS_DEFINITION, VEC_LENGTH_DEFINITION, VEC_PUSH_DEFINITION, VEC_RANGE_DEFINITION,
-            VEC_REF_DEFINITION,
+            MUT_VEC_PUSH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_SWAP_DEFINITION,
+            MUT_VEC_TO_LIST_DEFINITION, VECTOR_FILL_DEFINITION, VEC_APPEND_DEFINITION,
+            VEC_CAR_DEFINITION, VEC_CDR_DEFINITION, VEC_CONS_DEFINITION, VEC_LENGTH_DEFINITION,
+            VEC_PUSH_DEFINITION, VEC_RANGE_DEFINITION, VEC_REF_DEFINITION,
         },
         ControlOperations, IoFunctions, MetaOperations, StreamOperations,
     },
@@ -59,7 +61,7 @@ use crate::{
         vm::threads::threading_module,
     },
     values::{
-        closed::HeapRef,
+        closed::{HeapRef, MAKE_WEAK_BOX_DEFINITION, WEAK_BOX_VALUE_DEFINITION},
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
         lists::{List, SteelList},
         structs::{
@@ -68,6 +70,11 @@ use crate::{
         },
     },
 };
+
+use crate::values::closed::{
+    MAKE_WILL_EXECUTOR_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
+};
+
 use crate::{
     rvals::IntoSteelVal,
     values::structs::{build_option_structs, build_result_structs},
@@ -853,6 +860,7 @@ fn vector_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/vectors");
     module
         .register_native_fn_definition(MUT_VEC_CONSTRUCT_DEFINITION)
+        .register_native_fn_definition(MUT_VEC_SWAP_DEFINITION)
         .register_native_fn_definition(MUT_VEC_CONSTRUCT_VEC_DEFINITION)
         .register_native_fn_definition(MAKE_VECTOR_DEFINITION)
         .register_native_fn_definition(MUT_VEC_TO_LIST_DEFINITION)
@@ -1232,6 +1240,7 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::MULTIPLY_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::DIVIDE_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::SUBTRACT_PRIMITIVE_DEFINITION)
+        .register_native_fn_definition(numbers::TRUNCATE_DEFINITION)
         .register_native_fn_definition(numbers::EVEN_DEFINITION)
         .register_native_fn_definition(numbers::ODD_DEFINITION)
         .register_native_fn_definition(numbers::ARITHMETIC_SHIFT_DEFINITION)
@@ -1547,7 +1556,7 @@ fn error_object_message(val: &SteelVal) -> Result<SteelVal> {
     Ok(error.message().to_string().into())
 }
 
-fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
+pub fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
     match value {
         SteelVal::BoxedFunction(f) => f.name().map(|x| x.into_steelval().unwrap()),
         SteelVal::FuncV(f) => get_function_name(f).map(|x| x.name.into_steelval().unwrap()),
@@ -1812,11 +1821,24 @@ impl Reader {
         if let Some(buffer) = self.buffer.get(self.offset..) {
             let mut parser = crate::parser::parser::Parser::new_flat(buffer, SourceId::none());
 
+            // TODO: This reparses everything while it hasn't yet finished the expression.
+            // What we need to do is keep the parser around while we finish it.
+            // For that, we should leave the parser around, and just leak buffer?
+            // or swap in something else? I think the stack needs to be saved
+            // in between runs. If we hit a situation where we EOF, we want to
+            // resume where we were, and keep the stack in the proper spot. Otherwise,
+            // we reparse everything up to that point since we're reading line by line?
             if let Some(raw) = parser.next() {
-                let next = if let Ok(next) = raw {
-                    next
-                } else {
-                    return Ok(SteelVal::Void);
+                let next = match raw {
+                    Ok(next) => next,
+                    // Err(steel_parser::parser::ParseError::UnexpectedEOF(_, _)) => {
+                    //     return Ok(SteelVal::Void);
+                    // }
+                    _ => {
+                        // dbg!(parser.offset());
+
+                        return Ok(SteelVal::Void);
+                    }
                 };
 
                 self.offset += parser.offset();
@@ -1859,7 +1881,12 @@ impl Reader {
 #[steel_derive::context(name = "#%intern", arity = "Exact(1)")]
 pub fn intern_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut guard = ctx.thread.compiler.write();
-    let interned_index = guard.constant_map.add_or_get(args[0].clone());
+    let arg = args[0].clone();
+    if let SteelVal::Void = arg {
+        return Some(Ok(arg));
+    }
+
+    let interned_index = guard.constant_map.add_or_get(arg);
     let value = guard.constant_map.get(interned_index);
     Some(Ok(value))
 }
@@ -1925,9 +1952,9 @@ fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
         ));
     }
 
-    let count = ctx.gc_collect();
+    ctx.gc_collect();
 
-    Some(Ok(SteelVal::IntV(count as _)))
+    Some(Ok(SteelVal::Void))
 }
 
 fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
@@ -2079,6 +2106,8 @@ fn meta_module() -> BuiltInModule {
         .register_fn("box-strong", SteelVal::boxed)
         .register_native_fn_definition(UNBOX_DEFINITION)
         .register_native_fn_definition(SET_BOX_DEFINITION)
+        .register_native_fn_definition(MAKE_WEAK_BOX_DEFINITION)
+        .register_native_fn_definition(WEAK_BOX_VALUE_DEFINITION)
         .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
         .register_value("#%gc-collect", SteelVal::BuiltIn(gc_collection))
         .register_value("box", SteelVal::BuiltIn(make_mutable_box))
@@ -2086,6 +2115,10 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(UNBOX_MUTABLE_DEFINITION)
         .register_native_fn_definition(PLAIN_UNBOX_MUTABLE_DEFINITION)
         .register_native_fn_definition(PLAIN_SET_BOX_MUTABLE_DEFINITION)
+        .register_native_fn_definition(MAKE_CALLSTACK_PROFILER_DEFINITION)
+        .register_native_fn_definition(CALLSTACK_HYDRATE_NAMES_DEFINITION)
+        .register_native_fn_definition(SAMPLE_STACKS_DEFINITION)
+        .register_native_fn_definition(DUMP_PROFILER_DEFINITION)
         .register_value(
             "attach-contract-struct!",
             SteelVal::FuncV(attach_contract_struct),
@@ -2111,6 +2144,11 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(ERROR_OBJECT_MESSAGE_DEFINITION)
         .register_fn("steel-home-location", steel_home)
         .register_fn("%#interner-memory-usage", interned_current_memory_usage);
+
+    module
+        .register_native_fn_definition(WILL_EXECUTE_DEFINITION)
+        .register_native_fn_definition(WILL_REGISTER_DEFINITION)
+        .register_native_fn_definition(MAKE_WILL_EXECUTOR_DEFINITION);
 
     #[cfg(not(feature = "dylibs"))]
     module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);

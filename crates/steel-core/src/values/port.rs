@@ -192,7 +192,8 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_to_string),
             SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_to_string),
             SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_to_string),
-            _x => stop!(Generic => "read-all-str"),
+            SteelPortRepr::StringInput(br) => port_read_str_fn!(br, read_to_string),
+            x => stop!(Generic => "read-all-str: {:?}", x),
         }
     }
 
@@ -353,7 +354,7 @@ impl SteelPortRepr {
 
         let s = c.encode_utf8(&mut buf);
 
-        let _ = self.write(s.as_bytes())?;
+        let _ = self.write_without_flush(s.as_bytes())?;
 
         Ok(())
     }
@@ -374,6 +375,14 @@ impl SteelPortRepr {
                 | SteelPortRepr::ChildStdError(_)
                 | SteelPortRepr::StringInput(_)
         )
+    }
+
+    pub fn is_string_input(&self) -> bool {
+        matches!(self, SteelPortRepr::StringInput(_))
+    }
+
+    pub fn is_file_input(&self) -> bool {
+        matches!(self, SteelPortRepr::FileInput(_, _))
     }
 
     pub fn is_output(&self) -> bool {
@@ -425,6 +434,35 @@ impl SteelPortRepr {
             ($br: expr) => {{
                 let result = $br.write(buf)?;
                 $br.flush()?;
+                result
+            }};
+        );
+
+        let result = match self {
+            SteelPortRepr::FileOutput(_, writer) => write_and_flush![writer],
+            SteelPortRepr::StdOutput(writer) => write_and_flush![writer],
+            SteelPortRepr::StdError(writer) => write_and_flush![writer],
+            SteelPortRepr::ChildStdInput(writer) => write_and_flush![writer],
+            SteelPortRepr::StringOutput(writer) => write_and_flush![writer],
+            SteelPortRepr::DynWriter(writer) => write_and_flush![writer.lock().unwrap()],
+            // TODO: Should tcp streams be both input and output ports?
+            SteelPortRepr::TcpStream(tcp) => tcp.write(buf)?,
+            SteelPortRepr::FileInput(_, _)
+            | SteelPortRepr::StdInput(_)
+            | SteelPortRepr::DynReader(_)
+            | SteelPortRepr::ChildStdOutput(_)
+            | SteelPortRepr::ChildStdError(_)
+            | SteelPortRepr::StringInput(_) => stop!(ContractViolation => "expected output-port?"),
+            SteelPortRepr::Closed => stop!(Io => "port is closed"),
+        };
+
+        Ok(result)
+    }
+
+    pub fn write_without_flush(&mut self, buf: &[u8]) -> Result<usize> {
+        macro_rules! write_and_flush(
+            ($br: expr) => {{
+                let result = $br.write(buf)?;
                 result
             }};
         );
@@ -581,6 +619,14 @@ impl SteelPort {
     //
     pub fn is_input(&self) -> bool {
         self.port.read().is_input()
+    }
+
+    pub fn is_string_input(&self) -> bool {
+        self.port.read().is_string_input()
+    }
+
+    pub fn is_file_input(&self) -> bool {
+        self.port.read().is_file_input()
     }
 
     pub fn is_output(&self) -> bool {
