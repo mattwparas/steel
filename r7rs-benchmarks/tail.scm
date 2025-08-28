@@ -1,12 +1,13 @@
 (require "common.scm")
 
-(define read-line read-line-from-port)
 (define file-exists? path-exists?)
 (define delete-file delete-file!)
 
 (define (tail-r-aux port file-so-far)
   (let ([x (read-line port)])
-    (if (eof-object? x) file-so-far (tail-r-aux port (cons x file-so-far)))))
+    (if (eof-object? x)
+        file-so-far
+        (tail-r-aux port (cons x file-so-far)))))
 
 (define (echo-lines-in-reverse-order in out)
   (for-each (lambda (line)
