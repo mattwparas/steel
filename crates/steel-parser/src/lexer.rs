@@ -535,20 +535,13 @@ impl<'b, 'a: 'b> IdentBuffer<'b, 'a> {
     }
 }
 
-fn strip_shebang_line(input: &str) -> (&str, usize, usize) {
+fn strip_shebang_line(input: &str) -> (usize, usize) {
     if input.starts_with("#!") {
-        let stripped = input.trim_start_matches("#!");
-        let result = match stripped.char_indices().find(|x| x.1 == '\n') {
-            Some((pos, _)) => &stripped[pos..],
-            None => "",
-        };
-
-        let original = input.len();
-        let new = result.len();
-
-        (result, original - new, input.len() - result.len())
+        // split is guaranteed to yield at least one element
+        let shebang = input.split('\n').next().unwrap();
+        (shebang.chars().count(), shebang.len())
     } else {
-        (input, 0, 0)
+        (0, 0)
     }
 }
 
@@ -576,7 +569,7 @@ pub struct TokenStream<'a> {
 
 impl<'a> TokenStream<'a> {
     pub fn new(input: &'a str, skip_comments: bool, source_id: Option<SourceId>) -> Self {
-        let (_, char_offset, bytes_offset) = strip_shebang_line(input);
+        let (char_offset, bytes_offset) = strip_shebang_line(input);
 
         let mut res = Self {
             lexer: Lexer::new(input),
