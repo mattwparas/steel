@@ -39,11 +39,24 @@
 
   (#%top-level-print obj cycle-collector))
 
+(define (ormap pred lst)
+  (cond
+    [(null? lst) #f]
+    [(pred (car lst)) #t]
+    [else (ormap pred (cdr lst))]))
+
 (define (#%top-level-print obj collector)
   (cond
     [(symbol? obj)
      (simple-display "'")
-     (simple-display (symbol->string obj))]
+     (let* ([sym (symbol->string obj)]
+            [lst (string->list sym)])
+       (if (ormap char-whitespace? lst)
+           (begin
+             (simple-display "|")
+             (simple-display sym)
+             (simple-display "|"))
+           (simple-display sym)))]
     [(char? obj) (write obj)]
     [(string? obj) (write obj)]
     [(atom? obj) (simple-display obj)]
@@ -106,7 +119,15 @@
 
 (define (#%print obj collector)
   (cond
-    [(symbol? obj) (simple-display (symbol->string obj))]
+    [(symbol? obj)
+     (let* ([sym (symbol->string obj)]
+            [lst (string->list sym)])
+       (if (ormap char-whitespace? lst)
+           (begin
+             (simple-display "|")
+             (simple-display sym)
+             (simple-display "|"))
+           (simple-display sym)))]
     [(char? obj) (write obj)]
     [(string? obj) (write obj)]
     [(atom? obj) (simple-display obj)]
