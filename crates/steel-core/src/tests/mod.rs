@@ -117,6 +117,7 @@ test_harness_success! {
     pascals,
     print,
     permutations,
+    ports,
     quicksort,
     read,
     require_alias,
