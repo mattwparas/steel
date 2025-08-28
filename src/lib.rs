@@ -531,6 +531,11 @@ fn r7rs_benchmark_test_suite_three() {
         "r7rs-benchmarks/graphs.scm",
         "r7rs-benchmarks/pi.scm",
         "r7rs-benchmarks/pnpoly.scm",
+        "r7rs-benchmarks/quicksort.scm",
+        "r7rs-benchmarks/read1.scm",
+        "r7rs-benchmarks/string.scm",
+        "r7rs-benchmarks/tail.scm",
+        "r7rs-benchmarks/wc.scm",
     ];
 
     for bench in benches {

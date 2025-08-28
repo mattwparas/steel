@@ -10,13 +10,7 @@
         [(eof-object? x) (list nl nw nc)]
         [(char=? x #\space) (loop nl nw (+ nc 1) #f)]
         [(char=? x #\newline) (loop (+ nl 1) nw (+ nc 1) #f)]
-        [else
-         (loop nl
-               (if inword?
-                   nw
-                   (+ nw 1))
-               (+ nc 1)
-               #t)])))
+        [else (loop nl (if inword? nw (+ nw 1)) (+ nc 1) #t)])))
   (loop 0 0 0 #f))
 
 (define (go x)
@@ -34,4 +28,4 @@
                         (lambda () (go (hide count input)))
                         (lambda (result) (equal? result output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/wc.input" run-benchmark)
+(with-input-from-file "r7rs-benchmarks/small-inputs/wc.input" run-benchmark)

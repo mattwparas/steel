@@ -6,9 +6,7 @@
 
 (define (tail-r-aux port file-so-far)
   (let ([x (read-line port)])
-    (if (eof-object? x)
-        file-so-far
-        (tail-r-aux port (cons x file-so-far)))))
+    (if (eof-object? x) file-so-far (tail-r-aux port (cons x file-so-far)))))
 
 (define (echo-lines-in-reverse-order in out)
   (for-each (lambda (line)
@@ -38,4 +36,4 @@
                         (lambda () (go (hide count input1) (hide count input2)))
                         (lambda (result) #t))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/tail.input" run-benchmark)
+(with-input-from-file "r7rs-benchmarks/small-inputs/tail.input" run-benchmark)

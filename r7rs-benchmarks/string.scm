@@ -29,4 +29,4 @@
                         (lambda () (my-try (hide count input1)))
                         (lambda (result) (equal? result output)))))
 
-(with-input-from-file "r7rs-benchmarks/inputs/string.input" run-benchmark)
+(with-input-from-file "r7rs-benchmarks/small-inputs/string.input" run-benchmark)
