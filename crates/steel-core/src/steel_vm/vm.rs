@@ -798,9 +798,9 @@ impl SteelThread {
         &mut self,
         thunk: F,
     ) -> T {
-        log::info!("Stopping threads...");
+        // log::info!("Stopping threads...");
         self.synchronizer.stop_threads();
-        log::info!("Stopped threads.");
+        // log::info!("Stopped threads.");
 
         let mut env = self.global_env.drain_env();
 
@@ -820,12 +820,12 @@ impl SteelThread {
 
         self.global_env.update_env(env);
 
-        log::info!("Resuming threads...");
+        // log::info!("Resuming threads...");
 
         // Resume.
         // Apply these to all of the things.
         self.synchronizer.resume_threads();
-        log::info!("Threads resumed.");
+        // log::info!("Threads resumed.");
 
         out
     }
@@ -5495,33 +5495,46 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
                         | OpCode::CALLGLOBALTAIL
                         | OpCode::CALLGLOBALNOARITY
                         | OpCode::CALLGLOBALTAILNOARITY,
-                    payload_size,
+                    payload_size: _payload_size,
                 } => {
-                    if depth == 0 {
-                        if payload_size.to_usize() >= ctx.thread.global_env.len() + global_offset {
-                            stop!(Generic => "Free identifier: eval referenced an identifier before it was bound");
-                        }
+                    // if depth == 0 {
+                    //     if payload_size.to_usize() >= ctx.thread.global_env.len() + global_offset {
+                    //         let guard = ctx.thread.compiler.read();
+                    //         let value = guard
+                    //             .symbol_map
+                    //             .values()
+                    //             .get(payload_size.to_usize())
+                    //             .map(|x| x.resolve());
 
-                        let compiler_guard = ctx.thread.compiler.read();
+                    //         let recently_freed = guard
+                    //             .symbol_map
+                    //             .free_list
+                    //             .recently_freed
+                    //             .contains(&payload_size.to_usize());
 
-                        // TODO: Figure out how to make the recently freed list
-                        // move down in size. Eval is the only way that we could
-                        // reclaim these slots, so assuming there isn't any
-                        // eval, we'll want to make sure this goes down in size.
-                        if compiler_guard
-                            .symbol_map
-                            .free_list
-                            .recently_freed
-                            .contains(&payload_size.to_usize())
-                            && ctx
-                                .thread
-                                .global_env
-                                .repl_maybe_lookup_idx(payload_size.to_usize())
-                                == Some(SteelVal::Void)
-                        {
-                            stop!(Generic => "Free identifier: eval (maybe) referenced an identifier before it was bound");
-                        }
-                    }
+                    //         stop!(Generic => "Free identifier: eval referenced an identifier before it was bound: {:?} - {} - {} - {}", value, payload_size.to_usize(), ctx.thread.global_env.len() + global_offset, recently_freed)
+                    //     }
+
+                    //     let compiler_guard = ctx.thread.compiler.read();
+
+                    //     // TODO: Figure out how to make the recently freed list
+                    //     // move down in size. Eval is the only way that we could
+                    //     // reclaim these slots, so assuming there isn't any
+                    //     // eval, we'll want to make sure this goes down in size.
+                    //     if compiler_guard
+                    //         .symbol_map
+                    //         .free_list
+                    //         .recently_freed
+                    //         .contains(&payload_size.to_usize())
+                    //         && ctx
+                    //             .thread
+                    //             .global_env
+                    //             .repl_maybe_lookup_idx(payload_size.to_usize())
+                    //             == Some(SteelVal::Void)
+                    //     {
+                    //         stop!(Generic => "Free identifier: eval (maybe) referenced an identifier before it was bound");
+                    //     }
+                    // }
                 }
                 DenseInstruction {
                     op_code: OpCode::NEWSCLOSURE | OpCode::PUREFUNC,
