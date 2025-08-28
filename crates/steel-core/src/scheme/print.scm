@@ -270,7 +270,7 @@
 
     [(vector? obj)
      (let ([list-obj (vector->list obj)])
-       (simple-display "'#(")
+       (simple-display "#(")
        (when (not (empty? list-obj))
          (#%display (car list-obj) collector)
          (for-each (λ (obj)
@@ -280,7 +280,7 @@
        (simple-display ")"))]
 
     [(hash? obj)
-     (simple-display "'#hash(")
+     (simple-display "#hash(")
      ;; TODO: This should use the private transduce
      (let ([hash-as-list-of-pairs (transduce obj (into-list))])
 
@@ -369,7 +369,7 @@
           (simple-display ")"))])]
 
     [(hash? obj)
-     (simple-display "'#hash(")
+     (simple-display "#hash(")
      ;; TODO: This should use the private transduce
      (let ([hash-as-list-of-pairs (transduce obj (into-list))])
 
