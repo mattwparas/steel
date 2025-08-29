@@ -314,6 +314,9 @@ error[E11]: Generic
 ### **cdr-null?**
 ### **list->vector**
 ### **list-chunks**
+### **list-contains**
+### **member**
+### **memq**
 ### **plist-get**
 ### **plist-get-kwarg**
 ### **plist-get-positional-arg**

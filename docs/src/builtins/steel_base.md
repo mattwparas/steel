@@ -1679,6 +1679,15 @@ Creates a mutable vector of a given size, optionally initialized with a specifie
 > (make-vector 3) ;; => '#(0 0 0)
 > (make-vector 3 42) ;; => '#(42 42 42)
 ```
+### **make-weak-box**
+Allocates a weak box.
+
+A weak box is similar to a box, but when the garbage collector can prove
+that the value of a weak box is only reachable through weak references,
+the weak box value will always return #false.
+
+In other words, a weak box does not keep the value contained alive through
+a gc collection.
 ### **mapping**
 Create a mapping iterator
 
@@ -2259,6 +2268,19 @@ Checks whether the given value is a #<ReadDir>
 (read-dir-iter? my-iter) ;; => #true
 (read-dir-iter "not an iter") ;; => #false
 ```
+### **read-line**
+Reads a line from an input port.
+
+(read-line [port]) -> string?
+
+* port : input-port? = (current-input-port)
+### **read-line-from-port**
+Reads a line from the given port, including the '\n' at the end.
+
+Use of this procedure is discouraged in favor of the (read-line) procedure,
+which is included in the scheme spec and therefore more portable.
+
+(read-line-from-port port?) -> string?
 ### **read-port-to-string**
 Takes a port and reads the entire content into a string
 
@@ -3106,6 +3128,21 @@ Sets the value at a specified index in a mutable vector.
 > (vector-set! A 1 42) ;;
 > A ;; => '#(1 42 3)
 ```
+### **vector-swap!**
+Swaps the value at a specified indices in a mutable vector.
+
+(vector-set! vec index value) -> void?
+
+* vec : vector? - The mutable vector to modify.
+* index : integer? - The position in `vec` to update (must be within bounds).
+* value : any? - The new value to store at `index`.
+
+#### Examples
+```scheme
+> (define A (mutable-vector 1 2 3)) ;;
+> (vector-set! A 1 42) ;;
+> A ;; => '#(1 42 3)
+```
 ### **vector?**
 Returns true if the value is a vector (mutable or immutable).
 
@@ -3137,6 +3174,19 @@ Returns true if the value is `void`.
 
 > (void? 42)
 #false
+```
+### **weak-box-value**
+Returns the value contained in the weak box.
+If the garbage collector has proven that the previous content
+value of weak-box was reachable only through a weak reference,
+then default-value (which defaults to #f) is returned.
+
+```scheme
+(define value (make-weak-box 10))
+(weak-box-value value) ;; => 10
+(set! value #f) ;; Wipe out the previous value
+(#%gc-collect)
+(weak-box-value value) ;; => #false
 ```
 ### **would-block-object?**
 Returns `#t` if the value is an EOF object.
@@ -3214,6 +3264,7 @@ Create a zipping iterator
 ### **call-with-current-continuation**
 ### **call-with-exception-handler**
 ### **call/cc**
+### **callstack-hydrate-names**
 ### **cdr-null?**
 ### **channel->recv**
 ### **channel->send**
@@ -3233,6 +3284,7 @@ Create a zipping iterator
 ### **current-function-span**
 ### **current-os!**
 ### **current-thread-id**
+### **dump-profiler**
 ### **duration->micros**
 ### **duration->millis**
 ### **duration->nanos**
@@ -3284,13 +3336,18 @@ Create a zipping iterator
 ### **kill**
 ### **list->vector**
 ### **list-chunks**
+### **list-contains**
 ### **load**
 ### **load-expanded**
 ### **local-executor/block-on**
+### **make-callstack-profiler**
 ### **make-channels**
 ### **make-struct-type**
+### **make-will-executor**
 ### **maybe-get-env-var**
+### **member**
 ### **memory-address**
+### **memq**
 ### **multi-arity?**
 ### **mutable-vector?**
 ### **naive-current-date-local**
@@ -3317,7 +3374,6 @@ Create a zipping iterator
 ### **raise-error**
 ### **raise-error-with-span**
 ### **read!**
-### **read-line-from-port**
 ### **read-to-string**
 ### **run!**
 ### **set-box!**
@@ -3351,6 +3407,7 @@ Create a zipping iterator
 ### **thread/available-parallelism**
 ### **thread::current/id**
 ### **transduce**
+### **truncate**
 ### **try-list-ref**
 ### **unbox**
 ### **unbox-strong**
@@ -3360,5 +3417,7 @@ Create a zipping iterator
 ### **wait**
 ### **wait->stdout**
 ### **which**
+### **will-execute**
+### **will-register**
 ### **would-block**
 ### **write-line!**
