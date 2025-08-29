@@ -22,56 +22,127 @@
          with-output-to-string
          with-input-from-string)
 
+;;@doc
+;; Reads the entire content of an input port into a string.
+;;
+;; (read-port-to-string [port]) -> string?
+;;
+;; * [port] : input-port? = (current-input-port)
 (define read-port-to-string
   (case-lambda
     [() (#%read-port-to-string (current-input-port))]
     [(port) (#%read-port-to-string port)]))
 
+;;@doc
+;; Reads the entire content of an input port into a byte vector.
+;;
+;; (read-port-to-bytes [port]) -> string?
+;;
+;; * [port] : input-port? = (current-input-port)
 (define read-port-to-bytes
   (case-lambda
     [() (#%read-port-to-bytes (current-input-port))]
     [(port) (#%read-port-to-bytes port)]))
 
+;;@doc
+;; Reads a line from an input port.
+;;
+;; (read-line [port]) -> string?
+;;
+;; * port : input-port? = (current-input-port)
 (define read-line
   (case-lambda
     [() (#%read-line (current-input-port))]
     [(port) (#%read-line port)]))
 
+;;@doc
+;; Reads a single byte from an input port.
+;;
+;; (read-byte [port]) -> byte?
+;;
+;; * port : input-port? = (current-input-port)
 (define read-byte
   (case-lambda
     [() (#%read-byte (current-input-port))]
     [(port) (#%read-byte port)]))
 
+;;@doc
+;; Peeks the next byte from an input port.
+;;
+;; (peek-byte [port]) -> byte?
+;;
+;; * port : input-port? = (current-input-port)
 (define peek-byte
   (case-lambda
     [() (#%peek-byte (current-input-port))]
     [(port) (#%peek-byte port)]))
 
+;;@doc
+;; Reads bytes from an input port.
+;;
+;; (read-bytes amt [port]) -> bytes?
+;;
+;; * amt : (and positive? int?)
+;; * port : input-port? = (current-input-port)
 (define read-bytes
   (case-lambda
     [(amt) (#%read-bytes amt (current-input-port))]
     [(amt port) (#%read-bytes amt port)]))
 
+;;@doc
+;; Reads bytes from an input port into a given buffer.
+;;
+;; (read-bytes-into-buf buf amt [port]) -> int?
+;;
+;; * buf : bytes?
+;; * amt : (and positive? int?)
+;; * port : input-port? = (current-input-port)
 (define read-bytes-into-buf
   (case-lambda
     [(buf amt) (#%read-bytes-into-buf buf amt (current-input-port))]
     [(buf amt port) (#%read-bytes-into-buf buf amt port)]))
 
+;;@doc
+;; Writes a single byte to an output port.
+;;
+;; (write-byte b [port])
+;;
+;; * b : byte?
+;; * port : output-port? = (current-output-port)
 (define write-byte
   (case-lambda
     [(byte) (#%write-byte byte (current-output-port))]
     [(byte port) (#%write-byte byte port)]))
 
+;;@doc
+;; Writes the contents of a bytevector into an output port.
+;;
+;; (write-bytes buf [port])
+;;
+;; * buf : bytes?
+;; * port : output-port? = (current-output-port)
 (define write-bytes
   (case-lambda
     [(bytes) (#%write-bytes bytes (current-output-port))]
     [(bytes port) (#%write-bytes bytes port)]))
 
+;;@doc
+;; Reads the next character from an input port.
+;;
+;; (read-char [port]) -> char?
+;;
+;; * port : input-port? = (current-input-port)
 (define read-char
   (case-lambda
     [() (#%read-char (current-input-port))]
     [(port) (#%read-char port)]))
 
+;;@doc
+;; Peeks the next character from an input port.
+;;
+;; (peek-char [port]) -> char?
+;;
+;; * port : input-port? = (current-input-port)
 (define peek-char
   (case-lambda
     [() (#%peek-char (current-input-port))]
