@@ -1497,7 +1497,7 @@ mod lexer_tests {
     #[test]
     fn test_complex_numbers() {
         let got: Vec<_> = token_stream(
-            "1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i 2e+4+inf.0i -inf.0-2e-4i 1/2@0 -3/2@1",
+            "1+2i 3-4i +5+6i +1i 1.0+2.0i 3-4.0i +1.0i 2e+4+inf.0i -inf.0-2e-4i 1/2@0 -3/2@1 +i -i 4+i",
         )
         .collect();
         assert_eq!(
@@ -1601,7 +1601,34 @@ mod lexer_tests {
                     .into(),
                     source: "-3/2@1",
                     span: Span::new(73, 79, SourceId::none()),
-                }
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(0).into(),
+                        IntLiteral::Small(1).into(),
+                    )
+                    .into(),
+                    source: "+i",
+                    span: Span::new(80, 82, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(0).into(),
+                        IntLiteral::Small(-1).into()
+                    )
+                    .into(),
+                    source: "-i",
+                    span: Span::new(83, 85, SourceId::none()),
+                },
+                Token {
+                    ty: NumberLiteral::Complex(
+                        IntLiteral::Small(4).into(),
+                        IntLiteral::Small(1).into()
+                    )
+                    .into(),
+                    source: "4+i",
+                    span: Span::new(86, 89, SourceId::none()),
+                },
             ]
         );
     }
