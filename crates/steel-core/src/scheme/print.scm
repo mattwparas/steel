@@ -54,7 +54,11 @@
        (if (ormap char-whitespace? lst)
            (begin
              (simple-display "|")
-             (simple-display sym)
+             (for-each (λ (x)
+                         (when (char=? x #\|)
+                           (simple-display "\\"))
+                         (simple-display x))
+                       lst)
              (simple-display "|"))
            (simple-display sym)))]
     [(char? obj) (write obj)]
@@ -125,7 +129,11 @@
        (if (ormap char-whitespace? lst)
            (begin
              (simple-display "|")
-             (simple-display sym)
+             (for-each (λ (x)
+                         (when (char=? x #\|)
+                           (simple-display "\\"))
+                         (simple-display x))
+                       lst)
              (simple-display "|"))
            (simple-display sym)))]
     [(char? obj) (write obj)]

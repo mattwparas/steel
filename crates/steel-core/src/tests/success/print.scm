@@ -21,7 +21,7 @@
 (assert-print! #\x "#\\x")
 (assert-print! "hello" "\"hello\"")
 (assert-print! '|pea pod| "'|pea pod|")
-; (assert-print! '|one \| two| "'|one \\| two|")
+(assert-print! '|one \| two| "'|one \\| two|")
 (assert-print! '("i" pod) "'(\"i\" pod)")
 (assert-print! list "#<function:list>")
 (assert-print! (list 1 2 3) "'(1 2 3)")
