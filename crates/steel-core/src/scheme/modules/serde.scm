@@ -1,3 +1,5 @@
+(require "#%private/steel/ports")
+
 (provide serialize-to-file
          deserialize-from-file
          round-trip)

@@ -3,9 +3,7 @@ use std::fs::OpenOptions;
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
 use crate::primitives::lists::plist_get_impl;
-use crate::rvals::{
-    FromSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal, SteelValDisplay,
-};
+use crate::rvals::{FromSteelVal, Result, SteelByteVector, SteelString, SteelVal, SteelValDisplay};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::values::port::{would_block, Peekable, SteelPort, SteelPortRepr, WOULD_BLOCK_OBJECT};
 use crate::values::structs::{make_struct_singleton, StructTypeDescriptor};
@@ -316,9 +314,8 @@ pub fn open_input_bytevector(bytes: &SteelByteVector) -> SteelVal {
 /// (read-port-to-string [port]) -> string?
 ///
 /// * [port] : input-port? = (current-input-port)
-#[function(name = "read-port-to-string")]
-pub fn read_port_to_string(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
-    let port = input_args(rest)?;
+#[function(name = "#%read-port-to-string")]
+pub fn read_port_to_string(port: &SteelPort) -> Result<SteelVal> {
     let (_, result) = port.read_all_str()?;
     Ok(SteelVal::StringV(result.into()))
 }
@@ -328,9 +325,8 @@ pub fn read_port_to_string(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
 /// (read-port-to-bytes [port]) -> string?
 ///
 /// * [port] : input-port? = (current-input-port)
-#[function(name = "read-port-to-bytes")]
-pub fn read_port_to_bytes(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
-    let port = input_args(rest)?;
+#[function(name = "#%read-port-to-bytes")]
+pub fn read_port_to_bytes(port: &SteelPort) -> Result<SteelVal> {
     let (_, result) = port.read_all_bytes()?;
     Ok(SteelVal::ByteVector(SteelByteVector::new(result)))
 }
@@ -416,9 +412,8 @@ pub fn is_output(maybe_port: &SteelVal) -> bool {
 /// (read-line [port]) -> string?
 ///
 /// * port : input-port? = (current-input-port)
-#[function(name = "read-line")]
-pub fn read_line(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
-    let port = input_args(rest)?;
+#[function(name = "#%read-line")]
+pub fn read_line(port: &SteelPort) -> Result<SteelVal> {
     let (size, mut result) = port.read_line()?;
 
     if size == 0 {
@@ -463,8 +458,7 @@ pub fn write_line(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
 }
 
 #[function(name = "#%raw-write")]
-pub fn write(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
-    let port = output_args(rest)?;
+pub fn write(line: &SteelVal, port: &SteelPort) -> Result<SteelVal> {
     let res = port.write(line.to_string().as_bytes());
 
     if res.is_ok() {
@@ -475,8 +469,7 @@ pub fn write(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal
 }
 
 #[function(name = "#%raw-display")]
-pub fn display(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
-    let port = output_args(rest)?;
+pub fn display(line: &SteelVal, port: &SteelPort) -> Result<SteelVal> {
     let line = SteelValDisplay(line).to_string();
     let res = port.write(line.as_bytes());
 
@@ -488,8 +481,7 @@ pub fn display(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelV
 }
 
 #[function(name = "#%raw-write-char")]
-pub fn write_char(character: char, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
-    let port = output_args(rest)?;
+pub fn write_char(character: char, port: &SteelPort) -> Result<SteelVal> {
     let res = port.write_char(character);
 
     if res.is_ok() {
@@ -501,9 +493,7 @@ pub fn write_char(character: char, rest: RestArgsIter<&SteelPort>) -> Result<Ste
 
 // TODO: support start and end
 #[function(name = "#%raw-write-string")]
-pub fn write_string(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
-    let port = output_args(rest)?;
-
+pub fn write_string(line: &SteelVal, port: &SteelPort) -> Result<SteelVal> {
     let res = if let SteelVal::StringV(s) = line {
         port.write(s.as_bytes())
     } else {
@@ -652,10 +642,8 @@ pub fn would_block_objectp(value: &SteelVal) -> bool {
 /// (read-byte [port]) -> byte?
 ///
 /// * port : input-port? = (current-input-port)
-#[function(name = "read-byte")]
-pub fn read_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
-    let port = input_args(rest)?;
-
+#[function(name = "#%read-byte")]
+pub fn read_byte(port: &SteelPort) -> Result<SteelVal> {
     match port.read_byte()? {
         crate::values::port::MaybeBlocking::Nonblocking(b) => {
             Ok(b.map(|b| SteelVal::IntV(b.into())).unwrap_or_else(eof))
@@ -670,10 +658,8 @@ pub fn read_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
 ///
 /// * amt : (and positive? int?)
 /// * port : input-port? = (current-input-port)
-#[function(name = "read-bytes")]
-pub fn read_bytes(amt: usize, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
-    let port = input_args(rest)?;
-
+#[function(name = "#%read-bytes")]
+pub fn read_bytes(amt: usize, port: &SteelPort) -> Result<SteelVal> {
     let bytes = port.read_bytes(amt)?;
 
     match bytes {
@@ -695,14 +681,12 @@ pub fn read_bytes(amt: usize, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal
 /// * buf : bytes?
 /// * amt : (and positive? int?)
 /// * port : input-port? = (current-input-port)
-#[function(name = "read-bytes-into-buf")]
+#[function(name = "#%read-bytes-into-buf")]
 pub fn read_bytes_into_buf(
     buf: &SteelByteVector,
     amt: usize,
-    rest: RestArgsIter<&SteelPort>,
+    port: &SteelPort,
 ) -> Result<SteelVal> {
-    let port = input_args(rest)?;
-
     let mut guard = buf.vec.write();
 
     if guard.len() < amt {
@@ -723,9 +707,8 @@ pub fn read_bytes_into_buf(
 ///
 /// * b : byte?
 /// * port : output-port? = (current-output-port)
-#[function(name = "write-byte")]
-pub fn write_byte(byte: u8, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
-    let port = output_args(rest)?;
+#[function(name = "#%write-byte")]
+pub fn write_byte(byte: u8, port: &SteelPort) -> Result<SteelVal> {
     port.write(&[byte])?;
 
     Ok(SteelVal::Void)
@@ -737,9 +720,8 @@ pub fn write_byte(byte: u8, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> 
 ///
 /// * buf : bytes?
 /// * port : output-port? = (current-output-port)
-#[function(name = "write-bytes")]
-pub fn write_bytes(bytes: &SteelByteVector, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
-    let port = output_args(rest)?;
+#[function(name = "#%write-bytes")]
+pub fn write_bytes(bytes: &SteelByteVector, port: &SteelPort) -> Result<SteelVal> {
     port.write(&*bytes.vec.read())?;
 
     Ok(SteelVal::Void)
@@ -750,10 +732,8 @@ pub fn write_bytes(bytes: &SteelByteVector, rest: RestArgsIter<&SteelPort>) -> R
 /// (peek-byte [port]) -> byte?
 ///
 /// * port : input-port? = (current-input-port)
-#[function(name = "peek-byte")]
-pub fn peek_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
-    let port = input_args(rest)?;
-
+#[function(name = "#%peek-byte")]
+pub fn peek_byte(port: &SteelPort) -> Result<SteelVal> {
     match port.peek_byte()? {
         crate::values::port::MaybeBlocking::Nonblocking(b) => {
             Ok(b.map(|b| SteelVal::IntV(b.into())).unwrap_or_else(eof))
@@ -767,10 +747,8 @@ pub fn peek_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
 /// (read-char [port]) -> char?
 ///
 /// * port : input-port? = (current-input-port)
-#[function(name = "read-char")]
-pub fn read_char(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
-    let port = input_args(rest)?;
-
+#[function(name = "#%read-char")]
+pub fn read_char(port: &SteelPort) -> Result<SteelVal> {
     match port.read_char()? {
         crate::values::port::MaybeBlocking::Nonblocking(c) => {
             Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
@@ -811,34 +789,14 @@ pub fn read_char_single_ref(port: &SteelVal) -> Result<SteelVal> {
 /// (peek-char [port]) -> char?
 ///
 /// * port : input-port? = (current-input-port)
-#[function(name = "peek-char")]
-pub fn peek_char(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
-    let port = input_args(rest)?;
-
+#[function(name = "#%peek-char")]
+pub fn peek_char(port: &SteelPort) -> Result<SteelVal> {
     match port.peek_char()? {
         crate::values::port::MaybeBlocking::Nonblocking(c) => {
             Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
         }
         crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
     }
-}
-
-fn input_args(args: RestArgsIter<&SteelPort>) -> Result<SteelPort> {
-    Ok(io_args(1, args)?.unwrap_or_else(SteelPort::default_current_input_port))
-}
-
-fn output_args(args: RestArgsIter<&SteelPort>) -> Result<SteelPort> {
-    Ok(io_args(2, args)?.unwrap_or_else(SteelPort::default_current_output_port))
-}
-
-fn io_args(max: usize, mut args: RestArgsIter<&SteelPort>) -> Result<Option<SteelPort>> {
-    let port = args.next().transpose()?.cloned();
-
-    if args.next().is_some() {
-        stop!(ArityMismatch => "expected at most {} arguments", max);
-    }
-
-    Ok(port)
 }
 
 pub fn eof() -> SteelVal {

@@ -1,7 +1,18 @@
 (require-builtin steel/base)
 (require "#%private/steel/control")
 
-(provide call-with-port
+(provide read-port-to-string
+         read-port-to-bytes
+         read-line
+         read-byte
+         peek-byte
+         read-bytes
+         read-bytes-into-buf
+         write-byte
+         write-bytes
+         read-char
+         peek-char
+         call-with-port
          call-with-output-file
          call-with-input-file
          with-output-to-file
@@ -10,6 +21,61 @@
          call-with-input-string
          with-output-to-string
          with-input-from-string)
+
+(define read-port-to-string
+  (case-lambda
+    [() (#%read-port-to-string (current-input-port))]
+    [(port) (#%read-port-to-string port)]))
+
+(define read-port-to-bytes
+  (case-lambda
+    [() (#%read-port-to-bytes (current-input-port))]
+    [(port) (#%read-port-to-bytes port)]))
+
+(define read-line
+  (case-lambda
+    [() (#%read-line (current-input-port))]
+    [(port) (#%read-line port)]))
+
+(define read-byte
+  (case-lambda
+    [() (#%read-byte (current-input-port))]
+    [(port) (#%read-byte port)]))
+
+(define peek-byte
+  (case-lambda
+    [() (#%peek-byte (current-input-port))]
+    [(port) (#%peek-byte port)]))
+
+(define read-bytes
+  (case-lambda
+    [(amt) (#%read-bytes amt (current-input-port))]
+    [(amt port) (#%read-bytes amt port)]))
+
+(define read-bytes-into-buf
+  (case-lambda
+    [(buf amt) (#%read-bytes-into-buf buf amt (current-input-port))]
+    [(buf amt port) (#%read-bytes-into-buf buf amt port)]))
+
+(define write-byte
+  (case-lambda
+    [(byte) (#%write-byte byte (current-output-port))]
+    [(byte port) (#%write-byte byte port)]))
+
+(define write-bytes
+  (case-lambda
+    [(bytes) (#%write-bytes bytes (current-output-port))]
+    [(bytes port) (#%write-bytes bytes port)]))
+
+(define read-char
+  (case-lambda
+    [() (#%read-char (current-input-port))]
+    [(port) (#%read-char port)]))
+
+(define peek-char
+  (case-lambda
+    [() (#%peek-char (current-input-port))]
+    [(port) (#%peek-char port)]))
 
 ;;@doc
 ;; Calls the given *proc* with the *port*.

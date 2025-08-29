@@ -1,4 +1,5 @@
 (require-builtin #%private/steel/reader as reader.)
+(require "#%private/steel/ports")
 
 (provide read
          read-syntax-object)
