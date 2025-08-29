@@ -3988,7 +3988,12 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn handle_push(&mut self, index: usize) -> Result<()> {
-        let value = self.thread.global_env.repl_lookup_idx(index);
+        // let value = self.thread.global_env.repl_lookup_idx(index);
+        let value = self
+            .thread
+            .global_env
+            .repl_maybe_lookup_idx(index)
+            .ok_or_else(throw!(Generic => "free identifier"))?;
 
         self.thread.stack.push(value);
         self.ip += 1;
@@ -5442,7 +5447,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
     let mut bytecode = Vec::new();
     let mut new_spans = Vec::new();
 
-    let mut global_offset = 0;
+    // let mut global_offset = 0;
 
     // Rewrite relative jumps at the top level into absolute jumps.
     for (instr, span) in instructions.into_iter().zip(spans) {
@@ -5484,8 +5489,6 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
                             .free_list
                             .recently_freed
                             .remove(&payload_size.to_usize());
-                    } else {
-                        global_offset += 1;
                     }
                 }
                 DenseInstruction {
@@ -5495,46 +5498,47 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
                         | OpCode::CALLGLOBALTAIL
                         | OpCode::CALLGLOBALNOARITY
                         | OpCode::CALLGLOBALTAILNOARITY,
-                    payload_size: _payload_size,
+                    payload_size,
                 } => {
-                    // if depth == 0 {
-                    //     if payload_size.to_usize() >= ctx.thread.global_env.len() + global_offset {
-                    //         let guard = ctx.thread.compiler.read();
-                    //         let value = guard
-                    //             .symbol_map
-                    //             .values()
-                    //             .get(payload_size.to_usize())
-                    //             .map(|x| x.resolve());
+                    if depth == 0 {
+                        // if payload_size.to_usize() >= ctx.thread.global_env.len() + global_offset {
+                        //     let guard = ctx.thread.compiler.read();
+                        //     let value = guard
+                        //         .symbol_map
+                        //         .values()
+                        //         .get(payload_size.to_usize())
+                        //         .map(|x| x.resolve());
 
-                    //         let recently_freed = guard
-                    //             .symbol_map
-                    //             .free_list
-                    //             .recently_freed
-                    //             .contains(&payload_size.to_usize());
+                        //     let recently_freed = guard
+                        //         .symbol_map
+                        //         .free_list
+                        //         .recently_freed
+                        //         .contains(&payload_size.to_usize());
 
-                    //         stop!(Generic => "Free identifier: eval referenced an identifier before it was bound: {:?} - {} - {} - {}", value, payload_size.to_usize(), ctx.thread.global_env.len() + global_offset, recently_freed)
-                    //     }
+                        //     stop!(Generic => "Free identifier: eval referenced an identifier before it was bound: {:?} - {} - {} - {} - {}",
+                        //           value, payload_size.to_usize(), ctx.thread.global_env.len() + global_offset, recently_freed, global_offset)
+                        // }
 
-                    //     let compiler_guard = ctx.thread.compiler.read();
+                        let compiler_guard = ctx.thread.compiler.read();
 
-                    //     // TODO: Figure out how to make the recently freed list
-                    //     // move down in size. Eval is the only way that we could
-                    //     // reclaim these slots, so assuming there isn't any
-                    //     // eval, we'll want to make sure this goes down in size.
-                    //     if compiler_guard
-                    //         .symbol_map
-                    //         .free_list
-                    //         .recently_freed
-                    //         .contains(&payload_size.to_usize())
-                    //         && ctx
-                    //             .thread
-                    //             .global_env
-                    //             .repl_maybe_lookup_idx(payload_size.to_usize())
-                    //             == Some(SteelVal::Void)
-                    //     {
-                    //         stop!(Generic => "Free identifier: eval (maybe) referenced an identifier before it was bound");
-                    //     }
-                    // }
+                        // TODO: Figure out how to make the recently freed list
+                        // move down in size. Eval is the only way that we could
+                        // reclaim these slots, so assuming there isn't any
+                        // eval, we'll want to make sure this goes down in size.
+                        if compiler_guard
+                            .symbol_map
+                            .free_list
+                            .recently_freed
+                            .contains(&payload_size.to_usize())
+                            && ctx
+                                .thread
+                                .global_env
+                                .repl_maybe_lookup_idx(payload_size.to_usize())
+                                == Some(SteelVal::Void)
+                        {
+                            stop!(Generic => "Free identifier: eval (maybe) referenced an identifier before it was bound");
+                        }
+                    }
                 }
                 DenseInstruction {
                     op_code: OpCode::NEWSCLOSURE | OpCode::PUREFUNC,
