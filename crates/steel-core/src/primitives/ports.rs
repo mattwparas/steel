@@ -40,7 +40,8 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(WRITE_CHAR_DEFINITION)
         .register_native_fn_definition(FLUSH_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_STRING_DEFINITION)
-        .register_native_fn_definition(READ_LINE_TO_STRING_DEFINITION)
+        .register_native_fn_definition(READ_LINE_DEFINITION)
+        .register_native_fn_definition(READ_LINE_FROM_PORT_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_STRING_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(IS_INPUT_DEFINITION)
@@ -84,7 +85,8 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
         .register_native_fn_definition(WRITE_CHAR_DEFINITION)
         .register_native_fn_definition(FLUSH_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_STRING_DEFINITION)
-        .register_native_fn_definition(READ_LINE_TO_STRING_DEFINITION)
+        .register_native_fn_definition(READ_LINE_DEFINITION)
+        .register_native_fn_definition(READ_LINE_FROM_PORT_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_STRING_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(IS_INPUT_DEFINITION)
@@ -390,19 +392,42 @@ pub fn is_output(maybe_port: &SteelVal) -> bool {
     }
 }
 
-#[function(name = "read-line-from-port")]
-pub fn read_line_to_string(port: &SteelPort) -> Result<SteelVal> {
-    let res = port.read_line();
+/// Reads a line from an input port.
+///
+/// (read-line [port]) -> string?
+///
+/// * port : input-port? = (current-input-port)
+#[function(name = "read-line")]
+pub fn read_line(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = input_args(rest)?;
+    let (size, mut result) = port.read_line()?;
 
-    if let Ok((size, result)) = res {
-        if size == 0 {
-            Ok(eof())
-        } else {
-            Ok(SteelVal::StringV(result.into()))
-        }
+    if size == 0 {
+        Ok(eof())
     } else {
-        // bit of a hack for now we'll see
-        res.map(|_| unreachable!())
+        // r7rs read-line doesn't return the trailing \n
+        if result.ends_with('\n') {
+            result.pop();
+        }
+
+        Ok(SteelVal::StringV(result.into()))
+    }
+}
+
+/// Reads a line from the given port, including the '\n' at the end.
+///
+/// Use of this procedure is discouraged in favor of the (read-line) procedure,
+/// which is included in the scheme spec and therefore more portable.
+///
+/// (read-line-from-port port?) -> string?
+#[function(name = "read-line-from-port")]
+pub fn read_line_from_port(port: &SteelPort) -> Result<SteelVal> {
+    let (size, result) = port.read_line()?;
+
+    if size == 0 {
+        Ok(eof())
+    } else {
+        Ok(SteelVal::StringV(result.into()))
     }
 }
 

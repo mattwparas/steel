@@ -143,6 +143,19 @@ Reads the next character from an input port.
 (read-char [port]) -> char?
 
 * port : input-port? = (current-input-port)
+### **read-line**
+Reads a line from an input port.
+
+(read-line [port]) -> string?
+
+* port : input-port? = (current-input-port)
+### **read-line-from-port**
+Reads a line from the given port, including the '\n' at the end.
+
+Use of this procedure is discouraged in favor of the (read-line) procedure,
+which is included in the scheme spec and therefore more portable.
+
+(read-line-from-port port?) -> string?
 ### **read-port-to-string**
 Takes a port and reads the entire content into a string
 
@@ -178,7 +191,6 @@ Writes the contents of a bytevector into an output port.
 * buf : bytes?
 * port : output-port? = (current-output-port)
 ### **flush-output-port**
-### **read-line-from-port**
 ### **stdout**
 ### **would-block**
 ### **write-line!**

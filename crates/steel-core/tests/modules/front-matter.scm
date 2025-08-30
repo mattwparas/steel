@@ -7,9 +7,11 @@
 (struct Page (path front-matter-map content))
 
 (define (parse-file path)
-  (let ([file (open-input-file path)] [front-matter (open-output-string)])
-    (let loop ([port file] [close-front-matter #f])
-      (let ([next-line (read-line-from-port port)])
+  (let ([file (open-input-file path)]
+        [front-matter (open-output-string)])
+    (let loop ([port file]
+               [close-front-matter #f])
+      (let ([next-line (read-line port)])
         (cond
           ;; TODO: Fix 'eof
           [(equal? 'eof next-line)]
