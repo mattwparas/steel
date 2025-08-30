@@ -39,8 +39,6 @@ fn generate_docs() -> Result<(), Box<dyn Error>> {
     workspace_dir.push("src");
     workspace_dir.push("builtins");
 
-    println!("Cleaning target directory...");
-
     std::fs::remove_dir_all(&workspace_dir)?;
 
     base.push("crates");

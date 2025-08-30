@@ -67,7 +67,7 @@ macro_rules! time {
 
 macro_rules! declare_builtins {
     ( $( $name:expr => $path:expr ), *) => {
-        static BUILT_INS: &[(&str, &str)] = &[
+        pub static BUILT_INS: &[(&str, &str)] = &[
             $( ($name, include_str!($path)), )*
         ];
 
