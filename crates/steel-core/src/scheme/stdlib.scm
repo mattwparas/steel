@@ -581,11 +581,6 @@
 (define curry (lambda (func arg1) (lambda (arg) (func arg1 arg))))
 (define curry2 (lambda (func arg1) (lambda (arg2 arg3) (func arg1 arg2 arg3))))
 
-(define (foldl func accum lst)
-  (if (null? lst)
-      accum
-      (foldl func (func (car lst) accum) (cdr lst))))
-
 ;;@doc
 ;; Applies `func` to the elements of the `lsts` from the first
 ;; elements to the last. The `func` argument must accept the same
@@ -620,20 +615,23 @@
             '()
             (map-many function '() lists)))))
 
-(define foldr
-  (lambda (func accum lst)
-    (if (null? lst)
-        accum
-        (func (car lst) (foldr func accum (cdr lst))))))
+(define (foldl func accum lst)
+  (if (null? lst)
+      accum
+      (foldl func (func (car lst) accum) (cdr lst))))
 
-(define unfold
-  (lambda (func init pred)
-    (if (pred init)
-        (cons init '())
-        (cons init (unfold func (func init) pred)))))
+(define (foldr func accum lst)
+  (if (null? lst)
+      accum
+      (func (car lst) (foldr func accum (cdr lst)))))
 
-(define fold (lambda (f a l) (foldl f a l)))
-(define reduce (lambda (f a l) (fold f a l)))
+(define (unfold func init stop?)
+  (if (stop? init)
+      (cons init '())
+      (cons init (unfold func (func init) stop?))))
+
+(define fold foldl)
+(define reduce fold)
 
 (define (max x . rest)
   (fold (lambda (y z) (if (> y z) y z)) x rest))
