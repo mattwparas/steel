@@ -83,6 +83,19 @@ returns #t.
 ```scheme
 (filter even? (range 0 5)) ;; '(0 2 4)
 ```
+### **for-each**
+Applies a procedure to all elements of a list
+
+(for-each procedure? list?) ;; => void?
+
+#### Examples
+
+```scheme
+> (for-each (λ (x) (println x)) '(a b c))
+'a
+'b
+'c
+```
 ### **map**
 Applies `func` to the elements of the `lsts` from the first
 elements to the last. The `func` argument must accept the same

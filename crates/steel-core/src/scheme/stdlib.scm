@@ -52,6 +52,7 @@
          drop
          slice
          flatten
+         for-each
          *meta-continuation*
          *abort
          *reset
@@ -815,14 +816,23 @@
       0
       (abs (* b (floor (/ a (gcd a b)))))))
 
+;;@doc
+;; Applies a procedure to all elements of a list
+;;
+;; (for-each procedure? list?) ;; => void?
+;;
+;; # Examples
+;;
+;; ```scheme
+;; > (for-each (λ (x) (println x)) '(a b c))
+;; 'a
+;; 'b
+;; 'c
+;; ```
 (define (for-each func lst)
-  (if (null? lst)
-      void
-      (begin
-        (func (car lst))
-        (when (null? lst)
-          (return! void))
-        (for-each func (cdr lst)))))
+  (unless (null? lst)
+    (func (car lst))
+    (for-each func (cdr lst))))
 
 ;; TODO: Just make this a built in!
 (define (vector->list v . remaining)
