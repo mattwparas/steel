@@ -87,7 +87,7 @@ fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
             }
             _ => {
                 print!("{} ", "=>".bright_blue().bold());
-                vm.call_function_by_name_with_args("displayln", vec![x])
+                vm.call_function_by_name_with_args("println", vec![x])
                     .unwrap();
             }
         }),
@@ -123,7 +123,7 @@ fn finish_or_interrupt(vm: &mut Engine, line: String) {
             }
             _ => {
                 print!("{} ", "=>".bright_blue().bold());
-                vm.call_function_by_name_with_args("displayln", vec![value])
+                vm.call_function_by_name_with_args("println", vec![value])
                     .unwrap();
             }
         }

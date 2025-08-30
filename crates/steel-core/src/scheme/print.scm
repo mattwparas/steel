@@ -4,20 +4,28 @@
 
 (provide displayln
          display
-         #%print
-         #%top-level-print)
+         #%display
+         #%top-level-display
+         print
+         println)
 
-(define (for-each func lst)
-  (if (null? lst)
-      void
-      (begin
-        (func (car lst))
-        (when (null? lst)
-          (return! void))
-        (for-each func (cdr lst)))))
+(define println
+  (case-lambda
+    [(obj)
+     (print obj)
+     (newline)]
+    [(obj port)
+     (print obj port)
+     (newline port)]))
 
-(define (display-impl obj)
-  ;; Collect cycles
+(define print
+  (case-lambda
+    [(obj) (print-impl obj)]
+    [(obj port)
+     (parameterize ([current-output-port port])
+       (print-impl obj))]))
+
+(define (print-impl obj)
   (define cycle-collector (#%private-cycle-collector obj))
 
   (for-each (λ (obj)
@@ -29,11 +37,161 @@
                 (newline)))
             (#%private-cycle-collector-values cycle-collector))
 
+  (#%top-level-print obj cycle-collector))
+
+(define (#%top-level-print obj collector)
+  (cond
+    [(symbol? obj)
+     (simple-display "'")
+     (simple-display (symbol->string obj))]
+    [(char? obj) (write obj)]
+    [(string? obj) (write obj)]
+    [(atom? obj) (simple-display obj)]
+    [(list? obj)
+     (simple-display "'(")
+     (when (not (empty? obj))
+       (#%print (car obj) collector)
+       (for-each (λ (x)
+                   (simple-display " ")
+                   (#%print x collector))
+                 (cdr obj)))
+     (simple-display ")")]
+    [(pair? obj)
+     (simple-display "'(")
+     (#%print (car obj) collector)
+     (simple-display " . ")
+     (#%print (cdr obj) collector)
+     (simple-display ")")]
+    [(vector? obj)
+     (let ([list-obj (vector->list obj)])
+       (simple-display "'#(")
+       (when (not (empty? list-obj))
+         (#%print (car list-obj) collector)
+         (for-each (λ (x)
+                     (simple-display " ")
+                     (#%print x collector))
+                   (cdr list-obj)))
+       (simple-display ")"))]
+    [(set? obj)
+     (let ([list-obj (hashset->list obj)])
+       (simple-display "(set")
+       (for-each (λ (x)
+                   (simple-display " ")
+                   (#%print x collector))
+                 list-obj)
+       (simple-display ")"))]
+    [(hash? obj)
+     (let ([list-obj (transduce obj (into-list))])
+       (simple-display "'#hash(")
+       (when (not (empty? list-obj))
+         (simple-display "(")
+         (#%print (caar list-obj) collector)
+         (simple-display " . ")
+         (#%print (cadar list-obj) collector)
+         (simple-display ")")
+         (for-each (λ (obj)
+                     (simple-display "(")
+                     (#%print (car obj) collector)
+                     (simple-display " . ")
+                     (#%print (cdr obj) collector)
+                     (simple-display ")"))
+                   (cdr list-obj)))
+       (simple-display ")"))]
+    [(#%private-struct? obj)
+     (let ([printer (#%struct-property-ref obj '#:printer)])
+       (if (function? printer)
+           (printer obj (λ (x) (#%print x collector)))
+           (simple-display obj)))]
+    [else (simple-display obj)]))
+
+(define (#%print obj collector)
+  (cond
+    [(symbol? obj) (simple-display (symbol->string obj))]
+    [(char? obj) (write obj)]
+    [(string? obj) (write obj)]
+    [(atom? obj) (simple-display obj)]
+    [(function? obj) (simple-display obj)]
+    [(void? obj) (simple-display obj)]
+    ;; There is a cycle!
+    [(int? (#%private-cycle-collector-get collector obj))
+     (simple-display "#")
+     (simple-display (#%private-cycle-collector-get collector obj))
+     (simple-display "#")]
+    [(list? obj)
+     (simple-display "(")
+     (when (not (empty? obj))
+       (#%print (car obj) collector)
+       (for-each (λ (x)
+                   (simple-display " ")
+                   (#%print x collector))
+                 (cdr obj)))
+     (simple-display ")")]
+    [(pair? obj)
+     (simple-display "(")
+     (#%print (car obj) collector)
+     (simple-display " . ")
+     (#%print (cdr obj) collector)
+     (simple-display ")")]
+    [(vector? obj)
+     (let ([list-obj (vector->list obj)])
+       (simple-display "#(")
+       (when (not (empty? list-obj))
+         (#%print (car list-obj) collector)
+         (for-each (λ (x)
+                     (simple-display " ")
+                     (#%print x collector))
+                   (cdr list-obj)))
+       (simple-display ")"))]
+    [(set? obj)
+     (let ([list-obj (hashset->list obj)])
+       (simple-display "(set")
+       (for-each (λ (x)
+                   (simple-display " ")
+                   (#%print x collector))
+                 list-obj)
+       (simple-display ")"))]
+    [(hash? obj)
+     (let ([list-obj (transduce obj (into-list))])
+       (simple-display "#hash(")
+       (when (not (empty? list-obj))
+         (simple-display "(")
+         (#%print (caar list-obj) collector)
+         (simple-display " . ")
+         (#%print (cadar list-obj) collector)
+         (simple-display ")")
+         (for-each (λ (obj)
+                     (simple-display "(")
+                     (#%print (car obj) collector)
+                     (simple-display " . ")
+                     (#%print (cdr obj) collector)
+                     (simple-display ")"))
+                   (cdr list-obj)))
+       (simple-display ")"))]
+    [(#%private-struct? obj)
+     (let ([printer (#%struct-property-ref obj '#:printer)])
+       (if (function? printer)
+           (printer obj (λ (x) (#%print x collector)))
+           (simple-display obj)))]
+    [else (simple-display obj)]))
+
+(define (display-impl obj)
+  ;; Collect cycles
+  (define cycle-collector (#%private-cycle-collector obj))
+
+  (for-each (λ (obj)
+              (when (int? (#%private-cycle-collector-get cycle-collector obj))
+                (simple-display "#")
+                (simple-display (#%private-cycle-collector-get cycle-collector obj))
+                (simple-display "=")
+                (#%top-level-display obj cycle-collector)
+                (newline)))
+            (#%private-cycle-collector-values cycle-collector))
+
   ;; Symbols are funny
   (when (or (symbol? obj) (list? obj))
     (simple-display "'"))
 
-  (#%top-level-print obj cycle-collector))
+  (#%top-level-display obj cycle-collector))
 
 (define display
   (case-lambda
@@ -65,7 +223,7 @@
                objs)
      (newline)]))
 
-(define (#%top-level-print obj collector)
+(define (#%top-level-display obj collector)
   (cond
     [(symbol? obj) (simple-display (symbol->string obj))]
     [(atom? obj) (simple-display obj)]
@@ -76,10 +234,10 @@
     [(list? obj)
      (simple-display "(")
      (when (not (empty? obj))
-       (#%print (car obj) collector)
+       (#%display (car obj) collector)
        (for-each (λ (obj)
                    (simple-display " ")
-                   (#%print obj collector))
+                   (#%display obj collector))
                  (cdr obj)))
      (simple-display ")")]
 
@@ -88,7 +246,7 @@
      (let ([printer (#%struct-property-ref obj '#:printer)])
 
        (cond
-         [(function? printer) (printer obj (lambda (x) (#%print x collector)))]
+         [(function? printer) (printer obj (lambda (x) (#%display x collector)))]
 
          ;; Truthiness here needs to be addressed
          [printer
@@ -106,10 +264,10 @@
 
         (let ([set-as-list (hashset->list obj)])
 
-          (#%print (car set-as-list) collector)
+          (#%display (car set-as-list) collector)
           (for-each (λ (obj)
                       (simple-display " ")
-                      (#%print obj collector)
+                      (#%display obj collector)
                       collector)
                     (cdr set-as-list))
           (simple-display ")"))])]
@@ -118,10 +276,10 @@
      (let ([list-obj (vector->list obj)])
        (simple-display "'#(")
        (when (not (empty? list-obj))
-         (#%print (car list-obj) collector)
+         (#%display (car list-obj) collector)
          (for-each (λ (obj)
                      (simple-display " ")
-                     (#%print obj collector))
+                     (#%display obj collector))
                    (cdr list-obj)))
        (simple-display ")"))]
 
@@ -135,16 +293,16 @@
          [else
 
           (simple-display "(")
-          (#%print (caar hash-as-list-of-pairs) collector)
+          (#%display (caar hash-as-list-of-pairs) collector)
           (simple-display " . ")
-          (#%print (cadar hash-as-list-of-pairs) collector)
+          (#%display (cadar hash-as-list-of-pairs) collector)
           (simple-display ")")
 
           (for-each (λ (obj)
                       (simple-display " (")
-                      (#%print (car obj) collector)
+                      (#%display (car obj) collector)
                       (simple-display " . ")
-                      (#%print (list-ref obj 1) collector)
+                      (#%display (list-ref obj 1) collector)
                       (simple-display ")"))
                     (cdr hash-as-list-of-pairs))
 
@@ -152,7 +310,7 @@
 
     [else (simple-display obj)]))
 
-(define (#%print obj collector)
+(define (#%display obj collector)
   (cond
     [(string? obj)
      (display "\"")
@@ -170,10 +328,10 @@
     [(list? obj)
      (simple-display "(")
      (when (not (empty? obj))
-       (#%print (car obj) collector)
+       (#%display (car obj) collector)
        (for-each (λ (obj)
                    (simple-display " ")
-                   (#%print obj collector))
+                   (#%display obj collector))
                  (cdr obj)))
      (simple-display ")")]
 
@@ -182,7 +340,7 @@
      (let ([printer (#%struct-property-ref obj '#:printer)])
 
        (cond
-         [(function? printer) (printer obj (lambda (x) (#%print x collector)))]
+         [(function? printer) (printer obj (lambda (x) (#%display x collector)))]
          [printer
           (simple-display "#<")
           (simple-display (symbol->string (#%struct-property-ref obj '#:name)))
@@ -194,10 +352,10 @@
      (let ([list-obj (vector->list obj)])
        (simple-display "#(")
        (when (not (empty? list-obj))
-         (#%print (car list-obj) collector)
+         (#%display (car list-obj) collector)
          (for-each (λ (obj)
                      (simple-display " ")
-                     (#%print obj collector))
+                     (#%display obj collector))
                    (cdr list-obj)))
        (simple-display ")"))]
 
@@ -209,10 +367,10 @@
 
         (let ([set-as-list (hashset->list obj)])
 
-          (#%print (car set-as-list) collector)
+          (#%display (car set-as-list) collector)
           (for-each (λ (obj)
                       (simple-display " ")
-                      (#%print obj collector)
+                      (#%display obj collector)
                       collector)
                     (cdr set-as-list))
           (simple-display ")"))])]
@@ -227,16 +385,16 @@
          [else
 
           (simple-display "(")
-          (#%print (caar hash-as-list-of-pairs) collector)
+          (#%display (caar hash-as-list-of-pairs) collector)
           (simple-display " . ")
-          (#%print (cadar hash-as-list-of-pairs) collector)
+          (#%display (cadar hash-as-list-of-pairs) collector)
           (simple-display ")")
 
           (for-each (λ (obj)
                       (simple-display " (")
-                      (#%print (car obj) collector)
+                      (#%display (car obj) collector)
                       (simple-display " . ")
-                      (#%print (list-ref obj 1) collector)
+                      (#%display (list-ref obj 1) collector)
                       (simple-display ")"))
                     (cdr hash-as-list-of-pairs))
 
