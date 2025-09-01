@@ -139,9 +139,7 @@ impl SendablePort {
             SteelPortRepr::StdOutput(_) => Ok(SendablePort::StdOutput(io::stdout())),
             SteelPortRepr::StdError(_) => Ok(SendablePort::StdError(io::stderr())),
             SteelPortRepr::Closed => Ok(SendablePort::Closed),
-            _ => {
-                stop!(Generic => "Unable to send port across threads: {:?}", value)
-            }
+            _ => stop!(Generic => "Unable to send port across threads: {}", value),
         }
     }
 
@@ -190,8 +188,7 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_line),
             SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_line),
             SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_line),
-            // FIXME: fix this and the functions below
-            _ => stop!(TypeMismatch => "expected an input port"),
+            _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
     }
 
@@ -203,7 +200,7 @@ impl SteelPortRepr {
             SteelPortRepr::StringOutput(s) => Ok(s.flush()?),
             SteelPortRepr::DynWriter(s) => Ok(s.lock().unwrap().flush()?),
             SteelPortRepr::Closed => Ok(()),
-            _ => stop!(TypeMismatch => "expected an output port, found: {:?}", self),
+            _ => stop!(ContractViolation => "expected output-port?, found {}", self),
         }
     }
 
@@ -215,7 +212,7 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br, read_to_string),
             SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br, read_to_string),
             SteelPortRepr::DynReader(br) => port_read_str_fn!(br, read_to_string),
-            _ => stop!(TypeMismatch => "expected an input port"),
+            _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
     }
 
@@ -271,7 +268,9 @@ impl SteelPortRepr {
             | SteelPortRepr::StdError(_)
             | SteelPortRepr::ChildStdInput(_)
             | SteelPortRepr::StringOutput(_)
-            | SteelPortRepr::DynWriter(_) => stop!(ContractViolation => "expected input-port?"),
+            | SteelPortRepr::DynWriter(_) => {
+                stop!(ContractViolation => "expected input-port?, found {}", self)
+            }
             SteelPortRepr::Closed => return Ok(MaybeBlocking::Nonblocking((0, true))),
         };
 
@@ -315,7 +314,9 @@ impl SteelPortRepr {
             | SteelPortRepr::StdError(_)
             | SteelPortRepr::ChildStdInput(_)
             | SteelPortRepr::StringOutput(_)
-            | SteelPortRepr::DynWriter(_) => stop!(ContractViolation => "expected input-port?"),
+            | SteelPortRepr::DynWriter(_) => {
+                stop!(ContractViolation => "expected input-port?, found {}", self)
+            }
             SteelPortRepr::Closed => return Ok(MaybeBlocking::Nonblocking(None)),
         };
 
@@ -370,7 +371,9 @@ impl SteelPortRepr {
             | SteelPortRepr::StdError(_)
             | SteelPortRepr::ChildStdInput(_)
             | SteelPortRepr::StringOutput(_)
-            | SteelPortRepr::DynWriter(_) => stop!(ContractViolation => "expected input-port?"),
+            | SteelPortRepr::DynWriter(_) => {
+                stop!(ContractViolation => "expected input-port?, found {}", self)
+            }
             SteelPortRepr::Closed => return Ok(0),
         }?;
 
@@ -444,7 +447,7 @@ impl SteelPortRepr {
             *self = SteelPortRepr::Closed;
             Ok(())
         } else {
-            stop!(TypeMismatch => "close-output-port expects an output port, found: {:?}", self)
+            stop!(TypeMismatch => "expected output-port?, found {}", self)
         }
     }
 
@@ -453,7 +456,7 @@ impl SteelPortRepr {
             *self = SteelPortRepr::Closed;
             Ok(())
         } else {
-            stop!(TypeMismatch => "close-input-port expects an input port, found: {:?}", self)
+            stop!(TypeMismatch => "expected input-port?, found {}", self)
         }
     }
 
@@ -480,7 +483,9 @@ impl SteelPortRepr {
             | SteelPortRepr::DynReader(_)
             | SteelPortRepr::ChildStdOutput(_)
             | SteelPortRepr::ChildStdError(_)
-            | SteelPortRepr::StringInput(_) => stop!(ContractViolation => "expected output-port?"),
+            | SteelPortRepr::StringInput(_) => {
+                stop!(ContractViolation => "expected output-port?, found {}", self)
+            }
             SteelPortRepr::Closed => stop!(Io => "port is closed"),
         };
 
@@ -509,7 +514,9 @@ impl SteelPortRepr {
             | SteelPortRepr::DynReader(_)
             | SteelPortRepr::ChildStdOutput(_)
             | SteelPortRepr::ChildStdError(_)
-            | SteelPortRepr::StringInput(_) => stop!(ContractViolation => "expected output-port?"),
+            | SteelPortRepr::StringInput(_) => {
+                stop!(ContractViolation => "expected output-port?, found {}", self)
+            }
             SteelPortRepr::Closed => stop!(Io => "port is closed"),
         };
 
