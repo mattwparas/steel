@@ -32,6 +32,12 @@ pub struct SteelPort {
     pub(crate) port: GcMut<SteelPortRepr>,
 }
 
+impl std::fmt::Display for SteelPort {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.port.read())
+    }
+}
+
 // pub trait PortLike {
 //     fn as_any_ref(&self) -> &dyn Any;
 //     fn into_port(self) -> SteelVal;
@@ -93,6 +99,27 @@ impl std::fmt::Debug for SteelPortRepr {
                 .finish(),
             SteelPortRepr::TcpStream(_) => f.debug_tuple("TcpStream").finish(),
             SteelPortRepr::Closed => f.debug_tuple("Closed").finish(),
+        }
+    }
+}
+
+impl std::fmt::Display for SteelPortRepr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SteelPortRepr::FileInput(file, _) => write!(f, "#<input-port:{file}>"),
+            SteelPortRepr::FileOutput(file, _) => write!(f, "#<output-port:{file}>"),
+            SteelPortRepr::StdInput(_) => write!(f, "#<input-port:stdin>"),
+            SteelPortRepr::StdOutput(_) => write!(f, "#<output-port:stdout>"),
+            SteelPortRepr::StdError(_) => write!(f, "#<output-port:stderr>"),
+            SteelPortRepr::ChildStdOutput(_) => write!(f, "#<input-port:child-stdout>"),
+            SteelPortRepr::ChildStdError(_) => write!(f, "#<input-port:child-stderr>"),
+            SteelPortRepr::ChildStdInput(_) => write!(f, "#<output-port:child-stdin>"),
+            SteelPortRepr::StringInput(_) => write!(f, "#<input-port:string>"),
+            SteelPortRepr::StringOutput(_) => write!(f, "#<output-port:string>"),
+            SteelPortRepr::DynWriter(_) => write!(f, "#<output-port:opaque>"),
+            SteelPortRepr::DynReader(_) => write!(f, "#<input-port:opaque>"),
+            SteelPortRepr::TcpStream(_) => write!(f, "#<port:tcp>"),
+            SteelPortRepr::Closed => write!(f, "#<port:closed>"),
         }
     }
 }

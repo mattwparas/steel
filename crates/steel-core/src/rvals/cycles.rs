@@ -278,7 +278,7 @@ impl CycleDetector {
                     }
                 }
             },
-            PortV(_) => write!(f, "#<port>"),
+            PortV(port) => write!(f, "{}", port),
             Closure(_) => write!(f, "#<bytecode-closure>"),
             HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),
             IterV(_) => write!(f, "#<iterator>"),
