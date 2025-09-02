@@ -123,7 +123,7 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
 /// # Examples
 ///
 /// ```scheme
-/// > (stdin) ;; => #<port>
+/// > (stdin) ;; => #<input-port:stdin>
 /// ```
 #[function(name = "stdin")]
 pub fn open_stdin() -> SteelVal {
@@ -146,7 +146,7 @@ pub fn open_stdout() -> SteelVal {
 ///
 /// # Examples
 /// ```scheme
-/// > (open-input-file "foo-bar.txt") ;; => #<port>
+/// > (open-input-file "foo-bar.txt") ;; => #<input-port:foo-bar.txt>
 /// > (open-input-file "file-does-not-exist.txt")
 /// error[E08]: Io
 ///   ┌─ :1:2
@@ -165,7 +165,7 @@ pub fn open_input_file(path: &SteelString) -> Result<SteelVal> {
 ///
 /// # Examples
 /// ```scheme
-/// > (open-output-file "foo-bar.txt") ;; => #<port>
+/// > (open-output-file "foo-bar.txt") ;; => #<output-port:foo-bar.txt>
 /// ```
 #[native(name = "open-output-file", arity = "AtLeast(1)")]
 pub fn open_output_file(args: &[SteelVal]) -> Result<SteelVal> {
@@ -223,7 +223,7 @@ pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
 ///
 /// # Examples
 /// ```scheme
-/// > (open-input-file "foo-bar.txt") ;; => #<port>
+/// > (open-input-file "foo-bar.txt") ;; => #<input-port:foo-bar.txt>
 /// > (open-input-file "file-does-not-exist.txt")
 /// error[E08]: Io
 ///   ┌─ :1:2
@@ -242,7 +242,7 @@ pub fn open_input_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
 ///
 /// # Examples
 /// ```scheme
-/// > (open-output-file "foo-bar.txt") ;; => #<port>
+/// > (open-output-file "foo-bar.txt") ;; => #<output-port:foo-bar.txt>
 /// ```
 #[function(name = "open-output-file")]
 pub fn open_output_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
