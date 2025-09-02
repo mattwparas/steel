@@ -383,16 +383,12 @@ impl SteelPortRepr {
     pub fn write_char(&mut self, c: char) -> Result<()> {
         let mut buf = [0; 4];
         let s = c.encode_utf8(&mut buf);
-        let _ = self.write(s.as_bytes())?;
-
-        Ok(())
+        self.write(s.as_bytes())
     }
 
     pub fn write_string_line(&mut self, string: &str) -> Result<()> {
-        let _ = self.write(string.as_bytes())?;
-        let _ = self.write(b"\n")?;
-
-        Ok(())
+        self.write(string.as_bytes())?;
+        self.write(b"\n")
     }
 
     pub fn is_input(&self) -> bool {
@@ -458,16 +454,16 @@ impl SteelPortRepr {
         }
     }
 
-    pub fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        let result = match self {
-            SteelPortRepr::FileOutput(_, writer) => writer.write(buf)?,
-            SteelPortRepr::StdOutput(writer) => writer.write(buf)?,
-            SteelPortRepr::StdError(writer) => writer.write(buf)?,
-            SteelPortRepr::ChildStdInput(writer) => writer.write(buf)?,
-            SteelPortRepr::StringOutput(writer) => writer.write(buf)?,
-            SteelPortRepr::DynWriter(writer) => writer.lock().unwrap().write(buf)?,
+    pub fn write(&mut self, buf: &[u8]) -> Result<()> {
+        match self {
+            SteelPortRepr::FileOutput(_, writer) => writer.write_all(buf)?,
+            SteelPortRepr::StdOutput(writer) => writer.write_all(buf)?,
+            SteelPortRepr::StdError(writer) => writer.write_all(buf)?,
+            SteelPortRepr::ChildStdInput(writer) => writer.write_all(buf)?,
+            SteelPortRepr::StringOutput(writer) => writer.write_all(buf)?,
+            SteelPortRepr::DynWriter(writer) => writer.lock().unwrap().write_all(buf)?,
             // TODO: Should tcp streams be both input and output ports?
-            SteelPortRepr::TcpStream(tcp) => tcp.write(buf)?,
+            SteelPortRepr::TcpStream(tcp) => tcp.write_all(buf)?,
             SteelPortRepr::FileInput(_, _)
             | SteelPortRepr::StdInput(_)
             | SteelPortRepr::DynReader(_)
@@ -477,9 +473,9 @@ impl SteelPortRepr {
                 stop!(ContractViolation => "expected output-port?, found {}", self)
             }
             SteelPortRepr::Closed => stop!(Io => "port is closed"),
-        };
+        }
 
-        Ok(result)
+        Ok(())
     }
 }
 
@@ -599,9 +595,7 @@ impl SteelPort {
     }
 
     pub fn write(&self, buf: &[u8]) -> Result<()> {
-        let _ = self.port.write().write(buf)?;
-
-        Ok(())
+        self.port.write().write(buf)
     }
 
     pub fn write_string_line(&self, string: &str) -> Result<()> {
