@@ -459,20 +459,13 @@ impl SteelPortRepr {
     }
 
     pub fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        macro_rules! write_and_flush(
-            ($br: expr) => {{
-                let result = $br.write(buf)?;
-                result
-            }};
-        );
-
         let result = match self {
-            SteelPortRepr::FileOutput(_, writer) => write_and_flush![writer],
-            SteelPortRepr::StdOutput(writer) => write_and_flush![writer],
-            SteelPortRepr::StdError(writer) => write_and_flush![writer],
-            SteelPortRepr::ChildStdInput(writer) => write_and_flush![writer],
-            SteelPortRepr::StringOutput(writer) => write_and_flush![writer],
-            SteelPortRepr::DynWriter(writer) => write_and_flush![writer.lock().unwrap()],
+            SteelPortRepr::FileOutput(_, writer) => writer.write(buf)?,
+            SteelPortRepr::StdOutput(writer) => writer.write(buf)?,
+            SteelPortRepr::StdError(writer) => writer.write(buf)?,
+            SteelPortRepr::ChildStdInput(writer) => writer.write(buf)?,
+            SteelPortRepr::StringOutput(writer) => writer.write(buf)?,
+            SteelPortRepr::DynWriter(writer) => writer.lock().unwrap().write(buf)?,
             // TODO: Should tcp streams be both input and output ports?
             SteelPortRepr::TcpStream(tcp) => tcp.write(buf)?,
             SteelPortRepr::FileInput(_, _)
