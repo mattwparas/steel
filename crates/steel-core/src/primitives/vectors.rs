@@ -944,7 +944,7 @@ pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> R
 
     let guard = &mut ptr.write().value;
 
-    if i as usize > guard.len() {
+    if i >= guard.len() {
         stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
     }
 
@@ -974,8 +974,10 @@ pub fn mut_vec_swap(vec: &HeapRef<Vec<SteelVal>>, i: usize, j: usize) -> Result<
 
     let guard = &mut ptr.write().value;
 
-    if i as usize > guard.len() {
+    if i >= guard.len() {
         stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
+    } else if j >= guard.len() {
+        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", j, guard.len());
     }
 
     guard.swap(i, j);
