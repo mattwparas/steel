@@ -954,19 +954,19 @@ pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> R
     Ok(SteelVal::Void)
 }
 
-/// Swaps the value at a specified indices in a mutable vector.
+/// Swaps the value of the specified indices in a mutable vector.
 ///
-/// (vector-set! vec index value) -> void?
+/// (vector-swap! vec a b) -> void?
 ///
 /// * vec : vector? - The mutable vector to modify.
-/// * index : integer? - The position in `vec` to update (must be within bounds).
-/// * value : any? - The new value to store at `index`.
+/// * a : integer? - The first index of `vec` to swap with `b` (must be within bounds).
+/// * b : integer? - The first index of `vec` to swap with `a` (must be within bounds).
 ///
 /// # Examples
 /// ```scheme
 /// > (define A (mutable-vector 1 2 3)) ;;
-/// > (vector-set! A 1 42) ;;
-/// > A ;; => '#(1 42 3)
+/// > (vector-swap! A 0 1) ;;
+/// > A ;; => '#(2 1 3)
 /// ```
 #[steel_derive::function(name = "vector-swap!")]
 pub fn mut_vec_swap(vec: &HeapRef<Vec<SteelVal>>, i: usize, j: usize) -> Result<SteelVal> {
