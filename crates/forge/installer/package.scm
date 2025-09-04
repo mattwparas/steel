@@ -54,15 +54,6 @@
 (define *DYLIB-DIR* (~> (steel-home-location) (append-with-separator "native")))
 (define *BIN* (~> (steel-home-location) (append-with-separator "bin")))
 
-(define (for-each func lst)
-  (if (null? lst)
-      void
-      (begin
-        (func (car lst))
-        (when (null? lst)
-          (return! void))
-        (for-each func (cdr lst)))))
-
 (define (shebang-line)
   "#!/usr/bin/env steel")
 

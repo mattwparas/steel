@@ -1,12 +1,3 @@
-(define (for-each func lst)
-  (if (null? lst)
-      void
-      (begin
-        (func (car lst))
-        (when (null? lst)
-          (return! void))
-        (for-each func (cdr lst)))))
-
 ; (for-each (lambda (x) (displayln x)) '(1 2 3 4 5))
 
 ;; [LISTOF X] -> ( -> X u 'you-fell-off-the-end)

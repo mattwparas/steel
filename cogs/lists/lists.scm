@@ -21,26 +21,6 @@
 (define (flatten lst)
   (transduce lst (flattening) (into-list)))
 
-;;@doc
-;; Iterate over each item in the lst, calling the function on it.
-;; ```scheme
-;; (for-each displayln (list 1 2 3))
-;; ```
-;; Will print:
-;; ```
-;; 1
-;; 2
-;; 3
-;; ```
-(define (for-each func lst)
-  (if (null? lst)
-      void
-      (begin
-        (func (car lst))
-        (when (null? lst)
-          (return! void))
-        (for-each func (cdr lst)))))
-
 ;; Need default arguments here
 ; (define (remove v lst [proc ]))
 

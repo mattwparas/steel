@@ -36,16 +36,6 @@
 
 (assert! (equal? (filter can-make-word? *words*)))
 
-; (define (for-each func lst)
-;     (if (null? lst) 
-;         void
-;         (begin
-;             (func (car lst))
-;             (if (null? lst)
-;                 void
-;                 (for-each func (cdr lst))))))
-
-
 ; (for-each
 ;  (lambda (word)
 ;    (display (if (can-make-word? word)
