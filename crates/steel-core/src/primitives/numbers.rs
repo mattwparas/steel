@@ -2,8 +2,9 @@ use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
 use crate::{steelerr, stop, throw};
 use num_bigint::BigInt;
 use num_integer::Integer;
-use num_rational::{BigRational, Rational32};
-use num_traits::{pow::Pow, CheckedAdd, CheckedMul, Signed, ToPrimitive, Zero};
+use num_rational::{BigRational, Ratio, Rational32};
+use num_traits::{pow::Pow, CheckedAdd, CheckedMul, One, Signed, ToPrimitive, Zero};
+use std::cmp::Ordering;
 use std::ops::Neg;
 
 /// Checks if the given value is a number
@@ -1112,7 +1113,54 @@ fn numerator(number: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-/// Rounds the given number to the nearest integer.
+/// Rounds to the nearest integer. Rounds half-way cases to even.
+///
+/// Reimplementation of https://github.com/rust-num/num-rational/pull/141,
+/// while that one isn't merged yet.
+fn rational_round_ties_even<T>(num: &Ratio<T>) -> Ratio<T>
+where
+    T: Zero + One + Integer + Clone,
+{
+    let zero: Ratio<T> = Zero::zero();
+    let one: T = One::one();
+    let two: T = one.clone() + one.clone();
+
+    // Find unsigned fractional part of rational number
+    let mut fractional = num.fract();
+    if fractional < zero {
+        fractional = zero - fractional
+    };
+
+    // Compare the unsigned fractional part with 1/2
+    let half = Ratio::new_raw(one, two);
+    match fractional.cmp(&half) {
+        Ordering::Greater => {
+            let one: Ratio<T> = One::one();
+            if *num >= Zero::zero() {
+                num.trunc() + one
+            } else {
+                num.trunc() - one
+            }
+        }
+        Ordering::Equal => {
+            let trunc = num.trunc();
+            if trunc.numer().is_even() {
+                trunc
+            } else {
+                let one: Ratio<T> = One::one();
+                if *num >= Zero::zero() {
+                    num.trunc() + one
+                } else {
+                    num.trunc() - one
+                }
+            }
+        }
+        Ordering::Less => num.trunc(),
+    }
+}
+
+/// Rounds the given number to the nearest integer, rounding half-way cases to
+/// the even number.
 ///
 /// (round number) -> number?
 ///
@@ -1122,15 +1170,17 @@ fn numerator(number: &SteelVal) -> Result<SteelVal> {
 /// ```scheme
 /// > (round 3.14) ;; => 3
 /// > (round 4.6) ;; => 5
-/// > (round -2.5) ;; => -3
+/// > (round 2.5) ;; => 2
+/// > (round 3.5) ;; => 4
+/// > (round -2.5) ;; => -2
 /// ```
 #[steel_derive::function(name = "round", constant = true)]
 fn round(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => i.into_steelval(),
-        SteelVal::NumV(n) => n.round().into_steelval(),
-        SteelVal::Rational(f) => f.round().into_steelval(),
-        SteelVal::BigRational(f) => f.round().into_steelval(),
+        SteelVal::NumV(n) => n.round_ties_even().into_steelval(),
+        SteelVal::Rational(f) => rational_round_ties_even(f).into_steelval(),
+        SteelVal::BigRational(f) => rational_round_ties_even(f).into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::BigNum(n.clone())),
         _ => steelerr!(TypeMismatch => "round expects a real number, found: {}", number),
     }
