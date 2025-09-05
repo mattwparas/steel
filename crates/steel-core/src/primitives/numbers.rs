@@ -1808,13 +1808,13 @@ pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
                     None => {
                         let res =
                             BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()))
-                                * BigInt::from(y);
+                                + BigInt::from(y);
                         res.into_steelval()
                     }
                 },
                 Err(_) => {
                     let res = BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()))
-                        * BigInt::from(*y);
+                        + BigInt::from(*y);
                     res.into_steelval()
                 }
             }
@@ -1822,7 +1822,7 @@ pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
         (SteelVal::Rational(x), SteelVal::BigNum(y))
         | (SteelVal::BigNum(y), SteelVal::Rational(x)) => {
             let res =
-                BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom())) * y.as_ref();
+                BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom())) + y.as_ref();
             res.into_steelval()
         }
         // Cases that interact with `BigRational`. For the sake of performance, hopefully not too
@@ -1842,7 +1842,7 @@ pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
         }
         (SteelVal::BigRational(x), SteelVal::BigNum(y))
         | (SteelVal::BigNum(y), SteelVal::BigRational(x)) => {
-            (x.as_ref() * y.as_ref()).into_steelval()
+            (x.as_ref() + y.as_ref()).into_steelval()
         }
         // Remaining cases that interact with `BigNum`. Probably not too common.
         (SteelVal::BigNum(x), SteelVal::BigNum(y)) => {
