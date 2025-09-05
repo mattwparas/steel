@@ -220,6 +220,14 @@
 (assert-equal! 3.0 (round 2.6))
 (assert-equal! 9223372036854775808 (round 9223372036854775808))
 
+;; round-ties-even
+(assert-equal! -2.0 (round -1.5))
+(assert-equal! 2.0 (round 2.5))
+(assert-equal! 4.0 (round 3.5))
+(assert-equal! 2 (round 5/2))
+(assert-equal! 4 (round (+ 4 1/2)))
+(assert-equal! 4 (round 7/2))
+
 (assert-equal! 4 (square 2))
 (assert-equal! 2 (sqrt 4))
 (assert-equal! 4.0 (square 2.0))
