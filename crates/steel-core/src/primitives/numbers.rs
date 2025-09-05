@@ -1830,6 +1830,12 @@ pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
         (SteelVal::BigRational(x), SteelVal::BigRational(y)) => {
             (x.as_ref() + y.as_ref()).into_steelval()
         }
+        (SteelVal::BigRational(x), SteelVal::Rational(y))
+        | (SteelVal::Rational(y), SteelVal::BigRational(x)) => {
+            let res =
+                x.as_ref() + BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
+            res.into_steelval()
+        }
         (SteelVal::BigRational(x), SteelVal::IntV(y))
         | (SteelVal::IntV(y), SteelVal::BigRational(x)) => {
             (x.as_ref() + BigInt::from(*y)).into_steelval()
