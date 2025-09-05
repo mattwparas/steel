@@ -145,7 +145,7 @@ fn format_number(acc: &mut Vec<u8>, value: &SteelVal, radix: Option<usize>) -> R
         SteelVal::NumV(v) if *v == f64::INFINITY => acc.extend(b"+inf.0"),
         SteelVal::NumV(v) if *v == f64::NEG_INFINITY => acc.extend(b"-inf.0"),
         SteelVal::NumV(v) => {
-            let _ = write!(acc, "{}", v);
+            let _ = write!(acc, "{:?}", v);
         }
         SteelVal::IntV(v) => {
             if let Some(radix) = radix {
