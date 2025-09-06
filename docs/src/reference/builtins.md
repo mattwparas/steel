@@ -123,7 +123,7 @@ if the file does not exist
 
 #### Examples
 ```scheme
-> (open-input-file "foo-bar.txt") ;; => #<port>
+> (open-input-file "foo-bar.txt") ;; => #<input-port:foo-bar.txt>
 > (open-input-file "file-does-not-exist.txt")
 error[E08]: Io
 ┌─ :1:2
@@ -139,7 +139,7 @@ Gets the port handle to stdin
 #### Examples
 
 ```scheme
-> (stdin) ;; => #<port>
+> (stdin) ;; => #<input-port:stdin>
 ```
 ### **input-port?**
 Checks if a given value is an input port
@@ -159,7 +159,7 @@ Takes a filename `path` referring to a file to be created and returns an output 
 
 #### Examples
 ```scheme
-> (open-output-file "foo-bar.txt") ;; => #<port>
+> (open-output-file "foo-bar.txt") ;; => #<output-port:foo-bar.txt>
 ```
 # steel/strings
 ### **starts-with?**
@@ -420,7 +420,7 @@ Takes a filename `path` referring to a file to be created and returns an output 
 
 #### Examples
 ```scheme
-> (open-output-file "foo-bar.txt") ;; => #<port>
+> (open-output-file "foo-bar.txt") ;; => #<output-port:foo-bar.txt>
 ```
 ### **range**
 Returns a newly allocated list of the elements in the range (n, m]
@@ -618,7 +618,7 @@ if the file does not exist
 
 #### Examples
 ```scheme
-> (open-input-file "foo-bar.txt") ;; => #<port>
+> (open-input-file "foo-bar.txt") ;; => #<input-port:foo-bar.txt>
 > (open-input-file "file-does-not-exist.txt")
 error[E08]: Io
 ┌─ :1:2
@@ -737,7 +737,7 @@ Gets the port handle to stdin
 #### Examples
 
 ```scheme
-> (stdin) ;; => #<port>
+> (stdin) ;; => #<input-port:stdin>
 ```
 ### **hash-insert**
 Returns a new hashmap with the additional key value pair added. Performs a functional update,

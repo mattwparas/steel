@@ -46,7 +46,7 @@ if the file does not exist
 
 #### Examples
 ```scheme
-> (open-input-file "foo-bar.txt") ;; => #<port>
+> (open-input-file "foo-bar.txt") ;; => #<input-port:foo-bar.txt>
 > (open-input-file "file-does-not-exist.txt")
 error[E08]: Io
 ┌─ :1:2
@@ -81,7 +81,7 @@ Takes a filename `path` referring to a file to be created and returns an output 
 
 #### Examples
 ```scheme
-> (open-output-file "foo-bar.txt") ;; => #<port>
+> (open-output-file "foo-bar.txt") ;; => #<output-port:foo-bar.txt>
 ```
 ### **open-output-string**
 Creates an output port that accumulates what is written into a string.
@@ -170,7 +170,7 @@ Gets the port handle to stdin
 #### Examples
 
 ```scheme
-> (stdin) ;; => #<port>
+> (stdin) ;; => #<input-port:stdin>
 ```
 ### **would-block-object?**
 Returns `#t` if the value is an EOF object.
