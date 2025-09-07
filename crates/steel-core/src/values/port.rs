@@ -325,6 +325,10 @@ impl SteelPortRepr {
                 return Ok(MaybeBlocking::Nonblocking(None));
             }
 
+            if err.kind() == io::ErrorKind::WouldBlock {
+                return Ok(MaybeBlocking::WouldBlock);
+            }
+
             return Err(err.into());
         }
 
