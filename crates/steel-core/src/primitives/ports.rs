@@ -697,7 +697,7 @@ pub fn read_bytes_into_buf(
     let res = port.read_bytes_into_buf(&mut guard)?;
 
     match res {
-        crate::values::port::MaybeBlocking::Nonblocking((amt, _)) => Ok(SteelVal::IntV(amt as _)),
+        crate::values::port::MaybeBlocking::Nonblocking(amt) => Ok(SteelVal::IntV(amt as _)),
         crate::values::port::MaybeBlocking::WouldBlock => Ok(SteelVal::Void),
     }
 }

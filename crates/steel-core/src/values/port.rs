@@ -254,7 +254,7 @@ impl SteelPortRepr {
         )))
     }
 
-    pub fn read_bytes_amt(&mut self, buf: &mut [u8]) -> Result<MaybeBlocking<(usize, bool)>> {
+    pub fn read_bytes_amt(&mut self, buf: &mut [u8]) -> Result<MaybeBlocking<usize>> {
         let result = match self {
             SteelPortRepr::FileInput(_, reader) => reader.read(buf),
             SteelPortRepr::StdInput(stdin) => stdin.read(buf),
@@ -271,12 +271,12 @@ impl SteelPortRepr {
             | SteelPortRepr::DynWriter(_) => {
                 stop!(ContractViolation => "expected input-port?, found {}", self)
             }
-            SteelPortRepr::Closed => return Ok(MaybeBlocking::Nonblocking((0, true))),
+            SteelPortRepr::Closed => return Ok(MaybeBlocking::Nonblocking(0)),
         };
 
         if let Err(err) = result {
             if err.kind() == io::ErrorKind::UnexpectedEof {
-                return Ok(MaybeBlocking::Nonblocking((0, false)));
+                return Ok(MaybeBlocking::Nonblocking(0));
             }
 
             if err.kind() == io::ErrorKind::WouldBlock {
@@ -287,7 +287,7 @@ impl SteelPortRepr {
             return Err(err.into());
         }
 
-        Ok(MaybeBlocking::Nonblocking((result?, true)))
+        Ok(MaybeBlocking::Nonblocking(result?))
     }
 
     pub fn read_byte(&mut self) -> Result<MaybeBlocking<Option<u8>>> {
@@ -575,7 +575,7 @@ impl SteelPort {
         // TODO: This is going to allocate unnecessarily
         let mut buf = vec![0; amount];
         match self.port.write().read_bytes_amt(&mut buf)? {
-            MaybeBlocking::Nonblocking((amount_read, _)) => {
+            MaybeBlocking::Nonblocking(amount_read) => {
                 buf.truncate(amount_read);
                 Ok(MaybeBlocking::Nonblocking(buf))
             }
@@ -583,7 +583,7 @@ impl SteelPort {
         }
     }
 
-    pub fn read_bytes_into_buf(&self, buf: &mut [u8]) -> Result<MaybeBlocking<(usize, bool)>> {
+    pub fn read_bytes_into_buf(&self, buf: &mut [u8]) -> Result<MaybeBlocking<usize>> {
         self.port.write().read_bytes_amt(buf)
     }
 
