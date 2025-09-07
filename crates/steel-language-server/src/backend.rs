@@ -10,6 +10,7 @@ use std::{
 
 use dashmap::{DashMap, DashSet};
 
+use crossbeam_utils::atomic::AtomicCell;
 use once_cell::sync::Lazy;
 use ropey::Rope;
 use serde::{Deserialize, Serialize};
@@ -87,20 +88,49 @@ pub struct Backend {
     pub defined_globals: DashSet<String>,
 }
 
-pub struct Config {}
+#[derive(Debug, Clone, Copy)]
+pub enum OffsetEncoding {
+    Utf8,
+    Utf16,
+    Utf32,
+}
+
+pub struct Config {
+    pub encoding: AtomicCell<OffsetEncoding>,
+}
 
 impl Config {
     pub fn new() -> Self {
-        Config {}
+        Config {
+            encoding: AtomicCell::new(OffsetEncoding::Utf16),
+        }
     }
 }
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        let available_encodings = params
+            .capabilities
+            .general
+            .and_then(|general| general.position_encodings)
+            .unwrap_or_default();
+
+        let position_encoding = if available_encodings.contains(&PositionEncodingKind::UTF8) {
+            self.config.encoding.store(OffsetEncoding::Utf8);
+            Some(PositionEncodingKind::UTF8)
+        } else if available_encodings.contains(&PositionEncodingKind::UTF32) {
+            // we really don't want utf16
+            self.config.encoding.store(OffsetEncoding::Utf32);
+            Some(PositionEncodingKind::UTF32)
+        } else {
+            None
+        };
+
         Ok(InitializeResult {
             server_info: None,
             capabilities: ServerCapabilities {
+                position_encoding,
                 inlay_hint_provider: Some(OneOf::Left(true)),
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
                     TextDocumentSyncKind::FULL,
@@ -1304,25 +1334,41 @@ fn configure_lints() -> std::result::Result<UserDefinedLintEngine, Box<dyn Error
 impl Config {
     pub fn position_to_offset(&self, position: Position, rope: &Rope) -> Option<usize> {
         let line_start = rope.try_line_to_byte(position.line as usize).ok()?;
-        let line = rope.get_line(position.line as usize)?;
 
-        // lsp positions are in utf16 code units by default
-        let line_char_offset = line.utf16_cu_to_char(position.character as usize);
-        let line_byte_offset = line.char_to_byte(line_char_offset);
+        let character = match self.encoding.load() {
+            OffsetEncoding::Utf8 => position.character as usize,
+            OffsetEncoding::Utf16 => {
+                let line = rope.get_line(position.line as usize)?;
+                let line_char_offset = line.utf16_cu_to_char(position.character as usize);
+                line.char_to_byte(line_char_offset)
+            }
+            OffsetEncoding::Utf32 => {
+                let line = rope.get_line(position.line as usize)?;
+                line.char_to_byte(position.character as usize)
+            }
+        };
 
-        Some(line_start + line_byte_offset)
+        Some(line_start + character)
     }
 
     pub fn offset_to_position(&self, offset: usize, rope: &Rope) -> Option<Position> {
         let line_idx = rope.try_byte_to_line(offset).ok()?;
-        let line = rope.line(line_idx);
 
         let line_byte_offset = rope.line_to_byte(line_idx);
         let column_byte_offset = offset - line_byte_offset;
 
-        // lsp by default expects offsets in utf16 encoding
-        let column_char_offset = line.byte_to_char(column_byte_offset);
-        let column = line.char_to_utf16_cu(column_char_offset);
+        let column = match self.encoding.load() {
+            OffsetEncoding::Utf8 => column_byte_offset,
+            OffsetEncoding::Utf16 => {
+                let line = rope.line(line_idx);
+                let column_char_offset = line.byte_to_char(column_byte_offset);
+                line.char_to_utf16_cu(column_char_offset)
+            }
+            OffsetEncoding::Utf32 => {
+                let line = rope.line(line_idx);
+                line.byte_to_char(column_byte_offset)
+            }
+        };
 
         Some(Position::new(line_idx as u32, column as u32))
     }
