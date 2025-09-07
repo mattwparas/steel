@@ -7,6 +7,7 @@ use smallvec::{smallvec, SmallVec};
 use std::borrow::Cow;
 use std::char;
 use std::iter::Iterator;
+use std::ops::Range;
 use std::sync::Arc;
 use std::{iter::Peekable, str::Chars};
 
@@ -38,6 +39,7 @@ pub struct Lexer<'a> {
     queued: Option<TokenType<InternedString>>,
     token_start: u32,
     token_end: u32,
+    error: Range<u32>,
 
     ident_buffer: String,
 }
@@ -50,6 +52,7 @@ impl<'a> Lexer<'a> {
             queued: None,
             token_start: 0,
             token_end: 0,
+            error: Default::default(),
             ident_buffer: String::new(),
         }
     }
@@ -87,7 +90,7 @@ impl<'a> Lexer<'a> {
             match c {
                 '"' => return Ok(TokenType::StringLiteral(Arc::new(buf))),
                 '\\' => {
-                    if let Some(c) = self.read_string_escape()? {
+                    if let Some(c) = self.read_string_escape(TokenError::IncompleteString, '"')? {
                         buf.push(c);
                     }
                 }
@@ -98,7 +101,7 @@ impl<'a> Lexer<'a> {
         Err(TokenError::IncompleteString)
     }
 
-    fn read_string_escape(&mut self) -> Result<Option<char>> {
+    fn read_string_escape(&mut self, incomplete: TokenError, delim: char) -> Result<Option<char>> {
         let c = match self.chars.peek() {
             Some('"') => {
                 self.eat();
@@ -147,38 +150,47 @@ impl<'a> Lexer<'a> {
 
             Some(&code @ ('x' | 'u')) => {
                 self.eat();
+                let start = self.token_end - 2;
 
                 let mut digits = String::new();
 
-                let braces = match self.chars.peek().copied() {
+                let escape_end = match self.chars.peek().copied() {
                     Some('{') if code == 'u' => {
                         self.eat();
-                        true
+                        '}'
                     }
-                    _ => false,
+                    _ => ';',
                 };
 
-                loop {
+                let valid = loop {
                     let Some(c) = self.eat() else {
-                        return Err(TokenError::MalformedByteEscape);
+                        return Err(incomplete);
                     };
 
                     match c {
-                        ';' if !braces => break,
-                        '}' if braces => break,
-                        c if c.is_ascii_digit() => {
-                            digits.push(c);
-                        }
-                        'a'..='f' | 'A'..='F' => {
-                            digits.push(c);
-                        }
-                        _ => return Err(TokenError::MalformedByteEscape),
+                        c if c == escape_end => break true,
+                        // note that this overlaps partially with `escapeEnd`
+                        ';' | '\\' | '\n' | '(' | ')' | '[' | ']' | '{' | '}' => break false,
+                        c if c == delim => break false,
+                        _ => digits.push(c),
                     }
+                };
+
+                if !valid {
+                    self.error = start..self.token_end - 1;
+
+                    return Err(TokenError::UnclosedHexEscape(escape_end));
                 }
 
+                let error = start..self.token_end;
+
                 let codepoint = u32::from_str_radix(&digits, 16)
-                    .map_err(|_| TokenError::MalformedByteEscape)?;
-                char::from_u32(codepoint).ok_or(TokenError::MalformedByteEscape)?
+                    .map_err(TokenError::InvalidHexEscapeLiteral)
+                    .inspect_err(|_| self.error = error.clone())?;
+
+                char::from_u32(codepoint)
+                    .ok_or(TokenError::InvalidHexCodePoint(codepoint))
+                    .inspect_err(|_| self.error = error)?
             }
 
             Some(&start @ (' ' | '\t' | '\n')) => {
@@ -188,7 +200,7 @@ impl<'a> Lexer<'a> {
 
                 loop {
                     let Some(c) = self.chars.peek() else {
-                        return Err(TokenError::IncompleteString);
+                        return Err(incomplete);
                     };
 
                     match c {
@@ -201,41 +213,41 @@ impl<'a> Lexer<'a> {
                         }
                         _ if trimming => return Ok(None),
 
-                        _ => return Err(TokenError::InvalidEscape),
+                        c => {
+                            self.error = self.token_end..(self.token_end + c.len_utf8() as u32);
+                            return Err(TokenError::InvalidWhitespace);
+                        }
                     }
                 }
             }
 
-            Some(_) => return Err(TokenError::InvalidEscape),
+            Some(c) => {
+                self.error = (self.token_end - 1)..(self.token_end + c.len_utf8() as u32);
+                return Err(TokenError::InvalidStringEscape(*c));
+            }
 
-            None => return Err(TokenError::IncompleteString),
+            None => return Err(incomplete),
         };
 
         Ok(Some(c))
     }
 
     fn read_hash_value(&mut self) -> Result<TokenType<InternedString>> {
-        fn parse_char(slice: &str) -> Option<char> {
+        fn parse_char(slice: &str) -> Result<char> {
             use std::str::FromStr;
 
             debug_assert!(slice.len() > 2);
 
             match &slice[2..] {
-                s if s.eq_ignore_ascii_case("alarm") => Some('\x07'),
-                s if s.eq_ignore_ascii_case("backspace") => Some('\x08'),
-                s if s.eq_ignore_ascii_case("delete") => Some('\x7F'),
-                s if s.eq_ignore_ascii_case("escape") => Some('\x1B'),
-                s if s.eq_ignore_ascii_case("newline") => Some('\n'),
-                s if s.eq_ignore_ascii_case("null") => Some('\0'),
-                s if s.eq_ignore_ascii_case("return") => Some('\r'),
-                s if s.eq_ignore_ascii_case("space") => Some(' '),
-                s if s.eq_ignore_ascii_case("tab") => Some('\t'),
-                "\\" => Some('\\'),
-                ")" => Some(')'),
-                "]" => Some(']'),
-                "[" => Some('['),
-                "(" => Some('('),
-                "^" => Some('^'),
+                s if s.eq_ignore_ascii_case("alarm") => Ok('\x07'),
+                s if s.eq_ignore_ascii_case("backspace") => Ok('\x08'),
+                s if s.eq_ignore_ascii_case("delete") => Ok('\x7F'),
+                s if s.eq_ignore_ascii_case("escape") => Ok('\x1B'),
+                s if s.eq_ignore_ascii_case("newline") => Ok('\n'),
+                s if s.eq_ignore_ascii_case("null") => Ok('\0'),
+                s if s.eq_ignore_ascii_case("return") => Ok('\r'),
+                s if s.eq_ignore_ascii_case("space") => Ok(' '),
+                s if s.eq_ignore_ascii_case("tab") => Ok('\t'),
 
                 character => {
                     let first = character.as_bytes()[0];
@@ -243,12 +255,12 @@ impl<'a> Lexer<'a> {
                     let escape = (first == b'u' || first == b'x') && slice.len() > 3;
 
                     if !escape {
-                        return char::from_str(character).ok();
+                        return char::from_str(character).map_err(|_| TokenError::InvalidCharName);
                     }
 
                     let payload = if first == b'u' && character.as_bytes().get(1) == Some(&b'{') {
                         if character.as_bytes().last() != Some(&b'}') {
-                            return None;
+                            return Err(TokenError::UnclosedHexEscape('}'));
                         }
 
                         &character[2..(character.len() - 1)]
@@ -256,9 +268,10 @@ impl<'a> Lexer<'a> {
                         &character[1..]
                     };
 
-                    let code = u32::from_str_radix(payload, 16).ok()?;
+                    let code = u32::from_str_radix(payload, 16)
+                        .map_err(TokenError::InvalidHexEscapeLiteral)?;
 
-                    char::from_u32(code)
+                    char::from_u32(code).ok_or(TokenError::InvalidHexCodePoint(code))
                 }
             }
         }
@@ -308,11 +321,15 @@ impl<'a> Lexer<'a> {
                     return Err(TokenError::InvalidCharacter);
                 }
 
-                if let Some(parsed_character) = parse_char(character) {
-                    Ok(TokenType::CharacterLiteral(parsed_character))
-                } else {
-                    Err(TokenError::InvalidCharacter)
-                }
+                let parsed = match parse_char(character) {
+                    Ok(it) => it,
+                    Err(err) => {
+                        self.error = self.token_start..self.token_end;
+                        return Err(err);
+                    }
+                };
+
+                Ok(TokenType::CharacterLiteral(parsed))
             }
 
             "#" if self.chars.peek() == Some(&'(') => {
@@ -392,10 +409,7 @@ impl<'a> Lexer<'a> {
                 '\\' if escaped_identifier => {
                     self.eat();
 
-                    let escaped = self.read_string_escape().map_err(|err| match err {
-                        TokenError::IncompleteString => TokenError::IncompleteIdentifier,
-                        err => err,
-                    })?;
+                    let escaped = self.read_string_escape(TokenError::IncompleteIdentifier, '|')?;
 
                     ident_buffer.push_escape(escaped);
                 }
@@ -620,7 +634,11 @@ impl<'a> Iterator for TokenStream<'a> {
                     return Some(Err(TokenLike::new(
                         err,
                         self.lexer.slice(),
-                        self.lexer.small_span(),
+                        if self.lexer.error.is_empty() {
+                            self.lexer.small_span()
+                        } else {
+                            self.lexer.error.clone()
+                        },
                         self.source_id,
                     )))
                 }
@@ -650,25 +668,39 @@ pub enum TokenError {
     IncompleteString,
     IncompleteIdentifier,
     IncompleteComment,
-    InvalidEscape,
+    InvalidWhitespace,
+    InvalidStringEscape(char),
     InvalidCharacter,
     ZeroDenominator,
-    MalformedByteEscape,
+    UnclosedHexEscape(char),
+    InvalidCharName,
+    InvalidHexEscapeLiteral(std::num::ParseIntError),
+    InvalidHexCodePoint(u32),
 }
 
 impl std::fmt::Display for TokenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TokenError::UnexpectedChar(_) => write!(f, "unexpected char"),
+            TokenError::UnexpectedChar(c) => write!(f, "unexpected char {c:?}"),
             TokenError::IncompleteString => write!(f, "incomplete string"),
             TokenError::IncompleteIdentifier => write!(f, "incomplete identifier"),
             TokenError::IncompleteComment => write!(f, "incomplete comment"),
-            TokenError::InvalidEscape => write!(f, "invalid escape"),
+            TokenError::InvalidWhitespace => {
+                write!(f, "unexpected character, expected whitespace or newline")
+            }
+            TokenError::InvalidStringEscape(c) => write!(f, "invalid escape {c:?}"),
             TokenError::InvalidCharacter => write!(f, "invalid character"),
             TokenError::ZeroDenominator => {
                 write!(f, "division by zero is not allowed in rational literals")
             }
-            TokenError::MalformedByteEscape => write!(f, "malformed byte escape"),
+            TokenError::UnclosedHexEscape(close) => {
+                write!(f, "unclosed hex escape, expected {close:?}")
+            }
+            TokenError::InvalidCharName => write!(f, "invalid character name"),
+            TokenError::InvalidHexEscapeLiteral(error) => {
+                write!(f, "invalid hex escape literal, {error}")
+            }
+            TokenError::InvalidHexCodePoint(code) => write!(f, "invalid code point {code:x}"),
         }
     }
 }
@@ -768,7 +800,12 @@ impl<'a> Iterator for Lexer<'a> {
                 Some(self.read_word())
             }
             Some(c) if c.is_ascii_digit() => Some(self.read_number()),
-            Some(_) => self.eat().map(|e| Err(TokenError::UnexpectedChar(e))),
+            Some(_) => {
+                // this is very much unexpected
+                debug_assert!(false);
+
+                self.eat().map(|e| Err(TokenError::UnexpectedChar(e)))
+            }
             None => None,
         }
     }
