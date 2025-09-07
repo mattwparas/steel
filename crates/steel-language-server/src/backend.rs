@@ -74,6 +74,8 @@ pub const LEGEND_TYPE: &[SemanticTokenType] = &[
 ];
 
 pub struct Backend {
+    pub config: Config,
+
     pub client: Client,
     pub ast_map: DashMap<String, Vec<ExprKind>>,
     pub lowered_ast_map: DashMap<String, Vec<ExprKind>>,
@@ -83,6 +85,14 @@ pub struct Backend {
     pub ignore_set: Arc<DashSet<InternedString>>,
     pub globals_set: Arc<DashSet<InternedString>>,
     pub defined_globals: DashSet<String>,
+}
+
+pub struct Config {}
+
+impl Config {
+    pub fn new() -> Self {
+        Config {}
+    }
 }
 
 #[tower_lsp::async_trait]
@@ -220,7 +230,7 @@ impl LanguageServer for Backend {
             let mut rope = self.document_map.get(uri.as_str())?.clone();
 
             let position = params.text_document_position_params.position;
-            let offset = position_to_offset(position, &rope)?;
+            let offset = self.config.position_to_offset(position, &rope)?;
 
             let analysis = SemanticAnalysis::new(&mut ast);
 
@@ -329,11 +339,7 @@ impl LanguageServer for Backend {
                 self.document_map.insert(location.to_string(), rope.clone());
             }
 
-            let start_position = offset_to_position(resulting_span.start as _, &rope)?;
-            let end_position = offset_to_position(resulting_span.end as _, &rope)?;
-
-            let range = Range::new(start_position, end_position);
-
+            let range = self.config.span_to_range(&resulting_span, &rope)?;
             Some(GotoDefinitionResponse::Scalar(Location::new(
                 location, range,
             )))
@@ -376,7 +382,7 @@ impl LanguageServer for Backend {
             let rope = self.document_map.get(&uri.to_string())?;
             let mut ast = self.ast_map.get_mut(&uri.to_string())?;
 
-            let offset = position_to_offset(position, &rope)?;
+            let offset = self.config.position_to_offset(position, &rope)?;
 
             if offset > 0 {
                 let previously_typed = rope.get_char(offset - 1);
@@ -500,16 +506,12 @@ impl LanguageServer for Backend {
             let rope = self.document_map.get(uri.as_str())?;
             let mut ast = self.lowered_ast_map.get_mut(uri.as_str())?;
 
-            let offset = position_to_offset(position, &rope)?;
+            let offset = self.config.position_to_offset(position, &rope)?;
             let semantic = SemanticAnalysis::new(&mut ast);
             let (_, identifier) =
                 semantic.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
 
-            let range = Range::new(
-                offset_to_position(identifier.span.start as _, &rope)?,
-                offset_to_position(identifier.span.end as _, &rope)?,
-            );
-
+            let range = self.config.span_to_range(&identifier.span, &rope)?;
             Some((identifier.clone(), range))
         }() else {
             return Ok(None);
@@ -542,7 +544,7 @@ impl LanguageServer for Backend {
             let rope = self.document_map.get(uri.as_str())?;
             let mut ast = self.lowered_ast_map.get_mut(uri.as_str())?;
 
-            let offset = position_to_offset(position, &rope)?;
+            let offset = self.config.position_to_offset(position, &rope)?;
             let semantic = SemanticAnalysis::new(&mut ast);
             let (syntax_object_id, semantic_information) =
                 semantic.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
@@ -573,10 +575,8 @@ impl LanguageServer for Backend {
                 .filter(|(_, info)| info.kind == semantic_information.kind)
                 .map(|(_, information)| (information.span.start, information.span.end))
                 .filter_map(|(start, end)| {
-                    Some(Range::new(
-                        offset_to_position(start as _, &rope)?,
-                        offset_to_position(end as _, &rope)?,
-                    ))
+                    self.config
+                        .span_to_range(&Span::new(start, end, None), &rope)
                 })
                 .map(|range| TextEdit::new(range, params.new_name.clone()))
                 .collect::<Vec<_>>();
@@ -692,7 +692,7 @@ impl Backend {
         let rope = self.document_map.get(uri.as_str())?;
 
         let position = params.text_document_position_params.position;
-        let offset = position_to_offset(position, &rope)?;
+        let offset = self.config.position_to_offset(position, &rope)?;
 
         let analysis = SemanticAnalysis::new(&mut ast);
 
@@ -940,12 +940,9 @@ impl Backend {
 
                     if let Some(span) = e.span() {
                         let diagnostics = || {
-                            let diag = create_diagnostic(
-                                &rope,
-                                &span,
-                                DiagnosticSeverity::ERROR,
-                                e.to_string(),
-                            )?;
+                            let range = self.config.span_to_range(&span, &rope)?;
+                            let diag =
+                                create_diagnostic(range, DiagnosticSeverity::ERROR, e.to_string());
 
                             Some(vec![diag])
                         };
@@ -976,6 +973,7 @@ impl Backend {
                     uri: &params.uri,
                     source_id: id,
                     rope: rope.clone(),
+                    config: &self.config,
                     globals_set: &self.globals_set,
                     ignore_set: &self.ignore_set,
                 };
@@ -990,10 +988,11 @@ impl Backend {
                 let now = std::time::Instant::now();
 
                 // TODO: Enable this once the syntax object let conversion is implemented
-                let mut user_defined_lints = LINT_ENGINE
-                    .write()
-                    .unwrap()
-                    .diagnostics(&rope, &analysis.exprs);
+                let mut user_defined_lints =
+                    LINT_ENGINE
+                        .write()
+                        .unwrap()
+                        .diagnostics(&self.config, &rope, &analysis.exprs);
 
                 // log::debug!("Lints found: {:#?}", user_defined_lints);
 
@@ -1213,7 +1212,12 @@ pub struct UserDefinedLintEngine {
 }
 
 impl UserDefinedLintEngine {
-    pub fn diagnostics(&mut self, rope: &Rope, ast: &[ExprKind]) -> Vec<Diagnostic> {
+    pub fn diagnostics(
+        &mut self,
+        config: &Config,
+        rope: &Rope,
+        ast: &[ExprKind],
+    ) -> Vec<Diagnostic> {
         let lints = self.lints.read().unwrap();
 
         let syntax_objects: Vec<_> = ast
@@ -1238,12 +1242,13 @@ impl UserDefinedLintEngine {
             .unwrap()
             .drain(..)
             .filter_map(|d| {
-                create_diagnostic(
-                    &rope,
-                    &d.span,
+                let range = config.span_to_range(&d.span, rope)?;
+                let diagnostic = create_diagnostic(
+                    range,
                     DiagnosticSeverity::INFORMATION,
                     d.message.to_string(),
-                )
+                );
+                Some(diagnostic)
             })
             .collect()
     }
@@ -1296,27 +1301,35 @@ fn configure_lints() -> std::result::Result<UserDefinedLintEngine, Box<dyn Error
     Ok(UserDefinedLintEngine { engine, lints })
 }
 
-pub fn position_to_offset(position: Position, rope: &Rope) -> Option<usize> {
-    let line_start = rope.try_line_to_byte(position.line as usize).ok()?;
-    let line = rope.get_line(position.line as usize)?;
+impl Config {
+    pub fn position_to_offset(&self, position: Position, rope: &Rope) -> Option<usize> {
+        let line_start = rope.try_line_to_byte(position.line as usize).ok()?;
+        let line = rope.get_line(position.line as usize)?;
 
-    // lsp positions are in utf16 code units by default
-    let line_char_offset = line.utf16_cu_to_char(position.character as usize);
-    let line_byte_offset = line.char_to_byte(line_char_offset);
+        // lsp positions are in utf16 code units by default
+        let line_char_offset = line.utf16_cu_to_char(position.character as usize);
+        let line_byte_offset = line.char_to_byte(line_char_offset);
 
-    Some(line_start + line_byte_offset)
-}
+        Some(line_start + line_byte_offset)
+    }
 
-pub fn offset_to_position(offset: usize, rope: &Rope) -> Option<Position> {
-    let line_idx = rope.try_byte_to_line(offset).ok()?;
-    let line = rope.line(line_idx);
+    pub fn offset_to_position(&self, offset: usize, rope: &Rope) -> Option<Position> {
+        let line_idx = rope.try_byte_to_line(offset).ok()?;
+        let line = rope.line(line_idx);
 
-    let line_byte_offset = rope.line_to_byte(line_idx);
-    let column_byte_offset = offset - line_byte_offset;
+        let line_byte_offset = rope.line_to_byte(line_idx);
+        let column_byte_offset = offset - line_byte_offset;
 
-    // lsp by default expects offsets in utf16 encoding
-    let column_char_offset = line.byte_to_char(column_byte_offset);
-    let column = line.char_to_utf16_cu(column_char_offset);
+        // lsp by default expects offsets in utf16 encoding
+        let column_char_offset = line.byte_to_char(column_byte_offset);
+        let column = line.char_to_utf16_cu(column_char_offset);
 
-    Some(Position::new(line_idx as u32, column as u32))
+        Some(Position::new(line_idx as u32, column as u32))
+    }
+
+    pub fn span_to_range(&self, span: &Span, rope: &Rope) -> Option<Range> {
+        let start = self.offset_to_position(span.start as usize, rope)?;
+        let end = self.offset_to_position(span.end as usize, rope)?;
+        Some(Range::new(start, end))
+    }
 }
