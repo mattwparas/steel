@@ -87,7 +87,7 @@ jobs:
       matrix:
         os: [ 
               { os: ubuntu-latest, arch: x86_64-unknown-linux-gnu }, 
-              { os: macos-latest, arch: aarch64-apple-darwin },
+              { os: macos-15, arch: aarch64-apple-darwin },
               { os: windows-latest, arch: x86_64-pc-windows-msvc }
             ]
     runs-on: ${{ matrix.os.os }}
