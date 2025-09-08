@@ -143,12 +143,12 @@ impl u24 {
     #[inline(always)]
     pub fn to_usize(self) -> usize {
         let u24([a, b, c]) = self;
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(target_pointer_width = "32")]
         {
             return usize::from_le_bytes([a, b, c, 0]);
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(target_pointer_width = "32"))]
         usize::from_le_bytes([a, b, c, 0, 0, 0, 0, 0])
     }
 }
