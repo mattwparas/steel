@@ -129,7 +129,9 @@ impl Validator for RustylineHelper {
                 Err(err) => {
                     unfinished = std::matches!(
                         err.ty,
-                        TokenError::IncompleteString | TokenError::IncompleteIdentifier
+                        TokenError::IncompleteString
+                            | TokenError::IncompleteIdentifier
+                            | TokenError::IncompleteComment
                     );
 
                     break;
