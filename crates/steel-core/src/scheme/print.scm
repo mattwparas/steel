@@ -39,11 +39,28 @@
 
   (#%top-level-print obj cycle-collector))
 
+(define (ormap pred lst)
+  (cond
+    [(null? lst) #f]
+    [(pred (car lst)) #t]
+    [else (ormap pred (cdr lst))]))
+
 (define (#%top-level-print obj collector)
   (cond
     [(symbol? obj)
      (simple-display "'")
-     (simple-display (symbol->string obj))]
+     (let* ([sym (symbol->string obj)]
+            [lst (string->list sym)])
+       (if (ormap char-whitespace? lst)
+           (begin
+             (simple-display "|")
+             (for-each (λ (x)
+                         (when (char=? x #\|)
+                           (simple-display "\\"))
+                         (simple-display x))
+                       lst)
+             (simple-display "|"))
+           (simple-display sym)))]
     [(char? obj) (write obj)]
     [(string? obj) (write obj)]
     [(atom? obj) (simple-display obj)]
@@ -106,7 +123,19 @@
 
 (define (#%print obj collector)
   (cond
-    [(symbol? obj) (simple-display (symbol->string obj))]
+    [(symbol? obj)
+     (let* ([sym (symbol->string obj)]
+            [lst (string->list sym)])
+       (if (ormap char-whitespace? lst)
+           (begin
+             (simple-display "|")
+             (for-each (λ (x)
+                         (when (char=? x #\|)
+                           (simple-display "\\"))
+                         (simple-display x))
+                       lst)
+             (simple-display "|"))
+           (simple-display sym)))]
     [(char? obj) (write obj)]
     [(string? obj) (write obj)]
     [(atom? obj) (simple-display obj)]
@@ -186,10 +215,6 @@
                 (#%top-level-display obj cycle-collector)
                 (newline)))
             (#%private-cycle-collector-values cycle-collector))
-
-  ;; Symbols are funny
-  (when (or (symbol? obj) (list? obj))
-    (simple-display "'"))
 
   (#%top-level-display obj cycle-collector))
 
@@ -274,7 +299,7 @@
 
     [(vector? obj)
      (let ([list-obj (vector->list obj)])
-       (simple-display "'#(")
+       (simple-display "#(")
        (when (not (empty? list-obj))
          (#%display (car list-obj) collector)
          (for-each (λ (obj)
@@ -284,7 +309,7 @@
        (simple-display ")"))]
 
     [(hash? obj)
-     (simple-display "'#hash(")
+     (simple-display "#hash(")
      ;; TODO: This should use the private transduce
      (let ([hash-as-list-of-pairs (transduce obj (into-list))])
 
@@ -312,10 +337,7 @@
 
 (define (#%display obj collector)
   (cond
-    [(string? obj)
-     (display "\"")
-     (simple-display obj)
-     (display "\"")]
+    [(string? obj) (simple-display obj)]
     [(symbol? obj) (simple-display (symbol->string obj))]
     [(atom? obj) (simple-display obj)]
     [(function? obj) (simple-display obj)]
@@ -376,7 +398,7 @@
           (simple-display ")"))])]
 
     [(hash? obj)
-     (simple-display "'#hash(")
+     (simple-display "#hash(")
      ;; TODO: This should use the private transduce
      (let ([hash-as-list-of-pairs (transduce obj (into-list))])
 
