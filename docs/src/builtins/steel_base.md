@@ -2994,6 +2994,18 @@ of the string
 ```
 ### **utf8->string**
 Alias of `bytes->string/utf8`.
+### **utf8-length**
+Get the length of the string in UTF-8 bytes.
+
+(utf8-length string?) -> int?
+
+#### Examples
+
+```scheme
+> (utf8-length "apples") ;; => 6
+> (utf8-length "αβγ") ;; => 6
+> (utf8-length "✅") ;; => 3
+```
 ### **value->jsexpr-string**
 Serializes a Steel value into a string.
 

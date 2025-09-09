@@ -437,3 +437,15 @@ of the string
 ```scheme
 > (trim-start-matches "123foo1bar123123" "123") ;; => "foo1bar123123"
 ```
+### **utf8-length**
+Get the length of the string in UTF-8 bytes.
+
+(utf8-length string?) -> int?
+
+#### Examples
+
+```scheme
+> (utf8-length "apples") ;; => 6
+> (utf8-length "αβγ") ;; => 6
+> (utf8-length "✅") ;; => 3
+```
