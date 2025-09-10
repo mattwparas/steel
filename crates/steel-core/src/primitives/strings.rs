@@ -22,6 +22,7 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_TO_LIST_DEFINITION)
         .register_native_fn_definition(STRING_UPCASE_DEFINITION)
         .register_native_fn_definition(STRING_DOWNCASE_DEFINITION)
+        .register_native_fn_definition(STRING_FOLDCASE_DEFINITION)
         .register_native_fn_definition(STRING_LENGTH_DEFINITION)
         .register_native_fn_definition(UTF8_LENGTH_DEFINITION)
         .register_native_fn_definition(TRIM_DEFINITION)
@@ -583,6 +584,21 @@ pub fn string_upcase(value: &SteelString) -> String {
 #[function(name = "string-downcase", alias = "string->lower")]
 pub fn string_downcase(value: &SteelString) -> String {
     value.to_lowercase()
+}
+
+/// Applies full unicode case-folding to the input string
+///
+/// (string-foldcase string?) -> string?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (string-foldcase "Straße") ;; => "strasse"
+/// ```
+#[function(name = "string-foldcase")]
+pub fn string_foldcase(value: &SteelString) -> String {
+    let cm = CaseMapper::new();
+    cm.fold_string(value).into_owned()
 }
 
 /// Returns a new string with the leading and trailing whitespace removed.

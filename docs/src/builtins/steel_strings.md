@@ -313,6 +313,16 @@ Creates a new lowercased version of the input string
 ```scheme
 > (string-downcase "sPonGeBoB tExT") ;; => "spongebob text"
 ```
+### **string-foldcase**
+Applies full unicode case-folding to the input string
+
+(string-foldcase string?) -> string?
+
+#### Examples
+
+```scheme
+> (string-foldcase "Straße") ;; => "strasse"
+```
 ### **string-join**
 Joins the given list of strings, with an optional separator.
 

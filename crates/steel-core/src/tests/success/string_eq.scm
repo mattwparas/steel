@@ -52,5 +52,5 @@
 (assert-equal! (string-upcase "loWer") "LOWER")
 (assert-equal! (string-upcase "straße") "STRASSE")
 
-; (assert-equal! (string-foldcase "hEllO WorLd") "hello world")
-; (assert-equal! (string-foldcase "Straße") "strasse")
+(assert-equal! (string-foldcase "hEllO WorLd") "hello world")
+(assert-equal! (string-foldcase "Straße") "strasse")
