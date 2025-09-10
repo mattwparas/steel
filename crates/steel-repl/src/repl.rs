@@ -23,7 +23,7 @@ use steel::{rvals::SteelVal, steel_vm::register_fn::RegisterFn};
 
 use steel::steel_vm::engine::Engine;
 
-use std::io::Read;
+use std::io::{Read, Write};
 
 use std::time::Instant;
 
@@ -95,6 +95,8 @@ fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
             vm.raise_error(e);
         }
     }
+
+    let _ = std::io::stdout().flush();
 }
 
 fn finish_or_interrupt(vm: &mut Engine, line: String) {
@@ -128,6 +130,8 @@ fn finish_or_interrupt(vm: &mut Engine, line: String) {
             }
         }
     }
+
+    let _ = std::io::stdout().flush();
 }
 
 #[derive(Debug)]
