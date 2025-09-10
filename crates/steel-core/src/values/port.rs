@@ -179,6 +179,30 @@ macro_rules! port_read_str_fn(
     }};
 );
 
+fn read_full<R: Read>(mut reader: R, mut buf: &mut [u8]) -> Result<MaybeBlocking<usize>> {
+    let mut amt = 0;
+    while !buf.is_empty() {
+        match reader.read(buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                amt += n;
+                buf = &mut buf[n..];
+            }
+            Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                if amt == 0 {
+                    return Ok(MaybeBlocking::WouldBlock);
+                } else {
+                    break;
+                }
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+
+    Ok(MaybeBlocking::Nonblocking(amt))
+}
+
 impl SteelPortRepr {
     pub fn read_line(&mut self) -> Result<(usize, String)> {
         match self {
@@ -255,14 +279,14 @@ impl SteelPortRepr {
     }
 
     pub fn read_bytes_amt(&mut self, buf: &mut [u8]) -> Result<MaybeBlocking<usize>> {
-        let result = match self {
-            SteelPortRepr::FileInput(_, reader) => reader.read(buf),
-            SteelPortRepr::StdInput(stdin) => stdin.read(buf),
-            SteelPortRepr::ChildStdOutput(output) => output.read(buf),
-            SteelPortRepr::ChildStdError(output) => output.read(buf),
-            SteelPortRepr::StringInput(reader) => reader.read(buf),
-            SteelPortRepr::DynReader(reader) => reader.read(buf),
-            SteelPortRepr::TcpStream(t) => t.read(buf),
+        match self {
+            SteelPortRepr::FileInput(_, reader) => read_full(reader, buf),
+            SteelPortRepr::StdInput(stdin) => read_full(stdin, buf),
+            SteelPortRepr::ChildStdOutput(output) => read_full(output, buf),
+            SteelPortRepr::ChildStdError(output) => read_full(output, buf),
+            SteelPortRepr::StringInput(reader) => read_full(reader, buf),
+            SteelPortRepr::DynReader(reader) => read_full(reader, buf),
+            SteelPortRepr::TcpStream(t) => read_full(t, buf),
             SteelPortRepr::FileOutput(_, _)
             | SteelPortRepr::StdOutput(_)
             | SteelPortRepr::StdError(_)
@@ -271,23 +295,8 @@ impl SteelPortRepr {
             | SteelPortRepr::DynWriter(_) => {
                 stop!(ContractViolation => "expected input-port?, found {}", self)
             }
-            SteelPortRepr::Closed => return Ok(MaybeBlocking::Nonblocking(0)),
-        };
-
-        if let Err(err) = result {
-            if err.kind() == io::ErrorKind::UnexpectedEof {
-                return Ok(MaybeBlocking::Nonblocking(0));
-            }
-
-            if err.kind() == io::ErrorKind::WouldBlock {
-                // TODO: If this would block, do something
-                return Ok(MaybeBlocking::WouldBlock);
-            }
-
-            return Err(err.into());
+            SteelPortRepr::Closed => stop!(ContractViolation => "input port is closed"),
         }
-
-        Ok(MaybeBlocking::Nonblocking(result?))
     }
 
     pub fn read_byte(&mut self) -> Result<MaybeBlocking<Option<u8>>> {
