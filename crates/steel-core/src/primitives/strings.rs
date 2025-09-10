@@ -62,9 +62,13 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(CHAR_EQUALS_DEFINITION)
         .register_native_fn_definition(CHAR_CI_EQUALS_DEFINITION)
         .register_native_fn_definition(CHAR_GREATER_THAN_DEFINITION)
+        .register_native_fn_definition(CHAR_CI_GREATER_THAN_DEFINITION)
         .register_native_fn_definition(CHAR_GREATER_THAN_EQUAL_TO_DEFINITION)
+        .register_native_fn_definition(CHAR_CI_GREATER_THAN_EQUAL_TO_DEFINITION)
         .register_native_fn_definition(CHAR_LESS_THAN_DEFINITION)
+        .register_native_fn_definition(CHAR_CI_LESS_THAN_DEFINITION)
         .register_native_fn_definition(CHAR_LESS_THAN_EQUAL_TO_DEFINITION)
+        .register_native_fn_definition(CHAR_CI_LESS_THAN_EQUAL_TO_DEFINITION)
         .register_native_fn_definition(CHAR_TO_INTEGER_DEFINITION)
         .register_native_fn_definition(INTEGER_TO_CHAR_DEFINITION)
         .register_native_fn_definition(STRING_TO_BYTES_DEFINITION)
@@ -833,6 +837,19 @@ pub fn char_ci_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
 }
 
 macro_rules! impl_char_comparison {
+    (-ci, $name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
+        #[doc = concat!("Compares characters according to their codepoints (as in \"", $mode, "\")")]
+        #[doc = "in a case-insensitive fashion."]
+        #[doc = ""]
+        #[doc = concat!("(", $ext_name, " char1 char2 ... ) -> bool?")]
+        #[doc = "* char1 : char?"]
+        #[doc = "* char2 : char?"]
+        #[function(name = $ext_name, constant = true)]
+        pub fn $name(rest: RestArgsIter<&char>) -> Result<SteelVal> {
+            let cm = CaseMapper::new();
+            monotonic!(rest.map(|ch| ch.map(|ch| cm.simple_fold(*ch))), $op)
+        }
+    };
     ($name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
         #[doc = concat!("Compares characters according to their codepoints, in a \"", $mode, "\" fashion.")]
         #[doc = ""]
@@ -853,8 +870,22 @@ impl_char_comparison!(
     |ch1: &_, ch2: &_| ch1 < ch2
 );
 impl_char_comparison!(
+    -ci,
+    char_ci_less_than,
+    "char-ci<?",
+    "less-than",
+    |ch1: &_, ch2: &_| ch1 < ch2
+);
+impl_char_comparison!(
     char_less_than_equal_to,
     "char<=?",
+    "less-than-or-equal",
+    |ch1: &_, ch2: &_| ch1 <= ch2
+);
+impl_char_comparison!(
+    -ci,
+    char_ci_less_than_equal_to,
+    "char-ci<=?",
     "less-than-or-equal",
     |ch1: &_, ch2: &_| ch1 <= ch2
 );
@@ -865,8 +896,22 @@ impl_char_comparison!(
     |ch1: &_, ch2: &_| ch1 > ch2
 );
 impl_char_comparison!(
+    -ci,
+    char_ci_greater_than,
+    "char-ci>?",
+    "greater-than",
+    |ch1: &_, ch2: &_| ch1 > ch2
+);
+impl_char_comparison!(
     char_greater_than_equal_to,
     "char>=?",
+    "greater-than-or-equal",
+    |ch1: &_, ch2: &_| ch1 >= ch2
+);
+impl_char_comparison!(
+    -ci,
+    char_ci_greater_than_equal_to,
+    "char-ci>=?",
     "greater-than-or-equal",
     |ch1: &_, ch2: &_| ch1 >= ch2
 );

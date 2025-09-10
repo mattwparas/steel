@@ -11,14 +11,14 @@
 (assert! (char-ci=? #\K #\K #\k))
 
 (assert! (char<? #\a #\b))
-; (assert! (char-ci<? #\a #\b))
+(assert! (char-ci<? #\a #\b))
 (assert! (not (char<? #\c #\D)))
-; (assert! (char-ci<? #\c #\D))
+(assert! (char-ci<? #\c #\D))
 
 (assert! (char>? #\f #\e))
-; (assert! (char-ci>? #\f #\e))
+(assert! (char-ci>? #\f #\e))
 (assert! (not (char>? #\F #\e)))
-; (assert! (char-ci>? #\F #\e))
+(assert! (char-ci>? #\F #\e))
 
 ; (assert-equal! (char-foldcase #\K) #\k)
 ; (assert-equal! (char-foldcase #\I) #\i)
