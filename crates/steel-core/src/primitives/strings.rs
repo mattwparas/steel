@@ -56,6 +56,7 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(REPLACE_DEFINITION)
         .register_native_fn_definition(CHAR_UPCASE_DEFINITION)
         .register_native_fn_definition(CHAR_DOWNCASE_DEFINITION)
+        .register_native_fn_definition(CHAR_FOLDCASE_DEFINITION)
         .register_native_fn_definition(CHAR_IS_DIGIT_DEFINITION)
         .register_native_fn_definition(CHAR_IS_WHITESPACE_DEFINITION)
         .register_native_fn_definition(CHAR_TO_NUMBER_DEFINITION)
@@ -1042,14 +1043,23 @@ fn bounds(
 /// or the same character otherwise.
 #[function(name = "char-upcase")]
 fn char_upcase(c: char) -> char {
-    c.to_uppercase().next().unwrap()
+    let cm = CaseMapper::new();
+    cm.simple_uppercase(c)
 }
 
 /// Returns the lower case version of a character, if defined by Unicode,
 /// or the same character otherwise.
 #[function(name = "char-downcase")]
 fn char_downcase(c: char) -> char {
-    c.to_lowercase().next().unwrap()
+    let cm = CaseMapper::new();
+    cm.simple_lowercase(c)
+}
+
+/// Apply simple unicode case-folding to a char
+#[function(name = "char-foldcase")]
+fn char_foldcase(c: char) -> char {
+    let cm = CaseMapper::new();
+    cm.simple_fold(c)
 }
 
 /// Returns `#t` if the character is a whitespace character.

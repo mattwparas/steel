@@ -20,11 +20,11 @@
 (assert! (not (char>? #\F #\e)))
 (assert! (char-ci>? #\F #\e))
 
-; (assert-equal! (char-foldcase #\K) #\k)
-; (assert-equal! (char-foldcase #\I) #\i)
-; (assert-equal! (char-foldcase #\ß) #\ß)
-; (assert-equal! (char-foldcase #\Σ) #\σ)
-; (assert-equal! (char-foldcase #\ς) #\σ)
+(assert-equal! (char-foldcase #\K) #\k)
+(assert-equal! (char-foldcase #\I) #\i)
+(assert-equal! (char-foldcase #\ß) #\ß)
+(assert-equal! (char-foldcase #\Σ) #\σ)
+(assert-equal! (char-foldcase #\ς) #\σ)
 
 (assert-equal! (char-downcase #\D) #\d)
 (assert-equal! (char-downcase #\d) #\d)
@@ -35,7 +35,7 @@
 (assert-equal! (char-upcase #\u) #\U)
 (assert-equal! (char-upcase #\σ) #\Σ)
 (assert-equal! (char-upcase #\ς) #\Σ)
-; (assert-equal! (char-upcase #\ß) #\ß)
+(assert-equal! (char-upcase #\ß) #\ß)
 
 ; (assert! (string-ci=? "Straße" "STRASSE" "strasse" "STRAẞE"))
 (assert! (string-ci=? "hEllO WorLd" "HELLO worlD"))

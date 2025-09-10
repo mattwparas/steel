@@ -501,6 +501,8 @@ Returns `#t` if the character is a decimal digit.
 ### **char-downcase**
 Returns the lower case version of a character, if defined by Unicode,
 or the same character otherwise.
+### **char-foldcase**
+Apply simple unicode case-folding to a char
 ### **char-upcase**
 Returns the upper case version of a character, if defined by Unicode,
 or the same character otherwise.
