@@ -32,6 +32,14 @@ Requires that all inputs are characters, and will otherwise raise an error.
 
 * char1 : char?
 * char2 : char?
+
+#### Examples
+
+```scheme
+> (char-ci=? #\s #\S) ;; => #t
+> (char-ci=? #\ß #\ẞ) ;; => #t
+> (char-ci=? #\σ #\Σ #\ς) ;; => #t
+```
 ### **char-ci>=?**
 Compares characters according to their codepoints (as in "greater-than-or-equal")
 in a case-insensitive fashion.
@@ -51,11 +59,31 @@ Returns `#t` if the character is a decimal digit.
 ### **char-downcase**
 Returns the lower case version of a character, if defined by Unicode,
 or the same character otherwise.
+
+(char-downcase char?) -> char?
+
+#### Examples
+
+```scheme
+> (char-downcase #\U) ;; => #\u
+> (char-downcase #\d) ;; => #\d
+> (char-downcase #\ẞ) ;; => #\ß
+```
 ### **char-foldcase**
 Apply simple unicode case-folding to a char
 ### **char-upcase**
 Returns the upper case version of a character, if defined by Unicode,
 or the same character otherwise.
+
+(char-upcase char?) -> char?
+
+#### Examples
+
+```scheme
+> (char-upcase #\d) ;; => #\D
+> (char-upcase #\U) ;; => #\U
+> (char-upcase #\ß) ;; => #\ß
+```
 ### **char-whitespace?**
 Returns `#t` if the character is a whitespace character.
 ### **char<=?**
@@ -279,6 +307,16 @@ in a case insensitive fashion.
 * s2 : string?
 ### **string-ci=?**
 Compares strings for equality, in a case insensitive fashion.
+
+(string-ci=? string? string? ...) -> bool?
+
+#### Examples
+
+```scheme
+> (string-ci=? "hEllO WorLd" "HELLO worlD") ;; => #t
+> (string-ci=? "Straße" "STRASSE" "strasse" "STRAẞE") ;; => #t
+> (string-ci=? "ὈΔΥΣΣΕΎΣ" "ὀδυσσεύς" "ὀδυσσεύσ") ;; => #t
+```
 ### **string-ci>=?**
 Compares strings lexicographically (as in"greater-than-or-equal"),
 in a case insensitive fashion.
@@ -312,6 +350,8 @@ Creates a new lowercased version of the input string
 
 ```scheme
 > (string-downcase "sPonGeBoB tExT") ;; => "spongebob text"
+> (string-downcase "ὈΔΥΣΣΕΎΣ") ;; => "ὀδυσσεύς"
+> (string-downcase "STRAẞE") ;; => "straße"
 ```
 ### **string-foldcase**
 Applies full unicode case-folding to the input string
@@ -377,6 +417,7 @@ Creates a new uppercased version of the input string
 
 ```scheme
 > (string-upcase "lower") ;; => "LOWER"
+> (string-upcase "straße") ;; => "STRASSE"
 ```
 ### **string<=?**
 Compares strings lexicographically (as in"less-than-equal-to").

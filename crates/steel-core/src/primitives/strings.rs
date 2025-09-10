@@ -351,6 +351,16 @@ pub fn string_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
 }
 
 /// Compares strings for equality, in a case insensitive fashion.
+///
+/// (string-ci=? string? string? ...) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (string-ci=? "hEllO WorLd" "HELLO worlD") ;; => #t
+/// > (string-ci=? "Straße" "STRASSE" "strasse" "STRAẞE") ;; => #t
+/// > (string-ci=? "ὈΔΥΣΣΕΎΣ" "ὀδυσσεύς" "ὀδυσσεύσ") ;; => #t
+/// ```
 #[function(name = "string-ci=?", constant = true)]
 pub fn string_ci_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
     let cm = CaseMapper::new();
@@ -568,6 +578,7 @@ pub fn string_to_list(value: &SteelString, mut rest: RestArgsIter<isize>) -> Res
 ///
 /// ```scheme
 /// > (string-upcase "lower") ;; => "LOWER"
+/// > (string-upcase "straße") ;; => "STRASSE"
 /// ```
 #[function(name = "string-upcase", alias = "string->upper")]
 pub fn string_upcase(value: &SteelString) -> String {
@@ -582,6 +593,8 @@ pub fn string_upcase(value: &SteelString) -> String {
 ///
 /// ```scheme
 /// > (string-downcase "sPonGeBoB tExT") ;; => "spongebob text"
+/// > (string-downcase "ὈΔΥΣΣΕΎΣ") ;; => "ὀδυσσεύς"
+/// > (string-downcase "STRAẞE") ;; => "straße"
 /// ```
 #[function(name = "string-downcase", alias = "string->lower")]
 pub fn string_downcase(value: &SteelString) -> String {
@@ -846,6 +859,14 @@ pub fn char_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
 ///
 /// * char1 : char?
 /// * char2 : char?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (char-ci=? #\s #\S) ;; => #t
+/// > (char-ci=? #\ß #\ẞ) ;; => #t
+/// > (char-ci=? #\σ #\Σ #\ς) ;; => #t
+/// ```
 #[function(name = "char-ci=?", constant = true)]
 pub fn char_ci_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
     let cm = CaseMapper::new();
@@ -1059,6 +1080,16 @@ fn bounds(
 
 /// Returns the upper case version of a character, if defined by Unicode,
 /// or the same character otherwise.
+///
+/// (char-upcase char?) -> char?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (char-upcase #\d) ;; => #\D
+/// > (char-upcase #\U) ;; => #\U
+/// > (char-upcase #\ß) ;; => #\ß
+/// ```
 #[function(name = "char-upcase")]
 fn char_upcase(c: char) -> char {
     let cm = CaseMapper::new();
@@ -1067,6 +1098,16 @@ fn char_upcase(c: char) -> char {
 
 /// Returns the lower case version of a character, if defined by Unicode,
 /// or the same character otherwise.
+///
+/// (char-downcase char?) -> char?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (char-downcase #\U) ;; => #\u
+/// > (char-downcase #\d) ;; => #\d
+/// > (char-downcase #\ẞ) ;; => #\ß
+/// ```
 #[function(name = "char-downcase")]
 fn char_downcase(c: char) -> char {
     let cm = CaseMapper::new();
