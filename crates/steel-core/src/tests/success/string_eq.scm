@@ -37,11 +37,11 @@
 (assert-equal! (char-upcase #\ς) #\Σ)
 (assert-equal! (char-upcase #\ß) #\ß)
 
-; (assert! (string-ci=? "Straße" "STRASSE" "strasse" "STRAẞE"))
+(assert! (string-ci=? "Straße" "STRASSE" "strasse" "STRAẞE"))
 (assert! (string-ci=? "hEllO WorLd" "HELLO worlD"))
 (assert! (string-ci=? "ὈΔΥΣΣΕΎΣ" "ὀδυσσεύς"))
-; (assert! (string-ci=? "ὈΔΥΣΣΕΎΣ" "ὀδυσσεύσ"))
-; (assert! (string-ci=? "ﬃ" "ﬀi" "fﬁ" "ffi"))
+(assert! (string-ci=? "ὈΔΥΣΣΕΎΣ" "ὀδυσσεύσ"))
+(assert! (string-ci=? "ﬃ" "ﬀi" "fﬁ" "ffi"))
 
 (assert-equal! (string->lower "STRAẞE") "straße")
 (assert-equal! (string-downcase "UppER") "upper")

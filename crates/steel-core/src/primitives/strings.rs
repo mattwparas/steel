@@ -269,7 +269,8 @@ macro_rules! impl_str_comparison {
         #[doc = "* s2 : string?"]
         #[function(name = $ext_name, constant = true)]
         pub fn $name(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
-            monotonic!(rest.map(|val| val.map(|s| s.as_str().to_lowercase())), $op)
+            let cm = CaseMapper::new();
+            monotonic!(rest.map(|val| val.map(|s| cm.fold_string(s))), $op)
         }
     };
     ($name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
@@ -352,8 +353,9 @@ pub fn string_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
 /// Compares strings for equality, in a case insensitive fashion.
 #[function(name = "string-ci=?", constant = true)]
 pub fn string_ci_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
+    let cm = CaseMapper::new();
     monotonic!(
-        rest.map(|val| val.map(|s| s.as_str().to_lowercase())),
+        rest.map(|val| val.map(|s| cm.fold_string(s))),
         |s1: &_, s2: &_| s1 == s2
     )
 }
