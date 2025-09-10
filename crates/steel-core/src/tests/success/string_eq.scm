@@ -44,13 +44,13 @@
 ; (assert! (string-ci=? "ﬃ" "ﬀi" "fﬁ" "ffi"))
 
 (assert-equal! (string->lower "STRAẞE") "straße")
-(assert-equal! (string->lower "UppER") "upper")
-(assert-equal! (string->lower "ὈΔΥΣΣΕΎΣ") "ὀδυσσεύς")
-; (assert-equal! (string-downcase "STRAẞE") "straße")
+(assert-equal! (string-downcase "UppER") "upper")
+(assert-equal! (string-downcase "ὈΔΥΣΣΕΎΣ") "ὀδυσσεύς")
+(assert-equal! (string-downcase "STRAẞE") "straße")
 
 (assert-equal! (string->upper "straße") "STRASSE")
-(assert-equal! (string->upper "loWer") "LOWER")
-; (assert-equal! (string-upcase "straße") "STRASSE")
+(assert-equal! (string-upcase "loWer") "LOWER")
+(assert-equal! (string-upcase "straße") "STRASSE")
 
 ; (assert-equal! (string-foldcase "hEllO WorLd") "hello world")
 ; (assert-equal! (string-foldcase "Straße") "strasse")

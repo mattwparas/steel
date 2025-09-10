@@ -219,15 +219,7 @@ Converts a string into a list of characters.
 > (string->list "hello") ;; => '(#\h #\e #\l #\l #\o)
 ```
 ### **string->lower**
-Creates a new lowercased version of the input string
-
-(string->lower string?) -> string?
-
-#### Examples
-
-```scheme
-> (string->lower "sPonGeBoB tExT") ;; => "spongebob text"
-```
+Alias of `string-downcase`.
 ### **string->number**
 Converts the given string to a number, with an optional radix.
 On failure, it returns `#f`
@@ -247,15 +239,7 @@ Converts a string into a symbol.
 > (string->symbol "FooBar") ;; => 'FooBar
 ```
 ### **string->upper**
-Creates a new uppercased version of the input string
-
-(string->upper string?) -> string?
-
-#### Examples
-
-```scheme
-> (string->upper "lower") ;; => "LOWER"
-```
+Alias of `string-upcase`.
 ### **string->utf8**
 Alias of `string->bytes`.
 ### **string->vector**
@@ -319,6 +303,16 @@ Searches a string to check if it contains the second argument.
 (string-contains? "hello" "lo") ;;=> #t
 (string-contains? "hello" "world") ;;=> #f
 ```
+### **string-downcase**
+Creates a new lowercased version of the input string
+
+(string-downcase string?) -> string?
+
+#### Examples
+
+```scheme
+> (string-downcase "sPonGeBoB tExT") ;; => "spongebob text"
+```
 ### **string-join**
 Joins the given list of strings, with an optional separator.
 
@@ -363,6 +357,16 @@ Replaces all occurrences of a pattern into the given string
 #### Examples
 ```scheme
 (string-replace "hello world" "o" "@") ;; => "hell@ w@rld"
+```
+### **string-upcase**
+Creates a new uppercased version of the input string
+
+(string-upcase string?) -> string?
+
+#### Examples
+
+```scheme
+> (string-upcase "lower") ;; => "LOWER"
 ```
 ### **string<=?**
 Compares strings lexicographically (as in"less-than-equal-to").

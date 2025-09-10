@@ -20,8 +20,8 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_APPEND_DEFINITION)
         .register_native_fn_definition(TO_STRING_DEFINITION)
         .register_native_fn_definition(STRING_TO_LIST_DEFINITION)
-        .register_native_fn_definition(STRING_TO_UPPER_DEFINITION)
-        .register_native_fn_definition(STRING_TO_LOWER_DEFINITION)
+        .register_native_fn_definition(STRING_UPCASE_DEFINITION)
+        .register_native_fn_definition(STRING_DOWNCASE_DEFINITION)
         .register_native_fn_definition(STRING_LENGTH_DEFINITION)
         .register_native_fn_definition(UTF8_LENGTH_DEFINITION)
         .register_native_fn_definition(TRIM_DEFINITION)
@@ -559,29 +559,29 @@ pub fn string_to_list(value: &SteelString, mut rest: RestArgsIter<isize>) -> Res
 
 /// Creates a new uppercased version of the input string
 ///
-/// (string->upper string?) -> string?
+/// (string-upcase string?) -> string?
 ///
 /// # Examples
 ///
 /// ```scheme
-/// > (string->upper "lower") ;; => "LOWER"
+/// > (string-upcase "lower") ;; => "LOWER"
 /// ```
-#[function(name = "string->upper")]
-pub fn string_to_upper(value: &SteelString) -> String {
+#[function(name = "string-upcase", alias = "string->upper")]
+pub fn string_upcase(value: &SteelString) -> String {
     value.to_uppercase()
 }
 
 /// Creates a new lowercased version of the input string
 ///
-/// (string->lower string?) -> string?
+/// (string-downcase string?) -> string?
 ///
 /// # Examples
 ///
 /// ```scheme
-/// > (string->lower "sPonGeBoB tExT") ;; => "spongebob text"
+/// > (string-downcase "sPonGeBoB tExT") ;; => "spongebob text"
 /// ```
-#[function(name = "string->lower")]
-pub fn string_to_lower(value: &SteelString) -> String {
+#[function(name = "string-downcase", alias = "string->lower")]
+pub fn string_downcase(value: &SteelString) -> String {
     value.to_lowercase()
 }
 
@@ -1191,8 +1191,8 @@ mod string_operation_tests {
     }
 
     apply_tests_arity_too_many! {
-        ("string-upcase", string_upper_arity_too_many, steel_string_to_upper),
-        ("string-lowercase", string_lower_arity_too_many, steel_string_to_lower),
+        ("string-upcase", string_upper_arity_too_many, steel_string_upcase),
+        ("string-downcase", string_lower_arity_too_many, steel_string_downcase),
         ("trim", trim_arity_too_many, steel_trim),
         ("trim-start", trim_start_arity_too_many, steel_trim_start),
         ("trim-end", trim_end_arity_too_many, steel_trim_end),
@@ -1200,8 +1200,8 @@ mod string_operation_tests {
     }
 
     apply_tests_arity_too_few! {
-        ("string-upcase", string_upper_arity_too_few, steel_string_to_upper),
-        ("string-lowercase", string_lower_arity_too_few, steel_string_to_lower),
+        ("string-upcase", string_upper_arity_too_few, steel_string_upcase),
+        ("string-downcase", string_lower_arity_too_few, steel_string_downcase),
         ("trim", trim_arity_too_few, steel_trim),
         ("trim-start", trim_start_arity_too_few, steel_trim_start),
         ("trim-end", trim_end_arity_too_few, steel_trim_end),
@@ -1210,8 +1210,8 @@ mod string_operation_tests {
     }
 
     apply_tests_bad_arg! {
-        ("string-upcase", string_upper_arity_takes_string, steel_string_to_upper),
-        ("string-lowercase", string_lower_arity_takes_string, steel_string_to_lower),
+        ("string-upcase", string_upper_arity_takes_string, steel_string_upcase),
+        ("string-downcase", string_lower_arity_takes_string, steel_string_downcase),
         ("trim", trim_arity_takes_string, steel_trim),
         ("trim-start", trim_start_arity_takes_string, steel_trim_start),
         ("trim-end", trim_end_arity_takes_string, steel_trim_end),
@@ -1243,7 +1243,7 @@ mod string_operation_tests {
     #[test]
     fn string_to_upper_normal() {
         let args = vec![SteelVal::StringV("foobarbaz".into())];
-        let res = steel_string_to_upper(&args);
+        let res = steel_string_upcase(&args);
         let expected = SteelVal::StringV("FOOBARBAZ".into());
         assert_eq!(res.unwrap(), expected);
     }
@@ -1251,7 +1251,7 @@ mod string_operation_tests {
     #[test]
     fn string_to_upper_spaces() {
         let args = vec![SteelVal::StringV("foo bar baz qux".into())];
-        let res = steel_string_to_upper(&args);
+        let res = steel_string_upcase(&args);
         let expected = SteelVal::StringV("FOO BAR BAZ QUX".into());
         assert_eq!(res.unwrap(), expected);
     }
@@ -1259,7 +1259,7 @@ mod string_operation_tests {
     #[test]
     fn string_to_lower_normal() {
         let args = vec![SteelVal::StringV("FOOBARBAZ".into())];
-        let res = steel_string_to_lower(&args);
+        let res = steel_string_downcase(&args);
         let expected = SteelVal::StringV("foobarbaz".into());
         assert_eq!(res.unwrap(), expected);
     }
@@ -1267,7 +1267,7 @@ mod string_operation_tests {
     #[test]
     fn string_to_lower_spaces() {
         let args = vec![SteelVal::StringV("FOO BAR BAZ QUX".into())];
-        let res = steel_string_to_lower(&args);
+        let res = steel_string_downcase(&args);
         let expected = SteelVal::StringV("foo bar baz qux".into());
         assert_eq!(res.unwrap(), expected);
     }
