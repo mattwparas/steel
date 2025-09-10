@@ -7,6 +7,7 @@ use crate::{stop, Vector};
 
 use std::io::Write as _;
 
+use icu_casemap::CaseMapper;
 use steel_derive::{function, native};
 
 /// Strings in Steel are immutable, fixed length arrays of characters. They are heap allocated, and
@@ -59,6 +60,7 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(CHAR_IS_WHITESPACE_DEFINITION)
         .register_native_fn_definition(CHAR_TO_NUMBER_DEFINITION)
         .register_native_fn_definition(CHAR_EQUALS_DEFINITION)
+        .register_native_fn_definition(CHAR_CI_EQUALS_DEFINITION)
         .register_native_fn_definition(CHAR_GREATER_THAN_DEFINITION)
         .register_native_fn_definition(CHAR_GREATER_THAN_EQUAL_TO_DEFINITION)
         .register_native_fn_definition(CHAR_LESS_THAN_DEFINITION)
@@ -95,19 +97,6 @@ macro_rules! monotonic {
 
         Ok(SteelVal::BoolV(true))
     }};
-}
-
-/// Checks if all characters are equal.
-///
-/// Requires that all inputs are characters, and will otherwise raise an error.
-///
-/// (char=? char1 char2 ...) -> bool?
-///
-/// * char1 : char?
-/// * char2 : char?
-#[function(name = "char=?", constant = true)]
-pub fn char_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
-    monotonic!(rest, |ch1: &_, ch2: &_| ch1 == ch2)
 }
 
 mod radix_fmt {
@@ -811,6 +800,36 @@ pub fn string_append(mut rest: RestArgsIter<'_, &SteelString>) -> Result<SteelVa
     rest.0
         .try_fold("".to_string(), |accum, next| Ok(accum + next?.as_str()))
         .map(|x| SteelVal::StringV(x.into()))
+}
+
+/// Checks if all characters are equal.
+///
+/// Requires that all inputs are characters, and will otherwise raise an error.
+///
+/// (char=? char1 char2 ...) -> bool?
+///
+/// * char1 : char?
+/// * char2 : char?
+#[function(name = "char=?", constant = true)]
+pub fn char_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
+    monotonic!(rest, |ch1: &_, ch2: &_| ch1 == ch2)
+}
+
+/// Checks if all characters are equal, in a case-insensitive fashion.
+///
+/// Requires that all inputs are characters, and will otherwise raise an error.
+///
+/// (char-ci=? char1 char2 ...) -> bool?
+///
+/// * char1 : char?
+/// * char2 : char?
+#[function(name = "char-ci=?", constant = true)]
+pub fn char_ci_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
+    let cm = CaseMapper::new();
+    monotonic!(
+        rest.map(|ch| ch.map(|ch| cm.simple_fold(ch))),
+        |ch1: &_, ch2: &_| ch1 == ch2
+    )
 }
 
 macro_rules! impl_char_comparison {

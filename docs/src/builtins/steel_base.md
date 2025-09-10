@@ -459,6 +459,15 @@ Returns the Unicode codepoint of a given character.
 ### **char->number**
 Attemps to convert the character into a decimal digit,
 and returns `#f` on failure.
+### **char-ci=?**
+Checks if all characters are equal, in a case-insensitive fashion.
+
+Requires that all inputs are characters, and will otherwise raise an error.
+
+(char-ci=? char1 char2 ...) -> bool?
+
+* char1 : char?
+* char2 : char?
 ### **char-digit?**
 Returns `#t` if the character is a decimal digit.
 ### **char-downcase**

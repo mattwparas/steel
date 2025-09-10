@@ -5,10 +5,10 @@
 
 (assert! (char=? #\a #\a))
 (assert! (not (char=? #\S #\s)))
-; (assert! (char-ci=? #\S #\s))
-; (assert! (char-ci=? #\ẞ #\ß))
-; (assert! (char-ci=? #\σ #\Σ #\ς))
-; (assert! (char-ci=? #\K #\K #\k))
+(assert! (char-ci=? #\S #\s))
+(assert! (char-ci=? #\ẞ #\ß))
+(assert! (char-ci=? #\σ #\Σ #\ς))
+(assert! (char-ci=? #\K #\K #\k))
 
 (assert! (char<? #\a #\b))
 ; (assert! (char-ci<? #\a #\b))
