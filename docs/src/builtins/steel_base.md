@@ -463,9 +463,26 @@ Change the current working directory
 Returns the Unicode codepoint of a given character.
 
 (char->integer char?) -> integer?
+
+#### Examples
+
+```scheme
+> (char->integer #\a) ;; => 97
+> (char->integer #\λ) ;; => 955
+```
 ### **char->number**
-Attemps to convert the character into a decimal digit,
+Attemps to convert the character into an ascii decimal digit,
 and returns `#f` on failure.
+
+(char->number char?) -> (or/c number? bool?)
+
+#### Examples
+
+```scheme
+> (char->number #\4) ;; => 4
+> (char->number #\a) ;; => #f
+> (char->number #\٣) ;; => #f
+```
 ### **char-ci<=?**
 Returns `#t` if the characters are monotonically non-decreasing according to their codepoints,
 in a case-insensitive fashion (as if char-foldcase was applied to the arguments).
@@ -545,7 +562,18 @@ in a case-insensitive fashion (as if char-foldcase was applied to the arguments)
  > (char-ci>? #\c #\B #\b) ;; => #f
  ```
 ### **char-digit?**
-Returns `#t` if the character is a decimal digit.
+Returns `#t` if the character is an ascii decimal digit.
+
+(char-digit? char?) -> bool?
+
+#### Examples
+
+```scheme
+> (char-digit? #\4) ;; => #t
+> (char-digit? #\a) ;; => #f
+> (char-digit? #\٣) ;; => #f
+> (char-digit? #\①) ;; => #f
+```
 ### **char-downcase**
 Returns the lower case version of a character, if defined by Unicode,
 or the same character otherwise.
@@ -561,6 +589,16 @@ or the same character otherwise.
 ```
 ### **char-foldcase**
 Apply simple unicode case-folding to a char
+
+(char-foldcase char?) -> char?
+
+#### Examples
+
+```scheme
+> (char-foldcase #\A) ;; => #\a
+> (char-foldcase #\c) ;; => #\c
+> (char-foldcase #\ς) ;; => #\σ
+```
 ### **char-upcase**
 Returns the upper case version of a character, if defined by Unicode,
 or the same character otherwise.
@@ -576,6 +614,16 @@ or the same character otherwise.
 ```
 ### **char-whitespace?**
 Returns `#t` if the character is a whitespace character.
+
+#### Example
+
+```scheme
+> (char-whitespace? #\space) ;; => #t
+> (char-whitespace? #\newline) ;; => #t
+; nbsp character
+> (char-whitespace? #\xA0) ;; => #t
+> (char-whitespace? #\越) ;; => #f
+```
 ### **char<=?**
 Returns `#t` if the characters are monotonically non-decreasing according to their codepoints.
 
@@ -1527,6 +1575,13 @@ Checks if the given value is an integer, an alias for `integer?`
 Returns the character corresponding to a given Unicode codepoint.
 
 (integer->char integer?) -> char?
+
+#### Examples
+
+```scheme
+> (integer->char #x61) ;; => #\a
+> (integer->char 955) ;; => #\λ
+```
 ### **integer?**
 Checks if the given value is an integer, an alias for `int?`
 
@@ -1777,6 +1832,13 @@ Creates a string of a given length, filled with an optional character
 
 * len : int?
 * char : char? = #\0
+
+#### Examples
+
+```scheme
+> (make-string 5 #\a) ;; => "aaaaa"
+> (make-string 5) ;; => "\0\0\0\0\0"
+```
 ### **make-tls**
 Creates a thread local storage slot. These slots are static, and will _not_ be reclaimed.
 
@@ -1977,7 +2039,22 @@ Checks if the given list or vector is empty.
 > (null? '(1 2 3)) ;; => #f
 ```
 ### **number->string**
-Converts the given number to a string.
+Converts the given number to a string, with an optional radix.
+
+Returns an error, if the value given is not a number.
+
+(number->string number? [radix]) -> string?
+
+* radix: number?
+
+```scheme
+> (number->string 10) ;; => "10"
+> (number->string 1.0) ;; => "1.0"
+> (number->string 1/2) ;; => "1.0"
+> (number->string 1+2i) ;; => "1+2i"
+> (number->string 255 16) ;; => "ff"
+> (number->string 1/2 2) ;; => "1/10"
+```
 ### **number?**
 Checks if the given value is a number
 
@@ -2602,6 +2679,7 @@ Returns a list of strings from the original string split on the whitespace
 
 ```scheme
 (split-whitespace "apples bananas fruits veggies") ;; '("apples" "bananas" "fruits" "veggies")
+(split-whitespace "one\t \ttwo\nthree") ;; '("one" "two" "three")
 ```
 ### **sqrt**
 Computes the square root of the given number.
@@ -2655,14 +2733,31 @@ Gets the port handle to stdin
 ```
 ### **string**
 Constructs a string from the given characters
+
+(string . char?) -> string?
+
+#### Examples
+
+```scheme
+> (string #\h #\e #\l #\l #\o) ;; => "hello"
+> (string #\λ) ;; => "λ"
+> (string) ;; => ""
+```
 ### **string->bytes**
 Encodes a string as UTF-8 into a bytevector.
 
-(string->bytes string?) -> bytes?
+(string->bytes str [start] [end]) -> bytes?
+
+* str : string?
+* start : int? = 0
+* end : int? = (string-length str)
 
 #### Examples
+
 ```scheme
-(string->bytes "Apple") ;; => (bytes 65 112 112 108 101)
+(string->bytes "Apple") ;; => #u8(#x41 #x70 #x70 #x6C #x65)
+(string->bytes "αβγ") ;; => #u8(#xCE #xB1 #xCE #xB2 #xCE #xB3)
+(string->bytes "one two three" 4 7) ;; => #u8(#x74 #x77 #x6F)
 ```
 ### **string->int**
 Converts a string into an int. Raises an error if the string cannot be converted to an integer.
@@ -2689,16 +2784,17 @@ Deserializes a JSON string into a Steel value.
 ### **string->list**
 Converts a string into a list of characters.
 
-(string->list s [start] [end]) -> (listof char?)
+(string->list str [start] [end]) -> (listof char?)
 
-* s : string?
+* str : string?
 * start : int? = 0
-* end : int?
+* end : int? = (string-length str)
 
 #### Examples
 
 ```scheme
 > (string->list "hello") ;; => '(#\h #\e #\l #\l #\o)
+> (string->list "one two three" 4 7) ;; => '(#\t #\w #\o)
 ```
 ### **string->lower**
 Alias of `string-downcase`.
@@ -2710,6 +2806,19 @@ On failure, it returns `#f`
 
 * digits : string?
 * radix : number?
+
+#### Examples
+
+```scheme
+> (string->number "10") ;; => 10
+> (string->number "1.0") ;; => 1.0
+> (string->number "1/2") ;; => 1/2
+> (string->number "1+2i") ;; => 1+2i
+> (string->number "ff") ;; => #f
+> (string->number "ff" 16) ;; => 255
+> (string->number "1/10" 2) ;; => 1/2
+> (string->number "not-a-number") ;; => #f
+```
 ### **string->symbol**
 Returns an interned symbol from the given string.
 
@@ -2739,11 +2848,17 @@ Alias of `string->bytes`.
 ### **string->vector**
 Returns a vector containing the characters of a given string
 
-(string->vector string?) -> vector?
+(string->vector s [start] [end]) -> vector?
+
+* str : string?
+* start : int? = 0
+* end : int? = (string-length str)
 
 #### Examples
+
 ```scheme
 (string->vector "hello") ;; => '#(#\h #\e #\l #\l #\o)
+(string->vector "one two three" 4 7) ;; => '#(#\t #\w #\o)
 ```
 ### **string-append**
 Concatenates all of the given strings into one
@@ -2855,12 +2970,17 @@ Get the number of characters in the string.
 > (string-length "✅") ;; => 1
 ```
 ### **string-ref**
-Extracts the nth character out of a given string.
+Extracts the nth character out of a given string, starting at 0.
 
 (string-ref str n) -> char?
 
 * str : string?
 * n : int?
+
+```scheme
+(string-ref "one" 1) ;; => #\n
+(string-ref "αβγ" 1) ;; => #\β
+```
 ### **string-replace**
 Replaces all occurrences of a pattern into the given string
 
