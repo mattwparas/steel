@@ -345,6 +345,13 @@ impl_str_comparison!(
 ///
 /// * string1 : string?
 /// * string2 : string?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (string=? "hello" "hello") ;; => #t
+/// > (string=? "hello" "HELLO") ;; => #f
+/// ```
 #[function(name = "string=?", constant = true)]
 pub fn string_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
     monotonic!(rest, |s1: &_, s2: &_| s1 == s2)
@@ -846,6 +853,14 @@ pub fn string_append(mut rest: RestArgsIter<'_, &SteelString>) -> Result<SteelVa
 ///
 /// * char1 : char?
 /// * char2 : char?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (char=? #\a #\a) ;; => #t
+/// > (char=? #\a #\b) ;; => #f
+/// > (char=? #\a #\A) ;; => #f
+/// ```
 #[function(name = "char=?", constant = true)]
 pub fn char_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
     monotonic!(rest, |ch1: &_, ch2: &_| ch1 == ch2)
@@ -877,25 +892,27 @@ pub fn char_ci_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
 }
 
 macro_rules! impl_char_comparison {
-    (-ci, $name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
+    (-ci, $name:ident, $ext_name:literal, $mode:literal, $op:expr, $(#[$attr:meta])*) => {
         #[doc = concat!("Compares characters according to their codepoints (as in \"", $mode, "\")")]
         #[doc = "in a case-insensitive fashion."]
         #[doc = ""]
         #[doc = concat!("(", $ext_name, " char1 char2 ... ) -> bool?")]
         #[doc = "* char1 : char?"]
         #[doc = "* char2 : char?"]
+        $(#[$attr])*
         #[function(name = $ext_name, constant = true)]
         pub fn $name(rest: RestArgsIter<&char>) -> Result<SteelVal> {
             let cm = CaseMapper::new();
             monotonic!(rest.map(|ch| ch.map(|ch| cm.simple_fold(*ch))), $op)
         }
     };
-    ($name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
+    ($name:ident, $ext_name:literal, $mode:literal, $op:expr, $(#[$attr:meta])*) => {
         #[doc = concat!("Compares characters according to their codepoints, in a \"", $mode, "\" fashion.")]
         #[doc = ""]
         #[doc = concat!("(", $ext_name, " char1 char2 ... ) -> bool?")]
         #[doc = "* char1 : char?"]
         #[doc = "* char2 : char?"]
+        $(#[$attr])*
         #[function(name = $ext_name, constant = true)]
         pub fn $name(rest: RestArgsIter<&char>) -> Result<SteelVal> {
             monotonic!(rest, $op)
@@ -907,53 +924,114 @@ impl_char_comparison!(
     char_less_than,
     "char<?",
     "less-than",
-    |ch1: &_, ch2: &_| ch1 < ch2
+    |ch1: &_, ch2: &_| ch1 < ch2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (char<? #\a #\b) ;; => #t
+    /// > (char<? #\a #\b #\c) ;; => #t
+    /// > (char<? #\a #\b #\b) ;; => #f
+    /// ```
 );
 impl_char_comparison!(
     -ci,
     char_ci_less_than,
     "char-ci<?",
     "less-than",
-    |ch1: &_, ch2: &_| ch1 < ch2
+    |ch1: &_, ch2: &_| ch1 < ch2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (char-ci<? #\a #\b) ;; => #t
+    /// > (char-ci<? #\a #\B) ;; => #t
+    /// > (char-ci<? #\a #\B #\c) ;; => #t
+    /// > (char-ci<? #\a #\B #\b) ;; => #f
+    /// ```
 );
 impl_char_comparison!(
     char_less_than_equal_to,
     "char<=?",
     "less-than-or-equal",
-    |ch1: &_, ch2: &_| ch1 <= ch2
+    |ch1: &_, ch2: &_| ch1 <= ch2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (char<=? #\a #\b) ;; => #t
+    /// > (char<=? #\a #\B) ;; => #f
+    /// > (char<=? #\a #\b #\c) ;; => #t
+    /// > (char<=? #\a #\b #\b) ;; => #t
+    /// ```
 );
 impl_char_comparison!(
     -ci,
     char_ci_less_than_equal_to,
     "char-ci<=?",
     "less-than-or-equal",
-    |ch1: &_, ch2: &_| ch1 <= ch2
+    |ch1: &_, ch2: &_| ch1 <= ch2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (char-ci<=? #\a #\b) ;; => #t
+    /// > (char-ci<=? #\a #\B) ;; => #t
+    /// > (char-ci<=? #\a #\B #\c) ;; => #t
+    /// > (char-ci<=? #\a #\B #\b) ;; => #t
+    /// ```
 );
 impl_char_comparison!(
     char_greater_than,
     "char>?",
     "greater-than",
-    |ch1: &_, ch2: &_| ch1 > ch2
+    |ch1: &_, ch2: &_| ch1 > ch2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (char>? #\b #\a) ;; => #t
+    /// > (char>? #\c #\b #\a) ;; => #t
+    /// > (char>? #\c #\b #\b) ;; => #f
+    /// ```
 );
 impl_char_comparison!(
     -ci,
     char_ci_greater_than,
     "char-ci>?",
     "greater-than",
-    |ch1: &_, ch2: &_| ch1 > ch2
+    |ch1: &_, ch2: &_| ch1 > ch2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (char-ci>? #\b #\a) ;; => #t
+    /// > (char-ci>? #\B #\a) ;; => #t
+    /// > (char-ci>? #\c #\B #\a) ;; => #t
+    /// > (char-ci>? #\c #\B #\b) ;; => #f
+    /// ```
 );
 impl_char_comparison!(
     char_greater_than_equal_to,
     "char>=?",
     "greater-than-or-equal",
-    |ch1: &_, ch2: &_| ch1 >= ch2
+    |ch1: &_, ch2: &_| ch1 >= ch2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (char>=? #\b #\a) ;; => #t
+    /// > (char>=? #\c #\b #\a) ;; => #t
+    /// > (char>=? #\c #\b #\b) ;; => #t
+    /// ```
 );
 impl_char_comparison!(
     -ci,
     char_ci_greater_than_equal_to,
     "char-ci>=?",
     "greater-than-or-equal",
-    |ch1: &_, ch2: &_| ch1 >= ch2
+    |ch1: &_, ch2: &_| ch1 >= ch2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (char-ci>? #\b #\a) ;; => #t
+    /// > (char-ci>? #\B #\a) ;; => #t
+    /// > (char-ci>? #\c #\B #\a) ;; => #t
+    /// > (char-ci>? #\c #\B #\b) ;; => #t
+    /// ```
 );
 
 /// Returns the Unicode codepoint of a given character.

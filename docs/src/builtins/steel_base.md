@@ -466,6 +466,14 @@ in a case-insensitive fashion.
 (char-ci<=? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char-ci<=? #\a #\b) ;; => #t
+ > (char-ci<=? #\a #\B) ;; => #t
+ > (char-ci<=? #\a #\B #\c) ;; => #t
+ > (char-ci<=? #\a #\B #\b) ;; => #t
+ ```
 ### **char-ci<?**
 Compares characters according to their codepoints (as in "less-than")
 in a case-insensitive fashion.
@@ -473,6 +481,14 @@ in a case-insensitive fashion.
 (char-ci<? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char-ci<? #\a #\b) ;; => #t
+ > (char-ci<? #\a #\B) ;; => #t
+ > (char-ci<? #\a #\B #\c) ;; => #t
+ > (char-ci<? #\a #\B #\b) ;; => #f
+ ```
 ### **char-ci=?**
 Checks if all characters are equal, in a case-insensitive fashion.
 
@@ -497,6 +513,14 @@ in a case-insensitive fashion.
 (char-ci>=? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char-ci>? #\b #\a) ;; => #t
+ > (char-ci>? #\B #\a) ;; => #t
+ > (char-ci>? #\c #\B #\a) ;; => #t
+ > (char-ci>? #\c #\B #\b) ;; => #t
+ ```
 ### **char-ci>?**
 Compares characters according to their codepoints (as in "greater-than")
 in a case-insensitive fashion.
@@ -504,6 +528,14 @@ in a case-insensitive fashion.
 (char-ci>? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char-ci>? #\b #\a) ;; => #t
+ > (char-ci>? #\B #\a) ;; => #t
+ > (char-ci>? #\c #\B #\a) ;; => #t
+ > (char-ci>? #\c #\B #\b) ;; => #f
+ ```
 ### **char-digit?**
 Returns `#t` if the character is a decimal digit.
 ### **char-downcase**
@@ -542,12 +574,27 @@ Compares characters according to their codepoints, in a "less-than-or-equal" fas
 (char<=? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char<=? #\a #\b) ;; => #t
+ > (char<=? #\a #\B) ;; => #f
+ > (char<=? #\a #\b #\c) ;; => #t
+ > (char<=? #\a #\b #\b) ;; => #t
+ ```
 ### **char<?**
 Compares characters according to their codepoints, in a "less-than" fashion.
 
 (char<? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char<? #\a #\b) ;; => #t
+ > (char<? #\a #\b #\c) ;; => #t
+ > (char<? #\a #\b #\b) ;; => #f
+ ```
 ### **char=?**
 Checks if all characters are equal.
 
@@ -557,18 +604,40 @@ Requires that all inputs are characters, and will otherwise raise an error.
 
 * char1 : char?
 * char2 : char?
+
+#### Examples
+
+```scheme
+> (char=? #\a #\a) ;; => #t
+> (char=? #\a #\b) ;; => #f
+> (char=? #\a #\A) ;; => #f
+```
 ### **char>=?**
 Compares characters according to their codepoints, in a "greater-than-or-equal" fashion.
 
 (char>=? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char>=? #\b #\a) ;; => #t
+ > (char>=? #\c #\b #\a) ;; => #t
+ > (char>=? #\c #\b #\b) ;; => #t
+ ```
 ### **char>?**
 Compares characters according to their codepoints, in a "greater-than" fashion.
 
 (char>? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char>? #\b #\a) ;; => #t
+ > (char>? #\c #\b #\a) ;; => #t
+ > (char>? #\c #\b #\b) ;; => #f
+ ```
 ### **close-input-port**
 Close an input port. If the port is a file, the file will be closed.
 
@@ -2841,6 +2910,13 @@ Compares strings for equality.
 
 * string1 : string?
 * string2 : string?
+
+#### Examples
+
+```scheme
+> (string=? "hello" "hello") ;; => #t
+> (string=? "hello" "HELLO") ;; => #f
+```
 ### **string>=?**
 Compares strings lexicographically (as in"greater-than-or-equal").
 
