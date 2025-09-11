@@ -1,0 +1,9 @@
+# steel/iterators
+### **ITERATOR-FINISHED**
+### **IntoIterator**
+### **StreamIterator**
+### **into-iter**
+### **into-stream-iter**
+### **iter-for-each**
+### **iter-next**
+### **stream-iter-for-each**
