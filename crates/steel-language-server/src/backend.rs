@@ -42,7 +42,8 @@ use tower_lsp::{Client, LanguageServer};
 use tower_lsp::lsp_types::SemanticTokenType;
 
 use crate::diagnostics::{
-    DiagnosticContext, DiagnosticGenerator, FreeIdentifiersAndUnusedIdentifiers, StaticArityChecker,
+    create_diagnostic, DiagnosticContext, DiagnosticGenerator, FreeIdentifiersAndUnusedIdentifiers,
+    StaticArityChecker,
 };
 
 pub fn lsp_home() -> PathBuf {
@@ -940,13 +941,14 @@ impl Backend {
 
                     if let Some(span) = e.span() {
                         let diagnostics = || {
-                            let start_position = offset_to_position(span.start as _, &rope)?;
-                            let end_position = offset_to_position(span.end as _, &rope)?;
-
-                            Some(vec![Diagnostic::new_simple(
-                                Range::new(start_position, end_position),
+                            let diag = create_diagnostic(
+                                &rope,
+                                &span,
+                                DiagnosticSeverity::ERROR,
                                 e.to_string(),
-                            )])
+                            )?;
+
+                            Some(vec![diag])
                         };
 
                         if let Some(diagnostics) = diagnostics() {
@@ -1149,11 +1151,6 @@ fn source_id_to_uri(source_id: SourceId) -> Option<Url> {
     Some(Url::from_file_path(path).ok()?)
 }
 
-pub fn make_error(mut diagnostic: Diagnostic) -> Diagnostic {
-    diagnostic.severity = Some(DiagnosticSeverity::ERROR);
-    diagnostic
-}
-
 pub struct ExternalModuleResolver {
     modules: HashMap<String, BuiltInModule>,
 }
@@ -1242,13 +1239,12 @@ impl UserDefinedLintEngine {
             .unwrap()
             .drain(..)
             .filter_map(|d| {
-                let start_position = offset_to_position(d.span.start as _, &rope)?;
-                let end_position = offset_to_position(d.span.end as _, &rope)?;
-
-                Some(Diagnostic::new_simple(
-                    Range::new(start_position, end_position),
+                create_diagnostic(
+                    &rope,
+                    &d.span,
+                    DiagnosticSeverity::INFORMATION,
                     d.message.to_string(),
-                ))
+                )
             })
             .collect()
     }
