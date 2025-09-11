@@ -894,7 +894,8 @@ pub fn char_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
     monotonic!(rest, |ch1: &_, ch2: &_| ch1 == ch2)
 }
 
-/// Checks if all characters are equal, in a case-insensitive fashion.
+/// Checks if all characters are equal, in a case-insensitive fashion
+/// (i.e. as if char-foldcase was applied to the arguments).
 ///
 /// Requires that all inputs are characters, and will otherwise raise an error.
 ///
@@ -921,8 +922,8 @@ pub fn char_ci_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
 
 macro_rules! impl_char_comparison {
     (-ci, $name:ident, $ext_name:literal, $mode:literal, $op:expr, $(#[$attr:meta])*) => {
-        #[doc = concat!("Compares characters according to their codepoints (as in \"", $mode, "\")")]
-        #[doc = "in a case-insensitive fashion."]
+        #[doc = concat!("Returns `#t` if the characters are ", $mode ," according to their codepoints,")]
+        #[doc = "in a case-insensitive fashion (as if char-foldcase was applied to the arguments)."]
         #[doc = ""]
         #[doc = concat!("(", $ext_name, " char1 char2 ... ) -> bool?")]
         #[doc = "* char1 : char?"]
@@ -935,7 +936,7 @@ macro_rules! impl_char_comparison {
         }
     };
     ($name:ident, $ext_name:literal, $mode:literal, $op:expr, $(#[$attr:meta])*) => {
-        #[doc = concat!("Compares characters according to their codepoints, in a \"", $mode, "\" fashion.")]
+        #[doc = concat!("Returns `#t` if the characters are ", $mode ," according to their codepoints.")]
         #[doc = ""]
         #[doc = concat!("(", $ext_name, " char1 char2 ... ) -> bool?")]
         #[doc = "* char1 : char?"]
@@ -951,7 +952,7 @@ macro_rules! impl_char_comparison {
 impl_char_comparison!(
     char_less_than,
     "char<?",
-    "less-than",
+    "monotonically increasing",
     |ch1: &_, ch2: &_| ch1 < ch2,
     /// # Examples
     ///
@@ -965,7 +966,7 @@ impl_char_comparison!(
     -ci,
     char_ci_less_than,
     "char-ci<?",
-    "less-than",
+    "monotonically increasing",
     |ch1: &_, ch2: &_| ch1 < ch2,
     /// # Examples
     ///
@@ -979,7 +980,7 @@ impl_char_comparison!(
 impl_char_comparison!(
     char_less_than_equal_to,
     "char<=?",
-    "less-than-or-equal",
+    "monotonically non-decreasing",
     |ch1: &_, ch2: &_| ch1 <= ch2,
     /// # Examples
     ///
@@ -994,7 +995,7 @@ impl_char_comparison!(
     -ci,
     char_ci_less_than_equal_to,
     "char-ci<=?",
-    "less-than-or-equal",
+    "monotonically non-decreasing",
     |ch1: &_, ch2: &_| ch1 <= ch2,
     /// # Examples
     ///
@@ -1008,7 +1009,7 @@ impl_char_comparison!(
 impl_char_comparison!(
     char_greater_than,
     "char>?",
-    "greater-than",
+    "monotonically decreasing",
     |ch1: &_, ch2: &_| ch1 > ch2,
     /// # Examples
     ///
@@ -1022,7 +1023,7 @@ impl_char_comparison!(
     -ci,
     char_ci_greater_than,
     "char-ci>?",
-    "greater-than",
+    "monotonically decreasing",
     |ch1: &_, ch2: &_| ch1 > ch2,
     /// # Examples
     ///
@@ -1036,7 +1037,7 @@ impl_char_comparison!(
 impl_char_comparison!(
     char_greater_than_equal_to,
     "char>=?",
-    "greater-than-or-equal",
+    "monotonically non-increasing",
     |ch1: &_, ch2: &_| ch1 >= ch2,
     /// # Examples
     ///
@@ -1050,7 +1051,7 @@ impl_char_comparison!(
     -ci,
     char_ci_greater_than_equal_to,
     "char-ci>=?",
-    "greater-than-or-equal",
+    "monotonically non-increasing",
     |ch1: &_, ch2: &_| ch1 >= ch2,
     /// # Examples
     ///

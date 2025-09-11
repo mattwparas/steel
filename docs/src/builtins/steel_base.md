@@ -467,8 +467,8 @@ Returns the Unicode codepoint of a given character.
 Attemps to convert the character into a decimal digit,
 and returns `#f` on failure.
 ### **char-ci<=?**
-Compares characters according to their codepoints (as in "less-than-or-equal")
-in a case-insensitive fashion.
+Returns `#t` if the characters are monotonically non-decreasing according to their codepoints,
+in a case-insensitive fashion (as if char-foldcase was applied to the arguments).
 
 (char-ci<=? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -482,8 +482,8 @@ in a case-insensitive fashion.
  > (char-ci<=? #\a #\B #\b) ;; => #t
  ```
 ### **char-ci<?**
-Compares characters according to their codepoints (as in "less-than")
-in a case-insensitive fashion.
+Returns `#t` if the characters are monotonically increasing according to their codepoints,
+in a case-insensitive fashion (as if char-foldcase was applied to the arguments).
 
 (char-ci<? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -497,7 +497,8 @@ in a case-insensitive fashion.
  > (char-ci<? #\a #\B #\b) ;; => #f
  ```
 ### **char-ci=?**
-Checks if all characters are equal, in a case-insensitive fashion.
+Checks if all characters are equal, in a case-insensitive fashion
+(i.e. as if char-foldcase was applied to the arguments).
 
 Requires that all inputs are characters, and will otherwise raise an error.
 
@@ -514,8 +515,8 @@ Requires that all inputs are characters, and will otherwise raise an error.
 > (char-ci=? #\σ #\Σ #\ς) ;; => #t
 ```
 ### **char-ci>=?**
-Compares characters according to their codepoints (as in "greater-than-or-equal")
-in a case-insensitive fashion.
+Returns `#t` if the characters are monotonically non-increasing according to their codepoints,
+in a case-insensitive fashion (as if char-foldcase was applied to the arguments).
 
 (char-ci>=? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -529,8 +530,8 @@ in a case-insensitive fashion.
  > (char-ci>? #\c #\B #\b) ;; => #t
  ```
 ### **char-ci>?**
-Compares characters according to their codepoints (as in "greater-than")
-in a case-insensitive fashion.
+Returns `#t` if the characters are monotonically decreasing according to their codepoints,
+in a case-insensitive fashion (as if char-foldcase was applied to the arguments).
 
 (char-ci>? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -576,7 +577,7 @@ or the same character otherwise.
 ### **char-whitespace?**
 Returns `#t` if the character is a whitespace character.
 ### **char<=?**
-Compares characters according to their codepoints, in a "less-than-or-equal" fashion.
+Returns `#t` if the characters are monotonically non-decreasing according to their codepoints.
 
 (char<=? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -590,7 +591,7 @@ Compares characters according to their codepoints, in a "less-than-or-equal" fas
  > (char<=? #\a #\b #\b) ;; => #t
  ```
 ### **char<?**
-Compares characters according to their codepoints, in a "less-than" fashion.
+Returns `#t` if the characters are monotonically increasing according to their codepoints.
 
 (char<? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -620,7 +621,7 @@ Requires that all inputs are characters, and will otherwise raise an error.
 > (char=? #\a #\A) ;; => #f
 ```
 ### **char>=?**
-Compares characters according to their codepoints, in a "greater-than-or-equal" fashion.
+Returns `#t` if the characters are monotonically non-increasing according to their codepoints.
 
 (char>=? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -633,7 +634,7 @@ Compares characters according to their codepoints, in a "greater-than-or-equal" 
  > (char>=? #\c #\b #\b) ;; => #t
  ```
 ### **char>?**
-Compares characters according to their codepoints, in a "greater-than" fashion.
+Returns `#t` if the characters are monotonically decreasing according to their codepoints.
 
 (char>? char1 char2 ... ) -> bool?
 * char1 : char?
