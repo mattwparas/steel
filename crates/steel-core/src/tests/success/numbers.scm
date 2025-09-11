@@ -261,6 +261,8 @@
      (assert-equal! num (string->number str radix))
      (assert-equal! str (number->string num radix))]))
 
+(assert-number-roundtrip! 1.0 "1.0")
+(assert-number-roundtrip! -1.0 "-1.0")
 (assert-number-roundtrip! 255 "ff" 16)
 (assert-number-roundtrip! 1+2i "1+10i" 2)
 (assert-number-roundtrip! -16 "-20" 8)

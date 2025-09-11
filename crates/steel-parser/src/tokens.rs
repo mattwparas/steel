@@ -208,7 +208,7 @@ impl Display for RealLiteral {
                 } else if x.is_infinite() {
                     write!(f, "{}", lexer::INFINITY)
                 } else {
-                    x.fmt(f)
+                    write!(f, "{x:?}")
                 }
             }
         }

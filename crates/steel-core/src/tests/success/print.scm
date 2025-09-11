@@ -17,6 +17,9 @@
 (struct printer (x y) #:printer (λ (obj printer) (printer "hello world")))
 (struct trans (x y) #:transparent)
 
+(assert-print! 1 "1")
+(assert-print! 1.0 "1.0")
+(assert-print! 1.5 "1.5")
 (assert-print! 1/2 "1/2")
 (assert-print! #\x "#\\x")
 (assert-print! "hello" "\"hello\"")
@@ -37,6 +40,9 @@
 (assert-print! (printer 2 2) "\"hello world\"")
 (assert-print! (trans 2 2) "(trans 2 2)")
 
+(assert-display! 1 "1")
+(assert-display! 1.0 "1.0")
+(assert-display! 1.5 "1.5")
 (assert-display! 1/2 "1/2")
 (assert-display! #\x "x")
 (assert-display! "hello" "hello")
