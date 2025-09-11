@@ -1,0 +1,20 @@
+(define-syntax assert-equal!
+  (syntax-rules ()
+    [(_ expected actual)
+     (let ([ok (equal? expected actual)])
+       (when (not ok)
+         (error "Expected value" expected "but got" actual)))]))
+
+(let ([port (open-output-string)])
+  (write-string "line" port)
+  (write-char #\newline port)
+  (newline port)
+  (write-char #\λ port)
+  (write-char #\space port)
+  (write-string "test" port)
+  (let* ([str (get-output-string port)]
+         [port (open-input-string str)])
+    (assert-equal! "line" (read-line port))
+    (assert-equal! "" (read-line port))
+    (assert-equal! "λ test" (read-line port))
+    (assert! (eof-object? (read-line port)))))
