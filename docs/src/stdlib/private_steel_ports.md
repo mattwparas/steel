@@ -24,6 +24,13 @@ If *proc* returns, then the temporary port will be closed and the return value o
 
 - file : string?
 - proc : procedure?
+### **call-with-output-string**
+Calls the given *proc* with an output string port created with `open-output-string`.
+If *proc* returns, then the content from the string port will be returned.
+
+(call-with-output-string proc) -> string?
+
+- proc : procedure?
 ### **call-with-port**
 Calls the given *proc* with the *port*.
 If *proc* returns, then the port will be closed and the return value of *proc* returned.
@@ -63,4 +70,3 @@ If *thunk* returns, then the content from the string port will be returned.
 (with-output-to-string thunk) -> string?
 
 - thunk : procedure?
-### **call-with-output-string**
