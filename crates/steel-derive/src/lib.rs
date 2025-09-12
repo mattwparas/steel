@@ -31,10 +31,8 @@ pub fn steel_quote(input: TokenStream) -> TokenStream {
 
     let original = proc_macro2::TokenStream::from_iter(tokens).to_string();
 
-    let identifier_str: Vec<String> = identifiers.iter().map(|x| x.to_string()).collect();
-
-    let list_identifiers_str: Vec<String> =
-        list_identifiers.iter().map(|x| x.to_string()).collect();
+    let identifier_str = identifiers.iter().map(|x| x.to_string());
+    let list_identifiers_str = list_identifiers.iter().map(|x| x.to_string());
 
     quote! {
         ::steel::parser::replace_idents::expand_template_pair(
@@ -71,10 +69,8 @@ pub fn internal_steel_quote(input: TokenStream) -> TokenStream {
 
     let original = proc_macro2::TokenStream::from_iter(tokens).to_string();
 
-    let identifier_str: Vec<String> = identifiers.iter().map(|x| x.to_string()).collect();
-
-    let list_identifiers_str: Vec<String> =
-        list_identifiers.iter().map(|x| x.to_string()).collect();
+    let identifier_str = identifiers.iter().map(|x| x.to_string());
+    let list_identifiers_str = list_identifiers.iter().map(|x| x.to_string());
 
     quote! {
         crate::parser::replace_idents::expand_template_pair(
