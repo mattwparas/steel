@@ -920,7 +920,7 @@ fn try_parse_number(s: &str, radix: Option<u32>) -> Result<Option<NumberLiteral>
 
         match int {
             IntLiteral::Small(n) if *n == 0 => Err(TokenError::ZeroDenominator),
-            IntLiteral::Big(big_int) if &**big_int == &BigInt::ZERO => {
+            IntLiteral::Big(big_int) if **big_int == BigInt::ZERO => {
                 Err(TokenError::ZeroDenominator)
             }
             _ => Ok(()),

@@ -278,16 +278,15 @@ impl ExprKind {
     }
 
     pub fn define_syntax_ident(&self) -> bool {
-        match self {
+        matches!(
+            self,
             Self::Atom(Atom {
-                syn:
-                    SyntaxObject {
-                        ty: TokenType::DefineSyntax,
-                        ..
-                    },
-            }) => true,
-            _ => false,
-        }
+                syn: SyntaxObject {
+                    ty: TokenType::DefineSyntax,
+                    ..
+                },
+            })
+        )
     }
 
     pub fn atom_identifier_mut(&mut self) -> Option<&mut InternedString> {
@@ -1288,7 +1287,7 @@ impl List {
     }
 
     pub fn is_anonymous_function_call(&self) -> bool {
-        matches!(self.args.get(0), Some(ExprKind::LambdaFunction(_)))
+        matches!(self.args.first(), Some(ExprKind::LambdaFunction(_)))
     }
 
     pub fn is_a_builtin_expr(&self) -> bool {
