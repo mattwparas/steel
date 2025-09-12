@@ -159,22 +159,22 @@ macro_rules! expr_list {
 }
 
 impl ExprKind {
-    pub fn span(&self) -> Option<Span> {
+    pub fn span(&self) -> Span {
         match self {
-            ExprKind::Atom(expr) => Some(expr.syn.span),
-            ExprKind::If(expr) => Some(expr.location.span),
-            ExprKind::Let(expr) => Some(expr.location.span),
-            ExprKind::Define(expr) => Some(expr.location.span),
-            ExprKind::LambdaFunction(expr) => Some(expr.location.span),
-            ExprKind::Begin(expr) => Some(expr.location.span),
-            ExprKind::Return(expr) => Some(expr.location.span),
-            ExprKind::Quote(expr) => Some(expr.location.span),
-            ExprKind::Macro(expr) => Some(expr.location.span),
-            ExprKind::SyntaxRules(expr) => Some(expr.location.span),
-            ExprKind::List(expr) => Some(expr.location),
-            ExprKind::Set(expr) => Some(expr.location.span),
-            ExprKind::Require(expr) => Some(expr.location.span),
-            ExprKind::Vector(vec) => Some(vec.span),
+            ExprKind::Atom(expr) => expr.syn.span,
+            ExprKind::If(expr) => expr.location.span,
+            ExprKind::Let(expr) => expr.location.span,
+            ExprKind::Define(expr) => expr.location.span,
+            ExprKind::LambdaFunction(expr) => expr.location.span,
+            ExprKind::Begin(expr) => expr.location.span,
+            ExprKind::Return(expr) => expr.location.span,
+            ExprKind::Quote(expr) => expr.location.span,
+            ExprKind::Macro(expr) => expr.location.span,
+            ExprKind::SyntaxRules(expr) => expr.location.span,
+            ExprKind::List(expr) => expr.location,
+            ExprKind::Set(expr) => expr.location.span,
+            ExprKind::Require(expr) => expr.location.span,
+            ExprKind::Vector(vec) => vec.span,
         }
     }
 
@@ -1567,7 +1567,7 @@ impl PatternPair {
         } else {
             return Err(ParseError::SyntaxError(
                 "syntax-rules expects a list for the pattern".to_string(),
-                pattern.span().unwrap_or_default(),
+                pattern.span(),
                 None,
             ));
         }

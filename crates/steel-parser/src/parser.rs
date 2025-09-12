@@ -1883,7 +1883,7 @@ impl Frame {
 
                 return Err(ParseError::SyntaxError(
                     "improper list must have a single cdr".to_owned(),
-                    expr.span().unwrap_or_default(),
+                    expr.span(),
                     None,
                 ));
             }
@@ -1898,7 +1898,7 @@ impl Frame {
         if !valid_for_bytes {
             return Err(ParseError::SyntaxError(
                 "bytevector literals can only contain integer literals in the 0-255 range".into(),
-                expr.span().unwrap_or_default(),
+                expr.span(),
                 None,
             ));
         }
