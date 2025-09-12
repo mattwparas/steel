@@ -121,13 +121,7 @@ pub fn run(args: Vec<String>, env_vars: Vec<(String, String)>) -> Result<bool, B
     });
 
     for last in artifacts {
-        if last
-            .target
-            .kind
-            .iter()
-            .find(|x| **x == TargetKind::CDyLib)
-            .is_some()
-        {
+        if last.target.kind.contains(&TargetKind::CDyLib) {
             for file in last.filenames {
                 if file.extension() == Some(std::env::consts::DLL_EXTENSION) {
                     println!("Found a cdylib!");
