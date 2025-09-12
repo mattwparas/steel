@@ -29,7 +29,7 @@ pub fn steel_quote(input: TokenStream) -> TokenStream {
         &mut tokens,
     );
 
-    let original = proc_macro2::TokenStream::from_iter(tokens.into_iter()).to_string();
+    let original = proc_macro2::TokenStream::from_iter(tokens).to_string();
 
     let identifier_str: Vec<String> = identifiers.iter().map(|x| x.to_string()).collect();
 
@@ -69,7 +69,7 @@ pub fn internal_steel_quote(input: TokenStream) -> TokenStream {
         &mut tokens,
     );
 
-    let original = proc_macro2::TokenStream::from_iter(tokens.into_iter()).to_string();
+    let original = proc_macro2::TokenStream::from_iter(tokens).to_string();
 
     let identifier_str: Vec<String> = identifiers.iter().map(|x| x.to_string()).collect();
 
@@ -278,7 +278,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                 let identifier = &variant.ident;
 
                 for attr in &variant.attrs {
-                    if !filter_out_ignored_attr(&attr) {
+                    if !filter_out_ignored_attr(attr) {
                         continue 'variant;
                     }
                 }
@@ -670,9 +670,9 @@ fn parse_doc_comment(input: ItemFn) -> Option<proc_macro2::TokenStream> {
         args.push(expr);
     }
 
-    return Some(quote! {
+    Some(quote! {
         concat![#(#args),*]
-    });
+    })
 }
 
 #[proc_macro_attribute]
@@ -831,7 +831,7 @@ struct NativeMacroComponents {
 }
 
 fn native_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> NativeMacroComponents {
-    let keyword_map = parse_key_value_pairs(&args);
+    let keyword_map = parse_key_value_pairs(args);
 
     let steel_function_name = keyword_map
         .get("name")
@@ -1139,15 +1139,13 @@ pub fn function(
     // TODO: Awful hack, but this just keeps track of which
     // variables are presented as mutable, which we can then use to chn
     let promote_to_mutable = type_vec.iter().any(|x| {
-        if let Type::Reference(TypeReference {
-            mutability: Some(_),
-            ..
-        }) = **x
-        {
-            true
-        } else {
-            false
-        }
+        matches!(
+            **x,
+            Type::Reference(TypeReference {
+                mutability: Some(_),
+                ..
+            })
+        )
     });
 
     let conversion_functions = type_vec.clone().into_iter().map(|x| {
@@ -1512,15 +1510,13 @@ pub fn custom_function(
     // TODO: Awful hack, but this just keeps track of which
     // variables are presented as mutable, which we can then use to chn
     let promote_to_mutable = type_vec.iter().any(|x| {
-        if let Type::Reference(TypeReference {
-            mutability: Some(_),
-            ..
-        }) = **x
-        {
-            true
-        } else {
-            false
-        }
+        matches!(
+            **x,
+            Type::Reference(TypeReference {
+                mutability: Some(_),
+                ..
+            })
+        )
     });
 
     let conversion_functions = type_vec.clone().into_iter().map(|x| {
