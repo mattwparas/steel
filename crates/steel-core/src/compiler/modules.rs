@@ -67,7 +67,7 @@ macro_rules! time {
 
 macro_rules! declare_builtins {
     ( $( $name:expr => $path:expr ), *) => {
-        static BUILT_INS: &[(&str, &str)] = &[
+        pub static BUILT_INS: &[(&str, &str)] = &[
             $( ($name, include_str!($path)), )*
         ];
 
@@ -87,6 +87,10 @@ macro_rules! create_prelude {
         $( $module:literal, )*
         $( for_syntax $module_for_syntax:literal ),*
     ) => {
+        pub static PRELUDE_MODULES: &[&str] = &[
+            $( $module, )*
+            $( $module_for_syntax, )*
+        ];
 
         pub static PRELUDE_WITHOUT_BASE: &str = concat!(
             $( "(require \"", $module, "\")\n", )*

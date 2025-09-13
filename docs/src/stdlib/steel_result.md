@@ -1,0 +1,10 @@
+# steel/result
+### **Err**
+### **Err?**
+### **Ok**
+### **Ok?**
+### **Result/c**
+### **Result?**
+### **ok-and-then**
+### **unwrap-ok**
+### **unwrap-or**

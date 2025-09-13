@@ -74,6 +74,7 @@
                           (parameterize ([current-input-port port])
                             (thunk)))))
 
+;;@doc
 ;; Calls the given *proc* with an output string port created with `open-output-string`.
 ;; If *proc* returns, then the content from the string port will be returned.
 ;;
