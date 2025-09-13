@@ -5,3 +5,18 @@
 (assert-equal! (string-append) "")
 (assert-equal! (string-append "foo") "foo")
 (assert-equal! (string-append "foo" "bar") "foobar")
+
+;; string-length should count chars
+(assert-equal! (string-length "one two") 7)
+(assert-equal! (string-length "αβγ") 3)
+(assert-equal! (string-length "aλ") 2)
+(assert-equal! (string-length "✅") 1)
+(assert-equal! (string-length "") 0)
+
+;; string->bytes should return utf-8 encoding, so it's length should
+;; be the length in utf-8 encoded bytes
+(assert-equal! (bytes-length (string->bytes "one two")) 7)
+(assert-equal! (bytes-length (string->bytes "αβγ")) 6)
+(assert-equal! (bytes-length (string->bytes "aλ")) 3)
+(assert-equal! (bytes-length (string->bytes "✅")) 3)
+(assert-equal! (bytes-length (string->bytes "")) 0)
