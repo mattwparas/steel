@@ -3857,6 +3857,7 @@ dependencies = [
 name = "steel-language-server"
 version = "0.7.0"
 dependencies = [
+ "crossbeam-utils",
  "dashmap 5.5.3",
  "env_logger",
  "log",
