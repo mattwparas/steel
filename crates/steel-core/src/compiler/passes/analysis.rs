@@ -4630,13 +4630,13 @@ impl<'a> SemanticAnalysis<'a> {
                         }
 
                         offset += 1;
-                        return true;
+                        true
                     });
                 }
                 _ => {}
             }
 
-            return true;
+            true
         });
 
         #[cfg(feature = "profiling")]

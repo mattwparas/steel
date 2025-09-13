@@ -577,9 +577,9 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                     .get(&s)
                     .and_then(|x| steelval_to_atom(&x))
                 {
-                    return Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
+                    Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
                         new_token, a.syn.span,
-                    ))));
+                    ))))
                 } else {
                     Ok(ExprKind::Atom(a))
                 }
@@ -909,7 +909,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     }
 
     fn visit_vector(&mut self, v: crate::parser::ast::Vector) -> Self::Output {
-        return Ok(v.into());
+        Ok(v.into())
     }
 }
 

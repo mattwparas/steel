@@ -884,7 +884,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
             | SteelVal::MutFunc(_)
             | SteelVal::BuiltIn(_)
             | SteelVal::ByteVector(_)
-            | SteelVal::BigNum(_) => return,
+            | SteelVal::BigNum(_) => (),
             _ => {
                 self.drop_buffer.push_back(value);
             }
@@ -1918,7 +1918,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
             return true;
         }
 
-        return false;
+        false
     }
 
     fn visit(&mut self) -> bool {

@@ -2088,11 +2088,11 @@ impl<T: HeapAble> HeapRef<T> {
             let mut value = inner.write();
 
             if value.is_reachable() {
-                return Some(value.value.clone());
+                Some(value.value.clone())
             } else {
                 value.reachable = false;
                 value.value = T::empty();
-                return None;
+                None
             }
         } else {
             // Get the inner value on this, assuming we are calling
@@ -2325,7 +2325,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
             | SteelVal::MutFunc(_)
             | SteelVal::BuiltIn(_)
             | SteelVal::ByteVector(_)
-            | SteelVal::BigNum(_) => return,
+            | SteelVal::BigNum(_) => (),
             _ => {
                 self.queue.push(value);
             }
@@ -2552,7 +2552,7 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
             | SteelVal::MutFunc(_)
             | SteelVal::BuiltIn(_)
             | SteelVal::ByteVector(_)
-            | SteelVal::BigNum(_) => return,
+            | SteelVal::BigNum(_) => (),
             _ => {
                 if let Some(p) = SteelValPointer::from_value(value) {
                     if self.local_queue.len() == self.local_queue.capacity() {

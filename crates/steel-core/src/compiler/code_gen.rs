@@ -60,9 +60,7 @@ fn try_eval_atom(t: &SyntaxObject) -> Option<SteelVal> {
         TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
         TokenType::Keyword(k) => Some(SteelVal::SymbolV(k.clone().into())),
-        _what => {
-            return None;
-        }
+        _what => None,
     }
 }
 

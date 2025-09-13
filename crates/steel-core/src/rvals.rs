@@ -1964,7 +1964,7 @@ fn slow_path_eq_lists(
     _l: &crate::values::lists::List<SteelVal>,
     _r: &crate::values::lists::List<SteelVal>,
 ) -> bool {
-    return false;
+    false
 
     /*
 
