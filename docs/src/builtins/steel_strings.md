@@ -294,7 +294,7 @@ Joins the given list of strings, with an optional separator.
 (string-join '("one" "two" "three") ", ") ;; => "one, two, three"
 ```
 ### **string-length**
-Get the length of the given string in UTF-8 bytes.
+Get the number of characters in the string.
 
 (string-length string?) -> int?
 
@@ -302,8 +302,8 @@ Get the length of the given string in UTF-8 bytes.
 
 ```scheme
 > (string-length "apples") ;; => 6
-> (string-length "✅") ;; => 3
-> (string-length "🤖") ;; => 4
+> (string-length "αβγ") ;; => 3
+> (string-length "✅") ;; => 1
 ```
 ### **string-ref**
 Extracts the nth character out of a given string.
