@@ -1003,7 +1003,7 @@ mod lexer_tests {
         Identifier(ident.into())
     }
 
-    fn token_stream(source: &str) -> impl Iterator<Item = Token<InternedString>> {
+    fn token_stream(source: &str) -> impl Iterator<Item = Token<'_, InternedString>> {
         TokenStream::new(source, true, None).map(|t| t.expect("unexpected parsing error"))
     }
 
