@@ -157,6 +157,10 @@ impl Custom for SteelErr {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
         Some(Ok(format!("{}", self)))
     }
+
+    fn into_error(self) -> std::result::Result<SteelErr, Self> {
+        Ok(self)
+    }
 }
 
 impl SteelErr {

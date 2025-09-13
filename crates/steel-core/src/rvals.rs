@@ -192,6 +192,14 @@ pub trait Custom: private::Sealed {
     fn equality_hint_general(&self, _other: &SteelVal) -> bool {
         false
     }
+
+    #[doc(hidden)]
+    fn into_error(self) -> std::result::Result<SteelErr, Self>
+    where
+        Self: Sized,
+    {
+        Err(self)
+    }
 }
 
 #[cfg(not(feature = "sync"))]
@@ -231,6 +239,14 @@ pub trait CustomType: MaybeSendSyncStatic {
     fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
         false
     }
+
+    #[doc(hidden)]
+    fn into_error_(self) -> std::result::Result<SteelErr, Self>
+    where
+        Self: Sized,
+    {
+        Err(self)
+    }
 }
 
 #[cfg(not(feature = "sync"))]
@@ -255,6 +271,13 @@ pub trait CustomType {
     }
     fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
         false
+    }
+    #[doc(hidden)]
+    fn into_error_(self) -> std::result::Result<SteelErr, Self>
+    where
+        Self: Sized,
+    {
+        Err(self)
     }
 }
 
@@ -300,11 +323,22 @@ impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
     fn check_equality_hint_general(&self, other: &SteelVal) -> bool {
         self.equality_hint_general(other)
     }
+
+    fn into_error_(self) -> std::result::Result<SteelErr, Self>
+    where
+        Self: Sized,
+    {
+        self.into_error()
+    }
 }
 
 impl<T: CustomType + 'static> IntoSteelVal for T {
     fn into_steelval(self) -> Result<SteelVal> {
         Ok(SteelVal::Custom(Gc::new_mut(Box::new(self))))
+    }
+
+    fn as_error(self) -> std::result::Result<SteelErr, Self> {
+        T::into_error_(self)
     }
 }
 
@@ -315,9 +349,6 @@ pub trait IntoSerializableSteelVal {
 impl<T: CustomType + Clone + Send + Sync + 'static> IntoSerializableSteelVal for T {
     fn into_serializable_steelval(val: &SteelVal) -> Result<SerializableSteelVal> {
         if let SteelVal::Custom(v) = val {
-            // let left_type = v.borrow().as_any_ref();
-            // TODO: @Matt - dylibs cause issues here, as the underlying type ids are different
-            // across workspaces and builds
             let left = v.read().as_any_ref().downcast_ref::<T>().cloned();
             let _lifted = left.ok_or_else(|| {
                 let error_message = format!(
@@ -377,6 +408,11 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
 /// steel derive.
 pub trait IntoSteelVal: Sized {
     fn into_steelval(self) -> Result<SteelVal>;
+
+    #[doc(hidden)]
+    fn as_error(self) -> std::result::Result<SteelErr, Self> {
+        Err(self)
+    }
 }
 
 /// The exit point for turning SteelVals into outside world values

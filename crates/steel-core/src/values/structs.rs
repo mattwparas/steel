@@ -1312,10 +1312,13 @@ impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for std::result::Result<T, E
     fn into_steelval(self) -> Result<SteelVal> {
         match self {
             Ok(s) => s.into_steelval(),
-            Err(e) => Err(SteelErr::new(
-                ErrorKind::Generic,
-                e.into_steelval()?.to_string(),
-            )),
+            Err(e) => match e.as_error() {
+                Ok(e) => Err(e),
+                Err(e) => Err(SteelErr::new(
+                    ErrorKind::Generic,
+                    e.into_steelval()?.to_string(),
+                )),
+            },
         }
     }
 }
