@@ -2501,7 +2501,7 @@ impl<'a> ModuleBuilder<'a> {
                     }
                 }
                 _ => {
-                    stop!(TypeMismatch => "provide expects either a (for-syntax <ident>) or an ident"; opt expr.span())
+                    stop!(TypeMismatch => "provide expects either a (for-syntax <ident>) or an ident"; expr.span())
                 }
             }
         }
@@ -2762,7 +2762,7 @@ impl<'a> ModuleBuilder<'a> {
 
                             self.parse_require_object_inner(home, r, &l.args[2], require_object)?;
                         } else {
-                            stop!(TypeMismatch => "prefix-in expects an identifier to use for the prefix"; opt prefix.span());
+                            stop!(TypeMismatch => "prefix-in expects an identifier to use for the prefix"; prefix.span());
                         }
                     }
 
@@ -2833,7 +2833,7 @@ impl<'a> ModuleBuilder<'a> {
                                             }
                                         }
 
-                                        stop!(Generic => format!("Module not found: {:?}", current); mod_name.span().unwrap())
+                                        stop!(Generic => format!("Module not found: {:?}", current); mod_name.span())
                                     }
                                 }
 
@@ -2842,7 +2842,7 @@ impl<'a> ModuleBuilder<'a> {
                                 require_object.path = Some(PathOrBuiltIn::Path(current));
                             }
                         } else {
-                            stop!(BadSyntax => "for-syntax expects a string literal referring to a file or module"; opt mod_name.span());
+                            stop!(BadSyntax => "for-syntax expects a string literal referring to a file or module"; mod_name.span());
                         }
                     }
                     _ => {
@@ -2852,7 +2852,7 @@ impl<'a> ModuleBuilder<'a> {
             }
 
             unknown => {
-                stop!(Generic => format!("require object expected a string literal referring to a file/module, found: {}", unknown); opt atom.span())
+                stop!(Generic => format!("require object expected a string literal referring to a file/module, found: {}", unknown); atom.span())
             }
         }
 

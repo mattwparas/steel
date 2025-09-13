@@ -774,7 +774,7 @@ impl MacroPattern {
                 _ => {
                     // TODO: Add pattern matching on other kinds of forms here - probably just a special IR
                     // for the pattern to match against here
-                    stop!(BadSyntax => format!("illegal special form found in macro pattern: {}", expr) ; opt expr.span());
+                    stop!(BadSyntax => format!("illegal special form found in macro pattern: {}", expr) ; expr.span());
                 }
             }
         }
