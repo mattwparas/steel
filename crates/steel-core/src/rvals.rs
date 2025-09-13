@@ -272,6 +272,13 @@ pub trait CustomType {
     fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
         false
     }
+    #[doc(hidden)]
+    fn into_error_(self) -> std::result::Result<SteelErr, Self>
+    where
+        Self: Sized,
+    {
+        Err(self)
+    }
 }
 
 impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
