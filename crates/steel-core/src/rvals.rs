@@ -6,7 +6,7 @@ use crate::{
             MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
             ScopedWriteContainer, ShareableMut,
         },
-        unsafe_erased_pointers::{OpaqueReference, ReferenceCustomType},
+        unsafe_erased_pointers::OpaqueReference,
         Gc, GcMut,
     },
     parser::{
@@ -159,10 +159,6 @@ pub fn as_underlying_type<T: 'static>(value: &dyn CustomType) -> Option<&T> {
 
 pub fn as_underlying_type_mut<T: 'static>(value: &mut dyn CustomType) -> Option<&mut T> {
     value.as_any_ref_mut().downcast_mut::<T>()
-}
-
-pub fn is_reference_type<T: ReferenceCustomType + 'static>(value: &SteelVal) -> bool {
-    T::as_ref_from_ref(value).is_ok()
 }
 
 pub trait Custom: private::Sealed {

@@ -1431,6 +1431,21 @@ pub mod unsafe_erased_pointers {
         }
     }
 
+    pub fn is_reference_type<T: ReferenceCustomType + 'static>(value: &SteelVal) -> bool {
+        if let SteelVal::Reference(v) = value {
+            let res = v.inner.as_any_ref();
+            if res.is::<ReadOnlyBorrowedObject<T>>() {
+                true
+            } else if res.is::<ReadOnlyTemporary<T>>() {
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
     #[test]
     fn test() {
         #[derive(Debug)]
