@@ -591,6 +591,9 @@ pub fn string_to_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<St
 
 /// Converts an integer into a string.
 ///
+/// Use of this procedure is discouraged in favor of the more powerful and more
+/// portable `(number->string)` procedure.
+///
 /// (int->string int?) -> string?
 ///
 /// # Examples
@@ -604,6 +607,9 @@ pub fn int_to_string(value: isize) -> String {
 }
 
 /// Converts a string into an int. Raises an error if the string cannot be converted to an integer.
+///
+/// Use of this procedure is discouraged in favor of the more powerful and more
+/// portable `(string->number)` procedure.
 ///
 /// (string->int string?) -> int?
 ///

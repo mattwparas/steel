@@ -254,6 +254,9 @@ Checks if the input string ends with a given suffix
 ### **int->string**
 Converts an integer into a string.
 
+Use of this procedure is discouraged in favor of the more powerful and more
+portable `(number->string)` procedure.
+
 (int->string int?) -> string?
 
 #### Examples
@@ -388,6 +391,9 @@ Encodes a string as UTF-8 into a bytevector.
 ```
 ### **string->int**
 Converts a string into an int. Raises an error if the string cannot be converted to an integer.
+
+Use of this procedure is discouraged in favor of the more powerful and more
+portable `(string->number)` procedure.
 
 (string->int string?) -> int?
 
