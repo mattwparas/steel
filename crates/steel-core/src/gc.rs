@@ -1394,8 +1394,6 @@ pub mod unsafe_erased_pointers {
                 if res.is::<ReadOnlyBorrowedObject<T>>() {
                     let borrowed_object = res.downcast_ref::<ReadOnlyBorrowedObject<T>>().unwrap();
 
-                    // return Ok(borrowed_object.clone());
-
                     let guard = borrowed_object.ptr.upgrade().ok_or_else(
                         throw!(Generic => "opaque reference pointer dropped before use!"),
                     );
@@ -1403,8 +1401,6 @@ pub mod unsafe_erased_pointers {
                     return guard.map(|x| unsafe { &*(*x.read()) });
                 } else if res.is::<ReadOnlyTemporary<T>>() {
                     let borrowed_object = res.downcast_ref::<ReadOnlyTemporary<T>>().unwrap();
-
-                    // return Ok(borrowed_object.clone());
 
                     let guard = borrowed_object.ptr.upgrade().ok_or_else(
                         throw!(Generic => "opaque reference pointer dropped before use!"),
