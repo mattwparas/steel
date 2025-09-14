@@ -899,7 +899,7 @@ pub mod unsafe_erased_pointers {
     impl<T> CustomReference for ReadOnlyTemporaryObject<T> {}
 
     impl<T: MaybeSendSyncStatic> TemporaryObject<T> {
-        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+        pub(crate) fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
                 inner: StandardShared::new(self),
             }
@@ -907,7 +907,7 @@ pub mod unsafe_erased_pointers {
     }
 
     impl<T: MaybeSendSyncStatic> ReadOnlyTemporaryObject<T> {
-        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+        pub(crate) fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
                 inner: StandardShared::new(self),
             }
@@ -915,7 +915,7 @@ pub mod unsafe_erased_pointers {
     }
 
     impl<T: MaybeSendSyncStatic> Temporary<T> {
-        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+        pub(crate) fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
                 inner: StandardShared::new(self),
             }
@@ -937,7 +937,7 @@ pub mod unsafe_erased_pointers {
     }
 
     impl<T: MaybeSendSyncStatic> ReadOnlyTemporary<T> {
-        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+        pub(crate) fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
                 inner: StandardShared::new(self),
             }
@@ -980,7 +980,7 @@ pub mod unsafe_erased_pointers {
     }
 
     impl<T: 'static> ReadOnlyBorrowedObject<T> {
-        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+        pub(crate) fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
                 inner: StandardShared::new(self),
             }
@@ -1026,7 +1026,7 @@ pub mod unsafe_erased_pointers {
     }
 
     impl<T> BorrowedObject<T> {
-        pub fn new(ptr: WeakSharedMut<*mut T>) -> Self {
+        pub(crate) fn new(ptr: WeakSharedMut<*mut T>) -> Self {
             Self {
                 ptr,
                 parent_borrow_flag: Arc::new(AtomicBool::new(false)),
@@ -1035,7 +1035,7 @@ pub mod unsafe_erased_pointers {
             }
         }
 
-        pub fn with_parent_flag(mut self, parent_borrow_flag: Arc<AtomicBool>) -> Self {
+        pub(crate) fn with_parent_flag(mut self, parent_borrow_flag: Arc<AtomicBool>) -> Self {
             self.parent_borrow_flag = parent_borrow_flag;
 
             self
@@ -1116,7 +1116,7 @@ pub mod unsafe_erased_pointers {
     }
 
     impl<T: 'static> BorrowedObject<T> {
-        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+        pub(crate) fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
                 inner: StandardShared::new(self),
             }
@@ -1330,11 +1330,11 @@ pub mod unsafe_erased_pointers {
     }
 
     impl OpaqueReference<'static> {
-        pub fn format(&self) -> std::result::Result<String, std::fmt::Error> {
+        pub(crate) fn format(&self) -> std::result::Result<String, std::fmt::Error> {
             self.display()
         }
 
-        pub fn drop_mut(&mut self, drop_handler: &mut IterativeDropHandler) {
+        pub(crate) fn drop_mut(&mut self, drop_handler: &mut IterativeDropHandler) {
             if let Some(inner) = StandardShared::get_mut(&mut self.inner) {
                 inner.drop_mut(drop_handler);
             }
