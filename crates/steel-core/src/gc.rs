@@ -667,6 +667,10 @@ pub mod unsafe_erased_pointers {
     use std::sync::Arc;
     use std::{any::Any, cell::RefCell, marker::PhantomData};
 
+    use crate::gc::shared::{
+        MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
+        ScopedWriteContainer, StandardSharedMut,
+    };
     use crate::steel_vm::engine::EngineId;
     use once_cell::sync::Lazy;
     use parking_lot::Mutex;
@@ -1343,9 +1347,34 @@ pub mod unsafe_erased_pointers {
 
     impl CustomReference for OpaqueReference<'static> {}
 
-    // TODO: Combine this and the next into 1 trait
+    pub(crate) struct TemporaryMutableView<T> {
+        view: StandardSharedMut<*mut T>,
+    }
+
+    impl<T> TemporaryMutableView<T> {
+        pub(crate) fn as_mut(&mut self) -> MappedScopedWriteContainer<'_, T> {
+            ScopedWriteContainer::map(self.view.write(), |x| unsafe { &mut (**x) })
+        }
+    }
+
+    pub(crate) enum TemporaryReadonlyView<T> {
+        Standard(StandardSharedMut<*const T>),
+        Slim(StandardShared<T>),
+    }
+
+    impl<T> TemporaryReadonlyView<T> {
+        pub(crate) fn as_ro(&self) -> &T {
+            match self {
+                TemporaryReadonlyView::Standard(rw_lock) => unsafe { &(**rw_lock.read()) },
+                TemporaryReadonlyView::Slim(x) => &x,
+            }
+        }
+    }
+
     impl<T: ReferenceCustomType + 'static> AsRefMutSteelValFromRef for T {
-        fn as_mut_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a mut T> {
+        fn as_mut_ref_from_ref<'a>(
+            val: &'a SteelVal,
+        ) -> crate::rvals::Result<TemporaryMutableView<T>> {
             if let SteelVal::Reference(v) = val {
                 let res = v.inner.as_any_ref();
 
@@ -1362,9 +1391,9 @@ pub mod unsafe_erased_pointers {
 
                     let guard = borrowed_object.ptr.upgrade().ok_or_else(
                         throw!(Generic => "opaque reference pointer dropped before use!"),
-                    );
+                    )?;
 
-                    return guard.map(|x| unsafe { &mut *(*x.write()) });
+                    return Ok(TemporaryMutableView { view: guard });
                 } else {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
@@ -1386,7 +1415,9 @@ pub mod unsafe_erased_pointers {
     }
 
     impl<T: ReferenceCustomType + 'static> AsRefSteelValFromRef for T {
-        fn as_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a T> {
+        fn as_ref_from_ref<'a>(
+            val: &'a SteelVal,
+        ) -> crate::rvals::Result<TemporaryReadonlyView<T>> {
             if let SteelVal::Reference(v) = val {
                 let res = v.inner.as_any_ref();
 
@@ -1396,21 +1427,17 @@ pub mod unsafe_erased_pointers {
 
                     let guard = borrowed_object.ptr.upgrade().ok_or_else(
                         throw!(Generic => "opaque reference pointer dropped before use!"),
-                    );
+                    )?;
 
-                    return guard.map(|x| unsafe { &*(*x.read()) });
+                    return Ok(TemporaryReadonlyView::Standard(guard));
                 } else if res.is::<ReadOnlyTemporary<T>>() {
                     let borrowed_object = res.downcast_ref::<ReadOnlyTemporary<T>>().unwrap();
 
                     let guard = borrowed_object.ptr.upgrade().ok_or_else(
                         throw!(Generic => "opaque reference pointer dropped before use!"),
-                    );
+                    )?;
 
-                    // TODO: @Matt -> We really do not want to have this here
-                    // The way to fix it is to have a separate trait, with a return type
-                    // more akin to a an owned borrow of some kind (like Ref from borrow() on refcell)
-                    // This is super suspect but we'll move on for now
-                    return guard.map(|x| unsafe { &*(StandardShared::as_ptr(&x)) });
+                    return Ok(TemporaryReadonlyView::Slim(guard));
                 } else {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",

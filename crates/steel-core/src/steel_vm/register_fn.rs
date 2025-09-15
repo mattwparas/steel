@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use std::{cell::RefCell, future::Future, marker::PhantomData, rc::Rc, sync::Arc};
+use std::{cell::RefCell, future::Future, marker::PhantomData, ops::DerefMut, rc::Rc, sync::Arc};
 
 use super::{
     builtin::{Arity, FunctionSignatureMetadata},
@@ -243,7 +243,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input);
+            let res = func(&mut input.as_mut());
 
             res.into_steelval()
         };
@@ -281,7 +281,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, &mut area);
+            let res = func(&mut input.as_mut(), &mut area);
 
             res.into_steelval()
         };
@@ -319,7 +319,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, &mut area);
+            let res = func(&mut input.as_mut(), &mut area);
 
             res.into_steelval()
         };
@@ -368,7 +368,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, area, &mut frame, &mut ctx);
+            let res = func(&mut input, area, &mut frame.as_mut(), &mut ctx.as_mut());
 
             res.into_steelval()
         };
@@ -416,7 +416,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, area, &mut frame, &mut ctx);
+            let res = func(&mut input, area, &mut frame.as_mut(), &mut ctx.as_mut());
 
             res.into_steelval()
         };
@@ -461,7 +461,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, &area, &mut ctx);
+            let res = func(&mut input, &area, &mut ctx.as_mut());
 
             res.into_steelval()
         };
@@ -506,7 +506,7 @@ impl<
                 e
             })?;
 
-            let res = func(&input, area, &ctx);
+            let res = func(&input, area, &ctx.as_ro());
 
             res.into_steelval()
         };
@@ -550,7 +550,7 @@ impl<
             })?;
 
             let res = func(
-                &mut input,
+                &mut input.as_mut(),
                 temp_res.as_slice_repr(),
                 F::from_steelval(&args[2])?,
             );
@@ -589,7 +589,7 @@ impl<
             })?;
 
             let res = func(
-                &mut input,
+                &mut input.as_mut(),
                 temp_res.as_slice_repr(),
                 F::from_steelval(&args[2])?,
             );
@@ -633,7 +633,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, temp_res.as_slice_repr());
+            let res = func(&mut input.as_mut(), temp_res.as_slice_repr());
 
             res.into_steelval()
         };
@@ -668,7 +668,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, temp_res.as_slice_repr());
+            let res = func(&mut input.as_mut(), temp_res.as_slice_repr());
 
             res.into_steelval()
         };
@@ -709,7 +709,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, temp_res.as_slice_repr());
+            let res = func(&mut input.as_mut(), temp_res.as_slice_repr());
 
             res.into_steelval()
         };
@@ -742,7 +742,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, temp_res.as_slice_repr());
+            let res = func(&mut input.as_mut(), temp_res.as_slice_repr());
 
             res.into_steelval()
         };
@@ -788,7 +788,9 @@ impl<
                 e
             })?;
 
-            let res = func(input);
+            let pointer = input.as_mut().deref_mut() as *mut _;
+
+            let res = func(unsafe { &mut (*pointer) });
 
             let erased = res as *mut _;
 
@@ -872,7 +874,9 @@ impl<
                 e
             })?;
 
-            let res = func(input);
+            let pointer = input.as_mut().deref_mut() as *mut _;
+
+            let res = func(unsafe { &mut (*pointer) });
 
             let erased = res as *const _;
 
@@ -956,7 +960,9 @@ impl<
                 e
             })?;
 
-            let res = func(input, arg);
+            let pointer = input.as_mut().deref_mut() as *mut _;
+
+            let res = func(unsafe { &mut (*pointer) }, arg);
 
             let erased = res as *const _;
 
@@ -1033,16 +1039,15 @@ impl<
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
+
+            let pointer = input.as_ro() as *const _;
+
             let arg = ARG::from_steelval(&args[1]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
 
-            let res = func(input, arg);
-
-            // let lifted = unsafe { std::mem::transmute::<RET, RETSTAT>(res) };
-
-            // lifted.into_steelval()
+            let res = func(unsafe { &(*pointer) }, arg);
 
             let erased = res;
 
@@ -1108,7 +1113,9 @@ impl<
                 e
             })?;
 
-            let res = func(input);
+            let pointer = input.as_ro() as *const _;
+
+            let res = func(unsafe { &(*pointer) });
 
             // let lifted = unsafe { std::mem::transmute::<RET, RETSTAT>(res) };
 
@@ -1183,7 +1190,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, &area, &mut ctx);
+            let res = func(&mut input, &area, &mut ctx.as_mut());
 
             res.into_steelval()
         };
@@ -1228,7 +1235,7 @@ impl<
                 e
             })?;
 
-            let res = func(&input, area, &ctx);
+            let res = func(&input, area, &ctx.as_ro());
 
             res.into_steelval()
         };
@@ -1272,7 +1279,7 @@ impl<
             })?;
 
             let res = func(
-                &mut input,
+                &mut input.as_mut(),
                 temp_res.as_slice_repr(),
                 F::from_steelval(&args[2])?,
             );
@@ -1311,7 +1318,7 @@ impl<
             })?;
 
             let res = func(
-                &mut input,
+                &mut input.as_mut(),
                 temp_res.as_slice_repr(),
                 F::from_steelval(&args[2]).map_err(|mut e| {
                     e.prepend_message(&format!("{}:", name));
@@ -1364,7 +1371,9 @@ impl<
                 e
             })?;
 
-            let res = func(input);
+            let pointer = input.as_mut().deref_mut() as *mut _;
+
+            let res = func(unsafe { &mut (*pointer) });
 
             let erased = res as *mut _;
 
@@ -1448,7 +1457,9 @@ impl<
                 e
             })?;
 
-            let res = func(input);
+            let pointer = input.as_mut().deref_mut() as *mut _;
+
+            let res = func(unsafe { &mut (*pointer) });
 
             let erased = res as *const _;
 
@@ -1534,7 +1545,9 @@ impl<
                 e
             })?;
 
-            let res = func(input, arg);
+            let pointer = input.as_mut().deref_mut() as *mut _;
+
+            let res = func(unsafe { &mut (*pointer) }, arg);
 
             let erased = res as *const _;
 
@@ -1815,7 +1828,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input);
+            let res = func(&mut input.as_mut());
 
             res.into_steelval()
         };
@@ -1845,7 +1858,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 e
             })?;
 
-            let res = func(input);
+            let res = func(&input.as_ro());
 
             res.into_steelval()
         };
@@ -1881,7 +1894,7 @@ impl<
                 err
             })?;
 
-            let res = func(input, arg);
+            let res = func(&input.as_ro(), arg);
 
             res.into_steelval()
         };
@@ -1913,7 +1926,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 e
             })?;
 
-            let res = func(input);
+            let res = func(&input.as_ro());
 
             res.into_steelval()
         };
@@ -2237,7 +2250,7 @@ macro_rules! impl_register_fn_self {
                 e
             })?;
 
-                    let res = func(&mut input, $(<$param>::from_steelval(&args[$idx]).map_err(|mut err| {
+                    let res = func(&mut input.as_mut(), $(<$param>::from_steelval(&args[$idx]).map_err(|mut err| {
                             err.prepend_message(":");
                             err.prepend_message(name);
                             err
@@ -2267,14 +2280,14 @@ macro_rules! impl_register_fn_self {
                  }
 
                  let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
-                e.prepend_message(&format!("{}:", name));
-                e
-            })?;
+                    e.prepend_message(&format!("{}:", name));
+                    e
+                 })?;
 
-                 let res = func(&mut input, $(<$param>::from_steelval(&args[$idx]).map_err(|mut e| {
-                e.prepend_message(&format!("{}:", name));
-                e
-            })?,)*);
+                 let res = func(&mut input.as_mut(), $(<$param>::from_steelval(&args[$idx]).map_err(|mut e| {
+                    e.prepend_message(&format!("{}:", name));
+                    e
+                 })?,)*);
 
                  res.into_steelval()
              };
