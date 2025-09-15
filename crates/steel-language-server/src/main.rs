@@ -7,7 +7,7 @@ use steel::{
     parser::interner::InternedString,
     steel_vm::{engine::Engine, register_fn::RegisterFn},
 };
-use steel_language_server::backend::{lsp_home, Backend, ExternalModuleResolver, ENGINE};
+use steel_language_server::backend::{lsp_home, Backend, Config, ExternalModuleResolver, ENGINE};
 
 use tower_lsp::{LspService, Server};
 
@@ -73,6 +73,7 @@ async fn main() {
     }
 
     let (service, socket) = LspService::build(|client| Backend {
+        config: Config::new(),
         client,
         ast_map: DashMap::new(),
         lowered_ast_map: DashMap::new(),
