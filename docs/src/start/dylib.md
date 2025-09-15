@@ -243,7 +243,7 @@ fn create_module() -> FFIModule {
 (require-builtin steel/ffi)
 
 (#%require-dylib "libsteel_sys_info"
-                 (only-in register-logging test-logging))
+                 (only-in register-logger test-logging))
 
 
 ;; Assuming our function is `log::info!` or whatever we want to use here
