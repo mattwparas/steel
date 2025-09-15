@@ -110,51 +110,6 @@ Checks if a given value is an output port
 > (define output (open-output-file "foo.txt"))
 > (output-port? output) ;; => #true
 ```
-### **peek-byte**
-Peeks the next byte from an input port.
-
-(peek-byte [port]) -> byte?
-
-* port : input-port? = (current-input-port)
-### **peek-char**
-Peeks the next character from an input port.
-
-(peek-char [port]) -> char?
-
-* port : input-port? = (current-input-port)
-### **read-byte**
-Reads a single byte from an input port.
-
-(read-byte [port]) -> byte?
-
-* port : input-port? = (current-input-port)
-### **read-bytes**
-Reads bytes from an input port.
-
-(read-bytes amt [port]) -> bytes?
-
-* amt : (and positive? int?)
-* port : input-port? = (current-input-port)
-### **read-bytes-into-buf**
-Reads bytes from an input port into a given buffer.
-
-(read-bytes-into-buf buf amt [port]) -> int?
-
-* buf : bytes?
-* amt : (and positive? int?)
-* port : input-port? = (current-input-port)
-### **read-char**
-Reads the next character from an input port.
-
-(read-char [port]) -> char?
-
-* port : input-port? = (current-input-port)
-### **read-line**
-Reads a line from an input port.
-
-(read-line [port]) -> string?
-
-* port : input-port? = (current-input-port)
 ### **read-line-from-port**
 Reads a line from the given port, including the '\n' at the end.
 
@@ -162,12 +117,6 @@ Use of this procedure is discouraged in favor of the (read-line) procedure,
 which is included in the scheme spec and therefore more portable.
 
 (read-line-from-port port?) -> string?
-### **read-port-to-string**
-Takes a port and reads the entire content into a string
-
-(read-port-to-string port) -> string?
-
-* port : input-port?
 ### **stdin**
 Gets the port handle to stdin
 
@@ -182,20 +131,6 @@ Gets the port handle to stdin
 Returns `#t` if the value is an EOF object.
 
 (eof-object? any/c) -> bool?
-### **write-byte**
-Writes a single byte to an output port.
-
-(write-byte b [port])
-
-* b : byte?
-* port : output-port? = (current-output-port)
-### **write-bytes**
-Writes the contents of a bytevector into an output port.
-
-(write-bytes buf [port])
-
-* buf : bytes?
-* port : output-port? = (current-output-port)
 ### **flush-output-port**
 ### **stdout**
 ### **would-block**

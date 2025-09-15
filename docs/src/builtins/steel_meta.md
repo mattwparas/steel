@@ -44,13 +44,17 @@ then default-value (which defaults to #f) is returned.
 ### **box**
 ### **box-strong**
 ### **breakpoint!**
+### **bytes->serialized**
 ### **call-with-current-continuation**
 ### **call-with-exception-handler**
 ### **call/cc**
 ### **callstack-hydrate-names**
 ### **current-function-span**
 ### **current-module**
+### **current-module-relative**
 ### **current-os!**
+### **debug-globals**
+### **deserialize-value**
 ### **dump-profiler**
 ### **emit-expanded**
 ### **env-var**
@@ -76,6 +80,7 @@ then default-value (which defaults to #f) is returned.
 ### **make-will-executor**
 ### **maybe-get-env-var**
 ### **memory-address**
+### **module->exports**
 ### **multi-arity?**
 ### **path-separator**
 ### **platform-dll-extension!**
@@ -85,6 +90,8 @@ then default-value (which defaults to #f) is returned.
 ### **raise-error-with-span**
 ### **read!**
 ### **run!**
+### **serialize-value**
+### **serialized->bytes**
 ### **set-box!**
 ### **set-env-var!**
 ### **set-strong-box!**
