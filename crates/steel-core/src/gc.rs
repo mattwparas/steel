@@ -14,6 +14,7 @@ pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 
 pub use shared::{GcMut, MutContainer, ShareableMut, Shared, SharedMut};
+pub use unsafe_erased_pointers::is_reference_type;
 
 #[cfg(feature = "sync")]
 use parking_lot::RwLock;
