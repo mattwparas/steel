@@ -117,6 +117,10 @@ impl SymbolMap {
         self.values.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
     pub fn roll_back(&mut self, index: usize) {
         for value in self.values.drain(index..) {
             self.map.remove(&value);

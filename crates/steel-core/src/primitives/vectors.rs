@@ -949,7 +949,7 @@ pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> R
     }
 
     // Update the vector position
-    guard[i as usize] = value;
+    guard[i] = value;
 
     Ok(SteelVal::Void)
 }

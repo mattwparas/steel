@@ -2526,9 +2526,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
 impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContextRefQueue<'a> {
     type Output = ();
 
-    fn default_output(&mut self) -> Self::Output {
-        ()
-    }
+    fn default_output(&mut self) -> Self::Output {}
 
     fn pop_front(&mut self) -> Option<SteelValPointer> {
         self.local_queue.pop().or_else(|| self.queue.pop())

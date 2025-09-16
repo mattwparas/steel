@@ -543,7 +543,7 @@ fn populate_fields_offsets<'a>(
     struct_fields_list: &List<SteelVal>,
     fields_to_update: &mut smallvec::SmallVec<[(usize, &'a mut SteelVal); 5]>,
 ) -> Result<()> {
-    Ok(loop {
+    loop {
         match (fields.next(), fields.next()) {
             (Some(key), Some(value)) => {
                 // check all of the struct offsets first, otherwise roll back the applied changes to the struct?
@@ -560,7 +560,9 @@ fn populate_fields_offsets<'a>(
                 stop!(ArityMismatch => "struct-update must have a value for every key!");
             }
         }
-    })
+    }
+
+    Ok(())
 }
 
 pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {

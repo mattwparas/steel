@@ -1102,10 +1102,10 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     // and continue the iteration on another thread. That will
     // help with long drops for recursive data structures.
     fn visit(&mut self) -> Self::Output {
-        let mut ret = self.default_output();
+        self.default_output();
 
         while let Some(value) = self.pop_front() {
-            ret = match value {
+            match value {
                 Closure(c) => self.visit_closure(c),
                 BoolV(b) => self.visit_bool(b),
                 NumV(n) => self.visit_float(n),
@@ -1193,8 +1193,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 // });
             }
         }
-
-        ret
     }
 
     fn visit_pair(&mut self, pair: Gc<Pair>) -> Self::Output {
