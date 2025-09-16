@@ -140,7 +140,7 @@ impl<'a> VisitorMutControlFlow for EllipsesExpanderVisitor<'a> {
                     // Check that the length is the same
                     if previously_seen_length != found_list.len() {
                         self.error =
-                            Some(format!("Mismatched lengths found in ellipses expansion"));
+                            Some("Mismatched lengths found in ellipses expansion".to_owned());
                         return ControlFlow::Break(());
                     }
 

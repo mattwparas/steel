@@ -1819,7 +1819,7 @@ pub struct OpaqueIterator {
 
 impl Custom for OpaqueIterator {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        Some(Ok(format!("#<iterator>")))
+        Some(Ok("#<iterator>".to_owned()))
     }
 }
 
