@@ -14,7 +14,7 @@ An embeddable and extensible scheme dialect built in Rust.
 [![Discord Chat](https://img.shields.io/discord/1152443024715034675.svg?logo=discord&label=discord)](https://discord.gg/WwFRXdN6HU)
 [![Matrix Chat](https://img.shields.io/matrix/steel:matrix.org?logo=element&label=matrix)](https://matrix.to/#/#steel:matrix.org)
 
-<a href="https://mattwparas.github.io/steel-playground/dev">
+<a href="https://mattwparas.github.io/steel-playground/">
     <b>Try it on the Playground</b>
 </a>
 ·
@@ -55,7 +55,7 @@ For more details, see the [book](https://mattwparas.github.io/steel/book).
 ## Getting Started
 
 This github repository contains a CLI interpreter. To try it out on the online
-playground, go to the [Steel playground](https://mattwparas.github.io/steel-playground/dev).
+playground, go to the [Steel playground](https://mattwparas.github.io/steel-playground/).
 To get started using a REPL with the crates, make sure you first have Rust
 installed.
 
