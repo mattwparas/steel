@@ -3,7 +3,7 @@
 ## Playground
 
 If you want to start exploring Steel you can use the [Steel
-Playground](https://mattwparas.github.io/steel-playground/dev)
+Playground](https://mattwparas.github.io/steel-playground/)
 
 ## Local Install options
 

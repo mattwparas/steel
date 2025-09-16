@@ -2,7 +2,7 @@
 
 The Steel Playground allows you to try Steel out directly from your browser. Visit the Steel Playground at:
 
-<https://mattwparas.github.io/steel-playground/dev/>
+<https://mattwparas.github.io/steel-playground/>
 
 The Steel Playground's environment is as follows:
 
