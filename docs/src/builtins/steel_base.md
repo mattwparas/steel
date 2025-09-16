@@ -897,18 +897,7 @@ Converts a number to an exact number.
 > (exact 1.5+2.5i) ;; => 3/2+5/2i
 ```
 ### **exact->inexact**
-Converts an exact number to an inexact number.
-
-(exact->inexact num) -> number?
-
-* num : number? - The number to convert from exact to inexact.
-
-#### Examples
-```scheme
-> (exact->inexact 10) ;; => 10
-> (exact->inexact 1/2) ;; => 0.5
-> (exact->inexact 1+2i) ;; => 1+2i
-```
+Alias of `inexact`.
 ### **exact-integer-sqrt**
 Computes the integer square root of the given non-negative integer.
 
@@ -1472,18 +1461,7 @@ Converts a number to an inexact number.
 > (inexact 1+2i) ;; => 1+2i
 ```
 ### **inexact->exact**
-Converts an inexact number to an exact number.
-
-(inexact->exact num) -> number?
-
-* num : number? - The number to convert from inexact to exact.
-
-#### Examples
-```scheme
-> (inexact->exact 10.0) ;; => 10
-> (inexact->exact 1.5) ;; => 3/2
-> (inexact->exact 1.5+2.5i) ;; => 3/2+5/2i
-```
+Alias of `exact`.
 ### **inexact?**
 Checks if the given value is inexact.
 
