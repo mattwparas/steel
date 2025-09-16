@@ -1407,7 +1407,7 @@ fn bounds_mut(
     mut rest: RestArgsIter<'_, isize>,
     name: &str,
     args: usize,
-    vector: &Vec<SteelVal>,
+    vector: &[SteelVal],
 ) -> Result<(usize, usize)> {
     if rest.len() > 2 {
         stop!(ArityMismatch => "{} expects at most {} arguments", name, args);

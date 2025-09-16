@@ -2027,7 +2027,7 @@ impl ParallelMarker {
         }
     }
 
-    pub fn mark(&self, queue: &Vec<SteelVal>) -> MarkAndSweepStats {
+    pub fn mark(&self, queue: &[SteelVal]) -> MarkAndSweepStats {
         let guard = self.senders.lock().unwrap();
 
         for value in queue.iter() {
