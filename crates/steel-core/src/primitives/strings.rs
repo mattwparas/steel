@@ -22,6 +22,7 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_TO_UPPER_DEFINITION)
         .register_native_fn_definition(STRING_TO_LOWER_DEFINITION)
         .register_native_fn_definition(STRING_LENGTH_DEFINITION)
+        .register_native_fn_definition(UTF8_LENGTH_DEFINITION)
         .register_native_fn_definition(TRIM_DEFINITION)
         .register_native_fn_definition(TRIM_START_DEFINITION)
         .register_native_fn_definition(TRIM_END_DEFINITION)
@@ -776,6 +777,22 @@ pub fn ends_with(value: &SteelString, suffix: &SteelString) -> bool {
 #[function(name = "string-length")]
 pub fn string_length(value: &SteelString) -> usize {
     value.chars().count()
+}
+
+/// Get the length of the string in UTF-8 bytes.
+///
+/// (utf8-length string?) -> int?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (utf8-length "apples") ;; => 6
+/// > (utf8-length "αβγ") ;; => 6
+/// > (utf8-length "✅") ;; => 3
+/// ```
+#[function(name = "utf8-length")]
+pub fn utf8_length(value: &SteelString) -> usize {
+    value.len()
 }
 
 /// Concatenates all of the given strings into one

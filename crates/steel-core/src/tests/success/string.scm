@@ -20,3 +20,10 @@
 (assert-equal! (bytes-length (string->bytes "aλ")) 3)
 (assert-equal! (bytes-length (string->bytes "✅")) 3)
 (assert-equal! (bytes-length (string->bytes "")) 0)
+
+;; utf8-length
+(assert-equal! (utf8-length "one two") 7)
+(assert-equal! (utf8-length "αβγ") 6)
+(assert-equal! (utf8-length "aλ") 3)
+(assert-equal! (utf8-length "✅") 3)
+(assert-equal! (utf8-length "") 0)
