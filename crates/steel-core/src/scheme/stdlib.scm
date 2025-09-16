@@ -800,10 +800,21 @@
 (define (slice l offset n)
   (take (drop l offset) n))
 
+;;@doc
+;; Recursively flatten an arbitray structure of pairs into a single list.
+;;
+;; (flatten any/c) -> list?
+;;
+;; # Examples
+;;
+;; ```scheme
+;; (flatten '(a (b (c . d)) e ())) ;; => '(a b c d e)
+;; (flatten 'a) => '(a)
+;; ```
 (define (flatten lst)
   (cond
     [(null? lst) '()]
-    [(list? lst) (append (flatten (car lst)) (flatten (cdr lst)))]
+    [(pair? lst) (append (flatten (car lst)) (flatten (cdr lst)))]
     [else (list lst)]))
 
 (define (gcd a b)

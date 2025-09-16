@@ -83,6 +83,17 @@ returns #t.
 ```scheme
 (filter even? (range 0 5)) ;; '(0 2 4)
 ```
+### **flatten**
+Recursively flatten an arbitray structure of pairs into a single list.
+
+(flatten any/c) -> list?
+
+#### Examples
+
+```scheme
+(flatten '(a (b (c . d)) e ())) ;; => '(a b c d e)
+(flatten 'a) => '(a)
+```
 ### **for-each**
 Applies a procedure to all elements of a list
 
@@ -145,7 +156,6 @@ containing each result of `func` in order.
 ### **curry**
 ### **curry2**
 ### **even-rec?**
-### **flatten**
 ### **flip**
 ### **fold**
 ### **foldl**
