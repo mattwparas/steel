@@ -27,6 +27,7 @@ use crate::{
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
 use std::collections::VecDeque;
+use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::{
@@ -129,7 +130,7 @@ pub struct SerializableUserDefinedStruct {
     pub(crate) type_descriptor: StructTypeDescriptor,
 }
 
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug)]
 pub struct UserDefinedStruct {
     // pub(crate) fields: Recycle<Vec<SteelVal>>,
     pub(crate) fields: Recycle<SmallVec<[SteelVal; 4]>>,
@@ -175,6 +176,13 @@ impl UserDefinedStruct {
 impl PartialEq for UserDefinedStruct {
     fn eq(&self, other: &Self) -> bool {
         self.type_descriptor == other.type_descriptor && self.fields.deref() == other.fields.deref()
+    }
+}
+
+impl Hash for UserDefinedStruct {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.type_descriptor.hash(state);
+        self.fields.deref().hash(state);
     }
 }
 
