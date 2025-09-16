@@ -116,6 +116,12 @@ Peeks the next byte from an input port.
 (peek-byte [port]) -> byte?
 
 * port : input-port? = (current-input-port)
+### **peek-char**
+Peeks the next character from an input port.
+
+(peek-char [port]) -> char?
+
+* port : input-port? = (current-input-port)
 ### **read-byte**
 Reads a single byte from an input port.
 

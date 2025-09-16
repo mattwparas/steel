@@ -7,7 +7,7 @@ use crate::rvals::{
     FromSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal, SteelValDisplay,
 };
 use crate::steel_vm::builtin::BuiltInModule;
-use crate::values::port::{would_block, SteelPort, SteelPortRepr, WOULD_BLOCK_OBJECT};
+use crate::values::port::{would_block, Peekable, SteelPort, SteelPortRepr, WOULD_BLOCK_OBJECT};
 use crate::values::structs::{make_struct_singleton, StructTypeDescriptor};
 use crate::{stop, throw};
 
@@ -59,6 +59,7 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(OPEN_INPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(READ_BYTE_DEFINITION)
         .register_native_fn_definition(READ_CHAR_DEFINITION)
+        .register_native_fn_definition(PEEK_CHAR_DEFINITION)
         .register_native_fn_definition(WRITE_BYTE_DEFINITION)
         .register_native_fn_definition(WRITE_BYTES_DEFINITION)
         .register_native_fn_definition(PEEK_BYTE_DEFINITION)
@@ -102,6 +103,7 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
         .register_native_fn_definition(OPEN_INPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(READ_BYTE_DEFINITION)
         .register_native_fn_definition(READ_CHAR_DEFINITION)
+        .register_native_fn_definition(PEEK_CHAR_DEFINITION)
         .register_native_fn_definition(WRITE_BYTE_DEFINITION)
         .register_native_fn_definition(WRITE_BYTES_DEFINITION)
         .register_native_fn_definition(PEEK_BYTE_DEFINITION)
@@ -128,7 +130,7 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
 #[function(name = "stdin")]
 pub fn open_stdin() -> SteelVal {
     SteelVal::PortV(SteelPort {
-        port: Gc::new_mut(SteelPortRepr::StdInput(std::io::stdin())),
+        port: Gc::new_mut(SteelPortRepr::StdInput(Peekable::new(std::io::stdin()))),
     })
 }
 
@@ -634,19 +636,12 @@ pub fn would_block_objectp(value: &SteelVal) -> bool {
 pub fn read_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = input_args(rest)?;
 
-    let maybe_byte = port.read_byte()?;
-
-    match maybe_byte {
+    match port.read_byte()? {
         crate::values::port::MaybeBlocking::Nonblocking(b) => {
             Ok(b.map(|b| SteelVal::IntV(b.into())).unwrap_or_else(eof))
         }
         crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
     }
-
-    // Ok(port
-    //     .read_byte()?
-    //     .map(|b| SteelVal::IntV(b.into()))
-    //     .unwrap_or_else(eof))
 }
 
 /// Reads bytes from an input port.
@@ -739,10 +734,12 @@ pub fn write_bytes(bytes: &SteelByteVector, rest: RestArgsIter<&SteelPort>) -> R
 pub fn peek_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = input_args(rest)?;
 
-    Ok(port
-        .peek_byte()?
-        .map(|b| SteelVal::IntV(b.into()))
-        .unwrap_or_else(eof))
+    match port.peek_byte()? {
+        crate::values::port::MaybeBlocking::Nonblocking(b) => {
+            Ok(b.map(|b| SteelVal::IntV(b.into())).unwrap_or_else(eof))
+        }
+        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+    }
 }
 
 /// Reads the next character from an input port.
@@ -754,9 +751,24 @@ pub fn peek_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
 pub fn read_char(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = input_args(rest)?;
 
-    let char = port.read_char()?;
+    match port.read_char()? {
+        crate::values::port::MaybeBlocking::Nonblocking(c) => {
+            Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
+        }
+        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+    }
+}
 
-    match char {
+/// Peeks the next character from an input port.
+///
+/// (peek-char [port]) -> char?
+///
+/// * port : input-port? = (current-input-port)
+#[function(name = "peek-char")]
+pub fn peek_char(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = input_args(rest)?;
+
+    match port.peek_char()? {
         crate::values::port::MaybeBlocking::Nonblocking(c) => {
             Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
         }

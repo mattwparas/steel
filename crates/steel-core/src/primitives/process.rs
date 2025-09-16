@@ -1,5 +1,5 @@
 use crate::gc::Gc;
-use crate::values::port::{SteelPort, SteelPortRepr};
+use crate::values::port::{Peekable, SteelPort, SteelPortRepr};
 use crate::values::structs::SteelResult;
 use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
@@ -56,7 +56,9 @@ impl ChildProcess {
     pub fn stdout(&mut self) -> Option<SteelVal> {
         let stdout = self.child.as_mut().and_then(|x| x.stdout.take()).map(|x| {
             SteelVal::PortV(SteelPort {
-                port: Gc::new_mut(SteelPortRepr::ChildStdOutput(BufReader::new(x))),
+                port: Gc::new_mut(SteelPortRepr::ChildStdOutput(Peekable::new(
+                    BufReader::new(x),
+                ))),
             })
         });
 
@@ -66,7 +68,9 @@ impl ChildProcess {
     pub fn stderr(&mut self) -> Option<SteelVal> {
         let stdout = self.child.as_mut().and_then(|x| x.stderr.take()).map(|x| {
             SteelVal::PortV(SteelPort {
-                port: Gc::new_mut(SteelPortRepr::ChildStdError(BufReader::new(x))),
+                port: Gc::new_mut(SteelPortRepr::ChildStdError(Peekable::new(BufReader::new(
+                    x,
+                )))),
             })
         });
 
