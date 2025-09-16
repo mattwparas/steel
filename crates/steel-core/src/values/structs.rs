@@ -213,7 +213,7 @@ impl UserDefinedStruct {
         // let mut fields: Recycle<Vec<_>> = Recycle::new();
         let mut fields: Recycle<SmallVec<[SteelVal; 4]>> = Recycle::new();
         // fields.extend_from_slice(raw_fields);
-        fields.extend(raw_fields.into_iter().cloned());
+        fields.extend(raw_fields.iter().cloned());
 
         // let fields = raw_fields.into_iter().cloned().collect();
 
@@ -302,7 +302,7 @@ impl UserDefinedStruct {
         // fields.extend_from_slice(rest);
 
         let mut fields: Recycle<SmallVec<[_; 4]>> = Recycle::new_with_capacity(rest.len());
-        fields.extend(rest.into_iter().cloned());
+        fields.extend(rest.iter().cloned());
 
         // let fields = rest.into_iter().cloned().collect();
 

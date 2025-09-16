@@ -1733,7 +1733,7 @@ impl Heap {
 
                 let stats = self.mark_and_sweep_new(
                     None,
-                    values.into_iter().cloned(),
+                    values.iter().cloned(),
                     roots,
                     live_functions,
                     globals,

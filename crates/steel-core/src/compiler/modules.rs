@@ -2613,7 +2613,7 @@ impl<'a> ModuleBuilder<'a> {
                 }
 
                 // Try this?
-                if let Some(lib) = BUILT_INS.into_iter().cloned().find(|x| x.0 == s.as_str()) {
+                if let Some(lib) = BUILT_INS.iter().cloned().find(|x| x.0 == s.as_str()) {
                     // self.built_ins.push(PathBuf::from(lib.0));
 
                     require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));

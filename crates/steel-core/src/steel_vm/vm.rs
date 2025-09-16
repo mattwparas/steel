@@ -4095,7 +4095,7 @@ impl<'a> VmCore<'a> {
                     // not running on the root?
                     // self.root_spans[self.ip..forward_jump_index].into()
                     if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
-                        span_range.into_iter().cloned().collect::<Vec<_>>().into()
+                        span_range.to_vec().into()
                     } else {
                         Shared::from(Vec::new())
                     }
@@ -4165,7 +4165,7 @@ impl<'a> VmCore<'a> {
                                 */
                 // self.root_spans[self.ip..forward_jump_index].into()
                 if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
-                    span_range.into_iter().cloned().collect::<Vec<_>>().into()
+                    span_range.to_vec().into()
                 } else {
                     Shared::from(Vec::new())
                 }
@@ -4357,7 +4357,7 @@ impl<'a> VmCore<'a> {
                     // self.root_spans[self.ip..forward_jump_index].into()
 
                     if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
-                        span_range.into_iter().cloned().collect::<Vec<_>>().into()
+                        span_range.to_vec().into()
                     } else {
                         Shared::from(Vec::new())
                     }
@@ -4370,7 +4370,7 @@ impl<'a> VmCore<'a> {
 
                 // For now, lets go ahead and use this... hack to get us going
                 if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
-                    span_range.into_iter().cloned().collect::<Vec<_>>().into()
+                    span_range.to_vec().into()
                 } else {
                     Shared::from(Vec::new())
                 }
