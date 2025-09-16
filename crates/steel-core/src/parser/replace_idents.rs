@@ -327,7 +327,7 @@ impl<'a> ReplaceExpressions<'a> {
     }
 
     fn vec_expr_syntax_const_if(&self, vec_exprs: &[ExprKind]) -> Result<Option<ExprKind>> {
-        match vec_exprs.get(0) {
+        match vec_exprs.first() {
             Some(ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {

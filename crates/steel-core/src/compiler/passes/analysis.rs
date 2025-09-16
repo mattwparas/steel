@@ -4792,7 +4792,7 @@ impl<'a> SemanticAnalysis<'a> {
             if let ExprKind::List(l) = anon {
                 // Don't replace anonymous function calls that have rest args - those are not yet handled
                 // with a blind let replacement
-                if let ExprKind::LambdaFunction(f) = l.args.get(0).unwrap() {
+                if let ExprKind::LambdaFunction(f) = l.args.first().unwrap() {
                     if f.rest {
                         return false;
                     }

@@ -5120,7 +5120,7 @@ pub fn current_function_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
 fn inspect_impl(ctx: &VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let guard = &ctx.thread.compiler.read().sources.sources;
 
-    if let Some(SteelVal::Closure(c)) = args.get(0) {
+    if let Some(SteelVal::Closure(c)) = args.first() {
         let spans = ctx.thread.function_interner.spans.get(&c.id);
 
         let instructions = c.body_exp();
