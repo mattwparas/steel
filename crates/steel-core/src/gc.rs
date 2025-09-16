@@ -838,7 +838,7 @@ pub mod unsafe_erased_pointers {
         fn drop_mut(&mut self, drop_handler: &mut IterativeDropHandler) {}
     }
 
-    impl<'a, T: CustomReference + 'static> ReferenceCustomType for T {
+    impl<T: CustomReference + 'static> ReferenceCustomType for T {
         fn as_any_ref(&self) -> &dyn Any {
             self as &dyn Any
         }
@@ -1109,7 +1109,7 @@ pub mod unsafe_erased_pointers {
 
     impl<T> CustomReference for BorrowedObject<T> {}
 
-    impl<'a, T> Clone for BorrowedObject<T> {
+    impl<T> Clone for BorrowedObject<T> {
         fn clone(&self) -> Self {
             Self {
                 ptr: WeakShared::clone(&self.ptr),
@@ -1373,9 +1373,7 @@ pub mod unsafe_erased_pointers {
     }
 
     impl<T: ReferenceCustomType + 'static> AsRefMutSteelValFromRef for T {
-        fn as_mut_ref_from_ref<'a>(
-            val: &'a SteelVal,
-        ) -> crate::rvals::Result<TemporaryMutableView<T>> {
+        fn as_mut_ref_from_ref(val: &SteelVal) -> crate::rvals::Result<TemporaryMutableView<T>> {
             if let SteelVal::Reference(v) = val {
                 let res = v.inner.as_any_ref();
 
@@ -1416,9 +1414,7 @@ pub mod unsafe_erased_pointers {
     }
 
     impl<T: ReferenceCustomType + 'static> AsRefSteelValFromRef for T {
-        fn as_ref_from_ref<'a>(
-            val: &'a SteelVal,
-        ) -> crate::rvals::Result<TemporaryReadonlyView<T>> {
+        fn as_ref_from_ref(val: &SteelVal) -> crate::rvals::Result<TemporaryReadonlyView<T>> {
             if let SteelVal::Reference(v) = val {
                 let res = v.inner.as_any_ref();
 

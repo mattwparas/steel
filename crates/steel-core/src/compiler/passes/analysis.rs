@@ -5055,7 +5055,7 @@ impl<'a> SemanticAnalysis<'a> {
     // Convert the syntax object ids back to interned strings. Could end up
     // returning nothing if the ids are not found in the target AST, which could
     // happen if the analysis gets invalidated by refreshing the vars.
-    pub fn syntax_object_ids_to_identifiers<'b>(
+    pub fn syntax_object_ids_to_identifiers(
         &self,
         ids: &'a mut HashMap<SyntaxObjectId, Option<InternedString>>,
     ) -> &mut HashMap<SyntaxObjectId, Option<InternedString>> {

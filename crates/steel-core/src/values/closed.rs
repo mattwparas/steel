@@ -147,7 +147,7 @@ impl GlobalSlotRecycler {
     }
 }
 
-impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
+impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     type Output = ();
 
     fn default_output(&mut self) -> Self::Output {}
