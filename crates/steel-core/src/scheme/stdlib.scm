@@ -39,8 +39,9 @@
          mem-helper
          ; member
          contains?
-         assq
          assoc
+         assq
+         assv
          filter
          even-rec?
          odd-rec?
@@ -655,26 +656,81 @@
     [(pred? (car lst)) #t]
     [else (contains? pred? (cdr lst))]))
 
-(define (assoc thing alist)
-  (if (null? alist)
-      #f
-      (if (equal? (car (car alist)) thing)
-          (car alist)
-          (assoc thing (cdr alist)))))
+;;@doc
+;; Returns the first pair in the given list, where the car element is `equal?`
+;; to the given obj, returning `#f` if nothing was found.
+;;
+;; It is an error if the given list is not a list of pairs.
+;;
+;; (assoc obj lst) -> (or/c pair? #f)
+;;
+;; * obj : any/c
+;; * lst : (listof pair?)
+;;
+;; # Examples
+;;
+;; ```scheme
+;; (assoc 2 '((1 1) (2 4) (3 9))) ;; => '(2 4)
+;; (assoc 'b '((a 1) (b 2) (c 3))) ;; => '(b 2)
+;; (assoc #\B '((#\a 1) (#\b 2) (#\c 3))) ;; => #f
+;; ```
+(define (assoc obj lst)
+  (cond
+    [(null? lst) #f]
+    [(equal? (car (car lst)) obj) (car lst)]
+    [else (assoc obj (cdr lst))]))
 
-(define (assq thing alist)
-  (if (null? alist)
-      #f
-      (if (eq? (car (car alist)) thing)
-          (car alist)
-          (assq thing (cdr alist)))))
+;;@doc
+;; Returns the first pair in the given list, where the car element is `eq?`
+;; to the given obj, returning `#f` if nothing was found.
+;;
+;; This procedure is equivalent to `assoc`, but using `eq?` instead of `equal?`.
+;;
+;; It is an error if the given list is not a list of pairs.
+;;
+;; (assq obj lst) -> (or/c pair? #f)
+;;
+;; * obj : any/c
+;; * lst : (listof pair?)
+;;
+;; # Examples
+;;
+;; ```scheme
+;; (assq 2 '((1 1) (2 4) (3 9))) ;; => '(2 4)
+;; (assq 'b '((a 1) (b 2) (c 3))) ;; => '(b 2)
+;; (assq #\B '((#\a 1) (#\b 2) (#\c 3))) ;; => #f
+;; ```
+(define (assq obj lst)
+  (cond
+    [(null? lst) #f]
+    [(eq? (car (car lst)) obj) (car lst)]
+    [else (assq obj (cdr lst))]))
 
-(define (assv thing alist)
-  (if (null? alist)
-      #f
-      (if (eq? (car (car alist)) thing)
-          (car alist)
-          (assv thing (cdr alist)))))
+;;@doc
+;; Returns the first pair in the given list, where the car element is `eqv?`
+;; to the given obj, returning `#f` if nothing was found.
+;;
+;; This procedure is equivalent to `assoc`, but using `eqv?` instead of `equal?`.
+;;
+;; It is an error if the given list is not a list of pairs.
+;;
+;; (assv obj lst) -> (or/c pair? #f)
+;;
+;; * obj : any/c
+;; * lst : (listof pair?)
+;;
+;; # Examples
+;;
+;; ```scheme
+;; (assv 2 '((1 1) (2 4) (3 9))) ;; => '(2 4)
+;; (assv 'b '((a 1) (b 2) (c 3))) ;; => '(b 2)
+;; (assv #\B '((#\a 1) (#\b 2) (#\c 3))) ;; => #f
+;; ```
+(define (assv obj lst)
+  (cond
+    [(null? lst) #f]
+    [(eqv? (car (car lst)) obj) (car lst)]
+    [else (assv obj (cdr lst))]))
 
 ;;@doc
 ;; Returns new list, keeping elements from `lst` which applying `pred` to the element
@@ -709,6 +765,7 @@
         (even-rec? (- x 1)))))
 
 (define sum (lambda (x) (reduce + 0 x)))
+
 (define (add1 n)
   (+ 1 n))
 (define (sub1 n)

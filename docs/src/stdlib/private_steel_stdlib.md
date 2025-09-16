@@ -1,6 +1,64 @@
 # #%private/steel/stdlib
 **this module is in the prelude and therefore automatically available when running steel.**
 
+### **assoc**
+Returns the first pair in the given list, where the car element is `equal?`
+to the given obj, returning `#f` if nothing was found.
+
+It is an error if the given list is not a list of pairs.
+
+(assoc obj lst) -> (or/c pair? #f)
+
+* obj : any/c
+* lst : (listof pair?)
+
+#### Examples
+
+```scheme
+(assoc 2 '((1 1) (2 4) (3 9))) ;; => '(2 4)
+(assoc 'b '((a 1) (b 2) (c 3))) ;; => '(b 2)
+(assoc #\B '((#\a 1) (#\b 2) (#\c 3))) ;; => #f
+```
+### **assq**
+Returns the first pair in the given list, where the car element is `eq?`
+to the given obj, returning `#f` if nothing was found.
+
+This procedure is equivalent to `assoc`, but using `eq?` instead of `equal?`.
+
+It is an error if the given list is not a list of pairs.
+
+(assq obj lst) -> (or/c pair? #f)
+
+* obj : any/c
+* lst : (listof pair?)
+
+#### Examples
+
+```scheme
+(assq 2 '((1 1) (2 4) (3 9))) ;; => '(2 4)
+(assq 'b '((a 1) (b 2) (c 3))) ;; => '(b 2)
+(assq #\B '((#\a 1) (#\b 2) (#\c 3))) ;; => #f
+```
+### **assv**
+Returns the first pair in the given list, where the car element is `eqv?`
+to the given obj, returning `#f` if nothing was found.
+
+This procedure is equivalent to `assoc`, but using `eqv?` instead of `equal?`.
+
+It is an error if the given list is not a list of pairs.
+
+(assv obj lst) -> (or/c pair? #f)
+
+* obj : any/c
+* lst : (listof pair?)
+
+#### Examples
+
+```scheme
+(assv 2 '((1 1) (2 4) (3 9))) ;; => '(2 4)
+(assv 'b '((a 1) (b 2) (c 3))) ;; => '(b 2)
+(assv #\B '((#\a 1) (#\b 2) (#\c 3))) ;; => #f
+```
 ### **drop**
 Returns the list l after the first n elements.
 
@@ -43,8 +101,6 @@ containing each result of `func` in order.
 ### **\*reset**
 ### **\*shift**
 ### **add1**
-### **assoc**
-### **assq**
 ### **caaaar**
 ### **caaar**
 ### **caadar**
