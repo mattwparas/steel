@@ -110,7 +110,7 @@ fn vector_to_string(
         Either::Left(vector) => immutable_vector_to_string(vector, rest),
         Either::Right(vec) => {
             // TODO: Get rid of this unnecessary clone on the get
-            let (start, end) = vec.borrow(|x| bounds_mut(rest, "vector->string", 3, &x))?;
+            let (start, end) = vec.borrow(|x| bounds_mut(rest, "vector->string", 3, x))?;
 
             vec.borrow(|x| {
                 x.iter()

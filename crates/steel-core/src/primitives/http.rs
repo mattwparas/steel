@@ -142,7 +142,7 @@ fn parse_request(buf: &[u8]) -> Result<SteelVal> {
     // Pull more bytes from the stream?
     let mut headers = [httparse::EMPTY_HEADER; 16];
     let mut req = httparse::Request::new(&mut headers);
-    let res = req.parse(&buf).unwrap();
+    let res = req.parse(buf).unwrap();
     if res.is_complete() {
         let request = SteelRequest {
             method: req.method.unwrap().to_string().into(),
@@ -174,7 +174,7 @@ fn parse_response(buf: &[u8]) -> Result<SteelVal> {
     // Pull more bytes from the stream?
     let mut headers = [httparse::EMPTY_HEADER; 64];
     let mut req = httparse::Response::new(&mut headers);
-    let res = req.parse(&buf).unwrap();
+    let res = req.parse(buf).unwrap();
     if res.is_complete() {
         let request = SteelResponse {
             version: req.version.unwrap(),

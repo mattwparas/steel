@@ -397,7 +397,7 @@ impl Kernel {
                         if let ExprKind::LambdaFunction(_) = &define.body {
                             let name = define.name.atom_identifier().unwrap();
 
-                            return if result.contains_key(&name) {
+                            return if result.contains_key(name) {
                                 Some(expr.clone())
                             } else if self.engine.global_exists(name.resolve()) {
                                 // If this global exists, nuke it in the engine
@@ -419,7 +419,7 @@ impl Kernel {
                                     if let ExprKind::LambdaFunction(_) = &define.body {
                                         let name = define.name.atom_identifier().unwrap();
 
-                                        return result.contains_key(&name);
+                                        return result.contains_key(name);
 
                                         // return if result.contains_key(&name) {
                                         //     true

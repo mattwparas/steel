@@ -1339,7 +1339,7 @@ impl Continuation {
                         .as_ref()
                         .and_then(|x| WeakShared::upgrade(&x.inner))
                 }) {
-                    if StandardShared::ptr_eq(&mark, &this.inner) {
+                    if StandardShared::ptr_eq(mark, &this.inner) {
                         if weak_count == 1
                             && strong_count > 1
                             && Self::close_marks(ctx, &stack_frame)

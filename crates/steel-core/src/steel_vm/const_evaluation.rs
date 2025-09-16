@@ -155,7 +155,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
         let mut collector = CollectSet::new(&mut self.set_idents);
 
         for expr in &input {
-            collector.visit(&expr);
+            collector.visit(expr);
         }
 
         // let mut collector = CollectSet::new(&mut self.set_idents);
@@ -566,15 +566,15 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         match &a.syn.ty {
             TokenType::Identifier(s) => {
                 // If we found a set identifier, skip it
-                if self.set_idents.get(&s).is_some() || self.expr_level_set_idents.contains(&s) {
-                    self.bindings.borrow_mut().unbind(&s);
+                if self.set_idents.get(s).is_some() || self.expr_level_set_idents.contains(s) {
+                    self.bindings.borrow_mut().unbind(s);
 
                     return Ok(ExprKind::Atom(a));
                 };
                 if let Some(new_token) = self
                     .bindings
                     .borrow_mut()
-                    .get(&s)
+                    .get(s)
                     .and_then(|x| steelval_to_atom(&x))
                 {
                     Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(

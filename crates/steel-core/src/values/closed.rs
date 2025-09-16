@@ -1082,7 +1082,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         heap_guard.value = value;
 
         heap_guard.reachable = true;
-        let weak_ptr = StandardShared::downgrade(&guard);
+        let weak_ptr = StandardShared::downgrade(guard);
         drop(heap_guard);
 
         // self.elements[self.cursor] = pointer;
@@ -1457,7 +1457,7 @@ impl FreeList<Vec<SteelVal>> {
         heap_guard.value.shrink_to_fit();
 
         heap_guard.reachable = true;
-        let weak_ptr = StandardShared::downgrade(&guard);
+        let weak_ptr = StandardShared::downgrade(guard);
         drop(heap_guard);
 
         // self.elements[self.cursor] = pointer;
@@ -1938,7 +1938,7 @@ impl Heap {
         log::debug!(target: "gc", "Stack size: {}", context.queue.len());
 
         #[cfg(feature = "sync")]
-        let count = MARKER.mark(&context.queue);
+        let count = MARKER.mark(context.queue);
 
         #[cfg(not(feature = "sync"))]
         let count = {
@@ -2287,7 +2287,7 @@ impl<'a> MarkAndSweepContextRefQueue<'a> {
         self.stats.vector_reached_count += 1;
 
         for value in heap_vector.read().value.iter() {
-            self.push_back(&value);
+            self.push_back(value);
         }
     }
 
@@ -2580,11 +2580,11 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
 
     fn visit_closure(&mut self, closure: &ByteCodeLambda) -> Self::Output {
         for capture in closure.captures() {
-            self.push_back(&capture);
+            self.push_back(capture);
         }
 
         if let Some(contract) = closure.get_contract_information().as_ref() {
-            self.push_back(&contract);
+            self.push_back(contract);
         }
     }
     fn visit_continuation(
@@ -2598,18 +2598,18 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
             ContinuationMark::Closed(continuation) => {
                 for value in &continuation.stack {
                     self.save(value.clone());
-                    self.push_back(&value);
+                    self.push_back(value);
                 }
 
                 for value in &continuation.current_frame.function.captures {
                     self.save(value.clone());
-                    self.push_back(&value);
+                    self.push_back(value);
                 }
 
                 for frame in &continuation.stack_frames {
                     for value in &frame.function.captures {
                         self.save(value.clone());
-                        self.push_back(&value);
+                        self.push_back(value);
                     }
 
                     if let Some(handler) =
@@ -2698,7 +2698,7 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
 
     fn visit_reducer(&mut self, reducer: &Reducer) -> Self::Output {
         match reducer {
-            Reducer::ForEach(f) => self.push_back(&f),
+            Reducer::ForEach(f) => self.push_back(f),
             Reducer::Generic(rf) => {
                 self.push_back(&rf.initial_value);
                 self.push_back(&rf.function);
@@ -2709,7 +2709,7 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
 
     fn visit_steel_struct(&mut self, steel_struct: &UserDefinedStruct) -> Self::Output {
         for field in steel_struct.fields.iter() {
-            self.push_back(&field);
+            self.push_back(field);
         }
     }
 

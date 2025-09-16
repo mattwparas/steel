@@ -506,7 +506,7 @@ impl<
                 e
             })?;
 
-            let res = func(&input, area, &ctx.as_ro());
+            let res = func(&input, area, ctx.as_ro());
 
             res.into_steelval()
         };
@@ -1235,7 +1235,7 @@ impl<
                 e
             })?;
 
-            let res = func(&input, area, &ctx.as_ro());
+            let res = func(&input, area, ctx.as_ro());
 
             res.into_steelval()
         };
@@ -1858,7 +1858,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 e
             })?;
 
-            let res = func(&input.as_ro());
+            let res = func(input.as_ro());
 
             res.into_steelval()
         };
@@ -1894,7 +1894,7 @@ impl<
                 err
             })?;
 
-            let res = func(&input.as_ro(), arg);
+            let res = func(input.as_ro(), arg);
 
             res.into_steelval()
         };
@@ -1926,7 +1926,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 e
             })?;
 
-            let res = func(&input.as_ro());
+            let res = func(input.as_ro());
 
             res.into_steelval()
         };

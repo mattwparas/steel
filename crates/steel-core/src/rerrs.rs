@@ -179,7 +179,7 @@ impl SteelErr {
     }
 
     pub fn prepend_message(&mut self, message: &str) {
-        self.repr.message.insert_str(0, &message)
+        self.repr.message.insert_str(0, message)
     }
 
     pub fn new(kind: ErrorKind, message: String) -> Self {

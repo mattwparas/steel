@@ -173,7 +173,7 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
                 }),
                 ..,
             ) => {
-                let value = eval_atom(&syn)?;
+                let value = eval_atom(syn)?;
                 let opcode = match &value {
                     SteelVal::IntV(0) => OpCode::LOADINT0,
                     SteelVal::IntV(1) => OpCode::LOADINT1,

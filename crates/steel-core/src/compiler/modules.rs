@@ -554,7 +554,7 @@ impl ModuleManager {
             let (module, in_scope_macros, mut name_mangler) = Self::find_in_scope_macros(
                 &mut self.compiled_modules,
                 require_for_syntax.as_ref(),
-                &require_object,
+                require_object,
                 &mut mangled_asts,
             );
 
@@ -1056,7 +1056,7 @@ pub fn path_to_module_name(name: PathBuf) -> String {
             .unwrap()
             .trim_start_matches(steel_home.as_str());
 
-        let interned = InternedString::from_str(&name);
+        let interned = InternedString::from_str(name);
         let id = interned.get().into_inner();
 
         base.push_str(&id.to_string());
@@ -1092,7 +1092,7 @@ impl CompiledModule {
                 .unwrap()
                 .trim_start_matches(steel_home.as_str());
 
-            let interned = InternedString::from_str(&name);
+            let interned = InternedString::from_str(name);
             let id = interned.get().into_inner();
 
             // base.push_str(name);
@@ -2262,7 +2262,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 // Expanding macros in the environment?
-                &self.name.to_str().unwrap(),
+                self.name.to_str().unwrap(),
             )?;
             // })
         }
@@ -2283,7 +2283,7 @@ impl<'a> ModuleBuilder<'a> {
             let (module, in_scope_macros, name_mangler) = ModuleManager::find_in_scope_macros(
                 self.compiled_modules,
                 require_for_syntax.as_ref(),
-                &require_object,
+                require_object,
                 &mut mangled_asts,
             );
 
@@ -2908,7 +2908,7 @@ impl<'a> ModuleBuilder<'a> {
                         for atom in &r.modules {
                             // TODO: Consider making this not a reference for r
                             let require_object =
-                                module_builder.parse_require_object(&home, &r, atom)?;
+                                module_builder.parse_require_object(home, &r, atom)?;
 
                             module_builder.require_objects.push(require_object);
                         }
@@ -3074,7 +3074,7 @@ impl<'a> ModuleBuilder<'a> {
 
         file.read_to_string(&mut exprs)?;
 
-        let mut expressions = Parser::new(&PRELUDE_STRING, SourceId::none())
+        let mut expressions = Parser::new(PRELUDE_STRING, SourceId::none())
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;
@@ -3088,7 +3088,7 @@ impl<'a> ModuleBuilder<'a> {
 
             let exprs = guard.get(id).unwrap();
 
-            let mut parsed = Parser::new_from_source(&exprs, self.name.clone(), Some(id))
+            let mut parsed = Parser::new_from_source(exprs, self.name.clone(), Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
                 .collect::<std::result::Result<Vec<_>, ParseError>>()?;

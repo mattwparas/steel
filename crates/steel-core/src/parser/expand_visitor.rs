@@ -1280,7 +1280,7 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
 
     fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
         if self.depth > 96 {
-            stop!(BadSyntax => "Current expansion depth of defmacro style macros exceeded: depth capped at 96"; get_span(&expr));
+            stop!(BadSyntax => "Current expansion depth of defmacro style macros exceeded: depth capped at 96"; get_span(expr));
         }
 
         let res = match expr {

@@ -931,7 +931,7 @@ impl Compiler {
                     expr,
                     self.kernel.as_mut(),
                     self.builtin_modules.clone(),
-                    &module,
+                    module,
                 )?;
 
                 if changed {
@@ -1105,7 +1105,7 @@ impl Compiler {
                     expr,
                     self.kernel.as_mut(),
                     self.builtin_modules.clone(),
-                    &module,
+                    module,
                 )?;
 
                 if changed {

@@ -1957,8 +1957,8 @@ impl<'a> RecursiveEqualityHandler<'a> {
                             match (lvalue, rvalue) {
                                 (SteelVal::ListV(llist), SteelVal::ListV(rlist))
                                     if (llist.is_empty() && rlist.is_empty())
-                                        || llist.ptr_eq(&rlist)
-                                        || llist.storage_ptr_eq(&rlist) =>
+                                        || llist.ptr_eq(rlist)
+                                        || llist.storage_ptr_eq(rlist) =>
                                 {
                                     continue;
                                 }

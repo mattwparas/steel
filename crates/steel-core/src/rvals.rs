@@ -2084,11 +2084,11 @@ impl Hash for SteelVal {
             }
             Pair(p) => {
                 state.write_u8(20);
-                (&**p).hash(state)
+                (**p).hash(state)
             }
             ByteVector(v) => {
                 state.write_u8(21);
-                (&*v).hash(state)
+                (*v).hash(state)
             }
             _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
         }
@@ -2489,7 +2489,7 @@ impl PartialOrd for SteelVal {
             }
             (BigNum(x), BigRational(y)) => {
                 let x_big_rational = BigRational::from_integer(x.unwrap());
-                x_big_rational.partial_cmp(&y)
+                x_big_rational.partial_cmp(y)
             }
             (BigNum(x), NumV(y)) => {
                 let x_decimal = BigDecimal::new(x.unwrap(), 0);
@@ -2533,7 +2533,7 @@ impl PartialOrd for SteelVal {
                         .to_bigint()
                         .expect("integers are representable by bigint"),
                 );
-                x_big_rational.partial_cmp(&y)
+                x_big_rational.partial_cmp(y)
             }
             (Rational(x), NumV(y)) => (*x.numer() as f64 / *x.denom() as f64).partial_cmp(y),
 
@@ -2598,7 +2598,7 @@ pub(crate) struct SteelValDisplay<'a>(pub(crate) &'a SteelVal);
 
 impl<'a> fmt::Display for SteelValDisplay<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        CycleDetector::detect_and_display_cycles(&self.0, f, false)
+        CycleDetector::detect_and_display_cycles(self.0, f, false)
     }
 }
 

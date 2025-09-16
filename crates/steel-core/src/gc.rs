@@ -1367,7 +1367,7 @@ pub mod unsafe_erased_pointers {
         pub(crate) fn as_ro(&self) -> &T {
             match self {
                 TemporaryReadonlyView::Standard(rw_lock) => unsafe { &(**rw_lock.read()) },
-                TemporaryReadonlyView::Slim(x) => &x,
+                TemporaryReadonlyView::Slim(x) => x,
             }
         }
     }
