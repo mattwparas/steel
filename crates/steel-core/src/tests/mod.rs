@@ -138,7 +138,7 @@ test_harness_success! {
     stack_state,
     stack_struct,
     stack_test_with_contract,
-    string_append,
+    string,
     structs,
     symbols,
     // TODO: @Matt 11/11/2023

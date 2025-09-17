@@ -22,6 +22,7 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_TO_UPPER_DEFINITION)
         .register_native_fn_definition(STRING_TO_LOWER_DEFINITION)
         .register_native_fn_definition(STRING_LENGTH_DEFINITION)
+        .register_native_fn_definition(UTF8_LENGTH_DEFINITION)
         .register_native_fn_definition(TRIM_DEFINITION)
         .register_native_fn_definition(TRIM_START_DEFINITION)
         .register_native_fn_definition(TRIM_END_DEFINITION)
@@ -762,7 +763,7 @@ pub fn ends_with(value: &SteelString, suffix: &SteelString) -> bool {
     value.ends_with(suffix.as_str())
 }
 
-/// Get the length of the given string in UTF-8 bytes.
+/// Get the number of characters in the string.
 ///
 /// (string-length string?) -> int?
 ///
@@ -770,11 +771,27 @@ pub fn ends_with(value: &SteelString, suffix: &SteelString) -> bool {
 ///
 /// ```scheme
 /// > (string-length "apples") ;; => 6
-/// > (string-length "✅") ;; => 3
-/// > (string-length "🤖") ;; => 4
+/// > (string-length "αβγ") ;; => 3
+/// > (string-length "✅") ;; => 1
 /// ```
 #[function(name = "string-length")]
 pub fn string_length(value: &SteelString) -> usize {
+    value.chars().count()
+}
+
+/// Get the length of the string in UTF-8 bytes.
+///
+/// (utf8-length string?) -> int?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (utf8-length "apples") ;; => 6
+/// > (utf8-length "αβγ") ;; => 6
+/// > (utf8-length "✅") ;; => 3
+/// ```
+#[function(name = "utf8-length")]
+pub fn utf8_length(value: &SteelString) -> usize {
     value.len()
 }
 
