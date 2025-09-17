@@ -632,7 +632,7 @@ pub fn divide_primitive(args: &[SteelVal]) -> Result<SteelVal> {
         [x, y] => multiply_two(x, &recip(y)?),
         [x, ys @ ..] => {
             let d = multiply_primitive_impl(ys)?;
-            multiply_two(&x, &recip(&d)?)
+            multiply_two(x, &recip(&d)?)
         }
     }
 }
@@ -1187,7 +1187,7 @@ fn square(number: &SteelVal) -> Result<SteelVal> {
     if !numberp(number) {
         stop!(TypeMismatch => "square expects a number, found: {:?}", number)
     }
-    multiply_two(&number, &number)
+    multiply_two(number, number)
 }
 
 /// Computes the square root of the given number.
@@ -1312,8 +1312,8 @@ pub fn make_polar(r: &SteelVal, theta: &SteelVal) -> Result<SteelVal> {
     ensure_arg_is_real("make-polar", r)?;
     ensure_arg_is_real("make-polar", theta)?;
 
-    let re = multiply_primitive(&[r.clone(), cos(&theta)?])?;
-    let im = multiply_primitive(&[r.clone(), sin(&theta)?])?;
+    let re = multiply_primitive(&[r.clone(), cos(theta)?])?;
+    let im = multiply_primitive(&[r.clone(), sin(theta)?])?;
     SteelComplex { re, im }.into_steelval()
 }
 
@@ -1728,7 +1728,7 @@ fn multiply_primitive_impl(args: &[SteelVal]) -> Result<SteelVal> {
             for z in zs {
                 // TODO: This use case could be optimized to reuse state instead of creating a new
                 // object each time.
-                res = multiply_two(&res, &z)?;
+                res = multiply_two(&res, z)?;
             }
             res.into_steelval()
         }

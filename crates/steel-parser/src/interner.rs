@@ -49,6 +49,7 @@ impl InternedString {
         )
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(ident: &str) -> Self {
         Self(
             INTERNER

@@ -412,14 +412,14 @@ pub fn hm_union(mut hml: &mut SteelVal, mut hmr: &mut SteelVal) -> Result<SteelV
 
                 *r_map = l.unwrap().union(right_side_value);
 
-                return Ok(std::mem::replace(hmr, SteelVal::Void));
+                Ok(std::mem::replace(hmr, SteelVal::Void))
             }
             (Some(l_map), None) => {
                 let left_side_value = std::mem::take(l_map);
 
                 *l_map = left_side_value.union(r.unwrap());
 
-                return Ok(std::mem::replace(hml, SteelVal::Void));
+                Ok(std::mem::replace(hml, SteelVal::Void))
             }
             (Some(l_map), Some(r_map)) => {
                 let left_side_value = std::mem::take(l_map);
@@ -427,7 +427,7 @@ pub fn hm_union(mut hml: &mut SteelVal, mut hmr: &mut SteelVal) -> Result<SteelV
 
                 *l_map = left_side_value.union(right_side_value);
 
-                return Ok(std::mem::replace(hml, SteelVal::Void));
+                Ok(std::mem::replace(hml, SteelVal::Void))
             }
         },
 

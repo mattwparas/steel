@@ -818,7 +818,7 @@ impl Compiler {
         path: Option<PathBuf>,
     ) -> Result<Vec<ExprKind>> {
         // #[cfg(feature = "modules")]
-        return self.module_manager.compile_main(
+        self.module_manager.compile_main(
             &mut self.macro_env,
             &mut self.kernel,
             &mut self.sources,
@@ -828,7 +828,7 @@ impl Compiler {
             &mut self.lifted_kernel_environments,
             &mut self.lifted_macro_environments,
             &self.search_dirs,
-        );
+        )
 
         // #[cfg(not(feature = "modules"))]
         // self.module_manager
@@ -931,7 +931,7 @@ impl Compiler {
                     expr,
                     self.kernel.as_mut(),
                     self.builtin_modules.clone(),
-                    &module,
+                    module,
                 )?;
 
                 if changed {
@@ -1105,7 +1105,7 @@ impl Compiler {
                     expr,
                     self.kernel.as_mut(),
                     self.builtin_modules.clone(),
-                    &module,
+                    module,
                 )?;
 
                 if changed {
@@ -1461,9 +1461,9 @@ fn filter_provides(expanded_statements: Vec<ExprKind>) -> Vec<ExprKind> {
                             if l.first_ident().copied() == Some(*PROVIDE) {
                                 return None;
                             }
-                            return Some(ExprKind::List(l));
+                            Some(ExprKind::List(l))
                         }
-                        other => return Some(other),
+                        other => Some(other),
                     })
                     .collect();
 
@@ -1473,7 +1473,7 @@ fn filter_provides(expanded_statements: Vec<ExprKind>) -> Vec<ExprKind> {
                 if l.first_ident().copied() == Some(*PROVIDE) {
                     return None;
                 }
-                return Some(ExprKind::List(l));
+                Some(ExprKind::List(l))
             }
             other => Some(other),
         })

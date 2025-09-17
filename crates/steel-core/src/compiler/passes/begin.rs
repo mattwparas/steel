@@ -198,7 +198,6 @@ impl VisitorMutRefUnit for FlattenBegin {
 
                 if begin.exprs.len() == 1 {
                     *expr = std::mem::take(&mut begin.exprs).into_iter().next().unwrap();
-                    return;
                 }
             }
             ExprKind::Return(r) => self.visit_return(r),

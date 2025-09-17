@@ -531,7 +531,7 @@ impl<'global, 'a> VmCore<'a> {
             Reducer::ForEach(f) => {
                 for value in iter {
                     vm_ctx.borrow_mut().call_func_or_else(
-                        &f,
+                        f,
                         value?,
                         cur_inst_span,
                         throw!(TypeMismatch => format!("for-each expected a function, found: {}", &f))

@@ -614,9 +614,9 @@ fn append(args: &mut [SteelVal]) -> Result<SteelVal> {
             }
         }
 
-        return Ok(SteelVal::ListV(initial.clone()));
+        Ok(SteelVal::ListV(initial.clone()))
     } else {
-        return Ok(SteelVal::ListV(List::new()));
+        Ok(SteelVal::ListV(List::new()))
     }
 }
 
@@ -750,12 +750,11 @@ pub fn plist_validate_args(
 
     // What is the range of arguments that we could expect?
     // we should see at least
-    return found_positional >= required_positional_arg_count
+    found_positional >= required_positional_arg_count
         && (is_rest
-            || found_positional
-                <= (required_positional_arg_count + optional_positional_arg_count))
+            || found_positional <= (required_positional_arg_count + optional_positional_arg_count))
         && found_keyword >= required_keyword_arg_count
-        && (is_rest || found_keyword <= (required_keyword_arg_count + optional_keyword_arg_count));
+        && (is_rest || found_keyword <= (required_keyword_arg_count + optional_keyword_arg_count))
 }
 
 // Find the arg by index, skipping keyword pairs

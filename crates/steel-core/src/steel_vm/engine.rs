@@ -341,7 +341,7 @@ impl NonInteractiveProgramImage {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        bincode::deserialize(&bytes).unwrap()
+        bincode::deserialize(bytes).unwrap()
     }
 }
 
@@ -1809,7 +1809,7 @@ impl Engine {
                 {
                     GlobalSlotRecycler::free_shadowed_rooted_values(
                         // &mut self.virtual_machine.global_env.bindings_vec.write(),
-                        &mut env.0.as_mut_slice(),
+                        env.0.as_mut_slice(),
                         // .unwrap(),
                         &mut ctx.compiler.write().symbol_map,
                         &mut ctx.heap.lock().unwrap(),

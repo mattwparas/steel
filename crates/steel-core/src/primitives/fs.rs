@@ -48,7 +48,7 @@ pub fn glob(pattern: SteelString, mut rest: RestArgsIter<'_, &SteelVal>) -> Resu
 
     let options = rest
         .next()
-        .map(|x| glob::MatchOptions::from_steelval(&x.unwrap()))
+        .map(|x| glob::MatchOptions::from_steelval(x.unwrap()))
         .unwrap_or_else(|| Ok(glob::MatchOptions::default()))?;
 
     if rest.next().is_some() {
@@ -72,7 +72,7 @@ pub fn glob_paths_next(paths: &SteelVal) -> Result<SteelVal> {
 
 #[steel_derive::function(name = "path->string")]
 pub fn path_to_string(path: &SteelVal) -> Result<SteelVal> {
-    <PathBuf as rvals::AsRefSteelVal>::as_ref(&path)?
+    <PathBuf as rvals::AsRefSteelVal>::as_ref(path)?
         .to_str()
         .map(|x| SteelVal::StringV(x.to_string().into()))
         .into_steelval()

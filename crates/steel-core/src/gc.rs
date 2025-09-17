@@ -1367,7 +1367,7 @@ pub mod unsafe_erased_pointers {
         pub(crate) fn as_ro(&self) -> &T {
             match self {
                 TemporaryReadonlyView::Standard(rw_lock) => unsafe { &(**rw_lock.read()) },
-                TemporaryReadonlyView::Slim(x) => &x,
+                TemporaryReadonlyView::Slim(x) => x,
             }
         }
     }
@@ -1394,7 +1394,7 @@ pub mod unsafe_erased_pointers {
                         throw!(Generic => "opaque reference pointer dropped before use!"),
                     )?;
 
-                    return Ok(TemporaryMutableView { view: guard });
+                    Ok(TemporaryMutableView { view: guard })
                 } else {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
@@ -1430,7 +1430,7 @@ pub mod unsafe_erased_pointers {
                         throw!(Generic => "opaque reference pointer dropped before use!"),
                     )?;
 
-                    return Ok(TemporaryReadonlyView::Standard(guard));
+                    Ok(TemporaryReadonlyView::Standard(guard))
                 } else if res.is::<ReadOnlyTemporary<T>>() {
                     let borrowed_object = res.downcast_ref::<ReadOnlyTemporary<T>>().unwrap();
 
@@ -1438,7 +1438,7 @@ pub mod unsafe_erased_pointers {
                         throw!(Generic => "opaque reference pointer dropped before use!"),
                     )?;
 
-                    return Ok(TemporaryReadonlyView::Slim(guard));
+                    Ok(TemporaryReadonlyView::Slim(guard))
                 } else {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",

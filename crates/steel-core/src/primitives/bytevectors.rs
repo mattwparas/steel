@@ -48,7 +48,7 @@ pub fn bytevector_module() -> BuiltInModule {
 #[steel_derive::native(name = "bytevector", arity = "AtLeast(0)")]
 pub fn bytevector(args: &[SteelVal]) -> Result<SteelVal> {
     args.iter()
-        .map(|x| u8::from_steelval(&x))
+        .map(|x| u8::from_steelval(x))
         .collect::<Result<Vec<_>>>()
         .map(SteelByteVector::new)
         .map(SteelVal::ByteVector)
@@ -70,7 +70,7 @@ pub fn bytevector(args: &[SteelVal]) -> Result<SteelVal> {
 #[steel_derive::native(name = "bytes", arity = "AtLeast(0)")]
 pub fn bytes(args: &[SteelVal]) -> Result<SteelVal> {
     args.iter()
-        .map(|x| u8::from_steelval(&x))
+        .map(|x| u8::from_steelval(x))
         .collect::<Result<Vec<_>>>()
         .map(SteelByteVector::new)
         .map(SteelVal::ByteVector)

@@ -1339,7 +1339,7 @@ impl Continuation {
                         .as_ref()
                         .and_then(|x| WeakShared::upgrade(&x.inner))
                 }) {
-                    if StandardShared::ptr_eq(&mark, &this.inner) {
+                    if StandardShared::ptr_eq(mark, &this.inner) {
                         if weak_count == 1
                             && strong_count > 1
                             && Self::close_marks(ctx, &stack_frame)
@@ -5423,11 +5423,9 @@ fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result
 
             eval_program(result, ctx)?;
 
-            return Ok(SteelVal::Void);
+            Ok(SteelVal::Void)
         }
-        Err(e) => {
-            return Err(e);
-        }
+        Err(e) => Err(e),
     }
 }
 
@@ -5689,11 +5687,9 @@ fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> R
 
             eval_program(result, ctx)?;
 
-            return Ok(SteelVal::Void);
+            Ok(SteelVal::Void)
         }
-        Err(e) => {
-            return Err(e);
-        }
+        Err(e) => Err(e),
     }
 }
 
@@ -5720,11 +5716,9 @@ fn eval_string_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) ->
 
             eval_program(result, ctx)?;
 
-            return Ok(SteelVal::Void);
+            Ok(SteelVal::Void)
         }
-        Err(e) => {
-            return Err(e);
-        }
+        Err(e) => Err(e),
     }
 }
 pub(crate) fn get_test_mode(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal>> {

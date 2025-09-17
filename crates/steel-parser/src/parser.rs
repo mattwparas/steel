@@ -913,7 +913,7 @@ impl<'a> Parser<'a> {
                                             | ParsingContext::QuasiquoteTick(_)
                                             | ParsingContext::Quote(_)
                                             | ParsingContext::QuoteTick(_),
-                                        ) => prev_frame.push(current_frame.to_expr(close)?)?,
+                                        ) => prev_frame.push(current_frame.into_expr(close)?)?,
                                         _ => {
                                             prev_frame.push(
                                                 self.maybe_lower_frame(current_frame, close)?,
@@ -923,7 +923,7 @@ impl<'a> Parser<'a> {
                                     _ => {
                                         // println!("Converting to list");
                                         // println!("Context here: {:?}", self.context);
-                                        prev_frame.push(current_frame.to_expr(close)?)?
+                                        prev_frame.push(current_frame.into_expr(close)?)?
                                     }
                                 }
                             }
@@ -950,7 +950,7 @@ impl<'a> Parser<'a> {
                                         // }
 
                                         // println!("Converting to list inside quote tick");
-                                        prev_frame.push(current_frame.to_expr(close)?)?
+                                        prev_frame.push(current_frame.into_expr(close)?)?
                                     }
                                 }
                             }
@@ -1016,12 +1016,12 @@ impl<'a> Parser<'a> {
                             | Some(ParsingContext::QuasiquoteTick(_)) => {
                                 // | Some(ParsingContext::Quote(d)) && d > 0 => {
 
-                                return current_frame.to_expr(close);
+                                return current_frame.into_expr(close);
                             }
                             Some(ParsingContext::Quote(x)) if *x > 0 => {
                                 self.context.pop();
 
-                                return current_frame.to_expr(close);
+                                return current_frame.into_expr(close);
                             }
                             Some(ParsingContext::Quote(0)) => {
                                 self.context.pop();
@@ -1047,7 +1047,7 @@ impl<'a> Parser<'a> {
 
                                     // println!("Should still be quoted here");
 
-                                    return current_frame.to_expr(close);
+                                    return current_frame.into_expr(close);
                                 }
 
                                 return self.maybe_lower_frame(current_frame, close);
@@ -1827,7 +1827,7 @@ struct Frame {
 }
 
 impl Frame {
-    fn to_expr(self, close: Span) -> Result<ExprKind> {
+    fn into_expr(self, close: Span) -> Result<ExprKind> {
         self.build_expr(close, |exprs| Ok(List::new(exprs).into()))
     }
 
@@ -1920,11 +1920,11 @@ impl Frame {
             Some((idx, span)) => {
                 debug_assert_eq!(idx, self.exprs.len() as _);
 
-                return Err(ParseError::SyntaxError(
+                Err(ParseError::SyntaxError(
                     "improper list must have a single cdr".into(),
                     span,
                     None,
-                ));
+                ))
             }
             None => Ok(false),
         }
@@ -3094,6 +3094,12 @@ pub trait Recyclable {
 
 pub struct Recycle<T: Recyclable + Default> {
     t: T,
+}
+
+impl<T: Recyclable + Default> Default for Recycle<T> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<T: Recyclable + Default> Recycle<T> {

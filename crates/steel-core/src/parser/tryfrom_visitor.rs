@@ -352,7 +352,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         let args = lambda_function
             .args
             .iter()
-            .map(|x| self.visit(&x))
+            .map(|x| self.visit(x))
             .collect::<Result<List<_>>>()?;
 
         let span_vec = args
@@ -385,7 +385,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         let span = begin.location.span;
         let mut exprs = vec![convert_location(&begin.location)?];
         for expr in &begin.exprs {
-            exprs.push(self.visit(&expr)?);
+            exprs.push(self.visit(expr)?);
         }
         Ok(Syntax::proto(raw, SteelVal::ListV(exprs.into()), span).into())
     }
@@ -441,7 +441,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::List(l.clone()))?;
 
         let items: std::result::Result<List<_>, SteelErr> =
-            l.args.iter().map(|x| self.visit(&x)).collect();
+            l.args.iter().map(|x| self.visit(x)).collect();
 
         let items = items?;
 
@@ -560,7 +560,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
         }
 
         let items: Result<crate::values::Vector<_>> =
-            v.args.iter().map(|x| self.visit(&x)).collect();
+            v.args.iter().map(|x| self.visit(x)).collect();
 
         let items = items?;
 

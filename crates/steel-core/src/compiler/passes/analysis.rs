@@ -2705,7 +2705,7 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
 
             for (idx, expr) in begin.exprs.iter().enumerate() {
                 if let ExprKind::Define(d) = expr {
-                    if is_a_builtin_definition(&d) {
+                    if is_a_builtin_definition(d) {
                         if let Some(analysis) =
                             self.analysis.get(d.name.atom_syntax_object().unwrap())
                         {
@@ -3114,7 +3114,7 @@ impl<'a> VisitorMutRefUnit for ElideSingleArgumentLambdaApplications<'a> {
                             return;
                         }
 
-                        if let Some(info) = self.analysis.get_function_info(&lf) {
+                        if let Some(info) = self.analysis.get_function_info(lf) {
                             for arg in info.arguments() {
                                 if arg.1.mutated {
                                     return;
@@ -3945,7 +3945,7 @@ impl<'a> SemanticAnalysis<'a> {
         for expr in self.exprs.iter() {
             match expr {
                 ExprKind::Define(d) => {
-                    if is_a_require_definition(&d) && d.name_id() == Some(identifier) {
+                    if is_a_require_definition(d) && d.name_id() == Some(identifier) {
                         let module = d
                             .body
                             .list()
@@ -3967,7 +3967,7 @@ impl<'a> SemanticAnalysis<'a> {
                                         x,
                                         name,
                                         prefix,
-                                        require_defitinion_to_original_symbol(&d),
+                                        require_defitinion_to_original_symbol(d),
                                     )
                                 });
                             }
@@ -3975,7 +3975,7 @@ impl<'a> SemanticAnalysis<'a> {
                                 return Some(RequiredIdentifierInformation::Unresolved(
                                     *d.name.atom_identifier()?,
                                     prefix,
-                                    require_defitinion_to_original_symbol(&d),
+                                    require_defitinion_to_original_symbol(d),
                                 ))
                             }
                         }
@@ -3984,7 +3984,7 @@ impl<'a> SemanticAnalysis<'a> {
                 ExprKind::Begin(b) => {
                     for expr in &b.exprs {
                         if let ExprKind::Define(d) = expr {
-                            if is_a_require_definition(&d) && d.name_id() == Some(identifier) {
+                            if is_a_require_definition(d) && d.name_id() == Some(identifier) {
                                 let module = d
                                     .body
                                     .list()
@@ -4007,7 +4007,7 @@ impl<'a> SemanticAnalysis<'a> {
                                                     x,
                                                     name,
                                                     prefix,
-                                                    require_defitinion_to_original_symbol(&d),
+                                                    require_defitinion_to_original_symbol(d),
                                                 )
                                             });
                                     }
@@ -4015,7 +4015,7 @@ impl<'a> SemanticAnalysis<'a> {
                                         return Some(RequiredIdentifierInformation::Unresolved(
                                             *d.name.atom_identifier()?,
                                             prefix,
-                                            require_defitinion_to_original_symbol(&d),
+                                            require_defitinion_to_original_symbol(d),
                                         ))
                                     }
                                 }
@@ -4038,7 +4038,7 @@ impl<'a> SemanticAnalysis<'a> {
         let mut results = Vec::new();
 
         let mut resolve_identifier = |d: &Define| -> Option<()> {
-            if is_a_require_definition(&d) && identifiers.contains(&d.name_id().unwrap()) {
+            if is_a_require_definition(d) && identifiers.contains(&d.name_id().unwrap()) {
                 let module = d
                     .body
                     .list()
@@ -4081,12 +4081,12 @@ impl<'a> SemanticAnalysis<'a> {
         for expr in self.exprs.iter() {
             match expr {
                 ExprKind::Define(d) => {
-                    resolve_identifier(&d);
+                    resolve_identifier(d);
                 }
                 ExprKind::Begin(b) => {
                     for expr in &b.exprs {
                         if let ExprKind::Define(d) = expr {
-                            resolve_identifier(&d);
+                            resolve_identifier(d);
                         }
                     }
                 }
@@ -4348,7 +4348,7 @@ impl<'a> SemanticAnalysis<'a> {
             *self.exprs = lifter.lifted_functions;
 
             // log::debug!("Re-running the analysis after lifting local functions");
-            self.analysis.fresh_from_exprs(&self.exprs);
+            self.analysis.fresh_from_exprs(self.exprs);
             self.analysis.populate_captures(self.exprs);
         }
 
@@ -4551,7 +4551,7 @@ impl<'a> SemanticAnalysis<'a> {
                                     {
                                         if *func == module_get_interned || *func == proto_hash_get {
                                             // If this is found inside of a macro, do not remove it
-                                            if found.contains(&name) {
+                                            if found.contains(name) {
                                                 // println!("Keeping: {}", name);
                                                 return true;
                                             }
@@ -4592,7 +4592,7 @@ impl<'a> SemanticAnalysis<'a> {
                                                     || *func == proto_hash_get
                                                 {
                                                     // If this is found inside of a macro, do not remove it
-                                                    if found.contains(&name) {
+                                                    if found.contains(name) {
                                                         // println!("Keeping: {}", name);
                                                         offset += 1;
                                                         return true;
@@ -4630,13 +4630,13 @@ impl<'a> SemanticAnalysis<'a> {
                         }
 
                         offset += 1;
-                        return true;
+                        true
                     });
                 }
                 _ => {}
             }
 
-            return true;
+            true
         });
 
         #[cfg(feature = "profiling")]
@@ -4702,12 +4702,8 @@ impl<'a> SemanticAnalysis<'a> {
         constants: ImmutableHashMap<InternedString, SteelVal, FxBuildHasher>,
         should_mangle: bool,
     ) -> FxHashMap<InternedString, FxHashSet<InternedString>> {
-        let map = FunctionCallCollector::mangle(
-            &self.analysis,
-            &mut self.exprs,
-            constants,
-            should_mangle,
-        );
+        let map =
+            FunctionCallCollector::mangle(&self.analysis, self.exprs, constants, should_mangle);
 
         // These are all of the global functions referenced
         let global_keys_that_reference_non_constant_function = map

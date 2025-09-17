@@ -448,7 +448,7 @@ impl SteelPortRepr {
             | SteelPortRepr::DynWriter(_) => {
                 stop!(ContractViolation => "expected input-port?, found {}", self)
             }
-            SteelPortRepr::Closed => return Ok(MaybeBlocking::Nonblocking(None)),
+            SteelPortRepr::Closed => Ok(MaybeBlocking::Nonblocking(None)),
         }
     }
 
@@ -469,7 +469,7 @@ impl SteelPortRepr {
             | SteelPortRepr::DynWriter(_) => {
                 stop!(ContractViolation => "expected input-port?, found {}", self)
             }
-            SteelPortRepr::Closed => return Ok(MaybeBlocking::Nonblocking(None)),
+            SteelPortRepr::Closed => Ok(MaybeBlocking::Nonblocking(None)),
         }
     }
 

@@ -323,7 +323,7 @@ impl MacroCase {
     pub fn all_bindings(&self) -> Vec<String> {
         fn walk_bindings(pattern: &MacroPattern, idents: &mut Vec<String>) {
             match pattern {
-                MacroPattern::Rest(r) => walk_bindings(&r, idents),
+                MacroPattern::Rest(r) => walk_bindings(r, idents),
                 MacroPattern::Single(s) | MacroPattern::Quote(s)
                     if *s != InternedString::from_static("_") =>
                 {
@@ -342,7 +342,7 @@ impl MacroCase {
         let mut idents = Vec::new();
 
         for pattern in &self.args.args {
-            walk_bindings(&pattern, &mut idents)
+            walk_bindings(pattern, &mut idents)
         }
 
         idents
@@ -1199,8 +1199,8 @@ fn collect_bindings(
                     _ => {
                         if let Some(pat) = non_list_match(&children.args) {
                             collect_bindings(
-                                std::slice::from_ref(&pat),
-                                std::slice::from_ref(&child),
+                                std::slice::from_ref(pat),
+                                std::slice::from_ref(child),
                                 bindings,
                                 binding_kind,
                                 false,

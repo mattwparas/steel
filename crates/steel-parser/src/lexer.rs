@@ -920,7 +920,7 @@ fn try_parse_number(s: &str, radix: Option<u32>) -> Result<Option<NumberLiteral>
 
         match int {
             IntLiteral::Small(n) if *n == 0 => Err(TokenError::ZeroDenominator),
-            IntLiteral::Big(big_int) if &**big_int == &BigInt::ZERO => {
+            IntLiteral::Big(big_int) if **big_int == BigInt::ZERO => {
                 Err(TokenError::ZeroDenominator)
             }
             _ => Ok(()),
@@ -1003,7 +1003,7 @@ mod lexer_tests {
         Identifier(ident.into())
     }
 
-    fn token_stream(source: &str) -> impl Iterator<Item = Token<InternedString>> {
+    fn token_stream(source: &str) -> impl Iterator<Item = Token<'_, InternedString>> {
         TokenStream::new(source, true, None).map(|t| t.expect("unexpected parsing error"))
     }
 
