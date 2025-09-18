@@ -140,7 +140,7 @@ pub fn hash_remove(map: &mut SteelVal, key: SteelVal) -> Result<SteelVal> {
                 }
             }
         } else {
-            stop!(TypeMismatch => "hash-insert expects a hash map, found: {:?}", map);
+            stop!(TypeMismatch => "hash-remove expects a hash map, found: {:?}", map);
         }
     } else {
         stop!(TypeMismatch => "hash key not hashable: {:?}", key)
