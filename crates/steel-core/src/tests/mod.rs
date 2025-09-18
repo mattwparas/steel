@@ -107,6 +107,7 @@ test_harness_success! {
     into_string,
     letrec_mutual_recursion,
     letrec_simple_recursion,
+    list_append,
     list_functions,
     local_struct,
     matcher,
