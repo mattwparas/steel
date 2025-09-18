@@ -1,17 +1,24 @@
-(define (assert-equal! expected actual)
-  (let ([ok (equal? expected actual)])
-    (when (not ok)
-      (error "expected" expected "but got" actual))))
+(define (any-eq? actual expected)
+  (cond
+    [(null? expected) #f]
+    [(equal? actual (car expected)) #t]
+    [else (any-eq? actual (cdr expected))]))
+
+(define (assert-any! actual expected)
+  (unless (any-eq? actual expected)
+    (if (= (length expected) 1)
+        (error "expected" (car expected) "but got" actual)
+        (error "expected any of" expected "but got" actual))))
 
 (define (assert-output! func val expected)
   (let ([port (open-output-string)])
     (func val port)
-    (assert-equal! expected (get-output-string port))))
+    (assert-any! (get-output-string port) expected)))
 
-(define (assert-print! val expected)
+(define (assert-print! val . expected)
   (assert-output! print val expected))
 
-(define (assert-display! val expected)
+(define (assert-display! val . expected)
   (assert-output! display val expected))
 
 (struct printer (x y) #:printer (λ (obj printer) (printer "hello world")))
@@ -34,7 +41,7 @@
 (assert-print! (hashset 1) "(set 1)")
 (assert-print! (hashset) "(set)")
 (assert-print! (vector 1 #\space 2) "'#(1 #\\space 2)")
-(assert-print! (hash "one" 1) "'#hash((\"one\" . 1))")
+(assert-print! (hash "one" 1 'two 2) "'#hash((\"one\" . 1) (two . 2))" "'#hash((two . 2) (\"one\" . 1))")
 (assert-print! (hash 'two 2) "'#hash((two . 2))")
 (assert-print! (cons 'one (cons "two\"" void)) "'(one . (\"two\\\"\" . #<void>))")
 (assert-print! (printer 2 2) "\"hello world\"")
@@ -54,11 +61,10 @@
 (assert-display! #\space " ")
 (assert-display! 'test "test")
 (assert-display! (cons #\a #\space) "(a .  )")
-(assert-display! (hashset 1) "(set 1)")
+(assert-display! (hashset 1 2 1) "(set 1 2)" "(set 2 1)")
 (assert-display! (hashset) "(set)")
 (assert-display! (vector 1 #\space 2) "#(1   2)")
-(assert-display! (hash "one" 1) "#hash((one . 1))")
-(assert-display! (hash 'two 2) "#hash((two . 2))")
+(assert-display! (hash "one" 1 'two 2) "#hash((one . 1) (two . 2))" "#hash((two . 2) (one . 1))")
 (assert-display! (cons 'one (cons "two\"" void)) "(one . (two\" . #<void>))")
 (assert-display! (printer 2 2) "hello world")
 (assert-display! (trans 2 2) "(trans 2 2)")
