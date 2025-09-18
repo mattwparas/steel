@@ -422,10 +422,10 @@ Returns the rest of the list. Will raise an error if the list is empty.
 > (cdr (list 10)) ;; => '()
 > (cdr '())
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (cdr '())
-│  ^^^ cdr expects a non empty list
+  │  ^^^ cdr expects a non empty list
 ```
 ### **ceiling**
 Rounds the given number up to the nearest integer not less than it.
@@ -674,9 +674,9 @@ Compose multiple iterators into one iterator
 #### Examples
 ```scheme
 (compose
-(mapping (λ (x) (+ x 1)))
-(filtering odd?)
-(taking 15))
+    (mapping (λ (x) (+ x 1)))
+    (filtering odd?)
+    (taking 15))
 ```
 ### **concat-symbols**
 Concatenates zero or more symbols into a new symbol.
@@ -1658,10 +1658,10 @@ time complexity is O(n/64). Meaning, for small lists this can be constant.
 > (list-ref (range 0 100) 42) ;; => 42"
 > (list-ref (list 1 2 3 4) 10)
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (list-ref (list 1 2 3 4) 10)
-│  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
+  │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
 ```
 ### **list-tail**
 Same as `list-drop`, except raise an error if `n` is greater than the length of `lst`.
@@ -1676,11 +1676,11 @@ Same as `list-drop`, except raise an error if `n` is greater than the length of 
 > (list-tail '(1 2 3 4 5) 2) ;; => '(3 4 5)
 > (list-tail '() 3)
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (list-tail '() 3)
-│  ^^^^^^^^^ list-tail expects at least 3
-elements in the list, found: 0
+  │  ^^^^^^^^^ list-tail expects at least 3
+                    elements in the list, found: 0
 ```
 ### **list?**
 Returns true if the value is a list.
@@ -2024,10 +2024,10 @@ if the file does not exist
 > (open-input-file "foo-bar.txt") ;; => #<input-port:foo-bar.txt>
 > (open-input-file "file-does-not-exist.txt")
 error[E08]: Io
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (open-input-file "foo-bar.txt")
-│  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
+  │  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
 ```
 ### **open-input-string**
 Creates an input port from a string, that will return the string contents.
@@ -2213,7 +2213,7 @@ Returns quotient of dividing numerator by denomintator.
 ### **range**
 Returns a newly allocated list of the elements in the range [n, m) or [0, m) when n is not given.
 
-(range m)   -> (listof int?)
+(range m)   -> (listof int?)  
 (range n m) -> (listof int?)
 
 * n : int?
@@ -2456,12 +2456,12 @@ Returns the rest of the list. Will raise an error if the list is empty.
 ```scheme
 > (rest (list 10 20 30)) ;; => '(20 30)
 > (rest (list 10)) ;; => '()
-> (rest '() )
+> (rest '())
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (rest '())
-│  ^^^^ rest expects a non empty list
+  │  ^^^^ rest expects a non empty list
 ```
 ### **reverse**
 Returns a list that has the same elements as `lst`, but in reverse order.
@@ -2499,12 +2499,11 @@ Get the second element of the list. Raises an error if the list does not have an
 
 ```scheme
 > (second '(1 2 3)) ;; => 2
-> (second '())
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (second '())
-│  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+  │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
 ```
 ### **set-tls!**
 Set the value in the the thread local storage. Only this thread will see the updates associated
@@ -3042,10 +3041,10 @@ Get the third element of the list. Raises an error if the list does not have an 
 > (third '(1 2 3)) ;; => 3
 > (third '())
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (third '())
-│  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
+  │  ^^^^^ third: Index out of bounds - list did not have an element in the second position: []
 ```
 ### **thread-finished?**
 Check if the given thread is finished running.
