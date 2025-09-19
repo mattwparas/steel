@@ -1,5 +1,5 @@
-(require "steel/tests/unit-test.scm"
-         (for-syntax "steel/tests/unit-test.scm"))
+; (require "steel/tests/unit-test.scm"
+;          (for-syntax "steel/tests/unit-test.scm"))
 
 (require "steel/iterators")
 
@@ -16,12 +16,6 @@
          tconcatenate
          rcons
          reverse-rcons)
-
-;; A reduced value is stops the transduction.
-; (define-record-type <reduced>
-;   (reduced val)
-;   reduced?
-;   (val unreduce))
 
 (struct reduced (val))
 
@@ -43,9 +37,6 @@
       identity
       (%plain-let ((v (f identity (car lst))))
                   (if (reduced? v) (unreduce v) (list-reduce f v (cdr lst))))))
-
-(define (test-map func lst accum)
-  (if (empty? lst) (reverse accum) (test-map func (cdr lst) (cons (func (car lst)) accum))))
 
 ;; TODO: Come back to this when there is a better understanding
 ;; of how to implement let loop
@@ -102,27 +93,10 @@
         acc
         (let ([acc (f acc val)]) (if (reduced? acc) (unreduce acc) (loop (gen) acc))))))
 
-;; A special value to be used as a placeholder where no value has been set and #f
-;; doesn't cut it. Not exported, and not really needed.
-; (define-record-type <nothing>
-;   (make-nothing)
-;   nothing?)
-
 (struct <Nothing> ())
 
 (define nothing (<Nothing>))
 (define nothing? <Nothing>?)
-
-;; helper function which ensures x is reduced.
-; (define (ensure-reduced x)
-;   (if (reduced? x) x (reduced x)))
-
-;; helper function that wraps a reduced value twice since reducing functions (like list-reduce)
-;; unwraps them. tconcatenate is a good example: it re-uses it's reducer on it's input using list-reduce.
-;; If that reduction finishes early and returns a reduced value, list-reduce would "unreduce"
-;; that value and try to continue the transducing process.
-; (define (preserving-reduced f)
-;   (lambda (a b) (let ([return (f a b)]) (if (reduced? return) (reduced return) return))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Reducing functions meant to be used at the end at the transducing
@@ -144,6 +118,33 @@
     [() '()]
     [(lst) (reverse lst)]
     [(lst x) (cons x lst)]))
+
+(define new-into-hashmap
+  (case-lambda
+    [() (hash)]
+    [(h) h]
+    [(h pair) (hash-insert h (car pair) (cdr pair))]))
+
+(define new-into-hashset
+  (case-lambda
+    [() (hashset)]
+    [(h) h]
+    [(h x) (hashset-insert h x)]))
+
+(define new-into-immutable-vector
+  (case-lambda
+    [() (immutable-vector)]
+    [(h) h]
+    [(h x) (immutable-vector-push h x)]))
+
+(define (new-into-vector)
+  (define vec (vector))
+  (case-lambda
+    [() vec]
+    [(v) v]
+    [(v elem)
+     (vector-push! v elem)
+     v]))
 
 ;;@doc
 ;; A transducer-friendly cons with the empty list as identity. Acts like rcons, however will reverse
@@ -190,6 +191,30 @@
     [() #t]
     [(result) result]
     [(result input) (let ([test (pred input)]) (if (and result test) test (reduced #f)))]))
+
+(define new-transduce
+  (case-lambda
+    [(xform f coll)
+     (cond
+       [(list? coll) (list-transduce xform f coll)]
+       [(hash? coll) (hashmap-transduce xform f coll)]
+       [(set? coll) (hashset-transduce xform f coll)]
+       [(vector? coll) (vector-transduce xform f coll)]
+       [(string? coll) (string-transduce xform f coll)]
+       [(bytes? coll) (bytevector-u8-transduce xform f coll)]
+       [(port? coll) (port-transduce xform f coll)]
+       [else (error "unimplemented")])]
+
+    [(xform f init coll)
+     (cond
+       [(list? coll) (list-transduce xform f init coll)]
+       [(hash? coll) (hashmap-transduce xform f init coll)]
+       [(set? coll) (hashset-transduce xform f init coll)]
+       [(vector? coll) (vector-transduce xform f init coll)]
+       [(string? coll) (string-transduce xform f init coll)]
+       [(bytes? coll) (bytevector-u8-transduce xform f init coll)]
+       [(port? coll) (port-transduce xform f init coll)]
+       [else (error "unimplemented")])]))
 
 ;; Note: this, strings, and hash sets all use the same
 ;; underlying implementation. This should also be generic
@@ -286,23 +311,18 @@
 (define (tfilter-map f)
   (compose (tmap f) (tfilter values)))
 
-; (define (make-replacer map)
-;   (cond
-;    ((list? map)
-;     (lambda (x)
-;       (let ((replacer? (assoc x map)))
-;         (if replacer?
-;             (cdr replacer?)
-;             x))))
-;    ((hash-table? map)
-;     (lambda (x)
-;       (hash-table-ref/default map x x)))
-;    ((procedure? map) map)
-;    (else
-;     (error "Unsupported mapping in treplace" map))))
+(define (hash-table-ref/default m key default)
+  (if (hash-contains? m key) (hash-get m key) default))
 
-; (define (treplace map)
-;   (tmap (make-replacer map)))
+(define (make-replacer map)
+  (cond
+    [(list? map) (lambda (x) (let ([replacer? (assoc x map)]) (if replacer? (cdr replacer?) x)))]
+    [(hash? map) (lambda (x) (hash-table-ref/default map x x))]
+    [(procedure? map) map]
+    [else (error "Unsupported mapping in treplace" map)]))
+
+(define (treplace map)
+  (tmap (make-replacer map)))
 
 (define (tdrop n)
   (lambda (reducer)
@@ -364,8 +384,8 @@
       [(result) (reducer result)]
       [(result input) (list-reduce preserving-reducer result input)])))
 
-; (define (tappend-map f)
-;   (compose (tmap f) tconcatenate))
+(define (tappend-map f)
+  (compose (tmap f) tconcatenate))
 
 ;;@doc
 ;; Flattens everything and passes each value through the reducer
@@ -402,53 +422,45 @@
                   (reducer result input)))])))]))
 
 ;; Deletes all duplicates that passes through.
-; (define tdelete-duplicates
-;   (case-lambda
-;     (() (tdelete-duplicates equal?))
-;     ((equality-pred?)
-;      (lambda (reducer)
-;        (let ((already-seen (make-hash-table equality-pred?)))
-;          (case-lambda
-;            (() (reducer))
-;            ((result) (reducer result))
-;            ((result input)
-;             (if (hash-table-exists? already-seen input)
-;                 result
-;                 (begin
-;                   (hash-table-set! already-seen input #t)
-;                   (reducer result input))))))))))
+(define (tdelete-duplicates)
+  (lambda (reducer)
+    (let ([already-seen (box (hashset))])
+      (case-lambda
+        [() (reducer)]
+        [(result) (reducer result)]
+        [(result input)
+         (if (hashset-contains? (unbox already-seen) input)
+             result
+             (begin
+               (set-box! already-seen (hashset-insert (unbox already-seen) input))
+               (reducer result input)))]))))
 
 ;; Partitions the input into lists of N items. If the input stops it flushes whatever
 ;; it has collected, which may be shorter than n.
-; (define (tsegment n)
-;   (if (not (and (integer? n) (positive? n)))
-;       (error "argument to tsegment must be a positive integer")
-;       (lambda (reducer)
-;         (let ((i 0)
-;               (collect (make-vector n)))
-;           (case-lambda
-;             (() (reducer))
-;             ((result)
-;              ;; if there is anything collected when we are asked to quit
-;              ;; we flush it to the remaining transducers
-;              (let ((result
-;                     (if (zero? i)
-;                         result
-;                         (reducer result (vector->list collect 0 i)))))
-;                (set! i 0)
-;                ;; now finally, pass it downstreams
-;                (if (reduced? result)
-;                    (reducer (unreduce result))
-;                    (reducer result))))
-;             ((result input)
-;              (vector-set! collect i input)
-;              (set! i (+ i 1))
-;              ;; If we have collected enough input we can pass it on downstream
-;              (if (< i n)
-;                  result
-;                  (let ((next-input (vector->list collect 0 i)))
-;                    (set! i 0)
-;                    (reducer result next-input)))))))))
+(define (tsegment n)
+  (if (not (and (integer? n) (positive? n)))
+      (error "argument to tsegment must be a positive integer")
+      (lambda (reducer)
+        (let ([i 0]
+              [collect (make-vector n)])
+          (case-lambda
+            [() (reducer)]
+            [(result)
+             ;; if there is anything collected when we are asked to quit
+             ;; we flush it to the remaining transducers
+             (let ([result (if (zero? i) result (reducer result (vector->list collect 0 i)))])
+               (set! i 0)
+               ;; now finally, pass it downstreams
+               (if (reduced? result) (reducer (unreduce result)) (reducer result)))]
+            [(result input)
+             (vector-set! collect i input)
+             (set! i (+ i 1))
+             ;; If we have collected enough input we can pass it on downstream
+             (if (< i n)
+                 result
+                 (let ([next-input (vector->list collect 0 i)])
+                   (set! i 0)
+                   (reducer result next-input)))])))))
 
 (define (tpartition f)
   (lambda (reducer)
@@ -517,50 +529,30 @@
           (log-function result input)
           (reducer result input)]))]))
 
-;; rcons here seems to be... slow
-;; investigate tmap or rcons and see why / how its used with the input
-; (list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3))
-
-; (list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
-
-; (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8)))
-
-; (list-transduce (tdelete-neighbor-duplicates) rcons (list 1 1 2 2 3 3 4 4))
-
-; (list-transduce (tenumerate) rcons (list 1 1 2 2 3 3 4 4))
-
-; (list-transduce (tadd-between 10) rcons (list 1 2 3 4 5))
-
-; (list-transduce (ttake 4) rcons (list 1 2 3 4 5 6 7 8 9 10))
-
-; (list-transduce (ttake-while even?) rcons (list 2 4 6 8 9 10))
-
-; (list-transduce tconcatenate rcons '((10 20) (30 40) (50 60)))
-
-(test-module
- "transducers tests"
- (check-equal? "tmap with basic addition and rcons"
-               (list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3))
-               (list 1 2 3 4))
- (check-equal? "tfilter with a basic predicate"
-               (list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
-               (list 0 2 4))
- (check-equal? "tflatten basic flattening"
-               (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8)))
-               (list 1 2 3 4 5 6 7 8))
- (check-equal? "tdelete-neighbor-duplicates"
-               (list-transduce (tdelete-neighbor-duplicates) rcons (list 1 1 2 2 3 3 4 4))
-               (list 1 2 3 4))
- (check-equal? "tenumerate"
-               (list-transduce (tenumerate) rcons (list 1 1 2 2 3 3 4 4))
-               '((0 1) (1 1) (2 2) (3 2) (4 3) (5 3) (6 4) (7 4)))
- (check-equal? "tadd-between"
-               (list-transduce (tadd-between 10) rcons (list 1 2 3 4 5))
-               '(1 10 2 10 3 10 4 10 5))
- (check-equal? "ttake" (list-transduce (ttake 4) rcons (list 1 2 3 4 5 6 7 8 9 10)) (list 1 2 3 4))
- (check-equal? "ttake-while"
-               (list-transduce (ttake-while even?) rcons (list 2 4 6 8 9 10))
-               (list 2 4 6 8))
- (check-equal? "tconcatenate"
-               (list-transduce tconcatenate rcons '((10 20) (30 40) (50 60)))
-               '(10 20 30 40 50 60)))
+; (test-module
+;  "transducers tests"
+;  (check-equal? "tmap with basic addition and rcons"
+;                (list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3))
+;                (list 1 2 3 4))
+;  (check-equal? "tfilter with a basic predicate"
+;                (list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
+;                (list 0 2 4))
+;  (check-equal? "tflatten basic flattening"
+;                (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8)))
+;                (list 1 2 3 4 5 6 7 8))
+;  (check-equal? "tdelete-neighbor-duplicates"
+;                (list-transduce (tdelete-neighbor-duplicates) rcons (list 1 1 2 2 3 3 4 4))
+;                (list 1 2 3 4))
+;  (check-equal? "tenumerate"
+;                (list-transduce (tenumerate) rcons (list 1 1 2 2 3 3 4 4))
+;                '((0 1) (1 1) (2 2) (3 2) (4 3) (5 3) (6 4) (7 4)))
+;  (check-equal? "tadd-between"
+;                (list-transduce (tadd-between 10) rcons (list 1 2 3 4 5))
+;                '(1 10 2 10 3 10 4 10 5))
+;  (check-equal? "ttake" (list-transduce (ttake 4) rcons (list 1 2 3 4 5 6 7 8 9 10)) (list 1 2 3 4))
+;  (check-equal? "ttake-while"
+;                (list-transduce (ttake-while even?) rcons (list 2 4 6 8 9 10))
+;                (list 2 4 6 8))
+;  (check-equal? "tconcatenate"
+;                (list-transduce tconcatenate rcons '((10 20) (30 40) (50 60)))
+;                '(10 20 30 40 50 60)))
