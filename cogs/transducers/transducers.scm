@@ -1,6 +1,8 @@
 (require "steel/tests/unit-test.scm"
          (for-syntax "steel/tests/unit-test.scm"))
 
+(require "steel/iterators")
+
 (provide list-transduce
          tmap
          tfilter
@@ -59,49 +61,54 @@
 ;; of how to implement let loop
 (define (vector-reduce f identity vec)
   (let ([len (vector-length vec)])
-    (let loop ([i 0] [acc identity])
+    (let loop ([i 0]
+               [acc identity])
       (if (= i len)
           acc
           (let ([acc (f acc (vector-ref vec i))])
             (if (reduced? acc) (unreduce acc) (loop (+ i 1) acc)))))))
 
 ; (define (string-reduce f identity str)
-;   (let ((len (string-length str)))
-;     (let loop ((i 0) (acc identity))
+;   (let ([len (string-length str)])
+;     (let loop ([i 0]
+;                [acc identity])
 ;       (if (= i len)
 ;           acc
-;           (let ((acc (f acc (string-ref str i))))
-;             (if (reduced? acc)
-;                 (unreduce acc)
-;                 (loop (+ i 1) acc)))))))
+;           (let ([acc (f acc (string-ref str i))])
+;             (if (reduced? acc) (unreduce acc) (loop (+ i 1) acc)))))))
 
-; (define (bytevector-u8-reduce f identity vec)
-;   (let ((len (bytevector-length vec)))
-;     (let loop ((i 0) (acc identity))
-;       (if (= i len)
-;           acc
-;           (let ((acc (f acc (bytevector-u8-ref vec i))))
-;             (if (reduced? acc)
-;                 (unreduce acc)
-;                 (loop (+ i 1) acc)))))))
+(define (string-reduce f identity str)
+  (let ([iter (value->iterator str)])
+    (let loop ([acc identity])
+      (let ([next (iter-next! iter)])
+        ;; TODO: Change this to eq? and make iterator-finished
+        ;; static instead of thread local
+        (if (equal? ITERATOR-FINISHED next)
+            acc
+            (let ([acc (f acc next)]) (if (reduced? acc) (unreduce acc) (loop acc))))))))
 
-; (define (port-reduce f identity reader port)
-;   (let loop ((val (reader port)) (acc identity))
-;     (if (eof-object? val)
-;         acc
-;         (let ((acc (f acc val)))
-;           (if (reduced? acc)
-;               (unreduce acc)
-;               (loop (reader port) acc))))))
+(define (bytevector-u8-reduce f identity vec)
+  (let ([len (bytes-length vec)])
+    (let loop ([i 0]
+               [acc identity])
+      (if (= i len)
+          acc
+          (let ([acc (f acc (bytes-ref vec i))])
+            (if (reduced? acc) (unreduce acc) (loop (+ i 1) acc)))))))
 
-; (define (generator-reduce f identity gen)
-;   (let loop ((val (gen)) (acc identity))
-;     (if (eof-object? val)
-;         acc
-;         (let ((acc (f acc val)))
-;           (if (reduced? acc)
-;               (unreduce acc)
-;               (loop (gen) acc))))))
+(define (port-reduce f identity reader port)
+  (let loop ([val (reader port)]
+             [acc identity])
+    (if (eof-object? val)
+        acc
+        (let ([acc (f acc val)]) (if (reduced? acc) (unreduce acc) (loop (reader port) acc))))))
+
+(define (generator-reduce f identity gen)
+  (let loop ([val (gen)]
+             [acc identity])
+    (if (eof-object? val)
+        acc
+        (let ([acc (f acc val)]) (if (reduced? acc) (unreduce acc) (loop (gen) acc))))))
 
 ;; A special value to be used as a placeholder where no value has been set and #f
 ;; doesn't cut it. Not exported, and not really needed.
@@ -195,50 +202,51 @@
 (define list-transduce
   (case-lambda
     [(xform f coll) (list-transduce xform f (f) coll)]
-    [(xform f init coll) (let* ([xf (xform f)] [result (list-reduce xf init coll)]) (xf result))]))
+    [(xform f init coll)
+     (let* ([xf (xform f)]
+            [result (list-reduce xf init coll)])
+       (xf result))]))
 
 (define vector-transduce
   (case-lambda
     [(xform f coll) (vector-transduce xform f (f) coll)]
-    [(xform f init coll) (let* ([xf (xform f)] [result (vector-reduce xf init coll)]) (xf result))]))
+    [(xform f init coll)
+     (let* ([xf (xform f)]
+            [result (vector-reduce xf init coll)])
+       (xf result))]))
 
-; (define string-transduce
-;   (case-lambda
-;     ((xform f coll)
-;      (string-transduce xform f (f) coll))
-;     ((xform f init coll)
-;      (let* ((xf (xform f))
-;             (result (string-reduce xf init coll)))
-;        (xf result)))))
+(define string-transduce
+  (case-lambda
+    [(xform f coll) (string-transduce xform f (f) coll)]
+    [(xform f init coll)
+     (let* ([xf (xform f)]
+            [result (string-reduce xf init coll)])
+       (xf result))]))
 
-; (define bytevector-u8-transduce
-;   (case-lambda
-;     ((xform f coll)
-;      (bytevector-u8-transduce xform f (f) coll))
-;     ((xform f init coll)
-;      (let* ((xf (xform f))
-;             (result (bytevector-u8-reduce xf init coll)))
-;        (xf result)))))
+(define bytevector-u8-transduce
+  (case-lambda
+    [(xform f coll) (bytevector-u8-transduce xform f (f) coll)]
+    [(xform f init coll)
+     (let* ([xf (xform f)]
+            [result (bytevector-u8-reduce xf init coll)])
+       (xf result))]))
 
-; (define port-transduce
-;   (case-lambda
-;     ((xform f by)
-;      (generator-transduce xform f by))
-;     ((xform f by port)
-;      (port-transduce xform f (f) by port))
-;     ((xform f init by port)
-;      (let* ((xf (xform f))
-;             (result (port-reduce xf init by port)))
-;        (xf result)))))
+(define port-transduce
+  (case-lambda
+    [(xform f by) (generator-transduce xform f by)]
+    [(xform f by port) (port-transduce xform f (f) by port)]
+    [(xform f init by port)
+     (let* ([xf (xform f)]
+            [result (port-reduce xf init by port)])
+       (xf result))]))
 
-; (define generator-transduce
-;   (case-lambda
-;     ((xform f gen)
-;      (generator-transduce xform f (f) gen))
-;     ((xform f init gen)
-;      (let* ((xf (xform f))
-;             (result (generator-reduce xf init gen)))
-;        (xf result)))))
+(define generator-transduce
+  (case-lambda
+    [(xform f gen) (generator-transduce xform f (f) gen)]
+    [(xform f init gen)
+     (let* ([xf (xform f)]
+            [result (generator-reduce xf init gen)])
+       (xf result))]))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Transducers!    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -285,30 +293,28 @@
 ; (define (treplace map)
 ;   (tmap (make-replacer map)))
 
-; (define (tdrop n)
-;   (lambda (reducer)
-;     (let ((new-n (+ 1 n)))
-;       (case-lambda
-;         (() (reducer))
-;         ((result) (reducer result))
-;         ((result input)
-;          (set! new-n (- new-n 1))
-;          (if (positive? new-n)
-;              result
-;              (reducer result input)))))))
+(define (tdrop n)
+  (lambda (reducer)
+    (let ([new-n (+ 1 n)])
+      (case-lambda
+        [() (reducer)]
+        [(result) (reducer result)]
+        [(result input)
+         (set! new-n (- new-n 1))
+         (if (positive? new-n) result (reducer result input))]))))
 
-; (define (tdrop-while pred)
-;   (lambda (reducer)
-;     (let ((drop? #t))
-;       (case-lambda
-;         (() (reducer))
-;         ((result) (reducer result))
-;         ((result input)
-;          (if (and (pred input) drop?)
-;              result
-;              (begin
-;                (set! drop? #f)
-;                (reducer result input))))))))
+(define (tdrop-while pred)
+  (lambda (reducer)
+    (let ([drop? #t])
+      (case-lambda
+        [() (reducer)]
+        [(result) (reducer result)]
+        [(result input)
+         (if (and (pred input) drop?)
+             result
+             (begin
+               (set! drop? #f)
+               (reducer result input)))]))))
 
 (define (ttake n)
   (define (positive? x)
@@ -433,33 +439,28 @@
 ;                    (set! i 0)
 ;                    (reducer result next-input)))))))))
 
-; (define (tpartition f)
-;   (lambda (reducer)
-;     (let* ((prev nothing)
-;            (collect '()))
-;       (case-lambda
-;         (() (reducer))
-;         ((result)
-;          (let ((result
-;                 (if (null? collect)
-;                     result
-;                     (reducer result (reverse! collect)))))
-;            (set! collect '())
-;            (if (reduced? result)
-;                (reducer (unreduce result))
-;                (reducer result))))
-;         ((result input)
-;          (let ((fout (f input)))
-;            (cond
-;             ((or (equal? fout prev) (nothing? prev)) ; collect
-;              (set! prev fout)
-;              (set! collect (cons input collect))
-;              result)
-;             (else ; flush what we collected already to the reducer
-;              (let ((next-input  (reverse! collect)))
-;                (set! prev fout)
-;                (set! collect (list input))
-;                (reducer result next-input))))))))))
+(define (tpartition f)
+  (lambda (reducer)
+    (let* ([prev nothing]
+           [collect '()])
+      (case-lambda
+        [() (reducer)]
+        [(result)
+         (let ([result (if (null? collect) result (reducer result (reverse collect)))])
+           (set! collect '())
+           (if (reduced? result) (reducer (unreduce result)) (reducer result)))]
+        [(result input)
+         (let ([fout (f input)])
+           (cond
+             [(or (equal? fout prev) (nothing? prev)) ; collect
+              (set! prev fout)
+              (set! collect (cons input collect))
+              result]
+             [else ; flush what we collected already to the reducer
+              (let ([next-input (reverse collect)])
+                (set! prev fout)
+                (set! collect (list input))
+                (reducer result next-input))]))]))))
 
 ;;@doc
 ;; Interposes element between each value pushed through the transduction.
