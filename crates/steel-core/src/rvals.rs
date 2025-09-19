@@ -24,6 +24,7 @@ use crate::{
         closed::{Heap, HeapRef, MarkAndSweepContext},
         functions::{BoxedDynFunction, ByteCodeLambda},
         lazy_stream::LazyStream,
+        lists::Pair,
         port::{SendablePort, SteelPort},
         structs::{SerializableUserDefinedStruct, UserDefinedStruct},
         transducers::{Reducer, Transducer},
@@ -1873,7 +1874,9 @@ impl Iterator for BuiltInDataStructureIterator {
             Self::Vector(v) => v.next(),
             Self::String(s) => s.remaining.next().map(SteelVal::CharV),
             Self::Set(s) => s.next(),
-            Self::Map(s) => s.next().map(|x| SteelVal::ListV(vec![x.0, x.1].into())),
+            Self::Map(s) => s
+                .next()
+                .map(|x| SteelVal::Pair(Gc::new(Pair::cons(x.0, x.1)))),
             Self::Opaque(s) => s.next(),
         }
     }

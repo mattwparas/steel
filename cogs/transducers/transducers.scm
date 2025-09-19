@@ -38,16 +38,6 @@
 (define (preserving-reduced reducer)
   (lambda (a b) (let ([return (reducer a b)]) (if (reduced? return) (reduced return) return))))
 
-;; Rewrite list-reduce to abuse some internal optimizations
-;; if v is in the tail position, then it will be the last used
-(define (list-reduce2 f identity lst v)
-  (cond
-    [(null? lst) identity]
-    [(reduced? v) (unreduce v)]
-    [else (list-reduce2 f v (cdr lst) (f identity (car lst)))]))
-
-;; TODO: Original implementation here
-;; This is where the magic tofu is cooked
 (define (list-reduce f identity lst)
   (if (null? lst)
       identity
@@ -68,14 +58,16 @@
           (let ([acc (f acc (vector-ref vec i))])
             (if (reduced? acc) (unreduce acc) (loop (+ i 1) acc)))))))
 
-; (define (string-reduce f identity str)
-;   (let ([len (string-length str)])
-;     (let loop ([i 0]
-;                [acc identity])
-;       (if (= i len)
-;           acc
-;           (let ([acc (f acc (string-ref str i))])
-;             (if (reduced? acc) (unreduce acc) (loop (+ i 1) acc)))))))
+;; Note: this is the same as the string-reduce
+(define (iterator-reduce f identity hmap)
+  (let ([iter (value->iterator hmap)])
+    (let loop ([acc identity])
+      (let ([next (iter-next! iter)])
+        ;; TODO: Change this to eq? and make iterator-finished
+        ;; static instead of thread local
+        (if (equal? ITERATOR-FINISHED next)
+            acc
+            (let ([acc (f acc next)]) (if (reduced? acc) (unreduce acc) (loop acc))))))))
 
 (define (string-reduce f identity str)
   (let ([iter (value->iterator str)])
@@ -199,6 +191,25 @@
     [(result) result]
     [(result input) (let ([test (pred input)]) (if (and result test) test (reduced #f)))]))
 
+;; Note: this, strings, and hash sets all use the same
+;; underlying implementation. This should also be generic
+;; over custom iterators as well.
+(define hashmap-transduce
+  (case-lambda
+    [(xform f coll) (hashmap-transduce xform f (f) coll)]
+    [(xform f init coll)
+     (let* ([xf (xform f)]
+            [result (iterator-reduce xf init coll)])
+       (xf result))]))
+
+(define hashset-transduce
+  (case-lambda
+    [(xform f coll) (hashset-transduce xform f (f) coll)]
+    [(xform f init coll)
+     (let* ([xf (xform f)]
+            [result (iterator-reduce xf init coll)])
+       (xf result))]))
+
 (define list-transduce
   (case-lambda
     [(xform f coll) (list-transduce xform f (f) coll)]
@@ -272,8 +283,8 @@
       [(result) (reducer result)]
       [(result input) (if (not (pred input)) (reducer result input) result)])))
 
-; (define (tfilter-map f)
-;   (compose (tmap f) (tfilter values)))
+(define (tfilter-map f)
+  (compose (tmap f) (tfilter values)))
 
 ; (define (make-replacer map)
 ;   (cond
