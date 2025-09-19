@@ -202,7 +202,7 @@
        [(vector? coll) (vector-transduce xform f coll)]
        [(string? coll) (string-transduce xform f coll)]
        [(bytes? coll) (bytevector-u8-transduce xform f coll)]
-       [(port? coll) (port-transduce xform f coll)]
+       ; [(port? coll) (port-transduce xform f coll)]
        [else (error "unimplemented")])]
 
     [(xform f init coll)
@@ -213,7 +213,7 @@
        [(vector? coll) (vector-transduce xform f init coll)]
        [(string? coll) (string-transduce xform f init coll)]
        [(bytes? coll) (bytevector-u8-transduce xform f init coll)]
-       [(port? coll) (port-transduce xform f init coll)]
+       ; [(port? coll) (port-transduce xform f init coll)]
        [else (error "unimplemented")])]))
 
 ;; Note: this, strings, and hash sets all use the same
@@ -399,9 +399,17 @@
       [() '()]
       [(result) (reducer result)]
       [(result input)
-       (if (list? input)
-           (list-reduce (preserving-reduced (tflatten reducer)) result input)
-           (reducer result input))])))
+
+       (cond
+         [(list? result) (list-reduce (preserving-reduced (tflatten reducer)) result input)]
+         [(hash? result) (iterator-reduce (preserving-reduced (tflatten reducer)) result input)]
+         [(set? result) (iterator-reduce (preserving-reduced (tflatten reducer)) result input)]
+         [(vector? result) (iterator-reduce (preserving-reduced (tflatten reducer)) result input)]
+         [(string? result) (string-reduce (preserving-reduced (tflatten reducer)) result input)]
+         [(bytes? result) (bytevector-u8-reduce (preserving-reduced (tflatten reducer)) result input)]
+         ;; Idk, what would we put here?
+         ; [(port? result) (port-reduce (preserving-reduced (tflatten reducer)) result input)]
+         [else (reducer result input)])])))
 
 ;;@doc
 ;; removes duplicate consecutive elements
