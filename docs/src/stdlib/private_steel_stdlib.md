@@ -120,6 +120,21 @@ containing each result of `func` in order.
 ```scheme
 (map add1 (range 0 5)) ;; '(1 2 3 4 5)
 ```
+### **memv**
+Return the first tail of the list, where the car is `eqv?` to the given obj.
+Returns `#f`, if no element is found.
+
+This procedure is equivalent to `member`, but using `eqv?` instead of `equal?`.
+
+(memv obj lst) -> (or/c list? #f)
+
+* obj : any/c
+* lst : list?
+
+```scheme
+(memv #\c '(#\a #\b #\c #\d #\e)) ;; => '(#\c #\d #\e)
+(memv 5 '(0 1 2 3 4)) ;; => #f
+```
 ### **\*abort**
 ### **\*meta-continuation\***
 ### **\*reset**

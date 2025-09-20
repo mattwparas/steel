@@ -37,7 +37,7 @@
          max
          min
          mem-helper
-         ; member
+         memv
          contains?
          assoc
          assq
@@ -644,12 +644,26 @@
 (define mem-helper
   (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 
-(define memv
-  (lambda (x los)
-    (cond
-      [(null? los) #f]
-      [(eqv? x (car los)) los]
-      [else (memv x (cdr los))])))
+;;@doc
+;; Return the first tail of the list, where the car is `eqv?` to the given obj.
+;; Returns `#f`, if no element is found.
+;;
+;; This procedure is equivalent to `member`, but using `eqv?` instead of `equal?`.
+;;
+;; (memv obj lst) -> (or/c list? #f)
+;;
+;; * obj : any/c
+;; * lst : list?
+;;
+;; ```scheme
+;; (memv #\c '(#\a #\b #\c #\d #\e)) ;; => '(#\c #\d #\e)
+;; (memv 5 '(0 1 2 3 4)) ;; => #f
+;; ```
+(define (memv obj lst)
+  (cond
+    [(null? lst) #f]
+    [(eqv? obj (car lst)) lst]
+    [else (memv obj (cdr lst))]))
 
 (define (contains? pred? lst)
   (cond
