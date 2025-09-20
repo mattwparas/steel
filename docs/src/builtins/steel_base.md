@@ -459,14 +459,113 @@ Returns the Unicode codepoint of a given character.
 ### **char->number**
 Attemps to convert the character into a decimal digit,
 and returns `#f` on failure.
+### **char-ci<=?**
+Compares characters according to their codepoints (as in "less-than-or-equal")
+in a case-insensitive fashion.
+
+(char-ci<=? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+ # Examples
+
+ ```scheme
+ > (char-ci<=? #\a #\b) ;; => #t
+ > (char-ci<=? #\a #\B) ;; => #t
+ > (char-ci<=? #\a #\B #\c) ;; => #t
+ > (char-ci<=? #\a #\B #\b) ;; => #t
+ ```
+### **char-ci<?**
+Compares characters according to their codepoints (as in "less-than")
+in a case-insensitive fashion.
+
+(char-ci<? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+ # Examples
+
+ ```scheme
+ > (char-ci<? #\a #\b) ;; => #t
+ > (char-ci<? #\a #\B) ;; => #t
+ > (char-ci<? #\a #\B #\c) ;; => #t
+ > (char-ci<? #\a #\B #\b) ;; => #f
+ ```
+### **char-ci=?**
+Checks if all characters are equal, in a case-insensitive fashion.
+
+Requires that all inputs are characters, and will otherwise raise an error.
+
+(char-ci=? char1 char2 ...) -> bool?
+
+* char1 : char?
+* char2 : char?
+
+#### Examples
+
+```scheme
+> (char-ci=? #\s #\S) ;; => #t
+> (char-ci=? #\ß #\ẞ) ;; => #t
+> (char-ci=? #\σ #\Σ #\ς) ;; => #t
+```
+### **char-ci>=?**
+Compares characters according to their codepoints (as in "greater-than-or-equal")
+in a case-insensitive fashion.
+
+(char-ci>=? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+ # Examples
+
+ ```scheme
+ > (char-ci>? #\b #\a) ;; => #t
+ > (char-ci>? #\B #\a) ;; => #t
+ > (char-ci>? #\c #\B #\a) ;; => #t
+ > (char-ci>? #\c #\B #\b) ;; => #t
+ ```
+### **char-ci>?**
+Compares characters according to their codepoints (as in "greater-than")
+in a case-insensitive fashion.
+
+(char-ci>? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+ # Examples
+
+ ```scheme
+ > (char-ci>? #\b #\a) ;; => #t
+ > (char-ci>? #\B #\a) ;; => #t
+ > (char-ci>? #\c #\B #\a) ;; => #t
+ > (char-ci>? #\c #\B #\b) ;; => #f
+ ```
 ### **char-digit?**
 Returns `#t` if the character is a decimal digit.
 ### **char-downcase**
 Returns the lower case version of a character, if defined by Unicode,
 or the same character otherwise.
+
+(char-downcase char?) -> char?
+
+#### Examples
+
+```scheme
+> (char-downcase #\U) ;; => #\u
+> (char-downcase #\d) ;; => #\d
+> (char-downcase #\ẞ) ;; => #\ß
+```
+### **char-foldcase**
+Apply simple unicode case-folding to a char
 ### **char-upcase**
 Returns the upper case version of a character, if defined by Unicode,
 or the same character otherwise.
+
+(char-upcase char?) -> char?
+
+#### Examples
+
+```scheme
+> (char-upcase #\d) ;; => #\D
+> (char-upcase #\U) ;; => #\U
+> (char-upcase #\ß) ;; => #\ß
+```
 ### **char-whitespace?**
 Returns `#t` if the character is a whitespace character.
 ### **char<=?**
@@ -475,12 +574,27 @@ Compares characters according to their codepoints, in a "less-than-or-equal" fas
 (char<=? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char<=? #\a #\b) ;; => #t
+ > (char<=? #\a #\B) ;; => #f
+ > (char<=? #\a #\b #\c) ;; => #t
+ > (char<=? #\a #\b #\b) ;; => #t
+ ```
 ### **char<?**
 Compares characters according to their codepoints, in a "less-than" fashion.
 
 (char<? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char<? #\a #\b) ;; => #t
+ > (char<? #\a #\b #\c) ;; => #t
+ > (char<? #\a #\b #\b) ;; => #f
+ ```
 ### **char=?**
 Checks if all characters are equal.
 
@@ -490,18 +604,40 @@ Requires that all inputs are characters, and will otherwise raise an error.
 
 * char1 : char?
 * char2 : char?
+
+#### Examples
+
+```scheme
+> (char=? #\a #\a) ;; => #t
+> (char=? #\a #\b) ;; => #f
+> (char=? #\a #\A) ;; => #f
+```
 ### **char>=?**
 Compares characters according to their codepoints, in a "greater-than-or-equal" fashion.
 
 (char>=? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char>=? #\b #\a) ;; => #t
+ > (char>=? #\c #\b #\a) ;; => #t
+ > (char>=? #\c #\b #\b) ;; => #t
+ ```
 ### **char>?**
 Compares characters according to their codepoints, in a "greater-than" fashion.
 
 (char>? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char>? #\b #\a) ;; => #t
+ > (char>? #\c #\b #\a) ;; => #t
+ > (char>? #\c #\b #\b) ;; => #f
+ ```
 ### **close-input-port**
 Close an input port. If the port is a file, the file will be closed.
 
@@ -2583,15 +2719,7 @@ Converts a string into a list of characters.
 > (string->list "hello") ;; => '(#\h #\e #\l #\l #\o)
 ```
 ### **string->lower**
-Creates a new lowercased version of the input string
-
-(string->lower string?) -> string?
-
-#### Examples
-
-```scheme
-> (string->lower "sPonGeBoB tExT") ;; => "spongebob text"
-```
+Alias of `string-downcase`.
 ### **string->number**
 Converts the given string to a number, with an optional radix.
 On failure, it returns `#f`
@@ -2611,15 +2739,7 @@ Converts a string into a symbol.
 > (string->symbol "FooBar") ;; => 'FooBar
 ```
 ### **string->upper**
-Creates a new uppercased version of the input string
-
-(string->upper string?) -> string?
-
-#### Examples
-
-```scheme
-> (string->upper "lower") ;; => "LOWER"
-```
+Alias of `string-upcase`.
 ### **string->utf8**
 Alias of `string->bytes`.
 ### **string->vector**
@@ -2659,6 +2779,16 @@ in a case insensitive fashion.
 * s2 : string?
 ### **string-ci=?**
 Compares strings for equality, in a case insensitive fashion.
+
+(string-ci=? string? string? ...) -> bool?
+
+#### Examples
+
+```scheme
+> (string-ci=? "hEllO WorLd" "HELLO worlD") ;; => #t
+> (string-ci=? "Straße" "STRASSE" "strasse" "STRAẞE") ;; => #t
+> (string-ci=? "ὈΔΥΣΣΕΎΣ" "ὀδυσσεύς" "ὀδυσσεύσ") ;; => #t
+```
 ### **string-ci>=?**
 Compares strings lexicographically (as in"greater-than-or-equal"),
 in a case insensitive fashion.
@@ -2682,6 +2812,28 @@ Searches a string to check if it contains the second argument.
 ```scheme
 (string-contains? "hello" "lo") ;;=> #t
 (string-contains? "hello" "world") ;;=> #f
+```
+### **string-downcase**
+Creates a new lowercased version of the input string
+
+(string-downcase string?) -> string?
+
+#### Examples
+
+```scheme
+> (string-downcase "sPonGeBoB tExT") ;; => "spongebob text"
+> (string-downcase "ὈΔΥΣΣΕΎΣ") ;; => "ὀδυσσεύς"
+> (string-downcase "STRAẞE") ;; => "straße"
+```
+### **string-foldcase**
+Applies full unicode case-folding to the input string
+
+(string-foldcase string?) -> string?
+
+#### Examples
+
+```scheme
+> (string-foldcase "Straße") ;; => "strasse"
 ```
 ### **string-join**
 Joins the given list of strings, with an optional separator.
@@ -2728,6 +2880,17 @@ Replaces all occurrences of a pattern into the given string
 ```scheme
 (string-replace "hello world" "o" "@") ;; => "hell@ w@rld"
 ```
+### **string-upcase**
+Creates a new uppercased version of the input string
+
+(string-upcase string?) -> string?
+
+#### Examples
+
+```scheme
+> (string-upcase "lower") ;; => "LOWER"
+> (string-upcase "straße") ;; => "STRASSE"
+```
 ### **string<=?**
 Compares strings lexicographically (as in"less-than-equal-to").
 
@@ -2747,6 +2910,13 @@ Compares strings for equality.
 
 * string1 : string?
 * string2 : string?
+
+#### Examples
+
+```scheme
+> (string=? "hello" "hello") ;; => #t
+> (string=? "hello" "HELLO") ;; => #f
+```
 ### **string>=?**
 Compares strings lexicographically (as in"greater-than-or-equal").
 
@@ -2994,6 +3164,18 @@ of the string
 ```
 ### **utf8->string**
 Alias of `bytes->string/utf8`.
+### **utf8-length**
+Get the length of the string in UTF-8 bytes.
+
+(utf8-length string?) -> int?
+
+#### Examples
+
+```scheme
+> (utf8-length "apples") ;; => 6
+> (utf8-length "αβγ") ;; => 6
+> (utf8-length "✅") ;; => 3
+```
 ### **value->jsexpr-string**
 Serializes a Steel value into a string.
 
