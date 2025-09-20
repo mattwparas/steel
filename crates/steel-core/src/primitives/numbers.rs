@@ -705,7 +705,7 @@ fn number_to_float(number: &SteelVal) -> Result<f64> {
 /// > (inexact 1/2) ;; => 0.5
 /// > (inexact 1+2i) ;; => 1+2i
 /// ```
-#[steel_derive::function(name = "inexact", constant = true)]
+#[steel_derive::function(name = "inexact", alias = "exact->inexact", constant = true)]
 fn inexact(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => (*i as f64).into_steelval(),
@@ -716,23 +716,6 @@ fn inexact(number: &SteelVal) -> Result<SteelVal> {
         SteelVal::Complex(x) => SteelComplex::new(inexact(&x.re)?, inexact(&x.im)?).into_steelval(),
         _ => steelerr!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
     }
-}
-
-/// Converts an exact number to an inexact number.
-///
-/// (exact->inexact num) -> number?
-///
-/// * num : number? - The number to convert from exact to inexact.
-///
-/// # Examples
-/// ```scheme
-/// > (exact->inexact 10) ;; => 10
-/// > (exact->inexact 1/2) ;; => 0.5
-/// > (exact->inexact 1+2i) ;; => 1+2i
-/// ```
-#[steel_derive::function(name = "exact->inexact", constant = true)]
-fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
-    inexact(number)
 }
 
 /// Converts a number to an exact number.
@@ -747,7 +730,7 @@ fn exact_to_inexact(number: &SteelVal) -> Result<SteelVal> {
 /// > (exact 1.5) ;; => 3/2
 /// > (exact 1.5+2.5i) ;; => 3/2+5/2i
 /// ```
-#[steel_derive::function(name = "exact", constant = true)]
+#[steel_derive::function(name = "exact", alias = "inexact->exact", constant = true)]
 pub fn exact(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(_)
@@ -766,23 +749,6 @@ pub fn exact(number: &SteelVal) -> Result<SteelVal> {
         SteelVal::Complex(x) => SteelComplex::new(exact(&x.re)?, exact(&x.im)?).into_steelval(),
         _ => steelerr!(TypeMismatch => "exact->inexact expects a number type, found: {}", number),
     }
-}
-
-/// Converts an inexact number to an exact number.
-///
-/// (inexact->exact num) -> number?
-///
-/// * num : number? - The number to convert from inexact to exact.
-///
-/// # Examples
-/// ```scheme
-/// > (inexact->exact 10.0) ;; => 10
-/// > (inexact->exact 1.5) ;; => 3/2
-/// > (inexact->exact 1.5+2.5i) ;; => 3/2+5/2i
-/// ```
-#[steel_derive::function(name = "inexact->exact", constant = true)]
-fn inexact_to_exact(number: &SteelVal) -> Result<SteelVal> {
-    exact(number)
 }
 
 fn finitep_impl(number: &SteelVal) -> Result<bool> {

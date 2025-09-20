@@ -781,8 +781,8 @@ pub fn starts_with(value: &SteelString, prefix: &SteelString) -> bool {
 ///
 /// (ends-with? input pattern) -> bool?
 ///
-///    input : string?
-///    pattern: string?
+/// * input : string?
+/// * pattern: string?
 ///
 /// # Examples
 ///

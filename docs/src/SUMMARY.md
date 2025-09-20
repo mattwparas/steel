@@ -54,7 +54,6 @@
         - [Stdlib](reference/stdlib.md)
             - [steel/async](stdlib/steel_async.md)
             - [steel/iterators](stdlib/steel_iterators.md)
-            - [steel/mutable](stdlib/steel_mutable-vectors.md)
             - [steel/option](stdlib/steel_option.md)
             - [steel/result](stdlib/steel_result.md)
             - [steel/sync](stdlib/steel_sync.md)
