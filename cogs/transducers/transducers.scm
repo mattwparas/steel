@@ -192,6 +192,8 @@
     [(result) result]
     [(result input) (let ([test (pred input)]) (if (and result test) test (reduced #f)))]))
 
+(struct PortTransducer (reader port))
+
 (define new-transduce
   (case-lambda
     [(xform f coll)
@@ -202,6 +204,7 @@
        [(vector? coll) (vector-transduce xform f coll)]
        [(string? coll) (string-transduce xform f coll)]
        [(bytes? coll) (bytevector-u8-transduce xform f coll)]
+       ;; TODO: Fix this with transduce
        ; [(port? coll) (port-transduce xform f coll)]
        [else (error "unimplemented")])]
 
