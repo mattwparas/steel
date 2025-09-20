@@ -26,6 +26,27 @@ respect to the original `and` form.
 (and #f (error "should not get here")) ;; => #f
 (and #t 5) ;; => 5
 ```
+### **assf**
+Returns the first pair in the given list, where the given proc returns a true
+value, when applied to the car element. returning `#f`, if no element is found.
+
+This procedure is equivalent to `assoc`, but using using the given procedure
+instead of `equal?`.
+
+It is an error if the given list is not a list of pairs.
+
+(assf proc lst) -> (or/c pair? #f)
+
+* proc : procedure?
+* lst : (listof pair?)
+
+#### Examples
+
+```scheme
+(assf odd? '((0 a) (2 b) (1 c))) ;; => '(1 c)
+(assf (λ (x) (char-ci=? #\B x)) '((#\a 1) (#\b 2) (#\c 3))) ;; => '(#\b 2)
+(assf (λ (x) (> x 5)) '((1 1) (2 4) (3 9))) ;; => #f
+```
 ### **assoc**
 Returns the first pair in the given list, where the car element is `equal?`
 to the given obj, returning `#f` if nothing was found.
@@ -188,6 +209,25 @@ containing each result of `func` in order.
 #### Examples
 ```scheme
 (map add1 (range 0 5)) ;; '(1 2 3 4 5)
+```
+### **memf**
+Return the first tail of the list, where the given proc returns a true value,
+when applied to the car. Returns `#f`, if no element is found.
+
+This procedure is equivalent to `member`, but using the given procedure
+instead of `equal?`.
+
+(memf proc lst) -> (or/c list? #f)
+
+* proc : procedure?
+* lst : list?
+
+#### Examples
+
+```scheme
+(memf odd? '(0 2 1 3 4)) ;; => '(1 3 4)
+(memf (λ (x) (char-ci=? #\D x)) '(#\a #\b #\c #\d #\e)) ;; => '(#\d #\e)
+(memf (λ (x) (> x 5)) '(0 2 1 3 4)) ;; => #f
 ```
 ### **memv**
 Return the first tail of the list, where the car is `eqv?` to the given obj.
