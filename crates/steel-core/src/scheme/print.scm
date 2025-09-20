@@ -45,6 +45,19 @@
     [(pred (car lst)) #t]
     [else (ormap pred (cdr lst))]))
 
+(define (emit-pair printer pair)
+  (simple-display "(")
+  (let loop ([pair pair])
+    (printer (car pair))
+    (if (pair? (cdr pair))
+        (begin
+          (simple-display " ")
+          (loop (cdr pair)))
+        (begin
+          (simple-display " . ")
+          (printer (cdr pair))
+          (simple-display ")")))))
+
 (define (#%top-level-print obj collector)
   (cond
     [(symbol? obj)
@@ -74,11 +87,8 @@
                  (cdr obj)))
      (simple-display ")")]
     [(pair? obj)
-     (simple-display "'(")
-     (#%print (car obj) collector)
-     (simple-display " . ")
-     (#%print (cdr obj) collector)
-     (simple-display ")")]
+     (simple-display "'")
+     (emit-pair (λ (x) (#%print x collector)) obj)]
     [(vector? obj)
      (let ([list-obj (vector->list obj)])
        (simple-display "'#(")
@@ -155,12 +165,7 @@
                    (#%print x collector))
                  (cdr obj)))
      (simple-display ")")]
-    [(pair? obj)
-     (simple-display "(")
-     (#%print (car obj) collector)
-     (simple-display " . ")
-     (#%print (cdr obj) collector)
-     (simple-display ")")]
+    [(pair? obj) (emit-pair (λ (x) (#%print x collector)) obj)]
     [(vector? obj)
      (let ([list-obj (vector->list obj)])
        (simple-display "#(")
@@ -265,7 +270,7 @@
                    (#%display obj collector))
                  (cdr obj)))
      (simple-display ")")]
-
+    [(pair? obj) (emit-pair (λ (x) (#%display x collector)) obj)]
     [(#%private-struct? obj)
 
      (let ([printer (#%struct-property-ref obj '#:printer)])
@@ -356,7 +361,7 @@
                    (#%display obj collector))
                  (cdr obj)))
      (simple-display ")")]
-
+    [(pair? obj) (emit-pair (λ (x) (#%display x collector)) obj)]
     [(#%private-struct? obj)
 
      (let ([printer (#%struct-property-ref obj '#:printer)])
