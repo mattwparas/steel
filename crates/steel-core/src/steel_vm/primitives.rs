@@ -1119,6 +1119,12 @@ fn error_objectp(value: &SteelVal) -> bool {
     as_underlying_type::<SteelErr>(val.read().as_ref()).is_some()
 }
 
+#[steel_derive::function(name = "#%function-pointer?")]
+fn is_function_pointer(value: &SteelVal) -> bool {
+    matches!(value, |SteelVal::FuncV(_)| SteelVal::BoxedFunction(_)
+        | SteelVal::MutFunc(_))
+}
+
 /// Returns true if the value is a function or callable.
 ///
 /// (function? value) -> boolean?
@@ -1198,6 +1204,7 @@ fn identity_module() -> BuiltInModule {
         .register_value("char?", gen_pred!(CharV))
         .register_value("future?", gen_pred!(FutureV))
         .register_native_fn_definition(FUNCTIONP_DEFINITION)
+        .register_native_fn_definition(IS_FUNCTION_POINTER_DEFINITION)
         .register_native_fn_definition(PROCEDUREP_DEFINITION)
         .register_value(
             "atom?",

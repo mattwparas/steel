@@ -4,10 +4,28 @@
 (require "steel/iterators")
 
 (provide list-transduce
+         new-transduce
+         hashmap-transduce
+         hashset-transduce
+         vector-transduce
+         string-transduce
+         bytevector-u8-transduce
+         bytevector-transduce
+         port-transduce
+         generator-transduce
          tmap
          tfilter
+         tremove
+         tfilter-map
+         treplace
+         tdrop
+         tdrop-while
+         tappend-map
          tflatten
          tdelete-neighbor-duplicates
+         tdelete-duplicates
+         tsegment
+         tpartition
          tenumerate
          tlog
          tadd-between
@@ -15,7 +33,20 @@
          ttake-while
          tconcatenate
          rcons
-         reverse-rcons)
+         reverse-rcons
+         new-into-hashmap
+         new-into-hashset
+         new-into-immutable-vector
+         new-into-vector
+         new-into-for-each
+         rany
+         revery
+         compose)
+
+(define (compose . functions)
+  (define (make-chain thunk chain)
+    (lambda args (call-with-values (lambda () (apply thunk args)) chain)))
+  (if (null? functions) values (fold make-chain (car functions) (cdr functions))))
 
 (struct reduced (val))
 
@@ -38,8 +69,6 @@
       (%plain-let ((v (f identity (car lst))))
                   (if (reduced? v) (unreduce v) (list-reduce f v (cdr lst))))))
 
-;; TODO: Come back to this when there is a better understanding
-;; of how to implement let loop
 (define (vector-reduce f identity vec)
   (let ([len (vector-length vec)])
     (let loop ([i 0]
@@ -145,6 +174,12 @@
     [(v elem)
      (vector-push! v elem)
      v]))
+
+(define new-into-for-each
+  (case-lambda
+    [() void]
+    [(v) v]
+    [(v elem) void]))
 
 ;;@doc
 ;; A transducer-friendly cons with the empty list as identity. Acts like rcons, however will reverse
@@ -265,6 +300,14 @@
 (define bytevector-u8-transduce
   (case-lambda
     [(xform f coll) (bytevector-u8-transduce xform f (f) coll)]
+    [(xform f init coll)
+     (let* ([xf (xform f)]
+            [result (bytevector-u8-reduce xf init coll)])
+       (xf result))]))
+
+(define bytevector-transduce
+  (case-lambda
+    [(xform f coll) (bytevector-transduce xform f (f) coll)]
     [(xform f init coll)
      (let* ([xf (xform f)]
             [result (bytevector-u8-reduce xf init coll)])
