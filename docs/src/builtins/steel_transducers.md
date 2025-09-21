@@ -7,9 +7,9 @@ Compose multiple iterators into one iterator
 #### Examples
 ```scheme
 (compose
-(mapping (λ (x) (+ x 1)))
-(filtering odd?)
-(taking 15))
+    (mapping (λ (x) (+ x 1)))
+    (filtering odd?)
+    (taking 15))
 ```
 ### **dropping**
 Creates a taking iterator combinator
