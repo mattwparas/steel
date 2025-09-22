@@ -17,6 +17,7 @@
          tfilter
          tremove
          tfilter-map
+         tflat-map
          treplace
          tdrop
          tdrop-while
@@ -432,6 +433,9 @@
 
 (define (tappend-map f)
   (compose (tmap f) tconcatenate))
+
+(define (tflat-map f)
+  (compose (tmap f) flatten))
 
 ;;@doc
 ;; Flattens everything and passes each value through the reducer

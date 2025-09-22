@@ -8,20 +8,6 @@ use crate::steel_vm::{
 use crate::values::transducers::{Transducer, Transducers};
 use crate::{builtin_stop, stop, SteelErr};
 
-// declare_const_ref_functions!(
-//     COMPOSE => compose,
-//     ENUMERATING => enumerating,
-//     ZIPPING => zipping,
-//     INTERLEAVING => interleaving,
-//     MAPPING => map,
-//     EXTENDING => extending,
-//     FLAT_MAPPING => flat_map,
-//     FLATTENING => flatten,
-//     FILTERING => filter,
-//     TAKING => take,
-//     DROPPING => dropping,
-// );
-
 pub fn transducer_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/transducers");
 
@@ -51,8 +37,90 @@ pub fn transducer_module() -> BuiltInModule {
         .register_value("into-last", crate::values::transducers::INTO_LAST)
         .register_value("into-for-each", crate::values::transducers::FOR_EACH)
         .register_value("into-nth", crate::values::transducers::NTH)
-        .register_value("into-reducer", crate::values::transducers::REDUCER);
+        .register_value("into-reducer", crate::values::transducers::REDUCER)
+        .register_native_fn_definition(TRANSDUCERS_FUNC_DEFINITION);
+
     module
+}
+
+#[repr(usize)]
+#[derive(Copy, Clone)]
+enum TransducerKind {
+    Map,
+    Filter,
+    Take,
+    Drop,
+    FlatMap,
+    Flatten,
+    Window,
+    TakeWhile,
+    DropWhile,
+    Extend,
+    Cycle,
+    Enumerating,
+    Zipping,
+    Interleaving,
+}
+
+#[steel_derive::function(name = "#%transducers->funcs")]
+pub fn transducers_func(arg: &SteelVal) -> Option<SteelVal> {
+    let mut funcs = Vec::new();
+
+    fn pair(kind: TransducerKind, cdr: SteelVal) -> SteelVal {
+        SteelVal::Pair(Gc::new(crate::values::lists::Pair::cons(
+            SteelVal::IntV(kind as usize as _),
+            cdr,
+        )))
+    }
+
+    if let SteelVal::ListV(i) = arg {
+        for value in i {
+            if let SteelVal::IterV(i) = value {
+                for op in &i.ops {
+                    funcs.push(match op {
+                        Transducers::Map(steel_val) => pair(TransducerKind::Map, steel_val.clone()),
+                        Transducers::Filter(steel_val) => {
+                            pair(TransducerKind::Filter, steel_val.clone())
+                        }
+                        Transducers::Take(steel_val) => {
+                            pair(TransducerKind::Take, steel_val.clone())
+                        }
+                        Transducers::Drop(steel_val) => {
+                            pair(TransducerKind::Drop, steel_val.clone())
+                        }
+                        Transducers::FlatMap(steel_val) => {
+                            pair(TransducerKind::FlatMap, steel_val.clone())
+                        }
+                        Transducers::Flatten => pair(TransducerKind::Flatten, SteelVal::Void),
+                        Transducers::Window(steel_val) => {
+                            pair(TransducerKind::Window, steel_val.clone())
+                        }
+                        Transducers::TakeWhile(steel_val) => {
+                            pair(TransducerKind::TakeWhile, steel_val.clone())
+                        }
+                        Transducers::DropWhile(steel_val) => {
+                            pair(TransducerKind::DropWhile, steel_val.clone())
+                        }
+                        Transducers::Extend(steel_val) => {
+                            pair(TransducerKind::Extend, steel_val.clone())
+                        }
+                        Transducers::Cycle => pair(TransducerKind::Cycle, SteelVal::Void),
+                        Transducers::Enumerating => {
+                            pair(TransducerKind::Enumerating, SteelVal::Void)
+                        }
+                        Transducers::Zipping(steel_val) => {
+                            pair(TransducerKind::Zipping, steel_val.clone())
+                        }
+                        Transducers::Interleaving(steel_val) => {
+                            pair(TransducerKind::Interleaving, steel_val.clone())
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Compose multiple iterators into one iterator
