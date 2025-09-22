@@ -359,6 +359,81 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     multiply_primitive_impl(args)
 }
 
+/// Returns the quotient of a truncated division of numerator by denominator.
+///
+/// (truncate-quotient numerator denominator) -> integer?
+///
+/// * numerator : integer? - The numerator.
+/// * denominator : integer? - The denominator.
+///
+/// # Examples
+/// ```scheme
+/// > (truncate-quotient 11 2) ;; => 5
+/// > (truncate-quotient 10 2) ;; => 5
+/// > (truncate-quotient -10 2) ;; => -5
+/// ```
+#[steel_derive::native(name = "truncate-quotient", constant = true, arity = "Exact(2)")]
+pub fn truncate_quotient(args: &[SteelVal]) -> Result<SteelVal> {
+    quotient(args)
+}
+
+/// Returns the arithmetic remainder of the truncated division of the first number by the second.
+///
+/// (truncate-remainder n m) -> integer?
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (truncate-remainder 10 3) ;; => 1
+/// > (truncate-remainder -10 3) ;; => -1
+/// > (truncate-remainder 10 -3) ;; => 1
+/// > (truncate-remainder -10 -3) ;; => -1
+/// ```
+#[steel_derive::native(name = "truncate-remainder", constant = true, arity = "Exact(2)")]
+pub fn truncate_remainder(args: &[SteelVal]) -> Result<SteelVal> {
+    remainder(args)
+}
+
+/// Returns the quotient of a floored division of the numerator by the denominator.
+///
+/// (floor-quotient numerator denominator) -> integer?
+///
+/// * numerator : integer?
+/// * denominator : integer?
+#[steel_derive::native(name = "floor-quotient", constant = true, arity = "Exact(2)")]
+pub fn floor_quotient(args: &[SteelVal]) -> Result<SteelVal> {
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => l.div_floor(r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.div_floor(r).into_steelval(),
+        _ => steelerr!(TypeMismatch => "floor-quotient only supports integers"),
+    }
+}
+
+/// Returns the arithmetic remainder of the floored division of the first number by the second.
+///
+/// (floor-remainder n m) -> integer?
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (floor-remainder 10 3) ;; => 1
+/// > (floor-remainder -10 3) ;; => 2
+/// > (floor-remainder 10 -3) ;; => -2
+/// > (floor-remainder -10 -3) ;; => -1
+/// ```
+#[steel_derive::native(name = "floor-remainder", constant = true, arity = "Exact(2)")]
+pub fn floor_remainder(args: &[SteelVal]) -> Result<SteelVal> {
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => l.mod_floor(r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.mod_floor(r).into_steelval(),
+        _ => steelerr!(TypeMismatch => "floor-remainder only supports integers"),
+    }
+}
+
 /// Returns quotient of dividing numerator by denomintator.
 ///
 /// (quotient numerator denominator) -> integer?
@@ -383,29 +458,6 @@ pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-/// Returns the euclidean remainder of the division of the first number by the second
-/// This differs from the remainder operator when using negative numbers.
-///
-/// (modulo n m) -> integer?
-///
-/// * n : integer?
-/// * m : integer?
-///
-/// # Examples
-/// ```scheme
-/// > (modulo 10 3) ;; => 1
-/// > (modulo -10 3) ;; => 2
-/// > (modulo 10 -3) ;; => -2
-/// > (module -10 -3) ;; => -1
-/// ```
-#[steel_derive::native(name = "modulo", constant = true, arity = "Exact(2)")]
-pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
-    match (&args[0], &args[1]) {
-        (SteelVal::IntV(l), SteelVal::IntV(r)) => ((l % r + r) % r).into_steelval(),
-        _ => steelerr!(TypeMismatch => "modulo only supports integers"),
-    }
-}
-
 /// Returns the arithmetic remainder of the division of the first number by the second.
 /// This differs from the modulo operator when using negative numbers.
 ///
@@ -426,6 +478,29 @@ pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
         (SteelVal::IntV(l), SteelVal::IntV(r)) => (l % r).into_steelval(),
         _ => steelerr!(TypeMismatch => "remainder only supports integers"),
+    }
+}
+
+/// Returns the euclidean remainder of the division of the first number by the second
+/// This differs from the remainder operator when using negative numbers.
+///
+/// (modulo n m) -> integer?
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (modulo 10 3) ;; => 1
+/// > (modulo -10 3) ;; => 2
+/// > (modulo 10 -3) ;; => -2
+/// > (module -10 -3) ;; => -1
+/// ```
+#[steel_derive::native(name = "modulo", constant = true, arity = "Exact(2)")]
+pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => ((l % r + r) % r).into_steelval(),
+        _ => steelerr!(TypeMismatch => "modulo only supports integers"),
     }
 }
 
