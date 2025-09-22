@@ -375,13 +375,31 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 #[steel_derive::native(name = "truncate-quotient", constant = true, arity = "Exact(2)")]
 pub fn truncate_quotient(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
-        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0)) => {
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "truncate-quotient: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "truncate-quotient: division by zero")
         }
         (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() / r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => (l / r.as_ref()).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => (l.as_ref() / r.as_ref()).into_steelval(),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            (l / r).trunc().into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            (l / *r as f64).trunc().into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (*l as f64 / r).trunc().into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            (l / r.to_f64().unwrap()).trunc().into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (l.to_f64().unwrap() / r).trunc().into_steelval()
+        }
         _ => steelerr!(TypeMismatch => "truncate-quotient only supports integers"),
     }
 }
@@ -403,13 +421,31 @@ pub fn truncate_quotient(args: &[SteelVal]) -> Result<SteelVal> {
 #[steel_derive::native(name = "truncate-remainder", constant = true, arity = "Exact(2)")]
 pub fn truncate_remainder(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
-        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0)) => {
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "truncate-remainder: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "truncate-remainder: division by zero")
         }
         (SteelVal::IntV(l), SteelVal::IntV(r)) => (l % r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => (l % r.as_ref()).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() % r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => (l.as_ref() % r.as_ref()).into_steelval(),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            (l % r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            (l % *r as f64).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (*l as f64 % r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            (l % r.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (l.to_f64().unwrap() % r).into_steelval()
+        }
         _ => steelerr!(TypeMismatch => "truncate-remainder only supports integers"),
     }
 }
@@ -471,13 +507,31 @@ pub fn floor_remainder(args: &[SteelVal]) -> Result<SteelVal> {
 #[steel_derive::native(name = "euclidean-quotient", constant = true, arity = "Exact(2)")]
 pub fn euclidean_quotient(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
-        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0)) => {
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "euclidean-quotient: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "euclidean-quotient: division by zero")
         }
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.div_euclid(r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).div_euclid(r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.div_euclid(&BigInt::from(*r)).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.div_euclid(r).into_steelval(),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            l.div_euclid(r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            (*l).div_euclid(*r as f64).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (*l as f64).div_euclid(*r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            (*l).div_euclid(r.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            l.to_f64().unwrap().div_euclid(*r).into_steelval()
+        }
         _ => steelerr!(TypeMismatch => "euclidean-quotient only supports integers"),
     }
 }
@@ -491,13 +545,31 @@ pub fn euclidean_quotient(args: &[SteelVal]) -> Result<SteelVal> {
 #[steel_derive::native(name = "euclidean-remainder", constant = true, arity = "Exact(2)")]
 pub fn euclidean_remainder(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
-        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0)) => {
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "euclidean-remainder: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "euclidean-remainder: division by zero")
         }
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.rem_euclid(r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).rem_euclid(r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.rem_euclid(&BigInt::from(*r)).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.rem_euclid(r).into_steelval(),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            l.rem_euclid(r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            (*l).rem_euclid(*r as f64).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (*l as f64).rem_euclid(*r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            (*l).rem_euclid(r.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            l.to_f64().unwrap().rem_euclid(*r).into_steelval()
+        }
         _ => steelerr!(TypeMismatch => "euclidean-remainder only supports integers"),
     }
 }
