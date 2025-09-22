@@ -459,14 +459,43 @@ pub fn truncate_remainder(args: &[SteelVal]) -> Result<SteelVal> {
 #[steel_derive::native(name = "floor-quotient", constant = true, arity = "Exact(2)")]
 pub fn floor_quotient(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
-        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0)) => {
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "floor-quotient: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "floor-quotient: division by zero")
         }
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.div_floor(r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).div_floor(r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.div_floor(&BigInt::from(*r)).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.div_floor(r).into_steelval(),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            (l / r).floor().into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            (l / *r as f64).floor().into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (*l as f64 / r).floor().into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            (l / r.to_f64().unwrap()).floor().into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (l.to_f64().unwrap() / r).floor().into_steelval()
+        }
         _ => steelerr!(TypeMismatch => "floor-quotient only supports integers"),
+    }
+}
+
+fn float_rem_floor(lhs: f64, rhs: f64) -> f64 {
+    // Algorithm taken from num-integer, which itself takes it from
+    // https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/divmodnote-letter.pdf
+    let r = lhs % rhs;
+    if (r > 0.0 && rhs < 0.0) || (r < 0.0 && rhs > 0.0) {
+        r + rhs
+    } else {
+        r
     }
 }
 
@@ -487,13 +516,31 @@ pub fn floor_quotient(args: &[SteelVal]) -> Result<SteelVal> {
 #[steel_derive::native(name = "floor-remainder", constant = true, arity = "Exact(2)")]
 pub fn floor_remainder(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
-        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0)) => {
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "floor-remainder: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "floor-remainder: division by zero")
         }
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.mod_floor(r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).mod_floor(r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.mod_floor(&BigInt::from(*r)).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.mod_floor(r).into_steelval(),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            float_rem_floor(*l, *r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            float_rem_floor(*l, *r as f64).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            float_rem_floor(*l as f64, *r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            float_rem_floor(*l, r.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            float_rem_floor(l.to_f64().unwrap(), *r).into_steelval()
+        }
         _ => steelerr!(TypeMismatch => "floor-remainder only supports integers"),
     }
 }
