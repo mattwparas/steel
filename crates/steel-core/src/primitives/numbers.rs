@@ -364,9 +364,9 @@ pub fn truncate(arg: &SteelVal) -> Result<SteelVal> {
     match arg {
         SteelVal::NumV(n) => n.trunc().into_steelval(),
         SteelVal::IntV(i) => Ok(SteelVal::IntV(*i)),
-        // SteelVal::Rational(ratio) => ratio.trunc(),
+        SteelVal::Rational(ratio) => ratio.trunc().into_steelval(),
         SteelVal::BigNum(gc) => Ok(SteelVal::BigNum(gc.clone())),
-        // SteelVal::BigRational(gc) => gc.trunc(),
+        SteelVal::BigRational(gc) => gc.trunc().into_steelval(),
         _ => stop!(TypeMismatch => "truncate expects a real number, found: {}", arg),
     }
 }
