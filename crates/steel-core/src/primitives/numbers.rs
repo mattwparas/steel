@@ -1058,7 +1058,7 @@ fn numerator(number: &SteelVal) -> Result<SteelVal> {
 ///
 /// (floor number) -> number?
 ///
-/// * number : number? - The number to compute the floor for.
+/// * number : real? - The number to compute the floor for.
 ///
 /// # Examples
 /// ```scheme
@@ -1082,7 +1082,7 @@ fn floor(number: &SteelVal) -> Result<SteelVal> {
 ///
 /// (ceiling number) -> integer?
 ///
-/// * number : number? - The number to round up.
+/// * number : real? - The number to round up.
 ///
 /// # Examples
 /// ```scheme
@@ -1106,7 +1106,7 @@ fn ceiling(number: &SteelVal) -> Result<SteelVal> {
 ///
 /// (truncate number) -> integer?
 ///
-/// * number : number? - The number to truncate.
+/// * number : real? - The number to truncate.
 ///
 /// # Examples
 ///
@@ -1178,7 +1178,7 @@ where
 ///
 /// (round number) -> number?
 ///
-/// * number : number? - The number to round.
+/// * number : real? - The number to round.
 ///
 /// # Examples
 /// ```scheme
