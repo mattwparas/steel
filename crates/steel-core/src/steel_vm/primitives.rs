@@ -1273,6 +1273,8 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::TRUNCATE_REMAINDER_DEFINITION)
         .register_native_fn_definition(numbers::FLOOR_QUOTIENT_DEFINITION)
         .register_native_fn_definition(numbers::FLOOR_REMAINDER_DEFINITION)
+        .register_native_fn_definition(numbers::EUCLIDEAN_QUOTIENT_DEFINITION)
+        .register_native_fn_definition(numbers::EUCLIDEAN_REMAINDER_DEFINITION)
         .register_native_fn_definition(numbers::QUOTIENT_DEFINITION)
         .register_native_fn_definition(numbers::REMAINDER_DEFINITION)
         .register_native_fn_definition(numbers::MODULO_DEFINITION)

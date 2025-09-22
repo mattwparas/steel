@@ -3,7 +3,7 @@ use crate::{steelerr, stop, throw};
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::{BigRational, Ratio, Rational32};
-use num_traits::{pow::Pow, CheckedAdd, CheckedMul, One, Signed, ToPrimitive, Zero};
+use num_traits::{pow::Pow, CheckedAdd, CheckedMul, Euclid, One, Signed, ToPrimitive, Zero};
 use std::cmp::Ordering;
 use std::ops::Neg;
 
@@ -440,6 +440,36 @@ pub fn floor_remainder(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.mod_floor(r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.mod_floor(r).into_steelval(),
         _ => steelerr!(TypeMismatch => "floor-remainder only supports integers"),
+    }
+}
+
+/// Returns the quotient of a euclidean integer division of n by m.
+///
+/// (euclidean-quotient n m) -> integer?
+///
+/// * n : integer?
+/// * m : integer?
+#[steel_derive::native(name = "euclidean-quotient", constant = true, arity = "Exact(2)")]
+pub fn euclidean_quotient(args: &[SteelVal]) -> Result<SteelVal> {
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => l.div_euclid(r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.div_euclid(r).into_steelval(),
+        _ => steelerr!(TypeMismatch => "euclidean-quotient only supports integers"),
+    }
+}
+
+/// Returns the euclidean (least non-negative) remainder of the integer division of n by m.
+///
+/// (euclidean-remainder n m) -> integer?
+///
+/// * n : integer?
+/// * m : integer?
+#[steel_derive::native(name = "euclidean-remainder", constant = true, arity = "Exact(2)")]
+pub fn euclidean_remainder(args: &[SteelVal]) -> Result<SteelVal> {
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => l.rem_euclid(r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.rem_euclid(r).into_steelval(),
+        _ => steelerr!(TypeMismatch => "euclidean-remainder only supports integers"),
     }
 }
 
