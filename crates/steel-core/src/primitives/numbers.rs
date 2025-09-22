@@ -407,6 +407,9 @@ pub fn truncate_remainder(args: &[SteelVal]) -> Result<SteelVal> {
             steelerr!(Generic => "truncate-remainder: division by zero")
         }
         (SteelVal::IntV(l), SteelVal::IntV(r)) => (l % r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => (l % r.as_ref()).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() % r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => (l.as_ref() % r.as_ref()).into_steelval(),
         _ => steelerr!(TypeMismatch => "truncate-remainder only supports integers"),
     }
 }
@@ -424,6 +427,8 @@ pub fn floor_quotient(args: &[SteelVal]) -> Result<SteelVal> {
             steelerr!(Generic => "floor-quotient: division by zero")
         }
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.div_floor(r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).div_floor(r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.div_floor(&BigInt::from(*r)).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.div_floor(r).into_steelval(),
         _ => steelerr!(TypeMismatch => "floor-quotient only supports integers"),
     }
@@ -450,6 +455,8 @@ pub fn floor_remainder(args: &[SteelVal]) -> Result<SteelVal> {
             steelerr!(Generic => "floor-remainder: division by zero")
         }
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.mod_floor(r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).mod_floor(r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.mod_floor(&BigInt::from(*r)).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.mod_floor(r).into_steelval(),
         _ => steelerr!(TypeMismatch => "floor-remainder only supports integers"),
     }
@@ -468,6 +475,8 @@ pub fn euclidean_quotient(args: &[SteelVal]) -> Result<SteelVal> {
             steelerr!(Generic => "euclidean-quotient: division by zero")
         }
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.div_euclid(r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).div_euclid(r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.div_euclid(&BigInt::from(*r)).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.div_euclid(r).into_steelval(),
         _ => steelerr!(TypeMismatch => "euclidean-quotient only supports integers"),
     }
@@ -486,6 +495,8 @@ pub fn euclidean_remainder(args: &[SteelVal]) -> Result<SteelVal> {
             steelerr!(Generic => "euclidean-remainder: division by zero")
         }
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.rem_euclid(r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).rem_euclid(r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.rem_euclid(&BigInt::from(*r)).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.rem_euclid(r).into_steelval(),
         _ => steelerr!(TypeMismatch => "euclidean-remainder only supports integers"),
     }
