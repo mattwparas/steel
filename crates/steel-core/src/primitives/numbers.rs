@@ -375,6 +375,11 @@ pub fn truncate_slash(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "truncate/: division by zero")
         }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => {
+            let l = BigInt::from(*l);
+            (&l / r, l % r).into_steelval()
+        }
         (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r, l % r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => {
             (l.as_ref() / r, l.as_ref() % r).into_steelval()
@@ -428,6 +433,10 @@ pub fn truncate_quotient(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "truncate-quotient: division by zero")
         }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => {
+            (BigInt::from(*l) / r).into_steelval()
+        }
         (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() / r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => (l / r.as_ref()).into_steelval(),
@@ -474,6 +483,10 @@ pub fn truncate_remainder(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "truncate-remainder: division by zero")
         }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => {
+            (BigInt::from(*l) % r).into_steelval()
+        }
         (SteelVal::IntV(l), SteelVal::IntV(r)) => (l % r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => (l % r.as_ref()).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() % r).into_steelval(),
@@ -513,6 +526,10 @@ pub fn floor_slash(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "floor/: division by zero")
         }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => BigInt::from(*l)
+            .div_mod_floor(&BigInt::from(*r))
+            .into_steelval(),
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.div_mod_floor(r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => {
             BigInt::from(*l).div_mod_floor(r).into_steelval()
@@ -557,6 +574,10 @@ pub fn floor_quotient(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "floor-quotient: division by zero")
         }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => BigInt::from(*l)
+            .div_floor(&BigInt::from(*r))
+            .into_steelval(),
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.div_floor(r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).div_floor(r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.div_floor(&BigInt::from(*r)).into_steelval(),
@@ -614,6 +635,10 @@ pub fn floor_remainder(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "floor-remainder: division by zero")
         }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => BigInt::from(*l)
+            .mod_floor(&BigInt::from(*r))
+            .into_steelval(),
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.mod_floor(r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).mod_floor(r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.mod_floor(&BigInt::from(*r)).into_steelval(),
@@ -653,6 +678,10 @@ pub fn euclidean_slash(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "euclidean/: division by zero")
         }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => BigInt::from(*l)
+            .div_rem_euclid(&BigInt::from(*r))
+            .into_steelval(),
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.div_rem_euclid(r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => {
             BigInt::from(*l).div_rem_euclid(r).into_steelval()
@@ -695,6 +724,10 @@ pub fn euclidean_quotient(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "euclidean-quotient: division by zero")
         }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => BigInt::from(*l)
+            .div_euclid(&BigInt::from(*r))
+            .into_steelval(),
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.div_euclid(r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).div_euclid(r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.div_euclid(&BigInt::from(*r)).into_steelval(),
@@ -733,6 +766,10 @@ pub fn euclidean_remainder(args: &[SteelVal]) -> Result<SteelVal> {
         (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
             steelerr!(Generic => "euclidean-remainder: division by zero")
         }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => BigInt::from(*l)
+            .rem_euclid(&BigInt::from(*r))
+            .into_steelval(),
         (SteelVal::IntV(l), SteelVal::IntV(r)) => l.rem_euclid(r).into_steelval(),
         (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).rem_euclid(r).into_steelval(),
         (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.rem_euclid(&BigInt::from(*r)).into_steelval(),

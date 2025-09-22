@@ -268,6 +268,22 @@
 (assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder 5.0 -2.0 -2.0 1.0)
 (assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder -5.0 -2.0 3.0 1.0)
 
+(let ([n1 (- (expt 2 63))] ; isize::MIN on 64-bit
+      [n2 -1]
+      [nq (expt 2 63)] ; one larger than isize::MAX on 64-bit
+      [nr 0])
+  (assert-integer-division! floor/ floor-quotient floor-remainder n1 n2 nq nr)
+  (assert-integer-division! truncate/ truncate-quotient truncate-remainder n1 n2 nq nr)
+  (assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder n1 n2 nq nr))
+
+(let ([n1 (- (expt 2 31))] ; isize::MIN on 32-bit
+      [n2 -1]
+      [nq (expt 2 31)] ; one larger than isize::MAX on 32-bit
+      [nr 0])
+  (assert-integer-division! floor/ floor-quotient floor-remainder n1 n2 nq nr)
+  (assert-integer-division! truncate/ truncate-quotient truncate-remainder n1 n2 nq nr)
+  (assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder n1 n2 nq nr))
+
 (assert-equal! 3 (numerator 3))
 (assert-equal! 3 (numerator 3/2))
 (assert-equal! 1 (denominator 3))
