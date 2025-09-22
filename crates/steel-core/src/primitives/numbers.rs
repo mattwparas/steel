@@ -374,7 +374,13 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "truncate-quotient", constant = true, arity = "Exact(2)")]
 pub fn truncate_quotient(args: &[SteelVal]) -> Result<SteelVal> {
-    quotient(args)
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() / r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => (l / r.as_ref()).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => (l.as_ref() / r.as_ref()).into_steelval(),
+        _ => steelerr!(TypeMismatch => "truncate-quotient only supports integers"),
+    }
 }
 
 /// Returns the arithmetic remainder of the truncated division of the first number by the second.
@@ -393,7 +399,10 @@ pub fn truncate_quotient(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "truncate-remainder", constant = true, arity = "Exact(2)")]
 pub fn truncate_remainder(args: &[SteelVal]) -> Result<SteelVal> {
-    remainder(args)
+    match (&args[0], &args[1]) {
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => (l % r).into_steelval(),
+        _ => steelerr!(TypeMismatch => "truncate-remainder only supports integers"),
+    }
 }
 
 /// Returns the quotient of a floored division of the numerator by the denominator.
@@ -449,13 +458,7 @@ pub fn floor_remainder(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "quotient", constant = true, arity = "Exact(2)")]
 pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
-    match (&args[0], &args[1]) {
-        (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r).into_steelval(),
-        (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() / r).into_steelval(),
-        (SteelVal::IntV(l), SteelVal::BigNum(r)) => (l / r.as_ref()).into_steelval(),
-        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => (l.as_ref() / r.as_ref()).into_steelval(),
-        _ => steelerr!(TypeMismatch => "quotient only supports integers"),
-    }
+    truncate_quotient(args)
 }
 
 /// Returns the arithmetic remainder of the division of the first number by the second.
@@ -475,10 +478,7 @@ pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "remainder", constant = true, arity = "Exact(2)")]
 pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
-    match (&args[0], &args[1]) {
-        (SteelVal::IntV(l), SteelVal::IntV(r)) => (l % r).into_steelval(),
-        _ => steelerr!(TypeMismatch => "remainder only supports integers"),
-    }
+    truncate_remainder(args)
 }
 
 /// Returns the euclidean remainder of the division of the first number by the second
