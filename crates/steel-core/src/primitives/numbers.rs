@@ -498,10 +498,7 @@ pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "modulo", constant = true, arity = "Exact(2)")]
 pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
-    match (&args[0], &args[1]) {
-        (SteelVal::IntV(l), SteelVal::IntV(r)) => ((l % r + r) % r).into_steelval(),
-        _ => steelerr!(TypeMismatch => "modulo only supports integers"),
-    }
+    floor_remainder(args)
 }
 
 /// Returns the sine value of the input angle, measured in radians.
