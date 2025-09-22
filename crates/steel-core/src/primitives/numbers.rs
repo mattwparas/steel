@@ -1054,7 +1054,7 @@ fn numerator(number: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-/// Computes the largest integer less than or equal to the given number.
+/// Rounds the given number down to the nearest integer not larger than it.
 ///
 /// (floor number) -> number?
 ///
@@ -1074,7 +1074,7 @@ fn floor(number: &SteelVal) -> Result<SteelVal> {
         SteelVal::Rational(x) => x.floor().into_steelval(),
         SteelVal::BigNum(x) => Ok(SteelVal::BigNum(x.clone())),
         SteelVal::BigRational(x) => x.floor().into_steelval(),
-        _ => steelerr!(Generic => "floor expected a real number"),
+        _ => steelerr!(Generic => "floor expects a real number, found: {}", number),
     }
 }
 
@@ -1101,6 +1101,20 @@ fn ceiling(number: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Rounds the given number to the nearest integer, whose absolute value is not
+/// larger than it.
+///
+/// (truncate number) -> integer?
+///
+/// * number : number? - The number to truncate.
+///
+/// # Examples
+///
+/// ```scheme
+/// > (truncate 42) ;; => 42
+/// > (truncate 42.1) ;; => 42
+/// > (truncate -42.1) ;; => -42
+/// ```
 #[steel_derive::function(name = "truncate", constant = true)]
 pub fn truncate(arg: &SteelVal) -> Result<SteelVal> {
     match arg {
