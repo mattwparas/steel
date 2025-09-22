@@ -359,18 +359,6 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     multiply_primitive_impl(args)
 }
 
-#[steel_derive::function(name = "truncate", constant = true)]
-pub fn truncate(arg: &SteelVal) -> Result<SteelVal> {
-    match arg {
-        SteelVal::NumV(n) => n.trunc().into_steelval(),
-        SteelVal::IntV(i) => Ok(SteelVal::IntV(*i)),
-        SteelVal::Rational(ratio) => ratio.trunc().into_steelval(),
-        SteelVal::BigNum(gc) => Ok(SteelVal::BigNum(gc.clone())),
-        SteelVal::BigRational(gc) => gc.trunc().into_steelval(),
-        _ => stop!(TypeMismatch => "truncate expects a real number, found: {}", arg),
-    }
-}
-
 /// Returns quotient of dividing numerator by denomintator.
 ///
 /// (quotient numerator denominator) -> integer?
@@ -838,29 +826,6 @@ fn abs(number: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-/// Rounds the given number up to the nearest integer not less than it.
-///
-/// (ceiling number) -> integer?
-///
-/// * number : number? - The number to round up.
-///
-/// # Examples
-/// ```scheme
-/// > (ceiling 42) ;; => 42
-/// > (ceiling 42.1) ;; => 43
-/// > (ceiling -42.1) ;; => -42
-/// ```
-#[steel_derive::function(name = "ceiling", constant = true)]
-fn ceiling(number: &SteelVal) -> Result<SteelVal> {
-    match number {
-        n @ SteelVal::IntV(_) | n @ SteelVal::BigNum(_) => Ok(n.clone()),
-        SteelVal::NumV(n) => Ok(SteelVal::NumV(n.ceil())),
-        SteelVal::Rational(f) => f.ceil().into_steelval(),
-        SteelVal::BigRational(f) => f.ceil().into_steelval(),
-        _ => steelerr!(TypeMismatch => "ceiling expects a real number, found: {}", number),
-    }
-}
-
 /// Retrieves the denominator of the given rational number.
 ///
 /// (denominator number) -> integer?
@@ -1066,6 +1031,29 @@ fn exp(left: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+/// Retrieves the numerator of the given rational number.
+///
+/// (numerator number) -> number?
+///
+/// * number : number? - The rational number to retrieve the numerator from.
+///
+/// # Examples
+/// ```scheme
+/// > (numerator 3/4) ;; => 3
+/// > (numerator 5/2) ;; => 5
+/// > (numerator -2) ;; => -2
+/// ```
+#[steel_derive::function(name = "numerator", constant = true)]
+fn numerator(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        SteelVal::IntV(x) => x.into_steelval(),
+        SteelVal::Rational(x) => (*x.numer() as isize).into_steelval(),
+        SteelVal::BigNum(x) => Ok(SteelVal::BigNum(x.clone())),
+        SteelVal::BigRational(x) => (x.numer().clone()).into_steelval(),
+        _ => steelerr!(Generic => "numerator expects an integer or rational number"),
+    }
+}
+
 /// Computes the largest integer less than or equal to the given number.
 ///
 /// (floor number) -> number?
@@ -1090,26 +1078,38 @@ fn floor(number: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-/// Retrieves the numerator of the given rational number.
+/// Rounds the given number up to the nearest integer not less than it.
 ///
-/// (numerator number) -> number?
+/// (ceiling number) -> integer?
 ///
-/// * number : number? - The rational number to retrieve the numerator from.
+/// * number : number? - The number to round up.
 ///
 /// # Examples
 /// ```scheme
-/// > (numerator 3/4) ;; => 3
-/// > (numerator 5/2) ;; => 5
-/// > (numerator -2) ;; => -2
+/// > (ceiling 42) ;; => 42
+/// > (ceiling 42.1) ;; => 43
+/// > (ceiling -42.1) ;; => -42
 /// ```
-#[steel_derive::function(name = "numerator", constant = true)]
-fn numerator(number: &SteelVal) -> Result<SteelVal> {
+#[steel_derive::function(name = "ceiling", constant = true)]
+fn ceiling(number: &SteelVal) -> Result<SteelVal> {
     match number {
-        SteelVal::IntV(x) => x.into_steelval(),
-        SteelVal::Rational(x) => (*x.numer() as isize).into_steelval(),
-        SteelVal::BigNum(x) => Ok(SteelVal::BigNum(x.clone())),
-        SteelVal::BigRational(x) => (x.numer().clone()).into_steelval(),
-        _ => steelerr!(Generic => "numerator expects an integer or rational number"),
+        n @ SteelVal::IntV(_) | n @ SteelVal::BigNum(_) => Ok(n.clone()),
+        SteelVal::NumV(n) => Ok(SteelVal::NumV(n.ceil())),
+        SteelVal::Rational(f) => f.ceil().into_steelval(),
+        SteelVal::BigRational(f) => f.ceil().into_steelval(),
+        _ => steelerr!(TypeMismatch => "ceiling expects a real number, found: {}", number),
+    }
+}
+
+#[steel_derive::function(name = "truncate", constant = true)]
+pub fn truncate(arg: &SteelVal) -> Result<SteelVal> {
+    match arg {
+        SteelVal::NumV(n) => n.trunc().into_steelval(),
+        SteelVal::IntV(i) => Ok(SteelVal::IntV(*i)),
+        SteelVal::Rational(ratio) => ratio.trunc().into_steelval(),
+        SteelVal::BigNum(gc) => Ok(SteelVal::BigNum(gc.clone())),
+        SteelVal::BigRational(gc) => gc.trunc().into_steelval(),
+        _ => stop!(TypeMismatch => "truncate expects a real number, found: {}", arg),
     }
 }
 
