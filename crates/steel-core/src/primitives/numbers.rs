@@ -359,13 +359,25 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     multiply_primitive_impl(args)
 }
 
-/// Simultaneously returns the quotient and the remainder of a truncated
-/// division of the numerator by the denominator.
+/// Simultaneously returns the quotient and the arithmetic remainder of a truncated
+/// integer division of a given numerator *n* by a given denominator *m*.
 ///
-/// (truncate/ numerator denominator) -> (integer? integer?)
+/// Equivalent to `(values (truncate-quotient n m) (truncate-remainder n m))`,
+/// but may be computed more efficiently.
 ///
-/// * numerator : integer?
-/// * denominator : integer?
+/// (truncate/ n m) -> (integer? integer?)
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (truncate/ 5 2) ;; => (2 1)
+/// > (truncate/ -5 2) ;; => (-2 -1)
+/// > (truncate/ 5 -2) ;; => (-2 1)
+/// > (truncate/ -5 -2) ;; => (2 -1)
+/// ```
 #[steel_derive::native(name = "truncate/", constant = true, arity = "Exact(2)")]
 pub fn truncate_slash(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
@@ -411,18 +423,21 @@ pub fn truncate_slash(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-/// Returns the quotient of a truncated division of numerator by denominator.
+/// Returns the quotient of a truncated integer division of a given numerator *n*
+/// by a given denominator *m*.
 ///
-/// (truncate-quotient numerator denominator) -> integer?
+/// (truncate-quotient n m) -> integer?
 ///
-/// * numerator : integer? - The numerator.
-/// * denominator : integer? - The denominator.
+/// * n : integer? - The numerator.
+/// * m : integer? - The denominator.
 ///
 /// # Examples
+///
 /// ```scheme
-/// > (truncate-quotient 11 2) ;; => 5
-/// > (truncate-quotient 10 2) ;; => 5
-/// > (truncate-quotient -10 2) ;; => -5
+/// > (truncate-quotient 5 2) ;; => 2
+/// > (truncate-quotient -5 2) ;; => -2
+/// > (truncate-quotient 5 -2) ;; => -2
+/// > (truncate-quotient -5 -2) ;; => 2
 /// ```
 #[steel_derive::native(name = "truncate-quotient", constant = true, arity = "Exact(2)")]
 pub fn truncate_quotient(args: &[SteelVal]) -> Result<SteelVal> {
@@ -460,19 +475,23 @@ pub fn truncate_quotient(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-/// Returns the arithmetic remainder of the truncated division of the first number by the second.
+/// Returns the arithmetic remainder of a truncated integer division of a given
+/// numerator *n* by a given denominator *m*.
+///
+/// The return value of this procedure has the same sign as the numerator.
 ///
 /// (truncate-remainder n m) -> integer?
 ///
-/// * n : integer?
-/// * m : integer?
+/// * n : integer? - The numerator.
+/// * m : integer? - The denominator.
 ///
 /// # Examples
+///
 /// ```scheme
-/// > (truncate-remainder 10 3) ;; => 1
-/// > (truncate-remainder -10 3) ;; => -1
-/// > (truncate-remainder 10 -3) ;; => 1
-/// > (truncate-remainder -10 -3) ;; => -1
+/// > (truncate-remainder 5 2) ;; => 1
+/// > (truncate-remainder -5 2) ;; => -1
+/// > (truncate-remainder 5 -2) ;; => 1
+/// > (truncate-remainder -5 -2) ;; => -1
 /// ```
 #[steel_derive::native(name = "truncate-remainder", constant = true, arity = "Exact(2)")]
 pub fn truncate_remainder(args: &[SteelVal]) -> Result<SteelVal> {
@@ -510,13 +529,22 @@ pub fn truncate_remainder(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-/// Simultaneously returns the quotient and the remainder of a floored division
-/// of the numerator by the denominator.
+/// Simultaneously returns the quotient and the arithmetic remainder of a floored
+/// integer division of a given numerator *n* by a given denominator *m*.
 ///
-/// (floor/ numerator denominator) -> (integer? integer?)
+/// (floor/ n m) -> (integer? integer?)
 ///
-/// * numerator : integer?
-/// * denominator : integer?
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (floor/ 5 2) ;; => (2 1)
+/// > (floor/ -5 2) ;; => (-3 1)
+/// > (floor/ 5 -2) ;; => (-3 -1)
+/// > (floor/ -5 -2) ;; => (2 -1)
+/// ```
 #[steel_derive::native(name = "floor/", constant = true, arity = "Exact(2)")]
 pub fn floor_slash(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
@@ -559,12 +587,25 @@ pub fn floor_slash(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-/// Returns the quotient of a floored division of the numerator by the denominator.
+/// Returns the quotient of a floored integer division of a given numerator *n*
+/// by a given denominator *m*.
 ///
-/// (floor-quotient numerator denominator) -> integer?
+/// Equivalent to `(values (floor-quotient n m) (floor-remainder n m))`, but
+/// may be computed more efficiently.
 ///
-/// * numerator : integer?
-/// * denominator : integer?
+/// (floor-quotient n m) -> integer?
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (floor-quotient 5 2) ;; => 2
+/// > (floor-quotient -5 2) ;; => -3
+/// > (floor-quotient 5 -2) ;; => -3
+/// > (floor-quotient -5 -2) ;; => 2
+/// ```
 #[steel_derive::native(name = "floor-quotient", constant = true, arity = "Exact(2)")]
 pub fn floor_quotient(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
@@ -612,7 +653,10 @@ fn float_rem_floor(lhs: f64, rhs: f64) -> f64 {
     }
 }
 
-/// Returns the arithmetic remainder of the floored division of the first number by the second.
+/// Returns the arithmetic remainder of a floored integer division of a given
+/// numerator *n* by a given denominator *m*.
+///
+/// The return value of this procedure has the same sign as the denominator.
 ///
 /// (floor-remainder n m) -> integer?
 ///
@@ -620,11 +664,12 @@ fn float_rem_floor(lhs: f64, rhs: f64) -> f64 {
 /// * m : integer?
 ///
 /// # Examples
+///
 /// ```scheme
-/// > (floor-remainder 10 3) ;; => 1
-/// > (floor-remainder -10 3) ;; => 2
-/// > (floor-remainder 10 -3) ;; => -2
-/// > (floor-remainder -10 -3) ;; => -1
+/// > (floor-remainder 5 2) ;; => 1
+/// > (floor-remainder -5 2) ;; => 1
+/// > (floor-remainder 5 -2) ;; => -1
+/// > (floor-remainder -5 -2) ;; => -1
 /// ```
 #[steel_derive::native(name = "floor-remainder", constant = true, arity = "Exact(2)")]
 pub fn floor_remainder(args: &[SteelVal]) -> Result<SteelVal> {
@@ -662,13 +707,25 @@ pub fn floor_remainder(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-/// Simultaneously returns the quotient and the remainder of a euclidean division
-/// of the numerator by the denominator.
+/// Simultaneously returns the quotient and the arithmetic remainder of a euclidean
+/// integer division of a given numerator *n* by a given denominator *m*.
 ///
-/// (euclidean/ numerator denominator) -> (integer? integer?)
+/// Equivalent to `(values (euclidean-quotient n m) (euclidean-remainder n m))`,
+/// but may be computed more efficiently.
 ///
-/// * numerator : integer?
-/// * denominator : integer?
+/// (euclidean/ n m) -> (integer? integer?)
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (euclidean/ 5 2) ;; => (2 1)
+/// > (euclidean/ -5 2) ;; => (-3 1)
+/// > (euclidean/ 5 -2) ;; => (-2 1)
+/// > (euclidean/ -5 -2) ;; => (3 1)
+/// ```
 #[steel_derive::native(name = "euclidean/", constant = true, arity = "Exact(2)")]
 pub fn euclidean_slash(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
@@ -709,12 +766,22 @@ pub fn euclidean_slash(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-/// Returns the quotient of a euclidean integer division of n by m.
+/// Returns the quotient of a euclidean integer division of a given numerator *n*
+/// by a given denominator *m*.
 ///
 /// (euclidean-quotient n m) -> integer?
 ///
 /// * n : integer?
 /// * m : integer?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (euclidean-quotient 5 2) ;; => 2
+/// > (euclidean-quotient -5 2) ;; => -3
+/// > (euclidean-quotient 5 -2) ;; => -2
+/// > (euclidean-quotient -5 -2) ;; => 3
+/// ```
 #[steel_derive::native(name = "euclidean-quotient", constant = true, arity = "Exact(2)")]
 pub fn euclidean_quotient(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
@@ -751,12 +818,24 @@ pub fn euclidean_quotient(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-/// Returns the euclidean (least non-negative) remainder of the integer division of n by m.
+/// Returns the arithmetic remainder of a euclidean integer division of a given
+/// numerator *n* by a given denominator *m*.
+///
+/// The return value of this procedure is always positive.
 ///
 /// (euclidean-remainder n m) -> integer?
 ///
 /// * n : integer?
 /// * m : integer?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (euclidean-remainder 5 2) ;; => 1
+/// > (euclidean-remainder -5 2) ;; => 1
+/// > (euclidean-remainder 5 -2) ;; => 1
+/// > (euclidean-remainder -5 -2) ;; => 1
+/// ```
 #[steel_derive::native(name = "euclidean-remainder", constant = true, arity = "Exact(2)")]
 pub fn euclidean_remainder(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
@@ -793,26 +872,35 @@ pub fn euclidean_remainder(args: &[SteelVal]) -> Result<SteelVal> {
     }
 }
 
-/// Returns quotient of dividing numerator by denomintator.
+/// Returns the quotient of a truncated integer division of a given numerator *n*
+/// by a given denominator *m*.
 ///
-/// (quotient numerator denominator) -> integer?
+/// This procedure is an alias of `truncate-quotient`.
 ///
-/// * numerator : integer? - The numerator.
-/// * denominator : integer? - The denominator.
+/// (quotient n m) -> integer?
+///
+/// * n : integer? - The numerator.
+/// * m : integer? - The denominator.
 ///
 /// # Examples
+///
 /// ```scheme
-/// > (quotient 11 2) ;; => 5
-/// > (quotient 10 2) ;; => 5
-/// > (quotient -10 2) ;; => -5
+/// > (quotient 5 2) ;; => 2
+/// > (quotient -5 2) ;; => -2
+/// > (quotient 5 -2) ;; => -2
+/// > (quotient -5 -2) ;; => 2
 /// ```
 #[steel_derive::native(name = "quotient", constant = true, arity = "Exact(2)")]
 pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
     truncate_quotient(args)
 }
 
-/// Returns the arithmetic remainder of the division of the first number by the second.
-/// This differs from the modulo operator when using negative numbers.
+/// Returns the arithmetic remainder of a truncated integer division of a given
+/// numerator *n* by a given denominator *m*.
+///
+/// The return value of this procedure has the same sign as the numerator.
+///
+/// This procedure is an alias of `truncate-remainder`.
 ///
 /// (remainder n m) -> integer?
 ///
@@ -820,19 +908,24 @@ pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
 /// * m : integer?
 ///
 /// # Examples
+///
 /// ```scheme
-/// > (remainder 10 3) ;; => 1
-/// > (remainder -10 3) ;; => -1
-/// > (remainder 10 -3) ;; => 1
-/// > (remainder -10 -3) ;; => -1
+/// > (remainder 5 2) ;; => 1
+/// > (remainder -5 2) ;; => -1
+/// > (remainder 5 -2) ;; => 1
+/// > (remainder -5 -2) ;; => -1
 /// ```
 #[steel_derive::native(name = "remainder", constant = true, arity = "Exact(2)")]
 pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
     truncate_remainder(args)
 }
 
-/// Returns the euclidean remainder of the division of the first number by the second
-/// This differs from the remainder operator when using negative numbers.
+/// Returns the arithmetic remainder of a floored integer division of a given
+/// numerator *n* by a given denominator *m*.
+///
+/// The return value of this procedure has the same sign as the denominator.
+///
+/// This procedure is an alias of `floor-remainder`.
 ///
 /// (modulo n m) -> integer?
 ///
@@ -840,11 +933,12 @@ pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
 /// * m : integer?
 ///
 /// # Examples
+///
 /// ```scheme
-/// > (modulo 10 3) ;; => 1
-/// > (modulo -10 3) ;; => 2
-/// > (modulo 10 -3) ;; => -2
-/// > (module -10 -3) ;; => -1
+/// > (modulo 5 2) ;; => 1
+/// > (modulo -5 2) ;; => 1
+/// > (modulo 5 -2) ;; => -1
+/// > (modulo -5 -2) ;; => -1
 /// ```
 #[steel_derive::native(name = "modulo", constant = true, arity = "Exact(2)")]
 pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
