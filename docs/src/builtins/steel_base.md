@@ -432,7 +432,7 @@ Rounds the given number up to the nearest integer not less than it.
 
 (ceiling number) -> integer?
 
-* number : number? - The number to round up.
+* number : real? - The number to round up.
 
 #### Examples
 ```scheme
@@ -1068,11 +1068,11 @@ Checks if the given value is a floating-point number
 > (float? #t) ;; => #f
 ```
 ### **floor**
-Computes the largest integer less than or equal to the given number.
+Rounds the given number down to the nearest integer not larger than it.
 
 (floor number) -> number?
 
-* number : number? - The number to compute the floor for.
+* number : real? - The number to compute the floor for.
 
 #### Examples
 ```scheme
@@ -2476,17 +2476,20 @@ This function takes time proportional to the length of `lst`.
 > (reverse (list 1 2 3 4)) ;; '(4 3 2 1)
 ```
 ### **round**
-Rounds the given number to the nearest integer.
+Rounds the given number to the nearest integer, rounding half-way cases to
+the even number.
 
 (round number) -> number?
 
-* number : number? - The number to round.
+* number : real? - The number to round.
 
 #### Examples
 ```scheme
 > (round 3.14) ;; => 3
 > (round 4.6) ;; => 5
-> (round -2.5) ;; => -3
+> (round 2.5) ;; => 2
+> (round 3.5) ;; => 4
+> (round -2.5) ;; => -2
 ```
 ### **second**
 Get the second element of the list. Raises an error if the list does not have an element in the second position.
@@ -3133,6 +3136,21 @@ of the string
 ```scheme
 > (trim-start-matches "123foo1bar123123" "123") ;; => "foo1bar123123"
 ```
+### **truncate**
+Rounds the given number to the nearest integer, whose absolute value is not
+larger than it.
+
+(truncate number) -> integer?
+
+* number : real? - The number to truncate.
+
+#### Examples
+
+```scheme
+> (truncate 42) ;; => 42
+> (truncate 42.1) ;; => 42
+> (truncate -42.1) ;; => -42
+```
 ### **utf8->string**
 Alias of `bytes->string/utf8`.
 ### **utf8-length**
@@ -3566,7 +3584,6 @@ Create a zipping iterator
 ### **thread/available-parallelism**
 ### **thread::current/id**
 ### **transduce**
-### **truncate**
 ### **try-list-ref**
 ### **unbox**
 ### **unbox-strong**
