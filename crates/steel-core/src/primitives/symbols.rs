@@ -60,7 +60,7 @@ pub fn symbol_equals(mut iter: RestArgsIter<SteelSymbol<'_>>) -> Result<SteelVal
 
     for item in iter {
         let item = item?;
-        if crate::gc::Shared::ptr_eq(&**item.0, &**prev.0) {
+        if *item.0 == *prev.0 {
             prev = item;
         } else {
             return Ok(SteelVal::BoolV(false));
