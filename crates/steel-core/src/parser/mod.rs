@@ -15,5 +15,6 @@ pub mod tokens;
 pub mod tryfrom_visitor;
 pub mod visitors;
 
+mod macro_template;
 #[cfg(test)]
 mod prop;

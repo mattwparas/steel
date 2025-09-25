@@ -89,13 +89,6 @@
                        (potato 1 2))
                      "Cannot reference an identifier before its definition: potato")
 
-(check-syntax-error? skip
-                     "no-spread"
-                     '((define-syntax no-spread
-                         (syntax-rules ()
-                           [(_ a ...) a])))
-                     "A pattern variable capturing multiple datums must appear spread in the template")
-
 (check-syntax-error? "bad spread"
                      '((define-syntax bad-spread
                          (syntax-rules ()
@@ -283,6 +276,12 @@
 
 (check-equal? "ellipsis after literal" (many-literals #t #t #t) 1)
 
+(check-syntax-error? "ellipsis tail, with non-nested"
+                     '((define-syntax ellipsis-tail-literals
+                         (syntax-rules ()
+                           [(_ (1 . ...)) #f])))
+                     "ellipsis cannot appear as list tail")
+
 (define-syntax t
   (syntax-rules ()
     [(t a)
@@ -321,6 +320,43 @@
 (check-equal? "vector pattern replacement" (into-vec x y) #(y))
 
 (check-equal? "vector quasiquoting" `#(,(list 'a)) #((a)))
+
+(check-syntax-error? "invalid repetitions"
+                     '((define-syntax invalid-repetitions
+                         (syntax-rules ()
+                           [(_ a ...) a])))
+                     "missing ellipsis: pattern variable needs at least 1 levels of repetition, found 0")
+
+(check-syntax-error? "invalid repetitions, 2 levels"
+                     '((define-syntax invalid-repetitions
+                         (syntax-rules ()
+                           [(_ (a ...) ...) (a ...)])))
+                     "missing ellipsis: pattern variable needs at least 2 levels of repetition, found 1")
+
+(check-syntax-error? "invalid repetitions, many levels"
+                     '((define-syntax invalid-repetitions
+                         (syntax-rules ()
+                           [(_ (#( b (x (c ...)) ) ...) ...) c])))
+                     "missing ellipses: pattern variable needs at least 3 levels of repetition, found 0")
+
+(check-syntax-error? "ellipsis in template cdr"
+                     '((define-syntax ellipsis-tail
+                         (syntax-rules ()
+                           [(_ (a ...)) (a . ...)])))
+                     "ellipsis cannot appear as list tail")
+
+(check-syntax-error? "ellipsis in nested template cdr"
+                     '((define-syntax ellipsis-tail
+                         (syntax-rules ()
+                           [(_ (a ...)) (c (b . ...))])))
+                     "ellipsis cannot appear as list tail")
+
+(check-syntax-error? "ellipsis as pattern variable"
+                     '((define-syntax ellipsis-tail
+                         (syntax-rules ()
+                           [(_ a) (... a 1)])))
+                     "ellipses are not a valid identifier in templates")
+
 
 ;; -------------- Report ------------------
 
