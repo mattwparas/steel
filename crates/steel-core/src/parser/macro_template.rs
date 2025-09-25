@@ -4,7 +4,6 @@ use fxhash::FxHashMap;
 use steel_parser::{
     ast::{Atom, Begin, ExprKind, List, Vector},
     interner::InternedString,
-    parser::SyntaxObject,
     tokens::TokenType,
 };
 
