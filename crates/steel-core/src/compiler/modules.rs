@@ -135,11 +135,9 @@ create_prelude!(
 
 #[cfg(not(target_family = "wasm"))]
 pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
-    std::env::var("STEEL_SEARCH_PATHS").ok().map(|x| {
-        std::env::split_paths(x.as_str())
-            .map(PathBuf::from)
-            .collect::<Vec<_>>()
-    })
+    std::env::var("STEEL_SEARCH_PATHS")
+        .ok()
+        .map(|x| std::env::split_paths(x.as_str()).collect::<Vec<_>>())
 });
 
 pub fn steel_search_dirs() -> Vec<PathBuf> {
