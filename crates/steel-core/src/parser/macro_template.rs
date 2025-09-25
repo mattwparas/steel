@@ -2,18 +2,29 @@ use std::ops::ControlFlow;
 
 use fxhash::FxHashMap;
 use steel_parser::{
-    ast::{Atom, ExprKind, List, Vector},
+    ast::{Atom, Begin, ExprKind, List, Vector},
     interner::InternedString,
     parser::SyntaxObject,
     tokens::TokenType,
 };
 
-use crate::{compiler::passes::VisitorMutControlFlow, SteelErr};
+use crate::{
+    compiler::{passes::VisitorMutControlFlow, program::ELLIPSES_SYMBOL},
+    SteelErr,
+};
 
 pub struct MacroTemplate {
     bindings: FxHashMap<InternedString, u8>,
     depth: u8,
     result: Result<(), SteelErr>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ListType {
+    Improper,
+    Vec,
+    Normal,
+    Syntax,
 }
 
 impl MacroTemplate {
@@ -31,12 +42,7 @@ impl MacroTemplate {
         self.result
     }
 
-    fn visit_list_elements(
-        &mut self,
-        elements: &[ExprKind],
-        improper: bool,
-        vec: bool,
-    ) -> ControlFlow<()> {
+    fn visit_list_elements(&mut self, elements: &[ExprKind], list_ty: ListType) -> ControlFlow<()> {
         let mut iter = elements.iter().enumerate().peekable();
         let len = elements.len();
 
@@ -45,7 +51,7 @@ impl MacroTemplate {
                 expr.atom_syntax_object().map(|syn| syn.ty.clone()) == Some(TokenType::Ellipses);
 
             // special case: (... expr)
-            if i == 0 && len == 2 && ellipsis && !improper && !vec {
+            if i == 0 && len == 2 && ellipsis && list_ty == ListType::Normal {
                 let (_, next) = iter.next().unwrap();
 
                 self.visit(next)?;
@@ -53,17 +59,18 @@ impl MacroTemplate {
                 return ControlFlow::Continue(());
             }
 
-            let atom_peek = iter.peek().and_then(|(_, expr)| expr.atom_syntax_object());
+            let ellipsis = iter
+                .peek()
+                .and_then(|(_, expr)| expr.atom_syntax_object())
+                .filter(|syn| match syn.ty {
+                    TokenType::Ellipses => true,
+                    TokenType::Identifier(ident) if &ident == &*ELLIPSES_SYMBOL => true,
+                    _ => false,
+                });
 
-            let is_many = if let Some(SyntaxObject {
-                ty: TokenType::Ellipses,
-                span,
-                ..
-            }) = atom_peek
-            {
-                if improper && i + 2 == len {
-                    self.result =
-                        steelerr![BadSyntax => "ellipsis cannot appear as list tail"; *span];
+            let is_many = if let Some(ellipsis) = ellipsis {
+                if list_ty == ListType::Improper && i + 2 == len {
+                    self.result = steelerr![BadSyntax => "ellipsis cannot appear as list tail"; ellipsis.span];
                 }
 
                 true
@@ -91,7 +98,14 @@ impl MacroTemplate {
 impl VisitorMutControlFlow for MacroTemplate {
     #[inline]
     fn visit_list(&mut self, l: &List) -> ControlFlow<()> {
-        self.visit_list_elements(&l.args, l.improper, false)
+        self.visit_list_elements(
+            &l.args,
+            if l.improper {
+                ListType::Improper
+            } else {
+                ListType::Normal
+            },
+        )
     }
 
     #[inline]
@@ -100,7 +114,12 @@ impl VisitorMutControlFlow for MacroTemplate {
             return ControlFlow::Continue(());
         }
 
-        self.visit_list_elements(&v.args, false, true)
+        self.visit_list_elements(&v.args, ListType::Vec)
+    }
+
+    #[inline]
+    fn visit_begin(&mut self, begin: &Begin) -> ControlFlow<()> {
+        self.visit_list_elements(&begin.exprs, ListType::Syntax)
     }
 
     #[inline]
