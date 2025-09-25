@@ -238,18 +238,14 @@ impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ParseError::MismatchedParen(paren, _, _) => {
-                write!(
-                    f,
-                    "Parse: Mismatched parenthesis, expected \"{}\"",
-                    paren.close()
-                )
+                write!(f, "Mismatched parenthesis, expected \"{}\"", paren.close())
             }
-            ParseError::UnexpectedEOF(..) => write!(f, "Parse: Unexpected EOF"),
+            ParseError::UnexpectedEOF(..) => write!(f, "Unexpected EOF"),
             ParseError::UnexpectedChar(l, _, _) => {
-                write!(f, "Parse: Unexpected character: {:?}", l)
+                write!(f, "Unexpected character: {:?}", l)
             }
-            ParseError::SyntaxError(l, _, _) => write!(f, "Parse: Syntax Error: {}", l),
-            ParseError::ArityMismatch(l, _, _) => write!(f, "Parse: Arity mismatch: {}", l),
+            ParseError::SyntaxError(l, _, _) => write!(f, "Syntax Error: {}", l),
+            ParseError::ArityMismatch(l, _, _) => write!(f, "Arity mismatch: {}", l),
         }
     }
 }
