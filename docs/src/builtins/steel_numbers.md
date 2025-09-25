@@ -132,7 +132,7 @@ Rounds the given number up to the nearest integer not less than it.
 
 (ceiling number) -> integer?
 
-* number : number? - The number to round up.
+* number : real? - The number to round up.
 
 #### Examples
 ```scheme
@@ -276,11 +276,11 @@ Returns `#t` if the given number is finite.
 > (finite? +nan.0) ;; => #f
 ```
 ### **floor**
-Computes the largest integer less than or equal to the given number.
+Rounds the given number down to the nearest integer not larger than it.
 
 (floor number) -> number?
 
-* number : number? - The number to compute the floor for.
+* number : real? - The number to compute the floor for.
 
 #### Examples
 ```scheme
@@ -499,17 +499,20 @@ This differs from the modulo operator when using negative numbers.
 > (remainder -10 -3) ;; => -1
 ```
 ### **round**
-Rounds the given number to the nearest integer.
+Rounds the given number to the nearest integer, rounding half-way cases to
+the even number.
 
 (round number) -> number?
 
-* number : number? - The number to round.
+* number : real? - The number to round.
 
 #### Examples
 ```scheme
 > (round 3.14) ;; => 3
 > (round 4.6) ;; => 5
-> (round -2.5) ;; => -3
+> (round 2.5) ;; => 2
+> (round 3.5) ;; => 4
+> (round -2.5) ;; => -2
 ```
 ### **sin**
 Returns the sine value of the input angle, measured in radians.
@@ -565,6 +568,21 @@ Returns the tangent value of the input angle, measured in radians.
 > (tan 2.0) ;; => -2.185039863261519
 > (tan 3.14) ;; => -0.0015926549364072232
 ```
+### **truncate**
+Rounds the given number to the nearest integer, whose absolute value is not
+larger than it.
+
+(truncate number) -> integer?
+
+* number : real? - The number to truncate.
+
+#### Examples
+
+```scheme
+> (truncate 42) ;; => 42
+> (truncate 42.1) ;; => 42
+> (truncate -42.1) ;; => -42
+```
 ### **zero?**
 Checks if the given real number is zero.
 
@@ -578,4 +596,3 @@ Checks if the given real number is zero.
 > (zero? 0.0) ;; => #t
 > (zero? 0.1) ;; => #f
 ```
-### **truncate**

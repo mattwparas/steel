@@ -188,16 +188,22 @@
 
 (assert-equal! 10.0 (ceiling 9.1))
 (assert-equal! 9.0 (floor 9.1))
+(assert-equal! 9.0 (truncate 9.1))
 (assert-equal! 10.0 (ceiling 10.0))
 (assert-equal! 10.0 (floor 10.0))
+(assert-equal! 10.0 (truncate 10.0))
 (assert-equal! 10 (ceiling 10))
 (assert-equal! 10 (floor 10))
+(assert-equal! 10 (truncate 10))
 (assert-equal! -9.0 (ceiling -9.1))
 (assert-equal! -10.0 (floor -9.1))
+(assert-equal! -9.0 (truncate -9.1))
 (assert-equal! 1 (ceiling 1/2))
 (assert-equal! 0 (floor 1/2))
+(assert-equal! 0 (truncate 1/2))
 (assert-equal! 0 (ceiling -1/2))
 (assert-equal! -1 (floor -1/2))
+(assert-equal! 0 (truncate -1/2))
 
 (assert-equal! 3 (numerator 3))
 (assert-equal! 3 (numerator 3/2))
@@ -219,6 +225,14 @@
 (assert-equal! 2.0 (round 2.1))
 (assert-equal! 3.0 (round 2.6))
 (assert-equal! 9223372036854775808 (round 9223372036854775808))
+
+;; round-ties-even
+(assert-equal! -2.0 (round -1.5))
+(assert-equal! 2.0 (round 2.5))
+(assert-equal! 4.0 (round 3.5))
+(assert-equal! 2 (round 5/2))
+(assert-equal! 4 (round (+ 4 1/2)))
+(assert-equal! 4 (round 7/2))
 
 (assert-equal! 4 (square 2))
 (assert-equal! 2 (sqrt 4))

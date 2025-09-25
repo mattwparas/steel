@@ -2,8 +2,9 @@ use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
 use crate::{steelerr, stop, throw};
 use num_bigint::BigInt;
 use num_integer::Integer;
-use num_rational::{BigRational, Rational32};
-use num_traits::{pow::Pow, CheckedAdd, CheckedMul, Signed, ToPrimitive, Zero};
+use num_rational::{BigRational, Ratio, Rational32};
+use num_traits::{pow::Pow, CheckedAdd, CheckedMul, One, Signed, ToPrimitive, Zero};
+use std::cmp::Ordering;
 use std::ops::Neg;
 
 /// Checks if the given value is a number
@@ -356,18 +357,6 @@ pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("*", args)?;
     multiply_primitive_impl(args)
-}
-
-#[steel_derive::function(name = "truncate", constant = true)]
-pub fn truncate(arg: &SteelVal) -> Result<SteelVal> {
-    match arg {
-        SteelVal::NumV(n) => n.trunc().into_steelval(),
-        SteelVal::IntV(i) => Ok(SteelVal::IntV(*i)),
-        // SteelVal::Rational(ratio) => ratio.trunc(),
-        SteelVal::BigNum(gc) => Ok(SteelVal::BigNum(gc.clone())),
-        // SteelVal::BigRational(gc) => gc.trunc(),
-        _ => stop!(TypeMismatch => "truncate expects a real number, found: {}", arg),
-    }
 }
 
 /// Returns quotient of dividing numerator by denomintator.
@@ -837,29 +826,6 @@ fn abs(number: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-/// Rounds the given number up to the nearest integer not less than it.
-///
-/// (ceiling number) -> integer?
-///
-/// * number : number? - The number to round up.
-///
-/// # Examples
-/// ```scheme
-/// > (ceiling 42) ;; => 42
-/// > (ceiling 42.1) ;; => 43
-/// > (ceiling -42.1) ;; => -42
-/// ```
-#[steel_derive::function(name = "ceiling", constant = true)]
-fn ceiling(number: &SteelVal) -> Result<SteelVal> {
-    match number {
-        n @ SteelVal::IntV(_) | n @ SteelVal::BigNum(_) => Ok(n.clone()),
-        SteelVal::NumV(n) => Ok(SteelVal::NumV(n.ceil())),
-        SteelVal::Rational(f) => f.ceil().into_steelval(),
-        SteelVal::BigRational(f) => f.ceil().into_steelval(),
-        _ => steelerr!(TypeMismatch => "ceiling expects a real number, found: {}", number),
-    }
-}
-
 /// Retrieves the denominator of the given rational number.
 ///
 /// (denominator number) -> integer?
@@ -1065,30 +1031,6 @@ fn exp(left: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-/// Computes the largest integer less than or equal to the given number.
-///
-/// (floor number) -> number?
-///
-/// * number : number? - The number to compute the floor for.
-///
-/// # Examples
-/// ```scheme
-/// > (floor 3.14) ;; => 3
-/// > (floor 4.99) ;; => 4
-/// > (floor -2.5) ;; => -3
-/// ```
-#[steel_derive::function(name = "floor", constant = true)]
-fn floor(number: &SteelVal) -> Result<SteelVal> {
-    match number {
-        SteelVal::NumV(x) => Ok(SteelVal::NumV(x.floor())),
-        SteelVal::IntV(x) => x.into_steelval(),
-        SteelVal::Rational(x) => x.floor().into_steelval(),
-        SteelVal::BigNum(x) => Ok(SteelVal::BigNum(x.clone())),
-        SteelVal::BigRational(x) => x.floor().into_steelval(),
-        _ => steelerr!(Generic => "floor expected a real number"),
-    }
-}
-
 /// Retrieves the numerator of the given rational number.
 ///
 /// (numerator number) -> number?
@@ -1112,25 +1054,147 @@ fn numerator(number: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-/// Rounds the given number to the nearest integer.
+/// Rounds the given number down to the nearest integer not larger than it.
+///
+/// (floor number) -> number?
+///
+/// * number : real? - The number to compute the floor for.
+///
+/// # Examples
+/// ```scheme
+/// > (floor 3.14) ;; => 3
+/// > (floor 4.99) ;; => 4
+/// > (floor -2.5) ;; => -3
+/// ```
+#[steel_derive::function(name = "floor", constant = true)]
+fn floor(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        SteelVal::NumV(x) => Ok(SteelVal::NumV(x.floor())),
+        SteelVal::IntV(x) => x.into_steelval(),
+        SteelVal::Rational(x) => x.floor().into_steelval(),
+        SteelVal::BigNum(x) => Ok(SteelVal::BigNum(x.clone())),
+        SteelVal::BigRational(x) => x.floor().into_steelval(),
+        _ => steelerr!(Generic => "floor expects a real number, found: {}", number),
+    }
+}
+
+/// Rounds the given number up to the nearest integer not less than it.
+///
+/// (ceiling number) -> integer?
+///
+/// * number : real? - The number to round up.
+///
+/// # Examples
+/// ```scheme
+/// > (ceiling 42) ;; => 42
+/// > (ceiling 42.1) ;; => 43
+/// > (ceiling -42.1) ;; => -42
+/// ```
+#[steel_derive::function(name = "ceiling", constant = true)]
+fn ceiling(number: &SteelVal) -> Result<SteelVal> {
+    match number {
+        n @ SteelVal::IntV(_) | n @ SteelVal::BigNum(_) => Ok(n.clone()),
+        SteelVal::NumV(n) => Ok(SteelVal::NumV(n.ceil())),
+        SteelVal::Rational(f) => f.ceil().into_steelval(),
+        SteelVal::BigRational(f) => f.ceil().into_steelval(),
+        _ => steelerr!(TypeMismatch => "ceiling expects a real number, found: {}", number),
+    }
+}
+
+/// Rounds the given number to the nearest integer, whose absolute value is not
+/// larger than it.
+///
+/// (truncate number) -> integer?
+///
+/// * number : real? - The number to truncate.
+///
+/// # Examples
+///
+/// ```scheme
+/// > (truncate 42) ;; => 42
+/// > (truncate 42.1) ;; => 42
+/// > (truncate -42.1) ;; => -42
+/// ```
+#[steel_derive::function(name = "truncate", constant = true)]
+pub fn truncate(arg: &SteelVal) -> Result<SteelVal> {
+    match arg {
+        SteelVal::NumV(n) => n.trunc().into_steelval(),
+        SteelVal::IntV(i) => Ok(SteelVal::IntV(*i)),
+        SteelVal::Rational(ratio) => ratio.trunc().into_steelval(),
+        SteelVal::BigNum(gc) => Ok(SteelVal::BigNum(gc.clone())),
+        SteelVal::BigRational(gc) => gc.trunc().into_steelval(),
+        _ => stop!(TypeMismatch => "truncate expects a real number, found: {}", arg),
+    }
+}
+
+/// Rounds to the nearest integer. Rounds half-way cases to even.
+///
+/// Reimplementation of https://github.com/rust-num/num-rational/pull/141,
+/// while that one isn't merged yet.
+fn rational_round_ties_even<T>(num: &Ratio<T>) -> Ratio<T>
+where
+    T: Zero + One + Integer + Clone,
+{
+    let zero: Ratio<T> = Zero::zero();
+    let one: T = One::one();
+    let two: T = one.clone() + one.clone();
+
+    // Find unsigned fractional part of rational number
+    let mut fractional = num.fract();
+    if fractional < zero {
+        fractional = zero - fractional
+    };
+
+    // Compare the unsigned fractional part with 1/2
+    let half = Ratio::new_raw(one, two);
+    match fractional.cmp(&half) {
+        Ordering::Greater => {
+            let one: Ratio<T> = One::one();
+            if *num >= Zero::zero() {
+                num.trunc() + one
+            } else {
+                num.trunc() - one
+            }
+        }
+        Ordering::Equal => {
+            let trunc = num.trunc();
+            if trunc.numer().is_even() {
+                trunc
+            } else {
+                let one: Ratio<T> = One::one();
+                if *num >= Zero::zero() {
+                    num.trunc() + one
+                } else {
+                    num.trunc() - one
+                }
+            }
+        }
+        Ordering::Less => num.trunc(),
+    }
+}
+
+/// Rounds the given number to the nearest integer, rounding half-way cases to
+/// the even number.
 ///
 /// (round number) -> number?
 ///
-/// * number : number? - The number to round.
+/// * number : real? - The number to round.
 ///
 /// # Examples
 /// ```scheme
 /// > (round 3.14) ;; => 3
 /// > (round 4.6) ;; => 5
-/// > (round -2.5) ;; => -3
+/// > (round 2.5) ;; => 2
+/// > (round 3.5) ;; => 4
+/// > (round -2.5) ;; => -2
 /// ```
 #[steel_derive::function(name = "round", constant = true)]
 fn round(number: &SteelVal) -> Result<SteelVal> {
     match number {
         SteelVal::IntV(i) => i.into_steelval(),
-        SteelVal::NumV(n) => n.round().into_steelval(),
-        SteelVal::Rational(f) => f.round().into_steelval(),
-        SteelVal::BigRational(f) => f.round().into_steelval(),
+        SteelVal::NumV(n) => n.round_ties_even().into_steelval(),
+        SteelVal::Rational(f) => rational_round_ties_even(f).into_steelval(),
+        SteelVal::BigRational(f) => rational_round_ties_even(f).into_steelval(),
         SteelVal::BigNum(n) => Ok(SteelVal::BigNum(n.clone())),
         _ => steelerr!(TypeMismatch => "round expects a real number, found: {}", number),
     }
