@@ -287,7 +287,7 @@ fn negativep(value: &SteelVal) -> Result<SteelVal> {
 pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("-", args)?;
     match args {
-        [] => steelerr!(TypeMismatch => "- requires at least one argument"),
+        [] => steelerr!(ArityMismatch => "- requires at least one argument"),
         [x] => negate(x),
         [x, ys @ ..] => {
             let y = negate(&add_primitive_no_check(ys)?)?;
