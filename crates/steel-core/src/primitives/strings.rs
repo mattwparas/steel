@@ -34,6 +34,7 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_TO_INT_DEFINITION)
         .register_native_fn_definition(INT_TO_STRING_DEFINITION)
         .register_native_fn_definition(STRING_TO_SYMBOL_DEFINITION)
+        .register_native_fn_definition(STRING_TO_UNINTERNED_SYMBOL_DEFINITION)
         .register_native_fn_definition(STARTS_WITH_DEFINITION)
         .register_native_fn_definition(ENDS_WITH_DEFINITION)
         .register_native_fn_definition(TRIM_END_MATCHES_DEFINITION)
@@ -495,6 +496,11 @@ pub fn to_string(args: &[SteelVal]) -> Result<SteelVal> {
     }
 
     Ok(SteelVal::StringV(error_message.into()))
+}
+
+#[function(name = "string->uninterned-symbol", constant = true)]
+pub fn string_to_uninterned_symbol(value: SteelString) -> SteelVal {
+    SteelVal::SymbolV(value)
 }
 
 /// Converts a string into a symbol.
