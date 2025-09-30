@@ -498,19 +498,30 @@ pub fn to_string(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::StringV(error_message.into()))
 }
 
+/// Return an uninterned symbol from the given string.
+///
+/// (string->uninterned-symbol string?) -> symbol?
+///
+/// # Examples
+///
+/// ```scheme
+/// (string->uninterned-symbol "abc") ;; => 'abc
+/// (string->uninterned-symbol "pea pod") ;; => '|pea pod|
+/// ```
 #[function(name = "string->uninterned-symbol", constant = true)]
 pub fn string_to_uninterned_symbol(value: SteelString) -> SteelVal {
     SteelVal::SymbolV(value)
 }
 
-/// Converts a string into a symbol.
+/// Returns an interned symbol from the given string.
 ///
 /// (string->symbol string?) -> symbol?
 ///
 /// # Examples
 ///
 /// ```scheme
-/// > (string->symbol "FooBar") ;; => 'FooBar
+/// > (string->symbol "abc") ;; => 'abc
+/// > (string->symbol "pea pod") ;; => '|pea pod|
 /// ```
 #[steel_derive::context(name = "string->symbol", constant = true, arity = "Exact(1)")]
 pub fn string_to_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
