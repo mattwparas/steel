@@ -2,8 +2,8 @@ use crate::gc::Gc;
 use crate::values::lists::{List, SteelList};
 
 use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
-use crate::steel_vm::builtin::BuiltInModule;
-use crate::{stop, Vector};
+use crate::steel_vm::{builtin::BuiltInModule, vm::VmCore};
+use crate::{builtin_stop, stop, Vector};
 
 use std::io::Write as _;
 
@@ -506,9 +506,20 @@ pub fn to_string(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```scheme
 /// > (string->symbol "FooBar") ;; => 'FooBar
 /// ```
-#[function(name = "string->symbol", constant = true)]
-pub fn string_to_symbol(value: SteelString) -> SteelVal {
-    SteelVal::SymbolV(value)
+#[steel_derive::context(name = "string->symbol", constant = true, arity = "Exact(1)")]
+pub fn string_to_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let value = match &args[0] {
+        SteelVal::StringV(string) => string.clone(),
+        val => builtin_stop!(TypeMismatch => "steel->string: expected string, found {}", val),
+    };
+
+    let sym = SteelVal::SymbolV(value);
+
+    let mut guard = ctx.thread.compiler.write();
+    let interned = guard.constant_map.add_or_get(sym);
+    let value = guard.constant_map.get(interned);
+
+    Some(Ok(value))
 }
 
 /// Converts an integer into a string.
