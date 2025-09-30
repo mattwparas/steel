@@ -1200,6 +1200,13 @@ pub struct SteelMutableVector(pub(crate) Gc<RefCell<Vec<SteelVal>>>);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SteelVector(pub(crate) Gc<Vector<SteelVal>>);
 
+impl FromIterator<SteelVal> for SteelVector {
+    fn from_iter<T: IntoIterator<Item = SteelVal>>(iter: T) -> Self {
+        let vec = Vector::from_iter(iter);
+        SteelVector(Gc::new(vec))
+    }
+}
+
 impl Deref for SteelVector {
     type Target = Vector<SteelVal>;
 
