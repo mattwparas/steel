@@ -542,17 +542,17 @@ pub fn flush_output_port(port: &SteelPort) -> Result<SteelVal> {
 
 #[function(name = "#%default-input-port")]
 pub fn default_input_port() -> SteelVal {
-    SteelVal::PortV(SteelPort::default_current_input_port())
+    SteelVal::PortV(SteelPort::default_input_port())
 }
 
 #[function(name = "#%default-output-port")]
 pub fn default_output_port() -> SteelVal {
-    SteelVal::PortV(SteelPort::default_current_output_port())
+    SteelVal::PortV(SteelPort::default_output_port())
 }
 
 #[function(name = "#%default-error-port")]
 pub fn default_error_port() -> SteelVal {
-    SteelVal::PortV(SteelPort::default_current_error_port())
+    SteelVal::PortV(SteelPort::default_error_port())
 }
 
 /// Close a port. If the port is a file, the file will be closed.
