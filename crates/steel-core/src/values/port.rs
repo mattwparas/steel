@@ -1,22 +1,29 @@
-use std::fs::File;
-use std::fs::OpenOptions;
-use std::io;
-use std::io::prelude::*;
-use std::io::Cursor;
-use std::io::Stderr;
-use std::io::{BufReader, BufWriter, Stdin, Stdout};
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, string::String, vec::Vec};
+#[cfg(feature = "std")]
+use std::string::String;
+
+#[cfg(not(feature = "std"))]
+use core::io; // placeholder: many IO features depend on std; keep core import to satisfy compilation where possible
+#[cfg(feature = "std")]
+use std::fs::{File, OpenOptions};
+#[cfg(feature = "std")]
+use std::io::{self, prelude::*, BufReader, BufWriter, Cursor, Stderr, Stdin, Stdout};
+#[cfg(feature = "std")]
 use std::net::TcpStream;
-use std::process::ChildStderr;
-use std::process::ChildStdin;
-use std::process::ChildStdout;
-use std::sync::Arc;
-use std::sync::Mutex;
+#[cfg(feature = "std")]
+use std::process::{ChildStderr, ChildStdin, ChildStdout};
+#[cfg(feature = "std")]
+use std::sync::{Arc, Mutex};
 
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
 use crate::gc::GcMut;
 use crate::rvals::Result;
 use crate::SteelVal;
+
+#[cfg(not(feature = "std"))]
+use core as std;
 
 // use crate::rvals::{new_rc_ref_cell, RcRefSteelVal};
 

@@ -25,8 +25,8 @@ use crate::{
     rvals::IntoSteelVal,
     stop, SteelVal,
 };
+use core::sync::atomic::{AtomicUsize, Ordering};
 use smallvec::SmallVec;
-use std::sync::atomic::AtomicUsize;
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 
 use crate::rvals::Result;
@@ -35,7 +35,7 @@ use crate::rvals::Result;
 pub(crate) static FUNCTION_ID: AtomicUsize = AtomicUsize::new(0);
 
 pub fn fresh_function_id() -> usize {
-    FUNCTION_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    FUNCTION_ID.fetch_add(1, Ordering::Relaxed)
 }
 
 pub struct CodeGenerator<'a> {

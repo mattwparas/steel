@@ -11,7 +11,7 @@ use crate::rvals::{Result, SteelByteVector, SteelVal};
 use super::visitors::VisitorMut;
 use super::{ast::Atom, span::Span, visitors::ConsumingVisitor};
 
-use std::convert::TryFrom;
+use core::convert::TryFrom;
 
 pub struct TryFromExprKindForSteelVal {
     inside_quote: bool,

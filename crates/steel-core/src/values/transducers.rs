@@ -4,6 +4,8 @@ use crate::SteelVal;
 
 use crate::core::utils::{arity_check, declare_const_ref_functions};
 
+use alloc::vec::Vec;
+
 // Make a transducer actually contain an option to a rooted value, otherwise
 // it is a source agnostic transformer on the (eventual) input
 #[derive(Clone, PartialEq, Hash)]

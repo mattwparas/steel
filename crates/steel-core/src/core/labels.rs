@@ -1,11 +1,13 @@
+use alloc::{boxed::Box, vec::Vec};
+use core::sync::atomic::{AtomicUsize, Ordering};
+
 use serde::{Deserialize, Serialize};
-use steel_parser::ast::ExprKind;
+use steel_parser::{ast::ExprKind, parser::SyntaxObject};
 
-use super::instructions::{u24, Instruction};
-use super::opcode::OpCode;
-use crate::parser::parser::SyntaxObject;
-
-use std::sync::atomic::{AtomicUsize, Ordering};
+use super::{
+    instructions::{u24, Instruction},
+    opcode::OpCode,
+};
 
 pub(crate) static LABEL_ID: AtomicUsize = AtomicUsize::new(0);
 

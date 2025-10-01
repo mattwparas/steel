@@ -1,3 +1,10 @@
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
+use core::{fmt, ops::Add};
+
 use crate::core::opcode::OpCode;
 use serde::{Deserialize, Serialize};
 
@@ -31,6 +38,7 @@ pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
     instructions.into_iter().map(|x| x.into()).collect()
 }
 
+#[cfg(feature = "std")]
 pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
     for (i, instruction) in instrs.iter().enumerate() {
         println!(
@@ -106,8 +114,6 @@ pub struct DenseInstruction {
     pub payload_size: u24,
 }
 
-use std::ops::Add;
-
 #[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize, Debug)]
 #[allow(non_camel_case_types)]
 #[repr(transparent)]
@@ -153,8 +159,8 @@ impl u24 {
     }
 }
 
-impl std::fmt::Display for u24 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for u24 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.to_u32())
     }
 }

@@ -1,0 +1,49 @@
+#![allow(dead_code)]
+
+use alloc::string::String;
+pub use hashbrown::{HashMap, HashSet};
+
+/// Basic error type available when `std` is not enabled.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SteelErr {
+    message: &'static str,
+}
+
+impl SteelErr {
+    pub const fn new(message: &'static str) -> Self {
+        Self { message }
+    }
+
+    /// Returns a static message describing the error.
+    pub const fn message(&self) -> &'static str {
+        self.message
+    }
+}
+
+/// Minimal value type available in `no_std` builds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SteelVal {
+    Unsupported,
+}
+
+pub const PRELUDE: &str = "";
+
+pub use alloc::vec::Vec;
+
+#[derive(Default)]
+pub struct LambdaMetadataTable;
+
+#[derive(Default)]
+pub struct RootToken;
+
+pub type RootedSteelVal = SteelVal;
+
+/// Helper that mirrors the `SteelErr::new` naming in std builds for missing APIs.
+pub fn unsupported_feature(feature: &'static str) -> SteelErr {
+    SteelErr::new(feature)
+}
+
+/// Lightweight formatter used by consumers that only need textual errors.
+pub fn format_error(err: &SteelErr) -> String {
+    String::from(err.message())
+}

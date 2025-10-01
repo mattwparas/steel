@@ -7,12 +7,44 @@
 // }
 // assert!(args.len() == 1);
 
+// Only compile these helper macros when either the standard library is available
+// or when higher-level modules that depend on them are enabled. This avoids
+// unused-macro warnings in minimal `no_std` builds.
+#[cfg(any(
+    feature = "std",
+    feature = "no_std_primitives",
+    feature = "no_std_values"
+))]
+#[cfg(any(
+    feature = "std",
+    feature = "no_std_primitives",
+    feature = "no_std_values"
+))]
+use alloc::format;
+
+#[cfg(any(
+    feature = "std",
+    feature = "no_std_primitives",
+    feature = "no_std_values"
+))]
+pub(crate) fn arity_mismatch_message(name: &'static str, expected: usize, found: usize) -> String {
+    match expected {
+        1 => format!("{name} expected only one argument, found {found}"),
+        other => format!("{name} expected {other} arguments, found {found}"),
+    }
+}
+
+#[cfg(any(
+    feature = "std",
+    feature = "no_std_primitives",
+    feature = "no_std_values"
+))]
 macro_rules! arity_check_generator {
     ($($arity:tt),*) => {
         macro_rules! arity_check {
             ($name:tt, $args:expr, 1) => {
                 if $args.len() != 1 {
-                    stop!(ArityMismatch => format!(stringify!($name expected only one argument, found {}), $args.len()))
+                    stop!(ArityMismatch => crate::core::utils::arity_mismatch_message(stringify!($name), 1, $args.len()))
                 }
                 assert!($args.len() == 1);
             };
@@ -20,7 +52,7 @@ macro_rules! arity_check_generator {
             $ (
                 ($name:tt, $args:expr, $arity) => {
                     if $args.len() != $arity {
-                        stop!(ArityMismatch => format!(stringify!($name expected {} arguments, found {}), $arity, $args.len()))
+                        stop!(ArityMismatch => crate::core::utils::arity_mismatch_message(stringify!($name), $arity, $args.len()))
                     }
                     assert!($args.len() == $arity);
                 };
@@ -29,8 +61,18 @@ macro_rules! arity_check_generator {
     }
 }
 
+#[cfg(any(
+    feature = "std",
+    feature = "no_std_primitives",
+    feature = "no_std_values"
+))]
 arity_check_generator!(0, 1, 2, 3, 4, 5, 6, 7, 8);
 
+#[cfg(any(
+    feature = "std",
+    feature = "no_std_primitives",
+    feature = "no_std_values"
+))]
 pub(crate) use arity_check;
 
 // Declares a const for a function that takes an immutable slice to the arguments
@@ -38,6 +80,11 @@ pub(crate) use arity_check;
 //      declare_const_ref_functions! { LENGTH => length }
 // expands into
 //      const LENGTH: SteelVal = SteelVal::FuncV(length)
+#[cfg(any(
+    feature = "std",
+    feature = "no_std_primitives",
+    feature = "no_std_values"
+))]
 macro_rules! declare_const_ref_functions {
     ($($name:tt => $func_name:tt),* $(,)? ) => {
         $ (
@@ -46,6 +93,11 @@ macro_rules! declare_const_ref_functions {
     }
 }
 
+#[cfg(any(
+    feature = "std",
+    feature = "no_std_primitives",
+    feature = "no_std_values"
+))]
 pub(crate) use declare_const_ref_functions;
 
 // Declares a const for a function that takes an immutable slice to the arguments
@@ -53,6 +105,11 @@ pub(crate) use declare_const_ref_functions;
 //      declare_const_mut_ref_functions! { CONS => cons }
 // expands into
 //      const LENGTH: SteelVal = SteelVal::MutFunc(length)
+#[cfg(any(
+    feature = "std",
+    feature = "no_std_primitives",
+    feature = "no_std_values"
+))]
 macro_rules! declare_const_mut_ref_functions {
     ($($name:tt => $func_name:tt),* $(,)? ) => {
         $ (
@@ -61,6 +118,11 @@ macro_rules! declare_const_mut_ref_functions {
     }
 }
 
+#[cfg(any(
+    feature = "std",
+    feature = "no_std_primitives",
+    feature = "no_std_values"
+))]
 pub(crate) use declare_const_mut_ref_functions;
 
 // pub(crate) trait Boxed {

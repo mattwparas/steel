@@ -9,6 +9,19 @@ description = "Parser for use within steel"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["std"]
+std = []
+no_std_ast = []
+no_std_interner = []
+no_std_lexer = []
+no_std_parser = []
+no_std_span = []
+no_std_tokens = []
+no_std_visitors = []
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 [dependencies]
 fxhash = "0.2.1"
 lasso = { version = "0.7.3", features = ["multi-threaded", "ahash", "serialize", "inline-more"] }

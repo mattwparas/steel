@@ -17,7 +17,7 @@ use super::expander::BindingKind;
 use super::visitors::VisitorMutRef;
 use super::{ast::Atom, interner::InternedString};
 
-use std::ops::ControlFlow;
+use core::ops::ControlFlow;
 
 // const DATUM_TO_SYNTAX: &str = "datum->syntax";
 // const SYNTAX_CONST_IF: &str = "syntax-const-if";

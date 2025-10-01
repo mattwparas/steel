@@ -12,6 +12,8 @@ use steel_parser::parser::SourceId;
 
 use crate::parser::span::Span;
 
+#[cfg(not(feature = "std"))]
+use core as std;
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq)]

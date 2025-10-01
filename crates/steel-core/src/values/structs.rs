@@ -34,6 +34,20 @@ use std::{
     rc::Rc,
 };
 
+// Use alloc/core equivalents when building without std
+#[cfg(not(feature = "std"))]
+use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
+#[cfg(feature = "std")]
+use std::{boxed::Box as StdBox, string::String as StdString, vec::Vec as StdVec};
+
+#[cfg(not(feature = "std"))]
+use core::{fmt, mem, slice};
+#[cfg(feature = "std")]
+use std::{fmt as StdFmt, mem as StdMem, slice as StdSlice};
+
+#[cfg(not(feature = "std"))]
+use core as std;
+
 use super::closed::Heap;
 use super::functions::BoxedDynFunction;
 use super::lists::List;

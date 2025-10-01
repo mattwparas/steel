@@ -6,7 +6,7 @@ use crate::parser::parser::SyntaxObject;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::VisitorMutRef;
 
-use std::collections::HashSet;
+use crate::HashSet;
 
 use super::interner::InternedString;
 

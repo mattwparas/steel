@@ -3792,6 +3792,7 @@ dependencies = [
  "getrandom 0.3.3",
  "git2",
  "glob",
+ "hashbrown 0.14.5",
  "httparse",
  "icu_casemap",
  "im",
