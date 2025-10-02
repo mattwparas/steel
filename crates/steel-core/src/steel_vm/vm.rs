@@ -4095,7 +4095,7 @@ impl<'a> VmCore<'a> {
                     // not running on the root?
                     // self.root_spans[self.ip..forward_jump_index].into()
                     if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
-                        span_range.into_iter().cloned().collect::<Vec<_>>().into()
+                        span_range.to_vec().into()
                     } else {
                         Shared::from(Vec::new())
                     }
@@ -4165,7 +4165,7 @@ impl<'a> VmCore<'a> {
                                 */
                 // self.root_spans[self.ip..forward_jump_index].into()
                 if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
-                    span_range.into_iter().cloned().collect::<Vec<_>>().into()
+                    span_range.to_vec().into()
                 } else {
                     Shared::from(Vec::new())
                 }
@@ -4357,7 +4357,7 @@ impl<'a> VmCore<'a> {
                     // self.root_spans[self.ip..forward_jump_index].into()
 
                     if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
-                        span_range.into_iter().cloned().collect::<Vec<_>>().into()
+                        span_range.to_vec().into()
                     } else {
                         Shared::from(Vec::new())
                     }
@@ -4370,7 +4370,7 @@ impl<'a> VmCore<'a> {
 
                 // For now, lets go ahead and use this... hack to get us going
                 if let Some(span_range) = self.root_spans.get(self.ip..forward_jump_index) {
-                    span_range.into_iter().cloned().collect::<Vec<_>>().into()
+                    span_range.to_vec().into()
                 } else {
                     Shared::from(Vec::new())
                 }
@@ -5120,7 +5120,7 @@ pub fn current_function_span(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
 fn inspect_impl(ctx: &VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let guard = &ctx.thread.compiler.read().sources.sources;
 
-    if let Some(SteelVal::Closure(c)) = args.get(0) {
+    if let Some(SteelVal::Closure(c)) = args.first() {
         let spans = ctx.thread.function_interner.spans.get(&c.id);
 
         let instructions = c.body_exp();

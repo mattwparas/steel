@@ -372,7 +372,7 @@ impl Kernel {
             .run_raw_program_from_exprs(vec![generated_module])?;
 
         self.engine
-            .run(format!("(set! #%loading-current-module \"default\")",))?;
+            .run("(set! #%loading-current-module \"default\")".to_owned())?;
 
         Ok(())
     }

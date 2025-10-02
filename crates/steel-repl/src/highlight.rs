@@ -48,12 +48,12 @@ impl Completer for RustylineHelper {
         let Some((span, symbol)) = TokenStream::new(line, true, SourceId::none())
             .filter_map(Result::ok)
             .find_map(|token| match token.ty {
-                TokenType::Identifier(ref symbol) => (
+                TokenType::Identifier(ref symbol) => {
                     // Inclusive range as curser usually placed directly after the symbol
-                    token.span().start()..=token.span().end()
-                )
-                    .contains(&(pos as u32))
-                    .then_some((token.span(), symbol.clone())),
+                    (token.span().start()..=token.span().end())
+                        .contains(&(pos as u32))
+                        .then_some((token.span(), *symbol))
+                }
                 _ => None,
             })
         else {
@@ -311,7 +311,7 @@ impl Highlighter for RustylineHelper {
 
             // println!("pos: {}")
 
-            let old_length = line_to_highlight.as_bytes().len();
+            let old_length = line_to_highlight.len();
 
             // self.bracket.set(check_bracket(&line_to_highlight, start));
 
@@ -319,7 +319,7 @@ impl Highlighter for RustylineHelper {
 
             line_to_highlight.replace_range(range, &highlighted);
 
-            let new_length = line_to_highlight.as_bytes().len();
+            let new_length = line_to_highlight.len();
 
             // TODO just store the updated location back in
             if let Some(pos) = paren_to_highlight {

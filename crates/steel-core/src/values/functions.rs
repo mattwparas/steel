@@ -534,7 +534,7 @@ impl BoxedDynFunction {
     ) -> Self {
         BoxedDynFunction {
             function,
-            name: name,
+            name,
             arity,
         }
     }

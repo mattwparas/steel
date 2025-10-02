@@ -169,10 +169,8 @@ pub fn readline_module(vm: &mut Engine) {
             rl.set_check_cursor_position(true);
 
             let history_path = get_default_repl_history_path();
-            if let Err(_) = rl.load_history(&history_path) {
-                if let Err(_) = File::create(&history_path) {
-                    eprintln!("Unable to create repl history file {:?}", history_path)
-                }
+            if rl.load_history(&history_path).is_err() && File::create(&history_path).is_err() {
+                eprintln!("Unable to create repl history file {:?}", history_path)
             };
             RustyLine(rl)
         })
@@ -268,10 +266,8 @@ impl<S: Display, P: AsRef<Path> + Debug> Repl<S, P> {
             .map(|p| Cow::Borrowed(p.as_ref()))
             .unwrap_or_else(|| Cow::Owned(get_default_repl_history_path()));
 
-        if let Err(_) = rl.load_history(&history_path) {
-            if let Err(_) = File::create(&history_path) {
-                eprintln!("Unable to create repl history file {:?}", history_path)
-            }
+        if rl.load_history(&history_path).is_err() && File::create(&history_path).is_err() {
+            eprintln!("Unable to create repl history file {:?}", history_path)
         };
 
         let current_dir = std::env::current_dir()?;

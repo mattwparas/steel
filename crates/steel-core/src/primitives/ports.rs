@@ -448,8 +448,7 @@ pub fn write_line(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
 #[function(name = "#%raw-write")]
 pub fn write(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = output_args(rest)?;
-    let line = line.to_string();
-    let res = port.write(line.as_str().as_bytes());
+    let res = port.write(line.to_string().as_bytes());
 
     if res.is_ok() {
         Ok(SteelVal::Void)
@@ -462,7 +461,7 @@ pub fn write(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal
 pub fn display(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = output_args(rest)?;
     let line = SteelValDisplay(line).to_string();
-    let res = port.write(line.as_str().as_bytes());
+    let res = port.write(line.as_bytes());
 
     if res.is_ok() {
         Ok(SteelVal::Void)
@@ -489,9 +488,9 @@ pub fn write_string(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<S
     let port = output_args(rest)?;
 
     let res = if let SteelVal::StringV(s) = line {
-        port.write(s.as_str().as_bytes())
+        port.write(s.as_bytes())
     } else {
-        port.write(line.to_string().as_str().as_bytes())
+        port.write(line.to_string().as_bytes())
     };
 
     if res.is_ok() {

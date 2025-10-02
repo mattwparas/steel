@@ -289,7 +289,7 @@ impl IntoSteelVal for NumberLiteral {
     }
 }
 
-impl<'a> IntoSteelVal for &'a NumberLiteral {
+impl IntoSteelVal for &NumberLiteral {
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         // as we do not have an owned `self`, we have to clone here, as
         // we need all the BigInts owned

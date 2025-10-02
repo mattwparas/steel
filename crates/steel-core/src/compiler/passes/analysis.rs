@@ -4792,7 +4792,7 @@ impl<'a> SemanticAnalysis<'a> {
             if let ExprKind::List(l) = anon {
                 // Don't replace anonymous function calls that have rest args - those are not yet handled
                 // with a blind let replacement
-                if let ExprKind::LambdaFunction(f) = l.args.get(0).unwrap() {
+                if let ExprKind::LambdaFunction(f) = l.args.first().unwrap() {
                     if f.rest {
                         return false;
                     }
@@ -5055,7 +5055,7 @@ impl<'a> SemanticAnalysis<'a> {
     // Convert the syntax object ids back to interned strings. Could end up
     // returning nothing if the ids are not found in the target AST, which could
     // happen if the analysis gets invalidated by refreshing the vars.
-    pub fn syntax_object_ids_to_identifiers<'b>(
+    pub fn syntax_object_ids_to_identifiers(
         &self,
         ids: &'a mut HashMap<SyntaxObjectId, Option<InternedString>>,
     ) -> &mut HashMap<SyntaxObjectId, Option<InternedString>> {
