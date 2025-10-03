@@ -89,15 +89,18 @@ pub fn disassemble(instructions: &[Instruction]) -> String {
 
         buffer.push_str("    ");
 
-        if let Some(syn) = instruction.contents.as_ref() {
-            match syn {
-                Expr::Atom(syn) => {
-                    let contents = syn.ty.to_string();
-                    buffer.push_str(contents.as_str());
-                }
-                Expr::List(l) => {
-                    let contents = l.to_string();
-                    buffer.push_str(contents.as_str());
+        #[cfg(any(feature = "std", feature = "no_std_parser"))]
+        {
+            if let Some(syn) = instruction.contents.as_ref() {
+                match syn {
+                    Expr::Atom(syn) => {
+                        let contents = syn.ty.to_string();
+                        buffer.push_str(contents.as_str());
+                    }
+                    Expr::List(l) => {
+                        let contents = l.to_string();
+                        buffer.push_str(contents.as_str());
+                    }
                 }
             }
         }

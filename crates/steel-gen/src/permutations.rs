@@ -1,3 +1,5 @@
+use alloc::{string::String, vec, vec::Vec};
+
 use codegen::Impl;
 
 // Awful, ugly back to generate all of the inputs that I need across different params

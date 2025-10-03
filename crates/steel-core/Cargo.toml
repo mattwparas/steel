@@ -14,48 +14,43 @@ name = "steel"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-im-rc = { version = "15.1.0", features = ["serde"] }
-codespan-reporting = "0.11.1"
-log = "0.4.17"
+im-rc = { version = "15.1.0", features = ["serde"], optional = true }
+codespan-reporting = { version = "0.11.1", optional = true }
+log = { version = "0.4.17", default-features = false }
 
-futures-executor = "0.3.28"
-futures-util = "0.3.28"
-futures-task = "0.3.28"
+futures-executor = { version = "0.3.28", optional = true }
+futures-util = { version = "0.3.28", optional = true }
+futures-task = { version = "0.3.28", optional = true }
 
-serde_json = "1.0.108"
-serde = { version = "1.0.193", features = ["derive", "rc"] }
-bincode = "1.3.3"
-im-lists = "0.11.0"
+serde_json = { version = "1.0.108", optional = true }
+serde = { version = "1.0.193", default-features = false, features = ["alloc", "derive"] }
+bincode = { version = "1.3.3", optional = true }
+im-lists = { version = "0.11.0", optional = true }
 
-strsim = "0.11.0"
-quickscope = "0.2.0"
+strsim = { version = "0.11.0", optional = true }
+quickscope = { version = "0.2.0", optional = true }
 
-lasso = { version = "0.7.3", features = [
-    "multi-threaded",
-    "ahash",
-    "serialize",
-    "inline-more",
-] }
+lasso = { version = "0.7.3", default-features = false, optional = true, features = ["ahash"] }
 
-once_cell = "1.18.0"
-fxhash = "0.2.1"
-steel-gen = { path = "../steel-gen", version = "0.3.0" }
-steel-parser = { path = "../steel-parser", version = "0.7.0" }
+once_cell = { version = "1.18.0", default-features = false }
+fxhash = { version = "0.2.1", optional = true }
+steel-gen = { path = "../steel-gen", version = "0.3.0", default-features = false }
+steel-parser = { path = "../steel-parser", version = "0.7.0", default-features = false, optional = true }
 steel-derive = { path = "../steel-derive", version = "0.6.0" }
 cargo-steel-lib = { path = "../cargo-steel-lib", version = "0.2.0", optional = true }
 hashbrown = { version = "0.14", default-features = false, features = ["serde"] }
-chrono = { version = "0.4.23", default-features = false, features = ["std", "clock"] }
-env_home = "0.1.0"
-weak-table = "0.3.2"
+chrono = { version = "0.4.23", default-features = false, features = ["std", "clock"], optional = true }
+env_home = { version = "0.1.0", optional = true }
+weak-table = { version = "0.3.2", optional = true }
 # TODO: Consider whether rand needs to be here
-rand = "0.9.0"
-num-bigint = "0.4.6"
-num-rational = "0.4.2"
-num-traits = "0.2.19"
-num-integer = "0.1.46"
+rand = { version = "0.9.0", optional = true }
+num-bigint = { version = "0.4.6", default-features = false, features = ["serde"], optional = true }
+num-rational = { version = "0.4.2", default-features = false, optional = true }
+num-traits = { version = "0.2.19", default-features = false, features = ["libm"], optional = true }
+num-integer = { version = "0.1.46", default-features = false, optional = true }
 
 # For structs
-smallvec = { version = "1.13.0" }
+smallvec = { version = "1.13.0", default-features = false, features = ["union", "serde"], optional = true }
 
 # Pretty printing documentation
 termimad = { version = "0.31.1", optional = true }
@@ -77,43 +72,43 @@ stacker = { version = "0.1.15", optional = true }
 # Sync feature
 im = { version = "15.1.0", features = ["serde"], optional = true }
 
-parking_lot = { version = "0.12", features = ["arc_lock", "send_guard"] }
+parking_lot = { version = "0.12", features = ["arc_lock", "send_guard"], optional = true }
 
-bigdecimal = "0.4.5"
+bigdecimal = { version = "0.4.5", optional = true }
 
 # Also for sync stuff
-crossbeam-channel = "0.5.15"
-crossbeam-utils = "0.8.21"
-crossbeam-queue = "0.3.12"
+crossbeam-channel = { version = "0.5.15", optional = true }
+crossbeam-utils = { version = "0.8.21", optional = true }
+crossbeam-queue = { version = "0.3.12", optional = true }
 
-httparse = "1.9.4"
+httparse = { version = "1.9.4", optional = true }
 
-compact_str = { version = "0.8.0", features = ["serde"] }
+compact_str = { version = "0.8.0", features = ["serde"], optional = true }
 
 git2 = { version = "0.20.2", optional = true, features = ["vendored-openssl"] }
 ureq = { version = "3.0.12", optional = true }
 
 # For the constant map
-arc-swap = "1.7.1"
+arc-swap = { version = "1.7.1", optional = true }
 
-md-5 = "0.10.6"
-glob = "0.3.2"
+md-5 = { version = "0.10.6", optional = true }
+glob = { version = "0.3.2", optional = true }
 
 # For helping discover the steel home location
-xdg = "3.0.0"
+xdg = { version = "3.0.0", optional = true }
 
-shared_vector = "0.4.4"
+shared_vector = { version = "0.4.4", optional = true }
 
 imbl = { version = "6", optional = true, features = ["triomphe", "serde"] }
-icu_casemap = "2.0.0"
+icu_casemap = { version = "2.0.0", optional = true }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
 getrandom = { version = "0.3.1", features = ["wasm_js"] }
 
-[target.'cfg(not(target_family = "wasm"))'.dependencies]
+[target.'cfg(all(not(target_family = "wasm"), not(target_os = "none")))'.dependencies]
 polling = "3.10.0"
 
-[target.'cfg(not(any(target_family = "wasm", target_env = "newlib")))'.dependencies]
+[target.'cfg(all(not(any(target_family = "wasm", target_env = "newlib")), not(target_os = "none")))'.dependencies]
 which = "8.0.0"
 
 [dev-dependencies]
@@ -121,14 +116,71 @@ proptest = "1.1.0"
 criterion = "0.5.1"
 
 [build-dependencies]
-steel-gen = { path = "../steel-gen", version = "0.3.0" }
+steel-gen = { path = "../steel-gen", version = "0.3.0", default-features = false, features = ["codegen"] }
 
 [features]
 # TODO: Deprecate the modules feature flag, it no longer does anything
 default = ["std", "modules"]
-std = []
+std = [
+    "dep:fxhash",
+    "dep:im-rc",
+    "dep:codespan-reporting",
+    "dep:futures-executor",
+    "dep:futures-util",
+    "dep:futures-task",
+    "dep:serde_json",
+    "dep:bincode",
+    "dep:im-lists",
+    "dep:strsim",
+    "dep:quickscope",
+    "dep:lasso",
+    "dep:steel-parser",
+    "steel-parser/std",
+    "dep:chrono",
+    "dep:env_home",
+    "dep:weak-table",
+    "dep:rand",
+    "dep:num-bigint",
+    "dep:num-rational",
+    "dep:num-traits",
+    "dep:num-integer",
+    "dep:smallvec",
+    "dep:parking_lot",
+    "dep:bigdecimal",
+    "dep:crossbeam-channel",
+    "dep:crossbeam-utils",
+    "dep:crossbeam-queue",
+    "dep:httparse",
+    "dep:compact_str",
+    "dep:arc-swap",
+    "dep:md-5",
+    "dep:glob",
+    "dep:xdg",
+    "dep:shared_vector",
+    "dep:icu_casemap",
+    "log/std",
+    "serde/rc",
+    "once_cell/std",
+    "lasso/multi-threaded",
+    "lasso/serialize",
+    "lasso/inline-more",
+    "num-traits/std",
+    "num-integer/std",
+    "num-bigint/std",
+    "num-rational/std",
+]
 no_std_env = []
 no_std_core = []
+no_std_parser = [
+    "dep:steel-parser",
+    "steel-parser/no_std_ast",
+    "steel-parser/no_std_interner",
+    "steel-parser/no_std_lexer",
+    "steel-parser/no_std_parser",
+    "steel-parser/no_std_span",
+    "steel-parser/no_std_tokens",
+    "steel-parser/no_std_visitors",
+]
 no_std_primitives = [
     "no_std_core",
     "no_std_gc",
@@ -144,7 +196,6 @@ no_std_stdlib = ["no_std_core"]
 no_std_gc = ["no_std_core"]
 no_std_containers = []
 no_std_conversions = []
-no_std_parser = []
 no_std_steel_vm = ["no_std_core", "no_std_parser", "no_std_rvals"]
 no_std_values = ["no_std_core", "no_std_parser", "no_std_rvals"]
 no_std_compiler = ["no_std_core", "no_std_parser", "no_std_rvals"]
@@ -161,7 +212,14 @@ smallvec = []
 without-drop-protection = []
 stacker = ["dep:stacker"]
 dylib-build = ["dep:cargo-steel-lib"]
-sync = ["dep:im"]
+sync = [
+    "dep:im",
+    "dep:parking_lot",
+    "dep:crossbeam-channel",
+    "dep:crossbeam-utils",
+    "dep:crossbeam-queue",
+    "dep:shared_vector",
+]
 interrupt = []
 rooted-instructions = []
 recycle = []

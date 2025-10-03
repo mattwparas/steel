@@ -69,6 +69,7 @@ macro_rules! list {
 }
 
 use bigdecimal::BigDecimal;
+#[cfg(feature = "sync")]
 use parking_lot::RwLock;
 use smallvec::SmallVec;
 use SteelVal::*;

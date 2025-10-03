@@ -1,0 +1,30 @@
+name: No-Std Build
+
+on:
+  push:
+    branches: ['mwp-no-std-test']
+  pull_request:
+    branches: ['mwp-no-std-test']
+  workflow_dispatch:
+
+jobs:
+  thumbv7em:
+    name: No-Std thumbv7em build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      - name: Install thumb target
+        run: rustup target add thumbv7em-none-eabihf
+      - name: Build steel-core without std
+        run: |
+          cargo build -p steel-core \
+            --target thumbv7em-none-eabihf \
+            --no-default-features \
+            --features no_std_core

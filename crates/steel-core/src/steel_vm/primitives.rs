@@ -89,7 +89,7 @@ use once_cell::sync::Lazy;
 use std::{borrow::Cow, cmp::Ordering};
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
 use crate::primitives::polling::polling_module;
 
 #[cfg(target_family = "wasm")]

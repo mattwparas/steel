@@ -7,6 +7,14 @@ use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
 
+use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
+use core::{
+    cell::{Ref, RefCell},
+    fmt, mem,
+    ops::Deref,
+    slice,
+};
+
 use crate::compiler::map::SymbolMap;
 use crate::parser::interner::InternedString;
 use crate::rerrs::ErrorKind;
@@ -27,26 +35,7 @@ use crate::{
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
 use std::collections::VecDeque;
-use std::ops::Deref;
 use std::sync::Arc;
-use std::{
-    cell::{Ref, RefCell},
-    rc::Rc,
-};
-
-// Use alloc/core equivalents when building without std
-#[cfg(not(feature = "std"))]
-use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
-#[cfg(feature = "std")]
-use std::{boxed::Box as StdBox, string::String as StdString, vec::Vec as StdVec};
-
-#[cfg(not(feature = "std"))]
-use core::{fmt, mem, slice};
-#[cfg(feature = "std")]
-use std::{fmt as StdFmt, mem as StdMem, slice as StdSlice};
-
-#[cfg(not(feature = "std"))]
-use core as std;
 
 use super::closed::Heap;
 use super::functions::BoxedDynFunction;
@@ -192,8 +181,8 @@ impl PartialEq for UserDefinedStruct {
     }
 }
 
-impl std::fmt::Display for UserDefinedStruct {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for UserDefinedStruct {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self
             .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
             .is_some()
@@ -523,17 +512,17 @@ pub fn struct_update_primitive(args: &mut [SteelVal]) -> Result<SteelVal> {
                 populate_fields_offsets(fields, struct_fields_list, &mut fields_to_update)?;
 
                 for (idx, value) in fields_to_update {
-                    std::mem::swap(&mut s.fields[idx], value);
+                    mem::swap(&mut s.fields[idx], value);
                 }
 
-                Ok(std::mem::replace(&mut args[0], SteelVal::Void))
+                Ok(mem::replace(&mut args[0], SteelVal::Void))
             }
 
             None => {
                 let mut s = s.unwrap();
                 populate_fields_offsets(fields, struct_fields_list, &mut fields_to_update)?;
                 for (idx, value) in fields_to_update {
-                    std::mem::swap(&mut s.fields[idx], value);
+                    mem::swap(&mut s.fields[idx], value);
                 }
 
                 Ok(SteelVal::CustomStruct(Gc::new(s)))
@@ -545,7 +534,7 @@ pub fn struct_update_primitive(args: &mut [SteelVal]) -> Result<SteelVal> {
 }
 
 fn populate_fields_offsets<'a>(
-    mut fields: std::slice::IterMut<'a, SteelVal>,
+    mut fields: slice::IterMut<'a, SteelVal>,
     struct_fields_list: &List<SteelVal>,
     fields_to_update: &mut smallvec::SmallVec<[(usize, &'a mut SteelVal); 5]>,
 ) -> Result<()> {
@@ -819,6 +808,7 @@ pub static ERR_RESULT_LABEL: Lazy<InternedString> = Lazy::new(|| "Err".into());
 pub static NONE_OPTION_LABEL: Lazy<InternedString> = Lazy::new(|| "None".into());
 pub static TYPE_ID: Lazy<InternedString> = Lazy::new(|| "TypeId".into());
 
+#[cfg(feature = "sync")]
 pub static STRUCT_DEFINITIONS: Lazy<Arc<std::sync::RwLock<SymbolMap>>> =
     Lazy::new(|| Arc::new(std::sync::RwLock::new(SymbolMap::default())));
 

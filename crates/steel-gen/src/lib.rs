@@ -1,18 +1,33 @@
 // TODO: Create stack to ssa representation of the op codes, via macros
 #![allow(unused)]
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
 
 pub mod opcode;
+#[cfg(feature = "codegen")]
 pub mod permutations;
-use std::{borrow::Cow, fmt::Write};
+
+use alloc::vec::Vec;
+use core::fmt;
 
 pub use opcode::OpCode;
 
+#[cfg(feature = "codegen")]
+use alloc::{
+    borrow::Cow,
+    string::{String, ToString},
+};
+#[cfg(feature = "codegen")]
 use codegen::{Function, Scope};
+#[cfg(feature = "codegen")]
+use core::fmt::Write;
 
 // If we can provide hints on the types, this can help with constant folding of operations
 // that we know the types of
 //
 // For instance, this can also allow specializing _lots_ of the list operations if we can pull it off
+#[cfg(feature = "codegen")]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum TypeHint {
     Int,
@@ -22,12 +37,14 @@ enum TypeHint {
     None,
 }
 
+#[cfg(feature = "codegen")]
 #[derive(PartialEq, Clone, Debug)]
 struct LocalVariable {
     id: u16,
     type_hint: TypeHint,
 }
 
+#[cfg(feature = "codegen")]
 impl LocalVariable {
     pub fn kind(mut self, type_hint: TypeHint) -> Self {
         self.type_hint = type_hint;
@@ -35,10 +52,12 @@ impl LocalVariable {
     }
 }
 
+#[cfg(feature = "codegen")]
 struct GenSym {
     count: u16,
 }
 
+#[cfg(feature = "codegen")]
 impl GenSym {
     pub fn new() -> Self {
         Self { count: 0 }
@@ -55,16 +74,19 @@ impl GenSym {
     }
 }
 
-impl std::fmt::Display for LocalVariable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+#[cfg(feature = "codegen")]
+impl fmt::Display for LocalVariable {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "x{}", self.id)
     }
 }
 
+#[cfg(feature = "codegen")]
 fn op_code_to_handler(op_code: Pattern) -> String {
     format!("opcode_to_ssa_handler!({op_code})")
 }
 
+#[cfg(feature = "codegen")]
 struct StackToSSAConverter {
     generator: GenSym,
     stack: Vec<LocalVariable>,
@@ -77,8 +99,8 @@ pub enum Pattern {
     Double(OpCode, usize),
 }
 
-impl std::fmt::Display for Pattern {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for Pattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Pattern::Single(op) => write!(f, "{op:?}"),
             Pattern::Double(op, payload) => write!(f, "{op:?}{payload}"),
@@ -86,17 +108,20 @@ impl std::fmt::Display for Pattern {
     }
 }
 
+#[cfg(feature = "codegen")]
 #[derive(Default)]
 struct FunctionLines {
     lines: Vec<String>,
 }
 
+#[cfg(feature = "codegen")]
 impl FunctionLines {
     fn line(&mut self, line: impl Into<String>) {
         self.lines.push(line.into())
     }
 }
 
+#[cfg(feature = "codegen")]
 impl StackToSSAConverter {
     pub fn new() -> Self {
         Self {
@@ -774,6 +799,7 @@ impl StackToSSAConverter {
     }
 }
 
+#[cfg(feature = "codegen")]
 fn push_binop(
     function: &mut FunctionLines,
     local: LocalVariable,
@@ -796,19 +822,22 @@ fn push_binop(
     ));
 }
 
+#[cfg(feature = "codegen")]
 struct Call<'a> {
     name: Cow<'a, str>,
     args: Vec<Cow<'a, str>>,
 }
 
+#[cfg(feature = "codegen")]
 impl<'a> Call<'a> {
     pub fn new(name: Cow<'a, str>, args: Vec<Cow<'a, str>>) -> Self {
         Self { name, args }
     }
 }
 
-impl<'a> std::fmt::Display for Call<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+#[cfg(feature = "codegen")]
+impl<'a> fmt::Display for Call<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name)?;
         write!(f, "(")?;
         for arg in &self.args {
@@ -885,10 +914,11 @@ impl Pattern {
     }
 }
 
+#[cfg(feature = "codegen")]
 pub trait IteratorExtensions: Iterator {
     fn join(&mut self, sep: &str) -> String
     where
-        Self::Item: std::fmt::Display,
+        Self::Item: fmt::Display,
     {
         match self.next() {
             None => String::new(),
@@ -907,12 +937,14 @@ pub trait IteratorExtensions: Iterator {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl<T> IteratorExtensions for T where T: Iterator {}
 
 // struct SuperInstructionMap {
 //     map: std::collections::HashMap<Vec<Pattern>, for<'r> fn (&'r mut VmCore<'_>, usize) -> Result<()>>
 // }
 
+#[cfg(feature = "codegen")]
 pub fn generate_opcode_map() -> String {
     let patterns = opcode::PATTERNS;
 
@@ -1039,7 +1071,7 @@ pub(crate) fn generate_dynamic_op_codes() -> SuperInstructionMap {
     format!("{}\n{}", top_level_definition, global_scope.to_string())
 }
 
-#[test]
+#[cfg(all(test, feature = "codegen"))]
 fn test() {
     // let op_codes = vec![
     //     Pattern::Double(OpCode::BEGINSCOPE, 0),
@@ -1092,7 +1124,7 @@ fn test() {
     // println!("{}", ctx_signature().to_string());
 }
 
-#[test]
+#[cfg(all(test, feature = "codegen"))]
 fn test_generation() {
     use OpCode::*;
 

@@ -1,7 +1,12 @@
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
+
+#[cfg(any(feature = "std", feature = "no_std_parser"))]
+use alloc::boxed::Box;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};
+
+#[cfg(any(feature = "std", feature = "no_std_parser"))]
 use steel_parser::{ast::ExprKind, parser::SyntaxObject};
 
 use super::{
@@ -19,9 +24,15 @@ pub fn fresh() -> Label {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+#[cfg_attr(not(any(feature = "std", feature = "no_std_parser")), derive(Default))]
 pub enum Expr {
+    #[cfg(any(feature = "std", feature = "no_std_parser"))]
     Atom(SyntaxObject),
+    #[cfg(any(feature = "std", feature = "no_std_parser"))]
     List(Box<ExprKind>),
+    #[cfg(not(any(feature = "std", feature = "no_std_parser")))]
+    #[default]
+    Empty,
 }
 
 #[derive(Clone, Debug)]
@@ -58,11 +69,13 @@ impl LabeledInstruction {
         self
     }
 
+    #[cfg(any(feature = "std", feature = "no_std_parser"))]
     pub fn contents(mut self, contents: SyntaxObject) -> Self {
         self.contents = Some(Expr::Atom(contents));
         self
     }
 
+    #[cfg(any(feature = "std", feature = "no_std_parser"))]
     pub fn list_contents(mut self, contents: ExprKind) -> Self {
         self.contents = Some(Expr::List(Box::new(contents)));
         self

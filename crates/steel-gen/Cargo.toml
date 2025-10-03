@@ -10,5 +10,10 @@ description = "Code generation crates for use within steel"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-codegen = "0.2.0"
-serde = { version = "1.0.152", features = ["derive"] }
+codegen = { version = "0.2.0", optional = true }
+serde = { version = "1.0.152", default-features = false, features = ["alloc", "derive"] }
+
+[features]
+default = ["std", "codegen"]
+std = []
+codegen = ["std", "dep:codegen"]

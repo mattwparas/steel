@@ -20,7 +20,7 @@ pub use im_shims::{
     HashMap, HashMapConsumingIter, HashSet, HashSetConsumingIter, Vector, VectorConsumingIter,
 };
 
-#[cfg(not(feature = "sync"))]
+#[cfg(all(feature = "std", not(feature = "sync")))]
 mod im_shims {
     use std::hash::RandomState;
 
@@ -33,7 +33,7 @@ mod im_shims {
     pub type HashMapConsumingIter<K, V> = im_rc::hashmap::ConsumingIter<(K, V)>;
 }
 
-#[cfg(all(feature = "sync", not(feature = "imbl")))]
+#[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
 mod im_shims {
     use std::hash::RandomState;
 
@@ -46,12 +46,10 @@ mod im_shims {
     pub type HashMapConsumingIter<K, V> = im::hashmap::ConsumingIter<(K, V)>;
 }
 
-#[cfg(all(feature = "sync", feature = "imbl"))]
+#[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
 mod im_shims {
-
-    use std::hash::RandomState;
-
     use imbl::shared_ptr::DefaultSharedPtr;
+    use std::hash::RandomState;
 
     pub type Vector<T> = imbl::Vector<T>;
     pub type HashMap<K, V, S = RandomState> = imbl::GenericHashMap<K, V, S, DefaultSharedPtr>;
@@ -60,4 +58,16 @@ mod im_shims {
     pub type VectorConsumingIter<T> = imbl::vector::ConsumingIter<T, DefaultSharedPtr>;
     pub type HashSetConsumingIter<T> = imbl::hashset::ConsumingIter<T, DefaultSharedPtr>;
     pub type HashMapConsumingIter<K, V> = imbl::hashmap::ConsumingIter<(K, V), DefaultSharedPtr>;
+}
+
+#[cfg(not(feature = "std"))]
+mod im_shims {
+    pub type Vector<T> = alloc::vec::Vec<T>;
+    pub type HashMap<K, V, S = hashbrown::hash_map::DefaultHashBuilder> =
+        hashbrown::HashMap<K, V, S>;
+    pub type HashSet<K, S = hashbrown::hash_map::DefaultHashBuilder> = hashbrown::HashSet<K, S>;
+
+    pub type VectorConsumingIter<T> = alloc::vec::IntoIter<T>;
+    pub type HashSetConsumingIter<T> = hashbrown::hash_set::IntoIter<T>;
+    pub type HashMapConsumingIter<K, V> = hashbrown::hash_map::IntoIter<K, V>;
 }

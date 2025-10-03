@@ -4,6 +4,8 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 extern crate im_rc;
+#[cfg(not(feature = "std"))]
+mod minimal;
 #[cfg(any(feature = "std", feature = "no_std_env"))]
 #[macro_use]
 mod env;
@@ -44,13 +46,15 @@ pub(crate) mod values;
 
 #[cfg(any(feature = "std", feature = "no_std_stdlib"))]
 pub use self::stdlib::PRELUDE;
+#[cfg(all(not(feature = "std"), not(feature = "no_std_stdlib")))]
+pub use minimal::PRELUDE;
 
-#[cfg(feature = "no_std_rerrs")]
+#[cfg(all(not(feature = "std"), feature = "no_std_rerrs"))]
 pub use minimal::SteelErr;
 #[cfg(feature = "std")]
 pub use rerrs::SteelErr;
 
-#[cfg(feature = "no_std_rvals")]
+#[cfg(all(not(feature = "std"), feature = "no_std_rvals"))]
 pub use minimal::SteelVal;
 #[cfg(feature = "std")]
 pub use rvals::SteelVal;
@@ -77,38 +81,5 @@ pub use values::RootToken;
 #[cfg(any(feature = "std", feature = "no_std_values"))]
 pub use values::RootedSteelVal;
 
-#[cfg(all(
-    not(feature = "std"),
-    not(feature = "no_std_env"),
-    not(feature = "no_std_core"),
-    not(feature = "no_std_compiler"),
-    not(feature = "no_std_primitives"),
-    not(feature = "no_std_rerrs"),
-    not(feature = "no_std_rvals"),
-    not(feature = "no_std_stdlib"),
-    not(feature = "no_std_gc"),
-    not(feature = "no_std_containers"),
-    not(feature = "no_std_conversions"),
-    not(feature = "no_std_parser"),
-    not(feature = "no_std_steel_vm"),
-    not(feature = "no_std_values"),
-))]
-mod minimal;
-
-#[cfg(all(
-    not(feature = "std"),
-    not(feature = "no_std_env"),
-    not(feature = "no_std_core"),
-    not(feature = "no_std_compiler"),
-    not(feature = "no_std_primitives"),
-    not(feature = "no_std_rerrs"),
-    not(feature = "no_std_rvals"),
-    not(feature = "no_std_stdlib"),
-    not(feature = "no_std_gc"),
-    not(feature = "no_std_containers"),
-    not(feature = "no_std_conversions"),
-    not(feature = "no_std_parser"),
-    not(feature = "no_std_steel_vm"),
-    not(feature = "no_std_values"),
-))]
-pub use minimal::*;
+#[cfg(all(not(feature = "std"), not(feature = "no_std_values")))]
+pub use minimal::{LambdaMetadataTable, RootToken, RootedSteelVal};

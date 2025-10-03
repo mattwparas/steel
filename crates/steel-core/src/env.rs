@@ -1,4 +1,5 @@
 use crate::rvals::{Result, SteelVal};
+#[cfg(feature = "sync")]
 use once_cell::sync::Lazy;
 use shared_vector::AtomicSharedVector;
 

@@ -28,8 +28,6 @@ pub enum SteelVal {
 
 pub const PRELUDE: &str = "";
 
-pub use alloc::vec::Vec;
-
 #[derive(Default)]
 pub struct LambdaMetadataTable;
 
