@@ -1889,7 +1889,7 @@ pub fn real_part(value: &SteelVal) -> Result<SteelVal> {
         | val @ SteelVal::BigRational(_)
         | val @ SteelVal::NumV(_) => Ok(val.clone()),
         SteelVal::Complex(complex) => Ok(complex.re.clone()),
-        _ => steelerr!(TypeMismatch => "real-part expected number"),
+        _ => steelerr!(TypeMismatch => "real-part expects a number, found {}", value),
     }
 }
 
@@ -1911,7 +1911,7 @@ pub fn imag_part(value: &SteelVal) -> Result<SteelVal> {
         | SteelVal::BigRational(_)
         | SteelVal::NumV(_) => Ok(SteelVal::IntV(0)),
         SteelVal::Complex(complex) => Ok(complex.im.clone()),
-        _ => steelerr!(TypeMismatch => "imag-part expected number"),
+        _ => steelerr!(TypeMismatch => "imag-part expects a number, found {}", value),
     }
 }
 
