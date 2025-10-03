@@ -15,11 +15,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          profile: minimal
-          override: true
       - name: Install thumb target
         run: rustup target add thumbv7em-none-eabihf
       - name: Build steel-core without std
