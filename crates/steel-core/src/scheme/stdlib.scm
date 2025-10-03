@@ -44,6 +44,7 @@
          assq
          assv
          assf
+         findf
          filter
          even-rec?
          odd-rec?
@@ -1000,6 +1001,32 @@
     [(null? lst) #f]
     [(proc (car (car lst))) (car lst)]
     [else (assf proc (cdr lst))]))
+
+;;@doc
+;; Returns the first element of the list, where the given proc returns a true
+;; value, when applied to it. Returns `#f`, if no element is found.
+;;
+;; If `#f` is an element of *lst*, a return value of `#f` is ambiguous: it
+;; might indicate that no element satisfies *proc* or it may indicate, that
+;; `#f` satisfies *proc*.
+;;
+;; (findf proc lst) -> (or/c any/c #f)
+;;
+;; - proc : procedure?
+;; - lst: list?
+;;
+;; # Examples
+;;
+;; ```scheme
+;; (findf odd? '(0 2 1 3 4)) ;; => 1
+;; (findf (λ (x) (char-ci=? #\D x)) '(#\a #\b #\c #\d #\e)) ;; => #\d
+;; (findf (λ (x) (> x 5)) '(0 2 1 3 4)) ;; => #f
+;; ```
+(define (findf proc lst)
+  (cond
+    [(null? lst) #f]
+    [(proc (car lst)) (car lst)]
+    [else (findf proc (cdr lst))]))
 
 ;;@doc
 ;; Returns new list, keeping elements from `lst` which applying `pred` to the element

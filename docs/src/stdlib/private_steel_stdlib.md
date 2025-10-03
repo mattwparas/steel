@@ -129,6 +129,26 @@ returns #t.
 ```scheme
 (filter even? (range 0 5)) ;; '(0 2 4)
 ```
+### **findf**
+Returns the first element of the list, where the given proc returns a true
+value, when applied to it. Returns `#f`, if no element is found.
+
+If `#f` is an element of *lst*, a return value of `#f` is ambiguous: it
+might indicate that no element satisfies *proc* or it may indicate, that
+`#f` satisfies *proc*.
+
+(findf proc lst) -> (or/c any/c #f)
+
+- proc : procedure?
+- lst: list?
+
+#### Examples
+
+```scheme
+(findf odd? '(0 2 1 3 4)) ;; => 1
+(findf (λ (x) (char-ci=? #\D x)) '(#\a #\b #\c #\d #\e)) ;; => #\d
+(findf (λ (x) (> x 5)) '(0 2 1 3 4)) ;; => #f
+```
 ### **flatten**
 Recursively flatten an arbitray structure of pairs into a single list.
 
