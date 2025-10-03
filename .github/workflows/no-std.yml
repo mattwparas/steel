@@ -8,21 +8,22 @@ on:
   workflow_dispatch:
 
 jobs:
-  thumbv7em:
-    name: No-Std thumbv7em build
+  wasm:
+    name: No-Std wasm32 build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: stable
-      - name: Install thumb target
-        run: rustup target add thumbv7em-none-eabihf
+          toolchain: nightly
+      - name: Install wasm target
+        run: rustup target add wasm32-unknown-unknown --toolchain nightly
       - name: Build steel-core without std
         run: |
           cargo build -p steel-core \
-            --target thumbv7em-none-eabihf \
+            --target wasm32-unknown-unknown \
+            -Zbuild-std=core,alloc \
             --no-default-features \
             --features no_std_core

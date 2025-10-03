@@ -5,4 +5,12 @@ linker = "/usr/bin/aarch64-linux-gnu-gcc"
 xtask = "run --package xtask --"
 
 [target.wasm32-unknown-unknown]
-rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+rustflags = [
+    '-Zunstable-options',
+    '-Cpanic=immediate-abort',
+    '--cfg',
+    'getrandom_backend="wasm_js"',
+]
+
+[build]
+rustflags = []
