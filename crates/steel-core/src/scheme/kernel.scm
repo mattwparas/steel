@@ -241,7 +241,7 @@
 
     `(begin
        ; (#%black-box "STRUCT" (quote ,struct-name))
-       (define ,struct-options-name (hash ,@(hash->list options-map)))
+       (define ,struct-options-name (#%prim.hash ,@(hash->list options-map)))
        (define ,struct-name 'unintialized)
        (define ,struct-prop-name 'uninitialized)
        (define ,struct-predicate 'uninitialized)
