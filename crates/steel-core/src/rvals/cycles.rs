@@ -455,7 +455,7 @@ impl SteelCycleCollector {
             }
             SteelVal::HeapAllocated(b) => {
                 // Get the object that THIS points to
-                let ptr_addr = (b.get().as_ptr_usize().unwrap(), 0);
+                let ptr_addr = (b.get().as_ptr_usize()?, 0);
                 self.cycles.get(&ptr_addr)
             }
             SteelVal::MutableVector(v) => {
