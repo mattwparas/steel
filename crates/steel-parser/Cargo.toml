@@ -11,28 +11,29 @@ description = "Parser for use within steel"
 
 [features]
 default = ["std"]
-std = []
-no_std_ast = []
-no_std_interner = []
-no_std_lexer = []
-no_std_parser = []
-no_std_span = []
-no_std_tokens = []
-no_std_visitors = []
+std = [
+    "lasso/multi-threaded",
+    "lasso/serialize",
+    "lasso/inline-more",
+    "once_cell/std",
+    "compact_str/std",
+    "serde/rc",
+    "dep:pretty",
+]
+no_std = ["lasso/no-std", "lasso/inline-more", "lasso/ahasher"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-fxhash = "0.2.1"
-lasso = { version = "0.7.3", features = ["multi-threaded", "ahash", "serialize", "inline-more"] }
-num-rational = "0.4.2"
-num-traits = "0.2.19"
-num-bigint = { version = "0.4.6", features = ["serde"] }
-once_cell = "1.18.0"
-pretty = "0.12.1"
-serde = { version = "1.0.152", features = ["derive", "rc"] }
-smallvec = "1.13"
-compact_str = "0.8.0"
+lasso = { version = "0.7.3", default-features = false }
+num-rational = { version = "0.4.2", default-features = false, features = ["serde", "num-bigint"] }
+num-traits = { version = "0.2.19", default-features = false, features = ["libm"] }
+num-bigint = { version = "0.4.6", default-features = false, features = ["serde"] }
+once_cell = { version = "1.18.0", default-features = false, features = ["alloc", "critical-section"] }
+pretty = { version = "0.12.1", optional = true }
+serde = { version = "1.0.152", default-features = false, features = ["derive", "alloc", "rc"] }
+smallvec = { version = "1.13", default-features = false }
+compact_str = { version = "0.8.0", default-features = false }
 
 [dev-dependencies]
 pretty_assertions = "1.4" # Only used by unit tests.

@@ -1,10 +1,19 @@
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+use alloc::string::String;
+#[cfg(feature = "std")]
+use alloc::sync::Arc;
 use compact_str::CompactString;
-use fxhash::FxBuildHasher;
+#[cfg(not(feature = "std"))]
+use core::cell::UnsafeCell;
+use core::fmt;
 use lasso::Key;
 use lasso::Spur;
+#[cfg(not(feature = "std"))]
+use once_cell::race::OnceBox;
+#[cfg(feature = "std")]
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
-use std::{fmt, sync::Arc};
 
 // TODO: Serialize and Deserialize should resolve() -> Otherwise we're in for deep trouble
 // trying to serialize and deserialize this
@@ -34,28 +43,52 @@ impl<'de> Deserialize<'de> for InternedString {
 
 impl InternedString {
     pub fn from_static(ident: &'static str) -> Self {
-        Self(
-            INTERNER
-                .get_or_init(|| Arc::new(ThreadedRodeo::with_hasher(FxBuildHasher::default())))
-                .get_or_intern_static(ident),
-        )
+        let spur = {
+            #[cfg(feature = "std")]
+            {
+                interner().get_or_intern_static(ident)
+            }
+
+            #[cfg(not(feature = "std"))]
+            {
+                interner().with_mut(|interner| interner.get_or_intern_static(ident))
+            }
+        };
+
+        Self(spur)
     }
 
     pub fn from_string(ident: String) -> Self {
-        Self(
-            INTERNER
-                .get_or_init(|| Arc::new(ThreadedRodeo::with_hasher(FxBuildHasher::default())))
-                .get_or_intern(ident),
-        )
+        let spur = {
+            #[cfg(feature = "std")]
+            {
+                interner().get_or_intern(ident)
+            }
+
+            #[cfg(not(feature = "std"))]
+            {
+                interner().with_mut(|interner| interner.get_or_intern(ident))
+            }
+        };
+
+        Self(spur)
     }
 
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(ident: &str) -> Self {
-        Self(
-            INTERNER
-                .get_or_init(|| Arc::new(ThreadedRodeo::with_hasher(FxBuildHasher::default())))
-                .get_or_intern(ident),
-        )
+        let spur = {
+            #[cfg(feature = "std")]
+            {
+                interner().get_or_intern(ident)
+            }
+
+            #[cfg(not(feature = "std"))]
+            {
+                interner().with_mut(|interner| interner.get_or_intern(ident))
+            }
+        };
+
+        Self(spur)
     }
 
     pub fn new(key: usize) -> Self {
@@ -67,7 +100,19 @@ impl InternedString {
     }
 
     pub fn try_get(ident: &str) -> Option<InternedString> {
-        INTERNER.get().unwrap().get(ident).map(InternedString)
+        #[cfg(feature = "std")]
+        {
+            return INTERNER
+                .get()
+                .and_then(|interner| interner.get(ident).map(InternedString));
+        }
+
+        #[cfg(not(feature = "std"))]
+        {
+            INTERNER.get().and_then(|interner| {
+                interner.with(|inner| inner.get(ident).map(InternedString))
+            })
+        }
     }
 
     #[doc(hidden)]
@@ -125,46 +170,150 @@ impl fmt::Display for InternedString {
 //     }
 // }
 
+#[cfg(not(feature = "std"))]
+use lasso::Rodeo;
+#[cfg(feature = "std")]
 use lasso::ThreadedRodeo;
 
-static INTERNER: OnceCell<Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>> = OnceCell::new();
+#[cfg(feature = "std")]
+type GlobalInterner = ThreadedRodeo<Spur>;
+#[cfg(not(feature = "std"))]
+type GlobalInterner = Rodeo<Spur>;
+
+#[cfg(feature = "std")]
+type InternerHandle = Arc<GlobalInterner>;
+#[cfg(not(feature = "std"))]
+type InternerHandle = &'static StaticInterner;
+
+#[cfg(feature = "std")]
+static INTERNER: OnceCell<InternerHandle> = OnceCell::new();
+#[cfg(not(feature = "std"))]
+static INTERNER: OnceBox<StaticInterner> = OnceBox::new();
+
+#[cfg(feature = "std")]
+fn interner() -> &'static InternerHandle {
+    INTERNER.get_or_init(|| Arc::new(GlobalInterner::new()))
+}
+
+#[cfg(not(feature = "std"))]
+fn interner() -> InternerHandle {
+    INTERNER.get_or_init(|| Box::new(StaticInterner::new()))
+}
+
+#[cfg(not(feature = "std"))]
+pub struct StaticInterner(UnsafeCell<GlobalInterner>);
+
+#[cfg(not(feature = "std"))]
+impl StaticInterner {
+    fn new() -> Self {
+        Self(UnsafeCell::new(GlobalInterner::new()))
+    }
+
+    fn with<'a, R>(&'a self, f: impl FnOnce(&'a GlobalInterner) -> R) -> R {
+        let interner = unsafe { &*self.0.get() };
+        f(interner)
+    }
+
+    fn with_mut<'a, R>(&'a self, f: impl FnOnce(&'a mut GlobalInterner) -> R) -> R {
+        let interner = unsafe { &mut *self.0.get() };
+        f(interner)
+    }
+}
+
+#[cfg(not(feature = "std"))]
+unsafe impl Sync for StaticInterner {}
 
 pub fn interned_current_memory_usage() -> usize {
-    INTERNER.get().unwrap().current_memory_usage()
+    #[cfg(feature = "std")]
+    {
+        return interner().current_memory_usage();
+    }
+
+    #[cfg(not(feature = "std"))]
+    {
+        interner().with(|interner| interner.current_memory_usage())
+    }
 }
 
-pub fn take_interner() -> Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>> {
-    Arc::clone(INTERNER.get().unwrap())
+#[cfg(feature = "std")]
+pub fn take_interner() -> InternerHandle {
+    interner().clone()
 }
 
-pub fn initialize_with(
-    interner: Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>,
-) -> Result<(), Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>> {
+#[cfg(not(feature = "std"))]
+pub fn take_interner() -> InternerHandle {
+    interner()
+}
+
+#[cfg(feature = "std")]
+pub fn initialize_with(interner: InternerHandle) -> Result<(), InternerHandle> {
     INTERNER.set(interner)
 }
 
-pub fn get_interner() -> Option<&'static Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>> {
-    INTERNER.get()
+#[cfg(not(feature = "std"))]
+pub fn initialize_with(interner: InternerHandle) -> Result<(), InternerHandle> {
+    if INTERNER.get().is_some() {
+        Err(interner)
+    } else {
+        INTERNER
+            .set(Box::new(StaticInterner::new()))
+            .map_err(|_| interner)?;
+
+        add_interner(interner);
+        Ok(())
+    }
 }
 
-pub fn add_interner(interner: Arc<ThreadedRodeo>) {
-    let guard = INTERNER.get().unwrap();
+#[cfg(feature = "std")]
+pub fn get_interner() -> Option<InternerHandle> {
+    INTERNER.get().cloned()
+}
+
+#[cfg(not(feature = "std"))]
+pub fn get_interner() -> Option<InternerHandle> {
+    INTERNER.get().map(|interner| interner as InternerHandle)
+}
+
+#[cfg(feature = "std")]
+pub fn add_interner(interner: InternerHandle) {
+    let guard = take_interner();
 
     for key in interner.strings() {
         guard.get_or_intern(key);
     }
 }
 
+#[cfg(not(feature = "std"))]
+pub fn add_interner(interner: InternerHandle) {
+    let destination = take_interner();
+
+    interner.with(|source| {
+        destination.with_mut(|target| {
+            for key in source.strings() {
+                target.get_or_intern(key);
+            }
+        })
+    });
+}
+
 #[test]
 fn test_initialization() {
-    INTERNER.get_or_init(|| Arc::new(ThreadedRodeo::with_hasher(FxBuildHasher::default())));
-    let key = INTERNER.get().unwrap().get_or_intern_static("hello world");
+    let interner = take_interner();
+    let key = interner.get_or_intern_static("hello world");
 
-    let resolved_string = INTERNER.get().unwrap().resolve(&key);
+    let resolved_string = interner.resolve(&key);
 
     println!("resolved string: {resolved_string:?}");
 }
 
 fn resolve(key: &Spur) -> &str {
-    INTERNER.get().unwrap().resolve(key)
+    #[cfg(feature = "std")]
+    {
+        return interner().resolve(key);
+    }
+
+    #[cfg(not(feature = "std"))]
+    {
+        interner().with(|interner| interner.resolve(key))
+    }
 }

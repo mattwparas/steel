@@ -34,3 +34,18 @@ jobs:
             --target thumbv7em-none-eabihf \
             --no-default-features \
             --features no_std_core
+      - name: Build steel-parser without std (wasm32)
+        continue-on-error: true
+        run: |
+          cargo +nightly --config .cargo/no_std.toml build -p steel-parser \
+            --target wasm32-unknown-unknown \
+            -Zbuild-std=core,alloc \
+            --no-default-features \
+            --features no_std
+      - name: Build steel-parser without std (thumbv7em)
+        continue-on-error: true
+        run: |
+          cargo +nightly --config .cargo/no_std.toml build -p steel-parser \
+            --target thumbv7em-none-eabihf \
+            --no-default-features \
+            --features no_std

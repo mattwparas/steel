@@ -1,10 +1,25 @@
-use std::{
-    borrow::Cow,
-    path::PathBuf,
+use alloc::{
+    borrow::{Cow, ToOwned},
+    boxed::Box,
+    format,
     rc::Rc,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+use core::{
+    default::Default,
+    fmt, hash, mem,
+    ops::{Deref, DerefMut},
     result,
     sync::atomic::{AtomicUsize, Ordering},
 };
+#[cfg(feature = "std")]
+use core::cell::RefCell;
+#[cfg(feature = "std")]
+use std::{error::Error, path::PathBuf};
+#[cfg(not(feature = "std"))]
+type PathBuf = String;
 
 use serde::{Deserialize, Serialize};
 
@@ -65,8 +80,8 @@ impl From<SyntaxObjectId> for u32 {
     }
 }
 
-impl std::fmt::Display for SyntaxObjectId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for SyntaxObjectId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{self:?}")
     }
 }
@@ -141,8 +156,8 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
     }
 }
 
-impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: fmt::Debug> fmt::Debug for RawSyntaxObject<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("RawSyntaxObject")
             .field("ty", &self.ty)
             .field("span", &self.span)
@@ -152,8 +167,8 @@ impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
 
 // Implementing hash here just on the token type - we dont want the span included
 // For determining the hash here
-impl<T: std::hash::Hash> std::hash::Hash for RawSyntaxObject<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl<T: hash::Hash> hash::Hash for RawSyntaxObject<T> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.ty.hash(state);
         self.span.hash(state);
     }
@@ -234,8 +249,8 @@ impl From<TokenLike<'_, TokenError>> for ParseError {
     }
 }
 
-impl std::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ParseError::MismatchedParen(paren, _, _) => {
                 write!(
@@ -254,7 +269,8 @@ impl std::fmt::Display for ParseError {
     }
 }
 
-impl std::error::Error for ParseError {}
+#[cfg(feature = "std")]
+impl Error for ParseError {}
 
 impl ParseError {
     pub fn span(&self) -> Span {
@@ -1608,7 +1624,7 @@ impl ASTLowerPass {
                             match &a.syn.ty {
                                 TokenType::Quote => {
                                     *expr = parse_single_argument(
-                                        std::mem::take(&mut value.args).into_iter(),
+                                        mem::take(&mut value.args).into_iter(),
                                         a.syn.clone(),
                                         "quote",
                                         |expr, syn| ast::Quote::new(expr, syn).into(),
@@ -1620,7 +1636,7 @@ impl ASTLowerPass {
                             }
                         }
                         ExprKind::Atom(a) if self.quote_depth == 0 => {
-                            let value = std::mem::replace(value, List::new(vec![]));
+                            let value = mem::replace(value, List::new(vec![]));
 
                             *expr = match &a.syn.ty {
                                 TokenType::If => {
@@ -3082,10 +3098,6 @@ mod parser_tests {
     }
 }
 
-use std::cell::RefCell;
-use std::default::Default;
-use std::ops::{Deref, DerefMut};
-
 pub trait Recyclable {
     fn put(self);
     fn get() -> Self;
@@ -3116,7 +3128,7 @@ impl<T: Recyclable + Default> Recycle<T> {
 
 impl<T: Recyclable + Default> Drop for Recycle<T> {
     fn drop(&mut self) {
-        T::put(std::mem::take(&mut self.t))
+        T::put(mem::take(&mut self.t))
     }
 }
 
@@ -3140,14 +3152,14 @@ impl<T: Recyclable + Clone + Default> Clone for Recycle<T> {
     }
 }
 
-impl<T: Recyclable + std::fmt::Debug + Default> std::fmt::Debug for Recycle<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: Recyclable + fmt::Debug + Default> fmt::Debug for Recycle<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Recycle").field("t", &self.t).finish()
     }
 }
 
-impl<T: Recyclable + std::hash::Hash + Default> std::hash::Hash for Recycle<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl<T: Recyclable + hash::Hash + Default> hash::Hash for Recycle<T> {
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.t.hash(state);
     }
 }
@@ -3157,29 +3169,19 @@ macro_rules! impl_recyclable {
         impl_recyclable!($tl, $t, Default::default(), Self::with_capacity);
     };
     ($tl:ident, $t:ty, $constructor:expr, $constructor_capacity:expr) => {
+        #[cfg(feature = "std")]
         thread_local! {
             static $tl: RefCell<Vec<$t>> = RefCell::new(Vec::new())
         }
 
+        #[cfg(feature = "std")]
         impl Recyclable for $t {
             fn put(mut self) {
                 let _ = $tl.try_with(|p| {
                     let p = p.try_borrow_mut();
 
                     if let Ok(mut p) = p {
-                        // This _should_ be cleared, but it seems it is not!
-                        // debug_assert!(self.is_empty());
-                        // self.clear();
-
-                        // for frame in &self {
-                        //     for expr in &frame.exprs {
-                        //         println!("dropping: {}", expr);
-                        //     }
-                        // }
-
-                        // dbg!(&self);
                         self.clear();
-
                         p.push(self);
                     }
                 });
@@ -3199,6 +3201,21 @@ macro_rules! impl_recyclable {
                     p.pop()
                 })
                 .unwrap_or(($constructor_capacity)(capacity))
+            }
+        }
+
+        #[cfg(not(feature = "std"))]
+        impl Recyclable for $t {
+            fn put(self) {
+                let _ = self;
+            }
+
+            fn get() -> Self {
+                $constructor
+            }
+
+            fn get_with_capacity(capacity: usize) -> Self {
+                ($constructor_capacity)(capacity)
             }
         }
     };

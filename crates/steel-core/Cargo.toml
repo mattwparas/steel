@@ -173,13 +173,7 @@ no_std_core = ["no_std"]
 no_std_parser = [
     "no_std",
     "dep:steel-parser",
-    "steel-parser/no_std_ast",
-    "steel-parser/no_std_interner",
-    "steel-parser/no_std_lexer",
-    "steel-parser/no_std_parser",
-    "steel-parser/no_std_span",
-    "steel-parser/no_std_tokens",
-    "steel-parser/no_std_visitors",
+    "steel-parser/no_std",
 ]
 no_std_primitives = [
     "no_std_core",
