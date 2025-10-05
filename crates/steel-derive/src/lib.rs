@@ -9,15 +9,15 @@ extern crate quote;
 
 use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
-use alloc::format;
-use alloc::string::{String, ToString};
-use alloc::vec::Vec;
-#[cfg(not(feature = "std"))]
-use alloc::vec;
-#[cfg(feature = "std")]
-use std::collections::HashMap;
 #[cfg(not(feature = "std"))]
 use alloc::collections::BTreeMap;
+use alloc::format;
+use alloc::string::{String, ToString};
+#[cfg(not(feature = "std"))]
+use alloc::vec;
+use alloc::vec::Vec;
+#[cfg(feature = "std")]
+use std::collections::HashMap;
 #[cfg(not(feature = "std"))]
 type HashMap<K, V> = BTreeMap<K, V>;
 

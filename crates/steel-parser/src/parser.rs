@@ -7,6 +7,8 @@ use alloc::{
     vec,
     vec::Vec,
 };
+#[cfg(feature = "std")]
+use core::cell::RefCell;
 use core::{
     default::Default,
     fmt, hash, mem,
@@ -14,8 +16,6 @@ use core::{
     result,
     sync::atomic::{AtomicUsize, Ordering},
 };
-#[cfg(feature = "std")]
-use core::cell::RefCell;
 #[cfg(feature = "std")]
 use std::{error::Error, path::PathBuf};
 #[cfg(not(feature = "std"))]

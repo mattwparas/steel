@@ -35,6 +35,17 @@ jobs:
             -Zbuild-std=core,alloc \
             --no-default-features \
             --features no_std
+      - name: Build cargo-steel-lib without std (wasm32)
+        run: |
+          cargo +nightly --config .cargo/no_std.toml build -p cargo-steel-lib \
+            --target wasm32-unknown-unknown \
+            -Zbuild-std=core,alloc \
+            --no-default-features
+      - name: Build cargo-steel-lib without std (thumbv7em)
+        run: |
+          cargo +nightly --config .cargo/no_std.toml build -p cargo-steel-lib \
+            --target thumbv7em-none-eabihf \
+            --no-default-features
       - name: Build steel-parser without std (wasm32)
         continue-on-error: true
         run: |

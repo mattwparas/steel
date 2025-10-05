@@ -9,13 +9,18 @@ pub struct RcDoc<'a, A> {
 
 impl<'a, A> Clone for RcDoc<'a, A> {
     fn clone(&self) -> Self {
-        Self { buffer: self.buffer.clone(), _marker: PhantomData }
+        Self {
+            buffer: self.buffer.clone(),
+            _marker: PhantomData,
+        }
     }
 }
 
 impl<'a, A> fmt::Debug for RcDoc<'a, A> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RcDoc").field("buffer", &self.buffer).finish()
+        f.debug_struct("RcDoc")
+            .field("buffer", &self.buffer)
+            .finish()
     }
 }
 

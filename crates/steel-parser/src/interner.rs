@@ -109,9 +109,9 @@ impl InternedString {
 
         #[cfg(not(feature = "std"))]
         {
-            INTERNER.get().and_then(|interner| {
-                interner.with(|inner| inner.get(ident).map(InternedString))
-            })
+            INTERNER
+                .get()
+                .and_then(|interner| interner.with(|inner| inner.get(ident).map(InternedString)))
         }
     }
 
