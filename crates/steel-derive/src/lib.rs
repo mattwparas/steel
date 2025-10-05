@@ -1,9 +1,25 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
 extern crate proc_macro;
 extern crate proc_macro2;
 #[macro_use]
 extern crate syn;
 extern crate quote;
+
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+#[cfg(not(feature = "std"))]
+use alloc::vec;
+#[cfg(feature = "std")]
 use std::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use alloc::collections::BTreeMap;
+#[cfg(not(feature = "std"))]
+type HashMap<K, V> = BTreeMap<K, V>;
 
 use proc_macro::TokenStream;
 use proc_macro2::Group;
@@ -1243,7 +1259,7 @@ pub fn function(
 
             #definition_struct
 
-            pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+            pub fn #copied_function_name(args: &[SteelVal]) -> ::core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
                 use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
@@ -1300,7 +1316,7 @@ pub fn function(
 
                 #definition_struct
 
-                pub fn #copied_function_name(args: &mut [SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+                pub fn #copied_function_name(args: &mut [SteelVal]) -> ::core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
                     use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef, PrimitiveAsRefMut};
 
@@ -1361,7 +1377,7 @@ pub fn function(
 
         #definition_struct
 
-        pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+        pub fn #copied_function_name(args: &[SteelVal]) -> ::core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
             use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
@@ -1615,7 +1631,7 @@ pub fn custom_function(
 
             #definition_struct
 
-            pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+            pub fn #copied_function_name(args: &[SteelVal]) -> ::core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
                 use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
@@ -1672,7 +1688,7 @@ pub fn custom_function(
 
                 #definition_struct
 
-                pub fn #copied_function_name(args: &mut [SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+                pub fn #copied_function_name(args: &mut [SteelVal]) -> ::core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
                     use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef, PrimitiveAsRefMut};
 
@@ -1733,7 +1749,7 @@ pub fn custom_function(
 
         #definition_struct
 
-        pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+        pub fn #copied_function_name(args: &[SteelVal]) -> ::core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
             use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
