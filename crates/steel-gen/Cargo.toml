@@ -17,3 +17,4 @@ serde = { version = "1.0.152", default-features = false, features = ["alloc", "d
 default = ["std", "codegen"]
 std = []
 codegen = ["std", "dep:codegen"]
+no_std = []
