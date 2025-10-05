@@ -1,0 +1,14 @@
+[target.wasm32-unknown-unknown]
+rustflags = [
+    "-Zunstable-options",
+    "-Zpanic_abort_tests",
+    "-Cpanic=immediate-abort",
+    "--cfg",
+    "getrandom_backend=\"custom\"",
+]
+
+[target.thumbv7em-none-eabihf]
+rustflags = [
+    "--cfg",
+    "getrandom_backend=\"custom\"",
+]

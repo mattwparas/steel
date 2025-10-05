@@ -31,7 +31,6 @@ use crate::{
         numbers::{self, realp},
         port_module,
         ports::{port_module_without_filesystem, EOF_OBJECTP_DEFINITION},
-        process::process_module,
         random::random_module,
         string_module, symbol_module,
         tcp::tcp_module,
@@ -89,14 +88,20 @@ use once_cell::sync::Lazy;
 use std::{borrow::Cow, cmp::Ordering};
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
 
-#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[cfg(feature = "std")]
 use crate::primitives::polling::polling_module;
 
-#[cfg(target_family = "wasm")]
+#[cfg(not(feature = "std"))]
 fn polling_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/polling".to_string());
+    BuiltInModule::new("steel/polling".to_string())
+}
 
-    module
+#[cfg(feature = "std")]
+use crate::primitives::process::process_module;
+
+#[cfg(not(feature = "std"))]
+fn process_module() -> BuiltInModule {
+    BuiltInModule::new("steel/process".to_string())
 }
 
 #[cfg(feature = "dylibs")]

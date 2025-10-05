@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  wasm:
-    name: No-Std wasm32 build
+  no_std:
+    name: no_std build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -23,14 +23,14 @@ jobs:
         run: rustup target add wasm32-unknown-unknown thumbv7em-none-eabihf --toolchain nightly
       - name: Build steel-core without std (wasm32)
         run: |
-          cargo build -p steel-core \
+          cargo +nightly --config .cargo/no_std.toml build -p steel-core \
             --target wasm32-unknown-unknown \
             -Zbuild-std=core,alloc \
             --no-default-features \
             --features no_std_core
       - name: Build steel-core without std (thumbv7em)
         run: |
-          cargo build -p steel-core \
+          cargo +nightly --config .cargo/no_std.toml build -p steel-core \
             --target thumbv7em-none-eabihf \
             --no-default-features \
             --features no_std_core

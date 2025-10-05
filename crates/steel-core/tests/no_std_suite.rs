@@ -1,7 +1,6 @@
 #![cfg(all(feature = "no_std_core", test))]
 #![no_std]
 #![no_main]
-
 #![feature(custom_test_frameworks)]
 #![reexport_test_harness_main = "test_main"]
 #![test_runner(test_runner)]
@@ -43,7 +42,8 @@ mod alloc_support {
                     return core::ptr::null_mut();
                 }
 
-                match NEXT.compare_exchange(current, new_next, Ordering::SeqCst, Ordering::Relaxed) {
+                match NEXT.compare_exchange(current, new_next, Ordering::SeqCst, Ordering::Relaxed)
+                {
                     Ok(_) => unsafe { return HEAP.as_mut_ptr().add(aligned) },
                     Err(previous) => current = previous,
                 }

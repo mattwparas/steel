@@ -4,6 +4,9 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 extern crate im_rc;
+
+#[cfg(all(feature = "no_std", not(feature = "std")))]
+mod getrandom_custom;
 #[cfg(not(feature = "std"))]
 mod minimal;
 #[cfg(any(feature = "std", feature = "no_std_env"))]

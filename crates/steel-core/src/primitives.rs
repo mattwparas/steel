@@ -11,10 +11,11 @@ pub mod meta_ops;
 /// Implements numbers as defined in section 6.2 of the R7RS spec.
 pub mod numbers;
 
-#[cfg(all(feature = "std", not(target_family = "wasm")))]
+#[cfg(feature = "std")]
 pub mod polling;
 
 pub mod ports;
+#[cfg(feature = "std")]
 pub mod process;
 pub mod random;
 mod streams;

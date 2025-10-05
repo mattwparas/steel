@@ -1352,9 +1352,9 @@ impl RawProgramWithSymbols {
         Ok(Executable {
             name: Shared::new(name),
             version: Shared::new(self.version),
-            #[cfg(not(target_family = "wasm"))]
+            #[cfg(feature = "std")]
             time_stamp: Some(SystemTime::now()),
-            #[cfg(target_family = "wasm")]
+            #[cfg(not(feature = "std"))]
             time_stamp: None,
             instructions: instructions
                 .into_iter()

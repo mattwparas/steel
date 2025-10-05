@@ -133,7 +133,7 @@ create_prelude!(
     for_syntax "#%private/steel/contract"
 );
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(feature = "std")]
 pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
     std::env::var("STEEL_SEARCH_PATHS").ok().map(|x| {
         std::env::split_paths(x.as_str())
@@ -143,14 +143,14 @@ pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
 });
 
 pub fn steel_search_dirs() -> Vec<PathBuf> {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(feature = "std")]
     return STEEL_SEARCH_PATHS.clone().unwrap_or_default();
 
-    #[cfg(target_family = "wasm")]
+    #[cfg(not(feature = "std"))]
     return Vec::new();
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(feature = "std")]
 pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
     std::env::var("STEEL_HOME").ok().or_else(|| {
         let home = env_home::env_home_dir().map(|x| x.join(".steel"));
@@ -197,7 +197,7 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
     })
 });
 
-#[cfg(target_family = "wasm")]
+#[cfg(not(feature = "std"))]
 pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| None);
 
 pub fn steel_home() -> Option<String> {
@@ -1899,14 +1899,14 @@ impl<'a> ModuleBuilder<'a> {
         // change the path to not always be required
         // if its not required we know its not coming in
 
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(feature = "std")]
         let name = if let Some(p) = name {
             std::fs::canonicalize(p)?
         } else {
             std::env::current_dir()?
         };
 
-        #[cfg(target_family = "wasm")]
+        #[cfg(not(feature = "std"))]
         let name = PathBuf::new();
 
         Ok(ModuleBuilder {
@@ -2079,8 +2079,8 @@ impl<'a> ModuleBuilder<'a> {
                 .filter(|x| matches!(x.path, PathOrBuiltIn::Path(_)))
                 .map(|x| (x.path.get_path(), x.span))
             {
-                if cfg!(target_family = "wasm") {
-                    stop!(Generic => "requiring modules is not supported for wasm");
+                if cfg!(not(feature = "std")) {
+                    stop!(Generic => "requiring modules is not supported without the \"std\" feature");
                 }
 
                 let last_modified = std::fs::metadata(module.as_ref())
@@ -2641,8 +2641,8 @@ impl<'a> ModuleBuilder<'a> {
                     return Ok(());
                 }
 
-                if cfg!(target_family = "wasm") {
-                    stop!(Generic => "requiring modules is not supported for wasm");
+                if cfg!(not(feature = "std")) {
+                    stop!(Generic => "requiring modules is not supported without the \"std\" feature");
                 }
 
                 let mut current = self.name.clone();
