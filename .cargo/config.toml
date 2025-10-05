@@ -6,10 +6,11 @@ xtask = "run --package xtask --"
 
 [target.wasm32-unknown-unknown]
 rustflags = [
-    '-Zunstable-options',
-    '-Cpanic=immediate-abort',
-    '--cfg',
-    'getrandom_backend="wasm_js"',
+    "-Zunstable-options",
+    "-Zpanic_abort_tests",
+    "-Cpanic=immediate-abort",
+    "--cfg",
+    "getrandom_backend=\"wasm_js\"",
 ]
 
 [build]

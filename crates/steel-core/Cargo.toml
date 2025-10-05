@@ -112,6 +112,8 @@ polling = "3.10.0"
 which = "8.0.0"
 
 [dev-dependencies]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 proptest = "1.1.0"
 criterion = "0.5.1"
 
@@ -234,6 +236,15 @@ experimental = []
 triomphe = ["dep:triomphe"]
 op-code-profiling = []
 imbl = ["dep:imbl"]
+
+no_std_tests = [
+    "no_std_core",
+    "no_std_parser",
+    "no_std_rvals",
+    "no_std_values",
+    "no_std_primitives",
+    "no_std_steel_vm",
+]
 
 ffi-format = []
 

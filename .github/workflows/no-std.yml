@@ -19,12 +19,18 @@ jobs:
         with:
           toolchain: nightly
           components: rust-src
-      - name: Install wasm target
-        run: rustup target add wasm32-unknown-unknown --toolchain nightly
-      - name: Build steel-core without std
+      - name: Install wasm and thumb targets
+        run: rustup target add wasm32-unknown-unknown thumbv7em-none-eabihf --toolchain nightly
+      - name: Build steel-core without std (wasm32)
         run: |
           cargo build -p steel-core \
             --target wasm32-unknown-unknown \
             -Zbuild-std=core,alloc \
+            --no-default-features \
+            --features no_std_core
+      - name: Build steel-core without std (thumbv7em)
+        run: |
+          cargo build -p steel-core \
+            --target thumbv7em-none-eabihf \
             --no-default-features \
             --features no_std_core
