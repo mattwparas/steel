@@ -118,6 +118,8 @@ pub fn transducers_func(arg: &SteelVal) -> Option<SteelVal> {
                 }
             }
         }
+
+        return Some(SteelVal::ListV(funcs.into()));
     }
 
     None
