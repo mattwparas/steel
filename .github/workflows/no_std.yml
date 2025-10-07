@@ -35,9 +35,9 @@ jobs:
           key: ${{ runner.os }}-cargo-bin
       - name: Fetch dependencies
         run: |
-          cargo fetch --workspace --locked
-          cargo fetch --workspace --locked --target wasm32-unknown-unknown
-          cargo fetch --workspace --locked --target thumbv7em-none-eabihf
+          cargo fetch --locked
+          cargo fetch --locked --target wasm32-unknown-unknown
+          cargo fetch --locked --target thumbv7em-none-eabihf
       - name: Install cargo-nextest
         run: |
           if ! command -v cargo-nextest &>/dev/null; then
