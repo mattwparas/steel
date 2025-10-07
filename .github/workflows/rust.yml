@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: ['master', 'mwp-no-std-test']
+    branches: ['master']
   pull_request:
     branches: [master]
 

@@ -1,0 +1,5 @@
+[profile.ci]
+junit = { path = "junit.xml" }
+retries = 0
+failure-output = "immediate"
+status-level = "fail"

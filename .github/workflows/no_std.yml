@@ -18,10 +18,41 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly
+          targets: wasm32-unknown-unknown, thumbv7em-none-eabihf
           components: rust-src
-      - name: Install wasm and thumb targets
-        run: rustup target add wasm32-unknown-unknown thumbv7em-none-eabihf --toolchain nightly
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache Cargo binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-cargo-bin
+      - name: Fetch dependencies
+        run: |
+          cargo fetch --workspace --locked
+          cargo fetch --workspace --locked --target wasm32-unknown-unknown
+          cargo fetch --workspace --locked --target thumbv7em-none-eabihf
+      - name: Install cargo-nextest
+        run: |
+          if ! command -v cargo-nextest &>/dev/null; then
+            cargo install cargo-nextest --locked
+          fi
       - name: Build no_std (wasm)
         run: cargo xtask build wasm
       - name: Build no_std (thumbv7em)
         run: cargo xtask build thumb
+      - name: Run tests
+        run: cargo nextest run --workspace --profile ci
+      - name: Report test results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Rust tests
+          path: target/nextest/ci/junit.xml
+          reporter: jest-junit

@@ -1,5 +1,5 @@
-use std::error::Error;
 use crate::util::run_in_workspace;
+use std::error::Error;
 
 pub fn wasm_build() -> Result<(), Box<dyn Error>> {
     println!("Building no_std targets for wasm32 (xtask)");
