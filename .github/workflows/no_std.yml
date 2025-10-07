@@ -14,74 +14,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (nightly)
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly
           components: rust-src
       - name: Install wasm and thumb targets
         run: rustup target add wasm32-unknown-unknown thumbv7em-none-eabihf --toolchain nightly
-      - name: Build steel-derive without std (wasm32)
-        run: |
-          cargo +nightly --config .cargo/no_std.toml build -p steel-derive \
-            --target wasm32-unknown-unknown \
-            -Zbuild-std=core,alloc \
-            --no-default-features \
-            --features no_std
-      - name: Build steel-derive without std (thumbv7em)
-        run: |
-          cargo +nightly --config .cargo/no_std.toml build -p steel-derive \
-            --target thumbv7em-none-eabihf \
-            -Zbuild-std=core,alloc \
-            --no-default-features \
-            --features no_std
-      - name: Build cargo-steel-lib without std (wasm32)
-        run: |
-          cargo +nightly --config .cargo/no_std.toml build -p cargo-steel-lib \
-            --target wasm32-unknown-unknown \
-            -Zbuild-std=core,alloc \
-            --no-default-features
-      - name: Build cargo-steel-lib without std (thumbv7em)
-        run: |
-          cargo +nightly --config .cargo/no_std.toml build -p cargo-steel-lib \
-            --target thumbv7em-none-eabihf \
-            --no-default-features
-      - name: Build steel-gen without std (wasm32)
-        run: |
-          cargo +nightly --config .cargo/no_std.toml build -p steel-gen \
-            --target wasm32-unknown-unknown \
-            -Zbuild-std=core,alloc \
-            --no-default-features
-      - name: Build steel-gen without std (thumbv7em)
-        run: |
-          cargo +nightly --config .cargo/no_std.toml build -p steel-gen \
-            --target thumbv7em-none-eabihf \
-            --no-default-features
-      - name: Build steel-parser without std (wasm32)
-        continue-on-error: true
-        run: |
-          cargo +nightly --config .cargo/no_std.toml build -p steel-parser \
-            --target wasm32-unknown-unknown \
-            -Zbuild-std=core,alloc \
-            --no-default-features \
-            --features no_std
-      - name: Build steel-parser without std (thumbv7em)
-        continue-on-error: true
-        run: |
-          cargo +nightly --config .cargo/no_std.toml build -p steel-parser \
-            --target thumbv7em-none-eabihf \
-            --no-default-features \
-            --features no_std
-      - name: Build steel-core without std (wasm32)
-        run: |
-          cargo +nightly --config .cargo/no_std.toml build -p steel-core \
-            --target wasm32-unknown-unknown \
-            -Zbuild-std=core,alloc \
-            --no-default-features \
-            --features no_std_core
-      - name: Build steel-core without std (thumbv7em)
-        run: |
-          cargo +nightly --config .cargo/no_std.toml build -p steel-core \
-            --target thumbv7em-none-eabihf \
-            --no-default-features \
-            --features no_std_core
+      - name: Build no_std (wasm)
+        run: cargo xtask build wasm
+      - name: Build no_std (thumbv7em)
+        run: cargo xtask build thumb

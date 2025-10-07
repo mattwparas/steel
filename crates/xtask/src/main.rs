@@ -1,19 +1,9 @@
-use std::{
-    error::Error,
-    path::{Path, PathBuf},
-};
+use std::error::Error;
 
-fn workspace_dir() -> PathBuf {
-    let output = std::process::Command::new(env!("CARGO"))
-        .arg("locate-project")
-        .arg("--workspace")
-        .arg("--message-format=plain")
-        .output()
-        .unwrap()
-        .stdout;
-    let cargo_path = Path::new(std::str::from_utf8(&output).unwrap().trim());
-    cargo_path.parent().unwrap().to_path_buf()
-}
+mod build;
+mod util;
+
+use crate::util::workspace_dir;
 
 // Generate documentation by invoking the docs script!
 fn generate_docs() -> Result<(), Box<dyn Error>> {
@@ -182,18 +172,44 @@ fn install_pgo() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+// build-specific tasks live in `build.rs`
+
+fn print_usage() {
+    eprintln!("xtask usage:");
+    eprintln!("  cargo xtask install");
+    eprintln!("  cargo xtask cogs");
+    eprintln!("  cargo xtask docgen");
+    eprintln!("  cargo xtask test");
+    eprintln!("  cargo xtask pgo");
+    eprintln!("  cargo xtask build <target>");
+    eprintln!("\nTargets:");
+    eprintln!("  wasm   Build no_std set for wasm32-unknown-unknown");
+    eprintln!("  thumb  Build no_std set for thumbv7em-none-eabihf");
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
-    let task = std::env::args().nth(1);
-    match task {
-        None => {}
-        Some(t) => match t.as_str() {
-            "install" => install_everything()?,
-            "cogs" => install_cogs()?,
-            "docgen" => generate_docs()?,
-            "test" => run_tests()?,
-            "pgo" => install_pgo()?,
-            invalid => return Err(format!("Invalid task name: {}", invalid).into()),
+    let mut args = std::env::args().skip(1);
+    match args.next().as_deref() {
+        None => {
+            print_usage();
+        }
+        Some("install") => install_everything()?,
+        Some("cogs") => install_cogs()?,
+        Some("docgen") => generate_docs()?,
+        Some("test") => run_tests()?,
+        Some("pgo") => install_pgo()?,
+        // new structured CLI: cargo xtask build <target>
+        Some("build") => match args.next().as_deref() {
+            Some("wasm") => build::wasm_build()?,
+            Some("thumb") => build::thumb_build()?,
+            Some(other) => return Err(format!("Unknown build target: {}", other).into()),
+            None => {
+                eprintln!("missing target. try: wasm | thumb");
+                print_usage();
+                std::process::exit(2);
+            }
         },
-    };
+        Some(invalid) => return Err(format!("Invalid task name: {}", invalid).into()),
+    }
     Ok(())
 }

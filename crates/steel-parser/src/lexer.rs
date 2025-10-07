@@ -999,7 +999,9 @@ pub fn parse_number(s: &str, radix: Option<u32>) -> Option<NumberLiteral> {
 
 #[cfg(test)]
 mod lexer_tests {
-    use str::FromStr;
+    // Use an unambiguous path to avoid conflicts with the builtin `str`
+    // and ensure compatibility with `no_std` (via `core`).
+    use core::str::FromStr;
 
     use super::*;
     use crate::span::Span;
