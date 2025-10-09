@@ -1,21 +1,21 @@
-#![cfg_attr(all(feature = "no_std_core", test), no_std)]
-#![cfg_attr(all(feature = "no_std_core", test), no_main)]
+#![cfg_attr(all(not(feature = "std"), test), no_std)]
+#![cfg_attr(all(not(feature = "std"), test), no_main)]
 
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 extern crate alloc;
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 use alloc::vec;
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 use core::ptr::null;
 
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 use steel::core::instructions::{disassemble, u24, Instruction};
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 use steel::core::labels::fresh as fresh_label;
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 use steel::core::opcode::OpCode;
 
-#[cfg(all(feature = "no_std_core", target_arch = "wasm32", test))]
+#[cfg(all(not(feature = "std"), target_arch = "wasm32", test))]
 #[allow(static_mut_refs)]
 mod alloc_support {
     use core::alloc::{GlobalAlloc, Layout};
@@ -61,7 +61,7 @@ mod alloc_support {
     pub static ALLOCATOR: BumpAllocator = BumpAllocator;
 }
 
-#[cfg(all(feature = "no_std_core", not(target_arch = "wasm32"), test))]
+#[cfg(all(not(feature = "std"), not(target_arch = "wasm32"), test))]
 #[allow(static_mut_refs)]
 mod alloc_support {
     use core::alloc::{GlobalAlloc, Layout};
@@ -109,7 +109,7 @@ mod alloc_support {
 
 /// Entry point invoked by the custom runner (see `scripts/no_std_runner.js`).
 /// Runs all no_std tests in sequence; on panic (trap), the process aborts.
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 #[no_mangle]
 pub extern "C" fn run() -> i32 {
     for &(_, f) in named() {
@@ -118,7 +118,7 @@ pub extern "C" fn run() -> i32 {
     0
 }
 
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo<'_>) -> ! {
     // Propagate panic as a trap so the runner sees a non-zero exit.
@@ -129,7 +129,7 @@ fn panic(_info: &core::panic::PanicInfo<'_>) -> ! {
     loop {}
 }
 
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 fn u24_roundtrip() {
     let values = [0u32, 1, 255, 256, 65_535, 1 << 20, (1 << 24) - 1];
     for &n in &values {
@@ -138,7 +138,7 @@ fn u24_roundtrip() {
     }
 }
 
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 fn disassemble_contains_opcode() {
     let instrs = vec![Instruction::new_from_parts(OpCode::ADD, u24::from_u32(2), None)];
     let text = disassemble(&instrs);
@@ -146,7 +146,7 @@ fn disassemble_contains_opcode() {
     assert!(text.contains("2"));
 }
 
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 fn labels_are_unique_and_increasing() {
     let a = fresh_label();
     let b = fresh_label();
@@ -155,11 +155,11 @@ fn labels_are_unique_and_increasing() {
 
 // ---- Named test API for per-test execution ----
 
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 type TestFn = fn();
 
 #[inline(always)]
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 fn named() -> &'static [(&'static str, TestFn)] {
     &[
         ("u24_roundtrip", u24_roundtrip as TestFn),
@@ -174,13 +174,13 @@ fn named() -> &'static [(&'static str, TestFn)] {
     ]
 }
 
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 #[no_mangle]
 pub extern "C" fn test_count() -> i32 {
     named().len() as i32
 }
 
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 #[no_mangle]
 pub extern "C" fn test_name_ptr(i: i32) -> *const u8 {
     let i = i as usize;
@@ -189,7 +189,7 @@ pub extern "C" fn test_name_ptr(i: i32) -> *const u8 {
     table[i].0.as_ptr()
 }
 
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 #[no_mangle]
 pub extern "C" fn test_name_len(i: i32) -> i32 {
     let i = i as usize;
@@ -198,7 +198,7 @@ pub extern "C" fn test_name_len(i: i32) -> i32 {
     table[i].0.len() as i32
 }
 
-#[cfg(all(feature = "no_std_core", test))]
+#[cfg(all(not(feature = "std"), test))]
 #[no_mangle]
 pub extern "C" fn test_run_index(i: i32) -> i32 {
     let i = i as usize;
@@ -208,7 +208,7 @@ pub extern "C" fn test_run_index(i: i32) -> i32 {
     0
 }
 
-// For host builds (without `no_std_core`), provide a dummy main so this
+// For host builds (with `std`), provide a dummy main so this
 // harness=false test compiles and is ignored by nextest.
-#[cfg(not(all(feature = "no_std_core", test)))]
+#[cfg(not(all(not(feature = "std"), test)))]
 fn main() {}

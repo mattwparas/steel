@@ -4,8 +4,8 @@ use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::{BigRational, Ratio, Rational32};
 use num_traits::{pow::Pow, CheckedAdd, CheckedMul, One, Signed, ToPrimitive, Zero};
-use std::cmp::Ordering;
-use std::ops::Neg;
+use core::cmp::Ordering;
+use core::ops::{Mul, Neg, Sub};
 
 /// Checks if the given value is a number
 ///
@@ -1022,10 +1022,10 @@ fn exp(left: &SteelVal) -> Result<SteelVal> {
     match left {
         SteelVal::IntV(0) => Ok(SteelVal::IntV(1)),
         SteelVal::IntV(l) if *l < i32::MAX as isize => {
-            Ok(SteelVal::NumV(std::f64::consts::E.powi(*l as i32)))
+            Ok(SteelVal::NumV(core::f64::consts::E.powi(*l as i32)))
         }
         maybe_number => match number_to_float(maybe_number) {
-            Ok(n) => Ok(SteelVal::NumV(std::f64::consts::E.powf(n))),
+            Ok(n) => Ok(SteelVal::NumV(core::f64::consts::E.powf(n))),
             Err(_) => steelerr!(Generic => "exp expected a real number"),
         },
     }
@@ -1486,7 +1486,7 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
     let base = args
         .get(1)
         .cloned()
-        .unwrap_or(SteelVal::NumV(std::f64::consts::E));
+        .unwrap_or(SteelVal::NumV(core::f64::consts::E));
 
     match (first, &base) {
         (SteelVal::IntV(1), _) => Ok(SteelVal::IntV(0)),
@@ -1535,8 +1535,8 @@ fn exact_integer_sqrt(number: &SteelVal) -> Result<SteelVal> {
 fn exact_integer_impl<'a, N>(target: &'a N) -> (N, N)
 where
     N: num_integer::Roots + Clone,
-    &'a N: std::ops::Mul<&'a N, Output = N>,
-    N: std::ops::Sub<N, Output = N>,
+    &'a N: Mul<&'a N, Output = N>,
+    N: Sub<N, Output = N>,
 {
     let x = target.sqrt();
     let x_sq = x.clone() * x.clone();
@@ -1922,7 +1922,7 @@ fn add_complex(x: &SteelComplex, y: &SteelComplex) -> Result<SteelVal> {
 mod num_op_tests {
     use super::*;
     use crate::{gc::Gc, rvals::SteelVal::*};
-    use std::str::FromStr;
+    use core::str::FromStr;
 
     #[test]
     fn division_test() {

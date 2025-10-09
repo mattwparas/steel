@@ -12,7 +12,6 @@ mod minimal;
 #[cfg(any(feature = "std", feature = "no_std_env"))]
 #[macro_use]
 mod env;
-#[cfg(any(feature = "std", feature = "no_std_core"))]
 #[macro_use]
 pub mod core;
 #[cfg(any(feature = "std", feature = "no_std_compiler"))]
@@ -36,7 +35,7 @@ mod conversions;
 
 // #[cfg(feature = "jit")]
 // pub mod jit;
-#[cfg(any(feature = "std", feature = "no_std_parser"))]
+#[cfg(any(feature = "std", feature = "no_std_rvals"))]
 pub mod parser;
 #[cfg(any(feature = "std", feature = "no_std_steel_vm"))]
 pub mod steel_vm;

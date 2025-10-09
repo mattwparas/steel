@@ -103,7 +103,7 @@ pub fn wasm_build() -> Result<(), Box<dyn Error>> {
             "-Zbuild-std=core,alloc",
             "--no-default-features",
             "--features",
-            "no_std_core",
+            "no_std",
         ],
     )?;
     if !status.success() {
@@ -215,7 +215,7 @@ pub fn thumb_build() -> Result<(), Box<dyn Error>> {
             "-Zbuild-std=core,alloc",
             "--no-default-features",
             "--features",
-            "no_std_core",
+            "no_std",
         ],
     )?;
     if !status.success() {

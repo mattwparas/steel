@@ -1,3 +1,6 @@
+use alloc::{rc::Rc, string::String};
+use core::mem;
+
 use crate::rvals::{FromSteelVal, IntoSteelVal};
 use crate::SteelVal;
 use crate::{gc::Gc, rvals::SteelString};
@@ -40,11 +43,11 @@ pub fn get_as_rust_bool(bits: u64) -> bool {
 }
 
 pub fn encode_bool(b: bool) -> f64 {
-    unsafe { std::mem::transmute(if b { TRUE_VALUE } else { FALSE_VALUE }) }
+    unsafe { mem::transmute(if b { TRUE_VALUE } else { FALSE_VALUE }) }
 }
 
 pub fn to_float(bits: u64) -> f64 {
-    unsafe { std::mem::transmute(bits) }
+    unsafe { mem::transmute(bits) }
 }
 
 pub fn is_double(bits: u64) -> bool {
@@ -86,7 +89,7 @@ pub fn get_pointer(bits: f64) -> u64 {
 
 pub fn from_i32(value: i32) -> f64 {
     let bits = unsafe {
-        let bits: u64 = std::mem::transmute(i64::from(value));
+        let bits: u64 = mem::transmute(i64::from(value));
         bits | INT32_TAG
     };
 
@@ -105,7 +108,7 @@ pub fn get_double(bits: u64) -> f64 {
 }
 
 pub fn get_int32(value: f64) -> i64 {
-    unsafe { std::mem::transmute(value.to_bits() & !INT32_TAG) }
+    unsafe { mem::transmute(value.to_bits() & !INT32_TAG) }
 }
 
 pub(crate) trait ToNanTaggedValue {
@@ -197,7 +200,7 @@ pub fn to_encoded_double_raw_value(value: SteelVal) -> f64 {
             }
         }
         SteelVal::StringV(s) => {
-            let raw: *const String = std::rc::Rc::into_raw(s.into());
+            let raw: *const String = Rc::into_raw(s.into());
 
             coerce_string(raw as u64)
         }
@@ -234,15 +237,15 @@ pub unsafe fn get_ref_from_double(ptr: f64) -> SteelVal {
 
 // This is super duper spooky
 pub unsafe fn get_value_from_double(ptr: f64) -> SteelVal {
-    SteelVal::StringV(std::rc::Rc::from_raw(get_pointer(ptr) as *const String).into())
+    SteelVal::StringV(Rc::from_raw(get_pointer(ptr) as *const String).into())
 }
 
 pub unsafe fn get_string_from_double(ptr: f64) -> SteelVal {
-    SteelVal::StringV(std::rc::Rc::from_raw(get_pointer(ptr) as *const String).into())
+    SteelVal::StringV(Rc::from_raw(get_pointer(ptr) as *const String).into())
 }
 
 pub fn is_float_encoded_value(value: isize) -> bool {
-    let bits: f64 = unsafe { std::mem::transmute(value) };
+    let bits: f64 = unsafe { mem::transmute(value) };
     is_pointer(bits)
 }
 
@@ -252,7 +255,7 @@ mod value_tests {
     use super::*;
     use crate::gc::Gc;
     use crate::SteelVal;
-    use std::rc::Rc;
+    use alloc::rc::Rc;
 
     // #[test]
     // fn test_pointer_converstion() {
@@ -288,13 +291,13 @@ mod value_tests {
 
     #[test]
     fn test_bools() {
-        let encoded_true: f64 = unsafe { std::mem::transmute(TRUE_VALUE) };
+        let encoded_true: f64 = unsafe { core::mem::transmute(TRUE_VALUE) };
 
         let output = get_as_rust_bool(encoded_true.to_bits());
 
         assert_eq!(output, true);
 
-        let encoded_false: f64 = unsafe { std::mem::transmute(FALSE_VALUE) };
+        let encoded_false: f64 = unsafe { core::mem::transmute(FALSE_VALUE) };
 
         let output = get_as_rust_bool(encoded_false.to_bits());
 

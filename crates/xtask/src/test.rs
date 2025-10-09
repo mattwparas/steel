@@ -20,7 +20,7 @@ pub fn no_std_wasm_test() -> Result<(), Box<dyn Error>> {
             "-Zbuild-std=core,alloc",
             "--no-default-features",
             "--features",
-            "no_std_core",
+            "no_std",
         ],
     )?;
 
@@ -50,7 +50,7 @@ pub fn no_std_thumb_test() -> Result<(), Box<dyn Error>> {
             "-Zbuild-std=core,alloc",
             "--no-default-features",
             "--features",
-            "no_std_core",
+            "no_std",
             "--no-run",
         ],
     )?;

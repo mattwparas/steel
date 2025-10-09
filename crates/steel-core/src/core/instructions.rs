@@ -89,7 +89,7 @@ pub fn disassemble(instructions: &[Instruction]) -> String {
 
         buffer.push_str("    ");
 
-        #[cfg(any(feature = "std", feature = "no_std_parser"))]
+        #[cfg(any(feature = "std", feature = "no_std_rvals"))]
         {
             if let Some(syn) = instruction.contents.as_ref() {
                 match syn {

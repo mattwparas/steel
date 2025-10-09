@@ -17,7 +17,7 @@ use super::expander::BindingKind;
 use super::visitors::VisitorMutRef;
 use super::{ast::Atom, interner::InternedString};
 
-use core::ops::ControlFlow;
+use core::{mem, ops::ControlFlow};
 
 // const DATUM_TO_SYNTAX: &str = "datum->syntax";
 // const SYNTAX_CONST_IF: &str = "syntax-const-if";
@@ -273,7 +273,7 @@ impl<'a> ReplaceExpressions<'a> {
                         .flat_map(|x| self.bindings.get(x).map(|value| (*x, value.clone())))
                         .collect();
 
-                    std::mem::swap(self.fallback_bindings, &mut original_bindings);
+                    mem::swap(self.fallback_bindings, &mut original_bindings);
 
                     let mut expanded_expressions = SmallVec::<[ExprKind; 6]>::with_capacity(width);
 
@@ -297,7 +297,7 @@ impl<'a> ReplaceExpressions<'a> {
                         expanded_expressions.push(template);
                     }
 
-                    std::mem::swap(self.fallback_bindings, &mut original_bindings);
+                    mem::swap(self.fallback_bindings, &mut original_bindings);
 
                     // Move the original bindings back in
                     for (key, value) in original_bindings {

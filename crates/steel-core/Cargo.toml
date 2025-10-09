@@ -167,16 +167,14 @@ std = [
     "num-bigint/std",
     "num-rational/std",
 ]
-no_std = ["dep:getrandom"]
-no_std_env = []
-no_std_core = ["no_std"]
-no_std_parser = [
-    "no_std",
+no_std = [
+    "dep:getrandom",
     "dep:steel-parser",
     "steel-parser/no_std",
 ]
+no_std_env = []
 no_std_primitives = [
-    "no_std_core",
+    "no_std",
     "no_std_gc",
     "no_std_rerrs",
     "no_std_rvals",
@@ -185,14 +183,14 @@ no_std_primitives = [
     "no_std_steel_vm",
 ]
 no_std_rerrs = []
-no_std_rvals = ["no_std_core", "no_std_parser"]
-no_std_stdlib = ["no_std_core"]
-no_std_gc = ["no_std_core"]
+no_std_rvals = ["no_std"]
+no_std_stdlib = ["no_std"]
+no_std_gc = ["no_std"]
 no_std_containers = []
 no_std_conversions = []
-no_std_steel_vm = ["no_std_core", "no_std_parser", "no_std_rvals"]
-no_std_values = ["no_std_core", "no_std_parser", "no_std_rvals"]
-no_std_compiler = ["no_std_core", "no_std_parser", "no_std_rvals"]
+no_std_steel_vm = ["no_std", "no_std_rvals"]
+no_std_values = ["no_std", "no_std_rvals"]
+no_std_compiler = ["no_std", "no_std_rvals"]
 modules = []
 jit = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit"]
 sandbox = []

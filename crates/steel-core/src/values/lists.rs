@@ -1,4 +1,7 @@
-use std::cell::Cell;
+use core::{cell::Cell, fmt};
+use core::mem;
+
+use alloc::collections::VecDeque;
 
 use im_lists::{
     handler::{DefaultDropHandler, DropHandler},
@@ -47,8 +50,8 @@ impl From<Pair> for SteelVal {
     }
 }
 
-impl std::fmt::Debug for Pair {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for Pair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "({} . {})", &self.car, &self.cdr)
     }
 }
@@ -111,7 +114,6 @@ impl PointerFamily for GcPointerType {
 #[cfg(not(feature = "without-drop-protection"))]
 mod list_drop_handler {
 
-    use std::collections::VecDeque;
 
     use super::*;
 
@@ -132,7 +134,7 @@ mod list_drop_handler {
                 if DROP_BUFFER
                     .try_with(|drop_buffer| {
                         if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                            let taken = std::mem::take(obj);
+                            let taken = mem::take(obj);
 
                             for value in taken.draining_iterator() {
                                 match &value {
@@ -169,7 +171,7 @@ mod list_drop_handler {
                         } else {
                             let mut drop_buffer = VecDeque::new();
 
-                            for value in std::mem::take(obj).draining_iterator() {
+                            for value in mem::take(obj).draining_iterator() {
                                 match &value {
                                     SteelVal::BoolV(_)
                                     | SteelVal::NumV(_)
@@ -205,7 +207,7 @@ mod list_drop_handler {
                     .is_err()
                 {
                     let mut drop_buffer = VecDeque::new();
-                    for value in std::mem::take(obj).draining_iterator() {
+                    for value in mem::take(obj).draining_iterator() {
                         match &value {
                             SteelVal::BoolV(_)
                             | SteelVal::NumV(_)

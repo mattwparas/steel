@@ -1,3 +1,6 @@
+use alloc::vec::Vec;
+use core::mem;
+
 use crate::gc::Gc;
 use crate::jit::code_gen::JIT;
 use crate::jit::value::{decode, to_encoded_double};
@@ -87,43 +90,41 @@ impl JitFunctionPointer {
             // If it has no args, it can't construct anything
             // Should just be an integer
             Sig::NoArgs => {
-                let func: fn() -> isize = std::mem::transmute(fn_ptr);
+                let func: fn() -> isize = mem::transmute(fn_ptr);
                 let output = func();
                 SteelVal::IntV(output)
             }
             Sig::One => {
-                let func: fn(f64) -> f64 = std::mem::transmute(fn_ptr);
+                let func: fn(f64) -> f64 = mem::transmute(fn_ptr);
                 pop_values_and_call!(func, stack => first => first);
             }
             Sig::Two => {
-                let func: fn(f64, f64) -> f64 = std::mem::transmute(fn_ptr);
+                let func: fn(f64, f64) -> f64 = mem::transmute(fn_ptr);
 
                 pop_values_and_call!(func, stack => first, second => second, first);
             }
             Sig::Three => {
-                let func: fn(f64, f64, f64) -> f64 = std::mem::transmute(fn_ptr);
+                let func: fn(f64, f64, f64) -> f64 = mem::transmute(fn_ptr);
                 pop_values_and_call!(func, stack => first, second, third => third, second, first);
             }
             Sig::Four => {
-                let func: fn(f64, f64, f64, f64) -> f64 = std::mem::transmute(fn_ptr);
+                let func: fn(f64, f64, f64, f64) -> f64 = mem::transmute(fn_ptr);
                 pop_values_and_call!(func, stack => first, second, third, fourth => fourth, third, second, first);
             }
             Sig::Five => {
-                let func: fn(f64, f64, f64, f64, f64) -> f64 = std::mem::transmute(fn_ptr);
+                let func: fn(f64, f64, f64, f64, f64) -> f64 = mem::transmute(fn_ptr);
                 pop_values_and_call!(func, stack => first, second, third, fourth, fifth => fifth, fourth, third, second, first);
             }
             Sig::Six => {
-                let func: fn(f64, f64, f64, f64, f64, f64) -> f64 = std::mem::transmute(fn_ptr);
+                let func: fn(f64, f64, f64, f64, f64, f64) -> f64 = mem::transmute(fn_ptr);
                 pop_values_and_call!(func, stack => first, second, third, fourth, fifth, sixth => sixth, fifth, fourth, third, second, first);
             }
             Sig::Seven => {
-                let func: fn(f64, f64, f64, f64, f64, f64, f64) -> f64 =
-                    std::mem::transmute(fn_ptr);
+                let func: fn(f64, f64, f64, f64, f64, f64, f64) -> f64 = mem::transmute(fn_ptr);
                 pop_values_and_call!(func, stack => first, second, third, fourth, fifth, sixth, seventh => seventh, sixth, fifth, fourth, third, second, first);
             }
             Sig::Eight => {
-                let func: fn(f64, f64, f64, f64, f64, f64, f64, f64) -> f64 =
-                    std::mem::transmute(fn_ptr);
+                let func: fn(f64, f64, f64, f64, f64, f64, f64, f64) -> f64 = mem::transmute(fn_ptr);
                 pop_values_and_call!(func, stack => first, second, third, fourth, fifth, sixth, seventh, eigth => eigth, seventh, sixth, fifth, fourth, third, second, first);
             }
             Sig::Nine => todo!(),

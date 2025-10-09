@@ -50,7 +50,6 @@ use crate::{
     parser::span::Span,
     rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
-    stop,
     values::functions::ByteCodeLambda,
 };
 use std::io::Read as _;

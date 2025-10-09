@@ -1,12 +1,12 @@
 use alloc::vec::Vec;
 
-#[cfg(any(feature = "std", feature = "no_std_parser"))]
+#[cfg(any(feature = "std", feature = "no_std_rvals"))]
 use alloc::boxed::Box;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(any(feature = "std", feature = "no_std_parser"))]
+#[cfg(any(feature = "std", feature = "no_std_rvals"))]
 use steel_parser::{ast::ExprKind, parser::SyntaxObject};
 
 use super::{
@@ -24,13 +24,13 @@ pub fn fresh() -> Label {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
-#[cfg_attr(not(any(feature = "std", feature = "no_std_parser")), derive(Default))]
+#[cfg_attr(not(any(feature = "std", feature = "no_std_rvals")), derive(Default))]
 pub enum Expr {
-    #[cfg(any(feature = "std", feature = "no_std_parser"))]
+    #[cfg(any(feature = "std", feature = "no_std_rvals"))]
     Atom(SyntaxObject),
-    #[cfg(any(feature = "std", feature = "no_std_parser"))]
+    #[cfg(any(feature = "std", feature = "no_std_rvals"))]
     List(Box<ExprKind>),
-    #[cfg(not(any(feature = "std", feature = "no_std_parser")))]
+    #[cfg(not(any(feature = "std", feature = "no_std_rvals")))]
     #[default]
     Empty,
 }
@@ -69,13 +69,13 @@ impl LabeledInstruction {
         self
     }
 
-    #[cfg(any(feature = "std", feature = "no_std_parser"))]
+    #[cfg(any(feature = "std", feature = "no_std_rvals"))]
     pub fn contents(mut self, contents: SyntaxObject) -> Self {
         self.contents = Some(Expr::Atom(contents));
         self
     }
 
-    #[cfg(any(feature = "std", feature = "no_std_parser"))]
+    #[cfg(any(feature = "std", feature = "no_std_rvals"))]
     pub fn list_contents(mut self, contents: ExprKind) -> Self {
         self.contents = Some(Expr::List(Box::new(contents)));
         self

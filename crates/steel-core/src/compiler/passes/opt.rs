@@ -1,3 +1,6 @@
+use alloc::vec::Vec;
+use core::mem;
+
 use steel_parser::{
     ast::{Atom, ExprKind},
     parser::SyntaxObject,
@@ -46,9 +49,9 @@ impl VisitorMutRefUnit for FlipNotCondition {
     // with the inner and re order the then/else statement
     fn visit_if(&mut self, f: &mut steel_parser::ast::If) {
         if let Some(not_target_expr) = not_expr_target(&mut f.test_expr) {
-            let inner = std::mem::replace(not_target_expr, ExprKind::empty());
+            let inner = mem::replace(not_target_expr, ExprKind::empty());
             f.test_expr = inner;
-            std::mem::swap(&mut f.then_expr, &mut f.else_expr);
+            mem::swap(&mut f.then_expr, &mut f.else_expr);
         }
 
         self.visit(&mut f.test_expr);

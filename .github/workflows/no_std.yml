@@ -8,53 +8,218 @@ on:
   workflow_dispatch:
 
 jobs:
-  no_std:
-    name: no_std build
+  prepare:
+    name: Prepare deps + prebuild
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
-      - name: Setup Node.js
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (for wasm tests)
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
       - name: Install Rust toolchain (nightly)
         uses: dtolnay/rust-toolchain@nightly
         with:
           toolchain: nightly
           targets: wasm32-unknown-unknown, thumbv7em-none-eabihf
           components: rust-src
-      - name: Cache Cargo dependencies
+
+      - name: Cache Cargo registry and git
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Cache Cargo binaries
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin
           key: ${{ runner.os }}-cargo-bin
-      - name: Fetch dependencies
+
+      - name: Prime Cargo caches (fetch)
         run: |
           cargo fetch --locked
           cargo fetch --locked --target wasm32-unknown-unknown
           cargo fetch --locked --target thumbv7em-none-eabihf
+
       - name: Install cargo-nextest
         run: |
           if ! command -v cargo-nextest &>/dev/null; then
             cargo install cargo-nextest --locked
           fi
-      - name: Build no_std (wasm)
-        run: cargo xtask build wasm
-      - name: Build no_std (thumbv7em)
-        run: cargo xtask build thumb
+
+      - name: Set STEEL_HOME and install cogs
+        run: echo STEEL_HOME=${GITHUB_WORKSPACE}/.steel >> $GITHUB_ENV
+      - name: Install cogs
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
+        run: |
+          mkdir -p "$STEEL_HOME/cogs"
+          cargo xtask cogs
+
+      - name: Stage bootstrap artifacts
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
+        run: |
+          set -euo pipefail
+          mkdir -p _dist/cargo
+          # Copy cargo caches and binaries if present (use cp -a for broader compatibility)
+          if [ -d "$HOME/.cargo/registry" ]; then mkdir -p _dist/cargo/registry && cp -a "$HOME/.cargo/registry/." _dist/cargo/registry/ || true; fi
+          if [ -d "$HOME/.cargo/git" ]; then mkdir -p _dist/cargo/git && cp -a "$HOME/.cargo/git/." _dist/cargo/git/ || true; fi
+          if [ -d "$HOME/.cargo/bin" ]; then mkdir -p _dist/cargo/bin && cp -a "$HOME/.cargo/bin/." _dist/cargo/bin/ || true; fi
+          # Copy Steel home (cogs)
+          if [ -d "$STEEL_HOME" ]; then mkdir -p _dist/.steel && cp -a "$STEEL_HOME/." _dist/.steel/ || true; fi
+
+      - name: Upload bootstrap artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootstrap-artifacts
+          path: _dist
+
+      # No build here: build happens in corresponding jobs
+
+  wasm:
+    name: no_std (wasm)
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (nightly)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly
+          targets: wasm32-unknown-unknown
+          components: rust-src
+
+      - name: Download bootstrap artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bootstrap-artifacts
+          path: _dist
+
+      - name: Restore caches and STEEL_HOME
+        run: |
+          mkdir -p "$HOME/.cargo" "$GITHUB_WORKSPACE/.steel"
+          if [ -d _dist/cargo/registry ]; then mkdir -p "$HOME/.cargo/registry" && cp -a _dist/cargo/registry/. "$HOME/.cargo/registry/" || true; fi
+          if [ -d _dist/cargo/git ]; then mkdir -p "$HOME/.cargo/git" && cp -a _dist/cargo/git/. "$HOME/.cargo/git/" || true; fi
+          if [ -d _dist/cargo/bin ]; then mkdir -p "$HOME/.cargo/bin" && cp -a _dist/cargo/bin/. "$HOME/.cargo/bin/" || true; fi
+          echo STEEL_HOME=${GITHUB_WORKSPACE}/.steel >> $GITHUB_ENV
+          if [ -d _dist/.steel ]; then cp -a _dist/.steel/. "$GITHUB_WORKSPACE/.steel/" || true; fi
+
+      - name: Check Node.js
+        id: check_node
+        run: |
+          if command -v node >/dev/null 2>&1; then
+            echo "need_node=false" >> $GITHUB_OUTPUT
+          else
+            echo "need_node=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Node.js (fallback)
+        if: steps.check_node.outputs.need_node == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Run no_std wasm tests
         run: cargo xtask test wasm
-      - name: Run tests
+
+  thumb:
+    name: no_std (thumb)
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (nightly)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly
+          targets: thumbv7em-none-eabihf
+          components: rust-src
+
+      - name: Download bootstrap artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bootstrap-artifacts
+          path: _dist
+
+      - name: Restore caches and STEEL_HOME
+        run: |
+          mkdir -p "$HOME/.cargo" "$GITHUB_WORKSPACE/.steel"
+          if [ -d _dist/cargo/registry ]; then mkdir -p "$HOME/.cargo/registry" && cp -a _dist/cargo/registry/. "$HOME/.cargo/registry/" || true; fi
+          if [ -d _dist/cargo/git ]; then mkdir -p "$HOME/.cargo/git" && cp -a _dist/cargo/git/. "$HOME/.cargo/git/" || true; fi
+          if [ -d _dist/cargo/bin ]; then mkdir -p "$HOME/.cargo/bin" && cp -a _dist/cargo/bin/. "$HOME/.cargo/bin/" || true; fi
+          echo STEEL_HOME=${GITHUB_WORKSPACE}/.steel >> $GITHUB_ENV
+          if [ -d _dist/.steel ]; then cp -a _dist/.steel/. "$GITHUB_WORKSPACE/.steel/" || true; fi
+
+      - name: Compile no_std thumb tests (no-run)
+        run: cargo xtask test thumb
+
+  nextest:
+    name: std tests (nextest)
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Download bootstrap artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bootstrap-artifacts
+          path: _dist
+
+      - name: Restore caches and STEEL_HOME
+        run: |
+          mkdir -p "$HOME/.cargo" "$GITHUB_WORKSPACE/.steel"
+          if [ -d _dist/cargo/registry ]; then mkdir -p "$HOME/.cargo/registry" && cp -a _dist/cargo/registry/. "$HOME/.cargo/registry/" || true; fi
+          if [ -d _dist/cargo/git ]; then mkdir -p "$HOME/.cargo/git" && cp -a _dist/cargo/git/. "$HOME/.cargo/git/" || true; fi
+          if [ -d _dist/cargo/bin ]; then mkdir -p "$HOME/.cargo/bin" && cp -a _dist/cargo/bin/. "$HOME/.cargo/bin/" || true; fi
+          echo STEEL_HOME=${GITHUB_WORKSPACE}/.steel >> $GITHUB_ENV
+          if [ -d _dist/.steel ]; then cp -a _dist/.steel/. "$GITHUB_WORKSPACE/.steel/" || true; fi
+
+      - name: Set STEEL_HOME for tests
+        run: echo STEEL_HOME=${GITHUB_WORKSPACE}/.steel >> $GITHUB_ENV
+
+      - name: Install cogs for tests
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
+        run: |
+          mkdir -p "$STEEL_HOME/cogs"
+          cargo xtask cogs
+
+      - name: Check cargo-nextest
+        id: check_nextest
+        run: |
+          if command -v cargo-nextest >/dev/null 2>&1; then
+            echo "need_nextest=false" >> $GITHUB_OUTPUT
+          else
+            echo "need_nextest=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install cargo-nextest (fallback)
+        if: steps.check_nextest.outputs.need_nextest == 'true'
+        run: cargo install cargo-nextest --locked
+
+      - name: Run tests (nextest)
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
         run: cargo nextest run --workspace --profile ci
+
       - name: Report test results
         uses: dorny/test-reporter@v1
         if: always()
