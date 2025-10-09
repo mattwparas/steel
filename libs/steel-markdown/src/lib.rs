@@ -1,15 +1,12 @@
-use std::rc::Rc;
-
-use abi_stable::std_types::RBoxError;
 use steel::{
     gc::Shared,
-    rvals::{Custom, SerializableSteelVal},
+    rvals::Custom,
     steel_vm::ffi::{FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
 };
 
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
 
-use syntect::highlighting::{Color, ThemeSet};
+use syntect::highlighting::ThemeSet;
 use syntect::{html::highlighted_html_for_string, parsing::SyntaxSet};
 
 // fn main() {
@@ -44,7 +41,9 @@ struct SyntaxHighlighter {
 impl Custom for SyntaxHighlighter {}
 
 #[derive(Debug)]
-struct SyntectError(syntect::Error);
+struct SyntectError {
+    _inner: syntect::Error,
+}
 impl Custom for SyntectError {}
 
 impl SyntaxHighlighter {
@@ -70,7 +69,7 @@ impl SyntaxHighlighter {
             reference,
             &self.ts.themes["base16-ocean.dark"],
         )
-        .map_err(SyntectError)
+        .map_err(|e| SyntectError { _inner: e })
     }
 }
 
@@ -85,8 +84,8 @@ pub struct MarkdownTag {
 }
 
 pub struct MarkdownEndTag {
-    tag: TagEnd,
-    source: Shared<str>,
+    _tag: TagEnd,
+    _source: Shared<str>,
 }
 
 impl Custom for MarkdownTag {}
@@ -187,10 +186,7 @@ impl MarkdownEvent {
     fn as_end_tag(&self) -> Option<FFIValue> {
         if let Event::End(tag) = self.event.clone() {
             Some(
-                MarkdownEndTag {
-                    tag,
-                    source: self.source.clone(),
-                }
+                MarkdownEndTag { _tag: tag, _source: self.source.clone() }
                 .into_ffi_val()
                 .unwrap(),
             )

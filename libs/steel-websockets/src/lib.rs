@@ -68,7 +68,7 @@ impl WebSocketMessage {
     }
 }
 
-struct WebSocketResponse(Response);
+struct WebSocketResponse { _inner: Response }
 impl Custom for WebSocketResponse {}
 
 #[derive(Debug)]
@@ -128,7 +128,7 @@ fn create_module() -> FFIModule {
                 .map(|(socket, resp)| {
                     vec![
                         SteelWebSocket(socket).into_ffi_val().unwrap(),
-                        WebSocketResponse(resp).into_ffi_val().unwrap(),
+                        WebSocketResponse { _inner: resp }.into_ffi_val().unwrap(),
                     ]
                 })
                 .map_err(WebSocketError)

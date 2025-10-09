@@ -4,7 +4,7 @@ use steel::{
     steel_vm::ffi::{FFIModule, RegisterFFIFn},
 };
 
-use ureq::{Request, Response};
+use ureq::Request;
 
 declare_module!(create_module);
 
@@ -33,7 +33,7 @@ fn create_module() -> FFIModule {
             |request: &mut BlockingRequest| -> Result<SteelResponse, BlockingError> {
                 Request::call(std::mem::take(&mut request.0).unwrap())
                     .map(|x| x.into())
-                    .map_err(BlockingError::Ureq)
+                    .map_err(|e| BlockingError::Ureq { _inner: e })
             },
         )
         .register_fn("call-with-json", BlockingRequest::call_with_json)
@@ -44,19 +44,17 @@ fn create_module() -> FFIModule {
 
 #[derive(Clone)]
 struct BlockingRequest(Option<Request>);
-struct BlockingResponse(Response);
 
 #[derive(Clone)]
 struct Client(ureq::Agent);
 
 #[derive(Debug)]
 enum BlockingError {
-    Ureq(ureq::Error),
+    Ureq { _inner: ureq::Error },
     ResponseAlreadyUsed,
 }
 
 impl Custom for BlockingRequest {}
-impl Custom for BlockingResponse {}
 impl Custom for BlockingError {}
 impl Custom for Client {}
 
@@ -136,7 +134,7 @@ impl BlockingRequest {
     fn call_with_json(&mut self, json: String) -> Result<SteelResponse, BlockingError> {
         Request::send_json(self.0.clone().unwrap(), json)
             .map(|x| x.into())
-            .map_err(BlockingError::Ureq)
+            .map_err(|e| BlockingError::Ureq { _inner: e })
     }
 }
 
@@ -150,7 +148,7 @@ impl SteelResponse {
 
         if let Some(resp) = resp {
             resp.into_string()
-                .map_err(|x| BlockingError::Ureq(x.into()))
+                .map_err(|x| BlockingError::Ureq { _inner: x.into() })
         } else {
             Err(BlockingError::ResponseAlreadyUsed)
         }

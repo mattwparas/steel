@@ -1,5 +1,6 @@
 use crate::compiler::compiler::Compiler;
 use crate::core::instructions::u24;
+#[cfg(feature = "sync")]
 use crate::env::SharedVectorWrapper;
 use crate::gc::shared::{
     MutContainer, ShareableMut, Shared, StandardShared, StandardSharedMut, WeakShared,

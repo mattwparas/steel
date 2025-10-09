@@ -86,7 +86,6 @@ fn create_module() -> FFIModule {
 
 struct AsyncRequest(Option<http::request::Builder>);
 struct FinalizedAsyncRequest(Option<http::request::Request<String>>);
-struct AsyncResponse(isahc::Response<String>);
 
 #[derive(Clone)]
 struct Client(isahc::HttpClient);
@@ -109,7 +108,6 @@ impl std::error::Error for AsyncError {}
 
 impl Custom for AsyncRequest {}
 impl Custom for FinalizedAsyncRequest {}
-impl Custom for AsyncResponse {}
 impl Custom for AsyncError {}
 impl Custom for Client {}
 

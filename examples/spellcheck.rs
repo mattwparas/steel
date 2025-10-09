@@ -11,7 +11,7 @@ use std::cmp::{max, min};
 use std::collections::HashMap;
 use std::process;
 
-use steel::gc::{MutContainer, ShareableMut, Shared, SharedMut};
+use steel::gc::{MutContainer, Shared, SharedMut};
 use steel::steel_vm::register_fn::RegisterFn;
 
 use env_logger::Builder;

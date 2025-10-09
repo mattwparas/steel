@@ -1,6 +1,7 @@
 use std::error::Error;
 
 mod build;
+mod test;
 mod util;
 
 use crate::util::workspace_dir;
@@ -180,11 +181,15 @@ fn print_usage() {
     eprintln!("  cargo xtask cogs");
     eprintln!("  cargo xtask docgen");
     eprintln!("  cargo xtask test");
+    eprintln!("  cargo xtask test <target>");
     eprintln!("  cargo xtask pgo");
     eprintln!("  cargo xtask build <target>");
     eprintln!("\nTargets:");
     eprintln!("  wasm   Build no_std set for wasm32-unknown-unknown");
     eprintln!("  thumb  Build no_std set for thumbv7em-none-eabihf");
+    eprintln!("\nTest targets:");
+    eprintln!("  wasm   Run no_std test suite for wasm32");
+    eprintln!("  thumb  Compile no_std test suite for thumbv7em (--no-run)");
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -196,7 +201,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         Some("install") => install_everything()?,
         Some("cogs") => install_cogs()?,
         Some("docgen") => generate_docs()?,
-        Some("test") => run_tests()?,
+        Some("test") => match args.next().as_deref() {
+            Some("wasm") => test::no_std_wasm_test()?,
+            Some("thumb") => test::no_std_thumb_test()?,
+            Some(other) => return Err(format!("Unknown test target: {}", other).into()),
+            None => run_tests()?,
+        },
         Some("pgo") => install_pgo()?,
         // new structured CLI: cargo xtask build <target>
         Some("build") => match args.next().as_deref() {

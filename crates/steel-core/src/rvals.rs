@@ -18,7 +18,7 @@ use crate::{
     primitives::numbers::realp,
     rerrs::{ErrorKind, SteelErr},
     steel_vm::vm::{
-        threads::closure_into_serializable, BuiltInSignature, Continuation, ContinuationMark,
+        threads::closure_into_serializable, BuiltInSignature, Continuation,
     },
     values::{
         closed::{Heap, HeapRef, MarkAndSweepContext},
@@ -31,6 +31,8 @@ use crate::{
     },
 };
 use std::vec::IntoIter;
+#[cfg(feature = "sync")]
+use crate::steel_vm::vm::ContinuationMark;
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
