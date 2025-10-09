@@ -153,7 +153,7 @@ impl TryFrom<SteelVal> for Value {
                     .map(|x| x.clone().try_into())
                     .collect::<Result<Vec<_>>>()?,
             )),
-            SteelVal::Void => stop!(Generic => "void not serializable"),
+            SteelVal::Void => Ok(Value::Null),
             SteelVal::StringV(s) => Ok(Value::String(s.to_string())),
             SteelVal::FuncV(_) => stop!(Generic => "function not serializable"),
             // SteelVal::LambdaV(_) => stop!(Generic => "function not serializable"),
