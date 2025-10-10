@@ -1,10 +1,11 @@
 use crate::rvals::SteelHashSet;
 use crate::rvals::{Result, SteelVal};
 use crate::steel_vm::vm::VmCore;
+#[cfg(feature = "std")]
 use crate::values::lists::List;
-use crate::values::HashSet;
+use crate::collections::persistent::{HashSet, Vector};
 use crate::{gc::Gc, steel_vm::builtin::BuiltInModule};
-use crate::{stop, Vector};
+use crate::stop;
 
 pub(crate) fn hashset_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/sets");
@@ -122,6 +123,7 @@ pub fn hashset_is_subset(left: &SteelHashSet, right: &SteelHashSet) -> bool {
 /// (hashset->list (hashset 10 20 30)) ;; => '(20 10 30)
 /// ```
 #[steel_derive::function(name = "hashset->list")]
+#[cfg(feature = "std")]
 pub fn hashset_to_list(hashset: &SteelHashSet) -> SteelVal {
     SteelVal::ListV(hashset.iter().cloned().collect::<List<SteelVal>>())
 }
@@ -228,6 +230,7 @@ pub fn hashset_clear(hashset: &mut SteelVal) -> Result<SteelVal> {
 /// ```scheme
 /// (list 10 20 30) ;; => (hashset 10 20 30)
 /// ```
+#[cfg(feature = "std")]
 #[steel_derive::function(name = "list->hashset")]
 pub fn list_to_hashset(l: &List<SteelVal>) -> SteelVal {
     SteelVal::HashSetV(Gc::new(l.iter().cloned().collect::<HashSet<_>>()).into())

@@ -2,6 +2,10 @@
 
 use alloc::string::String;
 pub use hashbrown::{HashMap, HashSet};
+pub type DefaultHashBuilder = hashbrown::hash_map::DefaultHashBuilder;
+pub type HashMapConsumingIter<K, V> = hashbrown::hash_map::IntoIter<K, V>;
+pub type HashSetConsumingIter<T> = hashbrown::hash_set::IntoIter<T>;
+pub type List<T> = alloc::vec::Vec<T>;
 
 /// Basic error type available when `std` is not enabled.
 #[derive(Clone, Debug, PartialEq, Eq)]

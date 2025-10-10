@@ -1,6 +1,6 @@
 use crate::rvals::SteelHashMap;
 use crate::stop;
-use crate::values::HashMap;
+use crate::collections::persistent::HashMap;
 use crate::{core::utils::declare_const_ref_functions, gc::Gc};
 use crate::{
     rvals::{Result, SteelVal},

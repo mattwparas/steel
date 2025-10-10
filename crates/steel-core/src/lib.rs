@@ -10,7 +10,7 @@ pub mod collections {
     pub use std::collections::{HashMap, HashSet};
 
     #[cfg(not(feature = "std"))]
-    pub use hashbrown::{HashMap, HashSet};
+    pub use crate::minimal::{HashMap, HashSet};
 
     #[cfg(all(feature = "std", not(feature = "sync")))]
     pub mod persistent {
@@ -55,14 +55,24 @@ pub mod collections {
     #[cfg(not(feature = "std"))]
     pub mod persistent {
         pub type Vector<T> = alloc::vec::Vec<T>;
-        pub type HashMap<K, V, S = hashbrown::hash_map::DefaultHashBuilder> =
-            hashbrown::HashMap<K, V, S>;
-        pub type HashSet<K, S = hashbrown::hash_map::DefaultHashBuilder> = hashbrown::HashSet<K, S>;
-
         pub type VectorConsumingIter<T> = alloc::vec::IntoIter<T>;
-        pub type HashSetConsumingIter<T> = hashbrown::hash_set::IntoIter<T>;
-        pub type HashMapConsumingIter<K, V> = hashbrown::hash_map::IntoIter<K, V>;
+
+        pub type HashMap<K, V, S = crate::minimal::DefaultHashBuilder> =
+            crate::minimal::HashMap<K, V, S>;
+        pub type HashSet<K, S = crate::minimal::DefaultHashBuilder> =
+            crate::minimal::HashSet<K, S>;
+
+        pub type HashSetConsumingIter<T> = crate::minimal::HashSetConsumingIter<T>;
+        pub type HashMapConsumingIter<K, V> = crate::minimal::HashMapConsumingIter<K, V>;
     }
+}
+
+pub mod lists {
+    #[cfg(feature = "std")]
+    pub use crate::values::lists::List;
+
+    #[cfg(not(feature = "std"))]
+    pub use crate::minimal::List;
 }
 
 #[cfg(all(feature = "no_std", not(feature = "std")))]
@@ -121,13 +131,9 @@ pub use minimal::SteelVal;
 #[cfg(feature = "std")]
 pub use rvals::SteelVal;
 
-#[cfg(feature = "std")]
-pub use crate::values::{HashMap, HashSet, Vector};
-#[cfg(not(feature = "std"))]
-pub use minimal::{HashMap, HashSet};
-
-#[cfg(feature = "std")]
-pub use im_lists::list::List;
+pub use collections::{HashMap, HashSet};
+pub use collections::persistent::Vector;
+pub use lists::List;
 
 #[cfg(any(feature = "std", feature = "no_std_primitives"))]
 pub use primitives::UnRecoverableResult;

@@ -1849,8 +1849,8 @@ pub(crate) trait BreadthFirstSearchSteelValReferenceVisitor2<'a> {
     fn visit_closure(&mut self, _: &'a ByteCodeLambda) -> Self::Output;
     fn visit_immutable_vector(&mut self, vector: &'a Vector<SteelVal>) -> Self::Output;
     fn visit_custom_type(&mut self, custom_type: &'a RwLock<Box<dyn CustomType>>) -> Self::Output;
-    fn visit_hash_map(&mut self, hashmap: &'a crate::HashMap<SteelVal, SteelVal>) -> Self::Output;
-    fn visit_hash_set(&mut self, hashset: &'a crate::HashSet<SteelVal>) -> Self::Output;
+    fn visit_hash_map(&mut self, hashmap: &'a crate::collections::persistent::HashMap<SteelVal, SteelVal>) -> Self::Output;
+    fn visit_hash_set(&mut self, hashset: &'a crate::collections::persistent::HashSet<SteelVal>) -> Self::Output;
     fn visit_steel_struct(&mut self, steel_struct: &'a UserDefinedStruct) -> Self::Output;
     fn visit_transducer(&mut self, transducer: &'a Transducer) -> Self::Output;
     fn visit_reducer(&mut self, reducer: &'a Reducer) -> Self::Output;

@@ -2660,14 +2660,14 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
         }
     }
 
-    fn visit_hash_map(&mut self, hashmap: &super::HashMap<SteelVal, SteelVal>) -> Self::Output {
+    fn visit_hash_map(&mut self, hashmap: &crate::collections::persistent::HashMap<SteelVal, SteelVal>) -> Self::Output {
         for (key, value) in hashmap.iter() {
             self.push_back(key);
             self.push_back(value);
         }
     }
 
-    fn visit_hash_set(&mut self, hashset: &super::HashSet<SteelVal>) -> Self::Output {
+    fn visit_hash_set(&mut self, hashset: &crate::collections::persistent::HashSet<SteelVal>) -> Self::Output {
         for value in hashset.iter() {
             self.push_back(value);
         }
