@@ -201,12 +201,23 @@ fn main() -> Result<(), Box<dyn Error>> {
         Some("install") => install_everything()?,
         Some("cogs") => install_cogs()?,
         Some("docgen") => generate_docs()?,
-        Some("test") => match args.next().as_deref() {
-            Some("wasm") => test::no_std_wasm_test()?,
-            Some("thumb") => test::no_std_thumb_test()?,
-            Some(other) => return Err(format!("Unknown test target: {}", other).into()),
-            None => run_tests()?,
-        },
+        Some("test") => {
+            let target = args.next();
+            match target.as_deref() {
+                Some("wasm") => {
+                    let extra: Vec<String> = args.collect();
+                    let runner_args: Vec<String> = if extra.first().map(|s| s == "--").unwrap_or(false) {
+                        extra.into_iter().skip(1).collect()
+                    } else {
+                        extra
+                    };
+                    test::no_std_wasm_test(&runner_args)?
+                }
+                Some("thumb") => test::no_std_thumb_test()?,
+                Some(other) => return Err(format!("Unknown test target: {}", other).into()),
+                None => run_tests()?,
+            }
+        }
         Some("pgo") => install_pgo()?,
         // new structured CLI: cargo xtask build <target>
         Some("build") => match args.next().as_deref() {

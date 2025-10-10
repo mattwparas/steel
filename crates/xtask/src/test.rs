@@ -1,28 +1,35 @@
 use crate::util::run_in_workspace;
 use std::error::Error;
 
-pub fn no_std_wasm_test() -> Result<(), Box<dyn Error>> {
+pub fn no_std_wasm_test(extra_args: &[String]) -> Result<(), Box<dyn Error>> {
     println!("Running no_std tests for target wasm32 (xtask)");
 
-    let status = run_in_workspace(
-        "cargo",
-        [
-            "+nightly",
-            "--config",
-            ".cargo/no_std.toml",
-            "test",
-            "-p",
-            "steel-core",
-            "--test",
-            "no_std_suite",
-            "--target",
-            "wasm32-unknown-unknown",
-            "-Zbuild-std=core,alloc",
-            "--no-default-features",
-            "--features",
-            "no_std",
-        ],
-    )?;
+    let mut args: Vec<String> = [
+        "+nightly",
+        "--config",
+        ".cargo/no_std.toml",
+        "test",
+        "-p",
+        "steel-core",
+        "--test",
+        "no_std_suite",
+        "--target",
+        "wasm32-unknown-unknown",
+        "-Zbuild-std=core,alloc",
+        "--no-default-features",
+        "--features",
+        "no_std",
+    ]
+    .into_iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    if !extra_args.is_empty() {
+        args.push("--".to_string());
+        args.extend(extra_args.iter().cloned());
+    }
+
+    let status = run_in_workspace("cargo", args)?;
 
     if !status.success() {
         return Err("no_std tests (wasm32) failed".into());
