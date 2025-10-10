@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use crate::collections::{HashMap, HashSet};
 
 use fxhash::FxHashMap;
 use steel_derive::function;
@@ -149,8 +149,8 @@ thread_local! {
 
 pub fn closure_into_serializable(
     c: &ByteCodeLambda,
-    serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-    visited: &mut std::collections::HashSet<usize>,
+    serializer: &mut HashMap<usize, SerializableSteelVal>,
+    visited: &mut HashSet<usize>,
 ) -> Result<SerializedLambda> {
     if let Some(prototype) = CACHED_CLOSURES.with(|x| x.borrow().get(&c.id).cloned()) {
         let mut prototype = SerializedLambda {

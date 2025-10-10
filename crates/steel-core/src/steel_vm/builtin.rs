@@ -9,7 +9,7 @@ use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadConta
 use crate::gc::shared::ShareableMut;
 
 use crate::gc::{Shared, SharedMut};
-use crate::values::HashMap;
+use crate::collections::HashMap;
 use crate::{
     containers::RegisterValue,
     gc::Gc,
@@ -58,10 +58,10 @@ pub struct BuiltInModule {
 #[derive(Clone)]
 pub(crate) struct BuiltInModuleRepr {
     pub(crate) name: Shared<str>,
-    pub(crate) values: std::collections::HashMap<Arc<str>, SteelVal, FxBuildHasher>,
+    pub(crate) values: HashMap<Arc<str>, SteelVal, FxBuildHasher>,
     docs: Box<InternalDocumentation>,
     // Add the metadata separate from the pointer, keeps the pointer slim
-    fn_ptr_table: std::collections::HashMap<BuiltInFunctionType, FunctionSignatureMetadata>,
+    fn_ptr_table: HashMap<BuiltInFunctionType, FunctionSignatureMetadata>,
     // We don't need to generate this every time, just need to
     // clone it?
     generated_expression: SharedMut<Option<ExprKind>>,
@@ -197,9 +197,9 @@ impl BuiltInModuleRepr {
     pub fn new<T: Into<Shared<str>>>(name: T) -> Self {
         Self {
             name: name.into(),
-            values: std::collections::HashMap::default(),
+            values: HashMap::default(),
             docs: Box::new(InternalDocumentation::new()),
-            fn_ptr_table: std::collections::HashMap::new(),
+            fn_ptr_table: HashMap::new(),
             generated_expression: Shared::new(MutContainer::new(None)),
         }
     }

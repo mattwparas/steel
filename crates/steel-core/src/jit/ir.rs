@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use alloc::vec::Vec;
+
+use crate::collections::HashMap;
 
 /// The AST node for expressions.
 #[derive(Clone, Debug)]

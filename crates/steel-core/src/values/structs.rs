@@ -668,8 +668,8 @@ impl VTable {
     }
 
     pub(crate) fn sendable_entries(
-        serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-        visited: &mut std::collections::HashSet<usize>,
+        serializer: &mut crate::collections::HashMap<usize, SerializableSteelVal>,
+        visited: &mut crate::collections::HashSet<usize>,
     ) -> Result<Vec<SendableVTableEntry>> {
         VTABLE.with(|x| {
             x.borrow()

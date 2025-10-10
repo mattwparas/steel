@@ -5,7 +5,7 @@ use crate::parser::tokens::TokenType;
 use crate::parser::visitors::VisitorMut;
 use crate::parser::{ast, interner::InternedString};
 
-use std::collections::HashSet;
+use crate::collections::HashSet;
 
 use crate::values::HashMap;
 

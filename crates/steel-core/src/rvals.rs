@@ -920,13 +920,13 @@ pub enum SerializedHeapRef {
 
 pub struct HeapSerializer<'a> {
     pub heap: &'a mut Heap,
-    pub fake_heap: &'a mut std::collections::HashMap<usize, SerializedHeapRef>,
+    pub fake_heap: &'a mut crate::collections::HashMap<usize, SerializedHeapRef>,
     // After the conversion, we go back through, and patch the values from the fake heap
     // in to each of the values listed here - otherwise, we'll miss cycles
-    pub values_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<SteelVal>>,
+    pub values_to_fill_in: &'a mut crate::collections::HashMap<usize, HeapRef<SteelVal>>,
 
     // Cache the functions that get built
-    pub built_functions: &'a mut std::collections::HashMap<u32, Gc<ByteCodeLambda>>,
+    pub built_functions: &'a mut crate::collections::HashMap<u32, Gc<ByteCodeLambda>>,
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
@@ -1079,8 +1079,8 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
 // TODO: Use the cycle detector instead
 pub fn into_serializable_value(
     val: SteelVal,
-    serialized_heap: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-    visited: &mut std::collections::HashSet<usize>,
+    serialized_heap: &mut crate::collections::HashMap<usize, SerializableSteelVal>,
+    visited: &mut crate::collections::HashSet<usize>,
 ) -> Result<SerializableSteelVal> {
     // dbg!(&serialized_heap);
 

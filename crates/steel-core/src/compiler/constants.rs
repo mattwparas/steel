@@ -1,3 +1,5 @@
+use alloc::{sync::Arc, vec::Vec};
+
 use crate::gc::shared::MutContainer;
 
 // #[cfg(not(feature = "triomphe"))]
@@ -15,8 +17,7 @@ use crate::parser::{
     parser::{ParseError, Parser},
 };
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use crate::collections::{HashMap, HashSet};
 
 use arc_swap::ArcSwap;
 // TODO add the serializing and deserializing for constants
@@ -97,8 +98,8 @@ impl ConstantMap {
 
     pub fn to_serializable_vec(
         &self,
-        serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-        visited: &mut std::collections::HashSet<usize>,
+        serializer: &mut HashMap<usize, SerializableSteelVal>,
+        visited: &mut HashSet<usize>,
     ) -> Vec<SerializableSteelVal> {
         self.values
             .read()

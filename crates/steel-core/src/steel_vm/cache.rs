@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use alloc::vec::Vec;
+
+use crate::collections::HashMap;
 
 use crate::values::lists::List;
 use weak_table::WeakKeyHashMap;

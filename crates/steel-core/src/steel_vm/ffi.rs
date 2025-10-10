@@ -34,7 +34,6 @@ use abi_stable::{
 };
 use futures_util::FutureExt;
 
-use crate::values::HashMap;
 pub use async_ffi::{FfiFuture, FutureExt as FfiFutureExt};
 
 #[macro_export]
@@ -741,12 +740,13 @@ impl<T: IntoFFIVal> IntoFFIVal for Vec<T> {
     }
 }
 
-impl<T: IntoFFIVal, V: IntoFFIVal> IntoFFIVal for std::collections::HashMap<T, V> {
+impl<T: IntoFFIVal + Clone, V: IntoFFIVal + Clone> IntoFFIVal for crate::values::HashMap<T, V> {
     fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
-        let mut output = RHashMap::with_capacity(self.len());
+        let map = self;
+        let mut output = RHashMap::with_capacity(map.len());
 
-        for (key, value) in self {
-            output.insert(ffi_try!(key.into_ffi_val()), ffi_try!(value.into_ffi_val()));
+        for (key, value) in map.iter() {
+            output.insert(ffi_try!(key.clone().into_ffi_val()), ffi_try!(value.clone().into_ffi_val()));
         }
 
         RResult::ROk(FFIValue::HashMap(output))
@@ -1500,7 +1500,7 @@ impl FFIValue {
 
                     Ok((k, v))
                 })
-                .collect::<Result<HashMap<_, _>>>()
+                .collect::<Result<crate::values::HashMap<_, _>>>()
                 .map(Gc::new)
                 .map(SteelHashMap::from)
                 .map(SteelVal::HashMapV),
@@ -1563,7 +1563,7 @@ impl IntoSteelVal for FFIValue {
 
                     Ok((k, v))
                 })
-                .collect::<Result<HashMap<_, _>>>()
+                .collect::<Result<crate::values::HashMap<_, _>>>()
                 .map(Gc::new)
                 .map(SteelHashMap::from)
                 .map(SteelVal::HashMapV),

@@ -71,7 +71,6 @@ jobs:
           # Copy cargo caches and binaries if present (use cp -a for broader compatibility)
           if [ -d "$HOME/.cargo/registry" ]; then mkdir -p _dist/cargo/registry && cp -a "$HOME/.cargo/registry/." _dist/cargo/registry/ || true; fi
           if [ -d "$HOME/.cargo/git" ]; then mkdir -p _dist/cargo/git && cp -a "$HOME/.cargo/git/." _dist/cargo/git/ || true; fi
-          if [ -d "$HOME/.cargo/bin" ]; then mkdir -p _dist/cargo/bin && cp -a "$HOME/.cargo/bin/." _dist/cargo/bin/ || true; fi
           # Copy Steel home (cogs)
           if [ -d "$STEEL_HOME" ]; then mkdir -p _dist/.steel && cp -a "$STEEL_HOME/." _dist/.steel/ || true; fi
 
@@ -109,7 +108,6 @@ jobs:
           mkdir -p "$HOME/.cargo" "$GITHUB_WORKSPACE/.steel"
           if [ -d _dist/cargo/registry ]; then mkdir -p "$HOME/.cargo/registry" && cp -a _dist/cargo/registry/. "$HOME/.cargo/registry/" || true; fi
           if [ -d _dist/cargo/git ]; then mkdir -p "$HOME/.cargo/git" && cp -a _dist/cargo/git/. "$HOME/.cargo/git/" || true; fi
-          if [ -d _dist/cargo/bin ]; then mkdir -p "$HOME/.cargo/bin" && cp -a _dist/cargo/bin/. "$HOME/.cargo/bin/" || true; fi
           echo STEEL_HOME=${GITHUB_WORKSPACE}/.steel >> $GITHUB_ENV
           if [ -d _dist/.steel ]; then cp -a _dist/.steel/. "$GITHUB_WORKSPACE/.steel/" || true; fi
 
@@ -157,7 +155,6 @@ jobs:
           mkdir -p "$HOME/.cargo" "$GITHUB_WORKSPACE/.steel"
           if [ -d _dist/cargo/registry ]; then mkdir -p "$HOME/.cargo/registry" && cp -a _dist/cargo/registry/. "$HOME/.cargo/registry/" || true; fi
           if [ -d _dist/cargo/git ]; then mkdir -p "$HOME/.cargo/git" && cp -a _dist/cargo/git/. "$HOME/.cargo/git/" || true; fi
-          if [ -d _dist/cargo/bin ]; then mkdir -p "$HOME/.cargo/bin" && cp -a _dist/cargo/bin/. "$HOME/.cargo/bin/" || true; fi
           echo STEEL_HOME=${GITHUB_WORKSPACE}/.steel >> $GITHUB_ENV
           if [ -d _dist/.steel ]; then cp -a _dist/.steel/. "$GITHUB_WORKSPACE/.steel/" || true; fi
 
@@ -188,7 +185,6 @@ jobs:
           mkdir -p "$HOME/.cargo" "$GITHUB_WORKSPACE/.steel"
           if [ -d _dist/cargo/registry ]; then mkdir -p "$HOME/.cargo/registry" && cp -a _dist/cargo/registry/. "$HOME/.cargo/registry/" || true; fi
           if [ -d _dist/cargo/git ]; then mkdir -p "$HOME/.cargo/git" && cp -a _dist/cargo/git/. "$HOME/.cargo/git/" || true; fi
-          if [ -d _dist/cargo/bin ]; then mkdir -p "$HOME/.cargo/bin" && cp -a _dist/cargo/bin/. "$HOME/.cargo/bin/" || true; fi
           echo STEEL_HOME=${GITHUB_WORKSPACE}/.steel >> $GITHUB_ENV
           if [ -d _dist/.steel ]; then cp -a _dist/.steel/. "$GITHUB_WORKSPACE/.steel/" || true; fi
 

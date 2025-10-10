@@ -12,7 +12,7 @@ use cranelift::prelude::types::{F64, I64};
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
-use std::collections::{HashMap, HashSet};
+use crate::collections::{HashMap, HashSet};
 use std::slice;
 
 use std::cell::RefCell;

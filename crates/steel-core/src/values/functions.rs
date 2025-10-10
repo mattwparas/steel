@@ -2,11 +2,12 @@
 
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
     convert::TryFrom,
     hash::Hasher,
     sync::Arc,
 };
+
+use crate::collections::{HashMap, HashSet};
 
 use fxhash::FxHashSet;
 
@@ -83,7 +84,7 @@ impl LambdaMetadataTable {
 
     // TODO: This will need to get called in other places
     pub fn collect_garbage(&mut self, keep_set: impl Iterator<Item = usize>) {
-        let set = keep_set.collect::<std::collections::HashSet<_>>();
+        let set = keep_set.collect::<HashSet<_>>();
 
         self.fn_ptr_table.retain(|k, _| set.contains(k));
     }

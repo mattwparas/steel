@@ -674,7 +674,7 @@ pub mod unsafe_erased_pointers {
     use crate::steel_vm::engine::EngineId;
     use once_cell::sync::Lazy;
     use parking_lot::Mutex;
-    use std::collections::HashMap;
+    use crate::collections::HashMap;
 
     use crate::rvals::cycles::IterativeDropHandler;
     use crate::rvals::{AsRefSteelValFromRef, MaybeSendSyncStatic};
