@@ -523,7 +523,7 @@ pub fn string_to_uninterned_symbol(value: SteelString) -> SteelVal {
 /// > (string->symbol "abc") ;; => 'abc
 /// > (string->symbol "pea pod") ;; => '|pea pod|
 /// ```
-#[steel_derive::context(name = "string->symbol", constant = true, arity = "Exact(1)")]
+#[steel_derive::context(name = "string->symbol", arity = "Exact(1)")]
 pub fn string_to_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let value = match &args[0] {
         SteelVal::StringV(string) => string.clone(),
