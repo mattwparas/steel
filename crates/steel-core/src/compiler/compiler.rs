@@ -523,7 +523,7 @@ impl Compiler {
                     sources.visit(expr);
                 }
 
-                for m in module.macro_map.values() {
+                for m in module.macro_map.read().values() {
                     for expr in m.exprs() {
                         sources.visit(expr);
                     }
@@ -919,7 +919,7 @@ impl Compiler {
 
                     crate::parser::expand_visitor::expand_with_source_id(
                         expr,
-                        macro_env,
+                        &macro_env.read(),
                         Some(source_id),
                     )?
                 }
@@ -1093,7 +1093,7 @@ impl Compiler {
 
                     crate::parser::expand_visitor::expand_with_source_id(
                         expr,
-                        macro_env,
+                        &macro_env.read(),
                         Some(source_id),
                     )?;
                 }

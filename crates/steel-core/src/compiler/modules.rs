@@ -23,6 +23,7 @@ use crate::{parser::expand_visitor::Expander, rvals::Result};
 use compact_str::CompactString;
 use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
+use parking_lot::RwLock;
 // use smallvec::SmallVec;
 use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
 
@@ -411,6 +412,7 @@ impl ModuleManager {
 
                                         if module
                                             .macro_map
+                                            .read()
                                             .contains_key(name.atom_identifier().unwrap())
                                         {
                                             continue;
@@ -481,6 +483,7 @@ impl ModuleManager {
 
                             if module
                                 .macro_map
+                                .read()
                                 .contains_key(provide.atom_identifier().unwrap())
                             {
                                 continue;
@@ -656,7 +659,7 @@ impl ModuleManager {
 
                     expand(
                         expr,
-                        &module.macro_map,
+                        &module.macro_map.read(),
                         // source_id,
                     )?;
 
@@ -899,6 +902,16 @@ impl ModuleManager {
             mangled_asts.append(&mut module_ast);
         }
 
+        {
+            for (_, smacro) in module.macro_map.write().iter_mut() {
+                if !smacro.special_mangled {
+                    for expr in smacro.exprs_mut() {
+                        name_mangler.visit(expr);
+                    }
+                }
+            }
+        }
+
         // let provided_macros = module.provides_for
         // let expander = Expander::new(&module.macro_map);
         // TODO
@@ -918,7 +931,8 @@ impl ModuleManager {
                     .filter_map(|x| x.atom_identifier())
             }))
             .filter_map(|x| {
-                let smacro = Arc::make_mut(&mut module.macro_map).get_mut(x);
+                let mut guard = module.macro_map.write();
+                let smacro = guard.get_mut(x);
 
                 if let Some(smacro) = smacro {
                     if !smacro.special_mangled {
@@ -949,7 +963,7 @@ impl ModuleManager {
                 match maybe {
                     MaybeRenamed::Normal(n) => {
                         if let Some(ident) = n.atom_identifier() {
-                            if let Some(mut m) = module.macro_map.get(ident).cloned() {
+                            if let Some(mut m) = module.macro_map.read().get(ident).cloned() {
                                 for expr in m.exprs_mut() {
                                     name_mangler.visit(expr);
                                 }
@@ -965,7 +979,7 @@ impl ModuleManager {
                     }
                     MaybeRenamed::Renamed(from, to) => {
                         if let Some(ident) = from.atom_identifier() {
-                            if let Some(mut m) = module.macro_map.get(ident).cloned() {
+                            if let Some(mut m) = module.macro_map.read().get(ident).cloned() {
                                 for expr in m.exprs_mut() {
                                     name_mangler.visit(expr);
                                 }
@@ -996,7 +1010,7 @@ impl ModuleManager {
                         // println!("Looking for {}", ident);
 
                         if let Some(ident) = ident.atom_identifier() {
-                            if let Some(mut m) = module.macro_map.get(ident).cloned() {
+                            if let Some(mut m) = module.macro_map.read().get(ident).cloned() {
                                 // println!("Pulling in macro: {}", ident);
 
                                 for expr in m.exprs_mut() {
@@ -1029,13 +1043,15 @@ impl ModuleManager {
 // Dynamically linking the module would then make it relatively
 // easy to just load everything up at the start.
 // Compiled module _should_ be possible now. Just create a target
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone)]
 pub struct CompiledModule {
     name: PathBuf,
     provides: Vec<ExprKind>,
     require_objects: Vec<RequireObject>,
     provides_for_syntax: Vec<InternedString>,
-    pub(crate) macro_map: Arc<FxHashMap<InternedString, SteelMacro>>,
+    // TODO:
+    // Try to make this just be a mutex
+    pub(crate) macro_map: Arc<RwLock<FxHashMap<InternedString, SteelMacro>>>,
     pub(crate) ast: Vec<ExprKind>,
     emitted: bool,
     cached_prefix: CompactString,
@@ -1079,7 +1095,7 @@ impl CompiledModule {
         provides: Vec<ExprKind>,
         require_objects: Vec<RequireObject>,
         provides_for_syntax: Vec<InternedString>,
-        macro_map: Arc<FxHashMap<InternedString, SteelMacro>>,
+        macro_map: Arc<RwLock<FxHashMap<InternedString, SteelMacro>>>,
         ast: Vec<ExprKind>,
         downstream: Vec<PathBuf>,
     ) -> Self {
@@ -1203,7 +1219,7 @@ impl CompiledModule {
                     match provide {
                         ExprKind::List(l) => {
                             if let Some(qualifier) = l.first_ident() {
-                                if module.macro_map.contains_key(qualifier) {
+                                if module.macro_map.read().contains_key(qualifier) {
                                     continue;
                                 }
 
@@ -1226,6 +1242,7 @@ impl CompiledModule {
 
                                         if module
                                             .macro_map
+                                            .read()
                                             .contains_key(name.atom_identifier().unwrap())
                                         {
                                             continue;
@@ -1365,6 +1382,7 @@ impl CompiledModule {
 
                             if module
                                 .macro_map
+                                .read()
                                 .contains_key(provide.atom_identifier().unwrap())
                             {
                                 continue;
@@ -1527,7 +1545,12 @@ impl CompiledModule {
         }
 
         // Drop all of the macro references here
-        provides.retain(|x| !self.macro_map.contains_key(x.0.atom_identifier().unwrap()));
+        provides.retain(|x| {
+            !self
+                .macro_map
+                .read()
+                .contains_key(x.0.atom_identifier().unwrap())
+        });
 
         // We want one without the mangled version, for the actual provides
         let un_mangled = provides.clone();
@@ -1852,7 +1875,7 @@ struct ModuleBuilder<'a> {
     main: bool,
     source_ast: Vec<ExprKind>,
     local_macros: FxHashSet<InternedString>,
-    macro_map: Arc<FxHashMap<InternedString, SteelMacro>>,
+    macro_map: Arc<RwLock<FxHashMap<InternedString, SteelMacro>>>,
     // TODO: Change the requires / requires_for_syntax to just be a require enum?
     require_objects: Vec<RequireObject>,
 
@@ -1873,7 +1896,7 @@ struct ModuleBuilder<'a> {
 pub struct RequiredModuleMacros {
     pub module_key: PathBuf,
     pub module_name: String,
-    pub module_macros: Arc<FxHashMap<InternedString, SteelMacro>>,
+    pub module_macros: Arc<RwLock<FxHashMap<InternedString, SteelMacro>>>,
     pub in_scope_macros: FxHashMap<InternedString, SteelMacro>,
     pub name_mangler: NameMangler,
 }
@@ -2238,7 +2261,7 @@ impl<'a> ModuleBuilder<'a> {
 
         if self.require_objects.is_empty() {
             for expr in ast.iter_mut() {
-                expand(expr, &self.macro_map)?;
+                expand(expr, &self.macro_map.read())?;
 
                 expand_kernel_in_env(
                     expr,
@@ -2248,13 +2271,13 @@ impl<'a> ModuleBuilder<'a> {
                     self.name.to_str().unwrap(),
                 )?;
 
-                expand(expr, &self.macro_map)?;
+                expand(expr, &self.macro_map.read())?;
             }
         }
 
         // TODO: Provides also need to have this kind of macro expansion as the above!
         for expr in provides.iter_mut() {
-            expand(expr, &self.macro_map)?;
+            expand(expr, &self.macro_map.read())?;
             // .and_then(|x| {
             // expand_kernel(x, self.kernel.as_mut(), self.builtin_modules.clone())
             expand_kernel_in_env(
@@ -2304,7 +2327,9 @@ impl<'a> ModuleBuilder<'a> {
             })
             .collect::<Vec<_>>();
 
-        let mut many_expander = ExpanderMany::new(&self.macro_map, overlays);
+        let guard = self.macro_map.read();
+
+        let mut many_expander = ExpanderMany::new(&guard, overlays);
 
         for expr in ast.iter_mut() {
             many_expander.expand(expr)?;
@@ -2317,7 +2342,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.name.to_str().unwrap(),
             )?;
 
-            expand(expr, &self.macro_map)?;
+            expand(expr, &many_expander.map)?;
 
             for RequiredMacroMap {
                 changed,
@@ -2325,7 +2350,7 @@ impl<'a> ModuleBuilder<'a> {
             } in many_expander.overlays.iter_mut()
             {
                 if *changed {
-                    expand(expr, &req_macro.module_macros)?;
+                    expand(expr, &req_macro.module_macros.read())?;
 
                     // Expanding the kernel with only these macros...
                     let local_changed = expand_kernel_in_env_with_change(
@@ -2345,6 +2370,8 @@ impl<'a> ModuleBuilder<'a> {
             }
         }
 
+        drop(guard);
+
         for req_macro in &mut required_macros {
             for expr in provides.iter_mut() {
                 // First expand the in scope macros
@@ -2353,7 +2380,7 @@ impl<'a> ModuleBuilder<'a> {
                 expander.expand(expr)?;
 
                 if expander.changed {
-                    expand(expr, &req_macro.module_macros)?
+                    expand(expr, &req_macro.module_macros.read())?
                 }
             }
         }
@@ -2440,7 +2467,7 @@ impl<'a> ModuleBuilder<'a> {
 
                             self.local_macros.insert(*name);
 
-                            Arc::make_mut(&mut self.macro_map).insert(*name, generated_macro);
+                            self.macro_map.write().insert(*name, generated_macro);
                         }
                         Err(e) => {
                             if error.is_none() {

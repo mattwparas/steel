@@ -129,7 +129,7 @@ pub struct RequiredMacroMap<'a> {
 
 pub struct ExpanderMany<'a> {
     // Base map, but then also we want to include _all_
-    map: &'a FxHashMap<InternedString, SteelMacro>,
+    pub(crate) map: &'a FxHashMap<InternedString, SteelMacro>,
 
     pub(crate) overlays: Vec<RequiredMacroMap<'a>>,
 

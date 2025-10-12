@@ -4396,7 +4396,7 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         for module in module_manager.modules_mut().iter_mut() {
-            for steel_macro in std::sync::Arc::make_mut(&mut module.1.macro_map).values_mut() {
+            for steel_macro in module.1.macro_map.write().values_mut() {
                 if !steel_macro.is_mangled() {
                     for expr in steel_macro.exprs_mut() {
                         macro_replacer.visit(expr);
@@ -4523,7 +4523,7 @@ impl<'a> SemanticAnalysis<'a> {
 
         for module in module_manager.modules() {
             // println!("Visiting module: {:?}", module.0);
-            for steel_macro in module.1.macro_map.values() {
+            for steel_macro in module.1.macro_map.write().values() {
                 // println!("Visiting: {}", steel_macro.name().resolve());
                 // if !steel_macro.is_mangled() {
                 for expr in steel_macro.exprs() {

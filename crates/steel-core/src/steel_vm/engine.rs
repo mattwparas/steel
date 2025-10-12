@@ -441,11 +441,13 @@ macro_rules! time {
     }};
 }
 
-static STATIC_DEFAULT_PRELUDE_MACROS: OnceCell<Arc<FxHashMap<InternedString, SteelMacro>>> =
-    OnceCell::new();
+static STATIC_DEFAULT_PRELUDE_MACROS: OnceCell<
+    Arc<parking_lot::RwLock<FxHashMap<InternedString, SteelMacro>>>,
+> = OnceCell::new();
 
-static STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX: OnceCell<Arc<FxHashMap<InternedString, SteelMacro>>> =
-    OnceCell::new();
+static STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX: OnceCell<
+    Arc<parking_lot::RwLock<FxHashMap<InternedString, SteelMacro>>>,
+> = OnceCell::new();
 
 pub(crate) fn set_default_prelude_macros(
     prelude_macros: FxHashMap<InternedString, SteelMacro>,
@@ -454,22 +456,23 @@ pub(crate) fn set_default_prelude_macros(
     if cfg!(feature = "sync") {
         if sandbox {
             STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX
-                .set(Arc::new(prelude_macros))
+                .set(Arc::new(parking_lot::RwLock::new(prelude_macros)))
                 .unwrap();
         } else {
             STATIC_DEFAULT_PRELUDE_MACROS
-                .set(Arc::new(prelude_macros))
+                .set(Arc::new(parking_lot::RwLock::new(prelude_macros)))
                 .unwrap();
         }
     } else {
         DEFAULT_PRELUDE_MACROS.with(|x| {
             let mut guard = x.borrow_mut();
-            *guard = Arc::new(prelude_macros);
+            *guard = Arc::new(parking_lot::RwLock::new(prelude_macros));
         })
     }
 }
 
-pub(crate) fn default_prelude_macros() -> Arc<FxHashMap<InternedString, SteelMacro>> {
+pub(crate) fn default_prelude_macros(
+) -> Arc<parking_lot::RwLock<FxHashMap<InternedString, SteelMacro>>> {
     if cfg!(feature = "sync") {
         STATIC_DEFAULT_PRELUDE_MACROS.get().cloned().unwrap_or(
             STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX
@@ -484,7 +487,7 @@ pub(crate) fn default_prelude_macros() -> Arc<FxHashMap<InternedString, SteelMac
 
 thread_local! {
     // TODO: Replace this with a once cell?
-    pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<Arc<FxHashMap<InternedString, SteelMacro>>> = RefCell::new(Arc::new(HashMap::default()));
+    pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<Arc<parking_lot::RwLock<FxHashMap<InternedString, SteelMacro>>>> = RefCell::new(Arc::new(parking_lot::RwLock::new(HashMap::default())));
 }
 
 impl Engine {
