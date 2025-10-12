@@ -27,6 +27,7 @@ use crate::{
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
 use std::collections::VecDeque;
+use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::{
@@ -129,7 +130,7 @@ pub struct SerializableUserDefinedStruct {
     pub(crate) type_descriptor: StructTypeDescriptor,
 }
 
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug)]
 pub struct UserDefinedStruct {
     // pub(crate) fields: Recycle<Vec<SteelVal>>,
     pub(crate) fields: Recycle<SmallVec<[SteelVal; 4]>>,
@@ -178,6 +179,13 @@ impl PartialEq for UserDefinedStruct {
     }
 }
 
+impl Hash for UserDefinedStruct {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.type_descriptor.hash(state);
+        self.fields.deref().hash(state);
+    }
+}
+
 impl std::fmt::Display for UserDefinedStruct {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self
@@ -205,7 +213,7 @@ impl UserDefinedStruct {
         // let mut fields: Recycle<Vec<_>> = Recycle::new();
         let mut fields: Recycle<SmallVec<[SteelVal; 4]>> = Recycle::new();
         // fields.extend_from_slice(raw_fields);
-        fields.extend(raw_fields.into_iter().cloned());
+        fields.extend(raw_fields.iter().cloned());
 
         // let fields = raw_fields.into_iter().cloned().collect();
 
@@ -294,7 +302,7 @@ impl UserDefinedStruct {
         // fields.extend_from_slice(rest);
 
         let mut fields: Recycle<SmallVec<[_; 4]>> = Recycle::new_with_capacity(rest.len());
-        fields.extend(rest.into_iter().cloned());
+        fields.extend(rest.iter().cloned());
 
         // let fields = rest.into_iter().cloned().collect();
 
@@ -535,7 +543,7 @@ fn populate_fields_offsets<'a>(
     struct_fields_list: &List<SteelVal>,
     fields_to_update: &mut smallvec::SmallVec<[(usize, &'a mut SteelVal); 5]>,
 ) -> Result<()> {
-    Ok(loop {
+    loop {
         match (fields.next(), fields.next()) {
             (Some(key), Some(value)) => {
                 // check all of the struct offsets first, otherwise roll back the applied changes to the struct?
@@ -552,7 +560,9 @@ fn populate_fields_offsets<'a>(
                 stop!(ArityMismatch => "struct-update must have a value for every key!");
             }
         }
-    })
+    }
+
+    Ok(())
 }
 
 pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {

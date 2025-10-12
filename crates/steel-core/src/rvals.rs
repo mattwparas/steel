@@ -542,13 +542,11 @@ pub trait AsRefMutSteelVal: Sized {
 }
 
 pub(crate) trait AsRefMutSteelValFromRef: Sized {
-    fn as_mut_ref_from_ref<'a>(
-        val: &'a SteelVal,
-    ) -> crate::rvals::Result<TemporaryMutableView<Self>>;
+    fn as_mut_ref_from_ref(val: &SteelVal) -> crate::rvals::Result<TemporaryMutableView<Self>>;
 }
 
 pub(crate) trait AsRefSteelValFromRef: Sized {
-    fn as_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<TemporaryReadonlyView<Self>>;
+    fn as_ref_from_ref(val: &SteelVal) -> crate::rvals::Result<TemporaryReadonlyView<Self>>;
 }
 
 impl AsRefSteelVal for UserDefinedStruct {
@@ -1825,7 +1823,7 @@ pub struct OpaqueIterator {
 
 impl Custom for OpaqueIterator {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        Some(Ok(format!("#<iterator>")))
+        Some(Ok("#<iterator>".to_owned()))
     }
 }
 

@@ -81,7 +81,7 @@ impl LocalMacroManager {
     }
 
     /// Expand the expressions according to the macros in the current scope
-    pub fn expand(&self, exprs: &mut Vec<ExprKind>) -> Result<()> {
+    pub fn expand(&self, exprs: &mut [ExprKind]) -> Result<()> {
         for expr in exprs.iter_mut() {
             crate::parser::expand_visitor::expand(expr, &self.macros)?
         }

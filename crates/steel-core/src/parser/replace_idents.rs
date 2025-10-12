@@ -140,7 +140,7 @@ impl<'a> VisitorMutControlFlow for EllipsesExpanderVisitor<'a> {
                     // Check that the length is the same
                     if previously_seen_length != found_list.len() {
                         self.error =
-                            Some(format!("Mismatched lengths found in ellipses expansion"));
+                            Some("Mismatched lengths found in ellipses expansion".to_owned());
                         return ControlFlow::Break(());
                     }
 
@@ -327,7 +327,7 @@ impl<'a> ReplaceExpressions<'a> {
     }
 
     fn vec_expr_syntax_const_if(&self, vec_exprs: &[ExprKind]) -> Result<Option<ExprKind>> {
-        match vec_exprs.get(0) {
+        match vec_exprs.first() {
             Some(ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {
