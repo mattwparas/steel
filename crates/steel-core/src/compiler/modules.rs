@@ -898,10 +898,21 @@ impl ModuleManager {
         }
 
         {
-            for (_, smacro) in Arc::make_mut(&mut module.macro_map).iter_mut() {
-                if !smacro.special_mangled {
-                    for expr in smacro.exprs_mut() {
-                        name_mangler.visit(expr);
+            let mut should_mangle = false;
+            for (_, smacro) in module.macro_map.iter() {
+                if !smacro.special_mangled && !smacro.is_mangled() {
+                    should_mangle = true;
+                    break;
+                }
+            }
+
+            if should_mangle {
+                for (_, smacro) in Arc::make_mut(&mut module.macro_map).iter_mut() {
+                    if !smacro.special_mangled && !smacro.is_mangled() {
+                        for expr in smacro.exprs_mut() {
+                            name_mangler.visit(expr);
+                        }
+                        smacro.mark_mangled();
                     }
                 }
             }
@@ -926,27 +937,12 @@ impl ModuleManager {
                     .filter_map(|x| x.atom_identifier())
             }))
             .filter_map(|x| {
-                let smacro = Arc::make_mut(&mut module.macro_map).get_mut(x);
-
+                let smacro = module.macro_map.get(x);
                 if let Some(smacro) = smacro {
-                    if !smacro.special_mangled {
-                        for expr in smacro.exprs_mut() {
-                            name_mangler.visit(expr);
-                        }
-                    }
-
                     Some((*x, smacro.clone()))
                 } else {
                     None
                 }
-
-                // if !x.1.special_mangled {
-                //     for expr in x.1.exprs_mut() {
-                //         name_mangler.visit(expr);
-                //     }
-                // }
-
-                // (x.0, x.1.clone())
             })
             .collect::<FxHashMap<_, _>>();
 
