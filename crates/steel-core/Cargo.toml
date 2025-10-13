@@ -239,3 +239,8 @@ harness = false
 name = "no_std_suite"
 path = "tests/no_std_suite.rs"
 harness = false
+
+[[test]]
+name = "testbench"
+path = "tests/testbench.rs"
+required-features = ["std"]

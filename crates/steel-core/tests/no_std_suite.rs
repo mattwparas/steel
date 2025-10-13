@@ -107,7 +107,7 @@ mod alloc_support {
     pub static ALLOCATOR: BumpAllocator = BumpAllocator;
 }
 
-/// Entry point invoked by the custom runner (see `scripts/no_std_runner.js`).
+/// Entry point invoked by a custom wasm runner.
 /// Runs all no_std tests in sequence; on panic (trap), the process aborts.
 #[cfg(all(not(feature = "std"), test))]
 #[no_mangle]

@@ -15,10 +15,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js (for wasm tests)
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
+      # Node no longer needed: wasm tests use a Rust runner
 
       - name: Install Rust toolchain (nightly)
         uses: dtolnay/rust-toolchain@nightly
@@ -111,28 +108,15 @@ jobs:
           echo STEEL_HOME=${GITHUB_WORKSPACE}/.steel >> $GITHUB_ENV
           if [ -d _dist/.steel ]; then cp -a _dist/.steel/. "$GITHUB_WORKSPACE/.steel/" || true; fi
 
-      - name: Check Node.js
-        id: check_node
-        run: |
-          if command -v node >/dev/null 2>&1; then
-            echo "need_node=false" >> $GITHUB_OUTPUT
-          else
-            echo "need_node=true" >> $GITHUB_OUTPUT
-          fi
+      # Node is not required for the Rust wasm runner
 
-      - name: Setup Node.js (fallback)
-        if: steps.check_node.outputs.need_node == 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Run no_std wasm tests
+      - name: Run no_std wasm tests (Rust harness)
         env:
           STEEL_WASM_JUNIT: target/wasm32-unknown-unknown/junit.xml
           STEEL_WASM_DISPLAY_NAME: steel-core::no_std
         run: |
           mkdir -p target/wasm32-unknown-unknown
-          cargo xtask test wasm
+          cargo xtask test wasm -- --jobs $(nproc)
 
       - name: Report wasm test results
         if: always()

@@ -1,5 +1,4 @@
 [target.wasm32-unknown-unknown]
-runner = "node ../../scripts/no_std_runner.js"
 rustflags = [
     "-Zunstable-options",
     "-Zpanic_abort_tests",
