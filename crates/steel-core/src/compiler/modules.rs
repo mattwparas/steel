@@ -897,6 +897,16 @@ impl ModuleManager {
             mangled_asts.append(&mut module_ast);
         }
 
+        {
+            for (_, smacro) in Arc::make_mut(&mut module.macro_map).iter_mut() {
+                if !smacro.special_mangled {
+                    for expr in smacro.exprs_mut() {
+                        name_mangler.visit(expr);
+                    }
+                }
+            }
+        }
+
         // let provided_macros = module.provides_for
         // let expander = Expander::new(&module.macro_map);
         // TODO
