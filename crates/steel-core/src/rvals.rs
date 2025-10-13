@@ -545,13 +545,11 @@ pub trait AsRefMutSteelVal: Sized {
 }
 
 pub(crate) trait AsRefMutSteelValFromRef: Sized {
-    fn as_mut_ref_from_ref<'a>(
-        val: &'a SteelVal,
-    ) -> crate::rvals::Result<TemporaryMutableView<Self>>;
+    fn as_mut_ref_from_ref(val: &SteelVal) -> crate::rvals::Result<TemporaryMutableView<Self>>;
 }
 
 pub(crate) trait AsRefSteelValFromRef: Sized {
-    fn as_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<TemporaryReadonlyView<Self>>;
+    fn as_ref_from_ref(val: &SteelVal) -> crate::rvals::Result<TemporaryReadonlyView<Self>>;
 }
 
 impl AsRefSteelVal for UserDefinedStruct {
@@ -1203,6 +1201,13 @@ pub struct SteelMutableVector(pub(crate) Gc<RefCell<Vec<SteelVal>>>);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SteelVector(pub(crate) Gc<Vector<SteelVal>>);
 
+impl FromIterator<SteelVal> for SteelVector {
+    fn from_iter<T: IntoIterator<Item = SteelVal>>(iter: T) -> Self {
+        let vec = Vector::from_iter(iter);
+        SteelVector(Gc::new(vec))
+    }
+}
+
 impl Deref for SteelVector {
     type Target = Vector<SteelVal>;
 
@@ -1821,7 +1826,7 @@ pub struct OpaqueIterator {
 
 impl Custom for OpaqueIterator {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        Some(Ok(format!("#<iterator>")))
+        Some(Ok("#<iterator>".to_owned()))
     }
 }
 
@@ -1924,7 +1929,7 @@ impl SteelVal {
             (Void, Void) => true,
             (StringV(l), StringV(r)) => crate::gc::Shared::ptr_eq(l, r),
             (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
-            (SymbolV(l), SymbolV(r)) => crate::gc::Shared::ptr_eq(l, r) || l == r,
+            (SymbolV(l), SymbolV(r)) => crate::gc::Shared::ptr_eq(l, r),
             (SteelVal::Custom(l), SteelVal::Custom(r)) => Gc::ptr_eq(l, r),
             (HashMapV(l), HashMapV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (HashSetV(l), HashSetV(r)) => Gc::ptr_eq(&l.0, &r.0),

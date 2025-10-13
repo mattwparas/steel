@@ -954,7 +954,7 @@ pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> R
     }
 
     // Update the vector position
-    guard[i as usize] = value;
+    guard[i] = value;
 
     Ok(SteelVal::Void)
 }
@@ -1412,7 +1412,7 @@ fn bounds_mut(
     mut rest: RestArgsIter<'_, isize>,
     name: &str,
     args: usize,
-    vector: &Vec<SteelVal>,
+    vector: &[SteelVal],
 ) -> Result<(usize, usize)> {
     if rest.len() > 2 {
         stop!(ArityMismatch => "{} expects at most {} arguments", name, args);

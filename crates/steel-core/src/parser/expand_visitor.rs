@@ -978,7 +978,7 @@ fn expand_keyword_and_default_arguments(
 
                     optional_positional_arg_count += 1;
                     positional_args.push(MaybeDefault::DefaultArg(
-                        l.get(0).unwrap(),
+                        l.first().unwrap(),
                         l.get(1).unwrap(),
                     ));
                 }

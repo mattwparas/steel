@@ -174,7 +174,7 @@ pub fn closure_into_serializable(
             id: c.id,
 
             #[cfg(not(feature = "dynamic"))]
-            body_exp: c.body_exp.into_iter().cloned().collect(),
+            body_exp: c.body_exp.iter().cloned().collect(),
 
             #[cfg(feature = "dynamic")]
             body_exp: c.body_exp.borrow().iter().cloned().collect(),

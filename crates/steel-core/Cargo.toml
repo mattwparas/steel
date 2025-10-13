@@ -101,7 +101,7 @@ shared_vector = { version = "0.4.4", optional = true }
 polling = { version = "3.10.0", optional = true }
 which = { version = "8.0.0", optional = true }
 
-imbl = { version = "6", optional = true, features = ["triomphe", "serde"] }
+imbl = { version = "6.0", optional = true, features = ["triomphe", "serde"] }
 icu_casemap = { version = "2.0.0", optional = true }
 getrandom = { version = "0.3.1", optional = true, default-features = false }
 

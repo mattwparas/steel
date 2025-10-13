@@ -25,6 +25,7 @@ use smallvec::SmallVec;
 use steel_parser::tokens::IntLiteral;
 use steel_parser::tokens::NumberLiteral;
 
+use super::macro_template::MacroTemplate;
 use super::{ast::Quote, interner::InternedString, parser::Parser};
 
 // Given path, update the extension
@@ -80,7 +81,7 @@ impl LocalMacroManager {
     }
 
     /// Expand the expressions according to the macros in the current scope
-    pub fn expand(&self, exprs: &mut Vec<ExprKind>) -> Result<()> {
+    pub fn expand(&self, exprs: &mut [ExprKind]) -> Result<()> {
         for expr in exprs.iter_mut() {
             crate::parser::expand_visitor::expand(expr, &self.macros)?
         }
@@ -203,15 +204,13 @@ impl SteelMacro {
             .atom_identifier_or_else(throw!(BadSyntax => "macros only currently support
                     identifiers as the name"; ast_macro.location.span))?;
 
-        let sp = ast_macro.location.span;
-
         let special_forms = ast_macro
             .syntax_rules
             .syntax
             .into_iter()
             .map(|x| {
                 x.atom_identifier_or_else(
-                    throw!(BadSyntax => format!("macros only support identifiers for special syntax, found: {}", x); sp),
+                    throw!(BadSyntax => format!("macros only support identifiers for special syntax, found: {}", x); x.span()),
                 )
                 .cloned()
             })
@@ -314,6 +313,13 @@ pub struct MacroCase {
     pub(crate) body: ExprKind,
 }
 
+struct PatternContext<'a> {
+    name: InternedString,
+    special_forms: &'a [InternedString],
+    bindings: FxHashMap<InternedString, u8>,
+    depth: u8,
+}
+
 impl MacroCase {
     #[cfg(test)]
     pub fn new(args: PatternList, body: ExprKind) -> Self {
@@ -355,34 +361,31 @@ impl MacroCase {
     ) -> Result<Self> {
         let PatternPair { pattern, mut body } = pattern_pair;
 
-        let mut bindings = FxHashSet::default();
+        let mut ctx = PatternContext {
+            name: *name,
+            special_forms,
+            bindings: Default::default(),
+            depth: 0,
+        };
 
         let ((mut args, macro_keyword), improper) = if let ExprKind::List(l) = pattern {
             let improper = l.improper;
 
-            (
-                MacroPattern::parse_from_list(l, name, special_forms, &mut bindings, true)?,
-                improper,
-            )
+            (MacroPattern::parse_from_list(l, &mut ctx, true)?, improper)
         } else {
             stop!(Generic => "unable to parse macro");
         };
 
         if let Some(macro_keyword) = macro_keyword {
-            bindings.remove(&macro_keyword);
+            ctx.bindings.remove(&macro_keyword);
         };
 
-        let args_str: SmallVec<[_; 8]> = bindings.iter().copied().collect();
-
-        // dbg!(args_str.iter().map(|x| x.resolve()).collect::<Vec<_>>());
-
-        // let syntaxes: Vec<&str> = args
-        //     .iter()
-        //     .map(|x| x.deconstruct_syntax())
-        //     .flatten()
-        //     .collect();
+        let args_str: SmallVec<[_; 8]> = ctx.bindings.keys().copied().collect();
 
         // TODO: @Matt - if the
+        let template_parser = MacroTemplate::new(ctx.bindings);
+        template_parser.verify(&body)?;
+
         RenameIdentifiersVisitor::new(&args_str, special_forms).rename_identifiers(&mut body);
 
         args.iter_mut().for_each(|x| x.mangle(special_forms));
@@ -550,9 +553,7 @@ impl MacroPattern {
 
     fn parse_from_list(
         list: List,
-        macro_name: &InternedString,
-        special_forms: &[InternedString],
-        bindings: &mut FxHashSet<InternedString>,
+        ctx: &mut PatternContext,
         top_level: bool,
     ) -> Result<(Vec<MacroPattern>, Option<InternedString>)> {
         let mut pattern_vec: Vec<MacroPattern> = Vec::with_capacity(4);
@@ -563,8 +564,8 @@ impl MacroPattern {
         let wildcard = InternedString::from_static("_");
 
         macro_rules! add_binding {
-            ($key:expr, $span:expr) => {
-                if $key != wildcard && !bindings.insert($key) {
+            ($key:expr, $span:expr, $many:expr) => {
+                if $key != wildcard && ctx.bindings.insert($key, ctx.depth + if $many { 1 } else { 0 }).is_some() {
                     let var = $key.resolve();
                     stop!(BadSyntax => "repeated pattern variable {}", var ; $span);
                 }
@@ -572,15 +573,49 @@ impl MacroPattern {
         }
 
         macro_rules! check_ellipsis {
-            ($improper:expr, $span:expr) => {
+            ($last:expr, $span:expr) => {
                 if ellipsis {
                     stop!(BadSyntax => "pattern with more than one ellipsis"; $span);
-                } else if $improper {
+                } else if list.improper && $last {
                     stop!(BadSyntax => "ellipsis cannot appear as list tail"; $span);
                 }
 
                 ellipsis = true;
             }
+        }
+
+        macro_rules! parse_nested {
+            ($list:expr, $index:expr, $vec:expr) => {{
+                let ellipsis_span = exprs_iter
+                    .peek()
+                    .and_then(|(_, expr)| expr.atom_syntax_object())
+                    .filter(|syn| syn.ty == TokenType::Ellipses)
+                    .map(|syn| syn.span);
+
+                if ellipsis_span.is_some() {
+                    ctx.depth += 1;
+                }
+
+                let improper = $list.improper;
+                let (patterns, _) = Self::parse_from_list($list, ctx, false)?;
+
+                if let Some(span) = ellipsis_span {
+                    let _ = exprs_iter.next();
+
+                    ctx.depth -= 1;
+
+                    check_ellipsis!($index + 2 == len, span);
+                }
+
+                let nested =
+                    MacroPattern::Nested(PatternList::new(patterns).with_improper(improper), $vec);
+
+                if ellipsis_span.is_some() {
+                    MacroPattern::Many(nested.into())
+                } else {
+                    nested
+                }
+            }};
         }
 
         let mut macro_keyword = None;
@@ -591,7 +626,7 @@ impl MacroPattern {
                     syn: SyntaxObject { ty: s, span, .. },
                 }) => match s {
                     TokenType::Identifier(t) => {
-                        if t == *macro_name || special_forms.contains(&t) {
+                        if t == ctx.name || ctx.special_forms.contains(&t) {
                             pattern_vec.push(MacroPattern::Syntax(t))
                         } else {
                             let peek = exprs_iter.peek().map(|(_, expr)| expr);
@@ -622,8 +657,7 @@ impl MacroPattern {
                             };
 
                             if let Some(span) = ellipsis_span {
-                                let last_proper = list.improper && i + 2 == len;
-                                check_ellipsis!(last_proper, span);
+                                check_ellipsis!(i + 2 == len, span);
 
                                 exprs_iter.next();
 
@@ -631,14 +665,14 @@ impl MacroPattern {
                                     stop!(BadSyntax => "macro name cannot be followed by ellipsis"; span);
                                 }
 
-                                add_binding!(t, span);
+                                add_binding!(t, span, true);
                                 pattern_vec.push(MacroPattern::Many(MacroPattern::Single(t).into()))
                             } else {
                                 if i == 0 && top_level {
                                     macro_keyword = Some(t);
                                 }
 
-                                add_binding!(t, span);
+                                add_binding!(t, span, false);
                                 pattern_vec.push(MacroPattern::Single(t));
                             }
                         }
@@ -711,17 +745,12 @@ impl MacroPattern {
                         }
                     }
                     TokenType::Ellipses => {
+                        check_ellipsis!(i + 1 == len, span);
+
                         let last = pattern_vec.pop();
 
                         match last {
-                            Some(MacroPattern::Nested(inner, vec)) => {
-                                let improper = list.improper && i + 1 == len;
-                                check_ellipsis!(improper, span);
-
-                                pattern_vec.push(MacroPattern::Many(
-                                    MacroPattern::Nested(inner, vec).into(),
-                                ));
-                            }
+                            Some(MacroPattern::Nested(..)) => unreachable!(),
 
                             Some(
                                 pat @ (MacroPattern::BytesLiteral(..)
@@ -746,14 +775,9 @@ impl MacroPattern {
                     }
                 },
                 ExprKind::List(l) => {
-                    let improper = l.improper;
-                    let (patterns, _) =
-                        Self::parse_from_list(l, macro_name, special_forms, bindings, false)?;
+                    let nested = parse_nested![l, i, false];
 
-                    pattern_vec.push(MacroPattern::Nested(
-                        PatternList::new(patterns).with_improper(improper),
-                        false,
-                    ))
+                    pattern_vec.push(nested)
                 }
                 ExprKind::Quote(q) => pattern_vec.push(MacroPattern::QuotedExpr(q)),
                 ExprKind::Vector(Vector {
@@ -761,10 +785,9 @@ impl MacroPattern {
                 }) => {
                     let list = List::new(args);
 
-                    let (patterns, _) =
-                        Self::parse_from_list(list, macro_name, special_forms, bindings, false)?;
+                    let nested = parse_nested![list, i, true];
 
-                    pattern_vec.push(MacroPattern::Nested(PatternList::new(patterns), true))
+                    pattern_vec.push(nested)
                 }
                 ExprKind::Vector(v @ Vector { bytes: true, .. }) => {
                     let bytes = v.as_bytes().collect();

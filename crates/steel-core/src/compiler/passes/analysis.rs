@@ -4371,19 +4371,11 @@ impl<'a> SemanticAnalysis<'a> {
             replacer.visit(expr);
         }
 
-        // for identifier in replacer.identifiers_to_replace.iter() {
-        //     println!("{}", identifier.resolve());
-        // }
-
         let mut macro_replacer = ReplaceBuiltinUsagesInsideMacros {
             identifiers_to_replace: replacer.identifiers_to_replace,
             analysis: &self.analysis,
             changed: false,
         };
-
-        // if macro_replacer.identifiers_to_replace.is_empty() {
-        //     return self;
-        // }
 
         for steel_macro in macros.values_mut() {
             if !steel_macro.is_mangled() {
@@ -4395,15 +4387,28 @@ impl<'a> SemanticAnalysis<'a> {
             }
         }
 
-        for module in module_manager.modules_mut().iter_mut() {
-            for steel_macro in std::sync::Arc::make_mut(&mut module.1.macro_map).values_mut() {
+        let mut should_mangle = false;
+        for module in module_manager.modules().iter() {
+            for steel_macro in module.1.macro_map.values() {
                 if !steel_macro.is_mangled() {
-                    for expr in steel_macro.exprs_mut() {
-                        macro_replacer.visit(expr);
-                    }
+                    should_mangle = true;
+                    break;
                 }
+            }
+        }
 
-                steel_macro.mark_mangled();
+        // Delay mangling the module unless we have to
+        if should_mangle {
+            for module in module_manager.modules_mut().iter_mut() {
+                for steel_macro in std::sync::Arc::make_mut(&mut module.1.macro_map).values_mut() {
+                    if !steel_macro.is_mangled() {
+                        for expr in steel_macro.exprs_mut() {
+                            macro_replacer.visit(expr);
+                        }
+                    }
+
+                    steel_macro.mark_mangled();
+                }
             }
         }
 
@@ -4792,7 +4797,7 @@ impl<'a> SemanticAnalysis<'a> {
             if let ExprKind::List(l) = anon {
                 // Don't replace anonymous function calls that have rest args - those are not yet handled
                 // with a blind let replacement
-                if let ExprKind::LambdaFunction(f) = l.args.get(0).unwrap() {
+                if let ExprKind::LambdaFunction(f) = l.args.first().unwrap() {
                     if f.rest {
                         return false;
                     }
@@ -5055,7 +5060,7 @@ impl<'a> SemanticAnalysis<'a> {
     // Convert the syntax object ids back to interned strings. Could end up
     // returning nothing if the ids are not found in the target AST, which could
     // happen if the analysis gets invalidated by refreshing the vars.
-    pub fn syntax_object_ids_to_identifiers<'b>(
+    pub fn syntax_object_ids_to_identifiers(
         &self,
         ids: &'a mut HashMap<SyntaxObjectId, Option<InternedString>>,
     ) -> &mut HashMap<SyntaxObjectId, Option<InternedString>> {

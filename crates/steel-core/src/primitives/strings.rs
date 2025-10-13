@@ -2,8 +2,8 @@ use crate::gc::Gc;
 use crate::values::lists::{List, SteelList};
 
 use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
-use crate::steel_vm::builtin::BuiltInModule;
-use crate::{stop, Vector};
+use crate::steel_vm::{builtin::BuiltInModule, vm::VmCore};
+use crate::{builtin_stop, stop, Vector};
 
 use std::io::Write as _;
 
@@ -34,6 +34,7 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_TO_INT_DEFINITION)
         .register_native_fn_definition(INT_TO_STRING_DEFINITION)
         .register_native_fn_definition(STRING_TO_SYMBOL_DEFINITION)
+        .register_native_fn_definition(STRING_TO_UNINTERNED_SYMBOL_DEFINITION)
         .register_native_fn_definition(STARTS_WITH_DEFINITION)
         .register_native_fn_definition(ENDS_WITH_DEFINITION)
         .register_native_fn_definition(TRIM_END_MATCHES_DEFINITION)
@@ -497,18 +498,45 @@ pub fn to_string(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::StringV(error_message.into()))
 }
 
-/// Converts a string into a symbol.
+/// Return an uninterned symbol from the given string.
+///
+/// (string->uninterned-symbol string?) -> symbol?
+///
+/// # Examples
+///
+/// ```scheme
+/// (string->uninterned-symbol "abc") ;; => 'abc
+/// (string->uninterned-symbol "pea pod") ;; => '|pea pod|
+/// ```
+#[function(name = "string->uninterned-symbol", constant = true)]
+pub fn string_to_uninterned_symbol(value: SteelString) -> SteelVal {
+    SteelVal::SymbolV(value)
+}
+
+/// Returns an interned symbol from the given string.
 ///
 /// (string->symbol string?) -> symbol?
 ///
 /// # Examples
 ///
 /// ```scheme
-/// > (string->symbol "FooBar") ;; => 'FooBar
+/// > (string->symbol "abc") ;; => 'abc
+/// > (string->symbol "pea pod") ;; => '|pea pod|
 /// ```
-#[function(name = "string->symbol", constant = true)]
-pub fn string_to_symbol(value: SteelString) -> SteelVal {
-    SteelVal::SymbolV(value)
+#[steel_derive::context(name = "string->symbol", arity = "Exact(1)")]
+pub fn string_to_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let value = match &args[0] {
+        SteelVal::StringV(string) => string.clone(),
+        val => builtin_stop!(TypeMismatch => "steel->string: expected string, found {}", val),
+    };
+
+    let sym = SteelVal::SymbolV(value);
+
+    let mut guard = ctx.thread.compiler.write();
+    let interned = guard.constant_map.add_or_get(sym);
+    let value = guard.constant_map.get(interned);
+
+    Some(Ok(value))
 }
 
 /// Converts an integer into a string.
