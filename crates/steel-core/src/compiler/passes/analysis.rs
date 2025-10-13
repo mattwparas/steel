@@ -4371,19 +4371,11 @@ impl<'a> SemanticAnalysis<'a> {
             replacer.visit(expr);
         }
 
-        // for identifier in replacer.identifiers_to_replace.iter() {
-        //     println!("{}", identifier.resolve());
-        // }
-
         let mut macro_replacer = ReplaceBuiltinUsagesInsideMacros {
             identifiers_to_replace: replacer.identifiers_to_replace,
             analysis: &self.analysis,
             changed: false,
         };
-
-        // if macro_replacer.identifiers_to_replace.is_empty() {
-        //     return self;
-        // }
 
         for steel_macro in macros.values_mut() {
             if !steel_macro.is_mangled() {
@@ -4395,15 +4387,28 @@ impl<'a> SemanticAnalysis<'a> {
             }
         }
 
-        for module in module_manager.modules_mut().iter_mut() {
-            for steel_macro in std::sync::Arc::make_mut(&mut module.1.macro_map).values_mut() {
+        let mut should_mangle = false;
+        for module in module_manager.modules().iter() {
+            for steel_macro in module.1.macro_map.values() {
                 if !steel_macro.is_mangled() {
-                    for expr in steel_macro.exprs_mut() {
-                        macro_replacer.visit(expr);
-                    }
+                    should_mangle = true;
+                    break;
                 }
+            }
+        }
 
-                steel_macro.mark_mangled();
+        // Delay mangling the module unless we have to
+        if should_mangle {
+            for module in module_manager.modules_mut().iter_mut() {
+                for steel_macro in std::sync::Arc::make_mut(&mut module.1.macro_map).values_mut() {
+                    if !steel_macro.is_mangled() {
+                        for expr in steel_macro.exprs_mut() {
+                            macro_replacer.visit(expr);
+                        }
+                    }
+
+                    steel_macro.mark_mangled();
+                }
             }
         }
 
