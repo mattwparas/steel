@@ -36,7 +36,6 @@ use crate::{
 use crate::{steel_vm::builtin::BuiltInModule, stop};
 use std::collections::VecDeque;
 use std::hash::Hash;
-use std::ops::Deref;
 use std::sync::Arc;
 
 use super::closed::Heap;
