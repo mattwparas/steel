@@ -1060,7 +1060,9 @@ impl<
                 crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                core::mem::transmute::<Temporary<RET>, Temporary<RETSTAT>>(temporary_borrowed_object)
+                core::mem::transmute::<Temporary<RET>, Temporary<RETSTAT>>(
+                    temporary_borrowed_object,
+                )
             };
 
             // Allocate the rooted object here
@@ -1132,7 +1134,9 @@ impl<
                 crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                core::mem::transmute::<Temporary<RET>, Temporary<RETSTAT>>(temporary_borrowed_object)
+                core::mem::transmute::<Temporary<RET>, Temporary<RETSTAT>>(
+                    temporary_borrowed_object,
+                )
             };
 
             // Allocate the rooted object here

@@ -86,6 +86,7 @@ fn create_module() -> FFIModule {
 
 struct AsyncRequest(Option<http::request::Builder>);
 struct FinalizedAsyncRequest(Option<http::request::Request<String>>);
+#[allow(dead_code)]
 struct AsyncResponse(isahc::Response<String>);
 
 #[derive(Clone)]

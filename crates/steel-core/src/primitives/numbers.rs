@@ -1,11 +1,11 @@
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
 use crate::{steelerr, stop, throw};
+use core::cmp::Ordering;
+use core::ops::Neg;
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::{BigRational, Ratio, Rational32};
 use num_traits::{pow::Pow, CheckedAdd, CheckedMul, One, Signed, ToPrimitive, Zero};
-use core::cmp::Ordering;
-use core::ops::Neg;
 
 /// Checks if the given value is a number
 ///

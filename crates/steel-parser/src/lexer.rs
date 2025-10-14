@@ -2,14 +2,14 @@ use super::parser::SourceId;
 use crate::interner::InternedString;
 use crate::tokens::{IntLiteral, Token, TokenLike, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
-use num_bigint::BigInt;
-use smallvec::{smallvec, SmallVec};
 use alloc::borrow::Cow;
+use alloc::sync::Arc;
 use core::char;
 use core::iter::Iterator;
 use core::ops::Range;
-use alloc::sync::Arc;
 use core::{iter::Peekable, str::Chars};
+use num_bigint::BigInt;
+use smallvec::{smallvec, SmallVec};
 
 pub const INFINITY: &str = "+inf.0";
 pub const NEG_INFINITY: &str = "-inf.0";

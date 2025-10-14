@@ -49,6 +49,7 @@ use crate::{
     rvals::SteelString,
 };
 pub use control::ControlOperations;
+use core::convert::TryFrom;
 pub use fs::{fs_module, fs_module_sandbox};
 pub use io::IoFunctions;
 pub use lists::UnRecoverableResult;
@@ -58,7 +59,6 @@ use num_rational::{BigRational, Rational32};
 use num_traits::ToPrimitive;
 pub use numbers::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 pub use ports::port_module;
-use core::convert::TryFrom;
 use std::result;
 pub use streams::StreamOperations;
 pub use strings::string_module;

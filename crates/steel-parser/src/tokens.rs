@@ -1,15 +1,15 @@
 use crate::lexer;
 use crate::parser::SourceId;
 use crate::span::Span;
+use alloc::borrow::Cow;
+use alloc::sync::Arc;
+use core::fmt::{self, Display};
 use core::ops;
+use core::str::FromStr;
 use num_bigint::{BigInt, ParseBigIntError};
 use num_rational::Rational32;
 use num_traits::{Num, Signed};
 use serde::{Deserialize, Serialize};
-use alloc::borrow::Cow;
-use core::fmt::{self, Display};
-use core::str::FromStr;
-use alloc::sync::Arc;
 use TokenType::*;
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]

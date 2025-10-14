@@ -1,15 +1,12 @@
-use std::rc::Rc;
-
-use abi_stable::std_types::RBoxError;
 use steel::{
     gc::Shared,
-    rvals::{Custom, SerializableSteelVal},
+    rvals::Custom,
     steel_vm::ffi::{FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
 };
 
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
 
-use syntect::highlighting::{Color, ThemeSet};
+use syntect::highlighting::ThemeSet;
 use syntect::{html::highlighted_html_for_string, parsing::SyntaxSet};
 
 // fn main() {
@@ -44,6 +41,7 @@ struct SyntaxHighlighter {
 impl Custom for SyntaxHighlighter {}
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct SyntectError(syntect::Error);
 impl Custom for SyntectError {}
 
@@ -84,6 +82,7 @@ pub struct MarkdownTag {
     source: Shared<str>,
 }
 
+#[allow(dead_code)]
 pub struct MarkdownEndTag {
     tag: TagEnd,
     source: Shared<str>,

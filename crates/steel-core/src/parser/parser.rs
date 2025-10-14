@@ -4,15 +4,15 @@ use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::HashSet;
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
-use num_rational::{BigRational, Rational32};
 use alloc::borrow::Cow;
-use std::path::{Path, PathBuf};
 use alloc::sync::Arc;
+use num_rational::{BigRational, Rational32};
+use std::path::{Path, PathBuf};
 use steel_parser::interner::InternedString;
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral, TokenType};
 
-use serde::{Deserialize, Serialize};
 use core::convert::TryFrom;
+use serde::{Deserialize, Serialize};
 
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal;

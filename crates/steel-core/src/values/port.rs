@@ -1,3 +1,4 @@
+use alloc::sync::Arc;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
@@ -9,7 +10,6 @@ use std::net::TcpStream;
 use std::process::ChildStderr;
 use std::process::ChildStdin;
 use std::process::ChildStdout;
-use alloc::sync::Arc;
 use std::sync::Mutex;
 
 use crate::gc::shared::ShareableMut;

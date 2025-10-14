@@ -20,9 +20,9 @@ pub use unsafe_erased_pointers::is_reference_type;
 use parking_lot::RwLock;
 
 pub mod shared {
+    use alloc::rc::Rc;
     use core::cell::{BorrowError, BorrowMutError, Ref, RefCell, RefMut};
     use core::ops::{Deref, DerefMut};
-    use alloc::rc::Rc;
 
     // TODO: Replace these with `parking_lot` primitives instead
     use std::sync::{
@@ -662,10 +662,10 @@ pub mod unsafe_erased_pointers {
     can lead to undefined behavior.
     */
 
-    use core::cell::Cell;
-    use std::rc::{Rc, Weak};
-    use core::sync::atomic::AtomicBool;
     use alloc::sync::Arc;
+    use core::cell::Cell;
+    use core::sync::atomic::AtomicBool;
+    use std::rc::{Rc, Weak};
     use std::{any::Any, cell::RefCell, marker::PhantomData};
 
     use crate::gc::shared::{

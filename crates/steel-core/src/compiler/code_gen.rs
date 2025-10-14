@@ -25,8 +25,8 @@ use crate::{
     rvals::IntoSteelVal,
     stop, SteelVal,
 };
-use smallvec::SmallVec;
 use core::sync::atomic::AtomicUsize;
+use smallvec::SmallVec;
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 
 use crate::rvals::Result;

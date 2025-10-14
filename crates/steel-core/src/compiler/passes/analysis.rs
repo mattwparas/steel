@@ -4400,7 +4400,8 @@ impl<'a> SemanticAnalysis<'a> {
         // Delay mangling the module unless we have to
         if should_mangle {
             for module in module_manager.modules_mut().iter_mut() {
-                for steel_macro in alloc::sync::Arc::make_mut(&mut module.1.macro_map).values_mut() {
+                for steel_macro in alloc::sync::Arc::make_mut(&mut module.1.macro_map).values_mut()
+                {
                     if !steel_macro.is_mangled() {
                         for expr in steel_macro.exprs_mut() {
                             macro_replacer.visit(expr);

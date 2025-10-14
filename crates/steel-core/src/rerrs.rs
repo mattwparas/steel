@@ -1,8 +1,8 @@
 use crate::steel_vm::vm::DehydratedCallContext;
 use crate::{parser::parser::ParseError, rvals::Custom, steel_vm::vm::DehydratedStackTrace};
+use core::{convert::Infallible, fmt::Formatter};
 #[cfg(feature = "std")]
 use std::io::IsTerminal;
-use core::{convert::Infallible, fmt::Formatter};
 // use thiserror::Error;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};

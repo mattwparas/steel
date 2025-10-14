@@ -6,8 +6,8 @@ use crate::{
     rerrs::SteelErr,
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
 };
-use serde_json::{Map, Number, Value};
 use core::convert::{TryFrom, TryInto};
+use serde_json::{Map, Number, Value};
 use steel_derive::function;
 
 /// Deserializes a JSON string into a Steel value.

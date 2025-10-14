@@ -177,7 +177,10 @@ impl VisitorMutRefUnit for FlattenBegin {
                 }
 
                 if begin.exprs.len() == 1 {
-                    *expr = core::mem::take(&mut begin.exprs).into_iter().next().unwrap();
+                    *expr = core::mem::take(&mut begin.exprs)
+                        .into_iter()
+                        .next()
+                        .unwrap();
 
                     return;
                 }
@@ -197,7 +200,10 @@ impl VisitorMutRefUnit for FlattenBegin {
                 begin.exprs = flattened_exprs;
 
                 if begin.exprs.len() == 1 {
-                    *expr = core::mem::take(&mut begin.exprs).into_iter().next().unwrap();
+                    *expr = core::mem::take(&mut begin.exprs)
+                        .into_iter()
+                        .next()
+                        .unwrap();
                 }
             }
             ExprKind::Return(r) => self.visit_return(r),

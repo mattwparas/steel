@@ -7,10 +7,10 @@ use alloc::sync::Arc;
 use core::{convert::TryFrom, fmt::Write};
 
 use crate::tokens::IntLiteral;
-use pretty::RcDoc;
-use serde::{Deserialize, Serialize};
 use core::fmt;
 use core::ops::Deref;
+use pretty::RcDoc;
+use serde::{Deserialize, Serialize};
 
 use super::{interner::InternedString, parser::SyntaxObjectId, span::Span};
 

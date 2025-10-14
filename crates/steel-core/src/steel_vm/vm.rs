@@ -52,9 +52,9 @@ use crate::{
     stop,
     values::functions::ByteCodeLambda,
 };
-use std::io::Read as _;
-use core::sync::atomic::AtomicBool;
 use alloc::sync::Arc;
+use core::sync::atomic::AtomicBool;
+use std::io::Read as _;
 use std::sync::Mutex;
 use std::{cell::RefCell, collections::HashMap, iter::Iterator};
 

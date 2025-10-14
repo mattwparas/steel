@@ -27,9 +27,9 @@ use crate::{
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
 use alloc::collections::VecDeque;
+use alloc::sync::Arc;
 use core::hash::Hash;
 use core::ops::Deref;
-use alloc::sync::Arc;
 use std::{
     cell::{Ref, RefCell},
     rc::Rc,
@@ -1278,13 +1278,17 @@ impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for RecoverableResult<T, E> 
     }
 }
 
-impl<T: IntoSteelVal, E: IntoSteelVal> From<RecoverableResult<T, E>> for core::result::Result<T, E> {
+impl<T: IntoSteelVal, E: IntoSteelVal> From<RecoverableResult<T, E>>
+    for core::result::Result<T, E>
+{
     fn from(value: RecoverableResult<T, E>) -> Self {
         value.0
     }
 }
 
-impl<T: IntoSteelVal, E: IntoSteelVal> From<core::result::Result<T, E>> for RecoverableResult<T, E> {
+impl<T: IntoSteelVal, E: IntoSteelVal> From<core::result::Result<T, E>>
+    for RecoverableResult<T, E>
+{
     fn from(value: core::result::Result<T, E>) -> Self {
         RecoverableResult(value)
     }
