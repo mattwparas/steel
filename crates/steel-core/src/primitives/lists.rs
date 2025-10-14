@@ -585,20 +585,44 @@ fn take(list: &List<SteelVal>, n: isize) -> Result<SteelVal> {
     }
 }
 
-/// Appends the given lists together. If provided with no lists, will return the empty list.
+/// Appends the given lists together. If provided with no lists, will return
+/// the empty list.
 ///
-/// (append lst ...)
+/// If the last element is not a list, an improper list will be returned
 ///
-/// lst : list?
+/// (append lst ...) -> list?  
+/// (append lst ... v) -> any/c
+///
+/// * lst : list?
+/// * v : any/c
 ///
 /// # Examples
 /// ```scheme
 /// > (append (list 1 2) (list 3 4)) ;; => '(1 2 3 4)
 /// > (append) ;; => '()
+/// > (append (list 1 2) (cons 3 4)) ;; => '(1 2 3 . 4)
+/// > (append '() 'a) ;; => 'a
 /// ```
 #[steel_derive::native_mut(name = "append", constant = true, arity = "AtLeast(0)")]
 fn append(args: &mut [SteelVal]) -> Result<SteelVal> {
-    if let Some((first, rest)) = args.split_first_mut() {
+    if let Some((last, rest)) = args
+        .split_last_mut()
+        .filter(|(val, _)| !matches!(*val, SteelVal::ListV(_)))
+    {
+        let mut last = last.clone();
+        for value in rest.iter().rev() {
+            if let SteelVal::ListV(lst) = value {
+                // TODO: potentially save this allocation
+                for item in lst.clone().reverse().into_iter() {
+                    last = SteelVal::Pair(Gc::new(Pair::cons(item, last)));
+                }
+            } else {
+                stop!(TypeMismatch => "append expects a list, found: {}", value);
+            }
+        }
+
+        Ok(last)
+    } else if let Some((first, rest)) = args.split_first_mut() {
         let initial = if let SteelVal::ListV(ref mut l) = first {
             l
         } else {

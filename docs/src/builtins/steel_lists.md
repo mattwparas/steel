@@ -12,16 +12,23 @@ Indexing into a list also takes O(n/64) - which means you'll get constant time i
 (list 10 20 30 40) ;; => '(10 20 30 40)
 ```
 ### **append**
-Appends the given lists together. If provided with no lists, will return the empty list.
+Appends the given lists together. If provided with no lists, will return
+the empty list.
 
-(append lst ...)
+If the last element is not a list, an improper list will be returned
 
-lst : list?
+(append lst ...) -> list?  
+(append lst ... v) -> any/c
+
+* lst : list?
+* v : any/c
 
 #### Examples
 ```scheme
 > (append (list 1 2) (list 3 4)) ;; => '(1 2 3 4)
 > (append) ;; => '()
+> (append (list 1 2) (cons 3 4)) ;; => '(1 2 3 . 4)
+> (append '() 'a) ;; => 'a
 ```
 ### **apply**
 Applies the given `function` with arguments as the contents of the `list`.
