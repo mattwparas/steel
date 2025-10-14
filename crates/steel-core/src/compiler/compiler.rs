@@ -708,7 +708,7 @@ impl Compiler {
         let id = self.sources.add_source(expr_str.clone(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = path
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
             .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
@@ -738,7 +738,7 @@ impl Compiler {
         let id = self.sources.add_source(expr_str.clone(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = path
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
             .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
@@ -764,7 +764,7 @@ impl Compiler {
         let id = self.sources.add_source(expr_str.to_string(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
             Parser::new(expr_str, Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
@@ -783,7 +783,7 @@ impl Compiler {
         let id = self.sources.add_source(expr_str.to_string(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
             Parser::new(expr_str, Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
@@ -844,7 +844,7 @@ impl Compiler {
         // let mut index_buffer = Vec::new();
 
         let analysis = {
-            let mut analysis = std::mem::take(&mut self.analysis);
+            let mut analysis = core::mem::take(&mut self.analysis);
 
             analysis.fresh_from_exprs(&expanded_statements);
             analysis.populate_captures_twice(&expanded_statements);
@@ -969,7 +969,7 @@ impl Compiler {
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements, true);
 
-        let mut analysis = std::mem::take(&mut self.analysis);
+        let mut analysis = core::mem::take(&mut self.analysis);
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
 
@@ -1158,7 +1158,7 @@ impl Compiler {
         // let mut expanded_statements =
         //     self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
-        let mut analysis = std::mem::take(&mut self.analysis);
+        let mut analysis = core::mem::take(&mut self.analysis);
 
         // Pre populate the analysis here
         analysis.fresh_from_exprs(&expanded_statements);
@@ -1453,7 +1453,7 @@ fn filter_provides(expanded_statements: Vec<ExprKind>) -> Vec<ExprKind> {
         .into_iter()
         .filter_map(|expr| match expr {
             ExprKind::Begin(mut b) => {
-                let exprs = std::mem::take(&mut b.exprs);
+                let exprs = core::mem::take(&mut b.exprs);
                 b.exprs = exprs
                     .into_iter()
                     .filter_map(|e| match e {

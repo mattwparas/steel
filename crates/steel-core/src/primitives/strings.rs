@@ -113,7 +113,7 @@ mod radix_fmt {
 
     pub fn small(acc: &mut Vec<u8>, value: isize, radix: usize) {
         let start = acc.len();
-        let numbers = std::iter::successors(Some(value.unsigned_abs()), |n| match n / radix {
+        let numbers = core::iter::successors(Some(value.unsigned_abs()), |n| match n / radix {
             0 => None,
             n => Some(n),
         });
@@ -447,7 +447,7 @@ pub fn make_string(k: usize, mut c: RestArgsIter<'_, char>) -> Result<SteelVal> 
     }
 
     let c = char.unwrap_or('\0');
-    Ok(std::iter::repeat_n(c, k).collect::<String>().into())
+    Ok(core::iter::repeat_n(c, k).collect::<String>().into())
 }
 
 /// Replaces all occurrences of a pattern into the given string
@@ -1135,8 +1135,8 @@ fn bounds(
     i: Option<isize>,
     j: Option<isize>,
     name: &str,
-) -> Result<std::ops::Range<usize>> {
-    use std::iter::once;
+) -> Result<core::ops::Range<usize>> {
+    use core::iter::once;
 
     let i = i.unwrap_or(0);
 

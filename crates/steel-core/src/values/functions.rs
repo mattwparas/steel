@@ -140,7 +140,7 @@ impl PartialEq for ByteCodeLambda {
 
 impl Eq for ByteCodeLambda {}
 
-impl std::hash::Hash for ByteCodeLambda {
+impl core::hash::Hash for ByteCodeLambda {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
         // self.body_exp.as_ptr().hash(state);
@@ -196,13 +196,13 @@ impl RootedInstructions {
     }
 }
 
-impl std::fmt::Debug for RootedInstructions {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for RootedInstructions {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{:?}", self.inner)
     }
 }
 
-impl std::ops::Deref for RootedInstructions {
+impl core::ops::Deref for RootedInstructions {
     type Target = [DenseInstruction];
 
     fn deref(&self) -> &Self::Target {

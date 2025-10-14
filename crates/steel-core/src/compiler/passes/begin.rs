@@ -177,12 +177,12 @@ impl VisitorMutRefUnit for FlattenBegin {
                 }
 
                 if begin.exprs.len() == 1 {
-                    *expr = std::mem::take(&mut begin.exprs).into_iter().next().unwrap();
+                    *expr = core::mem::take(&mut begin.exprs).into_iter().next().unwrap();
 
                     return;
                 }
 
-                let begin_exprs = std::mem::take(&mut begin.exprs);
+                let begin_exprs = core::mem::take(&mut begin.exprs);
 
                 let mut flattened_exprs = Vec::with_capacity(begin_exprs.len());
 
@@ -197,7 +197,7 @@ impl VisitorMutRefUnit for FlattenBegin {
                 begin.exprs = flattened_exprs;
 
                 if begin.exprs.len() == 1 {
-                    *expr = std::mem::take(&mut begin.exprs).into_iter().next().unwrap();
+                    *expr = core::mem::take(&mut begin.exprs).into_iter().next().unwrap();
                 }
             }
             ExprKind::Return(r) => self.visit_return(r),

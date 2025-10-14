@@ -4,8 +4,8 @@ use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::{BigRational, Ratio, Rational32};
 use num_traits::{pow::Pow, CheckedAdd, CheckedMul, One, Signed, ToPrimitive, Zero};
-use std::cmp::Ordering;
-use std::ops::Neg;
+use core::cmp::Ordering;
+use core::ops::Neg;
 
 /// Checks if the given value is a number
 ///
@@ -1535,8 +1535,8 @@ fn exact_integer_sqrt(number: &SteelVal) -> Result<SteelVal> {
 fn exact_integer_impl<'a, N>(target: &'a N) -> (N, N)
 where
     N: num_integer::Roots + Clone,
-    &'a N: std::ops::Mul<&'a N, Output = N>,
-    N: std::ops::Sub<N, Output = N>,
+    &'a N: core::ops::Mul<&'a N, Output = N>,
+    N: core::ops::Sub<N, Output = N>,
 {
     let x = target.sqrt();
     let x_sq = x.clone() * x.clone();

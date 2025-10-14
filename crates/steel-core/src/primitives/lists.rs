@@ -300,7 +300,7 @@ fn pair(list: &SteelVal) -> bool {
 /// ```
 #[steel_derive::function(name = "cons", arity = "Exact(2)")]
 pub fn cons(arg: &mut SteelVal, arg2: &mut SteelVal) -> Result<SteelVal> {
-    match (std::mem::replace(arg, SteelVal::Void), arg2) {
+    match (core::mem::replace(arg, SteelVal::Void), arg2) {
         (left, SteelVal::ListV(right)) => {
             right.cons_mut(left);
 
@@ -409,7 +409,7 @@ fn length(list: &List<SteelVal>) -> usize {
 /// ```
 #[steel_derive::function(name = "reverse", constant = true)]
 fn reverse(arg: &mut SteelVal) -> Result<SteelVal> {
-    if let SteelVal::ListV(l) = std::mem::replace(arg, SteelVal::Void) {
+    if let SteelVal::ListV(l) = core::mem::replace(arg, SteelVal::Void) {
         Ok(SteelVal::ListV(l.reverse()))
     } else {
         stop!(TypeMismatch => "reverse expects a list")
@@ -511,7 +511,7 @@ fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "cdr", constant = true)]
 pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
-    match std::mem::replace(arg, SteelVal::Void) {
+    match core::mem::replace(arg, SteelVal::Void) {
         SteelVal::ListV(mut l) => {
             if l.is_empty() {
                 stop!(Generic => "cdr expects a non empty list");
@@ -549,7 +549,7 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "rest", constant = true, arity = "Exact(1)")]
 fn rest(arg: &mut SteelVal) -> Result<SteelVal> {
-    if let SteelVal::ListV(mut l) = std::mem::replace(arg, SteelVal::Void) {
+    if let SteelVal::ListV(mut l) = core::mem::replace(arg, SteelVal::Void) {
         if l.is_empty() {
             stop!(Generic => "rest expects a non empty list");
         }

@@ -11,7 +11,7 @@ use crate::rvals::{Result, SteelByteVector, SteelVal};
 use super::visitors::VisitorMut;
 use super::{ast::Atom, span::Span, visitors::ConsumingVisitor};
 
-use std::convert::TryFrom;
+use core::convert::TryFrom;
 
 pub struct TryFromExprKindForSteelVal {
     inside_quote: bool,
@@ -133,7 +133,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
 
     fn visit_list(&mut self, l: super::ast::List) -> Self::Output {
         if !l.improper {
-            let items: std::result::Result<List<_>, SteelErr> =
+            let items: core::result::Result<List<_>, SteelErr> =
                 l.args.into_iter().map(|x| self.visit(x)).collect();
 
             return Ok(items?.into());
@@ -145,7 +145,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
             stop!(Generic => "internal compiler error - unexpected malformed improper list");
         };
 
-        let items: std::result::Result<Vec<_>, SteelErr> =
+        let items: core::result::Result<Vec<_>, SteelErr> =
             l.args.into_iter().map(|x| self.visit(x)).collect();
 
         let pair = items?
@@ -440,7 +440,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
     fn visit_list(&mut self, l: &steel_parser::ast::List) -> Self::Output {
         let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::List(l.clone()))?;
 
-        let items: std::result::Result<List<_>, SteelErr> =
+        let items: core::result::Result<List<_>, SteelErr> =
             l.args.iter().map(|x| self.visit(x)).collect();
 
         let items = items?;
@@ -521,7 +521,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
                     items_span,
                 ))))
             })
-            .collect::<std::result::Result<List<SteelVal>, SteelErr>>()?;
+            .collect::<core::result::Result<List<SteelVal>, SteelErr>>()?;
         // .into(),
 
         let span_vec = items
@@ -714,7 +714,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     fn visit_list(&mut self, l: super::ast::List) -> Self::Output {
         let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::List(l.clone()))?;
 
-        let items: std::result::Result<List<_>, SteelErr> =
+        let items: core::result::Result<List<_>, SteelErr> =
             l.args.into_iter().map(|x| self.visit(x)).collect();
 
         let items = items?;

@@ -1,3 +1,8 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[allow(unused_extern_crates)]
+extern crate alloc; // Required for heap-backed types when std is disabled
+
 extern crate im_rc;
 #[macro_use]
 mod env;

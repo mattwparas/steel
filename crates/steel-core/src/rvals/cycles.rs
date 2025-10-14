@@ -58,7 +58,7 @@ impl CycleDetector {
     }
 
     fn start_format(mut self, val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
-        for node in std::mem::take(&mut self.values) {
+        for node in core::mem::take(&mut self.values) {
             let id = match &node {
                 SteelVal::CustomStruct(c) => {
                     let ptr_addr = c.as_ptr() as usize;
@@ -401,12 +401,12 @@ impl CycleDetector {
 }
 
 fn replace_with_void(value: &mut SteelVal) -> SteelVal {
-    std::mem::replace(value, SteelVal::Void)
+    core::mem::replace(value, SteelVal::Void)
 }
 
 impl SteelVal {
     fn make_void(&mut self) -> SteelVal {
-        std::mem::replace(self, SteelVal::Void)
+        core::mem::replace(self, SteelVal::Void)
     }
 }
 
@@ -735,7 +735,7 @@ pub(crate) mod drop_impls {
                 DROP_BUFFER
                     .try_with(|drop_buffer| {
                         if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                            for value in std::mem::take(inner) {
+                            for value in core::mem::take(inner) {
                                 drop_buffer.push_back(value);
                             }
 
@@ -757,7 +757,7 @@ pub(crate) mod drop_impls {
                 DROP_BUFFER
                     .try_with(|drop_buffer| {
                         if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                            for (key, value) in std::mem::take(inner) {
+                            for (key, value) in core::mem::take(inner) {
                                 drop_buffer.push_back(key);
                                 drop_buffer.push_back(value);
                             }
@@ -779,16 +779,16 @@ pub(crate) mod drop_impls {
             if DROP_BUFFER
                 .try_with(|drop_buffer| {
                     if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                        // for value in std::mem::take(&mut self.fields) {
+                        // for value in core::mem::take(&mut self.fields) {
                         //     drop_buffer.push_back(value);
                         // }
 
                         drop_buffer.extend(
                             self.fields.drain(..),
-                            // std::mem::replace(&mut self.fields, Recycle::noop()).into_iter(),
+                            // core::mem::replace(&mut self.fields, Recycle::noop()).into_iter(),
                         );
 
-                        // std::mem::replace(&mut self, self.fields.put();
+                        // core::mem::replace(&mut self, self.fields.put();
 
                         IterativeDropHandler::bfs(&mut drop_buffer);
                     }
@@ -830,7 +830,7 @@ pub(crate) mod drop_impls {
     //         DROP_BUFFER
     //             .try_with(|drop_buffer| {
     //                 if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-    //                     for value in std::mem::take(&mut self.captures) {
+    //                     for value in core::mem::take(&mut self.captures) {
     //                         drop_buffer.push_back(value);
     //                     }
 
@@ -913,7 +913,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) {
         if let Ok(mut inner) = closure.try_unwrap() {
-            for value in std::mem::take(&mut inner.captures) {
+            for value in core::mem::take(&mut inner.captures) {
                 self.push_back(value);
             }
         }
@@ -921,7 +921,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     fn visit_immutable_vector(&mut self, mut vector: SteelVector) {
         if let Some(inner) = vector.0.get_mut() {
-            for value in std::mem::take(inner) {
+            for value in core::mem::take(inner) {
                 self.push_back(value);
             }
         }
@@ -938,7 +938,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     fn visit_hash_map(&mut self, mut hashmap: SteelHashMap) {
         if let Some(inner) = hashmap.0.get_mut() {
-            for (key, value) in std::mem::take(inner) {
+            for (key, value) in core::mem::take(inner) {
                 self.push_back(key);
                 self.push_back(value);
             }
@@ -947,7 +947,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     fn visit_hash_set(&mut self, mut hashset: SteelHashSet) {
         if let Some(inner) = hashset.0.get_mut() {
-            for key in std::mem::take(inner) {
+            for key in core::mem::take(inner) {
                 self.push_back(key);
             }
         }
@@ -1011,19 +1011,19 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         {
             match inner {
                 ContinuationMark::Closed(mut inner) => {
-                    for value in std::mem::take(&mut inner.stack) {
+                    for value in core::mem::take(&mut inner.stack) {
                         self.push_back(value);
                     }
 
                     if let Some(inner) = inner.current_frame.function.get_mut() {
-                        for value in std::mem::take(&mut inner.captures) {
+                        for value in core::mem::take(&mut inner.captures) {
                             self.push_back(value);
                         }
                     }
 
-                    for mut frame in std::mem::take(&mut inner.stack_frames) {
+                    for mut frame in core::mem::take(&mut inner.stack_frames) {
                         if let Some(inner) = frame.function.get_mut() {
-                            for value in std::mem::take(&mut inner.captures) {
+                            for value in core::mem::take(&mut inner.captures) {
                                 self.push_back(value);
                             }
                         }
@@ -1036,7 +1036,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                     }
 
                     if let Some(inner) = inner.current_frame.function.get_mut() {
-                        for value in std::mem::take(&mut inner.captures) {
+                        for value in core::mem::take(&mut inner.captures) {
                             self.push_back(value);
                         }
                     }
@@ -1172,7 +1172,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 }
 
                 // let buffer = VecDeque::new();
-                let original_buffer = std::mem::replace(self.drop_buffer, VecDeque::new());
+                let original_buffer = core::mem::replace(self.drop_buffer, VecDeque::new());
 
                 // println!("Moving to another thread");
 
@@ -1267,7 +1267,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
 
     fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) {
         if let Ok(mut inner) = closure.try_unwrap() {
-            for value in std::mem::take(&mut inner.captures) {
+            for value in core::mem::take(&mut inner.captures) {
                 self.push_back(value);
             }
         }
@@ -1275,7 +1275,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
 
     fn visit_immutable_vector(&mut self, mut vector: SteelVector) {
         if let Some(inner) = vector.0.get_mut() {
-            for value in std::mem::take(inner) {
+            for value in core::mem::take(inner) {
                 self.push_back(value);
             }
         }
@@ -1295,7 +1295,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
 
     fn visit_hash_map(&mut self, mut hashmap: SteelHashMap) {
         if let Some(inner) = hashmap.0.get_mut() {
-            for (key, value) in std::mem::take(inner) {
+            for (key, value) in core::mem::take(inner) {
                 self.push_back(key);
                 self.push_back(value);
             }
@@ -1304,7 +1304,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
 
     fn visit_hash_set(&mut self, mut hashset: SteelHashSet) {
         if let Some(inner) = hashset.0.get_mut() {
-            for key in std::mem::take(inner) {
+            for key in core::mem::take(inner) {
                 self.push_back(key);
             }
         }
@@ -1366,19 +1366,19 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
         if let Ok(inner) = crate::gc::Shared::try_unwrap(continuation.inner).map(|x| x.consume()) {
             match inner {
                 ContinuationMark::Closed(mut inner) => {
-                    for value in std::mem::take(&mut inner.stack) {
+                    for value in core::mem::take(&mut inner.stack) {
                         self.push_back(value);
                     }
 
                     if let Some(inner) = inner.current_frame.function.get_mut() {
-                        for value in std::mem::take(&mut inner.captures) {
+                        for value in core::mem::take(&mut inner.captures) {
                             self.push_back(value);
                         }
                     }
 
-                    for mut frame in std::mem::take(&mut inner.stack_frames) {
+                    for mut frame in core::mem::take(&mut inner.stack_frames) {
                         if let Some(inner) = frame.function.get_mut() {
-                            for value in std::mem::take(&mut inner.captures) {
+                            for value in core::mem::take(&mut inner.captures) {
                                 self.push_back(value);
                             }
                         }
@@ -1391,7 +1391,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
                     }
 
                     if let Some(inner) = inner.current_frame.function.get_mut() {
-                        for value in std::mem::take(&mut inner.captures) {
+                        for value in core::mem::take(&mut inner.captures) {
                             self.push_back(value);
                         }
                     }

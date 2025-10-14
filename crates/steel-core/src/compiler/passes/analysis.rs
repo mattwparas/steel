@@ -82,7 +82,7 @@ pub struct SemanticInformation {
 
 #[test]
 fn check_size_of_info() {
-    println!("{}", std::mem::size_of::<SemanticInformation>());
+    println!("{}", core::mem::size_of::<SemanticInformation>());
 }
 
 impl SemanticInformation {
@@ -3018,7 +3018,7 @@ impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
                             let mut dummy = ExprKind::List(List::new(Vec::new()));
 
                             // Have the lambda now actually point to this dummy list
-                            std::mem::swap(lambda, &mut dummy);
+                            core::mem::swap(lambda, &mut dummy);
 
                             // Construct the global definition, this is something like
                             //
@@ -3184,7 +3184,7 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
                 if let Some(analysis) = self.analysis.get(&a.syn) {
                     if analysis.kind == IdentifierStatus::HeapAllocated {
                         let mut dummy = ExprKind::List(List::new(Vec::new()));
-                        std::mem::swap(&mut dummy, expr);
+                        core::mem::swap(&mut dummy, expr);
 
                         *expr = unbox_argument(dummy);
                     }
@@ -3206,10 +3206,10 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
                 self.visit(&mut s.expr);
 
                 let mut set_expr = ExprKind::List(List::new(Vec::new()));
-                std::mem::swap(&mut s.expr, &mut set_expr);
+                core::mem::swap(&mut s.expr, &mut set_expr);
 
                 let mut dummy_ident = ExprKind::List(List::new(Vec::new()));
-                std::mem::swap(&mut dummy_ident, &mut s.variable);
+                core::mem::swap(&mut dummy_ident, &mut s.variable);
 
                 let new_set_expr = setbox_argument(dummy_ident, set_expr);
 
@@ -3251,7 +3251,7 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
             if !mutable_variables.is_empty() {
                 // let mut body = ExprKind::List(List::new(Vec::new()));
 
-                // std::mem::swap(&mut lambda_function.body, &mut body);
+                // core::mem::swap(&mut lambda_function.body, &mut body);
 
                 // let wrapped_lambda = LambdaFunction::new(
                 //     mutable_variables.clone(),
@@ -3274,7 +3274,7 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
                         .into_iter()
                         .zip(mutable_variables.into_iter().map(box_argument))
                         .collect(),
-                    std::mem::take(&mut l.body_expr),
+                    core::mem::take(&mut l.body_expr),
                     l.location.clone(),
                 );
 
@@ -3312,7 +3312,7 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
             if !mutable_variables.is_empty() {
                 let mut body = ExprKind::List(List::new(Vec::new()));
 
-                std::mem::swap(&mut lambda_function.body, &mut body);
+                core::mem::swap(&mut lambda_function.body, &mut body);
 
                 let wrapped_lambda = LambdaFunction::new(
                     mutable_variables.clone(),
@@ -3426,7 +3426,7 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
 
             // let mut removed_function = begin.exprs.get_mut(index).unwrap();
 
-            // std::mem::swap(&mut dummy_define, &mut removed_function);
+            // core::mem::swap(&mut dummy_define, &mut removed_function);
 
             let removed_function = begin.exprs.remove(index);
             self.lifted_functions.push(removed_function);
@@ -3602,20 +3602,20 @@ impl<'a> ExprContainsIds<'a> {
     ) -> bool {
         matches!(
             ExprContainsIds { analysis, ids }.visit(expr),
-            std::ops::ControlFlow::Break(_)
+            core::ops::ControlFlow::Break(_)
         )
     }
 }
 
 impl<'a> VisitorMutControlFlow for ExprContainsIds<'a> {
-    fn visit_atom(&mut self, a: &Atom) -> std::ops::ControlFlow<()> {
+    fn visit_atom(&mut self, a: &Atom) -> core::ops::ControlFlow<()> {
         if let Some(refers_to) = self.analysis.get(&a.syn).and_then(|x| x.refers_to) {
             if self.ids.contains(&refers_to) {
-                return std::ops::ControlFlow::Break(());
+                return core::ops::ControlFlow::Break(());
             }
         }
 
-        std::ops::ControlFlow::Continue(())
+        core::ops::ControlFlow::Continue(())
     }
 }
 
@@ -3646,7 +3646,7 @@ impl VisitorMutRefUnit for FlattenEmptyLets {
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => {
                 if l.bindings.is_empty() {
-                    *expr = std::mem::replace(&mut l.body_expr, ExprKind::empty());
+                    *expr = core::mem::replace(&mut l.body_expr, ExprKind::empty());
                     self.visit(expr)
                 } else {
                     self.visit(&mut l.body_expr)
@@ -3702,7 +3702,7 @@ impl<'a> VisitorMutRefUnit for FlattenAnonymousFunctionCalls<'a> {
                             let mut dummy = ExprKind::empty();
 
                             // Extract the inner body
-                            std::mem::swap(&mut function_b.body, &mut dummy);
+                            core::mem::swap(&mut function_b.body, &mut dummy);
 
                             inner_body = Some(dummy);
 
@@ -4400,7 +4400,7 @@ impl<'a> SemanticAnalysis<'a> {
         // Delay mangling the module unless we have to
         if should_mangle {
             for module in module_manager.modules_mut().iter_mut() {
-                for steel_macro in std::sync::Arc::make_mut(&mut module.1.macro_map).values_mut() {
+                for steel_macro in alloc::sync::Arc::make_mut(&mut module.1.macro_map).values_mut() {
                     if !steel_macro.is_mangled() {
                         for expr in steel_macro.exprs_mut() {
                             macro_replacer.visit(expr);
@@ -4677,7 +4677,7 @@ impl<'a> SemanticAnalysis<'a> {
             if let ExprKind::Let(l) = anon {
                 if l.bindings.is_empty() {
                     let mut dummy = ExprKind::List(List::new(Vec::new()));
-                    std::mem::swap(&mut l.body_expr, &mut dummy);
+                    core::mem::swap(&mut l.body_expr, &mut dummy);
                     *anon = dummy;
 
                     re_run_analysis = true;
@@ -4756,7 +4756,7 @@ impl<'a> SemanticAnalysis<'a> {
                         if f.args.is_empty() && arg_count == 0 {
                             // Take out the body of the function - we're going to want to use that now
                             let mut dummy = ExprKind::List(List::new(Vec::new()));
-                            std::mem::swap(&mut f.body, &mut dummy);
+                            core::mem::swap(&mut f.body, &mut dummy);
                             *anon = dummy;
 
                             re_run_analysis = true;
@@ -4811,12 +4811,12 @@ impl<'a> SemanticAnalysis<'a> {
 
                 if let ExprKind::LambdaFunction(mut f) = function {
                     let mut function_body = ExprKind::List(List::new(Vec::new()));
-                    std::mem::swap(&mut f.body, &mut function_body);
+                    core::mem::swap(&mut f.body, &mut function_body);
 
                     let let_expr = Let::new(
                         f.args
                             .into_iter()
-                            .zip(std::mem::take(&mut l.args))
+                            .zip(core::mem::take(&mut l.args))
                             .map(|x| (x.0, x.1))
                             .collect(),
                         function_body,

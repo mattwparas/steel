@@ -16,7 +16,7 @@ use crate::parser::{
 };
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use arc_swap::ArcSwap;
 // TODO add the serializing and deserializing for constants
@@ -159,7 +159,7 @@ impl ConstantMap {
             .into_iter()
             .map(|x| {
                 // Parse the input
-                let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+                let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
                     Parser::new_flat(&x, SourceId::none()).collect();
                 let mut parsed = parsed?;
 

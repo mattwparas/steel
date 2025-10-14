@@ -750,11 +750,11 @@ impl Engine {
     //     // Set the syntax object id to be AFTER the previous items have been parsed
     //     SYNTAX_OBJECT_ID.store(
     //         bootstrap.syntax_object_id,
-    //         std::sync::atomic::Ordering::Relaxed,
+    //         core::sync::atomic::Ordering::Relaxed,
     //     );
 
     //     crate::compiler::code_gen::FUNCTION_ID
-    //         .store(bootstrap.function_id, std::sync::atomic::Ordering::Relaxed);
+    //         .store(bootstrap.function_id, core::sync::atomic::Ordering::Relaxed);
 
     //     vm.sources = bootstrap.sources;
     //     // vm.compiler.macro_env = bootstrap.macros;
@@ -843,9 +843,9 @@ impl Engine {
     //     }
 
     //     // Grab the last value of the offset
-    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(core::sync::atomic::Ordering::Relaxed);
     //     let function_id =
-    //         crate::compiler::code_gen::FUNCTION_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //         crate::compiler::code_gen::FUNCTION_ID.load(core::sync::atomic::Ordering::Relaxed);
 
     //     let bootstrap = StartupBootstrapImage {
     //         syntax_object_id,
@@ -921,9 +921,9 @@ impl Engine {
     //     }
 
     //     // Grab the last value of the offset
-    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(core::sync::atomic::Ordering::Relaxed);
     //     let function_id =
-    //         crate::compiler::code_gen::FUNCTION_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //         crate::compiler::code_gen::FUNCTION_ID.load(core::sync::atomic::Ordering::Relaxed);
 
     //     let kernel_sources = top_level_engine
     //         .compiler
@@ -999,11 +999,11 @@ impl Engine {
     //     // Set the syntax object id to be AFTER the previous items have been parsed
     //     SYNTAX_OBJECT_ID.store(
     //         bootstrap.syntax_object_id,
-    //         std::sync::atomic::Ordering::Relaxed,
+    //         core::sync::atomic::Ordering::Relaxed,
     //     );
 
     //     crate::compiler::code_gen::FUNCTION_ID
-    //         .store(bootstrap.function_id, std::sync::atomic::Ordering::Relaxed);
+    //         .store(bootstrap.function_id, core::sync::atomic::Ordering::Relaxed);
 
     //     let bootstrap_kernel = bootstrap.kernel.unwrap();
 
@@ -1084,7 +1084,7 @@ impl Engine {
 
     //         // Could fail here
     //         let parsed: Vec<ExprKind> = Parser::new(source, Some(id))
-    //             .collect::<std::result::Result<_, _>>()
+    //             .collect::<core::result::Result<_, _>>()
     //             .unwrap();
 
     //         asts.push(parsed.clone());
@@ -1093,7 +1093,7 @@ impl Engine {
     //     }
 
     //     // Grab the last value of the offset
-    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(core::sync::atomic::Ordering::Relaxed);
 
     //     let bootstrap = BootstrapImage {
     //         interner: take_interner(),
@@ -1936,7 +1936,7 @@ impl Engine {
     }
 
     pub fn emit_ast(expr: &str) -> Result<Vec<ExprKind>> {
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
             Parser::new(expr, SourceId::none()).collect();
         Ok(parsed?)
     }
@@ -2219,8 +2219,8 @@ impl Engine {
 // #[cfg(test)]
 // mod on_progress_tests {
 //     use super::*;
-//     use std::cell::Cell;
-//     use std::rc::Rc;
+//     use core::cell::Cell;
+//     use alloc::rc::Rc;
 
 //     // TODO: At the moment the on progress business is turned off
 

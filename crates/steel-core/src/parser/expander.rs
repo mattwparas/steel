@@ -8,8 +8,8 @@ use crate::parser::tokens::TokenType;
 use crate::parser::span::Span;
 
 use crate::rvals::{IntoSteelVal, Result};
-use std::cell::RefCell;
-use std::sync::Arc;
+use core::cell::RefCell;
+use alloc::sync::Arc;
 use std::{
     collections::HashMap,
     fs::File,
@@ -503,8 +503,8 @@ pub enum MacroPattern {
     Keyword(InternedString),
 }
 
-impl std::fmt::Debug for MacroPattern {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for MacroPattern {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             MacroPattern::Single(s) => f.debug_tuple("Single").field(&s.resolve()).finish(),
             MacroPattern::Syntax(s) => f.debug_tuple("Syntax").field(&s.resolve()).finish(),
@@ -1166,8 +1166,8 @@ fn collect_bindings(
                 for _ in 0..expected_many_captures {
                     if let Some((_, expr)) = expr_iter.next() {
                         collect_bindings(
-                            std::slice::from_ref(pat),
-                            std::slice::from_ref(expr),
+                            core::slice::from_ref(pat),
+                            core::slice::from_ref(expr),
                             &mut nested_bindings,
                             binding_kind,
                             false,
@@ -1222,8 +1222,8 @@ fn collect_bindings(
                     _ => {
                         if let Some(pat) = non_list_match(&children.args) {
                             collect_bindings(
-                                std::slice::from_ref(pat),
-                                std::slice::from_ref(child),
+                                core::slice::from_ref(pat),
+                                core::slice::from_ref(child),
                                 bindings,
                                 binding_kind,
                                 false,

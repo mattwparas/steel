@@ -9,7 +9,7 @@ use std::net::TcpStream;
 use std::process::ChildStderr;
 use std::process::ChildStdin;
 use std::process::ChildStdout;
-use std::sync::Arc;
+use alloc::sync::Arc;
 use std::sync::Mutex;
 
 use crate::gc::shared::ShareableMut;
@@ -32,8 +32,8 @@ pub struct SteelPort {
     pub(crate) port: GcMut<SteelPortRepr>,
 }
 
-impl std::fmt::Display for SteelPort {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for SteelPort {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.port.read())
     }
 }
@@ -219,8 +219,8 @@ pub enum SteelPortRepr {
     Closed,
 }
 
-impl std::fmt::Debug for SteelPortRepr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for SteelPortRepr {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             SteelPortRepr::FileInput(name, w) => {
                 f.debug_tuple("FileInput").field(name).field(w).finish()
@@ -247,8 +247,8 @@ impl std::fmt::Debug for SteelPortRepr {
     }
 }
 
-impl std::fmt::Display for SteelPortRepr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for SteelPortRepr {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             SteelPortRepr::FileInput(file, _) => write!(f, "#<input-port:{file}>"),
             SteelPortRepr::FileOutput(file, _) => write!(f, "#<output-port:{file}>"),

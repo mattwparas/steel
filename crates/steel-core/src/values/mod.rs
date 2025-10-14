@@ -48,7 +48,6 @@ mod im_shims {
 
 #[cfg(all(feature = "sync", feature = "imbl"))]
 mod im_shims {
-
     use std::hash::RandomState;
 
     use imbl::shared_ptr::DefaultSharedPtr;

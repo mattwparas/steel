@@ -92,7 +92,7 @@ impl FFIModule {
         &self,
         name: &str,
         writer: &mut W,
-    ) -> std::result::Result<(), std::io::Error> {
+    ) -> core::result::Result<(), std::io::Error> {
         let mut bindings = self.bindings();
 
         bindings.sort();
@@ -179,7 +179,7 @@ pub struct OpaqueFFIValueReturn {
 }
 
 impl Custom for OpaqueFFIValueReturn {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         #[cfg(feature = "ffi-format")]
         {
             Some(Ok(self.inner.obj_ffi_fmt().into_string()))
@@ -233,7 +233,7 @@ macro_rules! conversion_error {
     };
 }
 
-impl<T: IntoFFIVal, E: IntoFFIVal + std::fmt::Debug> IntoFFIVal for std::result::Result<T, E> {
+impl<T: IntoFFIVal, E: IntoFFIVal + core::fmt::Debug> IntoFFIVal for core::result::Result<T, E> {
     fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
         match self {
             Ok(v) => v.into_ffi_val(),
@@ -390,7 +390,7 @@ impl<'a> FromFFIArg<'a> for RVec<u8> {
 
 impl<'a, T: Custom + Clone + 'static> FromFFIArg<'a> for T {
     fn from_ffi_arg(val: FFIArg<'a>) -> RResult<Self, RBoxError> {
-        let lifted = unsafe { std::mem::transmute::<FFIArg<'a>, FFIArg<'static>>(val) };
+        let lifted = unsafe { core::mem::transmute::<FFIArg<'a>, FFIArg<'static>>(val) };
         match lifted {
             FFIArg::Custom { mut custom } => {
                 let inner = as_underlying_ffi_type::<T>(&mut custom.inner);
@@ -592,7 +592,7 @@ impl FromFFIVal for FFIValue {
     }
 }
 
-// impl<T: FromFFIVal, E: FromFFIVal> FromFFIVal for std::result::Result<T, E> {
+// impl<T: FromFFIVal, E: FromFFIVal> FromFFIVal for core::result::Result<T, E> {
 //     fn from_ffi_val(val: FFIValue) -> RResult<Self, RBoxError> {
 //         todo!()
 //     }
@@ -814,7 +814,7 @@ macro_rules! impl_register_fn_ffi {
                     }
 
                     let mut arg_iter = args.into_iter();
-                    let res = func($(ffi_try!(<$param>::from_ffi_arg(std::mem::replace(arg_iter.next().unwrap(), FFIArg::Void))),)*);
+                    let res = func($(ffi_try!(<$param>::from_ffi_arg(core::mem::replace(arg_iter.next().unwrap(), FFIArg::Void))),)*);
 
                     // let res = func($({
                     //     ffi_try!(<$param>::from_ffi_val());
@@ -856,7 +856,7 @@ macro_rules! impl_register_fn_ffi {
 
                     let mut arg1 = ffi_try!(<SELF>::as_mut_ref(&mut rarg1));
 
-                    let res = func(&mut arg1, $(ffi_try!(<$param>::from_ffi_arg(std::mem::replace(arg_iter.next().unwrap(), FFIArg::Void))),)*);
+                    let res = func(&mut arg1, $(ffi_try!(<$param>::from_ffi_arg(core::mem::replace(arg_iter.next().unwrap(), FFIArg::Void))),)*);
 
                     res.into_ffi_val()
                 };
@@ -894,7 +894,7 @@ macro_rules! impl_register_fn_ffi {
 
                     let mut arg1 = ffi_try!(<SELF>::as_mut_ref(&mut rarg1));
 
-                    let res = func(&mut arg1, $(ffi_try!(<$param>::from_ffi_arg(std::mem::replace(arg_iter.next().unwrap(), FFIArg::Void))),)*);
+                    let res = func(&mut arg1, $(ffi_try!(<$param>::from_ffi_arg(core::mem::replace(arg_iter.next().unwrap(), FFIArg::Void))),)*);
 
                     res.into_ffi_val()
                 };
@@ -1217,8 +1217,8 @@ impl<'a> FFIArg<'a> {
     }
 }
 
-impl<'a> std::hash::Hash for FFIArg<'a> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl<'a> core::hash::Hash for FFIArg<'a> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         match self {
             FFIArg::StringRef(rstr) => {
                 state.write_u8(0);
@@ -1378,8 +1378,8 @@ impl FFIValue {
     }
 }
 
-impl std::hash::Hash for FFIValue {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl core::hash::Hash for FFIValue {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         match self {
             FFIValue::BoolV(b) => {
                 state.write_u8(0);
@@ -1428,8 +1428,8 @@ impl PartialEq for FFIValue {
 
 impl Eq for FFIValue {}
 
-impl std::fmt::Debug for FFIValue {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for FFIValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             FFIValue::BoxedFunction(func) => write!(f, "{:?}", func),
             FFIValue::Custom { .. } => write!(f, "#<OpaqueFFIValue>"),
@@ -1450,8 +1450,8 @@ impl std::fmt::Debug for FFIValue {
     }
 }
 
-impl<'a> std::fmt::Debug for FFIArg<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Debug for FFIArg<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Custom { .. } => write!(f, "#<OpaqueFFIValue>"),
             Self::CustomRef { .. } => write!(f, "#<OpaqueFFIValue>"),
@@ -1619,8 +1619,8 @@ impl Clone for FFIBoxedDynFunction {
     }
 }
 
-impl std::fmt::Debug for FFIBoxedDynFunction {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for FFIBoxedDynFunction {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "#<{}:{}>", self.name, self.arity)
     }
 }
@@ -1668,7 +1668,7 @@ fn into_ffi_value(value: SteelVal) -> Result<FFIValue> {
                 struct DummyOpaqueObject;
                 impl Custom for DummyOpaqueObject {}
 
-                let existing = std::mem::replace(
+                let existing = core::mem::replace(
                     c,
                     OpaqueFFIValueReturn {
                         inner: OpaqueObject_TO::from_value(DummyOpaqueObject, TD_CanDowncast),
@@ -1765,7 +1765,7 @@ impl HostRuntimeFunction {
         let f = move |args: RSliceMut<'static, FFIValue>| -> RResult<FFIValue, RBoxError> {
             let other_args = args
                 .into_iter()
-                .map(|x| std::mem::replace(x, FFIValue::Void).into_steelval())
+                .map(|x| core::mem::replace(x, FFIValue::Void).into_steelval())
                 .collect::<Result<smallvec::SmallVec<[SteelVal; 16]>>>();
 
             match other_args {
@@ -1788,7 +1788,7 @@ impl HostRuntimeFunction {
 
     pub fn call(&self, mut args: RSliceMut<FFIValue>) -> RResult<FFIValue, RBoxError> {
         let lifted_slice = unsafe {
-            std::mem::transmute::<&mut [FFIValue], &'static mut [FFIValue]>(args.as_mut_slice())
+            core::mem::transmute::<&mut [FFIValue], &'static mut [FFIValue]>(args.as_mut_slice())
         };
 
         self.function.call(RSliceMut::from_mut_slice(lifted_slice))
@@ -1907,7 +1907,7 @@ impl FFIBoxedDynFunction {
         let function = move |args: &[SteelVal]| -> crate::rvals::Result<SteelVal> {
             let cloned_function = RFn_TO::from_sabi(this.function.obj.shallow_clone());
 
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             // Attempt collecting and passing as an rslice?
             let mut other_args = args
@@ -1916,7 +1916,7 @@ impl FFIBoxedDynFunction {
                 .collect::<Result<smallvec::SmallVec<[FFIArg<'_>; 16]>>>()?;
 
             let lifted_slice = unsafe {
-                std::mem::transmute::<&mut [FFIArg], &'static mut [FFIArg]>(
+                core::mem::transmute::<&mut [FFIArg], &'static mut [FFIArg]>(
                     other_args.as_mut_slice(),
                 )
             };
@@ -1947,7 +1947,7 @@ impl From<FFIBoxedDynFunction> for BoxedDynFunction {
         let arity = value.arity;
 
         let function = move |args: &[SteelVal]| -> crate::rvals::Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             let mut other_args = args
                 .iter()
@@ -1955,7 +1955,7 @@ impl From<FFIBoxedDynFunction> for BoxedDynFunction {
                 .collect::<Result<smallvec::SmallVec<[FFIArg<'_>; 16]>>>()?;
 
             let lifted_slice = unsafe {
-                std::mem::transmute::<&mut [FFIArg], &'static mut [FFIArg]>(
+                core::mem::transmute::<&mut [FFIArg], &'static mut [FFIArg]>(
                     other_args.as_mut_slice(),
                 )
             };
@@ -1988,7 +1988,7 @@ impl BoxedDynFunction {
         let arity = value.arity;
 
         let function = move |args: &[SteelVal]| -> crate::rvals::Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             let mut other_args = args
                 .iter()
@@ -2004,7 +2004,7 @@ impl BoxedDynFunction {
             }
 
             let lifted_slice = unsafe {
-                std::mem::transmute::<&mut [FFIArg], &'static mut [FFIArg]>(
+                core::mem::transmute::<&mut [FFIArg], &'static mut [FFIArg]>(
                     other_args.as_mut_slice(),
                 )
             };
@@ -2043,7 +2043,7 @@ impl FFIWrappedModule {
     pub fn new(mut raw_module: RBox<FFIModule>, max_allowed_enum: Option<usize>) -> Result<Self> {
         let mut converted_module = BuiltInModule::new(raw_module.name.to_string());
 
-        for tuple in std::mem::take(&mut raw_module.values).into_iter() {
+        for tuple in core::mem::take(&mut raw_module.values).into_iter() {
             let key = tuple.0;
             let value = tuple.1;
 

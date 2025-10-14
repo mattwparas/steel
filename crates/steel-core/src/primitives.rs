@@ -58,7 +58,7 @@ use num_rational::{BigRational, Rational32};
 use num_traits::ToPrimitive;
 pub use numbers::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 pub use ports::port_module;
-use std::convert::TryFrom;
+use core::convert::TryFrom;
 use std::result;
 pub use streams::StreamOperations;
 pub use strings::string_module;

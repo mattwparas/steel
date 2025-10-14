@@ -3,11 +3,11 @@ use crate::rvals::SteelVal;
 use crate::stop;
 
 #[cfg(not(feature = "sync"))]
-use std::cell::RefCell;
+use core::cell::RefCell;
 
-use std::fmt::Pointer;
-use std::ops::Deref;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use core::fmt::Pointer;
+use core::ops::Deref;
+use core::sync::atomic::{AtomicUsize, Ordering};
 use std::{ffi::OsStr, fmt};
 
 pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
@@ -20,9 +20,9 @@ pub use unsafe_erased_pointers::is_reference_type;
 use parking_lot::RwLock;
 
 pub mod shared {
-    use std::cell::{BorrowError, BorrowMutError, Ref, RefCell, RefMut};
-    use std::ops::{Deref, DerefMut};
-    use std::rc::Rc;
+    use core::cell::{BorrowError, BorrowMutError, Ref, RefCell, RefMut};
+    use core::ops::{Deref, DerefMut};
+    use alloc::rc::Rc;
 
     // TODO: Replace these with `parking_lot` primitives instead
     use std::sync::{
@@ -59,16 +59,16 @@ pub mod shared {
     pub type GcMut<T> = Gc<RefCell<T>>;
 
     #[cfg(feature = "sync")]
-    pub type StandardShared<T> = std::sync::Arc<T>;
+    pub type StandardShared<T> = alloc::sync::Arc<T>;
 
     #[cfg(feature = "sync")]
-    pub type StandardSharedMut<T> = std::sync::Arc<RwLock<T>>;
+    pub type StandardSharedMut<T> = alloc::sync::Arc<RwLock<T>>;
 
     #[cfg(not(feature = "sync"))]
-    pub type StandardShared<T> = std::rc::Rc<T>;
+    pub type StandardShared<T> = alloc::rc::Rc<T>;
 
     #[cfg(not(feature = "sync"))]
-    pub type StandardSharedMut<T> = std::rc::Rc<RefCell<T>>;
+    pub type StandardSharedMut<T> = alloc::rc::Rc<RefCell<T>>;
 
     #[cfg(all(feature = "sync", not(feature = "triomphe")))]
     pub type Shared<T> = Arc<T>;
@@ -84,10 +84,10 @@ pub mod shared {
     pub type GcMut<T> = Gc<RwLock<T>>;
 
     #[cfg(feature = "sync")]
-    pub type WeakSharedMut<T> = std::sync::Weak<RwLock<T>>;
+    pub type WeakSharedMut<T> = alloc::sync::Weak<RwLock<T>>;
 
     #[cfg(feature = "sync")]
-    pub type WeakShared<T> = std::sync::Weak<T>;
+    pub type WeakShared<T> = alloc::sync::Weak<T>;
 
     #[cfg(feature = "sync")]
     pub type MutContainer<T> = RwLock<T>;
@@ -573,7 +573,7 @@ impl AsRef<str> for Gc<String> {
 pub mod unsafe_roots {
 
     use super::Gc;
-    use std::ptr::NonNull;
+    use core::ptr::NonNull;
 
     #[derive(Clone)]
     pub enum MaybeRooted<T> {
@@ -581,8 +581,8 @@ pub mod unsafe_roots {
         Reference(Gc<T>),
     }
 
-    impl<T: std::fmt::Debug> std::fmt::Debug for MaybeRooted<T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl<T: core::fmt::Debug> core::fmt::Debug for MaybeRooted<T> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             match self {
                 Self::Rooted(v) => write!(f, "{:?}", unsafe { v.value.as_ref() }),
                 Self::Reference(v) => write!(f, "{:?}", v),
@@ -605,7 +605,7 @@ pub mod unsafe_roots {
         }
     }
 
-    impl<T> std::ops::Deref for MaybeRooted<T> {
+    impl<T> core::ops::Deref for MaybeRooted<T> {
         type Target = T;
 
         fn deref(&self) -> &Self::Target {
@@ -662,10 +662,10 @@ pub mod unsafe_erased_pointers {
     can lead to undefined behavior.
     */
 
-    use std::cell::Cell;
+    use core::cell::Cell;
     use std::rc::{Rc, Weak};
-    use std::sync::atomic::AtomicBool;
-    use std::sync::Arc;
+    use core::sync::atomic::AtomicBool;
+    use alloc::sync::Arc;
     use std::{any::Any, cell::RefCell, marker::PhantomData};
 
     use crate::gc::shared::{
@@ -831,7 +831,7 @@ pub mod unsafe_erased_pointers {
         fn name(&self) -> &str {
             std::any::type_name::<Self>()
         }
-        fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+        fn display(&self) -> core::result::Result<String, core::fmt::Error> {
             Ok(format!("#<{}>", self.name()))
         }
         fn visit(&self) {}
@@ -845,7 +845,7 @@ pub mod unsafe_erased_pointers {
         fn as_any_ref_mut(&mut self) -> &mut dyn Any {
             self as &mut dyn Any
         }
-        fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+        fn display(&self) -> core::result::Result<String, core::fmt::Error> {
             Ok(format!("#<{}>", self.name()))
         }
         fn visit(&self) {
@@ -1021,7 +1021,7 @@ pub mod unsafe_erased_pointers {
         fn drop(&mut self) {
             // We're not borrowing anymore, so we can do this
             self.parent_borrow_flag
-                .store(false, std::sync::atomic::Ordering::SeqCst);
+                .store(false, core::sync::atomic::Ordering::SeqCst);
         }
     }
 
@@ -1206,7 +1206,7 @@ pub mod unsafe_erased_pointers {
         pub(crate) fn allocate_rw_object<'a, T: 'a, EXT: 'static>(obj: &mut T) {
             let erased = obj as *mut _;
 
-            let erased = unsafe { std::mem::transmute::<*mut T, *mut EXT>(erased) };
+            let erased = unsafe { core::mem::transmute::<*mut T, *mut EXT>(erased) };
 
             // Wrap the original mutable pointer in an object that respects borrowing
             // rules for runtime borrow checking
@@ -1243,7 +1243,7 @@ pub mod unsafe_erased_pointers {
         pub(crate) fn allocate_ro_object<'a, T: 'a, EXT: 'static>(obj: &T) {
             let erased = obj as *const _;
 
-            let erased = unsafe { std::mem::transmute::<*const T, *const EXT>(erased) };
+            let erased = unsafe { core::mem::transmute::<*const T, *const EXT>(erased) };
 
             // Wrap the original mutable pointer in an object that respects borrowing
             // rules for runtime borrow checking
@@ -1335,7 +1335,7 @@ pub mod unsafe_erased_pointers {
     }
 
     impl OpaqueReference<'static> {
-        pub(crate) fn format(&self) -> std::result::Result<String, std::fmt::Error> {
+        pub(crate) fn format(&self) -> core::result::Result<String, core::fmt::Error> {
             self.display()
         }
 
@@ -1383,7 +1383,7 @@ pub mod unsafe_erased_pointers {
                     if *borrowed_object.borrow_count.lock() > 0
                         || borrowed_object
                             .child_borrow_flag
-                            .load(std::sync::atomic::Ordering::SeqCst)
+                            .load(core::sync::atomic::Ordering::SeqCst)
                     {
                         stop!(Generic => "Value is already borrowed!")
                     }

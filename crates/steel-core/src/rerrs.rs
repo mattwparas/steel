@@ -1,7 +1,8 @@
 use crate::steel_vm::vm::DehydratedCallContext;
 use crate::{parser::parser::ParseError, rvals::Custom, steel_vm::vm::DehydratedStackTrace};
+#[cfg(feature = "std")]
 use std::io::IsTerminal;
-use std::{convert::Infallible, fmt::Formatter};
+use core::{convert::Infallible, fmt::Formatter};
 // use thiserror::Error;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
@@ -12,7 +13,7 @@ use steel_parser::parser::SourceId;
 
 use crate::parser::span::Span;
 
-use std::fmt;
+use core::fmt;
 
 #[derive(Clone, Debug, PartialEq)]
 #[repr(C)]
@@ -154,11 +155,11 @@ impl fmt::Display for SteelErr {
 }
 
 impl Custom for SteelErr {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         Some(Ok(format!("{}", self)))
     }
 
-    fn into_error(self) -> std::result::Result<SteelErr, Self> {
+    fn into_error(self) -> core::result::Result<SteelErr, Self> {
         Ok(self)
     }
 }

@@ -81,7 +81,7 @@ pub fn compose(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 enum FlattenOk<'a> {
-    Ok(std::iter::Cloned<std::slice::Iter<'a, Transducers>>),
+    Ok(core::iter::Cloned<core::slice::Iter<'a, Transducers>>),
     Err(Option<SteelErr>),
 }
 

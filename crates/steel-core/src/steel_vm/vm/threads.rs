@@ -13,13 +13,13 @@ use super::*;
 
 pub struct ThreadHandle {
     pub(crate) handle:
-        Mutex<Option<std::thread::JoinHandle<std::result::Result<SteelVal, String>>>>,
+        Mutex<Option<std::thread::JoinHandle<core::result::Result<SteelVal, String>>>>,
 
     pub(crate) thread: std::thread::Thread,
 
     pub(crate) thread_state_manager: ThreadStateController,
 
-    pub(crate) forked_thread_handle: Option<std::sync::Weak<Mutex<SteelThread>>>,
+    pub(crate) forked_thread_handle: Option<alloc::sync::Weak<Mutex<SteelThread>>>,
 }
 
 /// Check if the given thread is finished running.
@@ -857,7 +857,7 @@ impl Custom for SReceiver {
 }
 
 impl Custom for std::thread::ThreadId {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         Some(Ok(format!("#<{:?}>", self)))
     }
 }

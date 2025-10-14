@@ -667,7 +667,7 @@ impl WillExecutor {
                 };
 
                 if is_sole_reference {
-                    let value = std::mem::take(pair_slot).unwrap();
+                    let value = core::mem::take(pair_slot).unwrap();
                     return Some(value);
                 }
             }
@@ -999,7 +999,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
             if !guard.is_reachable() {
                 // Replace with an empty value... for now.
                 // Want to keep the memory counts down.
-                // let value = std::mem::replace(&mut guard.value, T::empty());
+                // let value = core::mem::replace(&mut guard.value, T::empty());
                 self.alloc_count += 1;
             }
         }
@@ -1036,7 +1036,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // So basically we can have the elements be allocated vs not, and just have them
         // be snatched on demand?
         self.elements.extend(
-            std::iter::repeat_with(|| {
+            core::iter::repeat_with(|| {
                 StandardShared::new(MutContainer::new(HeapAllocated::new(T::empty())))
             })
             .take(current),
@@ -1174,7 +1174,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     fn compact(&mut self) {
         #[cfg(feature = "sync")]
         if let Some(sender) = &self.forward {
-            sender.send(std::mem::take(&mut self.elements)).unwrap();
+            sender.send(core::mem::take(&mut self.elements)).unwrap();
             self.elements = self.backward.as_ref().unwrap().recv().unwrap();
         } else {
             self.elements.retain(|x| x.read().is_reachable());
@@ -1236,7 +1236,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
             if !guard.is_reachable() {
                 // Replace with an empty value... for now.
                 // Want to keep the memory counts down.
-                // let value = std::mem::replace(&mut guard.value, T::empty());
+                // let value = core::mem::replace(&mut guard.value, T::empty());
                 self.alloc_count += 1;
             }
         }
@@ -1273,7 +1273,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
         // So basically we can have the elements be allocated vs not, and just have them
         // be snatched on demand?
         self.elements.extend(
-            std::iter::repeat_with(|| {
+            core::iter::repeat_with(|| {
                 StandardShared::new(MutContainer::new(HeapAllocated::new(T::empty())))
             })
             .take(current),
@@ -1411,7 +1411,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
     fn compact(&mut self) {
         #[cfg(feature = "sync")]
         if let Some(sender) = &self.forward {
-            sender.send(std::mem::take(&mut self.elements)).unwrap();
+            sender.send(core::mem::take(&mut self.elements)).unwrap();
             self.elements = self.backward.as_ref().unwrap().recv().unwrap();
         } else {
             self.elements.retain(|x| x.read().is_reachable());
@@ -1514,7 +1514,7 @@ fn spawn_background_dropper<T: HeapAble + Sync + Send + 'static>(
     std::thread::spawn(move || {
         let mut current: Vec<HeapElement<T>> = Vec::new();
         for mut block in forward_receiver {
-            std::mem::swap(&mut current, &mut block);
+            core::mem::swap(&mut current, &mut block);
             // Get the value, move on.
             backward_sender.send(block).unwrap();
 
@@ -1654,7 +1654,7 @@ impl Heap {
                 // Just reset the counter
                 let stats = self.mark_and_sweep_new(
                     Some(value.clone()),
-                    std::iter::empty(),
+                    core::iter::empty(),
                     roots,
                     live_functions,
                     globals,
@@ -2051,7 +2051,7 @@ impl ParallelMarker {
     }
 }
 
-pub trait HeapAble: Clone + std::fmt::Debug + PartialEq + Eq {
+pub trait HeapAble: Clone + core::fmt::Debug + PartialEq + Eq {
     fn empty() -> Self;
 }
 impl HeapAble for SteelVal {
@@ -2125,7 +2125,7 @@ impl<T: HeapAble> HeapRef<T> {
         let inner = self.inner.upgrade().unwrap();
 
         let mut guard = inner.write();
-        std::mem::replace(&mut guard.value, value)
+        core::mem::replace(&mut guard.value, value)
     }
 
     pub(crate) fn set_interior_mut(&self, value: T) -> T {
@@ -2147,7 +2147,7 @@ impl<T: HeapAble> HeapRef<T> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HeapAllocated<T: Clone + std::fmt::Debug + PartialEq + Eq> {
+pub struct HeapAllocated<T: Clone + core::fmt::Debug + PartialEq + Eq> {
     pub(crate) reachable: bool,
     pub(crate) finalizer: bool,
     pub(crate) value: T,
@@ -2155,10 +2155,10 @@ pub struct HeapAllocated<T: Clone + std::fmt::Debug + PartialEq + Eq> {
 
 #[test]
 fn check_size_of_heap_allocated_value() {
-    println!("{:?}", std::mem::size_of::<HeapAllocated<SteelVal>>());
+    println!("{:?}", core::mem::size_of::<HeapAllocated<SteelVal>>());
 }
 
-impl<T: Clone + std::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {
+impl<T: Clone + core::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {
     pub fn new(value: T) -> Self {
         Self {
             reachable: false,
@@ -2232,7 +2232,7 @@ struct MarkAndSweepStats {
     keep_alive: Vec<SteelVal>,
 }
 
-impl std::ops::Add for MarkAndSweepStats {
+impl core::ops::Add for MarkAndSweepStats {
     type Output = MarkAndSweepStats;
 
     fn add(mut self, rhs: Self) -> Self::Output {

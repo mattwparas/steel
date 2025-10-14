@@ -5,14 +5,14 @@ use crate::HashSet;
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
 use num_rational::{BigRational, Rational32};
-use std::borrow::Cow;
+use alloc::borrow::Cow;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use alloc::sync::Arc;
 use steel_parser::interner::InternedString;
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral, TokenType};
 
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
+use core::convert::TryFrom;
 
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal;
@@ -92,7 +92,7 @@ impl InterierSources {
             .values()
             .map(|x| {
                 let x: &str = x;
-                std::mem::size_of_val(x)
+                core::mem::size_of_val(x)
             })
             .sum()
     }
@@ -352,7 +352,7 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
 impl TryFrom<SyntaxObject> for SteelVal {
     type Error = SteelErr;
 
-    fn try_from(e: SyntaxObject) -> std::result::Result<Self, Self::Error> {
+    fn try_from(e: SyntaxObject) -> core::result::Result<Self, Self::Error> {
         let span = e.span;
         match e.ty {
             OpenParen(..) => {

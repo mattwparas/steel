@@ -4,12 +4,12 @@ use crate::tokens::{IntLiteral, Token, TokenLike, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
 use num_bigint::BigInt;
 use smallvec::{smallvec, SmallVec};
-use std::borrow::Cow;
-use std::char;
-use std::iter::Iterator;
-use std::ops::Range;
-use std::sync::Arc;
-use std::{iter::Peekable, str::Chars};
+use alloc::borrow::Cow;
+use core::char;
+use core::iter::Iterator;
+use core::ops::Range;
+use alloc::sync::Arc;
+use core::{iter::Peekable, str::Chars};
 
 pub const INFINITY: &str = "+inf.0";
 pub const NEG_INFINITY: &str = "-inf.0";
@@ -234,7 +234,7 @@ impl<'a> Lexer<'a> {
 
     fn read_hash_value(&mut self) -> Result<TokenType<InternedString>> {
         fn parse_char(slice: &str) -> Result<char> {
-            use std::str::FromStr;
+            use core::str::FromStr;
 
             debug_assert!(slice.len() > 2);
 
@@ -394,7 +394,7 @@ impl<'a> Lexer<'a> {
             self.eat();
         }
 
-        let mut buffer = std::mem::take(&mut self.ident_buffer);
+        let mut buffer = core::mem::take(&mut self.ident_buffer);
         buffer.clear();
 
         let mut ident_buffer = IdentBuffer::new(self.chars.clone(), &mut buffer);
@@ -517,7 +517,7 @@ struct IdentBuffer<'b, 'a: 'b> {
     // works as Either:
     //  - Ok: saw a non-trivial escape, buffering into ident
     //  - Err: "trivial" string, keeping count of its len
-    mode: std::result::Result<(), usize>,
+    mode: core::result::Result<(), usize>,
 }
 
 impl<'b, 'a: 'b> IdentBuffer<'b, 'a> {
@@ -565,7 +565,7 @@ impl<'a> Lexer<'a> {
         self.token_start as _..self.token_end as _
     }
 
-    pub fn small_span(&self) -> std::ops::Range<u32> {
+    pub fn small_span(&self) -> core::ops::Range<u32> {
         self.token_start..self.token_end
     }
 
@@ -611,7 +611,7 @@ pub struct OwnedTokenStream<'a> {
 }
 
 impl<'a> Iterator for OwnedTokenStream<'a> {
-    type Item = std::result::Result<Token<'a, InternedString>, TokenLike<'a, TokenError>>;
+    type Item = core::result::Result<Token<'a, InternedString>, TokenLike<'a, TokenError>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.stream.next()
@@ -624,7 +624,7 @@ impl<'a> OwnedTokenStream<'a> {
     }
 }
 impl<'a> Iterator for TokenStream<'a> {
-    type Item = std::result::Result<Token<'a, InternedString>, TokenLike<'a, TokenError>>;
+    type Item = core::result::Result<Token<'a, InternedString>, TokenLike<'a, TokenError>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.lexer.next().and_then(|token| {
@@ -660,7 +660,7 @@ impl<'a> Iterator for TokenStream<'a> {
     }
 }
 
-pub type Result<T> = std::result::Result<T, TokenError>;
+pub type Result<T> = core::result::Result<T, TokenError>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum TokenError {
@@ -674,12 +674,12 @@ pub enum TokenError {
     ZeroDenominator,
     UnclosedHexEscape(char),
     InvalidCharName,
-    InvalidHexEscapeLiteral(std::num::ParseIntError),
+    InvalidHexEscapeLiteral(core::num::ParseIntError),
     InvalidHexCodePoint(u32),
 }
 
-impl std::fmt::Display for TokenError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for TokenError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             TokenError::UnexpectedChar(c) => write!(f, "unexpected char {c:?}"),
             TokenError::IncompleteString => write!(f, "incomplete string"),
@@ -992,7 +992,7 @@ pub fn parse_number(s: &str, radix: Option<u32>) -> Option<NumberLiteral> {
 
 #[cfg(test)]
 mod lexer_tests {
-    use std::str::FromStr;
+    use core::str::FromStr;
 
     use super::*;
     use crate::span::Span;

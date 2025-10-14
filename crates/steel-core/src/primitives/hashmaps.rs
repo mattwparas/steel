@@ -126,7 +126,7 @@ pub fn hash_remove(map: &mut SteelVal, key: SteelVal) -> Result<SteelVal> {
             match Gc::get_mut(m) {
                 Some(m) => {
                     m.remove(&key);
-                    Ok(std::mem::replace(map, SteelVal::Void))
+                    Ok(core::mem::replace(map, SteelVal::Void))
                 }
                 None => {
                     let mut m = m.unwrap();
@@ -165,13 +165,13 @@ pub fn hash_insert(
     value: &mut SteelVal,
 ) -> Result<SteelVal> {
     if key.is_hashable() {
-        let key = std::mem::take(key);
-        let value = std::mem::take(value);
+        let key = core::mem::take(key);
+        let value = core::mem::take(value);
         if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
             match Gc::get_mut(m) {
                 Some(m) => {
                     m.insert(key, value);
-                    Ok(std::mem::replace(map, SteelVal::Void))
+                    Ok(core::mem::replace(map, SteelVal::Void))
                 }
                 None => Ok(SteelVal::HashMapV(Gc::new(m.update(key, value)).into())),
             }
@@ -353,7 +353,7 @@ pub fn clear(hashmap: &mut SteelVal) -> Result<SteelVal> {
             Some(m) => {
                 // m.insert(key, value);
                 m.clear();
-                Ok(std::mem::replace(hashmap, SteelVal::Void))
+                Ok(core::mem::replace(hashmap, SteelVal::Void))
             }
             None => Ok(SteelVal::HashMapV(Gc::new(HashMap::new()).into())),
         }
@@ -402,26 +402,26 @@ pub fn hm_union(mut hml: &mut SteelVal, mut hmr: &mut SteelVal) -> Result<SteelV
                 Ok(SteelVal::HashMapV(Gc::new(hml.union(hmr)).into()))
             }
             (None, Some(r_map)) => {
-                let right_side_value = std::mem::take(r_map);
+                let right_side_value = core::mem::take(r_map);
 
                 *r_map = l.unwrap().union(right_side_value);
 
-                Ok(std::mem::replace(hmr, SteelVal::Void))
+                Ok(core::mem::replace(hmr, SteelVal::Void))
             }
             (Some(l_map), None) => {
-                let left_side_value = std::mem::take(l_map);
+                let left_side_value = core::mem::take(l_map);
 
                 *l_map = left_side_value.union(r.unwrap());
 
-                Ok(std::mem::replace(hml, SteelVal::Void))
+                Ok(core::mem::replace(hml, SteelVal::Void))
             }
             (Some(l_map), Some(r_map)) => {
-                let left_side_value = std::mem::take(l_map);
-                let right_side_value = std::mem::take(r_map);
+                let left_side_value = core::mem::take(l_map);
+                let right_side_value = core::mem::take(r_map);
 
                 *l_map = left_side_value.union(right_side_value);
 
-                Ok(std::mem::replace(hml, SteelVal::Void))
+                Ok(core::mem::replace(hml, SteelVal::Void))
             }
         },
 
