@@ -74,8 +74,8 @@ use smallvec::SmallVec;
 use SteelVal::*;
 
 use crate::collections::{
-    HashMap, HashMapConsumingIter, HashSet, HashSetConsumingIter, MutableHashMap,
-    MutableHashSet, Vector, VectorConsumingIter,
+    HashMap, HashMapConsumingIter, HashSet, HashSetConsumingIter, MutableHashMap, MutableHashSet,
+    Vector, VectorConsumingIter,
 };
 
 use futures_task::noop_waker_ref;

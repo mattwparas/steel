@@ -1006,9 +1006,9 @@ pub fn threading_module() -> BuiltInModule {
                 let value = receiver.try_recv();
 
                 let mut heap = Heap::new_empty();
-            let mut fake_heap = MutableHashMap::default();
-            let mut patcher = MutableHashMap::default();
-            let mut built_functions = MutableHashMap::default();
+                let mut fake_heap = MutableHashMap::default();
+                let mut patcher = MutableHashMap::default();
+                let mut built_functions = MutableHashMap::default();
                 let mut serializer = HeapSerializer {
                     heap: &mut heap,
                     fake_heap: &mut fake_heap,

@@ -533,9 +533,7 @@ impl BuiltInModule {
         self.module.read().cached_expression()
     }
 
-    pub(crate) fn constant_funcs(
-        &self,
-    ) -> HashMap<InternedString, SteelVal> {
+    pub(crate) fn constant_funcs(&self) -> HashMap<InternedString, SteelVal> {
         self.module
             .read()
             .fn_ptr_table

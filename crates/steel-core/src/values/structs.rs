@@ -4,6 +4,7 @@
 use crate::collections::{HashMap, MutableHashMap, MutableHashSet};
 use crate::steel_vm::primitives::{steel_unbox_mutable, unbox_mutable};
 use once_cell::sync::Lazy;
+#[cfg(feature = "sync")]
 use parking_lot::RwLock;
 use smallvec::SmallVec;
 
@@ -815,8 +816,14 @@ pub static ERR_RESULT_LABEL: Lazy<InternedString> = Lazy::new(|| "Err".into());
 pub static NONE_OPTION_LABEL: Lazy<InternedString> = Lazy::new(|| "None".into());
 pub static TYPE_ID: Lazy<InternedString> = Lazy::new(|| "TypeId".into());
 
+#[cfg(feature = "sync")]
 pub static STRUCT_DEFINITIONS: Lazy<Arc<std::sync::RwLock<SymbolMap>>> =
     Lazy::new(|| Arc::new(std::sync::RwLock::new(SymbolMap::default())));
+
+#[cfg(not(feature = "sync"))]
+thread_local! {
+    pub static STRUCT_DEFINITIONS: RefCell<SymbolMap> = RefCell::new(SymbolMap::default());
+}
 
 #[cfg(feature = "sync")]
 pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {

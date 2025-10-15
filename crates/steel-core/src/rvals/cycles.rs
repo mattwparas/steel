@@ -1,9 +1,9 @@
 use crate::gc::shared::{MutableContainer, ShareableMut};
 use crate::steel_vm::{builtin::get_function_name, vm::Continuation, vm::ContinuationMark};
 use crate::values::lists::Pair;
-use num_bigint::BigInt;
 use alloc::{collections::VecDeque, vec::Vec};
 use core::cell::Cell;
+use num_bigint::BigInt;
 
 use super::*;
 

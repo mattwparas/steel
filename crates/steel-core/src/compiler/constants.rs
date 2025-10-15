@@ -15,8 +15,8 @@ use crate::parser::{
     parser::{ParseError, Parser},
 };
 
-use alloc::sync::Arc;
 use crate::collections::{HashMap, MutableHashMap, MutableHashSet};
+use alloc::sync::Arc;
 
 use arc_swap::ArcSwap;
 // TODO add the serializing and deserializing for constants
