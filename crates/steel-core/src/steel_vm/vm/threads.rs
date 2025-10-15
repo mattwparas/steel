@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use crate::collections::{MutableHashMap, MutableHashSet};
 
 use fxhash::FxHashMap;
 use steel_derive::function;
@@ -149,8 +149,8 @@ thread_local! {
 
 pub fn closure_into_serializable(
     c: &ByteCodeLambda,
-    serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-    visited: &mut std::collections::HashSet<usize>,
+    serializer: &mut MutableHashMap<usize, SerializableSteelVal>,
+    visited: &mut MutableHashSet<usize>,
 ) -> Result<SerializedLambda> {
     if let Some(prototype) = CACHED_CLOSURES.with(|x| x.borrow().get(&c.id).cloned()) {
         let mut prototype = SerializedLambda {
@@ -953,8 +953,8 @@ pub fn threading_module() -> BuiltInModule {
             |channel: &std::sync::mpsc::Sender<SerializableSteelVal>,
              val: SteelVal|
              -> Result<()> {
-                let mut map = HashMap::new();
-                let mut visited = HashSet::new();
+                let mut map = MutableHashMap::default();
+                let mut visited = MutableHashSet::default();
 
                 // TODO: Handle this here somehow, we don't want to use an empty map
                 let serializable =
@@ -981,9 +981,9 @@ pub fn threading_module() -> BuiltInModule {
                 .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))?;
 
             let mut heap = Heap::new_empty();
-            let mut fake_heap = HashMap::new();
-            let mut patcher = HashMap::new();
-            let mut built_functions = HashMap::new();
+            let mut fake_heap = MutableHashMap::default();
+            let mut patcher = MutableHashMap::default();
+            let mut built_functions = MutableHashMap::default();
             let mut serializer = HeapSerializer {
                 heap: &mut heap,
                 fake_heap: &mut fake_heap,
@@ -1006,9 +1006,9 @@ pub fn threading_module() -> BuiltInModule {
                 let value = receiver.try_recv();
 
                 let mut heap = Heap::new_empty();
-                let mut fake_heap = HashMap::new();
-                let mut patcher = HashMap::new();
-                let mut built_functions = HashMap::new();
+            let mut fake_heap = MutableHashMap::default();
+            let mut patcher = MutableHashMap::default();
+            let mut built_functions = MutableHashMap::default();
                 let mut serializer = HeapSerializer {
                     heap: &mut heap,
                     fake_heap: &mut fake_heap,

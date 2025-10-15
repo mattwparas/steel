@@ -741,7 +741,7 @@ impl<T: IntoFFIVal> IntoFFIVal for Vec<T> {
     }
 }
 
-impl<T: IntoFFIVal, V: IntoFFIVal> IntoFFIVal for std::collections::HashMap<T, V> {
+impl<T: IntoFFIVal, V: IntoFFIVal> IntoFFIVal for crate::collections::MutableHashMap<T, V> {
     fn into_ffi_val(self) -> RResult<FFIValue, RBoxError> {
         let mut output = RHashMap::with_capacity(self.len());
 

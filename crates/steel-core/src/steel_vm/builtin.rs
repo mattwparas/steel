@@ -8,7 +8,7 @@ use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadConta
 #[cfg(not(feature = "sync"))]
 use crate::gc::shared::ShareableMut;
 
-use crate::collections::HashMap;
+use crate::collections::{HashMap, MutableHashMap};
 use crate::gc::{Shared, SharedMut};
 use crate::{
     containers::RegisterValue,
@@ -21,7 +21,6 @@ use crate::{
     values::functions::BoxedDynFunction,
 };
 use compact_str::CompactString;
-use fxhash::FxBuildHasher;
 use once_cell::sync::Lazy;
 
 #[cfg(feature = "sync")]
@@ -58,10 +57,10 @@ pub struct BuiltInModule {
 #[derive(Clone)]
 pub(crate) struct BuiltInModuleRepr {
     pub(crate) name: Shared<str>,
-    pub(crate) values: std::collections::HashMap<Arc<str>, SteelVal, FxBuildHasher>,
+    pub(crate) values: MutableHashMap<Arc<str>, SteelVal>,
     docs: Box<InternalDocumentation>,
     // Add the metadata separate from the pointer, keeps the pointer slim
-    fn_ptr_table: std::collections::HashMap<BuiltInFunctionType, FunctionSignatureMetadata>,
+    fn_ptr_table: MutableHashMap<BuiltInFunctionType, FunctionSignatureMetadata>,
     // We don't need to generate this every time, just need to
     // clone it?
     generated_expression: SharedMut<Option<ExprKind>>,
@@ -137,13 +136,14 @@ pub static VOID_MODULE: Lazy<InternedString> =
 
 // Global function table
 thread_local! {
-    pub static FUNCTION_TABLE: RefCell<HashMap<BuiltInFunctionType, FunctionSignatureMetadata>> = RefCell::new(HashMap::new());
+pub static FUNCTION_TABLE: RefCell<MutableHashMap<BuiltInFunctionType, FunctionSignatureMetadata>> =
+    RefCell::new(MutableHashMap::default());
 }
 
 #[cfg(feature = "sync")]
 pub static STATIC_FUNCTION_TABLE: Lazy<
-    RwLock<HashMap<BuiltInFunctionType, FunctionSignatureMetadata>>,
-> = Lazy::new(|| RwLock::new(HashMap::new()));
+    RwLock<MutableHashMap<BuiltInFunctionType, FunctionSignatureMetadata>>,
+> = Lazy::new(|| RwLock::new(MutableHashMap::default()));
 
 pub fn get_function_name(function: FunctionSignature) -> Option<FunctionSignatureMetadata> {
     #[cfg(feature = "sync")]
@@ -197,9 +197,9 @@ impl BuiltInModuleRepr {
     pub fn new<T: Into<Shared<str>>>(name: T) -> Self {
         Self {
             name: name.into(),
-            values: std::collections::HashMap::default(),
+            values: MutableHashMap::default(),
             docs: Box::new(InternalDocumentation::new()),
-            fn_ptr_table: std::collections::HashMap::new(),
+            fn_ptr_table: MutableHashMap::default(),
             generated_expression: Shared::new(MutContainer::new(None)),
         }
     }
@@ -535,7 +535,7 @@ impl BuiltInModule {
 
     pub(crate) fn constant_funcs(
         &self,
-    ) -> crate::collections::HashMap<InternedString, SteelVal, FxBuildHasher> {
+    ) -> HashMap<InternedString, SteelVal> {
         self.module
             .read()
             .fn_ptr_table

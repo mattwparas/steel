@@ -83,7 +83,7 @@ impl LambdaMetadataTable {
 
     // TODO: This will need to get called in other places
     pub fn collect_garbage(&mut self, keep_set: impl Iterator<Item = usize>) {
-        let set = keep_set.collect::<std::collections::HashSet<_>>();
+        let set = keep_set.collect::<crate::collections::MutableHashSet<_>>();
 
         self.fn_ptr_table.retain(|k, _| set.contains(k));
     }

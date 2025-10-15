@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use crate::collections::HashMap;
 
 /// The AST node for expressions.
 #[derive(Clone, Debug)]

@@ -63,4 +63,7 @@ pub use imp::{
     HashMap, HashMapConsumingIter, HashSet, HashSetConsumingIter, Vector, VectorConsumingIter,
 };
 
+pub type MutableHashMap<K, V> = hashbrown::HashMap<K, V, FxBuildHasher>;
+pub type MutableHashSet<T> = hashbrown::HashSet<T, FxBuildHasher>;
+
 pub type DrainHashSet<T> = hashbrown::HashSet<T, FxBuildHasher>;

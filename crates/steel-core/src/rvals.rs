@@ -30,7 +30,7 @@ use crate::{
         SteelPortRepr,
     },
 };
-use std::vec::IntoIter;
+use alloc::vec::IntoIter;
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
@@ -74,7 +74,8 @@ use smallvec::SmallVec;
 use SteelVal::*;
 
 use crate::collections::{
-    HashMap, HashMapConsumingIter, HashSet, HashSetConsumingIter, Vector, VectorConsumingIter,
+    HashMap, HashMapConsumingIter, HashSet, HashSetConsumingIter, MutableHashMap,
+    MutableHashSet, Vector, VectorConsumingIter,
 };
 
 use futures_task::noop_waker_ref;
@@ -917,13 +918,13 @@ pub enum SerializedHeapRef {
 
 pub struct HeapSerializer<'a> {
     pub heap: &'a mut Heap,
-    pub fake_heap: &'a mut std::collections::HashMap<usize, SerializedHeapRef>,
+    pub fake_heap: &'a mut MutableHashMap<usize, SerializedHeapRef>,
     // After the conversion, we go back through, and patch the values from the fake heap
     // in to each of the values listed here - otherwise, we'll miss cycles
-    pub values_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<SteelVal>>,
+    pub values_to_fill_in: &'a mut MutableHashMap<usize, HeapRef<SteelVal>>,
 
     // Cache the functions that get built
-    pub built_functions: &'a mut std::collections::HashMap<u32, Gc<ByteCodeLambda>>,
+    pub built_functions: &'a mut MutableHashMap<u32, Gc<ByteCodeLambda>>,
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
@@ -1076,8 +1077,8 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
 // TODO: Use the cycle detector instead
 pub fn into_serializable_value(
     val: SteelVal,
-    serialized_heap: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-    visited: &mut std::collections::HashSet<usize>,
+    serialized_heap: &mut MutableHashMap<usize, SerializableSteelVal>,
+    visited: &mut MutableHashSet<usize>,
 ) -> Result<SerializableSteelVal> {
     // dbg!(&serialized_heap);
 

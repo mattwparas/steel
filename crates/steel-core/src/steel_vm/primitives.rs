@@ -745,12 +745,21 @@ pub(crate) fn constant_primitives(
 #[cfg(feature = "sync")]
 pub static CONSTANT_PRIMITIVES: Lazy<
     crate::collections::HashMap<InternedString, SteelVal, FxBuildHasher>,
-> = Lazy::new(|| STEEL_PRELUDE_MODULE.constant_funcs());
+> = Lazy::new(|| {
+    STEEL_PRELUDE_MODULE
+        .constant_funcs()
+        .into_iter()
+        .collect::<crate::collections::HashMap<_, _, FxBuildHasher>>()
+});
 
 #[cfg(not(feature = "sync"))]
 thread_local! {
     pub static CONSTANT_PRIMITIVES: crate::collections::HashMap<InternedString, SteelVal, FxBuildHasher> = {
-        PRELUDE_MODULE.with(|x| x.constant_funcs())
+        PRELUDE_MODULE.with(|x| {
+            x.constant_funcs()
+                .into_iter()
+                .collect::<crate::collections::HashMap<_, _, FxBuildHasher>>()
+        })
     };
 
 }

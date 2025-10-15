@@ -1,7 +1,7 @@
 #![allow(unused)]
 #![allow(clippy::type_complexity)]
 
-use crate::collections::HashMap;
+use crate::collections::{HashMap, MutableHashMap, MutableHashSet};
 use crate::steel_vm::primitives::{steel_unbox_mutable, unbox_mutable};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
@@ -675,8 +675,8 @@ impl VTable {
     }
 
     pub(crate) fn sendable_entries(
-        serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-        visited: &mut std::collections::HashSet<usize>,
+        serializer: &mut MutableHashMap<usize, SerializableSteelVal>,
+        visited: &mut MutableHashSet<usize>,
     ) -> Result<Vec<SendableVTableEntry>> {
         VTABLE.with(|x| {
             x.borrow()
