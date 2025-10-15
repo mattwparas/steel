@@ -1,10 +1,10 @@
-// use im_lists::list::List;
-use crate::values::{lists::List, HashSet};
+use crate::values::lists::List;
 // use itertools::Itertools;
 
 // use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
 use super::{lazy_stream::LazyStreamIter, vm::VmCore};
 use crate::{
+    collections::{HashMap, HashSet},
     gc::Gc,
     parser::span::Span,
     primitives::vectors::vec_construct_iter,
@@ -13,8 +13,6 @@ use crate::{
     stop,
     values::transducers::{Reducer, Transducers},
 };
-
-use crate::values::HashMap;
 use std::{cell::RefCell, convert::TryInto};
 use std::{iter::Fuse, rc::Rc};
 

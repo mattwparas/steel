@@ -58,7 +58,7 @@ use super::{
     program::RawProgramWithSymbols,
 };
 
-use crate::values::HashMap as ImmutableHashMap;
+use crate::collections::HashMap as ImmutableHashMap;
 
 #[cfg(feature = "profiling")]
 use std::time::Instant;

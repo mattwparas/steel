@@ -1,6 +1,6 @@
+use crate::collections::HashMap;
 use crate::rvals::SteelString;
 use crate::values::lists::List;
-use crate::values::HashMap;
 use crate::{
     gc::Gc,
     rerrs::SteelErr,

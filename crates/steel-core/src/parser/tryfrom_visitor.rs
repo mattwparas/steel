@@ -250,7 +250,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
 
             Ok(SteelVal::ByteVector(SteelByteVector::new(bytes)))
         } else {
-            let args: crate::values::Vector<_> = v
+            let args: crate::collections::Vector<_> = v
                 .args
                 .into_iter()
                 .map(|exp| self.visit(exp))
@@ -559,7 +559,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
             return Ok(Syntax::proto(raw, vector, span).into());
         }
 
-        let items: Result<crate::values::Vector<_>> =
+        let items: Result<crate::collections::Vector<_>> =
             v.args.iter().map(|x| self.visit(x)).collect();
 
         let items = items?;
@@ -825,7 +825,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
             return Ok(Syntax::proto(raw, vector, span).into());
         }
 
-        let items: Result<crate::values::Vector<_>> =
+        let items: Result<crate::collections::Vector<_>> =
             v.args.into_iter().map(|x| self.visit(x)).collect();
 
         let items = items?;

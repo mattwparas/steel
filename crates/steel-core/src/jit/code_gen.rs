@@ -6,7 +6,7 @@ use crate::jit::value::{
     decode, to_encoded_double, to_encoded_double_from_const_ptr, to_encoded_double_raw,
 };
 use crate::parser::ast::ExprKind;
-use crate::values::Vector;
+use crate::collections::Vector;
 use crate::SteelVal;
 use cranelift::prelude::types::{F64, I64};
 use cranelift::prelude::*;

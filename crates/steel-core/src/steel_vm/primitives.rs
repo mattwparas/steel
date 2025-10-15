@@ -12,44 +12,54 @@ use super::{
         MATCH_SYNTAX_CASE_DEFINITION, SAMPLE_STACKS_DEFINITION,
     },
 };
+use crate::compiler::modules::steel_home;
+use crate::gc::{shared::ShareableMut, GcMut};
+use crate::parser::{
+    ast::TryFromSteelValVisitorForExprKind, interner::InternedString, span::Span,
+    tryfrom_visitor::TryFromExprKindForSteelVal,
+};
+use crate::primitives::bytevectors::bytevector_module;
+#[cfg(feature = "std")]
+use crate::primitives::git::git_module;
+use crate::primitives::hashes::hashes_module;
+use crate::primitives::hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT};
+use crate::primitives::hashsets::hashset_module;
+#[cfg(feature = "std")]
+use crate::primitives::http::http_module;
+use crate::primitives::lists::{list_module, UnRecoverableResult};
+use crate::primitives::numbers::{self, realp};
+#[cfg(feature = "std")]
+use crate::primitives::ports::{
+    port_module, port_module_without_filesystem, EOF_OBJECTP_DEFINITION,
+};
+#[cfg(feature = "std")]
+use crate::primitives::process::process_module;
+#[cfg(feature = "std")]
+use crate::primitives::random::random_module;
+#[cfg(feature = "std")]
+use crate::primitives::strings::string_module;
+use crate::primitives::symbol_module;
+#[cfg(feature = "std")]
+use crate::primitives::tcp::tcp_module;
+#[cfg(feature = "std")]
+use crate::primitives::time::time_module;
+use crate::primitives::transducers::transducer_module;
+use crate::primitives::vectors::{
+    immutable_vectors_module, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION, LIST_VEC_NULL_DEFINITION,
+    MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION, MUTABLE_VECTOR_POP_DEFINITION,
+    MUTABLE_VECTOR_TO_STRING_DEFINITION, MUT_VECTOR_COPY_DEFINITION, MUT_VEC_APPEND_DEFINITION,
+    MUT_VEC_CONSTRUCT_DEFINITION, MUT_VEC_CONSTRUCT_VEC_DEFINITION, MUT_VEC_GET_DEFINITION,
+    MUT_VEC_LENGTH_DEFINITION, MUT_VEC_PUSH_DEFINITION, MUT_VEC_SET_DEFINITION,
+    MUT_VEC_SWAP_DEFINITION, MUT_VEC_TO_LIST_DEFINITION, VECTOR_FILL_DEFINITION,
+    VEC_APPEND_DEFINITION, VEC_CAR_DEFINITION, VEC_CDR_DEFINITION, VEC_CONS_DEFINITION,
+    VEC_LENGTH_DEFINITION, VEC_PUSH_DEFINITION, VEC_RANGE_DEFINITION, VEC_REF_DEFINITION,
+};
+#[cfg(feature = "std")]
+use crate::primitives::IoFunctions;
+#[cfg(feature = "std")]
+use crate::primitives::{fs_module, fs_module_sandbox};
+use crate::primitives::{ControlOperations, MetaOperations, StreamOperations};
 use crate::{
-    compiler::modules::steel_home,
-    gc::{shared::ShareableMut, GcMut},
-    parser::{
-        ast::TryFromSteelValVisitorForExprKind, interner::InternedString, span::Span,
-        tryfrom_visitor::TryFromExprKindForSteelVal,
-    },
-    primitives::{
-        bytevectors::bytevector_module,
-        fs_module, fs_module_sandbox,
-        git::git_module,
-        hashes::hashes_module,
-        hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT},
-        hashsets::hashset_module,
-        http::http_module,
-        lists::{list_module, UnRecoverableResult},
-        numbers::{self, realp},
-        port_module,
-        ports::{port_module_without_filesystem, EOF_OBJECTP_DEFINITION},
-        process::process_module,
-        random::random_module,
-        string_module, symbol_module,
-        tcp::tcp_module,
-        time::time_module,
-        transducers::transducer_module,
-        vectors::{
-            immutable_vectors_module, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION,
-            LIST_VEC_NULL_DEFINITION, MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION,
-            MUTABLE_VECTOR_POP_DEFINITION, MUTABLE_VECTOR_TO_STRING_DEFINITION,
-            MUT_VECTOR_COPY_DEFINITION, MUT_VEC_APPEND_DEFINITION, MUT_VEC_CONSTRUCT_DEFINITION,
-            MUT_VEC_CONSTRUCT_VEC_DEFINITION, MUT_VEC_GET_DEFINITION, MUT_VEC_LENGTH_DEFINITION,
-            MUT_VEC_PUSH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_SWAP_DEFINITION,
-            MUT_VEC_TO_LIST_DEFINITION, VECTOR_FILL_DEFINITION, VEC_APPEND_DEFINITION,
-            VEC_CAR_DEFINITION, VEC_CDR_DEFINITION, VEC_CONS_DEFINITION, VEC_LENGTH_DEFINITION,
-            VEC_PUSH_DEFINITION, VEC_RANGE_DEFINITION, VEC_REF_DEFINITION,
-        },
-        ControlOperations, IoFunctions, MetaOperations, StreamOperations,
-    },
     rerrs::ErrorKind,
     rvals::{
         as_underlying_type,
@@ -720,7 +730,7 @@ pub fn builtin_to_reserved(ident: &str) -> InternedString {
 // TODO: Do the same for the single threaded version as well
 
 pub(crate) fn constant_primitives(
-) -> crate::values::HashMap<InternedString, SteelVal, FxBuildHasher> {
+) -> crate::collections::HashMap<InternedString, SteelVal, FxBuildHasher> {
     #[cfg(feature = "sync")]
     {
         CONSTANT_PRIMITIVES.clone()
@@ -734,12 +744,12 @@ pub(crate) fn constant_primitives(
 
 #[cfg(feature = "sync")]
 pub static CONSTANT_PRIMITIVES: Lazy<
-    crate::values::HashMap<InternedString, SteelVal, FxBuildHasher>,
+    crate::collections::HashMap<InternedString, SteelVal, FxBuildHasher>,
 > = Lazy::new(|| STEEL_PRELUDE_MODULE.constant_funcs());
 
 #[cfg(not(feature = "sync"))]
 thread_local! {
-    pub static CONSTANT_PRIMITIVES: crate::values::HashMap<InternedString, SteelVal, FxBuildHasher> = {
+    pub static CONSTANT_PRIMITIVES: crate::collections::HashMap<InternedString, SteelVal, FxBuildHasher> = {
         PRELUDE_MODULE.with(|x| x.constant_funcs())
     };
 

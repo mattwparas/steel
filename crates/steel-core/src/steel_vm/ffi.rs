@@ -34,7 +34,7 @@ use abi_stable::{
 };
 use futures_util::FutureExt;
 
-use crate::values::HashMap;
+use crate::collections::HashMap;
 pub use async_ffi::{FfiFuture, FutureExt as FfiFutureExt};
 
 #[macro_export]

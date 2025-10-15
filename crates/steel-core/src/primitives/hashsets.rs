@@ -1,8 +1,8 @@
+use crate::collections::HashSet;
 use crate::rvals::SteelHashSet;
 use crate::rvals::{Result, SteelVal};
 use crate::steel_vm::vm::VmCore;
 use crate::values::lists::List;
-use crate::values::HashSet;
 use crate::{gc::Gc, steel_vm::builtin::BuiltInModule};
 use crate::{stop, Vector};
 

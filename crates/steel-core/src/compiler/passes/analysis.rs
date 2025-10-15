@@ -4,9 +4,9 @@ use std::{
 };
 
 use crate::{
+    collections::HashMap as ImmutableHashMap,
     compiler::modules::{MANGLER_PREFIX, MODULE_PREFIX},
     parser::ast::List,
-    values::HashMap as ImmutableHashMap,
 };
 use quickscope::ScopeMap;
 use smallvec::SmallVec;

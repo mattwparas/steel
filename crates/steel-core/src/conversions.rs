@@ -11,8 +11,8 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-use crate::values::HashMap as ImmutableHashMap;
-use crate::values::HashSet as ImmutableHashSet;
+use crate::collections::HashMap as ImmutableHashMap;
+use crate::collections::HashSet as ImmutableHashSet;
 
 #[cfg(feature = "anyhow")]
 mod anyhow_conversion {

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashSet};
+use std::cell::RefCell;
 
 #[cfg(feature = "sync")]
 use std::{sync::Arc, thread::JoinHandle};
@@ -39,9 +39,8 @@ use num_rational::{BigRational, Rational32};
 #[cfg(feature = "sync")]
 use once_cell::sync::Lazy;
 
-use steel_gen::OpCode;
-
 use crate::{
+    collections::{DrainHashSet, HashMap, HashSet, Vector},
     gc::{unsafe_erased_pointers::OpaqueReference, Gc},
     rvals::{
         cycles::BreadthFirstSearchSteelValVisitor, BoxedAsyncFunctionSignature, CustomType,
@@ -52,6 +51,7 @@ use crate::{
     values::functions::ByteCodeLambda,
     SteelVal,
 };
+use steel_gen::OpCode;
 
 use super::{
     functions::BoxedDynFunction,
@@ -63,9 +63,6 @@ use super::{
 
 #[cfg(feature = "sync")]
 use super::lists::Pair;
-
-#[cfg(feature = "sync")]
-use super::Vector;
 
 #[derive(Default)]
 pub struct GlobalSlotRecycler {
@@ -80,7 +77,7 @@ pub struct GlobalSlotRecycler {
     // If we reach the end of our iteration and this isn't
     // drained, whatever is left is now freeable, and we can make
     // this as free in the symbol map
-    slots: HashSet<usize>,
+    slots: DrainHashSet<usize>,
 
     queue: Vec<SteelVal>,
 }
@@ -2658,14 +2655,14 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
         }
     }
 
-    fn visit_hash_map(&mut self, hashmap: &super::HashMap<SteelVal, SteelVal>) -> Self::Output {
+    fn visit_hash_map(&mut self, hashmap: &HashMap<SteelVal, SteelVal>) -> Self::Output {
         for (key, value) in hashmap.iter() {
             self.push_back(key);
             self.push_back(value);
         }
     }
 
-    fn visit_hash_set(&mut self, hashset: &super::HashSet<SteelVal>) -> Self::Output {
+    fn visit_hash_set(&mut self, hashset: &HashSet<SteelVal>) -> Self::Output {
         for value in hashset.iter() {
             self.push_back(value);
         }

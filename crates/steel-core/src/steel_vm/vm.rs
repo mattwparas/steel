@@ -5836,7 +5836,7 @@ pub(crate) fn match_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
                     .unwrap(),
             )
         })
-        .collect::<crate::values::HashMap<_, _>>();
+        .collect::<crate::collections::HashMap<_, _>>();
 
     let kind = binding_kind
         .into_iter()
@@ -5849,7 +5849,7 @@ pub(crate) fn match_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
                 },
             )
         })
-        .collect::<crate::values::HashMap<_, _>>();
+        .collect::<crate::collections::HashMap<_, _>>();
 
     Ok(crate::list![
         // The index of the case that matched

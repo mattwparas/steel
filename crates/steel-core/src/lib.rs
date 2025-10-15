@@ -4,6 +4,7 @@
 extern crate alloc; // Required for heap-backed types when std is disabled
 
 extern crate im_rc;
+pub mod collections;
 #[macro_use]
 mod env;
 #[macro_use]
@@ -29,7 +30,7 @@ mod tests;
 pub(crate) mod values;
 
 pub use self::{rerrs::SteelErr, rvals::SteelVal, stdlib::PRELUDE};
-pub use crate::values::{HashMap, HashSet, Vector};
+pub use crate::collections::{HashMap, HashSet, Vector};
 pub use im_lists::list::List;
 pub use primitives::UnRecoverableResult;
 pub use steel_derive::steel_quote;

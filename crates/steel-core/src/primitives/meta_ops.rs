@@ -245,7 +245,7 @@ impl MetaOperations {
 
             let futures = join_all(joined_futures).map(|x| {
                 x.into_iter()
-                    .collect::<Result<crate::values::Vector<_>>>()
+                    .collect::<Result<crate::collections::Vector<_>>>()
                     .map(|x| SteelVal::VectorV(Gc::new(x).into()))
             });
 

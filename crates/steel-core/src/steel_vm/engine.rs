@@ -67,7 +67,7 @@ use std::{
     },
 };
 
-use crate::values::HashMap as ImmutableHashMap;
+use crate::collections::HashMap as ImmutableHashMap;
 use fxhash::{FxBuildHasher, FxHashMap};
 use lasso::ThreadedRodeo;
 use once_cell::sync::{Lazy, OnceCell};

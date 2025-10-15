@@ -1,8 +1,8 @@
 #![allow(unused)]
 #![allow(clippy::type_complexity)]
 
+use crate::collections::HashMap;
 use crate::steel_vm::primitives::{steel_unbox_mutable, unbox_mutable};
-use crate::values::HashMap;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use smallvec::SmallVec;

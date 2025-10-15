@@ -116,7 +116,7 @@ pub fn headers(value: &SteelVal) -> Result<SteelVal> {
                     SteelVal::ByteVector(SteelByteVector::new(x.value.clone())),
                 )
             })
-            .collect::<crate::values::HashMap<_, _>>(),
+            .collect::<crate::collections::HashMap<_, _>>(),
     ))))
 }
 
@@ -133,7 +133,7 @@ pub fn resp_headers(value: &SteelVal) -> Result<SteelVal> {
                     SteelVal::ByteVector(SteelByteVector::new(x.value.clone())),
                 )
             })
-            .collect::<crate::values::HashMap<_, _>>(),
+            .collect::<crate::collections::HashMap<_, _>>(),
     ))))
 }
 

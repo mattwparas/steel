@@ -26,7 +26,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use crate::values::HashMap;
+use crate::collections::HashMap;
 use fxhash::{FxBuildHasher, FxHashSet};
 
 use steel_parser::span::Span;

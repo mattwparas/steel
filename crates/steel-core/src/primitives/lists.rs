@@ -924,7 +924,7 @@ fn list_to_string(list: &List<SteelVal>) -> Result<SteelVal> {
 
 #[steel_derive::function(name = "list->vector")]
 fn list_to_vector(list: &List<SteelVal>) -> SteelVal {
-    let args: crate::values::Vector<_> = list.iter().cloned().collect();
+    let args: crate::collections::Vector<_> = list.iter().cloned().collect();
 
     SteelVal::VectorV(Gc::new(args).into())
 }

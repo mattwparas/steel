@@ -27,7 +27,7 @@ use crate::{
         port::{SendablePort, SteelPort},
         structs::{SerializableUserDefinedStruct, UserDefinedStruct},
         transducers::{Reducer, Transducer},
-        HashMapConsumingIter, HashSetConsumingIter, SteelPortRepr, VectorConsumingIter,
+        SteelPortRepr,
     },
 };
 use std::vec::IntoIter;
@@ -73,7 +73,9 @@ use parking_lot::RwLock;
 use smallvec::SmallVec;
 use SteelVal::*;
 
-use crate::values::{HashMap, HashSet, Vector};
+use crate::collections::{
+    HashMap, HashMapConsumingIter, HashSet, HashSetConsumingIter, Vector, VectorConsumingIter,
+};
 
 use futures_task::noop_waker_ref;
 use futures_util::future::Shared;

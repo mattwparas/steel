@@ -7,7 +7,7 @@ use crate::parser::{ast, interner::InternedString};
 
 use std::collections::HashSet;
 
-use crate::values::HashMap;
+use crate::collections::HashMap;
 
 use super::ir::Expr;
 

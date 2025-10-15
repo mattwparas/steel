@@ -1,3 +1,4 @@
+use crate::collections::Vector;
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
 use crate::primitives::Either;
@@ -7,7 +8,6 @@ use crate::steel_vm::builtin::BuiltInModule;
 use crate::steel_vm::vm::VmCore;
 use crate::values::closed::HeapRef;
 use crate::values::lists::Pair;
-use crate::values::Vector;
 use crate::{stop, throw};
 
 #[steel_derive::define_module(name = "steel/immutable-vectors")]

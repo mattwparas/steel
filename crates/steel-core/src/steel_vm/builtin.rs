@@ -8,8 +8,8 @@ use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadConta
 #[cfg(not(feature = "sync"))]
 use crate::gc::shared::ShareableMut;
 
+use crate::collections::HashMap;
 use crate::gc::{Shared, SharedMut};
-use crate::values::HashMap;
 use crate::{
     containers::RegisterValue,
     gc::Gc,
@@ -535,7 +535,7 @@ impl BuiltInModule {
 
     pub(crate) fn constant_funcs(
         &self,
-    ) -> crate::values::HashMap<InternedString, SteelVal, FxBuildHasher> {
+    ) -> crate::collections::HashMap<InternedString, SteelVal, FxBuildHasher> {
         self.module
             .read()
             .fn_ptr_table
