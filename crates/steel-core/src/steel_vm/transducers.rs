@@ -16,8 +16,8 @@ use crate::{
     stop,
     values::transducers::{Reducer, Transducers},
 };
-use std::{cell::RefCell, convert::TryInto};
-use std::{iter::Fuse, rc::Rc};
+use alloc::rc::Rc;
+use core::{cell::RefCell, convert::TryInto, iter::Fuse};
 
 /// An iterator adaptor that alternates elements from two iterators until both
 /// run out.

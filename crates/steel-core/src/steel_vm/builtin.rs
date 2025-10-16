@@ -1,7 +1,5 @@
-use alloc::format;
-use alloc::string::String;
-use alloc::vec::Vec;
-use std::{borrow::Cow, cell::RefCell, sync::Arc};
+use alloc::{borrow::Cow, format, string::String, sync::Arc, vec::Vec};
+use core::cell::RefCell;
 
 use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadContainer};
 

@@ -48,6 +48,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 
 use crate::{
+    collections::HashMap,
     env::Env,
     gc::Gc,
     parser::span::Span,
@@ -57,10 +58,9 @@ use crate::{
     values::functions::ByteCodeLambda,
 };
 use alloc::sync::Arc;
-use core::sync::atomic::AtomicBool;
+use core::{cell::RefCell, iter::Iterator, sync::atomic::AtomicBool};
 use std::io::Read as _;
 use std::sync::Mutex;
-use std::{cell::RefCell, collections::HashMap, iter::Iterator};
 
 use super::engine::EngineId;
 
@@ -6164,8 +6164,8 @@ pub struct OpCodeOccurenceProfiler {
 impl OpCodeOccurenceProfiler {
     pub fn new() -> Self {
         OpCodeOccurenceProfiler {
-            occurrences: HashMap::new(),
-            time: HashMap::new(),
+            occurrences: HashMap::default(),
+            time: HashMap::default(),
             starting_index: None,
             ending_index: None,
             sample_count: 0,
