@@ -7,10 +7,11 @@ use alloc::{format, string::String, vec::Vec};
 #[cfg(not(feature = "sync"))]
 use core::cell::RefCell;
 
+use crate::os_strings::OsStr;
+use core::fmt;
 use core::fmt::Pointer;
 use core::ops::Deref;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use std::{ffi::OsStr, fmt};
 
 pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
