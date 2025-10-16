@@ -27,13 +27,11 @@ use crate::{
     SteelErr,
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
-use alloc::collections::VecDeque;
-use alloc::sync::Arc;
-use core::hash::Hash;
-use core::ops::Deref;
-use std::{
+use alloc::{collections::VecDeque, rc::Rc, string::String, sync::Arc, vec::Vec};
+use core::{
     cell::{Ref, RefCell},
-    rc::Rc,
+    hash::Hash,
+    ops::Deref,
 };
 
 use super::closed::Heap;
@@ -573,8 +571,26 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
 
     // Convert the string into an Arc'd string - this now makes the generated functions
     // thread safe.
-    let SteelVal::SymbolV(name) = &args[0] else {
-        stop!(TypeMismatch => format!("make-struct-type expected a symbol for the name, found: {}", &args[0]));
+    let name = match &args[0] {
+        SteelVal::SymbolV(name) => name.clone(),
+        SteelVal::ListV(list) => {
+            let mut iter = list.iter();
+            match (iter.next(), iter.next(), iter.next()) {
+                (Some(SteelVal::SymbolV(sym)), Some(SteelVal::SymbolV(name)), None)
+                    if sym.as_str() == "quote" =>
+                {
+                    name.clone()
+                }
+                _ => stop!(TypeMismatch => format!(
+                    "make-struct-type expected a symbol for the name, found: {}",
+                    &args[0]
+                )),
+            }
+        }
+        _ => stop!(TypeMismatch => format!(
+            "make-struct-type expected a symbol for the name, found: {}",
+            &args[0]
+        )),
     };
 
     let SteelVal::IntV(field_count) = &args[1] else {
@@ -817,8 +833,9 @@ pub static NONE_OPTION_LABEL: Lazy<InternedString> = Lazy::new(|| "None".into())
 pub static TYPE_ID: Lazy<InternedString> = Lazy::new(|| "TypeId".into());
 
 #[cfg(feature = "sync")]
-pub static STRUCT_DEFINITIONS: Lazy<Arc<std::sync::RwLock<SymbolMap>>> =
-    Lazy::new(|| Arc::new(std::sync::RwLock::new(SymbolMap::default())));
+#[cfg(feature = "sync")]
+pub static STRUCT_DEFINITIONS: Lazy<Arc<RwLock<SymbolMap>>> =
+    Lazy::new(|| Arc::new(RwLock::new(SymbolMap::default())));
 
 #[cfg(not(feature = "sync"))]
 thread_local! {

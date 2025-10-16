@@ -17,9 +17,7 @@ use crate::{
     },
     primitives::numbers::realp,
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::vm::{
-        threads::closure_into_serializable, BuiltInSignature, Continuation, ContinuationMark,
-    },
+    steel_vm::vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
     values::{
         closed::{Heap, HeapRef, MarkAndSweepContext},
         functions::{BoxedDynFunction, ByteCodeLambda},
@@ -30,8 +28,8 @@ use crate::{
         SteelPortRepr,
     },
 };
-use alloc::vec::IntoIter;
-use std::{
+use alloc::{rc::Rc, sync::Arc, vec::IntoIter, vec::Vec};
+use core::{
     any::{Any, TypeId},
     cell::RefCell,
     cmp::Ordering,
@@ -39,14 +37,19 @@ use std::{
     fmt,
     future::Future,
     hash::{Hash, Hasher},
-    io::Write,
     ops::Deref,
     pin::Pin,
-    rc::Rc,
     result,
-    sync::{Arc, Mutex},
     task::Context,
 };
+#[cfg(feature = "std")]
+use std::{io::Write, sync::Mutex};
+
+#[cfg(feature = "sync")]
+use crate::steel_vm::vm::ContinuationMark;
+
+#[cfg(feature = "sync")]
+use parking_lot::RwLock;
 
 // TODO
 #[macro_export]
@@ -69,7 +72,6 @@ macro_rules! list {
 }
 
 use bigdecimal::BigDecimal;
-use parking_lot::RwLock;
 use smallvec::SmallVec;
 use SteelVal::*;
 
@@ -222,7 +224,7 @@ pub trait CustomType: MaybeSendSyncStatic {
     fn as_any_ref(&self) -> &dyn Any;
     fn as_any_ref_mut(&mut self) -> &mut dyn Any;
     fn name(&self) -> &str {
-        std::any::type_name::<Self>()
+        core::any::type_name::<Self>()
     }
     fn inner_type_id(&self) -> TypeId;
     fn display(&self) -> core::result::Result<String, core::fmt::Error> {
@@ -257,7 +259,7 @@ pub trait CustomType {
     fn as_any_ref(&self) -> &dyn Any;
     fn as_any_ref_mut(&mut self) -> &mut dyn Any;
     fn name(&self) -> &str {
-        std::any::type_name::<Self>()
+        core::any::type_name::<Self>()
     }
     fn inner_type_id(&self) -> TypeId;
     fn display(&self) -> core::result::Result<String, core::fmt::Error> {
@@ -292,7 +294,7 @@ impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
         self as &mut dyn Any
     }
     fn inner_type_id(&self) -> TypeId {
-        std::any::TypeId::of::<Self>()
+        core::any::TypeId::of::<Self>()
     }
     fn display(&self) -> core::result::Result<String, core::fmt::Error> {
         if let Some(formatted) = self.fmt() {
@@ -357,7 +359,7 @@ impl<T: CustomType + Clone + Send + Sync + 'static> IntoSerializableSteelVal for
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {:?}, did not match the given type: {}",
                     val,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
                 SteelErr::new(ErrorKind::ConversionError, error_message)
             });
@@ -367,7 +369,7 @@ impl<T: CustomType + Clone + Send + Sync + 'static> IntoSerializableSteelVal for
             let error_message = format!(
                 "Type Mismatch: Type of SteelVal: {:?} did not match the given type, expecting opaque struct: {}",
                 val,
-                std::any::type_name::<Self>()
+                core::any::type_name::<Self>()
             );
 
             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -388,7 +390,7 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {:?}, did not match the given type: {}",
                     val,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
                 SteelErr::new(ErrorKind::ConversionError, error_message)
             })
@@ -396,7 +398,7 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
             let error_message = format!(
                 "Type Mismatch: Type of SteelVal: {:?} did not match the given type, expecting opaque struct: {}",
                 val,
-                std::any::type_name::<Self>()
+                core::any::type_name::<Self>()
             );
 
             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -492,7 +494,7 @@ impl<T: FromSteelVal> core::ops::Deref for RestArgs<T> {
 
 mod private {
 
-    use std::any::Any;
+    use core::any::Any;
 
     pub trait Sealed {}
 
@@ -579,7 +581,7 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefSteelVal for T {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                     val,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
             }
@@ -588,7 +590,7 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefSteelVal for T {
             let error_message = format!(
                 "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                 val,
-                std::any::type_name::<Self>()
+                core::any::type_name::<Self>()
             );
 
             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -609,7 +611,7 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                     val,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
             }
@@ -618,7 +620,7 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
             let error_message = format!(
                 "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                 val,
-                std::any::type_name::<Self>()
+                core::any::type_name::<Self>()
             );
 
             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -1546,6 +1548,7 @@ impl fmt::Display for SteelComplex {
 
 impl SteelVal {
     // TODO: Re-evaluate this - should this be buffered?
+    #[cfg(feature = "std")]
     pub fn new_dyn_writer_port(port: impl Write + Send + Sync + 'static) -> SteelVal {
         SteelVal::PortV(SteelPort {
             port: Gc::new_mut(SteelPortRepr::DynWriter(Arc::new(Mutex::new(port)))),
@@ -1553,7 +1556,7 @@ impl SteelVal {
     }
 
     pub fn anonymous_boxed_function(
-        function: alloc::sync::Arc<
+        function: Arc<
             dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,
         >,
     ) -> SteelVal {
@@ -1727,7 +1730,7 @@ impl From<Arc<String>> for SteelString {
 }
 
 #[cfg(all(feature = "sync", feature = "triomphe"))]
-impl From<alloc::sync::Arc<String>> for SteelString {
+impl From<Arc<String>> for SteelString {
     fn from(value: Arc<String>) -> Self {
         SteelString(Gc(triomphe::Arc::new((*value).clone())))
     }

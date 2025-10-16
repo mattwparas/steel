@@ -1,7 +1,10 @@
-use std::cell::RefCell;
+use core::cell::RefCell;
 
 #[cfg(feature = "sync")]
-use std::{sync::Arc, thread::JoinHandle};
+use alloc::sync::Arc;
+
+#[cfg(feature = "sync")]
+use std::thread::JoinHandle;
 
 #[cfg(feature = "sync")]
 use std::sync::Mutex;
@@ -11,6 +14,11 @@ use crate::rvals::cycles::BreadthFirstSearchSteelValReferenceVisitor2;
 
 #[cfg(feature = "sync")]
 use crate::rvals::SteelValPointer;
+
+#[cfg(feature = "sync")]
+use crate::collections::{HashMap, HashSet};
+
+use alloc::{boxed::Box, vec::Vec};
 
 use crate::{
     compiler::map::SymbolMap,
@@ -40,7 +48,7 @@ use num_rational::{BigRational, Rational32};
 use once_cell::sync::Lazy;
 
 use crate::{
-    collections::{DrainHashSet, HashMap, HashSet, Vector},
+    collections::{DrainHashSet, Vector},
     gc::{unsafe_erased_pointers::OpaqueReference, Gc},
     rvals::{
         cycles::BreadthFirstSearchSteelValVisitor, BoxedAsyncFunctionSignature, CustomType,
@@ -1017,17 +1025,12 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     }
 
     fn grow(&mut self) {
-        let now = std::time::Instant::now();
         // Can probably make this a lot bigger
         let current = self.elements.len().max(Self::EXTEND_CHUNK);
 
         self.cursor = self.elements.len();
 
         self.elements.reserve(current);
-
-        log::debug!(target: "gc", "Time to extend the heap vec -> {:?}", now.elapsed());
-
-        let now = std::time::Instant::now();
 
         // Can we pre allocate this somewhere else? Incrementally allocate the values?
         // So basically we can have the elements be allocated vs not, and just have them
@@ -1038,8 +1041,6 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
             })
             .take(current),
         );
-
-        log::debug!(target: "gc", "Growing the heap by: {} -> {:?}", current, now.elapsed());
 
         self.alloc_count += current;
         self.grow_count += 1;
@@ -1254,17 +1255,12 @@ impl<T: HeapAble + 'static> FreeList<T> {
     }
 
     fn grow(&mut self) {
-        let now = std::time::Instant::now();
         // Can probably make this a lot bigger
         let current = self.elements.len().max(Self::EXTEND_CHUNK);
 
         self.cursor = self.elements.len();
 
         self.elements.reserve(current);
-
-        log::debug!(target: "gc", "Time to extend the heap vec -> {:?}", now.elapsed());
-
-        let now = std::time::Instant::now();
 
         // Can we pre allocate this somewhere else? Incrementally allocate the values?
         // So basically we can have the elements be allocated vs not, and just have them
@@ -1275,8 +1271,6 @@ impl<T: HeapAble + 'static> FreeList<T> {
             })
             .take(current),
         );
-
-        log::debug!(target: "gc", "Growing the heap by: {} -> {:?}", current, now.elapsed());
 
         self.alloc_count += current;
         self.grow_count += 1;
@@ -1635,13 +1629,11 @@ impl Heap {
         force: bool,
     ) {
         if self.memory_free_list.percent_full() > 0.95 || force {
-            let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "SteelVal gc invocation");
             self.memory_free_list.weak_collection();
 
             log::debug!(target: "gc", "Memory size post weak collection: {}", self.memory_free_list.percent_full());
-            log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.memory_free_list.percent_full() > 0.95 || force {
                 // New generation
@@ -1676,8 +1668,6 @@ impl Heap {
                 // synchronizer.resume_threads();
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.memory_free_list.percent_full());
-
-                log::debug!(target: "gc", "---- TOTAL GC TIME: {:?} ----", now.elapsed());
             }
         }
     }
@@ -1718,11 +1708,9 @@ impl Heap {
         force: bool,
     ) {
         if self.vector_free_list.percent_full() > 0.95 || force {
-            let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
             self.vector_free_list.weak_collection();
-            log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.vector_free_list.percent_full() > 0.95 || force {
                 self.vector_free_list.mark_all_unreachable();
@@ -1753,8 +1741,6 @@ impl Heap {
                 }
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.vector_free_list.percent_full());
-
-                log::debug!(target: "gc", "---- TOTAL VECTOR GC TIME: {:?} ----", now.elapsed());
             }
         }
     }
@@ -1769,11 +1755,9 @@ impl Heap {
         synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<Vec<SteelVal>> {
         if self.vector_free_list.percent_full() > 0.95 {
-            let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
             self.vector_free_list.weak_collection();
-            log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.vector_free_list.percent_full() > 0.95 {
                 self.vector_free_list.mark_all_unreachable();
@@ -1804,8 +1788,6 @@ impl Heap {
                 }
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.vector_free_list.percent_full());
-
-                log::debug!(target: "gc", "---- TOTAL VECTOR GC TIME: {:?} ----", now.elapsed());
             }
         }
 
@@ -1832,9 +1814,6 @@ impl Heap {
             synchronizer,
         );
 
-        // #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
-
         #[cfg(feature = "sync")]
         {
             GLOBAL_ROOTS.lock().unwrap().increment_generation();
@@ -1846,8 +1825,6 @@ impl Heap {
         }
 
         // #[cfg(feature = "profiling")]
-        log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
-
         synchronizer.resume_threads();
 
         stats
@@ -1867,9 +1844,6 @@ impl Heap {
         synchronizer: &mut Synchronizer,
     ) -> MarkAndSweepStats {
         log::debug!(target: "gc", "Marking the heap");
-
-        // #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
 
         let mut context = MarkAndSweepContext {
             queue: &mut self.mark_and_sweep_queue,
@@ -1943,7 +1917,6 @@ impl Heap {
             context.stats
         };
 
-        log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
         count
     }
 }
@@ -1990,8 +1963,6 @@ impl ParallelMarker {
                 // This... might be too big?
                 let mut local_queue = Vec::with_capacity(4096);
                 for _ in receiver {
-                    let now = std::time::Instant::now();
-
                     let mut context = MarkAndSweepContextRefQueue {
                         queue: &cloned_queue,
                         local_queue: &mut local_queue,
@@ -1999,13 +1970,6 @@ impl ParallelMarker {
                     };
 
                     context.visit();
-
-                    log::debug!(target: "gc",
-                        "{:?}: {:?} -> {:?}",
-                        std::thread::current().id(),
-                        now.elapsed(),
-                        context.stats
-                    );
 
                     ack_sender.send(context.stats).unwrap();
                 }

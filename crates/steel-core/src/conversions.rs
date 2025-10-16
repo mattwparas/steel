@@ -1,18 +1,15 @@
 use crate::values::lists::List;
 
+use crate::collections::{
+    HashMap as ImmutableHashMap, HashSet as ImmutableHashSet, MutableHashMap, MutableHashSet,
+};
 use crate::{
     gc::Gc,
     rerrs::ErrorKind,
     rvals::{AsRefSteelValFromUnsized, FromSteelVal, IntoSteelVal, Result},
     SteelErr, SteelVal,
 };
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-};
-
-use crate::collections::HashMap as ImmutableHashMap;
-use crate::collections::HashSet as ImmutableHashSet;
+use alloc::borrow::Cow;
 
 #[cfg(feature = "anyhow")]
 mod anyhow_conversion {
@@ -226,21 +223,23 @@ impl FromSteelVal for Box<str> {
 }
 
 // HashMap
-impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for HashMap<K, V> {
-    fn into_steelval(mut self) -> Result<SteelVal> {
+impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for MutableHashMap<K, V> {
+    fn into_steelval(self) -> Result<SteelVal> {
         let mut hm = ImmutableHashMap::new();
-        for (key, val) in self.drain() {
+        for (key, val) in self.into_iter() {
             hm.insert(key.into_steelval()?, val.into_steelval()?);
         }
         Ok(SteelVal::HashMapV(Gc::new(hm).into()))
     }
 }
 
-impl<K: FromSteelVal + Eq + core::hash::Hash, V: FromSteelVal> FromSteelVal for HashMap<K, V> {
+impl<K: FromSteelVal + Eq + core::hash::Hash, V: FromSteelVal> FromSteelVal
+    for MutableHashMap<K, V>
+{
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         // todo!()
         if let SteelVal::HashMapV(hm) = val {
-            let mut h = HashMap::new();
+            let mut h = MutableHashMap::default();
             for (key, value) in hm.0.unwrap().into_iter() {
                 h.insert(K::from_steelval(&key)?, V::from_steelval(&value)?);
             }
@@ -291,21 +290,67 @@ impl<A: FromSteelVal, B: FromSteelVal> FromSteelVal for (A, B) {
     }
 }
 
+#[cfg(feature = "std")]
+impl<K, V> IntoSteelVal for std::collections::HashMap<K, V>
+where
+    K: IntoSteelVal + std::hash::Hash + Eq,
+    V: IntoSteelVal,
+{
+    fn into_steelval(self) -> Result<SteelVal> {
+        let mutable: MutableHashMap<K, V> = self.into_iter().collect();
+        mutable.into_steelval()
+    }
+}
+
+#[cfg(feature = "std")]
+impl<K, V> FromSteelVal for std::collections::HashMap<K, V>
+where
+    K: FromSteelVal + Eq + std::hash::Hash,
+    V: FromSteelVal,
+{
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
+        let map: MutableHashMap<K, V> = <MutableHashMap<K, V> as FromSteelVal>::from_steelval(val)?;
+        Ok(map.into_iter().collect())
+    }
+}
+
 // HashSet
-impl<K: IntoSteelVal> IntoSteelVal for HashSet<K> {
-    fn into_steelval(mut self) -> Result<SteelVal> {
+impl<K: IntoSteelVal> IntoSteelVal for MutableHashSet<K> {
+    fn into_steelval(self) -> Result<SteelVal> {
         let mut hs = ImmutableHashSet::new();
-        for value in self.drain() {
+        for value in self.into_iter() {
             hs.insert(value.into_steelval()?);
         }
         Ok(SteelVal::HashSetV(Gc::new(hs).into()))
     }
 }
 
-impl<K: FromSteelVal + Eq + core::hash::Hash> FromSteelVal for HashSet<K> {
+#[cfg(feature = "std")]
+impl<K> IntoSteelVal for std::collections::HashSet<K>
+where
+    K: IntoSteelVal + std::hash::Hash + Eq,
+{
+    fn into_steelval(self) -> Result<SteelVal> {
+        let mutable: MutableHashSet<K> = self.into_iter().collect();
+        mutable.into_steelval()
+    }
+}
+
+#[cfg(feature = "std")]
+impl<K> FromSteelVal for std::collections::HashSet<K>
+where
+    K: FromSteelVal + Eq + std::hash::Hash,
+{
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
+        let set: MutableHashSet<K> = <MutableHashSet<K> as FromSteelVal>::from_steelval(val)?;
+        Ok(set.into_iter().collect())
+    }
+}
+
+impl<K: FromSteelVal + Eq + core::hash::Hash> FromSteelVal for MutableHashSet<K> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::HashSetV(hs) = val {
-            let mut h = HashSet::new();
+            let mut h = MutableHashSet::default();
             for k in hs.0.unwrap().into_iter() {
                 h.insert(K::from_steelval(&k)?);
             }
@@ -336,6 +381,9 @@ impl<K: FromSteelVal + Eq + core::hash::Hash> FromSteelVal for HashSet<K> {
 mod conversion_tests {
 
     use super::*;
+
+    #[cfg(feature = "std")]
+    use std::collections::{HashMap, HashSet};
 
     #[cfg(not(feature = "sync"))]
     use im_rc::vector;
@@ -402,6 +450,7 @@ mod conversion_tests {
         assert!(<Vec<i32>>::from_steelval(&input).is_err());
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn hashmap_into_steelval() {
         let mut input = HashMap::new();
@@ -419,6 +468,7 @@ mod conversion_tests {
         assert_eq!(input.into_steelval().unwrap(), expected);
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn hashmap_from_steelval_hashmap() {
         let input = SteelVal::HashMapV(
@@ -439,6 +489,7 @@ mod conversion_tests {
         );
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn hashset_into_steelval() {
         let mut input = HashSet::new();
@@ -456,6 +507,7 @@ mod conversion_tests {
         assert_eq!(input.into_steelval().unwrap(), expected);
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn hashset_from_steelval_hashset() {
         let input = SteelVal::HashSetV(
