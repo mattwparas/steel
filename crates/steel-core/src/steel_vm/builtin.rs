@@ -25,7 +25,7 @@ use compact_str::CompactString;
 use once_cell::sync::Lazy;
 
 #[cfg(feature = "sync")]
-use parking_lot::RwLock;
+use crate::sync::RwLock;
 
 use super::vm::BuiltInSignature;
 

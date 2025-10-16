@@ -68,6 +68,7 @@ impl Clone for Env {
 
 #[cfg(not(feature = "sync"))]
 impl Env {
+    #[allow(dead_code)]
     pub fn extract(&self, idx: usize) -> Option<SteelVal> {
         self.bindings_vec.get(idx).cloned()
     }
@@ -140,6 +141,7 @@ impl Env {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn add_root_value(&mut self, idx: usize, val: SteelVal) {
         // self.bindings_map.insert(idx, val);
         self.repl_define_idx(idx, val);

@@ -1,6 +1,7 @@
 use crate::collections::{MutableHashMap, MutableHashSet};
 use alloc::format;
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use fxhash::FxHashMap;
@@ -46,13 +47,13 @@ pub fn thread_finished(handle: &SteelVal) -> Result<SteelVal> {
 impl crate::rvals::Custom for ThreadHandle {}
 
 pub struct SteelMutex {
-    mutex: Arc<parking_lot::Mutex<()>>,
+    mutex: Arc<crate::sync::ArcMutex<()>>,
 }
 
 impl crate::rvals::Custom for SteelMutex {}
 
 pub struct MutexGuard {
-    guard: AtomicCell<Option<parking_lot::ArcMutexGuard<parking_lot::RawMutex, ()>>>,
+    guard: AtomicCell<Option<crate::sync::ArcMutexGuard<()>>>,
 }
 
 impl crate::rvals::Custom for MutexGuard {}
@@ -60,7 +61,7 @@ impl crate::rvals::Custom for MutexGuard {}
 impl SteelMutex {
     pub fn new() -> Self {
         Self {
-            mutex: Arc::new(parking_lot::Mutex::new(())),
+            mutex: Arc::new(crate::sync::ArcMutex::new(())),
         }
     }
 
@@ -301,8 +302,7 @@ pub fn closure_into_serializable(
 //         // Void in this case, is a poisoned value. We need to trace the closure
 //         // (and all of its references) - to find any / all globals that _could_ be
 //         // referenced.
-//         #[cfg(feature = "sync")]
-//         global_env: time!(
+//         //         global_env: time!(
 //             "Global env serialization",
 //             ctx.thread
 //                 .global_env
@@ -412,8 +412,7 @@ pub fn closure_into_serializable(
 //             )
 //         );
 
-//         #[cfg(feature = "sync")]
-//         let global_env = time!(
+//         //         let global_env = time!(
 //             "Global env creation",
 //             Env {
 //                 bindings_vec: Arc::new(std::sync::RwLock::new(
@@ -667,71 +666,74 @@ pub static EMPTY_CHANNEL_OBJECT: once_cell::sync::Lazy<(
 pub static DISCONNECTED_CHANNEL_OBJECT: once_cell::sync::Lazy<(
     SteelVal,
     crate::values::structs::StructTypeDescriptor,
-)> =
-    once_cell::sync::Lazy::new(|| crate::values::structs::make_struct_singleton("#%empty-channel"));
+)> = once_cell::sync::Lazy::new(|| {
+    crate::values::structs::make_struct_singleton("#%disconnected-channel")
+});
 
 /// Returns `#t` if the value is an empty-channel object.
 ///
 /// (empty-channel-object? any/c) -> bool?
+#[cfg(feature = "sync")]
 #[function(name = "empty-channel-object?")]
 pub fn empty_channel_objectp(value: &SteelVal) -> bool {
     let SteelVal::CustomStruct(struct_) = value else {
         return false;
     };
 
-    #[cfg(feature = "sync")]
-    {
-        struct_.type_descriptor == EMPTY_CHANNEL_OBJECT.1
-    }
-
-    #[cfg(not(feature = "sync"))]
-    {
-        EMPTY_CHANNEL_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
-    }
+    struct_.type_descriptor == EMPTY_CHANNEL_OBJECT.1
 }
 
-pub fn empty_channel() -> SteelVal {
-    #[cfg(feature = "sync")]
-    {
-        EMPTY_CHANNEL_OBJECT.0.clone()
-    }
+#[cfg(not(feature = "sync"))]
+#[function(name = "empty-channel-object?")]
+pub fn empty_channel_objectp(value: &SteelVal) -> bool {
+    let SteelVal::CustomStruct(struct_) = value else {
+        return false;
+    };
 
-    #[cfg(not(feature = "sync"))]
-    {
-        EMPTY_CHANNEL_OBJECT.with(|eof| eof.0.clone())
-    }
+    EMPTY_CHANNEL_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+}
+
+#[cfg(feature = "sync")]
+pub fn empty_channel() -> SteelVal {
+    EMPTY_CHANNEL_OBJECT.0.clone()
+}
+
+#[cfg(not(feature = "sync"))]
+pub fn empty_channel() -> SteelVal {
+    EMPTY_CHANNEL_OBJECT.with(|eof| eof.0.clone())
 }
 
 /// Returns `#t` if the value is an disconnected-channel object.
 ///
 /// (eof-object? any/c) -> bool?
+#[cfg(feature = "sync")]
 #[function(name = "disconnected-channel-object?")]
 pub fn disconnected_channel_objectp(value: &SteelVal) -> bool {
     let SteelVal::CustomStruct(struct_) = value else {
         return false;
     };
 
-    #[cfg(feature = "sync")]
-    {
-        struct_.type_descriptor == DISCONNECTED_CHANNEL_OBJECT.1
-    }
-
-    #[cfg(not(feature = "sync"))]
-    {
-        DISCONNECTED_CHANNEL_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
-    }
+    struct_.type_descriptor == DISCONNECTED_CHANNEL_OBJECT.1
 }
 
-pub fn disconnected_channel() -> SteelVal {
-    #[cfg(feature = "sync")]
-    {
-        DISCONNECTED_CHANNEL_OBJECT.0.clone()
-    }
+#[cfg(not(feature = "sync"))]
+#[function(name = "disconnected-channel-object?")]
+pub fn disconnected_channel_objectp(value: &SteelVal) -> bool {
+    let SteelVal::CustomStruct(struct_) = value else {
+        return false;
+    };
 
-    #[cfg(not(feature = "sync"))]
-    {
-        DISCONNECTED_CHANNEL_OBJECT.with(|eof| eof.0.clone())
-    }
+    DISCONNECTED_CHANNEL_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+}
+
+#[cfg(feature = "sync")]
+pub fn disconnected_channel() -> SteelVal {
+    DISCONNECTED_CHANNEL_OBJECT.0.clone()
+}
+
+#[cfg(not(feature = "sync"))]
+pub fn disconnected_channel() -> SteelVal {
+    DISCONNECTED_CHANNEL_OBJECT.with(|eof| eof.0.clone())
 }
 
 #[steel_derive::context(name = "current-thread-id", arity = "Exact(0)")]

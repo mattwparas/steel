@@ -7,6 +7,7 @@ use super::{
 };
 use alloc::format;
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 #[cfg(feature = "dylibs")]
@@ -15,6 +16,7 @@ use super::{ffi::FFIModule, ffi::FFIWrappedModule};
 #[cfg(feature = "dylibs")]
 use super::dylib::DylibContainers;
 
+use crate::sync::Mutex;
 use crate::time::Instant;
 use crate::{
     compiler::{
@@ -65,19 +67,16 @@ use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     rc::Rc,
-    sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc, Mutex,
-    },
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use crate::collections::HashMap as ImmutableHashMap;
+use crate::sync::{
+    MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
+};
 use fxhash::{FxBuildHasher, FxHashMap};
 use lasso::ThreadedRodeo;
 use once_cell::sync::{Lazy, OnceCell};
-use parking_lot::{
-    MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
-};
 use serde::{Deserialize, Serialize};
 use steel_gen::OpCode;
 use steel_parser::{

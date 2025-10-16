@@ -26,6 +26,7 @@ use crate::rvals::SteelString;
 use crate::steel_vm::primitives::steel_not;
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
+use crate::sync::Mutex;
 use crate::values::closed::Heap;
 use crate::values::closed::MarkAndSweepContext;
 use crate::values::functions::CaptureVec;
@@ -55,7 +56,6 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
     stop,
-    sync::Mutex,
     values::functions::ByteCodeLambda,
 };
 use alloc::sync::Arc;
@@ -64,6 +64,7 @@ use std::io::Read as _;
 
 use super::engine::EngineId;
 
+use crate::sync::RwLock;
 #[cfg(feature = "dynamic")]
 use crate::time::Duration;
 use crate::time::Instant;
@@ -72,7 +73,6 @@ use crossbeam_utils::atomic::AtomicCell;
 use log::{debug, log_enabled};
 use num_bigint::BigInt;
 use num_traits::CheckedSub;
-use parking_lot::RwLock;
 use smallvec::SmallVec;
 use steel_parser::interner::InternedString;
 use threads::ThreadHandle;
@@ -81,6 +81,7 @@ use crate::rvals::{into_serializable_value, IntoSteelVal};
 
 pub(crate) mod threads;
 
+#[cfg(feature = "sync")]
 pub use threads::{mutex_lock, mutex_unlock};
 
 #[inline]
@@ -571,6 +572,7 @@ impl Synchronizer {
         }
     }
 
+    #[cfg(feature = "sync")]
     pub(crate) unsafe fn call_per_ctx(&self, mut func: impl FnMut(&mut SteelThread)) {
         let guard = self.threads.lock().unwrap();
 
@@ -1410,14 +1412,32 @@ impl Continuation {
 
             panic!("Failed to find an open continuation on the stack");
         } else {
-            match StandardShared::try_unwrap(this.inner).map(|x| x.into_inner()) {
-                Ok(cont) => {
-                    ctx.set_state_from_continuation(cont.into_closed().unwrap());
+            #[cfg(feature = "sync")]
+            {
+                match StandardShared::try_unwrap(this.inner) {
+                    Ok(lock) => {
+                        let cont = lock.into_inner().expect(
+                            "RwLock::into_inner should not fail when unwrapping continuation",
+                        );
+                        ctx.set_state_from_continuation(cont.into_closed().unwrap());
+                    }
+                    Err(e) => {
+                        let definitely_closed = e.read().clone().into_closed().unwrap();
+                        ctx.set_state_from_continuation(definitely_closed);
+                    }
                 }
-                Err(e) => {
-                    let definitely_closed = e.read().clone().into_closed().unwrap();
+            }
 
-                    ctx.set_state_from_continuation(definitely_closed);
+            #[cfg(not(feature = "sync"))]
+            {
+                match StandardShared::try_unwrap(this.inner) {
+                    Ok(cell) => {
+                        ctx.set_state_from_continuation(cell.into_inner().into_closed().unwrap());
+                    }
+                    Err(rc) => {
+                        let definitely_closed = rc.borrow().clone().into_closed().unwrap();
+                        ctx.set_state_from_continuation(definitely_closed);
+                    }
                 }
             }
         }

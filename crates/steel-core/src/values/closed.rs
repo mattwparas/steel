@@ -558,7 +558,7 @@ type HeapVector = StandardSharedMut<HeapAllocated<Vec<SteelVal>>>;
 type HeapElement<T> = StandardSharedMut<HeapAllocated<T>>;
 
 #[cfg(feature = "sync")]
-static MARKER: std::sync::LazyLock<ParallelMarker> = std::sync::LazyLock::new(ParallelMarker::new);
+static MARKER: Lazy<ParallelMarker> = Lazy::new(ParallelMarker::new);
 
 #[cfg(feature = "sync")]
 pub struct WillExecutor {

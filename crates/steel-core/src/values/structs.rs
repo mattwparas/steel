@@ -3,10 +3,10 @@
 
 use crate::collections::{HashMap, MutableHashMap, MutableHashSet};
 use crate::steel_vm::primitives::{steel_unbox_mutable, unbox_mutable};
+#[cfg(feature = "sync")]
+use crate::sync::RwLock;
 use alloc::{collections::VecDeque, format, rc::Rc, string::String, sync::Arc, vec::Vec};
 use once_cell::sync::Lazy;
-#[cfg(feature = "sync")]
-use parking_lot::RwLock;
 use smallvec::SmallVec;
 
 use crate::compiler::map::SymbolMap;

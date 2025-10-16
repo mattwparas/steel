@@ -1,6 +1,8 @@
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
 use crate::stop;
+#[cfg_attr(not(feature = "sync"), allow(unused_imports))]
+use crate::sync::RwLock;
 #[allow(unused_imports)]
 use alloc::{format, string::String, vec::Vec};
 
@@ -19,22 +21,19 @@ pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 pub use shared::{GcMut, MutContainer, ShareableMut, Shared, SharedMut};
 pub use unsafe_erased_pointers::is_reference_type;
 
-#[cfg(feature = "sync")]
-use parking_lot::RwLock;
-
 pub mod shared {
-    use alloc::rc::{Rc, Weak};
+    use alloc::rc::Rc;
+    #[cfg(not(feature = "sync"))]
+    use alloc::rc::Weak;
     use core::cell::{BorrowError, BorrowMutError, Ref, RefCell, RefMut};
     use core::ops::{Deref, DerefMut};
 
-    // TODO: Replace these with `parking_lot` primitives instead
-    use crate::sync::{Mutex, MutexGuard, TryLockResult};
+    #[cfg_attr(not(feature = "sync"), allow(unused_imports))]
+    use crate::sync::{
+        MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, MutexGuard, RwLock, RwLockReadGuard,
+        RwLockWriteGuard, TryLockResult,
+    };
     use alloc::sync::Arc;
-
-    use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-
-    #[cfg(feature = "sync")]
-    use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard};
 
     use super::Gc;
 
@@ -103,6 +102,7 @@ pub mod shared {
     impl<T> MutableContainer<T> for RwLock<T> {
         fn consume(self) -> T {
             self.into_inner()
+                .expect("RwLock::into_inner should not fail in non-poisoning contexts")
         }
     }
 
@@ -257,15 +257,15 @@ pub mod shared {
 
         fn try_read<'a>(&'a self) -> Self::TryReadResult<'a> {
             match Arc::deref(self).try_read() {
-                Some(v) => Ok(v),
-                None => Err(()),
+                Ok(v) => Ok(v),
+                Err(_) => Err(()),
             }
         }
 
         fn try_write<'a>(&'a self) -> Self::TryWriteResult<'a> {
             match Arc::deref(self).try_write() {
-                Some(v) => Ok(v),
-                None => Err(()),
+                Ok(v) => Ok(v),
+                Err(_) => Err(()),
             }
         }
     }
@@ -304,15 +304,15 @@ pub mod shared {
 
         fn try_read<'a>(&'a self) -> Self::TryReadResult<'a> {
             match Gc::deref(self).try_read() {
-                Some(v) => Ok(v),
-                None => Err(()),
+                Ok(v) => Ok(v),
+                Err(_) => Err(()),
             }
         }
 
         fn try_write<'a>(&'a self) -> Self::TryWriteResult<'a> {
             match Gc::deref(self).try_write() {
-                Some(v) => Ok(v),
-                None => Err(()),
+                Ok(v) => Ok(v),
+                Err(_) => Err(()),
             }
         }
     }

@@ -246,6 +246,7 @@ pub type SteelList<T> = im_lists::list::GenericList<T, PointerType, 4, 2, Defaul
 
 pub type List<T> = im_lists::list::GenericList<T, PointerType, 4, 2, DropHandlerChoice>;
 
+#[cfg_attr(not(feature = "sync"), allow(dead_code))]
 pub(crate) type CellPointer<T> = im_lists::list::RawCell<T, PointerType, 4, 2, DropHandlerChoice>;
 
 pub type ConsumingIterator<T> =

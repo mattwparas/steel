@@ -38,14 +38,16 @@ struct ChildProcess {
     child: Option<Child>,
 }
 
+#[cfg(not(any(target_family = "wasm", target_env = "newlib")))]
 fn binary_exists_on_path(binary: String) -> Option<String> {
-    #[cfg(not(any(target_family = "wasm", target_env = "newlib")))]
     match which::which(binary) {
         Ok(v) => Some(v.into_os_string().into_string().unwrap()),
         Err(_) => None,
     }
+}
 
-    #[cfg(any(target_family = "wasm", target_env = "newlib"))]
+#[cfg(any(target_family = "wasm", target_env = "newlib"))]
+fn binary_exists_on_path(_binary: String) -> Option<String> {
     None
 }
 

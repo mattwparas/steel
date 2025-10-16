@@ -23,4 +23,5 @@ pub(crate) mod transducers;
 pub(crate) mod vm;
 
 pub use vm::ThreadStateController;
+#[cfg(feature = "sync")]
 pub use vm::{mutex_lock, mutex_unlock};

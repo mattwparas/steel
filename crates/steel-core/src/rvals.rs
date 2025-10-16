@@ -43,13 +43,16 @@ use core::{
     task::Context,
 };
 #[cfg(feature = "std")]
-use std::{io::Write, sync::Mutex};
+use std::io::Write;
+
+#[cfg(feature = "std")]
+use crate::sync::Mutex;
 
 #[cfg(feature = "sync")]
 use crate::steel_vm::vm::ContinuationMark;
 
 #[cfg(feature = "sync")]
-use parking_lot::RwLock;
+use crate::sync::RwLock;
 
 // TODO
 #[macro_export]
@@ -571,7 +574,8 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefSteelVal for T {
 
     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
         if let SteelVal::Custom(v) = val {
-            let res = ScopedReadContainer::map(v.read(), |x| x.as_any_ref());
+            let res: MappedScopedReadContainer<'_, dyn Any> =
+                ScopedReadContainer::map(v.read(), |x| x.as_any_ref());
 
             if res.is::<T>() {
                 Ok(SRef::Owned(MappedScopedReadContainer::map(res, |x| {
@@ -601,7 +605,8 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefSteelVal for T {
 impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
     fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<MappedScopedWriteContainer<'b, Self>> {
         if let SteelVal::Custom(v) = val {
-            let res = ScopedWriteContainer::map(v.write(), |x| x.as_any_ref_mut());
+            let res: MappedScopedWriteContainer<'_, dyn Any> =
+                ScopedWriteContainer::map(v.write(), |x| x.as_any_ref_mut());
 
             if res.is::<T>() {
                 Ok(MappedScopedWriteContainer::map(res, |x| {
