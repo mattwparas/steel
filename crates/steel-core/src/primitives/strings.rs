@@ -1,11 +1,12 @@
 use crate::gc::Gc;
 use crate::values::lists::{List, SteelList};
+use alloc::{format, string::String};
 
 use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
 use crate::steel_vm::{builtin::BuiltInModule, vm::VmCore};
 use crate::{builtin_stop, stop, Vector};
 
-use std::io::Write as _;
+use core::fmt::Write as _;
 
 use icu_casemap::CaseMapper;
 use steel_derive::{function, native};
@@ -107,40 +108,47 @@ macro_rules! monotonic {
 }
 
 mod radix_fmt {
+    use alloc::{string::String, vec::Vec};
     use num_bigint::BigInt;
 
-    const DIGITS: [u8; 16] = *b"0123456789abcdef";
+    const DIGITS: [char; 16] = [
+        '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+    ];
 
-    pub fn small(acc: &mut Vec<u8>, value: isize, radix: usize) {
-        let start = acc.len();
-        let numbers = core::iter::successors(Some(value.unsigned_abs()), |n| match n / radix {
-            0 => None,
-            n => Some(n),
-        });
+    pub fn small(acc: &mut String, value: isize, radix: usize) {
+        let negative = value < 0;
+        let mut n = value.unsigned_abs();
+        let mut digits = Vec::new();
 
-        for number in numbers {
-            let idx = number % radix;
-            let digit = DIGITS[idx];
-            acc.push(digit);
+        loop {
+            let idx = (n % radix) as usize;
+            digits.push(DIGITS[idx]);
+            n /= radix;
+            if n == 0 {
+                break;
+            }
         }
-        if value < 0 {
-            acc.push(b'-');
+
+        if negative {
+            digits.push('-');
         }
 
-        acc[start..].reverse();
+        for ch in digits.into_iter().rev() {
+            acc.push(ch);
+        }
     }
 
-    pub fn big(acc: &mut Vec<u8>, value: BigInt, radix: usize) {
+    pub fn big(acc: &mut String, value: BigInt, radix: usize) {
         let fmt = value.to_str_radix(radix as u32);
-        acc.extend(fmt.as_bytes());
+        acc.push_str(&fmt);
     }
 }
 
-fn format_number(acc: &mut Vec<u8>, value: &SteelVal, radix: Option<usize>) -> Result<()> {
+fn format_number(acc: &mut String, value: &SteelVal, radix: Option<usize>) -> Result<()> {
     match value {
-        SteelVal::NumV(v) if v.is_nan() => acc.extend(b"+nan.0"),
-        SteelVal::NumV(v) if *v == f64::INFINITY => acc.extend(b"+inf.0"),
-        SteelVal::NumV(v) if *v == f64::NEG_INFINITY => acc.extend(b"-inf.0"),
+        SteelVal::NumV(v) if v.is_nan() => acc.push_str("+nan.0"),
+        SteelVal::NumV(v) if *v == f64::INFINITY => acc.push_str("+inf.0"),
+        SteelVal::NumV(v) if *v == f64::NEG_INFINITY => acc.push_str("-inf.0"),
         SteelVal::NumV(v) => {
             let _ = write!(acc, "{:?}", v);
         }
@@ -161,32 +169,32 @@ fn format_number(acc: &mut Vec<u8>, value: &SteelVal, radix: Option<usize>) -> R
         SteelVal::Rational(v) => {
             if let Some(radix) = radix {
                 radix_fmt::small(acc, *v.numer() as isize, radix);
-                acc.push(b'/');
+                acc.push('/');
                 radix_fmt::small(acc, *v.denom() as isize, radix);
             } else {
                 let _ = write!(acc, "{}", v.numer());
-                acc.push(b'/');
+                acc.push('/');
                 let _ = write!(acc, "{}", v.denom());
             }
         }
         SteelVal::BigRational(v) => {
             if let Some(radix) = radix {
                 radix_fmt::big(acc, v.numer().clone(), radix);
-                acc.push(b'/');
+                acc.push('/');
                 radix_fmt::big(acc, v.denom().clone(), radix);
             } else {
                 let _ = write!(acc, "{}", v.numer());
-                acc.push(b'/');
+                acc.push('/');
                 let _ = write!(acc, "{}", v.denom());
             }
         }
         SteelVal::Complex(c) => {
             format_number(acc, &c.re, radix)?;
             if !c.imaginary_is_negative() && c.imaginary_is_finite() {
-                acc.push(b'+');
+                acc.push('+');
             }
             format_number(acc, &c.im, radix)?;
-            acc.push(b'i');
+            acc.push('i');
         }
         _ => stop!(TypeMismatch => "number->string expects a number type, found: {}", value),
     }
@@ -195,11 +203,10 @@ fn format_number(acc: &mut Vec<u8>, value: &SteelVal, radix: Option<usize>) -> R
 }
 
 fn number_to_string_impl(value: &SteelVal, radix: Option<usize>) -> Result<SteelVal> {
-    let mut accumulator = Vec::new();
+    let mut accumulator = String::new();
     format_number(&mut accumulator, value, radix.filter(|x| *x != 10))?;
 
-    let string = String::from_utf8(accumulator).expect("should just be ascii");
-    string.into_steelval()
+    accumulator.into_steelval()
 }
 
 /// Converts the given number to a string.

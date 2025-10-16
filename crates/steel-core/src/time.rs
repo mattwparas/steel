@@ -1,9 +1,7 @@
 #![cfg_attr(not(feature = "std"), allow(dead_code))]
 
 #[cfg(feature = "std")]
-pub use std::time::{
-    Duration, Instant, SystemTime, SystemTimeError, UNIX_EPOCH,
-};
+pub use std::time::{Duration, Instant, SystemTime, SystemTimeError, UNIX_EPOCH};
 
 #[cfg(not(feature = "std"))]
 mod imp {
@@ -46,9 +44,7 @@ mod imp {
     /// during start-up to integrate with their platform specific timer source.
     pub fn set_time_provider(provider: NowFn) {
         unsafe { *TIME_PROVIDER.func.get() = provider };
-        TIME_PROVIDER
-            .is_custom
-            .store(true, AtomicOrdering::Release);
+        TIME_PROVIDER.is_custom.store(true, AtomicOrdering::Release);
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -60,10 +56,7 @@ mod imp {
     fn load_ticks() -> u128 {
         #[cfg(target_arch = "wasm32")]
         {
-            if !TIME_PROVIDER
-                .is_custom
-                .load(AtomicOrdering::Acquire)
-            {
+            if !TIME_PROVIDER.is_custom.load(AtomicOrdering::Acquire) {
                 set_time_provider(wasm_now_provider);
             }
         }
@@ -110,8 +103,7 @@ mod imp {
         }
 
         pub fn as_secs(&self) -> u64 {
-            (self.nanos / 1_000_000_000)
-                .min(u64::MAX as u128) as u64
+            (self.nanos / 1_000_000_000).min(u64::MAX as u128) as u64
         }
 
         pub fn as_secs_f64(&self) -> f64 {
@@ -335,9 +327,7 @@ mod imp {
 
     impl fmt::Debug for SystemTimeError {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.debug_tuple("SystemTimeError")
-                .field(&self.0)
-                .finish()
+            f.debug_tuple("SystemTimeError").field(&self.0).finish()
         }
     }
 
@@ -352,6 +342,4 @@ mod imp {
 }
 
 #[cfg(not(feature = "std"))]
-pub use imp::{
-    set_time_provider, Duration, Instant, SystemTime, SystemTimeError, UNIX_EPOCH,
-};
+pub use imp::{set_time_provider, Duration, Instant, SystemTime, SystemTimeError, UNIX_EPOCH};

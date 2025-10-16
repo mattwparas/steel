@@ -5,6 +5,9 @@ use crate::steel_vm::vm::VmCore;
 use crate::values::lists::List;
 use crate::{gc::Gc, steel_vm::builtin::BuiltInModule};
 use crate::{stop, Vector};
+use alloc::format;
+#[cfg(test)]
+use alloc::vec::Vec;
 
 pub(crate) fn hashset_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/sets");

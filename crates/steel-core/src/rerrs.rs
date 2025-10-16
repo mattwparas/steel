@@ -1,5 +1,8 @@
 use crate::steel_vm::vm::DehydratedCallContext;
 use crate::{parser::parser::ParseError, rvals::Custom, steel_vm::vm::DehydratedStackTrace};
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::{convert::Infallible, fmt::Formatter};
 #[cfg(feature = "std")]
 use std::io::IsTerminal;
@@ -275,7 +278,7 @@ impl SteelErr {
         let report = self.report();
         term::emit(&mut writer, &config, &file, &report).unwrap(); // TODO come back
         let output = writer.into_inner();
-        std::str::from_utf8(&output).unwrap().to_string()
+        core::str::from_utf8(&output).unwrap().to_string()
     }
 
     fn report(&self) -> Diagnostic<()> {
@@ -375,7 +378,7 @@ pub fn back_trace_to_string(file_name: &str, file_content: &str, span: Span) -> 
 
     let output = writer.into_inner();
 
-    std::str::from_utf8(&output).unwrap().to_string()
+    core::str::from_utf8(&output).unwrap().to_string()
 }
 
 #[macro_export]

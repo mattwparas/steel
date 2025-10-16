@@ -4,6 +4,7 @@ use crate::values::structs::SteelResult;
 use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
 use crate::{steel_vm::register_fn::RegisterFn, SteelErr};
+use alloc::string::String;
 use std::io::{BufReader, BufWriter};
 use std::process::{Child, Command, Stdio};
 

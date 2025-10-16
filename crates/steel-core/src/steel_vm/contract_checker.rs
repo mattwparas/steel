@@ -1,6 +1,9 @@
 /*
 
 #![allow(unused)]
+use alloc::format;
+use alloc::vec::Vec;
+use alloc::string::String;
 use std::collections::{BTreeSet, HashMap};
 
 use quickscope::ScopeMap;

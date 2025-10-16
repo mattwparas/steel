@@ -1922,7 +1922,7 @@ fn add_complex(x: &SteelComplex, y: &SteelComplex) -> Result<SteelVal> {
 mod num_op_tests {
     use super::*;
     use crate::{gc::Gc, rvals::SteelVal::*};
-    use std::str::FromStr;
+    use core::str::FromStr;
 
     #[test]
     fn division_test() {

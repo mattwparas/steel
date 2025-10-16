@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use crate::gc::Gc;
 use crate::jit::code_gen::JIT;
 use crate::jit::value::{decode, to_encoded_double};

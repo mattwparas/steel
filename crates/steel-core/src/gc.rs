@@ -1,6 +1,8 @@
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
 use crate::stop;
+#[allow(unused_imports)]
+use alloc::{format, string::String, vec::Vec};
 
 #[cfg(not(feature = "sync"))]
 use core::cell::RefCell;

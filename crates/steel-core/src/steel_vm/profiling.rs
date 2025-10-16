@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use std::{collections::HashMap, sync::Mutex};
 
 use steel_gen::OpCode;

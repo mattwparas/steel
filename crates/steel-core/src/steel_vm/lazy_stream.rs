@@ -1,7 +1,9 @@
 use super::vm::VmCore;
 use crate::parser::span::Span;
 use crate::rvals::{Result, SteelVal};
+use alloc::format;
 use alloc::rc::Rc;
+use alloc::vec::Vec;
 use core::cell::RefCell;
 
 use crate::values::lazy_stream::LazyStream;

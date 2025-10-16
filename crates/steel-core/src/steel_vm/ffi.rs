@@ -1,5 +1,8 @@
 #![allow(non_local_definitions)]
 
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 use std::{
     borrow::Cow,
     io::BufReader,

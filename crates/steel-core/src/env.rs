@@ -1,4 +1,6 @@
 use crate::rvals::{Result, SteelVal};
+#[cfg(not(feature = "sync"))]
+use alloc::vec::Vec;
 
 #[cfg(feature = "sync")]
 use once_cell::sync::Lazy;

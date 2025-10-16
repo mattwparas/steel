@@ -1,4 +1,7 @@
 use crate::gc::shared::MutContainer;
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 // #[cfg(not(feature = "triomphe"))]
 // use crate::gc::shared::ShareableMut;

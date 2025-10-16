@@ -1,4 +1,6 @@
+use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
@@ -106,11 +108,11 @@ impl<R: Read> Peekable<R> {
             return Ok(MaybeBlocking::Nonblocking(None));
         }
 
-        match std::str::from_utf8(&self.peek[0..self.idx]) {
+        match core::str::from_utf8(&self.peek[0..self.idx]) {
             Ok(str) => Ok(MaybeBlocking::Nonblocking(str.chars().next())),
             Err(err) => {
                 if err.valid_up_to() > 0 {
-                    let s = std::str::from_utf8(&self.peek[0..err.valid_up_to()]).unwrap();
+                    let s = core::str::from_utf8(&self.peek[0..err.valid_up_to()]).unwrap();
                     Ok(MaybeBlocking::Nonblocking(s.chars().next()))
                 } else if let Some(len) = err.error_len() {
                     self.idx -= len;
@@ -382,7 +384,7 @@ impl SteelPortRepr {
 
             buf[i] = b;
 
-            match std::str::from_utf8(&buf[0..=i]) {
+            match core::str::from_utf8(&buf[0..=i]) {
                 Ok(s) => return Ok(MaybeBlocking::Nonblocking(s.chars().next())),
                 Err(err) if err.error_len().is_some() => {
                     return Ok(MaybeBlocking::Nonblocking(Some(

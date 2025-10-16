@@ -3,6 +3,7 @@
 
 use crate::collections::{HashMap, MutableHashMap, MutableHashSet};
 use crate::steel_vm::primitives::{steel_unbox_mutable, unbox_mutable};
+use alloc::{collections::VecDeque, format, rc::Rc, string::String, sync::Arc, vec::Vec};
 use once_cell::sync::Lazy;
 #[cfg(feature = "sync")]
 use parking_lot::RwLock;
@@ -27,7 +28,6 @@ use crate::{
     SteelErr,
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
-use alloc::{collections::VecDeque, rc::Rc, string::String, sync::Arc, vec::Vec};
 use core::{
     cell::{Ref, RefCell},
     hash::Hash,

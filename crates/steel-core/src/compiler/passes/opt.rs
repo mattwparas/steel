@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use steel_parser::{
     ast::{Atom, ExprKind},
     parser::SyntaxObject,

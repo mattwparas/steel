@@ -5,6 +5,8 @@ use crate::{
     values::lists::Pair,
 };
 use crate::{stop, throw};
+use alloc::format;
+use alloc::string::String;
 
 use crate::values::lists::List;
 

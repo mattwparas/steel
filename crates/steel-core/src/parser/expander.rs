@@ -4,6 +4,9 @@ use crate::parser::parser::SyntaxObject;
 use crate::parser::rename_idents::RenameIdentifiersVisitor;
 use crate::parser::replace_idents::replace_identifiers;
 use crate::parser::tokens::TokenType;
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 use crate::parser::span::Span;
 

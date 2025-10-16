@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use alloc::vec::Vec;
+use alloc::string::String;
 use crate::parser::ast::ExprKind;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::VisitorMut;

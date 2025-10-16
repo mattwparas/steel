@@ -3,6 +3,9 @@
 // pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;`
 
 use alloc::borrow::Cow;
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 use std::{cell::RefCell, convert::TryFrom, io::Write, rc::Rc};
 
 use crate::gc::shared::ShareableMut;
@@ -207,7 +210,7 @@ fn drain_custom_output_port() -> String {
                 .expect("Unable to flush the captured output port");
         }
 
-        std::str::from_utf8(&x.write().get_mut().drain(0..).collect::<Vec<u8>>())
+        core::str::from_utf8(&x.write().get_mut().drain(0..).collect::<Vec<u8>>())
             .unwrap_or("Unable to capture std out")
             .to_string()
     })

@@ -3,6 +3,7 @@ use crate::primitives::numbers::make_polar;
 use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::HashSet;
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
+use alloc::format;
 
 use alloc::borrow::Cow;
 use alloc::sync::Arc;

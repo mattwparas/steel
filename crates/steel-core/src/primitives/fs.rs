@@ -4,6 +4,8 @@ use crate::rvals::{
 };
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::{steelerr, throw};
+use alloc::format;
+use alloc::string::String;
 use std::env::{current_dir, set_current_dir};
 use std::path::{Path, PathBuf};
 

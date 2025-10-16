@@ -7,6 +7,8 @@ use crate::steel_vm::{
 };
 use crate::values::transducers::{Transducer, Transducers};
 use crate::{builtin_stop, stop, SteelErr};
+use alloc::format;
+use alloc::vec::Vec;
 
 // declare_const_ref_functions!(
 //     COMPOSE => compose,

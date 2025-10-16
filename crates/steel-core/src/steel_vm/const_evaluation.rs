@@ -19,6 +19,8 @@ use crate::{
     rerrs::ErrorKind,
     SteelErr,
 };
+use alloc::format;
+use alloc::vec::Vec;
 use std::{
     cell::RefCell,
     collections::HashSet,

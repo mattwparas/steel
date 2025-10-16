@@ -43,6 +43,9 @@ use crate::{
     steel_vm::primitives::{equality_primitive, lte_primitive},
     values::transducers::Transducers,
 };
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 use crate::{
     env::Env,
@@ -61,6 +64,9 @@ use std::{cell::RefCell, collections::HashMap, iter::Iterator};
 
 use super::engine::EngineId;
 
+#[cfg(feature = "dynamic")]
+use crate::time::Duration;
+use crate::time::Instant;
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
@@ -68,9 +74,6 @@ use num_bigint::BigInt;
 use num_traits::CheckedSub;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
-use crate::time::Instant;
-#[cfg(feature = "dynamic")]
-use crate::time::Duration;
 use steel_parser::interner::InternedString;
 use threads::ThreadHandle;
 

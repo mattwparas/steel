@@ -1,9 +1,11 @@
+use crate::collections::HashMap;
 use crate::core::instructions::u24;
 use crate::core::labels::Expr;
 use crate::gc::shared::StandardShared;
 use crate::gc::Shared;
 use crate::parser::span_visitor::get_span;
 use crate::rvals::Result;
+use crate::time::SystemTime;
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::Instruction, opcode::OpCode},
@@ -19,9 +21,10 @@ use crate::{
     },
     rvals::IntoSteelVal,
 };
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
-use crate::collections::HashMap;
-use crate::time::SystemTime;
 
 #[cfg(feature = "profiling")]
 use crate::time::Instant;

@@ -1,4 +1,7 @@
 use crate::values::lists::List;
+#[cfg(test)]
+use alloc::string::String;
+use alloc::{borrow::Cow, format, vec::Vec};
 
 use crate::collections::{
     HashMap as ImmutableHashMap, HashSet as ImmutableHashSet, MutableHashMap, MutableHashSet,
@@ -9,7 +12,6 @@ use crate::{
     rvals::{AsRefSteelValFromUnsized, FromSteelVal, IntoSteelVal, Result},
     SteelErr, SteelVal,
 };
-use alloc::borrow::Cow;
 
 #[cfg(feature = "anyhow")]
 mod anyhow_conversion {

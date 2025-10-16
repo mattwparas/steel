@@ -1,4 +1,7 @@
 use crate::collections::{MutableHashMap, MutableHashSet};
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 use fxhash::FxHashMap;
 use steel_derive::function;

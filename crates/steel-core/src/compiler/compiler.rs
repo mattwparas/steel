@@ -25,6 +25,9 @@ use crate::{
     core::{instructions::Instruction, opcode::OpCode},
     parser::parser::Sources,
 };
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 use std::{borrow::Cow, iter::Iterator};
 use std::{

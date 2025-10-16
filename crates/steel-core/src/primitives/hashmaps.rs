@@ -6,6 +6,8 @@ use crate::{
     rvals::{Result, SteelVal},
     steel_vm::builtin::BuiltInModule,
 };
+#[cfg(test)]
+use alloc::vec::Vec;
 
 use crate::primitives::vectors::vec_construct_iter_normal;
 

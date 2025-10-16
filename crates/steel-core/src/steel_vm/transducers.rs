@@ -1,4 +1,7 @@
 use crate::values::lists::List;
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 // use itertools::Itertools;
 
 // use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};

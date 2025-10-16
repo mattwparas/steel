@@ -1,4 +1,5 @@
 use crate::collections::MutableHashMap;
+use alloc::vec::Vec;
 
 use crate::values::lists::List;
 use weak_table::WeakKeyHashMap;

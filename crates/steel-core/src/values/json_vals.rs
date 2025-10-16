@@ -6,6 +6,9 @@ use crate::{
     rerrs::SteelErr,
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
 };
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::convert::{TryFrom, TryInto};
 use serde_json::{Map, Number, Value};
 use steel_derive::function;

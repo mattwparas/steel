@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use alloc::vec::Vec;
+use alloc::string::String;
 use crate::gc::Gc;
 use crate::jit::ir::*;
 use crate::jit::value::{

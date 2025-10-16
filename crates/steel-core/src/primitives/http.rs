@@ -5,6 +5,9 @@ use crate::{
     steel_vm::builtin::BuiltInModule,
     SteelErr, SteelVal,
 };
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 use crate::rvals::Result;
 

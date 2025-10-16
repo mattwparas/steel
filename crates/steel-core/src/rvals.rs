@@ -28,7 +28,7 @@ use crate::{
         SteelPortRepr,
     },
 };
-use alloc::{rc::Rc, sync::Arc, vec::IntoIter, vec::Vec};
+use alloc::{format, rc::Rc, string::String, sync::Arc, vec::IntoIter, vec::Vec};
 use core::{
     any::{Any, TypeId},
     cell::RefCell,

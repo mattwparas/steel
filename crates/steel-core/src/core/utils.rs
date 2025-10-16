@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use alloc::format;
 // Generates a macro that expands to code snippet to do arity checks
 // example usage:
 // arity_check!(length, args, 1);

@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+use alloc::string::String;
+use alloc::vec::Vec;
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,

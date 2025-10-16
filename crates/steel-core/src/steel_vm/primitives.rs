@@ -80,6 +80,9 @@ use crate::{
         },
     },
 };
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 use crate::values::closed::{
     MAKE_WILL_EXECUTOR_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,

@@ -48,7 +48,7 @@ use num_rational::{BigRational, Rational32};
 use once_cell::sync::Lazy;
 
 use crate::{
-    collections::{DrainHashSet, Vector},
+    collections::DrainHashSet,
     gc::{unsafe_erased_pointers::OpaqueReference, Gc},
     rvals::{
         cycles::BreadthFirstSearchSteelValVisitor, BoxedAsyncFunctionSignature, CustomType,
@@ -2636,7 +2636,10 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
         self.mark_heap_reference(&heap_ref.strong_ptr());
     }
 
-    fn visit_immutable_vector(&mut self, vector: &Vector<SteelVal>) -> Self::Output {
+    fn visit_immutable_vector(
+        &mut self,
+        vector: &crate::collections::Vector<SteelVal>,
+    ) -> Self::Output {
         for value in vector.iter() {
             self.push_back(value);
         }

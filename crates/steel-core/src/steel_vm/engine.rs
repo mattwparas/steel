@@ -5,6 +5,9 @@ use super::{
     primitives::{register_builtin_modules, CONSTANTS},
     vm::{threads::ThreadHandle, SteelThread, Synchronizer, ThreadStateController},
 };
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 #[cfg(feature = "dylibs")]
 use super::{ffi::FFIModule, ffi::FFIWrappedModule};
@@ -12,6 +15,7 @@ use super::{ffi::FFIModule, ffi::FFIWrappedModule};
 #[cfg(feature = "dylibs")]
 use super::dylib::DylibContainers;
 
+use crate::time::Instant;
 use crate::{
     compiler::{
         compiler::{Compiler, SerializableCompiler},
@@ -55,7 +59,6 @@ use crate::{
     },
     SteelErr,
 };
-use crate::time::Instant;
 use std::{
     borrow::Cow,
     cell::{Cell, RefCell},

@@ -19,6 +19,9 @@ use crate::{
     },
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 use compact_str::CompactString;
 use fxhash::{FxHashMap, FxHashSet};

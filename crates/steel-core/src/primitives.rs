@@ -58,6 +58,9 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::SteelString,
 };
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 pub use control::ControlOperations;
 use core::convert::TryFrom;
 use core::result;

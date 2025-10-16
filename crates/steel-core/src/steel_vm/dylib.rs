@@ -1,4 +1,7 @@
 #![allow(non_camel_case_types)]
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 use std::{
     cell::RefCell,
     collections::HashMap,

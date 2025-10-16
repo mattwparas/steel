@@ -1,6 +1,7 @@
 use crate::collections::{HashMap, HashSet};
 use crate::throw;
 use crate::{parser::interner::InternedString, rvals::Result};
+use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 /// At the REPL or within an application, a script might be repeatedly
