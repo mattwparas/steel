@@ -41,6 +41,9 @@ use super::{VisitorMutControlFlow, VisitorMutRefUnit, VisitorMutUnitRef};
 
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet, FxHasher};
 
+#[cfg(feature = "profiling")]
+use crate::time::Instant;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IdentifierStatus {
     Global,
@@ -343,7 +346,7 @@ impl Analysis {
         self.clear();
 
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = Instant::now();
 
         self.run(exprs);
 
@@ -4362,7 +4365,7 @@ impl<'a> SemanticAnalysis<'a> {
         table: &mut FxHashSet<InternedString>,
     ) -> &mut Self {
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = Instant::now();
 
         let mut replacer =
             ReplaceBuiltinUsagesWithReservedPrimitiveReferences::new(&self.analysis, table);
@@ -4439,7 +4442,7 @@ impl<'a> SemanticAnalysis<'a> {
         module_manager: &ModuleManager,
     ) -> &mut Self {
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = Instant::now();
 
         let module_get_interned: InternedString = "%module-get%".into();
         let proto_hash_get: InternedString = "%proto-hash-get%".into();
@@ -4790,7 +4793,7 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn replace_anonymous_function_calls_with_plain_lets(&mut self) -> &mut Self {
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = Instant::now();
 
         let mut re_run_analysis = false;
 

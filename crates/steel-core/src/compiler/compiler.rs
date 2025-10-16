@@ -61,7 +61,7 @@ use super::{
 use crate::collections::HashMap as ImmutableHashMap;
 
 #[cfg(feature = "profiling")]
-use std::time::Instant;
+use crate::time::Instant;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 enum DefineKind {

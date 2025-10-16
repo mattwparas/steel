@@ -3799,6 +3799,7 @@ dependencies = [
  "im-lists",
  "im-rc",
  "imbl",
+ "js-sys",
  "lasso",
  "log",
  "md-5",

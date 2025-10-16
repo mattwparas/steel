@@ -20,10 +20,11 @@ use crate::{
     rvals::IntoSteelVal,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, time::SystemTime};
+use crate::collections::HashMap;
+use crate::time::SystemTime;
 
 #[cfg(feature = "profiling")]
-use std::time::Instant;
+use crate::time::Instant;
 
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
@@ -1045,7 +1046,7 @@ impl RawProgramWithSymbols {
             .flat_map(|x| x.iter())
             .filter(|x| !matches!(x.op_code, OpCode::PASS));
 
-        let mut occurrences = HashMap::new();
+        let mut occurrences: HashMap<OpCode, usize> = HashMap::default();
         for instr in iter {
             *occurrences.entry(instr.op_code).or_default() += 1;
         }

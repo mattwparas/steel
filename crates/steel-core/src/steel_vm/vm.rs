@@ -68,8 +68,9 @@ use num_bigint::BigInt;
 use num_traits::CheckedSub;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
-#[cfg(feature = "profiling")]
-use std::time::Instant;
+use crate::time::Instant;
+#[cfg(feature = "dynamic")]
+use crate::time::Duration;
 use steel_parser::interner::InternedString;
 use threads::ThreadHandle;
 
@@ -526,7 +527,7 @@ impl Synchronizer {
                     continue;
                 }
 
-                let now = std::time::Instant::now();
+                let now = Instant::now();
 
                 // TODO: Have to use a condvar
                 while now.elapsed().as_millis() < timeout_ms {
@@ -2475,7 +2476,7 @@ impl<'a> VmCore<'a> {
 
             // println!("{:?}", self.instructions[self.ip]);
 
-            // let now = std::time::Instant::now();
+            // let now = Instant::now();
 
             // TODO -> don't just copy the value from the instructions
             // We don't need to do that... Figure out a way to just take a reference to the value
@@ -6150,7 +6151,7 @@ pub struct BlockMetadata {
 #[derive(Clone)]
 pub struct OpCodeOccurenceProfiler {
     occurrences: HashMap<(OpCode, usize), usize>,
-    time: HashMap<(OpCode, usize), std::time::Duration>,
+    time: HashMap<(OpCode, usize), Duration>,
     starting_index: Option<usize>,
     ending_index: Option<usize>,
     sample_count: usize,
@@ -6348,7 +6349,7 @@ impl OpCodeOccurenceProfiler {
         None
     }
 
-    pub fn add_time(&mut self, opcode: &OpCode, payload: usize, time: std::time::Duration) {
+    pub fn add_time(&mut self, opcode: &OpCode, payload: usize, time: Duration) {
         *self.time.entry((*opcode, payload)).or_default() += time;
     }
 

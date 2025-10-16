@@ -37,7 +37,7 @@ use std::{
 use crate::parser::expander::SteelMacro;
 use crate::stop;
 
-use std::time::SystemTime;
+use crate::time::SystemTime;
 
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
@@ -54,7 +54,7 @@ use super::{
 macro_rules! time {
     ($label:expr, $e:expr) => {{
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
 
         let e = $e;
 
@@ -2520,7 +2520,7 @@ impl<'a> ModuleBuilder<'a> {
     // I think these will already be collected for the macro, however I think for syntax should be found earlier
     // Otherwise the macro expansion will not be able to understand it
     fn collect_provides(&mut self) -> Result<()> {
-        // let now = std::time::Instant::now();
+        // let now = crate::time::Instant::now();
 
         let mut non_provides = Vec::with_capacity(self.source_ast.len());
         let exprs = core::mem::take(&mut self.source_ast);
@@ -3041,7 +3041,7 @@ impl<'a> ModuleBuilder<'a> {
 
     fn parse_builtin(mut self, input: Cow<'static, str>) -> Result<Self> {
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
 
         let id = self
             .sources

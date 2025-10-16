@@ -12,7 +12,7 @@ use crate::parser::{
 use crate::parser::{interner::InternedString, tokens::TokenType};
 
 #[cfg(feature = "profiling")]
-use std::time::Instant;
+use crate::time::Instant;
 
 use super::{Folder, VisitorMutRefUnit, VisitorMutUnit};
 

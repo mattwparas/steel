@@ -3,8 +3,7 @@ use crate::rvals::{as_underlying_type, IntoSteelVal};
 use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::MarkdownDoc};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
-use std::time::Instant;
-use std::time::{Duration, SystemTime};
+use crate::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use steel_derive::function;
 
 use crate::steel_vm::builtin::BuiltInModule;
@@ -12,7 +11,7 @@ use crate::steel_vm::register_fn::RegisterFn;
 
 pub(crate) const TIME_MODULE_DOC: MarkdownDoc<'static> = MarkdownDoc::from_str(
     r#"
-Contains direct wrappers around the Rust `std::time::Instant` and `std::time::Duration` modules. 
+Contains direct wrappers around the `crate::time::Instant` and `crate::time::Duration` modules. 
 For example, to measure the time something takes:
 
 ```scheme
@@ -132,8 +131,6 @@ fn sleep_millis(millis: usize) {
 /// (current-milliseconds) -> int?
 #[function(name = "current-milliseconds")]
 fn current_milliseconds() -> SteelVal {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(n) => {
             let ms = n.as_millis();
@@ -151,8 +148,6 @@ fn current_milliseconds() -> SteelVal {
 /// (current-second) -> int?
 #[function(name = "current-second")]
 fn current_seconds() -> SteelVal {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(n) => {
             let ms = n.as_secs();
@@ -170,8 +165,6 @@ fn current_seconds() -> SteelVal {
 /// (current-inexact-milliseconds) -> inexact?
 #[function(name = "current-inexact-milliseconds")]
 fn current_inexact_milliseconds() -> f64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
     match SystemTime::now().duration_since(UNIX_EPOCH) {
         Ok(n) => n.as_secs_f64() * 1000.0,
         Err(_) => panic!("SystemTime before UNIX EPOCH!"),

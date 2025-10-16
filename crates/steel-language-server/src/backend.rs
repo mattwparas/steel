@@ -33,6 +33,7 @@ use steel::{
     },
     rvals::{AsRefSteelVal, FromSteelVal, SteelString},
     steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn},
+    time::Instant,
 };
 use steel_parser::ast::ToDoc;
 use tower_lsp::jsonrpc::{self, Result};
@@ -439,7 +440,7 @@ impl LanguageServer for Backend {
             // Finds the scoped contexts that we're currently inside of by the span
             let contexts = analysis.find_contexts_with_offset(offset, uri_to_source_id(&uri)?);
 
-            let now = std::time::Instant::now();
+            let now = Instant::now();
 
             let mut completions: HashSet<String> =
                 HashSet::with_capacity(contexts.len() + self.defined_globals.len());
@@ -922,7 +923,7 @@ impl Backend {
 
     // Just do incremental?
     async fn on_change(&self, params: TextDocumentItem) {
-        let now = std::time::Instant::now();
+        let now = Instant::now();
 
         let rope = ropey::Rope::from_str(&params.text);
         self.document_map
@@ -1015,7 +1016,7 @@ impl Backend {
 
                 free_identifiers_and_unused.append(&mut static_arity_checking);
 
-                let now = std::time::Instant::now();
+                let now = Instant::now();
 
                 // TODO: Enable this once the syntax object let conversion is implemented
                 let mut user_defined_lints =

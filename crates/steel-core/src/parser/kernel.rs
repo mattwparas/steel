@@ -32,6 +32,9 @@ use super::{
     span_visitor::get_span,
 };
 
+#[cfg(feature = "profiling")]
+use crate::time::Instant;
+
 thread_local! {
     pub(crate) static KERNEL_IMAGE: Engine = Engine::new_bootstrap_kernel(false);
     pub(crate) static KERNEL_IMAGE_SB: Engine = Engine::new_bootstrap_kernel(true);
@@ -572,7 +575,7 @@ impl Kernel {
         environment: &str,
     ) -> Result<ExprKind> {
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = Instant::now();
 
         let span = get_span(&expr);
 

@@ -25,7 +25,7 @@ use steel::steel_vm::engine::Engine;
 
 use std::io::{Read, Write};
 
-use std::time::Instant;
+use steel::time::Instant;
 
 use std::env;
 

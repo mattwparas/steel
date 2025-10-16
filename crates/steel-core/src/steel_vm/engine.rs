@@ -55,6 +55,7 @@ use crate::{
     },
     SteelErr,
 };
+use crate::time::Instant;
 use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
@@ -430,7 +431,7 @@ pub fn load_module_noop(target: &crate::rvals::SteelString) -> crate::rvals::Res
 macro_rules! time {
     ($target:expr, $label:expr, $e:expr) => {{
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = Instant::now();
 
         let e = $e;
 
@@ -546,9 +547,9 @@ impl Engine {
     pub(crate) fn new_kernel(sandbox: bool) -> Self {
         log::debug!(target:"kernel", "Instantiating a new kernel");
         #[cfg(feature = "profiling")]
-        let mut total_time = std::time::Instant::now();
+        let mut total_time = Instant::now();
         #[cfg(feature = "profiling")]
-        let mut now = std::time::Instant::now();
+        let mut now = Instant::now();
         let sources = Sources::new();
         let modules = ModuleContainer::with_expected_capacity();
 
@@ -581,7 +582,7 @@ impl Engine {
         // log::debug!(target: "kernel", "Registered modules in the kernel!: {:?}", now.elapsed());
 
         #[cfg(feature = "profiling")]
-        let mut now = std::time::Instant::now();
+        let mut now = Instant::now();
 
         let core_libraries = [crate::stdlib::PRELUDE];
 
@@ -1189,7 +1190,7 @@ impl Engine {
         engine.virtual_machine.compiler.write().kernel = Some(Kernel::new());
 
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = Instant::now();
 
         if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
             raise_error(&engine.virtual_machine.compiler.read().sources, e);
@@ -1415,7 +1416,7 @@ impl Engine {
         }
 
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = Instant::now();
 
         if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
             raise_error(&engine.virtual_machine.compiler.read().sources, e);

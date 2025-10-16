@@ -2,6 +2,7 @@ use steel::rvals::Custom;
 use steel::{
     declare_module,
     steel_vm::ffi::{FFIModule, RegisterFFIFn},
+    time::Duration,
 };
 
 use ureq::{Request, Response};
@@ -131,7 +132,7 @@ impl BlockingRequest {
             self.0
                 .take()
                 .unwrap()
-                .timeout(std::time::Duration::from_millis(time_in_ms as u64)),
+                .timeout(Duration::from_millis(time_in_ms as u64)),
         );
     }
 

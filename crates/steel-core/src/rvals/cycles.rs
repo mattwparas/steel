@@ -1163,7 +1163,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
                     std::thread::spawn(move || {
                         while let Ok(mut value) = receiver.recv() {
-                            // let now = std::time::Instant::now();
+                            // let now = crate::time::Instant::now();
                             value.visit();
                             // println!("Dropping: {:?}", now.elapsed());
                         }
