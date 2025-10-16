@@ -1,4 +1,5 @@
 use crate::collections::MutableHashMap;
+use alloc::rc::Weak;
 use alloc::vec::Vec;
 
 use crate::values::lists::List;
@@ -47,7 +48,7 @@ impl MemoizationTable {
 
 pub struct WeakMemoizationTable {
     #[cfg(not(feature = "sync"))]
-    table: WeakKeyHashMap<std::rc::Weak<ByteCodeLambda>, MutableHashMap<List<SteelVal>, SteelVal>>,
+    table: WeakKeyHashMap<Weak<ByteCodeLambda>, MutableHashMap<List<SteelVal>, SteelVal>>,
 
     #[cfg(feature = "sync")]
     table:

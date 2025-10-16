@@ -1,14 +1,11 @@
 #![allow(non_local_definitions)]
 
+use crate::sync::Mutex;
 use alloc::format;
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
-use std::{
-    borrow::Cow,
-    io::BufReader,
-    marker::PhantomData,
-    sync::{Arc, Mutex},
-};
+use std::{borrow::Cow, io::BufReader, marker::PhantomData};
 
 use crate::{
     gc::{

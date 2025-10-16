@@ -7,7 +7,7 @@ use alloc::sync::Arc;
 use std::thread::JoinHandle;
 
 #[cfg(feature = "sync")]
-use std::sync::Mutex;
+use crate::sync::Mutex;
 
 #[cfg(feature = "sync")]
 use crate::rvals::cycles::BreadthFirstSearchSteelValReferenceVisitor2;

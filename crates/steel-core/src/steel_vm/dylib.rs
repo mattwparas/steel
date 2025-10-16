@@ -1,13 +1,14 @@
 #![allow(non_camel_case_types)]
+use crate::sync::Mutex;
 use alloc::format;
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use std::{
     cell::RefCell,
     collections::HashMap,
     path::{Path, PathBuf},
     rc::Rc,
-    sync::{Arc, Mutex},
 };
 
 use abi_stable::{

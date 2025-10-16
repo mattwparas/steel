@@ -16,6 +16,7 @@ use crate::{
 use crate::time::Instant;
 
 use super::*;
+use crate::sync::Mutex;
 
 pub struct ThreadHandle {
     pub(crate) handle:

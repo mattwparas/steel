@@ -1,3 +1,4 @@
+use crate::sync::Mutex;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -12,7 +13,6 @@ use std::net::TcpStream;
 use std::process::ChildStderr;
 use std::process::ChildStdin;
 use std::process::ChildStdout;
-use std::sync::Mutex;
 
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;

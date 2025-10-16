@@ -55,12 +55,12 @@ use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
     stop,
+    sync::Mutex,
     values::functions::ByteCodeLambda,
 };
 use alloc::sync::Arc;
 use core::{cell::RefCell, iter::Iterator, sync::atomic::AtomicBool};
 use std::io::Read as _;
-use std::sync::Mutex;
 
 use super::engine::EngineId;
 

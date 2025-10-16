@@ -22,18 +22,13 @@ pub use unsafe_erased_pointers::is_reference_type;
 use parking_lot::RwLock;
 
 pub mod shared {
-    use alloc::rc::Rc;
+    use alloc::rc::{Rc, Weak};
     use core::cell::{BorrowError, BorrowMutError, Ref, RefCell, RefMut};
     use core::ops::{Deref, DerefMut};
 
     // TODO: Replace these with `parking_lot` primitives instead
-    use std::sync::{
-        Arc,
-        Mutex,
-        MutexGuard,
-        // RwLock, RwLockReadGuard, RwLockWriteGuard,
-        TryLockResult,
-    };
+    use crate::sync::{Mutex, MutexGuard, TryLockResult};
+    use alloc::sync::Arc;
 
     use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
@@ -49,10 +44,10 @@ pub mod shared {
     pub type SharedMut<T> = Rc<RefCell<T>>;
 
     #[cfg(not(feature = "sync"))]
-    pub type WeakSharedMut<T> = std::rc::Weak<RefCell<T>>;
+    pub type WeakSharedMut<T> = Weak<RefCell<T>>;
 
     #[cfg(not(feature = "sync"))]
-    pub type WeakShared<T> = std::rc::Weak<T>;
+    pub type WeakShared<T> = Weak<T>;
 
     #[cfg(not(feature = "sync"))]
     pub type MutContainer<T> = RefCell<T>;
@@ -664,20 +659,22 @@ pub mod unsafe_erased_pointers {
     can lead to undefined behavior.
     */
 
+    use alloc::rc::{Rc, Weak};
     use alloc::sync::Arc;
-    use core::cell::Cell;
     use core::sync::atomic::AtomicBool;
-    use std::rc::{Rc, Weak};
-    use std::{any::Any, cell::RefCell, marker::PhantomData};
+    use core::{
+        any::Any,
+        cell::{Cell, RefCell},
+        marker::PhantomData,
+    };
 
     use crate::gc::shared::{
         MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
         ScopedWriteContainer, StandardSharedMut,
     };
     use crate::steel_vm::engine::EngineId;
+    use crate::sync::Mutex;
     use once_cell::sync::Lazy;
-    use parking_lot::Mutex;
-    use std::collections::HashMap;
 
     use crate::rvals::cycles::IterativeDropHandler;
     use crate::rvals::{AsRefSteelValFromRef, MaybeSendSyncStatic};
@@ -801,12 +798,12 @@ pub mod unsafe_erased_pointers {
         type Static: ?Sized + 'static;
     }
 
-    pub fn type_id<'a, T>() -> std::any::TypeId
+    pub fn type_id<'a, T>() -> core::any::TypeId
     where
         T: ReferenceMarker<'a>,
         T::Static: Any,
     {
-        std::any::TypeId::of::<T::Static>()
+        core::any::TypeId::of::<T::Static>()
     }
 
     #[macro_export]
@@ -831,7 +828,7 @@ pub mod unsafe_erased_pointers {
         fn as_any_ref(&self) -> &dyn Any;
         fn as_any_ref_mut(&mut self) -> &mut dyn Any;
         fn name(&self) -> &str {
-            std::any::type_name::<Self>()
+            core::any::type_name::<Self>()
         }
         fn display(&self) -> core::result::Result<String, core::fmt::Error> {
             Ok(format!("#<{}>", self.name()))
@@ -972,8 +969,8 @@ pub mod unsafe_erased_pointers {
 
     impl<T> Drop for ReadOnlyBorrowedObject<T> {
         fn drop(&mut self) {
-            let mut guard = self.parent_borrow_count.lock();
-            *guard = *guard - 1;
+            let mut guard = self.parent_borrow_count.lock().unwrap();
+            *guard -= 1;
         }
     }
 
@@ -1028,8 +1025,8 @@ pub mod unsafe_erased_pointers {
     }
 
     pub(crate) fn increment_borrow_flag(value: &Arc<Mutex<BorrowFlag>>) {
-        let mut guard = value.lock();
-        *guard = *guard + 1;
+        let mut guard = value.lock().unwrap();
+        *guard += 1;
     }
 
     impl<T> BorrowedObject<T> {
@@ -1064,7 +1061,7 @@ pub mod unsafe_erased_pointers {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                         self,
-                        std::any::type_name::<Self>()
+                        core::any::type_name::<Self>()
                     );
                     Err(SteelErr::new(ErrorKind::ConversionError, error_message))
                 }
@@ -1072,7 +1069,7 @@ pub mod unsafe_erased_pointers {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                     self,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
 
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -1093,7 +1090,7 @@ pub mod unsafe_erased_pointers {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                         self,
-                        std::any::type_name::<Self>()
+                        core::any::type_name::<Self>()
                     );
                     Err(SteelErr::new(ErrorKind::ConversionError, error_message))
                 }
@@ -1101,7 +1098,7 @@ pub mod unsafe_erased_pointers {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                     self,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
 
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -1382,7 +1379,7 @@ pub mod unsafe_erased_pointers {
                 if res.is::<BorrowedObject<T>>() {
                     let borrowed_object = res.downcast_ref::<BorrowedObject<T>>().unwrap();
 
-                    if *borrowed_object.borrow_count.lock() > 0
+                    if *borrowed_object.borrow_count.lock().unwrap() > 0
                         || borrowed_object
                             .child_borrow_flag
                             .load(core::sync::atomic::Ordering::SeqCst)
@@ -1399,7 +1396,7 @@ pub mod unsafe_erased_pointers {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                         val,
-                        std::any::type_name::<Self>()
+                        core::any::type_name::<Self>()
                     );
                     Err(SteelErr::new(ErrorKind::ConversionError, error_message))
                 }
@@ -1407,7 +1404,7 @@ pub mod unsafe_erased_pointers {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                     val,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
 
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -1441,7 +1438,7 @@ pub mod unsafe_erased_pointers {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                         val,
-                        std::any::type_name::<Self>()
+                        core::any::type_name::<Self>()
                     );
                     Err(SteelErr::new(ErrorKind::ConversionError, error_message))
                 }
@@ -1449,7 +1446,7 @@ pub mod unsafe_erased_pointers {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                     val,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
 
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
