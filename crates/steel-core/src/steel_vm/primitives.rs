@@ -12,6 +12,7 @@ use super::{
         MATCH_SYNTAX_CASE_DEFINITION, SAMPLE_STACKS_DEFINITION,
     },
 };
+#[cfg(feature = "std")]
 use crate::compiler::modules::steel_home;
 use crate::gc::{shared::ShareableMut, GcMut};
 use crate::parser::{
@@ -59,6 +60,8 @@ use crate::primitives::IoFunctions;
 #[cfg(feature = "std")]
 use crate::primitives::{fs_module, fs_module_sandbox};
 use crate::primitives::{ControlOperations, MetaOperations, StreamOperations};
+#[cfg(feature = "std")]
+use crate::steel_vm::vm::threads::threading_module;
 use crate::{
     rerrs::ErrorKind,
     rvals::{
@@ -66,10 +69,7 @@ use crate::{
         cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
         CustomType, FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
     },
-    steel_vm::{
-        builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
-        vm::threads::threading_module,
-    },
+    steel_vm::builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
     values::{
         closed::{HeapRef, MAKE_WEAK_BOX_DEFINITION, WEAK_BOX_VALUE_DEFINITION},
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
@@ -100,10 +100,11 @@ use alloc::borrow::Cow;
 use compact_str::CompactString;
 use core::cmp::Ordering;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
+#[cfg(feature = "std")]
 use once_cell::sync::Lazy;
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
 use crate::primitives::polling::polling_module;
 
 #[cfg(target_family = "wasm")]
@@ -262,7 +263,7 @@ macro_rules! define_modules {
     };
 }
 
-#[cfg(feature = "sync")]
+#[cfg(all(feature = "sync", feature = "std"))]
 define_modules! {
     STEEL_MAP_MODULE => hashmap_module,
     STEEL_SET_MODULE => hashset_module,
@@ -307,11 +308,11 @@ define_modules! {
     STEEL_HASH_MODULE => hashes_module,
 }
 
-#[cfg(all(feature = "dylibs", feature = "sync"))]
+#[cfg(all(feature = "dylibs", feature = "sync", feature = "std"))]
 pub static STEEL_FFI_MODULE: once_cell::sync::Lazy<BuiltInModule> =
     once_cell::sync::Lazy::new(ffi_module);
 
-#[cfg(not(feature = "sync"))]
+#[cfg(all(not(feature = "sync"), feature = "std"))]
 thread_local! {
     pub static MAP_MODULE: BuiltInModule = hashmap_module();
     pub static SET_MODULE: BuiltInModule = hashset_module();
@@ -365,14 +366,40 @@ thread_local! {
     pub static HASHES_MODULE: BuiltInModule = hashes_module();
 }
 
-#[cfg(not(feature = "sync"))]
+#[cfg(all(not(feature = "sync"), feature = "std"))]
 thread_local! {
     pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = PRELUDE_MODULE.with(|x| x.names().into_iter().map(|x| x.into()).collect());
+}
+
+#[cfg(all(not(feature = "sync"), feature = "std"))]
+fn with_prelude_interned_strings<F, R>(f: F) -> R
+where
+    F: FnOnce(&FxHashSet<InternedString>) -> R,
+{
+    PRELUDE_INTERNED_STRINGS.with(|x| f(x))
+}
+
+#[cfg(all(not(feature = "sync"), not(feature = "std")))]
+fn with_prelude_interned_strings<F, R>(f: F) -> R
+where
+    F: FnOnce(&FxHashSet<InternedString>) -> R,
+{
+    let module = prelude();
+    let set: FxHashSet<InternedString> = module.names().into_iter().map(|x| x.into()).collect();
+    f(&set)
 }
 
 #[cfg(feature = "sync")]
 thread_local! {
     pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = STEEL_PRELUDE_MODULE.names().into_iter().map(|x| x.into()).collect();
+}
+
+#[cfg(feature = "sync")]
+fn with_prelude_interned_strings<F, R>(f: F) -> R
+where
+    F: FnOnce(&FxHashSet<InternedString>) -> R,
+{
+    PRELUDE_INTERNED_STRINGS.with(|x| f(x))
 }
 
 pub fn prelude() -> BuiltInModule {
@@ -407,7 +434,7 @@ pub fn prelude() -> BuiltInModule {
             .with_module(STEEL_BYTEVECTOR_MODULE.clone())
     }
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(not(feature = "sync"), feature = "std"))]
     {
         BuiltInModule::new("steel/base")
             .with_module(MAP_MODULE.with(|x| x.clone()))
@@ -436,6 +463,30 @@ pub fn prelude() -> BuiltInModule {
             .with_module(TIME_MODULE.with(|x| x.clone()))
             .with_module(THREADING_MODULE.with(|x| x.clone()))
             .with_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
+    }
+
+    #[cfg(all(not(feature = "sync"), not(feature = "std")))]
+    {
+        let mut module = BuiltInModule::new("steel/base");
+        module = module.with_module(hashmap_module());
+        module = module.with_module(hashset_module());
+        module = module.with_module(list_module());
+        module = module.with_module(vector_module());
+        module = module.with_module(stream_module());
+        module = module.with_module(identity_module());
+        module = module.with_module(number_module());
+        module = module.with_module(equality_module());
+        module = module.with_module(ord_module());
+        module = module.with_module(transducer_module());
+        module = module.with_module(symbol_module());
+        module = module.with_module(bytevector_module());
+        module = module.with_module(meta_module());
+        module = module.with_module(constants_module());
+        module = module.with_module(syntax_module());
+        module = module.with_module(build_result_structs());
+        module = module.with_module(build_option_structs());
+        module = module.with_module(build_type_id_module());
+        module
     }
 }
 
@@ -470,7 +521,7 @@ pub fn sandboxed_prelude() -> BuiltInModule {
             .with_module(STEEL_BYTEVECTOR_MODULE.clone())
     }
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(not(feature = "sync"), feature = "std"))]
     {
         BuiltInModule::new("steel/base")
             .with_module(MAP_MODULE.with(|x| x.clone()))
@@ -499,8 +550,32 @@ pub fn sandboxed_prelude() -> BuiltInModule {
             .with_module(THREADING_MODULE.with(|x| x.clone()))
             .with_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
     }
+
+    #[cfg(all(not(feature = "sync"), not(feature = "std")))]
+    {
+        let mut module = BuiltInModule::new("steel/base");
+        module = module.with_module(hashmap_module());
+        module = module.with_module(hashset_module());
+        module = module.with_module(list_module());
+        module = module.with_module(vector_module());
+        module = module.with_module(stream_module());
+        module = module.with_module(identity_module());
+        module = module.with_module(number_module());
+        module = module.with_module(equality_module());
+        module = module.with_module(ord_module());
+        module = module.with_module(transducer_module());
+        module = module.with_module(symbol_module());
+        module = module.with_module(bytevector_module());
+        module = module.with_module(meta_module());
+        module = module.with_module(constants_module());
+        module = module.with_module(build_result_structs());
+        module = module.with_module(build_option_structs());
+        module = module.with_module(build_type_id_module());
+        module
+    }
 }
 
+#[cfg(feature = "std")]
 fn render_as_md(text: String) {
     #[cfg(feature = "markdown")]
     println!("{}", termimad::text(&text));
@@ -508,6 +583,9 @@ fn render_as_md(text: String) {
     #[cfg(not(feature = "markdown"))]
     println!("{}", text);
 }
+
+#[cfg(not(feature = "std"))]
+fn render_as_md(_text: String) {}
 
 pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     engine.register_value("std::env::args", SteelVal::ListV(List::new()));
@@ -561,7 +639,7 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     engine.register_fn("%memo-table-ref", WeakMemoizationTable::get);
     engine.register_fn("%memo-table-set!", WeakMemoizationTable::insert);
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", feature = "std"))]
     {
         engine
             .register_module(STEEL_MAP_MODULE.clone())
@@ -618,7 +696,7 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
         engine.register_module(STEEL_IMMUTABLE_VECTOR_MODULE.clone());
     }
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(not(feature = "sync"), feature = "std"))]
     {
         engine
             .register_module(MAP_MODULE.with(|x| x.clone()))
@@ -675,8 +753,40 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
 
         engine.register_module(IMMUTABLE_VECTOR_MODULE.with(|x| x.clone()));
     }
+
+    #[cfg(all(not(feature = "sync"), not(feature = "std")))]
+    {
+        engine
+            .register_module(hashmap_module())
+            .register_module(hashset_module())
+            .register_module(list_module())
+            .register_module(vector_module())
+            .register_module(stream_module())
+            .register_module(identity_module())
+            .register_module(number_module())
+            .register_module(equality_module())
+            .register_module(ord_module())
+            .register_module(transducer_module())
+            .register_module(symbol_module())
+            .register_module(bytevector_module())
+            .register_module(meta_module())
+            .register_module(constants_module())
+            .register_module(syntax_module())
+            .register_module(build_result_structs())
+            .register_module(build_option_structs())
+            .register_module(build_type_id_module());
+
+        if sandbox {
+            engine.register_module(sandboxed_prelude());
+        } else {
+            engine.register_module(prelude());
+        }
+
+        engine.register_module(hashes_module());
+    }
 }
 
+#[cfg(feature = "std")]
 pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::new(|| {
     let mut set = fxhash::FxHashSet::default();
 
@@ -709,9 +819,10 @@ pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::n
     set
 });
 
+#[cfg(feature = "std")]
 pub(crate) static PRELUDE_TO_RESERVED_MAP: Lazy<FxHashMap<String, InternedString>> =
     Lazy::new(|| {
-        PRELUDE_INTERNED_STRINGS.with(|x| {
+        with_prelude_interned_strings(|x| {
             x.iter()
                 .map(|x| {
                     (
@@ -723,12 +834,18 @@ pub(crate) static PRELUDE_TO_RESERVED_MAP: Lazy<FxHashMap<String, InternedString
         })
     });
 
+#[cfg(feature = "std")]
 pub fn builtin_to_reserved(ident: &str) -> InternedString {
     if let Some(value) = PRELUDE_TO_RESERVED_MAP.get(ident) {
         *value
     } else {
         (CompactString::new("#%prim.") + ident).into()
     }
+}
+
+#[cfg(not(feature = "std"))]
+pub fn builtin_to_reserved(ident: &str) -> InternedString {
+    (CompactString::new("#%prim.") + ident).into()
 }
 
 // TODO: Do the same for the single threaded version as well
@@ -1499,6 +1616,7 @@ fn ord_module() -> BuiltInModule {
     module
 }
 
+#[cfg(feature = "std")]
 fn io_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/io");
     module
@@ -1506,6 +1624,11 @@ fn io_module() -> BuiltInModule {
         .register_value("read-to-string", IoFunctions::read_to_string());
 
     module
+}
+
+#[cfg(not(feature = "std"))]
+fn io_module() -> BuiltInModule {
+    BuiltInModule::new("steel/io")
 }
 
 pub const VOID_DOC: MarkdownDoc = MarkdownDoc::from_str(
@@ -2021,6 +2144,7 @@ pub fn struct_to_list(value: &UserDefinedStruct) -> Result<SteelVal> {
     }
 }
 
+#[cfg(feature = "std")]
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
@@ -2179,6 +2303,11 @@ fn meta_module() -> BuiltInModule {
     module.register_native_fn_definition(crate::steel_vm::dylib::LOAD_MODULE_DEFINITION);
 
     module
+}
+
+#[cfg(not(feature = "std"))]
+fn meta_module() -> BuiltInModule {
+    BuiltInModule::new("steel/meta")
 }
 
 /// Returns the command line passed to this process,

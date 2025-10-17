@@ -19,16 +19,14 @@ use crate::{
     rerrs::ErrorKind,
     SteelErr,
 };
-use alloc::format;
-use alloc::vec::Vec;
-use std::{
-    cell::RefCell,
-    collections::HashSet,
-    convert::TryFrom,
+use alloc::{
+    format,
     rc::{Rc, Weak},
+    vec::Vec,
 };
+use core::{cell::RefCell, convert::TryFrom};
 
-use crate::collections::HashMap;
+use crate::collections::{HashMap, HashSet};
 use fxhash::{FxBuildHasher, FxHashSet};
 
 use steel_parser::span::Span;
@@ -73,7 +71,7 @@ impl ConstantEnv {
     }
 
     fn get(&mut self, ident: &InternedString) -> Option<SteelVal> {
-        if self.non_constant_bound.get(ident).is_some() {
+        if self.non_constant_bound.contains(ident) {
             return None;
         }
 
@@ -141,7 +139,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
     ) -> Self {
         Self {
             global_env: Rc::new(RefCell::new(ConstantEnv::root(constant_bindings))),
-            set_idents: HashSet::default(),
+            set_idents: FxHashSet::default(),
             changed: false,
             opt_level,
             _memoization_table: memoization_table,

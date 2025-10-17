@@ -52,6 +52,7 @@ use crate::rvals::{
 };
 use crate::values::closed::HeapRef;
 use crate::values::lists::List;
+#[cfg(feature = "std")]
 use crate::values::port::SteelPort;
 use crate::values::structs::UserDefinedStruct;
 use crate::{
@@ -726,6 +727,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a HeapRef<Vec<SteelVal>> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<'a> PrimitiveAsRef<'a> for &'a SteelPort {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {

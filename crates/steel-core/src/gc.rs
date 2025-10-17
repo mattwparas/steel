@@ -537,6 +537,7 @@ impl<T: ?Sized> Clone for Gc<T> {
     }
 }
 
+#[cfg(feature = "std")]
 impl AsRef<OsStr> for Gc<String> {
     fn as_ref(&self) -> &OsStr {
         self.0.as_ref().as_ref()

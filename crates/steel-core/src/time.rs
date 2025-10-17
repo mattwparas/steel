@@ -6,7 +6,7 @@ pub use std::time::{Duration, Instant, SystemTime, SystemTimeError, UNIX_EPOCH};
 #[cfg(not(feature = "std"))]
 mod imp {
     use core::{
-        cell::SyncUnsafeCell,
+        cell::UnsafeCell,
         fmt,
         ops::{Add, AddAssign, Sub, SubAssign},
         sync::atomic::{AtomicBool, Ordering as AtomicOrdering},
@@ -18,7 +18,7 @@ mod imp {
 
     #[derive(Default)]
     struct ProviderCell {
-        func: SyncUnsafeCell<NowFn>,
+        func: UnsafeCell<NowFn>,
         is_custom: AtomicBool,
     }
 
@@ -29,7 +29,7 @@ mod imp {
     }
 
     static TIME_PROVIDER: ProviderCell = ProviderCell {
-        func: SyncUnsafeCell::new(default_now),
+        func: UnsafeCell::new(default_now),
         is_custom: AtomicBool::new(false),
     };
 

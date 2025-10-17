@@ -1,5 +1,9 @@
 pub mod cycles;
 
+#[cfg(feature = "std")]
+use crate::values::port::{SendablePort, SteelPort};
+#[cfg(feature = "std")]
+use crate::values::SteelPortRepr;
 use crate::{
     gc::{
         shared::{
@@ -22,10 +26,8 @@ use crate::{
         closed::{Heap, HeapRef, MarkAndSweepContext},
         functions::{BoxedDynFunction, ByteCodeLambda},
         lazy_stream::LazyStream,
-        port::{SendablePort, SteelPort},
         structs::{SerializableUserDefinedStruct, UserDefinedStruct},
         transducers::{Reducer, Transducer},
-        SteelPortRepr,
     },
 };
 use alloc::{format, rc::Rc, string::String, sync::Arc, vec::IntoIter, vec::Vec};
@@ -914,6 +916,7 @@ pub enum SerializableSteelVal {
     CustomStruct(SerializableUserDefinedStruct),
     // Attempt to reuse the storage if possible
     HeapAllocated(usize),
+    #[cfg(feature = "std")]
     Port(SendablePort),
     Rational(Rational32),
 }
@@ -1014,6 +1017,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                 type_descriptor: s.type_descriptor,
             }))
         }
+        #[cfg(feature = "std")]
         SerializableSteelVal::Port(p) => SteelVal::PortV(SteelPort::from_sendable_port(p)),
         SerializableSteelVal::HeapAllocated(v) => {
             // todo!()
@@ -1144,6 +1148,7 @@ pub fn into_serializable_value(
             },
         )),
 
+        #[cfg(feature = "std")]
         SteelVal::PortV(p) => SendablePort::from_port(p).map(SerializableSteelVal::Port),
 
         // If there is a cycle, this could cause problems?
@@ -1337,6 +1342,7 @@ pub enum SteelVal {
     /// Represents a scheme-only struct
     CustomStruct(Gc<UserDefinedStruct>),
     /// Represents a port object
+    #[cfg(feature = "std")]
     PortV(SteelPort),
     /// Generic iterator wrapper
     IterV(Gc<Transducer>),
@@ -1941,6 +1947,7 @@ impl SteelVal {
             (SteelVal::Custom(l), SteelVal::Custom(r)) => Gc::ptr_eq(l, r),
             (HashMapV(l), HashMapV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (HashSetV(l), HashSetV(r)) => Gc::ptr_eq(&l.0, &r.0),
+            #[cfg(feature = "std")]
             (PortV(l), PortV(r)) => Gc::ptr_eq(&l.port, &r.port),
             (Closure(l), Closure(r)) => Gc::ptr_eq(l, r),
             (IterV(l), IterV(r)) => Gc::ptr_eq(l, r),

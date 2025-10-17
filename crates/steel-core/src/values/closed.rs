@@ -61,10 +61,11 @@ use crate::{
 };
 use steel_gen::OpCode;
 
+#[cfg(feature = "std")]
+use super::port::SteelPort;
 use super::{
     functions::BoxedDynFunction,
     lazy_stream::LazyStream,
-    port::SteelPort,
     structs::UserDefinedStruct,
     transducers::{Reducer, Transducer},
 };
@@ -188,6 +189,7 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                 HashMapV(h) => self.visit_hash_map(h),
                 HashSetV(s) => self.visit_hash_set(s),
                 CustomStruct(c) => self.visit_steel_struct(c),
+                #[cfg(feature = "std")]
                 PortV(p) => self.visit_port(p),
                 IterV(t) => self.visit_transducer(t),
                 ReducerV(r) => self.visit_reducer(r),
@@ -387,6 +389,7 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
         queue.mark_heap_vector(&vector.strong_ptr())
     }
 
+    #[cfg(feature = "std")]
     fn visit_port(&mut self, _port: SteelPort) -> Self::Output {}
 
     fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output {
@@ -636,6 +639,7 @@ impl WillExecutor {
                     SteelVal::HashMapV(steel_hash_map) => Gc::strong_count(&steel_hash_map.0) == 1,
                     SteelVal::HashSetV(steel_hash_set) => Gc::strong_count(&steel_hash_set.0) == 1,
                     SteelVal::CustomStruct(gc) => Gc::strong_count(gc) == 1,
+                    #[cfg(feature = "std")]
                     SteelVal::PortV(steel_port) => Gc::strong_count(&steel_port.port) == 1,
                     SteelVal::IterV(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::ReducerV(gc) => Gc::strong_count(gc) == 1,
@@ -2415,6 +2419,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
         self.mark_heap_vector(&vector.strong_ptr())
     }
 
+    #[cfg(feature = "std")]
     fn visit_port(&mut self, _port: SteelPort) -> Self::Output {}
 
     fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output {

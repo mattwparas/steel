@@ -68,20 +68,6 @@ mod no_std {
         }
     }
 
-    impl AsRef<OsStr> for String {
-        #[inline]
-        fn as_ref(&self) -> &OsStr {
-            self.as_str()
-        }
-    }
-
-    impl AsRef<OsStr> for str {
-        #[inline]
-        fn as_ref(&self) -> &OsStr {
-            self
-        }
-    }
-
     impl Borrow<OsStr> for OsString {
         #[inline]
         fn borrow(&self) -> &OsStr {
