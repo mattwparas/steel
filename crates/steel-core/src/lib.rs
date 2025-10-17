@@ -6,6 +6,7 @@ extern crate alloc; // Required for heap-backed types when std is disabled
 extern crate im_rc;
 pub mod collections;
 pub mod os_strings;
+pub mod rand;
 pub mod sync;
 pub mod time;
 #[macro_use]

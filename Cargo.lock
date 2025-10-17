@@ -3812,7 +3812,6 @@ dependencies = [
  "polling 3.10.0",
  "proptest",
  "quickscope",
- "rand 0.9.2",
  "serde",
  "serde_json",
  "shared_vector",
