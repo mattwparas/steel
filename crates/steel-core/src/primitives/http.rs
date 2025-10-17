@@ -79,10 +79,11 @@ fn download_file(_url: &SteelString, _file: &SteelString) -> Result<SteelVal> {
 
     #[cfg(feature = "ureq")]
     {
-        use std::{fs, path::PathBuf};
+        use crate::path::OwnedPath;
+        use std::fs;
 
         let url = _url.as_str();
-        let file = PathBuf::from(_file.as_str());
+        let file = OwnedPath::from(_file.as_str());
         let contents = ureq::get(url)
             .call()
             .map_err(|err| {
@@ -92,7 +93,7 @@ fn download_file(_url: &SteelString, _file: &SteelString) -> Result<SteelVal> {
             .read_to_vec()
             .map_err(|err| SteelErr::new(ErrorKind::Io, format!("http request failed: {err}")))?;
 
-        fs::write(file, contents)
+        fs::write(file.as_path(), contents)
             .map_err(|err| SteelErr::new(ErrorKind::Io, format!("failed to write: {err}")))?;
 
         Ok(().into())

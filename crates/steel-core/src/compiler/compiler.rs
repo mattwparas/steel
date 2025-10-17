@@ -17,6 +17,7 @@ use crate::{
         kernel::Kernel,
         parser::{lower_entire_ast, lower_macro_and_require_definitions, SourcesCollector},
     },
+    path::OwnedPath,
     rvals::{AsRefSteelVal, SteelString},
     steel_vm::{cache::MemoizationTable, engine::ModuleContainer, primitives::constant_primitives},
     LambdaMetadataTable,
@@ -29,11 +30,8 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+use std::collections::{HashMap, HashSet};
 use std::{borrow::Cow, iter::Iterator};
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-};
 
 // TODO: Replace the usages of hashmap with this directly
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
@@ -407,12 +405,12 @@ pub struct Compiler {
     // Macros that... we need to compile against directly at the top level
     // This is really just a hack, but it solves cases for interactively
     // running at the top level using private macros.
-    lifted_macro_environments: HashSet<PathBuf>,
+    lifted_macro_environments: HashSet<OwnedPath>,
 
     analysis: Analysis,
     shadowed_variable_renamer: RenameShadowedVariables,
 
-    search_dirs: Vec<PathBuf>,
+    search_dirs: Vec<OwnedPath>,
 
     // Include all the sources, module container, and constants
     // so that we can reference those at runtime. We probably should
@@ -687,8 +685,8 @@ impl Compiler {
         self.module_manager.register_module_resolver(resolver);
     }
 
-    pub fn add_search_directory(&mut self, dir: PathBuf) {
-        self.search_dirs.push(dir);
+    pub fn add_search_directory(&mut self, dir: impl Into<OwnedPath>) {
+        self.search_dirs.push(dir.into());
     }
 
     pub fn compile_executable_from_expressions(
@@ -701,7 +699,7 @@ impl Compiler {
     pub fn compile_executable<E: AsRef<str> + Into<Cow<'static, str>>>(
         &mut self,
         expr_str: E,
-        path: Option<PathBuf>,
+        path: Option<OwnedPath>,
     ) -> Result<RawProgramWithSymbols> {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
@@ -713,7 +711,7 @@ impl Compiler {
         // Could fail here
         let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
-            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
+            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.to_path_buf(), Some(id)))
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
@@ -731,7 +729,7 @@ impl Compiler {
     pub fn fully_expand_to_file<E: AsRef<str> + Into<Cow<'static, str>>>(
         &mut self,
         expr_str: E,
-        path: Option<PathBuf>,
+        path: Option<OwnedPath>,
     ) -> Result<()> {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
@@ -743,7 +741,7 @@ impl Compiler {
         // Could fail here
         let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
-            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
+            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone().into(), Some(id)))
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
@@ -762,7 +760,7 @@ impl Compiler {
     pub fn emit_expanded_ast(
         &mut self,
         expr_str: &str,
-        path: Option<PathBuf>,
+        path: Option<OwnedPath>,
     ) -> Result<Vec<ExprKind>> {
         let id = self.sources.add_source(expr_str.to_string(), path.clone());
 
@@ -781,7 +779,7 @@ impl Compiler {
     pub fn emit_expanded_ast_without_optimizations(
         &mut self,
         expr_str: &str,
-        path: Option<PathBuf>,
+        path: Option<OwnedPath>,
     ) -> Result<Vec<ExprKind>> {
         let id = self.sources.add_source(expr_str.to_string(), path.clone());
 
@@ -799,7 +797,7 @@ impl Compiler {
 
     pub fn compile_module(
         &mut self,
-        path: PathBuf,
+        path: OwnedPath,
         builtin_modules: ModuleContainer,
     ) -> Result<()> {
         self.module_manager.add_module(
@@ -811,14 +809,14 @@ impl Compiler {
         )
     }
 
-    pub fn modules(&self) -> &crate::HashMap<PathBuf, CompiledModule> {
+    pub fn modules(&self) -> &crate::HashMap<OwnedPath, CompiledModule> {
         self.module_manager.modules()
     }
 
     pub fn expand_expressions(
         &mut self,
         exprs: Vec<ExprKind>,
-        path: Option<PathBuf>,
+        path: Option<OwnedPath>,
     ) -> Result<Vec<ExprKind>> {
         // #[cfg(feature = "modules")]
         self.module_manager.compile_main(
@@ -885,7 +883,11 @@ impl Compiler {
     }
 
     // TODO: Compare this to the lower_expressions_impl and merge the behavior
-    fn expand_ast(&mut self, exprs: Vec<ExprKind>, path: Option<PathBuf>) -> Result<Vec<ExprKind>> {
+    fn expand_ast(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        path: Option<OwnedPath>,
+    ) -> Result<Vec<ExprKind>> {
         let mut expanded_statements = self.expand_expressions(exprs, path)?;
 
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
@@ -1060,7 +1062,7 @@ impl Compiler {
     pub(crate) fn lower_expressions_impl(
         &mut self,
         exprs: Vec<ExprKind>,
-        path: Option<PathBuf>,
+        path: Option<OwnedPath>,
     ) -> Result<Vec<ExprKind>> {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
@@ -1295,7 +1297,7 @@ impl Compiler {
     // but its probably still faster than starting from scratch each time?
     //
     // Unknown.
-    pub fn expand_to_file(&mut self, exprs: Vec<ExprKind>, path: Option<PathBuf>) -> Result<()> {
+    pub fn expand_to_file(&mut self, exprs: Vec<ExprKind>, path: Option<OwnedPath>) -> Result<()> {
         let expanded_statements = self.lower_expressions_impl(exprs, path)?;
         let mut file = std::fs::File::create("fully-expanded.bin").unwrap();
         let buffer = bincode::serialize(&expanded_statements).unwrap();
@@ -1327,7 +1329,7 @@ impl Compiler {
     fn compile_raw_program_impl(
         &mut self,
         exprs: Vec<ExprKind>,
-        path: Option<PathBuf>,
+        path: Option<OwnedPath>,
     ) -> Result<RawProgramWithSymbols> {
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 0");
 
@@ -1358,7 +1360,7 @@ impl Compiler {
     fn compile_raw_program(
         &mut self,
         exprs: Vec<ExprKind>,
-        path: Option<PathBuf>,
+        path: Option<OwnedPath>,
     ) -> Result<RawProgramWithSymbols> {
         // Roll back any dependencies that got compiled, assuming they did.
         let snapshot_modules = self.module_manager.compiled_modules.clone();

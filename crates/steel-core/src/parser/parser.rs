@@ -5,10 +5,11 @@ use crate::HashSet;
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 use alloc::format;
 
+use crate::path::OwnedPath;
 use alloc::borrow::Cow;
 use alloc::sync::Arc;
 use num_rational::{BigRational, Rational32};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use steel_parser::interner::InternedString;
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral, TokenType};
 
@@ -49,8 +50,8 @@ struct GcMetadata {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub(crate) struct InterierSources {
-    paths: crate::HashMap<SourceId, PathBuf>,
-    reverse: crate::HashMap<PathBuf, SourceId>,
+    paths: crate::HashMap<SourceId, OwnedPath>,
+    reverse: crate::HashMap<OwnedPath, SourceId>,
     // TODO: The sources here are just ever growing.
     // Really, we shouldn't even do this. Having to index
     // into the list isn't particularly necessary, we could
@@ -109,7 +110,7 @@ impl InterierSources {
     pub fn add_source(
         &mut self,
         source: impl Into<Cow<'static, str>>,
-        path: Option<PathBuf>,
+        path: Option<OwnedPath>,
     ) -> SourceId {
         // We're overwriting the existing source
         if let Some(path) = &path {
@@ -144,7 +145,7 @@ impl InterierSources {
         self.sources.get(&source_id)
     }
 
-    pub fn get_path(&self, source_id: &SourceId) -> Option<PathBuf> {
+    pub fn get_path(&self, source_id: &SourceId) -> Option<OwnedPath> {
         self.paths.get(source_id).cloned()
     }
 
@@ -221,7 +222,7 @@ impl Sources {
     pub fn add_source(
         &mut self,
         source: impl Into<Cow<'static, str>>,
-        path: Option<PathBuf>,
+        path: Option<OwnedPath>,
     ) -> SourceId {
         self.sources.add_source(source, path)
     }
@@ -230,7 +231,7 @@ impl Sources {
         self.sources.get_id(path)
     }
 
-    pub fn get_path(&self, source_id: &SourceId) -> Option<PathBuf> {
+    pub fn get_path(&self, source_id: &SourceId) -> Option<OwnedPath> {
         self.sources.get_path(source_id)
     }
 

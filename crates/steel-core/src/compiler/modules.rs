@@ -13,6 +13,7 @@ use crate::{
         },
         tokens::TokenType,
     },
+    path::OwnedPath,
     steel_vm::{
         engine::{default_prelude_macros, ModuleContainer},
         transducers::interleave,
@@ -33,7 +34,6 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     io::Read,
-    path::PathBuf,
     sync::Arc,
 };
 
@@ -137,13 +137,15 @@ create_prelude!(
 );
 
 #[cfg(not(target_family = "wasm"))]
-pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
-    std::env::var("STEEL_SEARCH_PATHS")
-        .ok()
-        .map(|x| std::env::split_paths(x.as_str()).collect::<Vec<_>>())
+pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<OwnedPath>>> = Lazy::new(|| {
+    std::env::var("STEEL_SEARCH_PATHS").ok().map(|x| {
+        std::env::split_paths(x.as_str())
+            .map(OwnedPath::from)
+            .collect::<Vec<_>>()
+    })
 });
 
-pub fn steel_search_dirs() -> Vec<PathBuf> {
+pub fn steel_search_dirs() -> Vec<OwnedPath> {
     #[cfg(not(target_family = "wasm"))]
     return STEEL_SEARCH_PATHS.clone().unwrap_or_default();
 
@@ -154,11 +156,15 @@ pub fn steel_search_dirs() -> Vec<PathBuf> {
 #[cfg(not(target_family = "wasm"))]
 pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
     std::env::var("STEEL_HOME").ok().or_else(|| {
-        let home = env_home::env_home_dir().map(|x| x.join(".steel"));
+        let home = env_home::env_home_dir().map(|x| {
+            let mut owned = OwnedPath::from(x);
+            owned.push(".steel");
+            owned
+        });
 
         if let Some(home) = home {
             if home.exists() {
-                return Some(home.into_os_string().into_string().unwrap());
+                return Some(home.into_string());
             }
 
             #[cfg(target_os = "windows")]
@@ -167,16 +173,16 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
                     eprintln!("Unable to create steel home directory {:?}: {}", home, e)
                 }
 
-                return Some(home.into_os_string().into_string().unwrap());
+                return Some(home.into_string());
             }
         }
 
         #[cfg(not(target_os = "windows"))]
         {
             let bd = xdg::BaseDirectories::new();
-            let home = bd.data_home;
+            let home = bd.data_home.map(OwnedPath::from);
 
-            home.map(|mut x: PathBuf| {
+            home.map(|mut x| {
                 x.push("steel");
 
                 // Just go ahead and initialize the directory, even though
@@ -189,7 +195,7 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
                     }
                 }
 
-                x.into_os_string().into_string().unwrap()
+                x.into_string()
             })
         }
 
@@ -211,11 +217,11 @@ pub fn steel_home() -> Option<String> {
 /// if it needs to be recompiled
 #[derive(Clone)]
 pub(crate) struct ModuleManager {
-    pub(crate) compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
-    file_metadata: crate::HashMap<PathBuf, SystemTime>,
-    visited: FxHashSet<PathBuf>,
+    pub(crate) compiled_modules: crate::HashMap<OwnedPath, CompiledModule>,
+    file_metadata: crate::HashMap<OwnedPath, SystemTime>,
+    visited: FxHashSet<OwnedPath>,
     custom_builtins: HashMap<String, String>,
-    rollback_metadata: crate::HashMap<PathBuf, SystemTime>,
+    rollback_metadata: crate::HashMap<OwnedPath, SystemTime>,
     // #[serde(skip_serializing, skip_deserializing)]
     module_resolvers: Vec<Arc<dyn SourceModuleResolver>>,
 }
@@ -227,8 +233,8 @@ pub trait SourceModuleResolver: Send + Sync {
 
 impl ModuleManager {
     pub(crate) fn new(
-        compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
-        file_metadata: crate::HashMap<PathBuf, SystemTime>,
+        compiled_modules: crate::HashMap<OwnedPath, CompiledModule>,
+        file_metadata: crate::HashMap<OwnedPath, SystemTime>,
     ) -> Self {
         ModuleManager {
             compiled_modules,
@@ -248,11 +254,11 @@ impl ModuleManager {
         self.custom_builtins.insert(module_name, text);
     }
 
-    pub fn modules(&self) -> &crate::HashMap<PathBuf, CompiledModule> {
+    pub fn modules(&self) -> &crate::HashMap<OwnedPath, CompiledModule> {
         &self.compiled_modules
     }
 
-    pub fn modules_mut(&mut self) -> &mut crate::HashMap<PathBuf, CompiledModule> {
+    pub fn modules_mut(&mut self) -> &mut crate::HashMap<OwnedPath, CompiledModule> {
         &mut self.compiled_modules
     }
 
@@ -270,7 +276,7 @@ impl ModuleManager {
     // Add the module directly to the compiled module cache
     pub(crate) fn add_module(
         &mut self,
-        path: PathBuf,
+        path: OwnedPath,
         global_macro_map: &mut FxHashMap<InternedString, SteelMacro>,
         kernel: &mut Option<Kernel>,
         sources: &mut Sources,
@@ -310,11 +316,11 @@ impl ModuleManager {
         kernel: &mut Option<Kernel>,
         sources: &mut Sources,
         mut exprs: Vec<ExprKind>,
-        path: Option<PathBuf>,
+        path: Option<OwnedPath>,
         builtin_modules: ModuleContainer,
         lifted_kernel_environments: &mut HashMap<String, KernelDefMacroSpec>,
-        lifted_macro_environments: &mut HashSet<PathBuf>,
-        search_dirs: &[PathBuf],
+        lifted_macro_environments: &mut HashSet<OwnedPath>,
+        search_dirs: &[OwnedPath],
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
         self.visited.clear();
@@ -546,15 +552,12 @@ impl ModuleManager {
 
         // TODO: Move this to the lower level as well
         // It seems we're only doing this expansion at the top level, but we _should_ do this at the lower level as well
-        for require_object in module_builder.require_objects.iter()
-        // .filter(|x| x.for_syntax)
-        // .map(|x| x.path.get_path())
-        {
+        for require_object in module_builder.require_objects.iter() {
             let require_for_syntax = require_object.path.get_path();
 
             let (module, in_scope_macros, mut name_mangler) = Self::find_in_scope_macros(
                 &mut self.compiled_modules,
-                require_for_syntax.as_ref(),
+                &require_for_syntax,
                 require_object,
                 &mut mangled_asts,
             );
@@ -566,7 +569,7 @@ impl ModuleManager {
 
             // dbg!(&kernel_macros_in_scope);
 
-            let module_name = module.name.to_str().unwrap().to_string();
+            let module_name = module.name.to_string_lossy().into_owned();
 
             if let Some(kernel) = kernel.as_mut() {
                 if kernel.exported_defmacros(&module_name).is_some() {
@@ -826,8 +829,8 @@ impl ModuleManager {
     }
 
     fn find_in_scope_macros<'a>(
-        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
-        require_for_syntax: &'a PathBuf,
+        compiled_modules: &'a mut crate::HashMap<OwnedPath, CompiledModule>,
+        require_for_syntax: &'a OwnedPath,
         require_object: &'a RequireObject,
         mangled_asts: &'a mut Vec<ExprKind>,
     ) -> (
@@ -859,7 +862,7 @@ impl ModuleManager {
             .iter()
             .filter_map(|x| {
                 if x.idents_to_import.is_empty() {
-                    Some(x.path.get_path().into_owned())
+                    Some(x.path.get_path())
                 } else {
                     None
                 }
@@ -1038,7 +1041,7 @@ impl ModuleManager {
 // Compiled module _should_ be possible now. Just create a target
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CompiledModule {
-    name: PathBuf,
+    name: OwnedPath,
     provides: Vec<ExprKind>,
     require_objects: Vec<RequireObject>,
     provides_for_syntax: Vec<InternedString>,
@@ -1046,22 +1049,20 @@ pub struct CompiledModule {
     pub(crate) ast: Vec<ExprKind>,
     emitted: bool,
     cached_prefix: CompactString,
-    downstream: Vec<PathBuf>,
+    downstream: Vec<OwnedPath>,
 }
 
 pub static MANGLER_PREFIX: &str = "##mm";
 pub static MODULE_PREFIX: &str = "__module-";
 pub static MANGLED_MODULE_PREFIX: &str = "__module-##mm";
 
-pub fn path_to_module_name(name: PathBuf) -> String {
+pub fn path_to_module_name(name: OwnedPath) -> String {
     let mut base = CompactString::new(MANGLED_MODULE_PREFIX);
 
     if let Some(steel_home) = STEEL_HOME.as_ref() {
         // Intern this?
-        let name = name
-            .to_str()
-            .unwrap()
-            .trim_start_matches(steel_home.as_str());
+        let name_lossy = name.to_string_lossy();
+        let name = name_lossy.trim_start_matches(steel_home.as_str());
 
         let interned = InternedString::from_str(name);
         let id = interned.get().into_inner();
@@ -1069,7 +1070,7 @@ pub fn path_to_module_name(name: PathBuf) -> String {
         base.push_str(&id.to_string());
         base.push_str(MANGLER_SEPARATOR);
     } else {
-        let interned = InternedString::from_str(name.to_str().unwrap());
+        let interned = InternedString::from_str(name.to_string_lossy().as_ref());
         let id = interned.get().into_inner();
 
         base.push_str(&id.to_string());
@@ -1082,22 +1083,20 @@ pub fn path_to_module_name(name: PathBuf) -> String {
 // TODO: @Matt 6/12/23 - This _should_ be serializable. If possible, we can try to store intermediate objects down to some file.
 impl CompiledModule {
     pub fn new(
-        name: PathBuf,
+        name: OwnedPath,
         provides: Vec<ExprKind>,
         require_objects: Vec<RequireObject>,
         provides_for_syntax: Vec<InternedString>,
         macro_map: Arc<FxHashMap<InternedString, SteelMacro>>,
         ast: Vec<ExprKind>,
-        downstream: Vec<PathBuf>,
+        downstream: Vec<OwnedPath>,
     ) -> Self {
         let mut base = CompactString::new(MANGLER_PREFIX);
 
         if let Some(steel_home) = STEEL_HOME.as_ref() {
             // Intern this?
-            let name = name
-                .to_str()
-                .unwrap()
-                .trim_start_matches(steel_home.as_str());
+            let name_lossy = name.to_string_lossy();
+            let name = name_lossy.trim_start_matches(steel_home.as_str());
 
             let interned = InternedString::from_str(name);
             let id = interned.get().into_inner();
@@ -1109,10 +1108,10 @@ impl CompiledModule {
             // println!("{}", base);
             // println!("Byte length: {}", base.len());
         } else {
-            let interned = InternedString::from_str(name.to_str().unwrap());
+            let interned = InternedString::from_str(name.to_string_lossy().as_ref());
             let id = interned.get().into_inner();
 
-            // base.push_str(self.name.to_str().unwrap());
+            // base.push_str(self.name.to_string_lossy().as_ref());
             base.push_str(&id.to_string());
             base.push_str(MANGLER_SEPARATOR);
         }
@@ -1143,7 +1142,7 @@ impl CompiledModule {
         &self.provides
     }
 
-    // pub fn get_requires(&self) -> &[PathBuf] {
+    // pub fn get_requires(&self) -> &[OwnedPath] {
     //     &self.requires
     // }
 
@@ -1153,7 +1152,7 @@ impl CompiledModule {
 
     fn to_top_level_module(
         &self,
-        modules: &crate::HashMap<PathBuf, CompiledModule>,
+        modules: &crate::HashMap<OwnedPath, CompiledModule>,
         global_macro_map: &FxHashMap<InternedString, SteelMacro>,
     ) -> Result<ExprKind> {
         let mut globals = collect_globals(&self.ast);
@@ -1690,7 +1689,7 @@ impl CompiledModule {
                 "module".into(),
             )))),
             ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                ("___".to_string() + self.name.to_str().unwrap()).into(),
+                ("___".to_string() + self.name.to_string_lossy().as_ref()).into(),
             )))),
         ];
 
@@ -1759,14 +1758,14 @@ impl RequireObject {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 enum PathOrBuiltIn {
     BuiltIn(Cow<'static, str>),
-    Path(PathBuf),
+    Path(OwnedPath),
 }
 
 impl PathOrBuiltIn {
-    pub fn get_path(&self) -> Cow<'_, PathBuf> {
+    pub fn get_path(&self) -> OwnedPath {
         match self {
-            Self::Path(p) => Cow::Borrowed(p),
-            Self::BuiltIn(p) => Cow::Owned(PathBuf::from(p.to_string())),
+            Self::Path(p) => p.clone(),
+            Self::BuiltIn(p) => OwnedPath::from(p.as_ref()),
         }
     }
 }
@@ -1797,27 +1796,29 @@ impl RequireObjectBuilder {
     }
 }
 
-fn try_canonicalize(path: PathBuf) -> PathBuf {
-    std::fs::canonicalize(&path).unwrap_or_else(|_| path)
+fn try_canonicalize(path: OwnedPath) -> OwnedPath {
+    std::fs::canonicalize(&path)
+        .map(OwnedPath::from)
+        .unwrap_or(path)
 }
 
 /*
 #[derive(Default, Clone)]
 struct DependencyGraph {
-    downstream: HashMap<PathBuf, Vec<PathBuf>>,
+    downstream: HashMap<OwnedPath, Vec<OwnedPath>>,
 }
 
 impl DependencyGraph {
     // Adding edges downward.
-    pub fn add_edges(&mut self, parent: PathBuf, children: Vec<PathBuf>) {
+    pub fn add_edges(&mut self, parent: OwnedPath, children: Vec<OwnedPath>) {
         self.downstream.insert(parent, children);
     }
 
-    pub fn remove(&mut self, parent: &PathBuf) {
+    pub fn remove(&mut self, parent: &OwnedPath) {
         self.downstream.remove(parent);
     }
 
-    pub fn add_edge(&mut self, parent: &PathBuf, child: PathBuf) {
+    pub fn add_edge(&mut self, parent: &OwnedPath, child: OwnedPath) {
         if let Some(children) = self.downstream.get_mut(parent) {
             children.push(child);
         } else {
@@ -1828,8 +1829,8 @@ impl DependencyGraph {
     // Check everything downstream of this, to see if anything needs to be invalidated
     pub fn check_downstream_changes(
         &self,
-        root: &PathBuf,
-        updated_at: &crate::HashMap<PathBuf, SystemTime>,
+        root: &OwnedPath,
+        updated_at: &crate::HashMap<OwnedPath, SystemTime>,
     ) -> std::io::Result<bool> {
         let mut stack = vec![root];
 
@@ -1855,7 +1856,7 @@ impl DependencyGraph {
 */
 
 struct ModuleBuilder<'a> {
-    name: PathBuf,
+    name: OwnedPath,
     main: bool,
     source_ast: Vec<ExprKind>,
     local_macros: FxHashSet<InternedString>,
@@ -1865,20 +1866,20 @@ struct ModuleBuilder<'a> {
 
     provides: Vec<ExprKind>,
     provides_for_syntax: Vec<ExprKind>,
-    compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
-    visited: &'a mut FxHashSet<PathBuf>,
-    file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+    compiled_modules: &'a mut crate::HashMap<OwnedPath, CompiledModule>,
+    visited: &'a mut FxHashSet<OwnedPath>,
+    file_metadata: &'a mut crate::HashMap<OwnedPath, SystemTime>,
     sources: &'a mut Sources,
     kernel: &'a mut Option<Kernel>,
     builtin_modules: ModuleContainer,
     global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
     custom_builtins: &'a HashMap<String, String>,
-    search_dirs: &'a [PathBuf],
+    search_dirs: &'a [OwnedPath],
     module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
 }
 
 pub struct RequiredModuleMacros {
-    pub module_key: PathBuf,
+    pub module_key: OwnedPath,
     pub module_name: String,
     pub module_macros: Arc<FxHashMap<InternedString, SteelMacro>>,
     pub in_scope_macros: FxHashMap<InternedString, SteelMacro>,
@@ -1889,17 +1890,17 @@ impl<'a> ModuleBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     #[allow(unused)]
     fn main(
-        name: Option<PathBuf>,
+        name: Option<OwnedPath>,
         source_ast: Vec<ExprKind>,
-        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
-        visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+        compiled_modules: &'a mut crate::HashMap<OwnedPath, CompiledModule>,
+        visited: &'a mut FxHashSet<OwnedPath>,
+        file_metadata: &'a mut crate::HashMap<OwnedPath, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
-        search_dirs: &'a [PathBuf],
+        search_dirs: &'a [OwnedPath],
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
@@ -1908,13 +1909,13 @@ impl<'a> ModuleBuilder<'a> {
 
         #[cfg(not(target_family = "wasm"))]
         let name = if let Some(p) = name {
-            std::fs::canonicalize(p)?
+            OwnedPath::from(std::fs::canonicalize(&p)?)
         } else {
-            std::env::current_dir()?
+            OwnedPath::from(std::env::current_dir()?)
         };
 
         #[cfg(target_family = "wasm")]
-        let name = PathBuf::new();
+        let name = OwnedPath::new();
 
         Ok(ModuleBuilder {
             name,
@@ -2026,32 +2027,36 @@ impl<'a> ModuleBuilder<'a> {
                 }
 
                 // TODO this is some bad crap here don't do this
-                let input = BUILT_INS
-                    .iter()
-                    .find(|x| x.0 == module.to_str().unwrap())
-                    .map(|x| Cow::Borrowed(x.1))
-                    .or_else(|| {
-                        self.custom_builtins
-                            .get(module.to_str().unwrap())
-                            .map(|x| Cow::Owned(x.to_string()))
-                    })
-                    .or_else(|| {
-                        self.module_resolvers
-                            .iter()
-                            .find_map(|x| x.resolve(module.to_str().unwrap()))
-                            // Insert the prelude
-                            .map(|mut x| {
-                                x.insert_str(0, PRELUDE_STRING);
-                                x
-                            })
-                            .map(Cow::Owned)
-                    })
-                    .ok_or_else(
-                        crate::throw!(Generic => "Unable to find builtin module: {:?}", module),
-                    )?;
+                let input = {
+                    let module_str = module.to_string_lossy();
+
+                    BUILT_INS
+                        .iter()
+                        .find(|x| x.0 == module_str.as_ref())
+                        .map(|x| Cow::Borrowed(x.1))
+                        .or_else(|| {
+                            self.custom_builtins
+                                .get(module_str.as_ref())
+                                .map(|x| Cow::Owned(x.to_string()))
+                        })
+                        .or_else(|| {
+                            self.module_resolvers
+                                .iter()
+                                .find_map(|x| x.resolve(module_str.as_ref()))
+                                // Insert the prelude
+                                .map(|mut x| {
+                                    x.insert_str(0, PRELUDE_STRING);
+                                    x
+                                })
+                                .map(Cow::Owned)
+                        })
+                        .ok_or_else(crate::throw!(Generic =>
+                            "Unable to find builtin module: {:?}", module
+                        ))?
+                };
 
                 let mut new_module = ModuleBuilder::new_built_in(
-                    module.into_owned(),
+                    module.clone(),
                     input,
                     self.compiled_modules,
                     self.visited,
@@ -2156,7 +2161,7 @@ impl<'a> ModuleBuilder<'a> {
                 }
 
                 let mut new_module = ModuleBuilder::new_from_path(
-                    module.into_owned(),
+                    module,
                     self.compiled_modules,
                     self.visited,
                     self.file_metadata,
@@ -2234,7 +2239,7 @@ impl<'a> ModuleBuilder<'a> {
 
         // Attempt extracting the syntax transformers from this module
         if let Some(kernel) = self.kernel.as_mut() {
-            kernel.load_syntax_transformers(&mut ast, self.name.to_str().unwrap().to_string())?
+            kernel.load_syntax_transformers(&mut ast, self.name.to_string_lossy().into_owned())?
         };
 
         // This needs to be overlayed with imported macros. So the idea being that this
@@ -2252,7 +2257,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.kernel.as_mut(),
                     self.builtin_modules.clone(),
                     // Expanding macros in the environment?
-                    self.name.to_str().unwrap(),
+                    self.name.to_string_lossy().as_ref(),
                 )?;
 
                 expand(expr, &self.macro_map)?;
@@ -2269,7 +2274,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 // Expanding macros in the environment?
-                self.name.to_str().unwrap(),
+                self.name.to_string_lossy().as_ref(),
             )?;
             // })
         }
@@ -2283,23 +2288,23 @@ impl<'a> ModuleBuilder<'a> {
             let require_for_syntax = require_object.path.get_path();
 
             if let PathOrBuiltIn::Path(_) = &require_object.path {
-                downstream.push(require_for_syntax.clone().into_owned());
+                downstream.push(require_for_syntax.clone());
             }
 
             // Stash this?
             let (module, in_scope_macros, name_mangler) = ModuleManager::find_in_scope_macros(
                 self.compiled_modules,
-                require_for_syntax.as_ref(),
+                &require_for_syntax,
                 require_object,
                 &mut mangled_asts,
             );
 
             required_macros.push(RequiredModuleMacros {
-                module_key: require_for_syntax.clone().into_owned(),
+                module_key: require_for_syntax.clone(),
                 module_macros: module.macro_map.clone(),
                 in_scope_macros,
                 name_mangler,
-                module_name: module.name.to_str().unwrap().to_owned(),
+                module_name: module.name.to_string_lossy().into_owned(),
             });
         }
 
@@ -2321,7 +2326,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 // Expanding macros in the environment?
-                self.name.to_str().unwrap(),
+                self.name.to_string_lossy().as_ref(),
             )?;
 
             expand(expr, &self.macro_map)?;
@@ -2584,7 +2589,7 @@ impl<'a> ModuleBuilder<'a> {
 
     fn parse_require_object(
         &mut self,
-        home: &Option<PathBuf>,
+        home: &Option<OwnedPath>,
         r: &crate::parser::ast::Require,
         atom: &ExprKind,
     ) -> Result<RequireObject> {
@@ -2601,7 +2606,7 @@ impl<'a> ModuleBuilder<'a> {
     // TODO: Recursively crunch the requires to gather up the necessary information
     fn parse_require_object_inner(
         &mut self,
-        home: &Option<PathBuf>,
+        home: &Option<OwnedPath>,
         r: &crate::parser::ast::Require,
         atom: &ExprKind,
         require_object: &mut RequireObjectBuilder,
@@ -2621,7 +2626,7 @@ impl<'a> ModuleBuilder<'a> {
 
                 // Try this?
                 if let Some(lib) = BUILT_INS.iter().cloned().find(|x| x.0 == s.as_str()) {
-                    // self.built_ins.push(PathBuf::from(lib.0));
+                    // self.built_ins.push(OwnedPath::from(lib.0));
 
                     require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
 
@@ -2656,13 +2661,13 @@ impl<'a> ModuleBuilder<'a> {
                 if current.is_file() {
                     current.pop();
                 }
-                current.push(PathBuf::from(s.as_str()));
+                current.push(s.as_str());
 
                 // // If the path exists on its own, we can continue
                 // // But theres the case where we're searching for a module on the STEEL_HOME
                 if !current.exists() {
                     if let Some(mut home) = home.clone() {
-                        home.push(PathBuf::from(s.as_str()));
+                        home.push(s.as_str());
                         current = home;
 
                         log::info!("Searching STEEL_HOME for {:?}", current);
@@ -2785,7 +2790,7 @@ impl<'a> ModuleBuilder<'a> {
                         let mod_name = &l.args[1];
                         if let Some(path) = mod_name.string_literal() {
                             if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == path) {
-                                // self.built_ins.push(PathBuf::from(lib.0));
+                                // self.built_ins.push(OwnedPath::from(lib.0));
 
                                 require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
                                 require_object.for_syntax = true;
@@ -2812,11 +2817,11 @@ impl<'a> ModuleBuilder<'a> {
                                 if current.is_file() {
                                     current.pop();
                                 }
-                                current.push(PathBuf::from(path));
+                                current.push(path);
 
                                 if !current.exists() {
                                     if let Some(mut home) = home.clone() {
-                                        home.push(PathBuf::from(path));
+                                        home.push(path);
                                         current = home;
 
                                         if !current.exists() {
@@ -2886,14 +2891,14 @@ impl<'a> ModuleBuilder<'a> {
                     let mut iter = result.chars();
                     iter.next();
                     if matches!(iter.next(), Some(':')) {
-                        return PathBuf::from(result);
+                        return OwnedPath::from(result);
                     }
 
                     result.insert(1, ':');
-                    return PathBuf::from(result);
+                    return OwnedPath::from(result);
                 }
 
-                PathBuf::from(x)
+                OwnedPath::from(x)
             })
             .map(|mut x| {
                 x.push("cogs");
@@ -2903,7 +2908,7 @@ impl<'a> ModuleBuilder<'a> {
 
         fn walk(
             module_builder: &mut ModuleBuilder,
-            home: &Option<PathBuf>,
+            home: &Option<OwnedPath>,
             exprs_without_requires: &mut Vec<ExprKind>,
             exprs: Vec<ExprKind>,
         ) -> Result<()> {
@@ -2938,11 +2943,11 @@ impl<'a> ModuleBuilder<'a> {
 
     #[allow(clippy::too_many_arguments)]
     fn new_built_in(
-        name: PathBuf,
+        name: OwnedPath,
         input: Cow<'static, str>,
-        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
-        visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+        compiled_modules: &'a mut crate::HashMap<OwnedPath, CompiledModule>,
+        visited: &'a mut FxHashSet<OwnedPath>,
+        file_metadata: &'a mut crate::HashMap<OwnedPath, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -2968,16 +2973,16 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn new_from_path(
-        name: PathBuf,
-        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
-        visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+        name: OwnedPath,
+        compiled_modules: &'a mut crate::HashMap<OwnedPath, CompiledModule>,
+        visited: &'a mut FxHashSet<OwnedPath>,
+        file_metadata: &'a mut crate::HashMap<OwnedPath, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
-        search_dirs: &'a [PathBuf],
+        search_dirs: &'a [OwnedPath],
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
     ) -> Result<Self> {
         ModuleBuilder::raw(
@@ -2998,16 +3003,16 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn raw(
-        name: PathBuf,
-        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
-        visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+        name: OwnedPath,
+        compiled_modules: &'a mut crate::HashMap<OwnedPath, CompiledModule>,
+        visited: &'a mut FxHashSet<OwnedPath>,
+        file_metadata: &'a mut crate::HashMap<OwnedPath, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
-        search_dirs: &'a [PathBuf],
+        search_dirs: &'a [OwnedPath],
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
         canonicalize: bool,
     ) -> Self {
@@ -3050,7 +3055,7 @@ impl<'a> ModuleBuilder<'a> {
             .sources
             .add_source(input.clone(), Some(self.name.clone()));
 
-        let parsed = Parser::new_from_source(&input, self.name.clone(), Some(id))
+        let parsed = Parser::new_from_source(&input, self.name.clone().to_path_buf(), Some(id))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect::<core::result::Result<Vec<_>, ParseError>>()?;
@@ -3095,10 +3100,11 @@ impl<'a> ModuleBuilder<'a> {
 
             let exprs = guard.get(id).unwrap();
 
-            let mut parsed = Parser::new_from_source(exprs, self.name.clone(), Some(id))
-                .without_lowering()
-                .map(|x| x.and_then(lower_macro_and_require_definitions))
-                .collect::<core::result::Result<Vec<_>, ParseError>>()?;
+            let mut parsed =
+                Parser::new_from_source(exprs, self.name.clone().to_path_buf(), Some(id))
+                    .without_lowering()
+                    .map(|x| x.and_then(lower_macro_and_require_definitions))
+                    .collect::<core::result::Result<Vec<_>, ParseError>>()?;
 
             expressions.append(&mut parsed);
 

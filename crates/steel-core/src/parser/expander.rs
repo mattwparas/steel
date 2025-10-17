@@ -8,7 +8,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::parser::span::Span;
+use crate::{parser::span::Span, path::OwnedPath};
 
 use crate::rvals::{IntoSteelVal, Result};
 use alloc::sync::Arc;
@@ -18,7 +18,7 @@ use std::{
     fs::File,
     io::{Read, Write},
     iter::FromIterator,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use fxhash::{FxHashMap, FxHashSet};
@@ -32,16 +32,16 @@ use super::macro_template::MacroTemplate;
 use super::{ast::Quote, interner::InternedString, parser::Parser};
 
 // Given path, update the extension
-fn update_extension(mut path: PathBuf, extension: &str) -> PathBuf {
+fn update_extension(mut path: OwnedPath, extension: &str) -> OwnedPath {
     path.set_extension(extension);
     path
 }
 
 // Prepend the given path with the working directory
-pub fn path_from_working_dir<P: AsRef<Path>>(path: P) -> std::io::Result<PathBuf> {
+pub fn path_from_working_dir<P: AsRef<Path>>(path: P) -> std::io::Result<OwnedPath> {
     let mut working_dir = std::env::current_dir()?;
     working_dir.push(path);
-    Ok(working_dir)
+    Ok(OwnedPath::from(working_dir))
 }
 
 /// Manages macros for a single namespace
@@ -52,7 +52,7 @@ pub struct LocalMacroManager {
 
 impl LocalMacroManager {
     /// Look to see if it exists on disk, otherwise parse from the associated file
-    pub fn initialize_from_path(path: PathBuf, force_update: bool) -> Result<Self> {
+    pub fn initialize_from_path(path: OwnedPath, force_update: bool) -> Result<Self> {
         let raw_path = update_extension(path.clone(), "rkt");
         let compiled_path = update_extension(path, "macro");
 
@@ -71,7 +71,7 @@ impl LocalMacroManager {
         }
     }
 
-    fn write_to_file(&self, path: PathBuf) -> Result<()> {
+    fn write_to_file(&self, path: OwnedPath) -> Result<()> {
         let mut file = File::create(path)?;
 
         match bincode::serialize(self) {
@@ -93,7 +93,7 @@ impl LocalMacroManager {
     }
 
     /// Read in a file of expressions containing macros, parse then, and create the data struture
-    fn from_expression_file(path: PathBuf) -> Result<Self> {
+    fn from_expression_file(path: OwnedPath) -> Result<Self> {
         let mut file = File::open(path)?;
         let mut raw_exprs = String::new();
         file.read_to_string(&mut raw_exprs)?;
@@ -102,7 +102,7 @@ impl LocalMacroManager {
     }
 
     /// After serializing the macro manager to a file and read from that file
-    fn from_file(path: PathBuf) -> Result<Self> {
+    fn from_file(path: OwnedPath) -> Result<Self> {
         let mut file = File::open(path)?;
         let mut buffer = Vec::new();
         let _ = file.read_to_end(&mut buffer)?;
@@ -143,7 +143,7 @@ impl FromIterator<SteelMacro> for LocalMacroManager {
 
 // Global macro manager, manages macros across modules
 pub struct GlobalMacroManager {
-    _scopes: HashMap<PathBuf, HashMap<String, SteelMacro>>,
+    _scopes: HashMap<OwnedPath, HashMap<String, SteelMacro>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

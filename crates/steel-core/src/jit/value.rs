@@ -1,7 +1,7 @@
-use alloc::string::String;
 use crate::rvals::{FromSteelVal, IntoSteelVal};
 use crate::SteelVal;
 use crate::{gc::Gc, rvals::SteelString};
+use alloc::string::String;
 
 use super::code_gen::JIT;
 

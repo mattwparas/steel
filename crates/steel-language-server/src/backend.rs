@@ -31,6 +31,7 @@ use steel::{
         span::Span,
         tryfrom_visitor::SyntaxObjectFromExprKindRef,
     },
+    path::OwnedPath,
     rvals::{AsRefSteelVal, FromSteelVal, SteelString},
     steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn},
     time::Instant,
@@ -944,7 +945,7 @@ impl Backend {
 
                 let expressions = guard.emit_expanded_ast_without_optimizations(
                     &expression,
-                    params.uri.to_file_path().ok(),
+                    params.uri.to_file_path().ok().map(OwnedPath::from),
                 );
 
                 guard.in_scope_macros_mut().retain(|key, value| {

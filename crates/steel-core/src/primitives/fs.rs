@@ -1,3 +1,4 @@
+use crate::path::OwnedPath;
 use crate::rvals::{
     self, AsRefMutSteelVal, AsRefSteelVal, Custom, IntoSteelVal, RestArgsIter, Result, SteelString,
     SteelVal,
@@ -7,7 +8,7 @@ use crate::{steelerr, throw};
 use alloc::format;
 use alloc::string::String;
 use std::env::{current_dir, set_current_dir};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use std::fs::{self, DirEntry, Metadata, ReadDir};
 use std::io;
@@ -34,9 +35,9 @@ pub fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>)
     Ok(())
 }
 
-impl Custom for PathBuf {
+impl Custom for OwnedPath {
     fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
-        Some(Ok(format!("#<Path:{:?}>", self)))
+        Some(Ok(format!("#<Path:{}>", self.to_string_lossy())))
     }
 }
 
@@ -66,7 +67,7 @@ pub fn glob(pattern: SteelString, mut rest: RestArgsIter<'_, &SteelVal>) -> Resu
 pub fn glob_paths_next(paths: &SteelVal) -> Result<SteelVal> {
     let mut paths = glob::Paths::as_mut_ref(paths)?;
     match paths.next() {
-        Some(Ok(v)) => v.into_steelval(),
+        Some(Ok(v)) => OwnedPath::from(v).into_steelval(),
         Some(Err(e)) => crate::stop!(Generic => "glob-iter-next!: {:?}", e),
         None => Ok(SteelVal::BoolV(false)),
     }
@@ -74,10 +75,21 @@ pub fn glob_paths_next(paths: &SteelVal) -> Result<SteelVal> {
 
 #[steel_derive::function(name = "path->string")]
 pub fn path_to_string(path: &SteelVal) -> Result<SteelVal> {
-    <PathBuf as rvals::AsRefSteelVal>::as_ref(path)?
-        .to_str()
-        .map(|x| SteelVal::StringV(x.to_string().into()))
-        .into_steelval()
+    let path = <OwnedPath as rvals::AsRefSteelVal>::as_ref(path)?;
+
+    #[cfg(feature = "std")]
+    {
+        return path
+            .as_path()
+            .to_str()
+            .map(|x| SteelVal::StringV(x.to_string().into()))
+            .into_steelval();
+    }
+
+    #[cfg(not(feature = "std"))]
+    {
+        Ok(SteelVal::StringV(path.as_str().into()))
+    }
 }
 
 /// Filesystem functions, mostly just thin wrappers around the `std::fs` functions in
