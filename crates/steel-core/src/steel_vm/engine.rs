@@ -48,7 +48,7 @@ use crate::{
         kernel::{fresh_kernel_image, Kernel},
         parser::{ParseError, Parser, Sources, SYNTAX_OBJECT_ID},
     },
-    path::OwnedPath,
+    path::PathBuf as SteelPath,
     rerrs::{back_trace, back_trace_to_string},
     rvals::{
         AsRefMutSteelVal, AsRefSteelVal as _, FromSteelVal, IntoSteelVal, MaybeSendSyncStatic,
@@ -66,7 +66,7 @@ use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
-    path::Path,
+    path::Path as StdPath,
     rc::Rc,
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
@@ -333,7 +333,7 @@ pub struct NonInteractiveProgramImage {
 }
 
 impl NonInteractiveProgramImage {
-    pub fn write_bytes_to_file(&self, out: &Path) {
+    pub fn write_bytes_to_file(&self, out: impl AsRef<StdPath>) {
         let mut f = std::fs::File::create(out).unwrap();
         bincode::serialize_into(&mut f, self).unwrap();
     }
@@ -781,7 +781,7 @@ impl Engine {
     ) -> Result<NonInteractiveProgramImage>
     where
         E: AsRef<str> + Into<Cow<'static, str>>,
-        P: Into<OwnedPath>,
+        P: Into<SteelPath>,
     {
         let mut engine = Engine::new();
 
@@ -821,7 +821,7 @@ impl Engine {
     }
 
     // Create kernel bootstrap
-    // pub fn create_kernel_bootstrap_from_programs(output_path: OwnedPath) {
+    // pub fn create_kernel_bootstrap_from_programs(output_path: Path) {
     //     let sources = Sources::new();
 
     //     let mut vm = Engine {
@@ -875,7 +875,7 @@ impl Engine {
     //     bincode::serialize_into(&mut f, &bootstrap).unwrap();
     // }
 
-    // pub fn create_new_engine_from_bootstrap(output_path: OwnedPath) {
+    // pub fn create_new_engine_from_bootstrap(output_path: Path) {
     //     let sources = Sources::new();
     //     let mut vm = Engine {
     //         virtual_machine: SteelThread::new(sources.clone()),
@@ -1353,7 +1353,7 @@ impl Engine {
         obj: &'a mut T,
         bind_to: &'a str,
         script: &'a str,
-        path: OwnedPath,
+        path: SteelPath,
     ) -> Result<SteelVal> {
         self.with_mut_reference(obj).consume(move |engine, args| {
             let mut args = args.into_iter();
@@ -1441,7 +1441,7 @@ impl Engine {
     /// By default, the engine will search $STEEL_HOME/cogs for modules,
     /// but any additional path added this way will increase the module
     /// resolution search space.
-    pub fn add_search_directory(&mut self, dir: impl Into<OwnedPath>) {
+    pub fn add_search_directory(&mut self, dir: impl Into<SteelPath>) {
         self.virtual_machine
             .compiler
             .write()
@@ -1545,7 +1545,7 @@ impl Engine {
     pub fn emit_raw_program<E, P>(&mut self, expr: E, path: P) -> Result<RawProgramWithSymbols>
     where
         E: AsRef<str> + Into<Cow<'static, str>>,
-        P: Into<OwnedPath>,
+        P: Into<SteelPath>,
     {
         let path = path.into();
         self.with_sources_guard(|| {
@@ -1664,7 +1664,7 @@ impl Engine {
     pub fn expand_to_file<E, P>(&mut self, exprs: E, path: P)
     where
         E: AsRef<str> + Into<Cow<'static, str>>,
-        P: Into<OwnedPath>,
+        P: Into<SteelPath>,
     {
         let exprs = exprs.into();
         let path = path.into();
@@ -1697,7 +1697,7 @@ impl Engine {
     ) -> Result<Vec<SteelVal>>
     where
         E: AsRef<str> + Into<Cow<'static, str>>,
-        P: Into<OwnedPath>,
+        P: Into<SteelPath>,
     {
         let exprs = exprs.into();
         let path = path.into();
@@ -1912,9 +1912,9 @@ impl Engine {
     pub fn emit_expanded_ast(
         &mut self,
         expr: &str,
-        path: impl Into<Option<OwnedPath>>,
+        path: impl Into<Option<SteelPath>>,
     ) -> Result<Vec<ExprKind>> {
-        let path: Option<OwnedPath> = path.into();
+        let path: Option<SteelPath> = path.into();
         self.with_sources_guard(|| {
             self.virtual_machine
                 .compiler
@@ -1937,9 +1937,9 @@ impl Engine {
     pub fn emit_expanded_ast_without_optimizations(
         &mut self,
         expr: &str,
-        path: impl Into<Option<OwnedPath>>,
+        path: impl Into<Option<SteelPath>>,
     ) -> Result<Vec<ExprKind>> {
-        let path: Option<OwnedPath> = path.into();
+        let path: Option<SteelPath> = path.into();
         self.with_sources_guard(|| {
             self.virtual_machine
                 .compiler
@@ -1964,9 +1964,9 @@ impl Engine {
     pub fn emit_fully_expanded_ast_to_string(
         &mut self,
         expr: &str,
-        path: impl Into<Option<OwnedPath>>,
+        path: impl Into<Option<SteelPath>>,
     ) -> Result<String> {
-        let path: Option<OwnedPath> = path.into();
+        let path: Option<SteelPath> = path.into();
         self.with_sources_guard(|| {
             Ok(self
                 .virtual_machine
@@ -1983,9 +1983,9 @@ impl Engine {
     pub fn emit_fully_expanded_ast(
         &mut self,
         expr: &str,
-        path: impl Into<Option<OwnedPath>>,
+        path: impl Into<Option<SteelPath>>,
     ) -> Result<Vec<ExprKind>> {
-        let path: Option<OwnedPath> = path.into();
+        let path: Option<SteelPath> = path.into();
         self.with_sources_guard(|| {
             self.virtual_machine
                 .compiler
@@ -2157,7 +2157,7 @@ impl Engine {
             .compile_module(path.into(), self.modules.clone())
     }
 
-    pub fn modules(&self) -> MappedRwLockReadGuard<'_, crate::HashMap<OwnedPath, CompiledModule>> {
+    pub fn modules(&self) -> MappedRwLockReadGuard<'_, crate::HashMap<SteelPath, CompiledModule>> {
         RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| x.modules())
     }
 
@@ -2193,20 +2193,24 @@ impl Engine {
     }
 
     // TODO: Re-implement the module path expansion
-    pub fn get_module(&self, path: OwnedPath) -> Result<SteelVal> {
+    pub fn get_module(&self, path: SteelPath) -> Result<SteelVal> {
         let module_path = path_to_module_name(path);
         self.extract_value(&module_path)
     }
 
-    pub fn get_source_id(&self, path: &Path) -> Option<SourceId> {
+    pub fn get_source_id<T>(&self, path: T) -> Option<SourceId>
+    where
+        T: Into<SteelPath>,
+    {
+        let owned: SteelPath = path.into();
         self.virtual_machine
             .compiler
             .read()
             .sources
-            .get_source_id(path)
+            .get_source_id(owned)
     }
 
-    pub fn get_path_for_source_id(&self, source_id: &SourceId) -> Option<OwnedPath> {
+    pub fn get_path_for_source_id(&self, source_id: &SourceId) -> Option<SteelPath> {
         self.virtual_machine
             .compiler
             .read()

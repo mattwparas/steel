@@ -5,11 +5,10 @@ use crate::HashSet;
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 use alloc::format;
 
-use crate::path::OwnedPath;
+use crate::path::PathBuf;
 use alloc::borrow::Cow;
 use alloc::sync::Arc;
 use num_rational::{BigRational, Rational32};
-use std::path::Path;
 use steel_parser::interner::InternedString;
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral, TokenType};
 
@@ -50,8 +49,8 @@ struct GcMetadata {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub(crate) struct InterierSources {
-    paths: crate::HashMap<SourceId, OwnedPath>,
-    reverse: crate::HashMap<OwnedPath, SourceId>,
+    paths: crate::HashMap<SourceId, PathBuf>,
+    reverse: crate::HashMap<PathBuf, SourceId>,
     // TODO: The sources here are just ever growing.
     // Really, we shouldn't even do this. Having to index
     // into the list isn't particularly necessary, we could
@@ -110,7 +109,7 @@ impl InterierSources {
     pub fn add_source(
         &mut self,
         source: impl Into<Cow<'static, str>>,
-        path: Option<OwnedPath>,
+        path: Option<PathBuf>,
     ) -> SourceId {
         // We're overwriting the existing source
         if let Some(path) = &path {
@@ -145,12 +144,16 @@ impl InterierSources {
         self.sources.get(&source_id)
     }
 
-    pub fn get_path(&self, source_id: &SourceId) -> Option<OwnedPath> {
+    pub fn get_path(&self, source_id: &SourceId) -> Option<PathBuf> {
         self.paths.get(source_id).cloned()
     }
 
-    pub fn get_id(&self, path: &Path) -> Option<SourceId> {
-        self.reverse.get(path).copied()
+    pub fn get_id<T>(&self, path: T) -> Option<SourceId>
+    where
+        T: Into<PathBuf>,
+    {
+        let owned_path: PathBuf = path.into();
+        self.reverse.get(&owned_path).copied()
     }
 
     pub fn should_gc(&self) -> bool {
@@ -222,16 +225,19 @@ impl Sources {
     pub fn add_source(
         &mut self,
         source: impl Into<Cow<'static, str>>,
-        path: Option<OwnedPath>,
+        path: Option<PathBuf>,
     ) -> SourceId {
         self.sources.add_source(source, path)
     }
 
-    pub fn get_source_id(&self, path: &Path) -> Option<SourceId> {
+    pub fn get_source_id<T>(&self, path: T) -> Option<SourceId>
+    where
+        T: Into<PathBuf>,
+    {
         self.sources.get_id(path)
     }
 
-    pub fn get_path(&self, source_id: &SourceId) -> Option<OwnedPath> {
+    pub fn get_path(&self, source_id: &SourceId) -> Option<PathBuf> {
         self.sources.get_path(source_id)
     }
 

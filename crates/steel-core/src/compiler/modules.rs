@@ -13,7 +13,7 @@ use crate::{
         },
         tokens::TokenType,
     },
-    path::OwnedPath,
+    path::PathBuf,
     steel_vm::{
         engine::{default_prelude_macros, ModuleContainer},
         transducers::interleave,
@@ -137,15 +137,15 @@ create_prelude!(
 );
 
 #[cfg(not(target_family = "wasm"))]
-pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<OwnedPath>>> = Lazy::new(|| {
+pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
     std::env::var("STEEL_SEARCH_PATHS").ok().map(|x| {
         std::env::split_paths(x.as_str())
-            .map(OwnedPath::from)
+            .map(PathBuf::from)
             .collect::<Vec<_>>()
     })
 });
 
-pub fn steel_search_dirs() -> Vec<OwnedPath> {
+pub fn steel_search_dirs() -> Vec<PathBuf> {
     #[cfg(not(target_family = "wasm"))]
     return STEEL_SEARCH_PATHS.clone().unwrap_or_default();
 
@@ -157,14 +157,14 @@ pub fn steel_search_dirs() -> Vec<OwnedPath> {
 pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
     std::env::var("STEEL_HOME").ok().or_else(|| {
         let home = env_home::env_home_dir().map(|x| {
-            let mut owned = OwnedPath::from(x);
+            let mut owned = PathBuf::from(x);
             owned.push(".steel");
             owned
         });
 
         if let Some(home) = home {
             if home.exists() {
-                return Some(home.into_string());
+                return Some(home.to_string_lossy().into_owned());
             }
 
             #[cfg(target_os = "windows")]
@@ -173,14 +173,14 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
                     eprintln!("Unable to create steel home directory {:?}: {}", home, e)
                 }
 
-                return Some(home.into_string());
+                return Some(home.to_string_lossy().into_owned());
             }
         }
 
         #[cfg(not(target_os = "windows"))]
         {
             let bd = xdg::BaseDirectories::new();
-            let home = bd.data_home.map(OwnedPath::from);
+            let home = bd.data_home.map(PathBuf::from);
 
             home.map(|mut x| {
                 x.push("steel");
@@ -195,7 +195,7 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
                     }
                 }
 
-                x.into_string()
+                x.to_string_lossy().into_owned()
             })
         }
 
@@ -217,11 +217,11 @@ pub fn steel_home() -> Option<String> {
 /// if it needs to be recompiled
 #[derive(Clone)]
 pub(crate) struct ModuleManager {
-    pub(crate) compiled_modules: crate::HashMap<OwnedPath, CompiledModule>,
-    file_metadata: crate::HashMap<OwnedPath, SystemTime>,
-    visited: FxHashSet<OwnedPath>,
+    pub(crate) compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
+    file_metadata: crate::HashMap<PathBuf, SystemTime>,
+    visited: FxHashSet<PathBuf>,
     custom_builtins: HashMap<String, String>,
-    rollback_metadata: crate::HashMap<OwnedPath, SystemTime>,
+    rollback_metadata: crate::HashMap<PathBuf, SystemTime>,
     // #[serde(skip_serializing, skip_deserializing)]
     module_resolvers: Vec<Arc<dyn SourceModuleResolver>>,
 }
@@ -233,8 +233,8 @@ pub trait SourceModuleResolver: Send + Sync {
 
 impl ModuleManager {
     pub(crate) fn new(
-        compiled_modules: crate::HashMap<OwnedPath, CompiledModule>,
-        file_metadata: crate::HashMap<OwnedPath, SystemTime>,
+        compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
+        file_metadata: crate::HashMap<PathBuf, SystemTime>,
     ) -> Self {
         ModuleManager {
             compiled_modules,
@@ -254,11 +254,11 @@ impl ModuleManager {
         self.custom_builtins.insert(module_name, text);
     }
 
-    pub fn modules(&self) -> &crate::HashMap<OwnedPath, CompiledModule> {
+    pub fn modules(&self) -> &crate::HashMap<PathBuf, CompiledModule> {
         &self.compiled_modules
     }
 
-    pub fn modules_mut(&mut self) -> &mut crate::HashMap<OwnedPath, CompiledModule> {
+    pub fn modules_mut(&mut self) -> &mut crate::HashMap<PathBuf, CompiledModule> {
         &mut self.compiled_modules
     }
 
@@ -276,7 +276,7 @@ impl ModuleManager {
     // Add the module directly to the compiled module cache
     pub(crate) fn add_module(
         &mut self,
-        path: OwnedPath,
+        path: PathBuf,
         global_macro_map: &mut FxHashMap<InternedString, SteelMacro>,
         kernel: &mut Option<Kernel>,
         sources: &mut Sources,
@@ -316,11 +316,11 @@ impl ModuleManager {
         kernel: &mut Option<Kernel>,
         sources: &mut Sources,
         mut exprs: Vec<ExprKind>,
-        path: Option<OwnedPath>,
+        path: Option<PathBuf>,
         builtin_modules: ModuleContainer,
         lifted_kernel_environments: &mut HashMap<String, KernelDefMacroSpec>,
-        lifted_macro_environments: &mut HashSet<OwnedPath>,
-        search_dirs: &[OwnedPath],
+        lifted_macro_environments: &mut HashSet<PathBuf>,
+        search_dirs: &[PathBuf],
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
         self.visited.clear();
@@ -381,7 +381,7 @@ impl ModuleManager {
             }
 
             // println!("{:?}", path);
-            let module = if let Some(module) = module_builder.compiled_modules.get(path.as_ref()) {
+            let module = if let Some(module) = module_builder.compiled_modules.get(&path) {
                 module
             } else {
                 // log::debug!(target: "modules", "No provides found for module, skipping: {:?}", path);
@@ -829,8 +829,8 @@ impl ModuleManager {
     }
 
     fn find_in_scope_macros<'a>(
-        compiled_modules: &'a mut crate::HashMap<OwnedPath, CompiledModule>,
-        require_for_syntax: &'a OwnedPath,
+        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
+        require_for_syntax: &'a PathBuf,
         require_object: &'a RequireObject,
         mangled_asts: &'a mut Vec<ExprKind>,
     ) -> (
@@ -1041,7 +1041,7 @@ impl ModuleManager {
 // Compiled module _should_ be possible now. Just create a target
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CompiledModule {
-    name: OwnedPath,
+    name: PathBuf,
     provides: Vec<ExprKind>,
     require_objects: Vec<RequireObject>,
     provides_for_syntax: Vec<InternedString>,
@@ -1049,14 +1049,14 @@ pub struct CompiledModule {
     pub(crate) ast: Vec<ExprKind>,
     emitted: bool,
     cached_prefix: CompactString,
-    downstream: Vec<OwnedPath>,
+    downstream: Vec<PathBuf>,
 }
 
 pub static MANGLER_PREFIX: &str = "##mm";
 pub static MODULE_PREFIX: &str = "__module-";
 pub static MANGLED_MODULE_PREFIX: &str = "__module-##mm";
 
-pub fn path_to_module_name(name: OwnedPath) -> String {
+pub fn path_to_module_name(name: PathBuf) -> String {
     let mut base = CompactString::new(MANGLED_MODULE_PREFIX);
 
     if let Some(steel_home) = STEEL_HOME.as_ref() {
@@ -1077,19 +1077,19 @@ pub fn path_to_module_name(name: OwnedPath) -> String {
         base.push_str(MANGLER_SEPARATOR);
     }
 
-    base.into_string()
+    base.to_string()
 }
 
 // TODO: @Matt 6/12/23 - This _should_ be serializable. If possible, we can try to store intermediate objects down to some file.
 impl CompiledModule {
     pub fn new(
-        name: OwnedPath,
+        name: PathBuf,
         provides: Vec<ExprKind>,
         require_objects: Vec<RequireObject>,
         provides_for_syntax: Vec<InternedString>,
         macro_map: Arc<FxHashMap<InternedString, SteelMacro>>,
         ast: Vec<ExprKind>,
-        downstream: Vec<OwnedPath>,
+        downstream: Vec<PathBuf>,
     ) -> Self {
         let mut base = CompactString::new(MANGLER_PREFIX);
 
@@ -1142,7 +1142,7 @@ impl CompiledModule {
         &self.provides
     }
 
-    // pub fn get_requires(&self) -> &[OwnedPath] {
+    // pub fn get_requires(&self) -> &[PathBuf] {
     //     &self.requires
     // }
 
@@ -1152,7 +1152,7 @@ impl CompiledModule {
 
     fn to_top_level_module(
         &self,
-        modules: &crate::HashMap<OwnedPath, CompiledModule>,
+        modules: &crate::HashMap<PathBuf, CompiledModule>,
         global_macro_map: &FxHashMap<InternedString, SteelMacro>,
     ) -> Result<ExprKind> {
         let mut globals = collect_globals(&self.ast);
@@ -1199,7 +1199,7 @@ impl CompiledModule {
 
             // println!("{:?}", path);
             // println!("{:?}", modules.keys().collect::<Vec<_>>());
-            let module = modules.get(path.as_ref()).unwrap();
+            let module = modules.get(&path).unwrap();
 
             let other_module_prefix = module.prefix();
 
@@ -1758,14 +1758,14 @@ impl RequireObject {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 enum PathOrBuiltIn {
     BuiltIn(Cow<'static, str>),
-    Path(OwnedPath),
+    Path(PathBuf),
 }
 
 impl PathOrBuiltIn {
-    pub fn get_path(&self) -> OwnedPath {
+    pub fn get_path(&self) -> PathBuf {
         match self {
             Self::Path(p) => p.clone(),
-            Self::BuiltIn(p) => OwnedPath::from(p.as_ref()),
+            Self::BuiltIn(p) => PathBuf::from(p.as_ref()),
         }
     }
 }
@@ -1796,29 +1796,29 @@ impl RequireObjectBuilder {
     }
 }
 
-fn try_canonicalize(path: OwnedPath) -> OwnedPath {
+fn try_canonicalize(path: PathBuf) -> PathBuf {
     std::fs::canonicalize(&path)
-        .map(OwnedPath::from)
+        .map(PathBuf::from)
         .unwrap_or(path)
 }
 
 /*
 #[derive(Default, Clone)]
 struct DependencyGraph {
-    downstream: HashMap<OwnedPath, Vec<OwnedPath>>,
+    downstream: HashMap<PathBuf, Vec<PathBuf>>,
 }
 
 impl DependencyGraph {
     // Adding edges downward.
-    pub fn add_edges(&mut self, parent: OwnedPath, children: Vec<OwnedPath>) {
+    pub fn add_edges(&mut self, parent: PathBuf, children: Vec<PathBuf>) {
         self.downstream.insert(parent, children);
     }
 
-    pub fn remove(&mut self, parent: &OwnedPath) {
+    pub fn remove(&mut self, parent: &PathBuf) {
         self.downstream.remove(parent);
     }
 
-    pub fn add_edge(&mut self, parent: &OwnedPath, child: OwnedPath) {
+    pub fn add_edge(&mut self, parent: &PathBuf, child: PathBuf) {
         if let Some(children) = self.downstream.get_mut(parent) {
             children.push(child);
         } else {
@@ -1829,8 +1829,8 @@ impl DependencyGraph {
     // Check everything downstream of this, to see if anything needs to be invalidated
     pub fn check_downstream_changes(
         &self,
-        root: &OwnedPath,
-        updated_at: &crate::HashMap<OwnedPath, SystemTime>,
+        root: &PathBuf,
+        updated_at: &crate::HashMap<PathBuf, SystemTime>,
     ) -> std::io::Result<bool> {
         let mut stack = vec![root];
 
@@ -1856,7 +1856,7 @@ impl DependencyGraph {
 */
 
 struct ModuleBuilder<'a> {
-    name: OwnedPath,
+    name: PathBuf,
     main: bool,
     source_ast: Vec<ExprKind>,
     local_macros: FxHashSet<InternedString>,
@@ -1866,20 +1866,20 @@ struct ModuleBuilder<'a> {
 
     provides: Vec<ExprKind>,
     provides_for_syntax: Vec<ExprKind>,
-    compiled_modules: &'a mut crate::HashMap<OwnedPath, CompiledModule>,
-    visited: &'a mut FxHashSet<OwnedPath>,
-    file_metadata: &'a mut crate::HashMap<OwnedPath, SystemTime>,
+    compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
+    visited: &'a mut FxHashSet<PathBuf>,
+    file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
     sources: &'a mut Sources,
     kernel: &'a mut Option<Kernel>,
     builtin_modules: ModuleContainer,
     global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
     custom_builtins: &'a HashMap<String, String>,
-    search_dirs: &'a [OwnedPath],
+    search_dirs: &'a [PathBuf],
     module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
 }
 
 pub struct RequiredModuleMacros {
-    pub module_key: OwnedPath,
+    pub module_key: PathBuf,
     pub module_name: String,
     pub module_macros: Arc<FxHashMap<InternedString, SteelMacro>>,
     pub in_scope_macros: FxHashMap<InternedString, SteelMacro>,
@@ -1890,17 +1890,17 @@ impl<'a> ModuleBuilder<'a> {
     #[allow(clippy::too_many_arguments)]
     #[allow(unused)]
     fn main(
-        name: Option<OwnedPath>,
+        name: Option<PathBuf>,
         source_ast: Vec<ExprKind>,
-        compiled_modules: &'a mut crate::HashMap<OwnedPath, CompiledModule>,
-        visited: &'a mut FxHashSet<OwnedPath>,
-        file_metadata: &'a mut crate::HashMap<OwnedPath, SystemTime>,
+        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
+        visited: &'a mut FxHashSet<PathBuf>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
-        search_dirs: &'a [OwnedPath],
+        search_dirs: &'a [PathBuf],
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
@@ -1909,13 +1909,13 @@ impl<'a> ModuleBuilder<'a> {
 
         #[cfg(not(target_family = "wasm"))]
         let name = if let Some(p) = name {
-            OwnedPath::from(std::fs::canonicalize(&p)?)
+            PathBuf::from(std::fs::canonicalize(&p)?)
         } else {
-            OwnedPath::from(std::env::current_dir()?)
+            PathBuf::from(std::env::current_dir()?)
         };
 
         #[cfg(target_family = "wasm")]
-        let name = OwnedPath::new();
+        let name = PathBuf::new();
 
         Ok(ModuleBuilder {
             name,
@@ -2018,7 +2018,7 @@ impl<'a> ModuleBuilder<'a> {
                 // Check to see if its in the cache first
                 // Otherwise go ahead and compile
                 // If we already have compiled this module, get it from the cache
-                if let Some(_m) = self.compiled_modules.get(module.as_ref()) {
+                if let Some(_m) = self.compiled_modules.get(&module) {
                     // debug!("Getting {:?} from the module cache", module);
                     // println!("Already found in the cache: {:?}", module);
                     // new_exprs.push(m.to_module_ast_node());
@@ -2095,7 +2095,7 @@ impl<'a> ModuleBuilder<'a> {
                     stop!(Generic => "requiring modules is not supported for wasm");
                 }
 
-                let last_modified = std::fs::metadata(module.as_ref())
+                let last_modified = std::fs::metadata(&module)
                     .map_err(|err| {
                         let mut err = crate::SteelErr::from(err);
                         err.prepend_message(&format!(
@@ -2109,7 +2109,7 @@ impl<'a> ModuleBuilder<'a> {
                 // Check if we should compile based on the last time modified
                 // If we're unable to get information, we want to compile
                 let should_recompile =
-                    if let Some(cached_modified) = self.file_metadata.get(module.as_ref()) {
+                    if let Some(cached_modified) = self.file_metadata.get(&module) {
                         last_modified != *cached_modified
                     } else {
                         true
@@ -2122,7 +2122,7 @@ impl<'a> ModuleBuilder<'a> {
                 // Otherwise go ahead and compile
                 if !should_recompile {
                     // If we already have compiled this module, get it from the cache
-                    if let Some(m) = self.compiled_modules.get(module.as_ref()) {
+                    if let Some(m) = self.compiled_modules.get(&module) {
                         // debug!("Getting {:?} from the module cache", module);
                         // println!("Already found in the cache: {:?}", module);
                         // new_exprs.push(m.to_module_ast_node());
@@ -2140,7 +2140,7 @@ impl<'a> ModuleBuilder<'a> {
                                     // println!(
                                     //     "Detected change in {:?}, recompiling root starting from {:?}",
                                     //     next,
-                                    //     module.as_ref()
+                                    //     &module
                                     // );
                                     downstream_validated = false;
                                     break;
@@ -2589,7 +2589,7 @@ impl<'a> ModuleBuilder<'a> {
 
     fn parse_require_object(
         &mut self,
-        home: &Option<OwnedPath>,
+        home: &Option<PathBuf>,
         r: &crate::parser::ast::Require,
         atom: &ExprKind,
     ) -> Result<RequireObject> {
@@ -2606,7 +2606,7 @@ impl<'a> ModuleBuilder<'a> {
     // TODO: Recursively crunch the requires to gather up the necessary information
     fn parse_require_object_inner(
         &mut self,
-        home: &Option<OwnedPath>,
+        home: &Option<PathBuf>,
         r: &crate::parser::ast::Require,
         atom: &ExprKind,
         require_object: &mut RequireObjectBuilder,
@@ -2626,7 +2626,7 @@ impl<'a> ModuleBuilder<'a> {
 
                 // Try this?
                 if let Some(lib) = BUILT_INS.iter().cloned().find(|x| x.0 == s.as_str()) {
-                    // self.built_ins.push(OwnedPath::from(lib.0));
+                    // self.built_ins.push(Path::from(lib.0));
 
                     require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
 
@@ -2790,7 +2790,7 @@ impl<'a> ModuleBuilder<'a> {
                         let mod_name = &l.args[1];
                         if let Some(path) = mod_name.string_literal() {
                             if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == path) {
-                                // self.built_ins.push(OwnedPath::from(lib.0));
+                                // self.built_ins.push(Path::from(lib.0));
 
                                 require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
                                 require_object.for_syntax = true;
@@ -2891,14 +2891,14 @@ impl<'a> ModuleBuilder<'a> {
                     let mut iter = result.chars();
                     iter.next();
                     if matches!(iter.next(), Some(':')) {
-                        return OwnedPath::from(result);
+                        return PathBuf::from(result);
                     }
 
                     result.insert(1, ':');
-                    return OwnedPath::from(result);
+                    return PathBuf::from(result);
                 }
 
-                OwnedPath::from(x)
+                PathBuf::from(x)
             })
             .map(|mut x| {
                 x.push("cogs");
@@ -2908,7 +2908,7 @@ impl<'a> ModuleBuilder<'a> {
 
         fn walk(
             module_builder: &mut ModuleBuilder,
-            home: &Option<OwnedPath>,
+            home: &Option<PathBuf>,
             exprs_without_requires: &mut Vec<ExprKind>,
             exprs: Vec<ExprKind>,
         ) -> Result<()> {
@@ -2943,11 +2943,11 @@ impl<'a> ModuleBuilder<'a> {
 
     #[allow(clippy::too_many_arguments)]
     fn new_built_in(
-        name: OwnedPath,
+        name: PathBuf,
         input: Cow<'static, str>,
-        compiled_modules: &'a mut crate::HashMap<OwnedPath, CompiledModule>,
-        visited: &'a mut FxHashSet<OwnedPath>,
-        file_metadata: &'a mut crate::HashMap<OwnedPath, SystemTime>,
+        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
+        visited: &'a mut FxHashSet<PathBuf>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -2973,16 +2973,16 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn new_from_path(
-        name: OwnedPath,
-        compiled_modules: &'a mut crate::HashMap<OwnedPath, CompiledModule>,
-        visited: &'a mut FxHashSet<OwnedPath>,
-        file_metadata: &'a mut crate::HashMap<OwnedPath, SystemTime>,
+        name: PathBuf,
+        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
+        visited: &'a mut FxHashSet<PathBuf>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
-        search_dirs: &'a [OwnedPath],
+        search_dirs: &'a [PathBuf],
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
     ) -> Result<Self> {
         ModuleBuilder::raw(
@@ -3003,16 +3003,16 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn raw(
-        name: OwnedPath,
-        compiled_modules: &'a mut crate::HashMap<OwnedPath, CompiledModule>,
-        visited: &'a mut FxHashSet<OwnedPath>,
-        file_metadata: &'a mut crate::HashMap<OwnedPath, SystemTime>,
+        name: PathBuf,
+        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
+        visited: &'a mut FxHashSet<PathBuf>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
-        search_dirs: &'a [OwnedPath],
+        search_dirs: &'a [PathBuf],
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
         canonicalize: bool,
     ) -> Self {

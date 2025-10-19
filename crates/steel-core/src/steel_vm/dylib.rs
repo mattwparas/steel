@@ -1,10 +1,15 @@
 #![allow(non_camel_case_types)]
-use crate::{path::OwnedPath, sync::Mutex};
+use crate::{path::PathBuf as SteelPath, sync::Mutex};
 use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use std::{cell::RefCell, collections::HashMap, path::Path, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    path::Path as StdPath,
+    rc::Rc,
+};
 
 use abi_stable::{
     library::{LibraryError, RootModule},
@@ -52,13 +57,13 @@ impl RootModule for GenerateModule_Ref {
 }
 
 // Load from the directory
-pub fn load_root_module_in_directory(file: &Path) -> Result<GenerateModule_Ref, LibraryError> {
+pub fn load_root_module_in_directory(file: &StdPath) -> Result<GenerateModule_Ref, LibraryError> {
     abi_stable::library::lib_header_from_path(file)
         .and_then(|x| x.init_root_module::<GenerateModule_Ref>())
 }
 
 pub fn load_root_module_in_directory_manual(
-    file: &Path,
+    file: &StdPath,
 ) -> Result<(GenerateModule_Ref, Option<usize>), LibraryError> {
     let header = abi_stable::library::lib_header_from_path(file)
         .expect("plugin library header must be loadable");
@@ -175,7 +180,7 @@ impl DylibContainers {
             if let Some(home) = home {
                 let mut module_guard = LOADED_MODULES.lock().unwrap();
 
-                let mut home = OwnedPath::from(home);
+                let mut home = SteelPath::from(home);
                 home.push("native");
 
                 if home.exists() {

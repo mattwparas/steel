@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 use std::{borrow::Cow, io::BufReader, marker::PhantomData};
 
 use crate::{
+    path::PathBuf as SteelPath,
     gc::{
         shared::{ScopedWriteContainer, ShareableMut},
         Gc,
@@ -118,9 +119,10 @@ impl FFIModule {
     pub fn emit_package_to_file(
         &self,
         name: &str,
-        path: impl AsRef<std::path::Path>,
+        path: impl Into<SteelPath>,
     ) -> std::io::Result<()> {
-        let mut file = std::fs::File::create(path)?;
+        let path: SteelPath = path.into();
+        let mut file = std::fs::File::create(path.as_path())?;
 
         self.emit_package(name, &mut file)
     }

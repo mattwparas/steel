@@ -5,42 +5,42 @@ use alloc::string::String;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(feature = "std")]
-use std::path::{Path, PathBuf};
+use std::path::{Path as StdPath, PathBuf as StdPathBuf};
 #[cfg(feature = "std")]
 use std::{borrow::Borrow, ops::Deref};
 
 #[cfg(feature = "std")]
 #[derive(Clone, PartialEq, Eq, Hash, Default)]
-pub struct OwnedPath(PathBuf);
+pub struct PathBuf(StdPathBuf);
 
 #[cfg(not(feature = "std"))]
 #[derive(Clone, PartialEq, Eq, Hash, Default)]
-pub struct OwnedPath(String);
+pub struct PathBuf(String);
 
 #[cfg(feature = "std")]
-impl OwnedPath {
+impl PathBuf {
     #[inline]
     pub fn new() -> Self {
-        Self(PathBuf::new())
+        Self(StdPathBuf::new())
     }
 
     #[inline]
-    pub fn as_path(&self) -> &Path {
+    pub fn as_path(&self) -> &StdPath {
         &self.0
     }
 
     #[inline]
-    pub fn push(&mut self, segment: impl AsRef<Path>) {
+    pub fn push(&mut self, segment: impl AsRef<StdPath>) {
         self.0.push(segment);
     }
 
     #[inline]
-    pub fn join(&self, segment: impl AsRef<Path>) -> Self {
+    pub fn join(&self, segment: impl AsRef<StdPath>) -> Self {
         Self(self.0.join(segment))
     }
 
     #[inline]
-    pub fn to_path_buf(&self) -> PathBuf {
+    pub fn to_path_buf(&self) -> StdPathBuf {
         self.0.clone()
     }
 
@@ -70,7 +70,7 @@ impl OwnedPath {
     }
 
     #[inline]
-    pub fn into_path(self) -> PathBuf {
+    pub fn into_path(self) -> StdPathBuf {
         self.0
     }
 
@@ -89,36 +89,64 @@ impl OwnedPath {
 }
 
 #[cfg(feature = "std")]
-impl From<PathBuf> for OwnedPath {
-    fn from(value: PathBuf) -> Self {
+impl From<StdPathBuf> for PathBuf {
+    fn from(value: StdPathBuf) -> Self {
         Self(value)
     }
 }
 
 #[cfg(feature = "std")]
-impl From<OwnedPath> for PathBuf {
-    fn from(value: OwnedPath) -> Self {
+impl From<&StdPathBuf> for PathBuf {
+    fn from(value: &StdPathBuf) -> Self {
+        Self(value.clone())
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<&PathBuf> for PathBuf {
+    fn from(value: &PathBuf) -> Self {
+        value.clone()
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<PathBuf> for StdPathBuf {
+    fn from(value: PathBuf) -> Self {
         value.0
     }
 }
 
 #[cfg(feature = "std")]
-impl From<&Path> for OwnedPath {
-    fn from(value: &Path) -> Self {
+impl From<&StdPath> for PathBuf {
+    fn from(value: &StdPath) -> Self {
         Self(value.to_path_buf())
     }
 }
 
 #[cfg(feature = "std")]
-impl AsRef<Path> for OwnedPath {
-    fn as_ref(&self) -> &Path {
+impl From<String> for PathBuf {
+    fn from(value: String) -> Self {
+        Self(StdPathBuf::from(value))
+    }
+}
+
+#[cfg(feature = "std")]
+impl From<&str> for PathBuf {
+    fn from(value: &str) -> Self {
+        Self(StdPathBuf::from(value))
+    }
+}
+
+#[cfg(feature = "std")]
+impl AsRef<StdPath> for PathBuf {
+    fn as_ref(&self) -> &StdPath {
         &self.0
     }
 }
 
 #[cfg(feature = "std")]
-impl Deref for OwnedPath {
-    type Target = Path;
+impl Deref for PathBuf {
+    type Target = StdPath;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -126,49 +154,35 @@ impl Deref for OwnedPath {
 }
 
 #[cfg(feature = "std")]
-impl Borrow<Path> for OwnedPath {
-    fn borrow(&self) -> &Path {
+impl Borrow<StdPath> for PathBuf {
+    fn borrow(&self) -> &StdPath {
         &self.0
     }
 }
 
 #[cfg(feature = "std")]
-impl Borrow<PathBuf> for OwnedPath {
-    fn borrow(&self) -> &PathBuf {
+impl Borrow<StdPathBuf> for PathBuf {
+    fn borrow(&self) -> &StdPathBuf {
         &self.0
     }
 }
 
 #[cfg(feature = "std")]
-impl From<String> for OwnedPath {
-    fn from(value: String) -> Self {
-        Self(PathBuf::from(value))
-    }
-}
-
-#[cfg(feature = "std")]
-impl From<&str> for OwnedPath {
-    fn from(value: &str) -> Self {
-        Self(PathBuf::from(value))
-    }
-}
-
-#[cfg(feature = "std")]
-impl core::fmt::Debug for OwnedPath {
+impl core::fmt::Debug for PathBuf {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         core::fmt::Debug::fmt(&self.0, f)
     }
 }
 
 #[cfg(feature = "std")]
-impl core::fmt::Display for OwnedPath {
+impl core::fmt::Display for PathBuf {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.0.to_string_lossy())
     }
 }
 
 #[cfg(feature = "std")]
-impl Serialize for OwnedPath {
+impl Serialize for PathBuf {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -178,18 +192,18 @@ impl Serialize for OwnedPath {
 }
 
 #[cfg(feature = "std")]
-impl<'de> Deserialize<'de> for OwnedPath {
+impl<'de> Deserialize<'de> for PathBuf {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         let value = String::deserialize(deserializer)?;
-        Ok(Self(PathBuf::from(value)))
+        Ok(Self(StdPathBuf::from(value)))
     }
 }
 
 #[cfg(not(feature = "std"))]
-impl OwnedPath {
+impl PathBuf {
     #[inline]
     pub fn new() -> Self {
         Self(String::new())
@@ -313,35 +327,42 @@ impl OwnedPath {
 }
 
 #[cfg(not(feature = "std"))]
-impl From<String> for OwnedPath {
+impl From<String> for PathBuf {
     fn from(value: String) -> Self {
         Self(value)
     }
 }
 
 #[cfg(not(feature = "std"))]
-impl From<&str> for OwnedPath {
+impl From<&str> for PathBuf {
     fn from(value: &str) -> Self {
         Self(value.to_owned())
     }
 }
 
 #[cfg(not(feature = "std"))]
-impl core::fmt::Debug for OwnedPath {
+impl From<&PathBuf> for PathBuf {
+    fn from(value: &PathBuf) -> Self {
+        value.clone()
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl core::fmt::Debug for PathBuf {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         core::fmt::Debug::fmt(&self.0, f)
     }
 }
 
 #[cfg(not(feature = "std"))]
-impl core::fmt::Display for OwnedPath {
+impl core::fmt::Display for PathBuf {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
 #[cfg(not(feature = "std"))]
-impl Serialize for OwnedPath {
+impl Serialize for PathBuf {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -351,7 +372,7 @@ impl Serialize for OwnedPath {
 }
 
 #[cfg(not(feature = "std"))]
-impl<'de> Deserialize<'de> for OwnedPath {
+impl<'de> Deserialize<'de> for PathBuf {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -360,3 +381,5 @@ impl<'de> Deserialize<'de> for OwnedPath {
         Ok(Self(value))
     }
 }
+
+pub type OwnedPath = PathBuf;

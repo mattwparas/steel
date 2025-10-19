@@ -79,11 +79,11 @@ fn download_file(_url: &SteelString, _file: &SteelString) -> Result<SteelVal> {
 
     #[cfg(feature = "ureq")]
     {
-        use crate::path::OwnedPath;
+        use crate::path::PathBuf;
         use std::fs;
 
         let url = _url.as_str();
-        let file = OwnedPath::from(_file.as_str());
+        let file = PathBuf::from(_file.as_str());
         let contents = ureq::get(url)
             .call()
             .map_err(|err| {

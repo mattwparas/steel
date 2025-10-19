@@ -1,7 +1,7 @@
 use alloc::format;
-use alloc::vec::Vec;
 use alloc::string::String;
 use crate::collections::HashMap;
+use alloc::vec::Vec;
 
 /// The AST node for expressions.
 #[derive(Clone, Debug)]

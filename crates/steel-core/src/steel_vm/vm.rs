@@ -8,7 +8,7 @@ use crate::gc::shared::{
 };
 use crate::parser::expander::BindingKind;
 use crate::parser::replace_idents::expand_template;
-use crate::path::OwnedPath;
+use crate::path::PathBuf;
 use crate::primitives::lists::car;
 use crate::primitives::lists::cdr;
 use crate::primitives::lists::is_empty;
@@ -5625,7 +5625,7 @@ fn emit_expanded_file(path: String) {
 
     let contents = std::fs::read_to_string(&path).unwrap();
 
-    engine.expand_to_file(contents, OwnedPath::from(path))
+    engine.expand_to_file(contents, PathBuf::from(path))
 }
 
 #[steel_derive::function(name = "load-expanded", arity = "Exact(1)")]
@@ -5697,7 +5697,7 @@ fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> R
         .thread
         .compiler
         .write()
-        .compile_executable(exprs, Some(OwnedPath::from(path.as_str())));
+        .compile_executable(exprs, Some(PathBuf::from(path.as_str())));
 
     ctx.thread
         .compiler
