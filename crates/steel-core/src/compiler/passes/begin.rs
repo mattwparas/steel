@@ -1,3 +1,4 @@
+use alloc::vec;
 use alloc::vec::Vec;
 use smallvec::SmallVec;
 use steel_parser::{

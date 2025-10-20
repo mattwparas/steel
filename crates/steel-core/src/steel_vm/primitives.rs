@@ -98,6 +98,8 @@ use crate::{
 };
 use alloc::borrow::Cow;
 use compact_str::CompactString;
+#[cfg(not(feature = "std"))]
+use core::cell::OnceCell;
 use core::cmp::Ordering;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 #[cfg(feature = "std")]
@@ -786,11 +788,47 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     }
 }
 
-#[cfg(feature = "std")]
-pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::new(|| {
-    let mut set = fxhash::FxHashSet::default();
+#[cfg(not(feature = "std"))]
+fn module_identifier(name: &str) -> InternedString {
+    (CompactString::new("%-builtin-module-") + name).into()
+}
 
-    // TODO: Consolidate the prefixes and module names into one spot
+#[cfg(not(feature = "std"))]
+fn build_module_identifiers() -> FxHashSet<InternedString> {
+    let mut set = FxHashSet::default();
+
+    for module in [
+        "steel/hash",
+        "steel/sets",
+        "steel/lists",
+        "steel/vectors",
+        "steel/streams",
+        "steel/identity",
+        "steel/numbers",
+        "steel/equality",
+        "steel/ord",
+        "steel/transducers",
+        "steel/symbols",
+        "steel/bytevectors",
+        "steel/meta",
+        "steel/constants",
+        "steel/syntax",
+        "steel/core/result",
+        "steel/core/option",
+        "steel/core/types",
+        "steel/hashes",
+        "steel/base",
+    ] {
+        set.insert(module_identifier(module));
+    }
+
+    set
+}
+
+#[cfg(feature = "std")]
+pub static MODULE_IDENTIFIERS: Lazy<FxHashSet<InternedString>> = Lazy::new(|| {
+    let mut set = FxHashSet::default();
+
     set.insert("%-builtin-module-steel/hash".into());
     set.insert("%-builtin-module-steel/sets".into());
     set.insert("%-builtin-module-steel/lists".into());
@@ -818,6 +856,24 @@ pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::n
 
     set
 });
+
+#[cfg(not(feature = "std"))]
+pub struct ModuleIdentifiers;
+
+#[cfg(not(feature = "std"))]
+pub static MODULE_IDENTIFIERS: ModuleIdentifiers = ModuleIdentifiers;
+
+#[cfg(not(feature = "std"))]
+impl ModuleIdentifiers {
+    fn set(&self) -> &'static FxHashSet<InternedString> {
+        static CELL: OnceCell<FxHashSet<InternedString>> = OnceCell::new();
+        CELL.get_or_init(build_module_identifiers)
+    }
+
+    pub fn contains(&self, value: &InternedString) -> bool {
+        self.set().contains(value)
+    }
+}
 
 #[cfg(feature = "std")]
 pub(crate) static PRELUDE_TO_RESERVED_MAP: Lazy<FxHashMap<String, InternedString>> =
