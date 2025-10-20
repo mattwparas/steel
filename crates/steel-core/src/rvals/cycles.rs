@@ -719,7 +719,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     }
 }
 
-#[cfg(not(feature = "without-drop-protection"))]
+#[cfg(all(not(feature = "without-drop-protection"), feature = "std"))]
 pub(crate) mod drop_impls {
     // use crate::values::recycler::{Recyclable, Recycle};
 

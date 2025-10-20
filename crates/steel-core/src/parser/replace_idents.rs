@@ -1,5 +1,6 @@
 use alloc::format;
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 use fxhash::FxHashMap;
 use smallvec::SmallVec;

@@ -1,3 +1,4 @@
+use alloc::format;
 use md5::{Digest, Md5};
 
 use crate::gc::ShareableMut;

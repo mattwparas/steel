@@ -1,7 +1,7 @@
 use crate::values::lists::List;
 #[cfg(test)]
 use alloc::string::String;
-use alloc::{borrow::Cow, format, vec::Vec};
+use alloc::{borrow::Cow, format, vec, vec::Vec};
 
 use crate::collections::{
     HashMap as ImmutableHashMap, HashSet as ImmutableHashSet, MutableHashMap, MutableHashSet,

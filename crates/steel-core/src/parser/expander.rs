@@ -6,6 +6,7 @@ use crate::parser::replace_idents::replace_identifiers;
 use crate::parser::tokens::TokenType;
 use alloc::format;
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{parser::span::Span, path::PathBuf as SteelPath};

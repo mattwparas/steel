@@ -53,9 +53,9 @@ impl core::fmt::Debug for Pair {
     }
 }
 
-#[cfg(feature = "without-drop-protection")]
+#[cfg(any(feature = "without-drop-protection", not(feature = "std")))]
 type DropHandlerChoice = im_lists::handler::DefaultDropHandler;
-#[cfg(not(feature = "without-drop-protection"))]
+#[cfg(all(feature = "std", not(feature = "without-drop-protection")))]
 type DropHandlerChoice = list_drop_handler::ListDropHandler;
 
 thread_local! {
@@ -108,7 +108,7 @@ impl PointerFamily for GcPointerType {
     }
 }
 
-#[cfg(not(feature = "without-drop-protection"))]
+#[cfg(all(feature = "std", not(feature = "without-drop-protection")))]
 mod list_drop_handler {
 
     use alloc::collections::VecDeque;

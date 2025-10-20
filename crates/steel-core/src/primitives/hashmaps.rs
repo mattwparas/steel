@@ -6,6 +6,7 @@ use crate::{
     rvals::{Result, SteelVal},
     steel_vm::builtin::BuiltInModule,
 };
+use alloc::format;
 #[cfg(test)]
 use alloc::vec::Vec;
 

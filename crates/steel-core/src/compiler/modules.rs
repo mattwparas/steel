@@ -135,7 +135,7 @@ create_prelude!(
     for_syntax "#%private/steel/contract"
 );
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
 pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
     std::env::var("STEEL_SEARCH_PATHS").ok().map(|x| {
         std::env::split_paths(x.as_str())
@@ -145,14 +145,14 @@ pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
 });
 
 pub fn steel_search_dirs() -> Vec<PathBuf> {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(feature = "std", not(target_family = "wasm")))]
     return STEEL_SEARCH_PATHS.clone().unwrap_or_default();
 
-    #[cfg(target_family = "wasm")]
+    #[cfg(any(not(feature = "std"), target_family = "wasm"))]
     return Vec::new();
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
 pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
     std::env::var("STEEL_HOME").ok().or_else(|| {
         let home = env_home::env_home_dir().map(|x| {
@@ -203,12 +203,12 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
     })
 });
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
 pub fn steel_home() -> Option<String> {
     STEEL_HOME.clone()
 }
 
-#[cfg(target_family = "wasm")]
+#[cfg(any(not(feature = "std"), target_family = "wasm"))]
 pub fn steel_home() -> Option<String> {
     None
 }

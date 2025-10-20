@@ -4,8 +4,8 @@ use crate::parser::ast::ExprKind;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::VisitorMut;
 use crate::parser::{ast, interner::InternedString};
-use alloc::vec::Vec;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 use crate::collections::HashSet;
 

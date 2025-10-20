@@ -61,13 +61,15 @@ use crate::primitives::IoFunctions;
 use crate::primitives::{fs_module, fs_module_sandbox};
 use crate::primitives::{ControlOperations, MetaOperations, StreamOperations};
 #[cfg(feature = "std")]
+use crate::rvals::ITERATOR_FINISHED;
+#[cfg(feature = "std")]
 use crate::steel_vm::vm::threads::threading_module;
 use crate::{
     rerrs::ErrorKind,
     rvals::{
         as_underlying_type,
         cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
-        CustomType, FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
+        CustomType, FromSteelVal, SteelString, NUMBER_EQUALITY_DEFINITION,
     },
     steel_vm::builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
     values::{
@@ -98,8 +100,6 @@ use crate::{
 };
 use alloc::borrow::Cow;
 use compact_str::CompactString;
-#[cfg(not(feature = "std"))]
-use core::cell::OnceCell;
 use core::cmp::Ordering;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 #[cfg(feature = "std")]
@@ -788,43 +788,6 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     }
 }
 
-#[cfg(not(feature = "std"))]
-fn module_identifier(name: &str) -> InternedString {
-    (CompactString::new("%-builtin-module-") + name).into()
-}
-
-#[cfg(not(feature = "std"))]
-fn build_module_identifiers() -> FxHashSet<InternedString> {
-    let mut set = FxHashSet::default();
-
-    for module in [
-        "steel/hash",
-        "steel/sets",
-        "steel/lists",
-        "steel/vectors",
-        "steel/streams",
-        "steel/identity",
-        "steel/numbers",
-        "steel/equality",
-        "steel/ord",
-        "steel/transducers",
-        "steel/symbols",
-        "steel/bytevectors",
-        "steel/meta",
-        "steel/constants",
-        "steel/syntax",
-        "steel/core/result",
-        "steel/core/option",
-        "steel/core/types",
-        "steel/hashes",
-        "steel/base",
-    ] {
-        set.insert(module_identifier(module));
-    }
-
-    set
-}
-
 #[cfg(feature = "std")]
 pub static MODULE_IDENTIFIERS: Lazy<FxHashSet<InternedString>> = Lazy::new(|| {
     let mut set = FxHashSet::default();
@@ -861,17 +824,39 @@ pub static MODULE_IDENTIFIERS: Lazy<FxHashSet<InternedString>> = Lazy::new(|| {
 pub struct ModuleIdentifiers;
 
 #[cfg(not(feature = "std"))]
+const MODULE_IDENTIFIER_NAMES: &[&str] = &[
+    "%-builtin-module-steel/hash",
+    "%-builtin-module-steel/sets",
+    "%-builtin-module-steel/lists",
+    "%-builtin-module-steel/vectors",
+    "%-builtin-module-steel/streams",
+    "%-builtin-module-steel/identity",
+    "%-builtin-module-steel/numbers",
+    "%-builtin-module-steel/equality",
+    "%-builtin-module-steel/ord",
+    "%-builtin-module-steel/transducers",
+    "%-builtin-module-steel/symbols",
+    "%-builtin-module-steel/bytevectors",
+    "%-builtin-module-steel/meta",
+    "%-builtin-module-steel/constants",
+    "%-builtin-module-steel/syntax",
+    "%-builtin-module-steel/core/result",
+    "%-builtin-module-steel/core/option",
+    "%-builtin-module-steel/core/types",
+    "%-builtin-module-steel/hashes",
+    "%-builtin-module-steel/base",
+];
+
+#[cfg(not(feature = "std"))]
 pub static MODULE_IDENTIFIERS: ModuleIdentifiers = ModuleIdentifiers;
 
 #[cfg(not(feature = "std"))]
 impl ModuleIdentifiers {
-    fn set(&self) -> &'static FxHashSet<InternedString> {
-        static CELL: OnceCell<FxHashSet<InternedString>> = OnceCell::new();
-        CELL.get_or_init(build_module_identifiers)
-    }
-
     pub fn contains(&self, value: &InternedString) -> bool {
-        self.set().contains(value)
+        let needle = value.resolve();
+        MODULE_IDENTIFIER_NAMES
+            .iter()
+            .any(|candidate| candidate == &needle)
     }
 }
 
@@ -1700,12 +1685,14 @@ fn constants_module() -> BuiltInModule {
     module
 }
 
+#[cfg(feature = "std")]
 fn get_environment_variable(var: String) -> Result<SteelVal> {
     std::env::var(var)
         .map(|x| x.into_steelval().unwrap())
         .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
 }
 
+#[cfg(feature = "std")]
 fn maybe_get_environment_variable(var: String) -> SteelResult<SteelVal, SteelErr> {
     get_environment_variable(var).into()
 }
@@ -2368,6 +2355,7 @@ fn meta_module() -> BuiltInModule {
 
 /// Returns the command line passed to this process,
 /// including the command name as first argument.
+#[cfg(feature = "std")]
 #[steel_derive::function(name = "command-line")]
 fn command_line() -> SteelList<String> {
     std::env::args().collect()

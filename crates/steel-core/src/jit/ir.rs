@@ -1,6 +1,6 @@
+use crate::collections::HashMap;
 use alloc::format;
 use alloc::string::String;
-use crate::collections::HashMap;
 use alloc::vec::Vec;
 
 /// The AST node for expressions.

@@ -2,6 +2,7 @@ use crate::collections::MutableHashSet as HashSet;
 use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 

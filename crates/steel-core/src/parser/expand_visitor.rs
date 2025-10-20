@@ -1,4 +1,5 @@
 use alloc::format;
+use alloc::vec;
 use alloc::vec::Vec;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use quickscope::ScopeSet;
