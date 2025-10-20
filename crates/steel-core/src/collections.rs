@@ -67,3 +67,8 @@ pub type MutableHashMap<K, V> = hashbrown::HashMap<K, V, FxBuildHasher>;
 pub type MutableHashSet<T> = hashbrown::HashSet<T, FxBuildHasher>;
 
 pub type DrainHashSet<T> = hashbrown::HashSet<T, FxBuildHasher>;
+
+#[cfg(not(feature = "std"))]
+pub use hashbrown::hash_map;
+#[cfg(feature = "std")]
+pub use std::collections::hash_map;

@@ -1,14 +1,12 @@
 #![allow(unused)]
 
+use crate::collections::MutableHashMap as HashMap;
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
-use std::{
-    cell::{Cell, RefCell},
-    collections::HashMap,
-    convert::TryFrom,
-    hash::Hasher,
-    sync::Arc,
-};
+use core::cell::{Cell, RefCell};
+use core::convert::TryFrom;
+use core::hash::Hasher;
 
 use fxhash::FxHashSet;
 
@@ -57,7 +55,7 @@ impl Custom for LambdaMetadataTable {}
 impl LambdaMetadataTable {
     pub fn new() -> Self {
         Self {
-            fn_ptr_table: HashMap::new(),
+            fn_ptr_table: HashMap::default(),
         }
     }
 
@@ -75,9 +73,13 @@ impl LambdaMetadataTable {
 
     pub fn get(&self, function: SteelVal) -> Option<SteelString> {
         match function {
-            SteelVal::Closure(b) => self.fn_ptr_table.get(&(b.id as _)).cloned(),
+            SteelVal::Closure(b) => {
+                let key = b.id as usize;
+                self.fn_ptr_table.get(&key).cloned()
+            }
             SteelVal::BoxedFunction(b) => {
-                self.fn_ptr_table.get(&(Gc::as_ptr(&b) as usize)).cloned()
+                let key = Gc::as_ptr(&b) as usize;
+                self.fn_ptr_table.get(&key).cloned()
             }
             _ => None,
         }

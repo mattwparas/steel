@@ -8,11 +8,11 @@ use alloc::vec::Vec;
 use std::{borrow::Cow, io::BufReader, marker::PhantomData};
 
 use crate::{
-    path::PathBuf as SteelPath,
     gc::{
         shared::{ScopedWriteContainer, ShareableMut},
         Gc,
     },
+    path::PathBuf as SteelPath,
     rerrs::ErrorKind,
     rvals::{
         as_underlying_type_mut, Custom, CustomType, FutureResult, IntoSteelVal,

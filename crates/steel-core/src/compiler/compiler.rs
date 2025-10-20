@@ -26,14 +26,14 @@ use crate::{
     core::{instructions::Instruction, opcode::OpCode},
     parser::parser::Sources,
 };
+use alloc::borrow::Cow;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use std::{borrow::Cow, iter::Iterator};
-
-// TODO: Replace the usages of hashmap with this directly
-use std::collections::{HashMap, HashSet};
+use crate::collections::{
+    HashMap as ImmutableHashMap, MutableHashMap as HashMap, MutableHashSet as HashSet,
+};
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use steel_parser::{ast::PROVIDE, span::Span};
@@ -59,17 +59,16 @@ use super::{
     program::RawProgramWithSymbols,
 };
 
-use crate::collections::HashMap as ImmutableHashMap;
-
 #[cfg(feature = "profiling")]
 use crate::time::Instant;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum DefineKind {
     Flat,
     Closure,
 }
 
+#[derive(Clone)]
 struct FlatDefineLocation {
     kind: DefineKind,
     location: (usize, usize),
@@ -596,8 +595,8 @@ impl Compiler {
             kernel: None,
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashSet::default(),
-            lifted_kernel_environments: HashMap::new(),
-            lifted_macro_environments: HashSet::new(),
+            lifted_kernel_environments: HashMap::default(),
+            lifted_macro_environments: HashSet::default(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
             search_dirs,
@@ -626,8 +625,8 @@ impl Compiler {
             kernel: Some(kernel),
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashSet::default(),
-            lifted_kernel_environments: HashMap::new(),
-            lifted_macro_environments: HashSet::new(),
+            lifted_kernel_environments: HashMap::default(),
+            lifted_macro_environments: HashSet::default(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
             search_dirs,
@@ -726,6 +725,7 @@ impl Compiler {
         self.compile_raw_program(parsed?, path)
     }
 
+    #[cfg(feature = "std")]
     pub fn fully_expand_to_file<E: AsRef<str> + Into<Cow<'static, str>>>(
         &mut self,
         expr_str: E,
@@ -883,11 +883,7 @@ impl Compiler {
     }
 
     // TODO: Compare this to the lower_expressions_impl and merge the behavior
-    fn expand_ast(
-        &mut self,
-        exprs: Vec<ExprKind>,
-        path: Option<PathBuf>,
-    ) -> Result<Vec<ExprKind>> {
+    fn expand_ast(&mut self, exprs: Vec<ExprKind>, path: Option<PathBuf>) -> Result<Vec<ExprKind>> {
         let mut expanded_statements = self.expand_expressions(exprs, path)?;
 
         log::debug!(target: "expansion-phase", "Expanding macros -> phase 1");
@@ -1281,6 +1277,7 @@ impl Compiler {
 
         SingleExprOptimizer::run(&mut expanded_statements);
 
+        #[cfg(feature = "std")]
         if std::env::var("STEEL_DEBUG_AST").is_ok() {
             steel_parser::ast::AstTools::pretty_print(&expanded_statements);
         }
@@ -1297,6 +1294,7 @@ impl Compiler {
     // but its probably still faster than starting from scratch each time?
     //
     // Unknown.
+    #[cfg(feature = "std")]
     pub fn expand_to_file(&mut self, exprs: Vec<ExprKind>, path: Option<PathBuf>) -> Result<()> {
         let expanded_statements = self.lower_expressions_impl(exprs, path)?;
         let mut file = std::fs::File::create("fully-expanded.bin").unwrap();
@@ -1305,6 +1303,7 @@ impl Compiler {
         Ok(())
     }
 
+    #[cfg(feature = "std")]
     pub fn load_from_file(&mut self, path: &str) -> Result<RawProgramWithSymbols> {
         let contents = std::fs::read(path).unwrap();
         let expanded_statements = bincode::deserialize(&contents).unwrap();

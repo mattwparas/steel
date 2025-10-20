@@ -10,16 +10,17 @@ use alloc::vec::Vec;
 
 use crate::{parser::span::Span, path::PathBuf as SteelPath};
 
+use crate::collections::MutableHashMap as HashMap;
 use crate::rvals::{IntoSteelVal, Result};
 use alloc::sync::Arc;
 use core::cell::RefCell;
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::{Read, Write},
-    iter::FromIterator,
-    path::Path as StdPath,
-};
+use core::iter::FromIterator;
+#[cfg(feature = "std")]
+use std::fs::File;
+#[cfg(feature = "std")]
+use std::io::{Read, Write};
+#[cfg(feature = "std")]
+use std::path::Path as StdPath;
 
 use fxhash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
@@ -38,6 +39,7 @@ fn update_extension(mut path: SteelPath, extension: &str) -> SteelPath {
 }
 
 // Prepend the given path with the working directory
+#[cfg(feature = "std")]
 pub fn path_from_working_dir<P: AsRef<StdPath>>(path: P) -> std::io::Result<SteelPath> {
     let mut working_dir = std::env::current_dir()?;
     working_dir.push(path);
@@ -52,6 +54,7 @@ pub struct LocalMacroManager {
 
 impl LocalMacroManager {
     /// Look to see if it exists on disk, otherwise parse from the associated file
+    #[cfg(feature = "std")]
     pub fn initialize_from_path(path: SteelPath, force_update: bool) -> Result<Self> {
         let raw_path = update_extension(path.clone(), "rkt");
         let compiled_path = update_extension(path, "macro");
@@ -71,6 +74,7 @@ impl LocalMacroManager {
         }
     }
 
+    #[cfg(feature = "std")]
     fn write_to_file(&self, path: SteelPath) -> Result<()> {
         let mut file = File::create(path)?;
 
@@ -93,6 +97,7 @@ impl LocalMacroManager {
     }
 
     /// Read in a file of expressions containing macros, parse then, and create the data struture
+    #[cfg(feature = "std")]
     fn from_expression_file(path: SteelPath) -> Result<Self> {
         let mut file = File::open(path)?;
         let mut raw_exprs = String::new();
@@ -102,6 +107,7 @@ impl LocalMacroManager {
     }
 
     /// After serializing the macro manager to a file and read from that file
+    #[cfg(feature = "std")]
     fn from_file(path: SteelPath) -> Result<Self> {
         let mut file = File::open(path)?;
         let mut buffer = Vec::new();

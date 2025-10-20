@@ -4,12 +4,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    path::Path as StdPath,
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::HashMap, path::Path as StdPath, rc::Rc};
 
 use abi_stable::{
     library::{LibraryError, RootModule},

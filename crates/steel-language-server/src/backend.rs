@@ -16,6 +16,7 @@ use ropey::Rope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use steel::{
+    collections::MutableHashMap,
     compiler::{
         modules::{steel_home, MANGLER_PREFIX, MODULE_PREFIX},
         passes::analysis::{
@@ -731,7 +732,8 @@ impl Backend {
         let (syntax_object_id, information) =
             analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
 
-        let mut syntax_object_id_to_interned_string = HashMap::new();
+        let mut syntax_object_id_to_interned_string: MutableHashMap<_, _> =
+            MutableHashMap::default();
         syntax_object_id_to_interned_string.insert(*syntax_object_id, None);
 
         // If this is a builtin, reference the engine's internal documentation

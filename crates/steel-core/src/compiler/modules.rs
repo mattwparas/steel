@@ -20,22 +20,21 @@ use crate::{
     },
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
+use alloc::borrow::Cow;
 use alloc::format;
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
+use crate::collections::{MutableHashMap as HashMap, MutableHashSet as HashSet};
 use compact_str::CompactString;
 use fxhash::{FxHashMap, FxHashSet};
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
 use once_cell::sync::Lazy;
 // use smallvec::SmallVec;
+#[cfg(feature = "std")]
+use std::io::Read;
 use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
-
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-    io::Read,
-    sync::Arc,
-};
 
 use crate::parser::expander::SteelMacro;
 use crate::stop;
@@ -204,11 +203,14 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
     })
 });
 
-#[cfg(target_family = "wasm")]
-pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| None);
-
+#[cfg(not(target_family = "wasm"))]
 pub fn steel_home() -> Option<String> {
     STEEL_HOME.clone()
+}
+
+#[cfg(target_family = "wasm")]
+pub fn steel_home() -> Option<String> {
+    None
 }
 
 /// Manages the modules
@@ -240,7 +242,7 @@ impl ModuleManager {
             compiled_modules,
             file_metadata,
             visited: FxHashSet::default(),
-            custom_builtins: HashMap::new(),
+            custom_builtins: HashMap::default(),
             rollback_metadata: crate::HashMap::new(),
             module_resolvers: Vec::new(),
         }
@@ -357,7 +359,7 @@ impl ModuleManager {
 
         let mut require_defines = Vec::new();
 
-        let mut explicit_requires = HashMap::new();
+        let mut explicit_requires = HashMap::default();
 
         for require_object in &module_builder.require_objects {
             let path = require_object.path.get_path();
@@ -1059,7 +1061,7 @@ pub static MANGLED_MODULE_PREFIX: &str = "__module-##mm";
 pub fn path_to_module_name(name: PathBuf) -> String {
     let mut base = CompactString::new(MANGLED_MODULE_PREFIX);
 
-    if let Some(steel_home) = STEEL_HOME.as_ref() {
+    if let Some(steel_home) = steel_home() {
         // Intern this?
         let name_lossy = name.to_string_lossy();
         let name = name_lossy.trim_start_matches(steel_home.as_str());
@@ -1093,7 +1095,7 @@ impl CompiledModule {
     ) -> Self {
         let mut base = CompactString::new(MANGLER_PREFIX);
 
-        if let Some(steel_home) = STEEL_HOME.as_ref() {
+        if let Some(steel_home) = steel_home() {
             // Intern this?
             let name_lossy = name.to_string_lossy();
             let name = name_lossy.trim_start_matches(steel_home.as_str());
@@ -1175,7 +1177,7 @@ impl CompiledModule {
         // ;; Refresh the module definition in this namespace
         // (define a-module.rkt-b (hash-get 'b b-module.rkt-b))
 
-        let mut explicit_requires = HashMap::new();
+        let mut explicit_requires = HashMap::default();
 
         // TODO: This is the same as the top level, they should be merged
         for require_object in &self.require_objects {
@@ -2880,8 +2882,7 @@ impl<'a> ModuleBuilder<'a> {
         let mut exprs_without_requires = Vec::new();
         let exprs = core::mem::take(&mut self.source_ast);
 
-        let home = STEEL_HOME
-            .clone()
+        let home = steel_home()
             .map(|x| {
                 // TODO: Fix this - try to hack in a root drive
                 // for windows if a unix path is provided

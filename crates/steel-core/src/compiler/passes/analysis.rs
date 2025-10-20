@@ -1,10 +1,8 @@
+use crate::collections::{hash_map, MutableHashMap as HashMap, MutableHashSet as HashSet};
 use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
-use std::{
-    collections::{hash_map, HashMap, HashSet},
-    hash::BuildHasherDefault,
-};
+use core::hash::BuildHasherDefault;
 
 use crate::{
     collections::HashMap as ImmutableHashMap,
@@ -317,10 +315,10 @@ pub struct Analysis {
 impl Analysis {
     pub fn pre_allocated() -> Self {
         Analysis {
-            info: HashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
-            function_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
-            call_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
-            let_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            info: FxHashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
+            function_info: FxHashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            call_info: FxHashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            let_info: FxHashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
             scope: ScopeMap::default(),
         }
     }
@@ -361,10 +359,10 @@ impl Analysis {
         // let mut analysis = Analysis::default();
 
         let mut analysis = Analysis {
-            info: HashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
-            function_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
-            call_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
-            let_info: HashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            info: FxHashMap::with_capacity_and_hasher(3584, FxBuildHasher::default()),
+            function_info: FxHashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            call_info: FxHashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
+            let_info: FxHashMap::with_capacity_and_hasher(128, FxBuildHasher::default()),
             scope: ScopeMap::default(),
         };
 
@@ -4115,7 +4113,7 @@ impl<'a> SemanticAnalysis<'a> {
         // otherwise annontate them with the fact that they are multi arity. Then we're going
         // to walk through and update the call information with the arity, assuming
         // the arity matches appropriately.
-        let mut map: HashMap<InternedString, usize> = HashMap::new();
+        let mut map: HashMap<InternedString, usize> = HashMap::default();
 
         for expr in self.exprs.iter() {
             match expr {
@@ -4185,7 +4183,8 @@ impl<'a> SemanticAnalysis<'a> {
         let threshold = size.unwrap_or(50);
 
         // Only do this for functions in which the arity is exactly known
-        let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
+        let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> =
+            HashMap::default();
 
         // Only inline forwards, as to not run in to any issues with visibility
         for expr in self.exprs.iter() {
@@ -5114,7 +5113,7 @@ impl<'a> SemanticAnalysis<'a> {
 
     pub fn check_if_values_are_redefined(&mut self) -> Result<&mut Self, SteelErr> {
         // TODO: Maybe reuse this memory somehow?
-        let mut non_builtin_definitions = HashSet::new();
+        let mut non_builtin_definitions = HashSet::default();
 
         for expr in self.exprs.iter() {
             match expr {
@@ -5163,6 +5162,8 @@ impl<'a> SemanticAnalysis<'a> {
                 _ => {}
             }
         }
+
+        drop(non_builtin_definitions);
 
         Ok(self)
     }

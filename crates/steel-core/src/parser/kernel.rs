@@ -1,17 +1,18 @@
+use crate::collections::MutableHashSet as HashSet;
 use alloc::format;
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::{Arc, RwLock},
-};
-
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 #[cfg(feature = "sync")]
 use once_cell::sync::Lazy;
 use steel_parser::tokens::TokenType;
 
+#[cfg(all(not(feature = "std"), not(feature = "sync")))]
+use crate::sync::Mutex;
+#[cfg(not(feature = "std"))]
+use crate::sync::RwLock;
 use crate::{
     compiler::{
         passes::analysis::SemanticAnalysis,
@@ -26,6 +27,8 @@ use crate::{
     values::lists::List,
 };
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
+#[cfg(feature = "std")]
+use std::sync::RwLock;
 
 use steel_parser::expr_list;
 
@@ -38,10 +41,16 @@ use super::{
 #[cfg(feature = "profiling")]
 use crate::time::Instant;
 
+#[cfg(feature = "std")]
 thread_local! {
     pub(crate) static KERNEL_IMAGE: Engine = Engine::new_bootstrap_kernel(false);
     pub(crate) static KERNEL_IMAGE_SB: Engine = Engine::new_bootstrap_kernel(true);
 }
+
+#[cfg(all(not(feature = "std"), not(feature = "sync")))]
+static KERNEL_IMAGE: Mutex<Option<Engine>> = Mutex::new(None);
+#[cfg(all(not(feature = "std"), not(feature = "sync")))]
+static KERNEL_IMAGE_SB: Mutex<Option<Engine>> = Mutex::new(None);
 
 #[cfg(feature = "sync")]
 pub static STATIC_KERNEL_IMAGE: Lazy<Engine> = Lazy::new(|| Engine::new_bootstrap_kernel(false));
@@ -57,9 +66,18 @@ pub(crate) fn fresh_kernel_image(sandbox: bool) -> Engine {
             STATIC_KERNEL_IMAGE_SB.clone().deep_clone()
         }
 
-        #[cfg(not(feature = "sync"))]
+        #[cfg(all(feature = "std", not(feature = "sync")))]
         {
             KERNEL_IMAGE_SB.with(|x| x.deep_clone())
+        }
+
+        #[cfg(all(not(feature = "std"), not(feature = "sync")))]
+        {
+            let mut guard = KERNEL_IMAGE_SB.lock().expect("kernel lock poisoned");
+            if guard.is_none() {
+                *guard = Some(Engine::new_bootstrap_kernel(true));
+            }
+            guard.as_ref().unwrap().deep_clone()
         }
     } else {
         #[cfg(feature = "sync")]
@@ -67,9 +85,18 @@ pub(crate) fn fresh_kernel_image(sandbox: bool) -> Engine {
             STATIC_KERNEL_IMAGE.clone().deep_clone()
         }
 
-        #[cfg(not(feature = "sync"))]
+        #[cfg(all(feature = "std", not(feature = "sync")))]
         {
             KERNEL_IMAGE.with(|x| x.deep_clone())
+        }
+
+        #[cfg(all(not(feature = "std"), not(feature = "sync")))]
+        {
+            let mut guard = KERNEL_IMAGE.lock().expect("kernel lock poisoned");
+            if guard.is_none() {
+                *guard = Some(Engine::new_bootstrap_kernel(false));
+            }
+            guard.as_ref().unwrap().deep_clone()
         }
     }
 }
@@ -107,7 +134,7 @@ impl Kernel {
         let mut engine = fresh_kernel_image(!cfg!(feature = "unsandboxed-kernel"));
 
         let transformers = Transformers {
-            set: Arc::new(RwLock::new(HashMap::default())),
+            set: Arc::new(RwLock::new(TransformerMap::default())),
         };
 
         let embedded_transformer_object = transformers.clone();
@@ -167,7 +194,7 @@ impl Kernel {
         Kernel {
             // macros,
             transformers,
-            constants: HashSet::new(),
+            constants: HashSet::default(),
             engine: Box::new(engine),
         }
     }

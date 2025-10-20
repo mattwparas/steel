@@ -891,6 +891,7 @@ pub struct SerializableProgram {
 }
 
 impl SerializableProgram {
+    #[cfg(feature = "std")]
     pub fn write_to_file(&self, filename: &str) -> Result<()> {
         use std::io::prelude::*;
 
@@ -902,6 +903,7 @@ impl SerializableProgram {
         Ok(())
     }
 
+    #[cfg(feature = "std")]
     pub fn read_from_file(filename: &str) -> Result<Self> {
         use std::io::prelude::*;
 
@@ -973,6 +975,7 @@ pub struct SerializableRawProgramWithSymbols {
 }
 
 impl SerializableRawProgramWithSymbols {
+    #[cfg(feature = "std")]
     pub fn write_to_file(&self, filename: &str) -> Result<()> {
         use std::io::prelude::*;
 
@@ -984,6 +987,7 @@ impl SerializableRawProgramWithSymbols {
         Ok(())
     }
 
+    #[cfg(feature = "std")]
     pub fn read_from_file(filename: &str) -> Result<Self> {
         use std::io::prelude::*;
 
