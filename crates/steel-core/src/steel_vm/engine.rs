@@ -8,6 +8,8 @@ use super::{
 use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
+#[cfg(not(feature = "std"))]
+use alloc::vec;
 use alloc::vec::Vec;
 
 #[cfg(feature = "dylibs")]
@@ -89,7 +91,7 @@ use steel_parser::{
 use crate::parser::ast::IteratorExtensions;
 
 thread_local! {
-    static KERNEL_BIN_FILE: Cell<Option<&'static [u8]>> = const { Cell::new(None) };
+    static KERNEL_BIN_FILE: Cell<Option<&'static [u8]>> = Cell::new(None);
 }
 
 // Install the binary file to be used during bootup
@@ -2327,7 +2329,10 @@ fn raise_error(sources: &Sources, error: SteelErr) {
         }
     }
 
+    #[cfg(feature = "std")]
     println!("Unable to locate source and span information for this error: {error}");
+    #[cfg(not(feature = "std"))]
+    let _ = error;
 }
 
 // If we are to construct an error object, emit that

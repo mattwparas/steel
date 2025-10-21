@@ -1,16 +1,18 @@
+#[cfg(feature = "std")]
+use super::engine::Engine;
+#[cfg(feature = "std")]
+use super::register_fn::RegisterFn;
+#[cfg(feature = "std")]
+use super::vm::{
+    get_test_mode, list_modules, set_test_mode, VmCore, CALLSTACK_HYDRATE_NAMES_DEFINITION,
+    CALL_CC_DEFINITION, CALL_WITH_EXCEPTION_HANDLER_DEFINITION, DUMP_PROFILER_DEFINITION,
+    EVAL_DEFINITION, EVAL_FILE_DEFINITION, EVAL_STRING_DEFINITION, EXPAND_SYNTAX_CASE_DEFINITION,
+    EXPAND_SYNTAX_OBJECTS_DEFINITION, INSPECT_DEFINITION, MACRO_CASE_BINDINGS_DEFINITION,
+    MAKE_CALLSTACK_PROFILER_DEFINITION, MATCH_SYNTAX_CASE_DEFINITION, SAMPLE_STACKS_DEFINITION,
+};
 use super::{
     builtin::{Arity, BuiltInModule, MarkdownDoc},
     cache::WeakMemoizationTable,
-    engine::Engine,
-    register_fn::RegisterFn,
-    vm::{
-        get_test_mode, list_modules, set_test_mode, VmCore, CALLSTACK_HYDRATE_NAMES_DEFINITION,
-        CALL_CC_DEFINITION, CALL_WITH_EXCEPTION_HANDLER_DEFINITION, DUMP_PROFILER_DEFINITION,
-        EVAL_DEFINITION, EVAL_FILE_DEFINITION, EVAL_STRING_DEFINITION,
-        EXPAND_SYNTAX_CASE_DEFINITION, EXPAND_SYNTAX_OBJECTS_DEFINITION, INSPECT_DEFINITION,
-        MACRO_CASE_BINDINGS_DEFINITION, MAKE_CALLSTACK_PROFILER_DEFINITION,
-        MATCH_SYNTAX_CASE_DEFINITION, SAMPLE_STACKS_DEFINITION,
-    },
 };
 #[cfg(feature = "std")]
 use crate::compiler::modules::steel_home;
@@ -84,6 +86,7 @@ use crate::{
 };
 use alloc::format;
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::values::closed::{
@@ -484,7 +487,6 @@ pub fn prelude() -> BuiltInModule {
         module = module.with_module(bytevector_module());
         module = module.with_module(meta_module());
         module = module.with_module(constants_module());
-        module = module.with_module(syntax_module());
         module = module.with_module(build_result_structs());
         module = module.with_module(build_option_structs());
         module = module.with_module(build_type_id_module());
@@ -589,6 +591,7 @@ fn render_as_md(text: String) {
 #[cfg(not(feature = "std"))]
 fn render_as_md(_text: String) {}
 
+#[cfg(feature = "std")]
 pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     engine.register_value("std::env::args", SteelVal::ListV(List::new()));
 
@@ -773,7 +776,6 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
             .register_module(bytevector_module())
             .register_module(meta_module())
             .register_module(constants_module())
-            .register_module(syntax_module())
             .register_module(build_result_structs())
             .register_module(build_option_structs())
             .register_module(build_type_id_module());
@@ -1759,6 +1761,7 @@ pub fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
     }
 }
 
+#[cfg(feature = "std")]
 #[steel_derive::context(name = "#%lookup-doc", arity = "Exact(1)")]
 pub fn lookup_doc_ctx(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     // Attempt to find the docs for a given value.
@@ -1778,6 +1781,7 @@ pub fn lookup_doc_ctx(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Stee
     }
 }
 
+#[cfg(feature = "std")]
 fn lookup_doc(value: SteelVal) -> bool {
     match value {
         // SteelVal::BoxedFunction(f) => ,
@@ -1813,6 +1817,7 @@ fn lookup_doc(value: SteelVal) -> bool {
     }
 }
 
+#[cfg(feature = "std")]
 fn lookup_doc_value(value: SteelVal) -> Option<String> {
     match value {
         SteelVal::FuncV(f) => {
@@ -2065,6 +2070,7 @@ impl Reader {
     }
 }
 
+#[cfg(feature = "std")]
 #[steel_derive::context(name = "#%intern", arity = "Exact(1)")]
 pub fn intern_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut guard = ctx.thread.compiler.write();
@@ -2132,6 +2138,7 @@ pub fn plain_set_box_mutable(value: &HeapRef<SteelVal>, update: SteelVal) -> Ste
     value.set_and_return(update)
 }
 
+#[cfg(feature = "std")]
 fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() != 0 {
         return Some(Err(
@@ -2144,6 +2151,7 @@ fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
     Some(Ok(SteelVal::Void))
 }
 
+#[cfg(feature = "std")]
 fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() != 1 {
         return Some(Err(
@@ -2373,6 +2381,7 @@ fn json_module() -> BuiltInModule {
     module
 }
 
+#[cfg(feature = "std")]
 fn syntax_to_module_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     if let SteelVal::SyntaxObject(s) = &args[0] {
         let span = s.syntax_loc();
@@ -2389,11 +2398,13 @@ fn syntax_to_module_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
     Ok(SteelVal::BoolV(false))
 }
 
+#[cfg(feature = "std")]
 #[steel_derive::context(name = "syntax-originating-file", arity = "Exact(1)")]
 fn syntax_to_module(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(syntax_to_module_impl(ctx, args))
 }
 
+#[cfg(feature = "std")]
 fn syntax_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/syntax");
     module
@@ -2498,6 +2509,7 @@ pub fn raise_error_from_error() -> SteelVal {
 // Be able to introspect on the modules - probably just need to add a modules
 // field on the vm, or use a wrapped type with modules to find things
 // TODO: Add magic number for modules. - key to magic number, do pointer equality
+#[cfg(feature = "std")]
 fn _lookup_doc(_ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
     // for value in ctx.thread.global_env.bindings_vec.iter() {
     //     if let

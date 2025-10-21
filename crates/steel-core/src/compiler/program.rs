@@ -1192,9 +1192,12 @@ impl RawProgramWithSymbols {
     }
 
     pub fn debug_print(&self) {
-        self.instructions
-            .iter()
-            .for_each(|i| println!("{}\n\n", crate::core::instructions::disassemble(i)))
+        #[cfg(feature = "std")]
+        {
+            self.instructions
+                .iter()
+                .for_each(|i| println!("{}\n\n", crate::core::instructions::disassemble(i)))
+        }
     }
 
     pub fn debug_print_log(&self) {
@@ -1298,6 +1301,7 @@ impl RawProgramWithSymbols {
         // struct_instructions.append(&mut self.instructions);
         // self.instructions = struct_instructions;
 
+        #[cfg(feature = "std")]
         self.instructions
             .iter()
             .for_each(|i| println!("{}\n\n", crate::core::instructions::disassemble(i)));

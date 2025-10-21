@@ -248,12 +248,18 @@ mod no_std_sync {
         WouldBlock,
     }
 
+    #[derive(Debug)]
+    pub struct AccessError;
+
     pub type LockResult<T> = Result<T, PoisonError>;
     pub type TryLockResult<T> = Result<T, TryLockError>;
 
     pub struct Mutex<T: ?Sized> {
         value: RefCell<T>,
     }
+
+    unsafe impl<T: ?Sized> Send for Mutex<T> {}
+    unsafe impl<T: ?Sized> Sync for Mutex<T> {}
 
     impl<T: ?Sized + fmt::Debug> fmt::Debug for Mutex<T> {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -277,6 +283,11 @@ mod no_std_sync {
 
     pub struct ArcMutexGuard<'a, T: ?Sized> {
         guard: MutexGuard<'a, T>,
+    }
+
+    pub struct ThreadLocal<T: 'static> {
+        init: fn() -> T,
+        storage: Mutex<Option<T>>,
     }
 
     impl<T> Mutex<T> {
@@ -517,6 +528,29 @@ mod no_std_sync {
         }
     }
 
+    impl<T: 'static> ThreadLocal<T> {
+        pub const fn new(init: fn() -> T) -> Self {
+            Self {
+                init,
+                storage: Mutex::new(None),
+            }
+        }
+
+        pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+            let mut guard = match self.storage.lock() {
+                Ok(guard) => guard,
+                Err(_) => panic!("thread-local mutex poisoned"),
+            };
+
+            let value = guard.get_or_insert_with(self.init);
+            f(value)
+        }
+
+        pub fn try_with<R>(&self, f: impl FnOnce(&T) -> R) -> Result<R, AccessError> {
+            Ok(self.with(f))
+        }
+    }
+
     impl<'a, T: ?Sized> RwLockWriteGuard<'a, T> {
         #[inline]
         pub fn map<U: ?Sized, F>(this: Self, f: F) -> MappedRwLockWriteGuard<'a, U>
@@ -549,7 +583,26 @@ pub use std_sync::{
 
 #[cfg(not(feature = "std"))]
 pub use no_std_sync::{
-    ArcMutex, ArcMutexGuard, LockResult, MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex,
-    MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard, TryLockError,
-    TryLockResult,
+    AccessError, ArcMutex, ArcMutexGuard, LockResult, MappedRwLockReadGuard,
+    MappedRwLockWriteGuard, Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard,
+    RwLockWriteGuard, ThreadLocal, TryLockError, TryLockResult,
 };
+
+#[cfg(feature = "std")]
+pub use std::thread_local;
+
+#[cfg(not(feature = "std"))]
+#[macro_export]
+macro_rules! thread_local {
+    () => {};
+    ($(#[$attr:meta])* $vis:vis static $name:ident : $ty:ty = const $($rest:tt)+; $($tail:tt)*) => {
+        $(#[$attr])* $vis static $name: $crate::sync::ThreadLocal<$ty> =
+            $crate::sync::ThreadLocal::new(|| const { $($rest)+ });
+        $crate::thread_local!($($tail)*);
+    };
+    ($(#[$attr:meta])* $vis:vis static $name:ident : $ty:ty = $value:expr; $($tail:tt)*) => {
+        $(#[$attr])* $vis static $name: $crate::sync::ThreadLocal<$ty> =
+            $crate::sync::ThreadLocal::new(|| $value);
+        $crate::thread_local!($($tail)*);
+    };
+}

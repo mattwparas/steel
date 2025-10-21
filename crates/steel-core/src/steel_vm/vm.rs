@@ -45,8 +45,11 @@ use crate::{
     steel_vm::primitives::{equality_primitive, lte_primitive},
     values::transducers::Transducers,
 };
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
+#[cfg(not(feature = "std"))]
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::{

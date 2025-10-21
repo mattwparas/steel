@@ -1,4 +1,5 @@
 use crate::collections::MutableHashMap;
+use alloc::format;
 #[cfg(not(feature = "sync"))]
 use alloc::rc::Weak;
 use alloc::vec::Vec;

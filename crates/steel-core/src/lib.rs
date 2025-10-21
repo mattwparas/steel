@@ -8,6 +8,7 @@ pub mod collections;
 pub mod os_strings;
 pub mod path;
 pub mod rand;
+#[macro_use]
 pub mod sync;
 pub mod time;
 #[macro_use]

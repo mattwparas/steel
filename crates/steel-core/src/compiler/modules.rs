@@ -24,6 +24,7 @@ use alloc::borrow::Cow;
 use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::collections::{MutableHashMap as HashMap, MutableHashSet as HashSet};

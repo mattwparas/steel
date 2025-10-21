@@ -81,7 +81,7 @@ macro_rules! impl_recyclable {
     };
     ($tl:ident, $t:ty, $constructor:expr, $constructor_capacity:expr) => {
         thread_local! {
-            static $tl: RefCell<Vec<$t>> = RefCell::new(Vec::new())
+            static $tl: RefCell<Vec<$t>> = RefCell::new(Vec::new());
         }
 
         impl Recyclable for $t {

@@ -1,6 +1,7 @@
 use crate::collections::{hash_map, MutableHashMap as HashMap, MutableHashSet as HashSet};
 use alloc::format;
 use alloc::string::String;
+use alloc::vec;
 use alloc::vec::Vec;
 use core::hash::BuildHasherDefault;
 

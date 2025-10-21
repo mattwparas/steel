@@ -1,3 +1,4 @@
+use alloc::vec;
 use alloc::vec::Vec;
 use steel_parser::parser::SyntaxObject;
 

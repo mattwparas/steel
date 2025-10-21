@@ -18,7 +18,7 @@ use crate::rvals::SteelValPointer;
 #[cfg(feature = "sync")]
 use crate::collections::{HashMap, HashSet};
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, format, vec::Vec};
 
 use crate::{
     compiler::map::SymbolMap,

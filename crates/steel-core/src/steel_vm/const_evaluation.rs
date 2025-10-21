@@ -22,6 +22,7 @@ use crate::{
 use alloc::{
     format,
     rc::{Rc, Weak},
+    vec,
     vec::Vec,
 };
 use core::{cell::RefCell, convert::TryFrom};
