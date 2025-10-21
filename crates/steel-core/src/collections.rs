@@ -7,6 +7,7 @@ use fxhash::FxBuildHasher;
 
 #[cfg(not(feature = "std"))]
 mod imp {
+    use super::FxBuildHasher;
     use alloc::vec::Vec;
 
     pub type Vector<T> = Vec<T>;

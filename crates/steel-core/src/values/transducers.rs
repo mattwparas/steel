@@ -1,7 +1,7 @@
 use crate::gc::Gc;
 use crate::rvals::Result;
 use crate::SteelVal;
-use alloc::{format, vec::Vec};
+use alloc::{format, string::ToString, vec::Vec};
 
 use crate::core::utils::{arity_check, declare_const_ref_functions};
 

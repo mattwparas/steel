@@ -35,11 +35,19 @@ pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
 }
 
 pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
-    for (i, instruction) in instrs.iter().enumerate() {
-        println!(
-            "{}    {:?} : {}",
-            i, instruction.op_code, instruction.payload_size
-        );
+    #[cfg(feature = "std")]
+    {
+        for (i, instruction) in instrs.iter().enumerate() {
+            println!(
+                "{}    {:?} : {}",
+                i, instruction.op_code, instruction.payload_size
+            );
+        }
+    }
+
+    #[cfg(not(feature = "std"))]
+    {
+        let _ = instrs;
     }
 }
 

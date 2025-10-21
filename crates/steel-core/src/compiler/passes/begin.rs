@@ -1,5 +1,4 @@
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec, vec::Vec};
 use smallvec::SmallVec;
 use steel_parser::{
     ast::{Define, If, Let, Macro, Quote, Require, Return, SyntaxRules, Vector},

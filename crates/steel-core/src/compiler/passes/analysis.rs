@@ -1,8 +1,8 @@
 use crate::collections::{hash_map, MutableHashMap as HashMap, MutableHashSet as HashSet};
-use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
+use alloc::{boxed::Box, format};
 use core::hash::BuildHasherDefault;
 
 use crate::{
@@ -35,7 +35,7 @@ use crate::{
         span_visitor::get_span,
         tokens::TokenType,
     },
-    steel_vm::primitives::{builtin_to_reserved, MODULE_IDENTIFIERS},
+    steel_vm::primitives::{builtin_to_reserved, module_identifier_contains},
     stop, throw, SteelErr, SteelVal,
 };
 
@@ -1777,9 +1777,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     // TODO: We _really_ should be providing the built-ins in a better way thats not
                     // passing around a thread local
 
-                    if crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS
-                        .with(|x| x.contains(ident))
-                    {
+                    if crate::steel_vm::primitives::with_prelude_interned_strings(|x| {
+                        x.contains(ident)
+                    }) {
                         semantic_information.mark_builtin()
                     }
 
@@ -2007,7 +2007,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // TODO: We _really_ should be providing the built-ins in a better way thats not
                 // passing around a thread local
                 // if crate::steel_vm::primitives::PRELUDE_MODULE.with(|x| x.contains(ident.resolve()))
-                if crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS.with(|x| x.contains(ident))
+                if crate::steel_vm::primitives::with_prelude_interned_strings(|x| x.contains(ident))
                 {
                     semantic_info.mark_builtin();
                     semantic_info.kind = IdentifierStatus::Global
@@ -2654,7 +2654,7 @@ pub(crate) fn is_a_builtin_definition(def: &Define) -> bool {
         match l.first_ident() {
             Some(func) if *func == *UNREADABLE_MODULE_GET || *func == *STANDARD_MODULE_GET => {
                 if let Some(module) = l.second_ident() {
-                    return MODULE_IDENTIFIERS.contains(module);
+                    return module_identifier_contains(module);
                 }
             }
             _ => {}
@@ -2761,7 +2761,10 @@ impl<'a> VisitorMutRefUnit for RemovedUnusedImports<'a> {
             let argument_count = l.args.len() - 1;
             if let Some(func) = l.first_func() {
                 if argument_count != func.args.len() {
-                    println!("-- Static arity mismatch -- Should actually error here");
+                    #[cfg(feature = "std")]
+                    {
+                        println!("-- Static arity mismatch -- Should actually error here");
+                    }
                 } else {
                     unused_arguments = func
                         .args

@@ -1,4 +1,4 @@
-use alloc::{borrow::Cow, format, string::String, sync::Arc, vec::Vec};
+use alloc::{borrow::Cow, format, string::String, sync::Arc, vec, vec::Vec};
 use core::cell::RefCell;
 
 use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadContainer};
@@ -380,7 +380,10 @@ impl BuiltInModuleRepr {
 
     pub fn get_doc(&self, definition: String) {
         if let Some(value) = self.docs.get(&definition) {
-            println!("{value}")
+            #[cfg(feature = "std")]
+            {
+                println!("{value}")
+            }
         }
     }
 

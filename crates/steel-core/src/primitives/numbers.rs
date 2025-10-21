@@ -2,6 +2,7 @@ use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
 use crate::{steelerr, stop, throw};
 use alloc::format;
 use core::cmp::Ordering;
+use core::f64::consts;
 use core::ops::Neg;
 use num_bigint::BigInt;
 use num_integer::Integer;
@@ -1023,10 +1024,10 @@ fn exp(left: &SteelVal) -> Result<SteelVal> {
     match left {
         SteelVal::IntV(0) => Ok(SteelVal::IntV(1)),
         SteelVal::IntV(l) if *l < i32::MAX as isize => {
-            Ok(SteelVal::NumV(std::f64::consts::E.powi(*l as i32)))
+            Ok(SteelVal::NumV(consts::E.powi(*l as i32)))
         }
         maybe_number => match number_to_float(maybe_number) {
-            Ok(n) => Ok(SteelVal::NumV(std::f64::consts::E.powf(n))),
+            Ok(n) => Ok(SteelVal::NumV(consts::E.powf(n))),
             Err(_) => steelerr!(Generic => "exp expected a real number"),
         },
     }
@@ -1484,10 +1485,7 @@ fn atan2(y: &SteelVal, x: &SteelVal) -> Result<SteelVal> {
 #[steel_derive::native(name = "log", arity = "Range(1,2)")]
 fn log(args: &[SteelVal]) -> Result<SteelVal> {
     let first = &args[0];
-    let base = args
-        .get(1)
-        .cloned()
-        .unwrap_or(SteelVal::NumV(std::f64::consts::E));
+    let base = args.get(1).cloned().unwrap_or(SteelVal::NumV(consts::E));
 
     match (first, &base) {
         (SteelVal::IntV(1), _) => Ok(SteelVal::IntV(0)),

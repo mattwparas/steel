@@ -5,7 +5,10 @@ use crate::collections::{HashMap, MutableHashMap, MutableHashSet};
 use crate::steel_vm::primitives::{steel_unbox_mutable, unbox_mutable};
 #[cfg(feature = "sync")]
 use crate::sync::RwLock;
-use alloc::{collections::VecDeque, format, rc::Rc, string::String, sync::Arc, vec, vec::Vec};
+use alloc::{
+    boxed::Box, collections::VecDeque, format, rc::Rc, string::String, string::ToString, sync::Arc,
+    vec, vec::Vec,
+};
 use once_cell::sync::Lazy;
 use smallvec::SmallVec;
 

@@ -4,7 +4,7 @@ use crate::stop;
 #[cfg_attr(not(feature = "sync"), allow(unused_imports))]
 use crate::sync::RwLock;
 #[allow(unused_imports)]
-use alloc::{format, string::String, vec::Vec};
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 
 #[cfg(not(feature = "sync"))]
 use core::cell::RefCell;
@@ -22,9 +22,10 @@ pub use shared::{GcMut, MutContainer, ShareableMut, Shared, SharedMut};
 pub use unsafe_erased_pointers::is_reference_type;
 
 pub mod shared {
-    use alloc::rc::Rc;
     #[cfg(not(feature = "sync"))]
     use alloc::rc::Weak;
+    #[allow(unused_imports)]
+    use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
     use core::cell::{BorrowError, BorrowMutError, Ref, RefCell, RefMut};
     use core::ops::{Deref, DerefMut};
 
@@ -661,8 +662,14 @@ pub mod unsafe_erased_pointers {
     can lead to undefined behavior.
     */
 
-    use alloc::rc::{Rc, Weak};
-    use alloc::sync::Arc;
+    use alloc::{
+        boxed::Box,
+        format,
+        rc::{Rc, Weak},
+        string::String,
+        sync::Arc,
+        vec::Vec,
+    };
     use core::sync::atomic::AtomicBool;
     use core::{
         any::Any,

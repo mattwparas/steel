@@ -1,5 +1,5 @@
 use crate::parser::ast::ExprKind;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 
 use super::Folder;
 

@@ -317,7 +317,10 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 || self.source_id == m.location.source_id()
                             {
                                 if s.resolve().ends_with("skip-compile") {
-                                    println!("Expanding skip compile: {}", l);
+                                    #[cfg(feature = "std")]
+                                    {
+                                        println!("Expanding skip compile: {}", l);
+                                    }
                                 }
 
                                 let span = *sp;
@@ -582,7 +585,10 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                                 || self.source_id == m.location.source_id()
                             {
                                 if s.resolve().ends_with("skip-compile") {
-                                    println!("Expanding skip compile: {}", l);
+                                    #[cfg(feature = "std")]
+                                    {
+                                        println!("Expanding skip compile: {}", l);
+                                    }
                                 }
 
                                 let span = *sp;

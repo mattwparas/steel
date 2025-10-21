@@ -1243,7 +1243,7 @@ pub fn function(
 
             #definition_struct
 
-            pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+            pub fn #copied_function_name(args: &[SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
                 use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
@@ -1300,7 +1300,7 @@ pub fn function(
 
                 #definition_struct
 
-                pub fn #copied_function_name(args: &mut [SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+                pub fn #copied_function_name(args: &mut [SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
                     use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef, PrimitiveAsRefMut};
 
@@ -1361,7 +1361,7 @@ pub fn function(
 
         #definition_struct
 
-        pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+        pub fn #copied_function_name(args: &[SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
             use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
@@ -1615,7 +1615,7 @@ pub fn custom_function(
 
             #definition_struct
 
-            pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+            pub fn #copied_function_name(args: &[SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
                 use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
@@ -1672,7 +1672,7 @@ pub fn custom_function(
 
                 #definition_struct
 
-                pub fn #copied_function_name(args: &mut [SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+                pub fn #copied_function_name(args: &mut [SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
                     use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef, PrimitiveAsRefMut};
 
@@ -1733,7 +1733,7 @@ pub fn custom_function(
 
         #definition_struct
 
-        pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+        pub fn #copied_function_name(args: &[SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
             use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 

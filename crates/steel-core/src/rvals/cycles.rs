@@ -282,6 +282,7 @@ impl CycleDetector {
                 }
             },
             #[cfg(feature = "std")]
+            #[cfg(feature = "std")]
             PortV(port) => write!(f, "{}", port),
             Closure(_) => write!(f, "#<bytecode-closure>"),
             HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),
@@ -540,15 +541,10 @@ impl<'a> CycleCollector<'a> {
         }
 
         if self.visited.contains(&val) {
-            let id = self.cycles.len();
-
-            // If we've already seen this, its fine, we can just move on
-            if let std::collections::hash_map::Entry::Vacant(e) = self.cycles.entry(val) {
-                e.insert(id);
-                // Keep track of the actual values that are being captured
+            if !self.cycles.contains_key(&val) {
+                let id = self.cycles.len();
+                self.cycles.insert(val, id);
                 self.values.push(steelval.clone());
-            } else {
-                return true;
             }
 
             return true;
@@ -637,6 +633,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
         }
     }
 
+    #[cfg(feature = "std")]
     #[cfg(feature = "std")]
     fn visit_port(&mut self, _port: SteelPort) -> Self::Output {}
     fn visit_transducer(&mut self, _transducer: Gc<Transducer>) -> Self::Output {}
@@ -907,6 +904,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     fn visit_string(&mut self, _string: SteelString) {}
     fn visit_function_pointer(&mut self, _ptr: FunctionSignature) {}
     fn visit_symbol(&mut self, _symbol: SteelString) {}
+    #[cfg(feature = "std")]
     #[cfg(feature = "std")]
     fn visit_port(&mut self, _port: SteelPort) {}
     fn visit_future(&mut self, _future: Gc<FutureResult>) {}
@@ -1264,6 +1262,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
     fn visit_function_pointer(&mut self, _ptr: FunctionSignature) {}
     fn visit_symbol(&mut self, _symbol: SteelString) {}
     #[cfg(feature = "std")]
+    #[cfg(feature = "std")]
     fn visit_port(&mut self, _port: SteelPort) {}
     fn visit_future(&mut self, _future: Gc<FutureResult>) {}
     fn visit_mutable_function(&mut self, _function: MutFunctionSignature) {}
@@ -1599,6 +1598,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output;
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output;
     #[cfg(feature = "std")]
+    #[cfg(feature = "std")]
     fn visit_port(&mut self, port: SteelPort) -> Self::Output;
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output;
     fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output;
@@ -1652,6 +1652,7 @@ pub trait BreadthFirstSearchSteelValVisitor2 {
                 HashMapV(h) => self.visit_hash_map(h),
                 HashSetV(s) => self.visit_hash_set(s),
                 CustomStruct(c) => self.visit_steel_struct(c),
+                #[cfg(feature = "std")]
                 PortV(p) => self.visit_port(p),
                 IterV(t) => self.visit_transducer(t),
                 ReducerV(r) => self.visit_reducer(r),
@@ -1695,6 +1696,7 @@ pub trait BreadthFirstSearchSteelValVisitor2 {
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output;
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output;
+    #[cfg(feature = "std")]
     #[cfg(feature = "std")]
     fn visit_port(&mut self, port: SteelPort) -> Self::Output;
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output;
@@ -1749,6 +1751,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
                 HashMapV(h) => self.visit_hash_map(h),
                 HashSetV(s) => self.visit_hash_set(s),
                 CustomStruct(c) => self.visit_steel_struct(c),
+                #[cfg(feature = "std")]
                 PortV(p) => self.visit_port(p),
                 IterV(t) => self.visit_transducer(t),
                 ReducerV(r) => self.visit_reducer(r),
@@ -1793,6 +1796,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     fn visit_hash_map(&mut self, hashmap: &'a SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: &'a SteelHashSet) -> Self::Output;
     fn visit_steel_struct(&mut self, steel_struct: &'a Gc<UserDefinedStruct>) -> Self::Output;
+    #[cfg(feature = "std")]
     #[cfg(feature = "std")]
     fn visit_port(&mut self, port: &'a SteelPort) -> Self::Output;
     fn visit_transducer(&mut self, transducer: &'a Gc<Transducer>) -> Self::Output;
@@ -2419,6 +2423,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
     fn visit_string(&mut self, _string: SteelString) -> Self::Output {}
     fn visit_function_pointer(&mut self, _ptr: FunctionSignature) -> Self::Output {}
     fn visit_symbol(&mut self, _symbol: SteelString) -> Self::Output {}
+    #[cfg(feature = "std")]
     #[cfg(feature = "std")]
     fn visit_port(&mut self, _port: SteelPort) -> Self::Output {}
     fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) -> Self::Output {}

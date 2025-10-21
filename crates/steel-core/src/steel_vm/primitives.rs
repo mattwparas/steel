@@ -21,6 +21,7 @@ use crate::parser::{
     ast::TryFromSteelValVisitorForExprKind, interner::InternedString, span::Span,
     tryfrom_visitor::TryFromExprKindForSteelVal,
 };
+#[cfg(feature = "std")]
 use crate::primitives::bytevectors::bytevector_module;
 #[cfg(feature = "std")]
 use crate::primitives::git::git_module;
@@ -65,6 +66,7 @@ use crate::primitives::{ControlOperations, MetaOperations, StreamOperations};
 #[cfg(feature = "std")]
 use crate::rvals::ITERATOR_FINISHED;
 #[cfg(feature = "std")]
+#[cfg(feature = "std")]
 use crate::steel_vm::vm::threads::threading_module;
 use crate::{
     rerrs::ErrorKind,
@@ -88,6 +90,8 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
+#[allow(unused_imports)]
+use core::any;
 
 use crate::values::closed::{
     MAKE_WILL_EXECUTOR_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
@@ -377,7 +381,7 @@ thread_local! {
 }
 
 #[cfg(all(not(feature = "sync"), feature = "std"))]
-fn with_prelude_interned_strings<F, R>(f: F) -> R
+pub(crate) fn with_prelude_interned_strings<F, R>(f: F) -> R
 where
     F: FnOnce(&FxHashSet<InternedString>) -> R,
 {
@@ -385,7 +389,7 @@ where
 }
 
 #[cfg(all(not(feature = "sync"), not(feature = "std")))]
-fn with_prelude_interned_strings<F, R>(f: F) -> R
+pub(crate) fn with_prelude_interned_strings<F, R>(f: F) -> R
 where
     F: FnOnce(&FxHashSet<InternedString>) -> R,
 {
@@ -400,7 +404,7 @@ thread_local! {
 }
 
 #[cfg(feature = "sync")]
-fn with_prelude_interned_strings<F, R>(f: F) -> R
+pub(crate) fn with_prelude_interned_strings<F, R>(f: F) -> R
 where
     F: FnOnce(&FxHashSet<InternedString>) -> R,
 {
@@ -484,7 +488,6 @@ pub fn prelude() -> BuiltInModule {
         module = module.with_module(ord_module());
         module = module.with_module(transducer_module());
         module = module.with_module(symbol_module());
-        module = module.with_module(bytevector_module());
         module = module.with_module(meta_module());
         module = module.with_module(constants_module());
         module = module.with_module(build_result_structs());
@@ -569,7 +572,6 @@ pub fn sandboxed_prelude() -> BuiltInModule {
         module = module.with_module(ord_module());
         module = module.with_module(transducer_module());
         module = module.with_module(symbol_module());
-        module = module.with_module(bytevector_module());
         module = module.with_module(meta_module());
         module = module.with_module(constants_module());
         module = module.with_module(build_result_structs());
@@ -773,7 +775,6 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
             .register_module(ord_module())
             .register_module(transducer_module())
             .register_module(symbol_module())
-            .register_module(bytevector_module())
             .register_module(meta_module())
             .register_module(constants_module())
             .register_module(build_result_structs())
@@ -787,6 +788,81 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
         }
 
         engine.register_module(hashes_module());
+    }
+}
+
+#[cfg(not(feature = "std"))]
+pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
+    engine.register_value("std::env::args", SteelVal::ListV(List::new()));
+
+    engine.register_fn("##__module-get", BuiltInModule::get);
+    engine.register_fn("%module-get%", BuiltInModule::get);
+    engine.register_fn("%#maybe-module-get", BuiltInModule::try_get);
+
+    engine.register_fn("load-from-module!", BuiltInModule::get);
+
+    engine.register_fn("#%module", BuiltInModule::new::<String>);
+    engine.register_fn(
+        "#%module-add",
+        |module: &mut BuiltInModule, name: SteelString, value: SteelVal| {
+            module.register_value(&name, value);
+        },
+    );
+
+    engine.register_fn(
+        "#%module-add-doc",
+        |module: &mut BuiltInModule, name: SteelString, value: String| {
+            module.register_doc(
+                Cow::Owned(name.as_str().to_string()),
+                super::builtin::Documentation::Markdown(MarkdownDoc(value.into())),
+            );
+        },
+    );
+
+    engine.register_fn("%doc?", BuiltInModule::get_doc);
+    engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
+    engine.register_fn("%module/lookup-function", BuiltInModule::search);
+    engine.register_fn("%string->render-markdown", render_as_md);
+    engine.register_fn(
+        "%module-bound-identifiers->list",
+        BuiltInModule::bound_identifiers,
+    );
+    engine.register_value("%proto-hash%", HM_CONSTRUCT);
+    engine.register_value("%proto-hash-insert%", HM_INSERT);
+    engine.register_value("%proto-hash-get%", HM_GET);
+    engine.register_value("error!", ControlOperations::error());
+    engine.register_value("error", ControlOperations::error());
+    engine.register_value("#%error", ControlOperations::error());
+
+    engine.register_value(
+        "%memo-table",
+        WeakMemoizationTable::new().into_steelval().unwrap(),
+    );
+    engine.register_fn("%memo-table-ref", WeakMemoizationTable::get);
+    engine.register_fn("%memo-table-set!", WeakMemoizationTable::insert);
+
+    engine
+        .register_module(hashmap_module())
+        .register_module(hashset_module())
+        .register_module(list_module())
+        .register_module(vector_module())
+        .register_module(stream_module())
+        .register_module(identity_module())
+        .register_module(number_module())
+        .register_module(equality_module())
+        .register_module(ord_module())
+        .register_module(transducer_module())
+        .register_module(symbol_module())
+        .register_module(meta_module())
+        .register_module(constants_module())
+        .register_module(build_result_structs())
+        .register_module(build_option_structs())
+        .register_module(build_type_id_module());
+
+    if sandbox {
+        engine.register_module(sandboxed_prelude());
+    } else {
+        engine.register_module(prelude());
     }
 }
 
@@ -860,6 +936,16 @@ impl ModuleIdentifiers {
             .iter()
             .any(|candidate| candidate == &needle)
     }
+}
+
+#[cfg(feature = "std")]
+pub(crate) fn module_identifier_contains(value: &InternedString) -> bool {
+    MODULE_IDENTIFIERS.contains(value)
+}
+
+#[cfg(not(feature = "std"))]
+pub(crate) fn module_identifier_contains(value: &InternedString) -> bool {
+    MODULE_IDENTIFIERS.contains(value)
 }
 
 #[cfg(feature = "std")]
@@ -2055,7 +2141,15 @@ impl Reader {
             }
         } else {
             // TODO: This needs to get fixed
-            Ok(crate::primitives::ports::eof())
+            #[cfg(feature = "std")]
+            {
+                Ok(crate::primitives::ports::eof())
+            }
+
+            #[cfg(not(feature = "std"))]
+            {
+                Ok(SteelVal::Void)
+            }
         }
     }
 
@@ -2370,6 +2464,7 @@ fn command_line() -> SteelList<String> {
 }
 
 /// De/serialization from/to JSON.
+#[cfg(feature = "std")]
 #[steel_derive::define_module(name = "steel/json")]
 fn json_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/json");

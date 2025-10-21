@@ -4,8 +4,7 @@ use crate::{
     },
     rvals::SteelComplex,
 };
-use alloc::format;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, format, vec::Vec};
 
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
 

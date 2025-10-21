@@ -1,3 +1,4 @@
+#[cfg(feature = "std")]
 pub mod bytevectors;
 pub mod contracts;
 mod control;
@@ -63,6 +64,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 pub use control::ControlOperations;
+use core::any;
 use core::convert::TryFrom;
 use core::result;
 #[cfg(feature = "std")]
@@ -480,8 +482,8 @@ pub enum Either<L, R> {
 impl<'a, L: PrimitiveAsRef<'a>, R: PrimitiveAsRef<'a>> PrimitiveAsRef<'a> for Either<L, R> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
-        let left_type_name = std::any::type_name::<L>();
-        let right_type_name = std::any::type_name::<R>();
+        let left_type_name = any::type_name::<L>();
+        let right_type_name = any::type_name::<R>();
 
         let error_thunk = crate::throw!(ConversionError => format!("Cannot convert steel value to the specified type: {} or {}", left_type_name, right_type_name));
 

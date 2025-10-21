@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use serde::{Deserialize, Serialize};
 use steel_parser::ast::ExprKind;
 

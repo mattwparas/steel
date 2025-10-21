@@ -3,6 +3,13 @@
 #[allow(unused_extern_crates)]
 extern crate alloc; // Required for heap-backed types when std is disabled
 
+#[cfg(not(feature = "std"))]
+mod std {
+    pub mod result {
+        pub use core::result::Result;
+    }
+}
+
 extern crate im_rc;
 pub mod collections;
 pub mod os_strings;

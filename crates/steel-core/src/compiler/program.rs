@@ -1071,7 +1071,15 @@ impl RawProgramWithSymbols {
 
         counts.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
 
-        println!("{counts:#?}");
+        #[cfg(feature = "std")]
+        {
+            println!("{counts:#?}");
+        }
+
+        #[cfg(not(feature = "std"))]
+        {
+            let _ = counts;
+        }
     }
 
     // Definitely can be improved

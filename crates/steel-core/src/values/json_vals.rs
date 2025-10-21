@@ -1,3 +1,5 @@
+#![cfg(feature = "std")]
+
 use crate::collections::HashMap;
 use crate::rvals::SteelString;
 use crate::values::lists::List;

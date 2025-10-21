@@ -1,11 +1,15 @@
 #![allow(unused)]
 
+#[cfg(feature = "std")]
+use super::vm::threads::ThreadHandle;
 use super::{
     builtin::{BuiltInModule, FunctionSignatureMetadata},
     primitives::{register_builtin_modules, CONSTANTS},
-    vm::{threads::ThreadHandle, SteelThread, Synchronizer, ThreadStateController},
+    vm::{SteelThread, Synchronizer, ThreadStateController},
 };
+use alloc::borrow::Cow;
 use alloc::format;
+use alloc::rc::Rc;
 use alloc::string::String;
 use alloc::sync::Arc;
 #[cfg(not(feature = "std"))]
@@ -64,14 +68,19 @@ use crate::{
     },
     SteelErr,
 };
-use std::{
-    borrow::Cow,
-    cell::{Cell, RefCell},
-    collections::{HashMap, HashSet},
-    path::Path as StdPath,
-    rc::Rc,
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
-};
+use core::cell::{Cell, RefCell};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+#[cfg(feature = "std")]
+use std::path::Path as StdPath;
+
+#[cfg(feature = "std")]
+use std::thread;
+
+#[cfg(not(feature = "std"))]
+use hashbrown::{HashMap, HashSet};
+#[cfg(feature = "std")]
+use std::collections::{HashMap, HashSet};
 
 use crate::collections::HashMap as ImmutableHashMap;
 use crate::sync::{
@@ -79,7 +88,8 @@ use crate::sync::{
 };
 use fxhash::{FxBuildHasher, FxHashMap};
 use lasso::ThreadedRodeo;
-use once_cell::sync::{Lazy, OnceCell};
+#[cfg(feature = "std")]
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use steel_gen::OpCode;
 use steel_parser::{
@@ -90,6 +100,7 @@ use steel_parser::{
 
 use crate::parser::ast::IteratorExtensions;
 
+#[cfg(feature = "std")]
 thread_local! {
     static KERNEL_BIN_FILE: Cell<Option<&'static [u8]>> = Cell::new(None);
 }
@@ -259,26 +270,29 @@ impl Clone for Engine {
         let weak_ctx = Arc::downgrade(&virtual_machine.synchronizer.ctx);
 
         // Get a handle to the current thread?
-        let handle = ThreadHandle {
-            handle: Mutex::new(None),
-            thread: std::thread::current(),
-            thread_state_manager: virtual_machine.synchronizer.state.clone(),
-            forked_thread_handle: None,
-        }
-        .into_steelval()
-        .unwrap();
+        #[cfg(feature = "std")]
+        {
+            let handle = ThreadHandle {
+                handle: Mutex::new(None),
+                thread: thread::current(),
+                thread_state_manager: virtual_machine.synchronizer.state.clone(),
+                forked_thread_handle: None,
+            }
+            .into_steelval()
+            .unwrap();
 
-        // TODO: Entering safepoint should happen often
-        // for the main thread?
-        virtual_machine
-            .synchronizer
-            .threads
-            .lock()
-            .unwrap()
-            .push(super::vm::ThreadContext {
-                ctx: weak_ctx,
-                handle,
-            });
+            // TODO: Entering safepoint should happen often
+            // for the main thread?
+            virtual_machine
+                .synchronizer
+                .threads
+                .lock()
+                .unwrap()
+                .push(super::vm::ThreadContext {
+                    ctx: weak_ctx,
+                    handle,
+                });
+        }
 
         let compiler = Arc::new(RwLock::new(self.virtual_machine.compiler.write().clone()));
 
@@ -335,6 +349,7 @@ pub struct NonInteractiveProgramImage {
 }
 
 impl NonInteractiveProgramImage {
+    #[cfg(feature = "std")]
     pub fn write_bytes_to_file(&self, out: impl AsRef<StdPath>) {
         let mut f = std::fs::File::create(out).unwrap();
         bincode::serialize_into(&mut f, self).unwrap();
@@ -376,7 +391,7 @@ impl<'a> LifetimeGuard<'a> {
     ) -> Self {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
-            std::any::TypeId::of::<EXT>()
+            core::any::TypeId::of::<EXT>()
         );
 
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
@@ -396,7 +411,7 @@ impl<'a> LifetimeGuard<'a> {
     ) -> Self {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
-            std::any::TypeId::of::<EXT>()
+            core::any::TypeId::of::<EXT>()
         );
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_rw_object::<T, EXT>(
             obj,
@@ -447,12 +462,24 @@ macro_rules! time {
     }};
 }
 
+#[cfg(feature = "std")]
 static STATIC_DEFAULT_PRELUDE_MACROS: OnceCell<Arc<FxHashMap<InternedString, SteelMacro>>> =
     OnceCell::new();
 
+#[cfg(feature = "std")]
 static STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX: OnceCell<Arc<FxHashMap<InternedString, SteelMacro>>> =
     OnceCell::new();
 
+#[cfg(not(feature = "std"))]
+static DEFAULT_PRELUDE_MACROS_STORAGE: Mutex<Option<Arc<FxHashMap<InternedString, SteelMacro>>>> =
+    Mutex::new(None);
+
+#[cfg(not(feature = "std"))]
+static DEFAULT_PRELUDE_MACROS_SANDBOX_STORAGE: Mutex<
+    Option<Arc<FxHashMap<InternedString, SteelMacro>>>,
+> = Mutex::new(None);
+
+#[cfg(feature = "std")]
 pub(crate) fn set_default_prelude_macros(
     prelude_macros: FxHashMap<InternedString, SteelMacro>,
     sandbox: bool,
@@ -475,6 +502,22 @@ pub(crate) fn set_default_prelude_macros(
     }
 }
 
+#[cfg(not(feature = "std"))]
+pub(crate) fn set_default_prelude_macros(
+    prelude_macros: FxHashMap<InternedString, SteelMacro>,
+    sandbox: bool,
+) {
+    let storage = if sandbox {
+        &DEFAULT_PRELUDE_MACROS_SANDBOX_STORAGE
+    } else {
+        &DEFAULT_PRELUDE_MACROS_STORAGE
+    };
+
+    let mut guard = storage.lock().expect("prelude macros mutex poisoned");
+    *guard = Some(Arc::new(prelude_macros));
+}
+
+#[cfg(feature = "std")]
 pub(crate) fn default_prelude_macros() -> Arc<FxHashMap<InternedString, SteelMacro>> {
     if cfg!(feature = "sync") {
         STATIC_DEFAULT_PRELUDE_MACROS.get().cloned().unwrap_or(
@@ -488,6 +531,21 @@ pub(crate) fn default_prelude_macros() -> Arc<FxHashMap<InternedString, SteelMac
     }
 }
 
+#[cfg(not(feature = "std"))]
+pub(crate) fn default_prelude_macros() -> Arc<FxHashMap<InternedString, SteelMacro>> {
+    fn load(
+        storage: &Mutex<Option<Arc<FxHashMap<InternedString, SteelMacro>>>>,
+    ) -> Option<Arc<FxHashMap<InternedString, SteelMacro>>> {
+        let guard = storage.lock().expect("prelude macros mutex poisoned");
+        guard.as_ref().cloned()
+    }
+
+    load(&DEFAULT_PRELUDE_MACROS_STORAGE)
+        .or_else(|| load(&DEFAULT_PRELUDE_MACROS_SANDBOX_STORAGE))
+        .unwrap_or_else(|| Arc::new(FxHashMap::default()))
+}
+
+#[cfg(feature = "std")]
 thread_local! {
     // TODO: Replace this with a once cell?
     pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<Arc<FxHashMap<InternedString, SteelMacro>>> = RefCell::new(Arc::new(HashMap::default()));
@@ -1289,7 +1347,7 @@ impl Engine {
     ) -> LifetimeGuard<'a> {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
-            std::any::TypeId::of::<EXT>()
+            core::any::TypeId::of::<EXT>()
         );
 
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
@@ -1310,7 +1368,7 @@ impl Engine {
     ) -> LifetimeGuard<'a> {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
-            std::any::TypeId::of::<EXT>()
+            core::any::TypeId::of::<EXT>()
         );
 
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_rw_object::<T, EXT>(

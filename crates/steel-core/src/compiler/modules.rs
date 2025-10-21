@@ -20,12 +20,7 @@ use crate::{
     },
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
-use alloc::borrow::Cow;
-use alloc::format;
-use alloc::string::String;
-use alloc::sync::Arc;
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{borrow::Cow, boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
 
 use crate::collections::{MutableHashMap as HashMap, MutableHashSet as HashSet};
 use compact_str::CompactString;
@@ -34,13 +29,19 @@ use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
 // use smallvec::SmallVec;
 #[cfg(feature = "std")]
-use std::io::Read;
+use std::{fs, io::Read};
 use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
 
 use crate::parser::expander::SteelMacro;
 use crate::stop;
 
+#[cfg(feature = "std")]
 use crate::time::SystemTime;
+
+#[cfg(feature = "std")]
+type ModuleTimestamp = SystemTime;
+#[cfg(not(feature = "std"))]
+type ModuleTimestamp = ();
 
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
@@ -221,10 +222,10 @@ pub fn steel_home() -> Option<String> {
 #[derive(Clone)]
 pub(crate) struct ModuleManager {
     pub(crate) compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
-    file_metadata: crate::HashMap<PathBuf, SystemTime>,
+    file_metadata: crate::HashMap<PathBuf, ModuleTimestamp>,
     visited: FxHashSet<PathBuf>,
     custom_builtins: HashMap<String, String>,
-    rollback_metadata: crate::HashMap<PathBuf, SystemTime>,
+    rollback_metadata: crate::HashMap<PathBuf, ModuleTimestamp>,
     // #[serde(skip_serializing, skip_deserializing)]
     module_resolvers: Vec<Arc<dyn SourceModuleResolver>>,
 }
@@ -237,7 +238,7 @@ pub trait SourceModuleResolver: Send + Sync {
 impl ModuleManager {
     pub(crate) fn new(
         compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
-        file_metadata: crate::HashMap<PathBuf, SystemTime>,
+        file_metadata: crate::HashMap<PathBuf, ModuleTimestamp>,
     ) -> Self {
         ModuleManager {
             compiled_modules,
@@ -1799,10 +1800,14 @@ impl RequireObjectBuilder {
     }
 }
 
+#[cfg(feature = "std")]
 fn try_canonicalize(path: PathBuf) -> PathBuf {
-    std::fs::canonicalize(&path)
-        .map(PathBuf::from)
-        .unwrap_or(path)
+    fs::canonicalize(&path).map(PathBuf::from).unwrap_or(path)
+}
+
+#[cfg(not(feature = "std"))]
+fn try_canonicalize(path: PathBuf) -> PathBuf {
+    path
 }
 
 /*
@@ -1833,16 +1838,19 @@ impl DependencyGraph {
     pub fn check_downstream_changes(
         &self,
         root: &PathBuf,
-        updated_at: &crate::HashMap<PathBuf, SystemTime>,
-    ) -> std::io::Result<bool> {
+        updated_at: &crate::HashMap<PathBuf, ModuleTimestamp>,
+    ) -> core::result::Result<bool, ()> {
         let mut stack = vec![root];
 
         while let Some(next) = stack.pop() {
-            let meta = std::fs::metadata(next)?;
+            #[cfg(feature = "std")]
+            {
+                let meta = fs::metadata(next).map_err(|_| ())?;
 
-            if let Some(prev) = updated_at.get(next) {
-                if *prev != meta.modified()? {
-                    return Ok(true);
+                if let Some(prev) = updated_at.get(next) {
+                    if *prev != meta.modified().map_err(|_| ())? {
+                        return Ok(true);
+                    }
                 }
             }
 
@@ -1855,6 +1863,7 @@ impl DependencyGraph {
 
         Ok(false)
     }
+
 }
 */
 
@@ -1871,7 +1880,7 @@ struct ModuleBuilder<'a> {
     provides_for_syntax: Vec<ExprKind>,
     compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
     visited: &'a mut FxHashSet<PathBuf>,
-    file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+    file_metadata: &'a mut crate::HashMap<PathBuf, ModuleTimestamp>,
     sources: &'a mut Sources,
     kernel: &'a mut Option<Kernel>,
     builtin_modules: ModuleContainer,
@@ -1897,7 +1906,7 @@ impl<'a> ModuleBuilder<'a> {
         source_ast: Vec<ExprKind>,
         compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, ModuleTimestamp>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -1910,12 +1919,15 @@ impl<'a> ModuleBuilder<'a> {
         // change the path to not always be required
         // if its not required we know its not coming in
 
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(all(feature = "std", not(target_family = "wasm")))]
         let name = if let Some(p) = name {
-            PathBuf::from(std::fs::canonicalize(&p)?)
+            PathBuf::from(fs::canonicalize(&p)?)
         } else {
             PathBuf::from(std::env::current_dir()?)
         };
+
+        #[cfg(all(not(feature = "std"), not(target_family = "wasm")))]
+        let name = name.unwrap_or_else(PathBuf::new);
 
         #[cfg(target_family = "wasm")]
         let name = PathBuf::new();
@@ -2088,6 +2100,7 @@ impl<'a> ModuleBuilder<'a> {
 
             // At this point, requires should be fully qualified (absolute) paths
 
+            #[cfg(feature = "std")]
             for (module, require_statement_span) in self
                 .require_objects
                 .iter()
@@ -2098,7 +2111,7 @@ impl<'a> ModuleBuilder<'a> {
                     stop!(Generic => "requiring modules is not supported for wasm");
                 }
 
-                let last_modified = std::fs::metadata(&module)
+                let last_modified = fs::metadata(&module)
                     .map_err(|err| {
                         let mut err = crate::SteelErr::from(err);
                         err.prepend_message(&format!(
@@ -2136,7 +2149,7 @@ impl<'a> ModuleBuilder<'a> {
                         let mut stack = m.downstream.clone();
 
                         while let Some(next) = stack.pop() {
-                            let meta = std::fs::metadata(&next)?;
+                            let meta = fs::metadata(&next)?;
 
                             if let Some(prev) = self.file_metadata.get(&next) {
                                 if *prev != meta.modified()? {
@@ -2949,7 +2962,7 @@ impl<'a> ModuleBuilder<'a> {
         input: Cow<'static, str>,
         compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, ModuleTimestamp>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -2978,7 +2991,7 @@ impl<'a> ModuleBuilder<'a> {
         name: PathBuf,
         compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, ModuleTimestamp>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -3008,7 +3021,7 @@ impl<'a> ModuleBuilder<'a> {
         name: PathBuf,
         compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, ModuleTimestamp>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -3072,13 +3085,14 @@ impl<'a> ModuleBuilder<'a> {
         Ok(self)
     }
 
+    #[cfg(feature = "std")]
     fn parse_from_path(mut self) -> Result<Self> {
         log::info!("Opening: {:?}", self.name);
         let mut exprs = String::new();
 
         // If we were unable to resolve it via any of the built in module resolvers,
         // then we check the file system.
-        let mut file = std::fs::File::open(&self.name).map_err(|err| {
+        let mut file = fs::File::open(&self.name).map_err(|err| {
             let mut err = crate::SteelErr::from(err);
             err.prepend_message(&format!("Attempting to load module from: {:?}", self.name));
             err
@@ -3114,5 +3128,10 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         Ok(self)
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn parse_from_path(self) -> Result<Self> {
+        stop!(Generic => "loading modules from files is unavailable without the `std` feature");
     }
 }

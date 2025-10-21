@@ -21,7 +21,6 @@ use crate::{
     },
     primitives::numbers::realp,
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
     values::{
         closed::{Heap, HeapRef, MarkAndSweepContext},
         functions::{BoxedDynFunction, ByteCodeLambda},
@@ -30,7 +29,7 @@ use crate::{
         transducers::{Reducer, Transducer},
     },
 };
-use alloc::{format, rc::Rc, string::String, sync::Arc, vec, vec::IntoIter, vec::Vec};
+use alloc::{boxed::Box, format, rc::Rc, string::String, sync::Arc, vec, vec::IntoIter, vec::Vec};
 use core::{
     any::{Any, TypeId},
     cell::RefCell,
@@ -89,6 +88,10 @@ use futures_task::noop_waker_ref;
 use futures_util::future::Shared;
 use futures_util::FutureExt;
 
+#[cfg(feature = "std")]
+use crate::steel_vm::vm::{threads::closure_into_serializable, BuiltInSignature, Continuation};
+#[cfg(not(feature = "std"))]
+use crate::steel_vm::vm::{BuiltInSignature, Continuation};
 use crate::values::lists::List;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::{BigRational, Rational32};
@@ -121,6 +124,30 @@ pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<SteelVal>>>>;
 
 #[cfg(feature = "sync")]
 pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<SteelVal>> + Send + 'static>>;
+
+#[cfg(not(feature = "std"))]
+fn closure_into_serializable(
+    c: &ByteCodeLambda,
+    serializer: &mut MutableHashMap<usize, SerializableSteelVal>,
+    visited: &mut MutableHashSet<usize>,
+) -> Result<SerializedLambda> {
+    let captures = c
+        .captures
+        .iter()
+        .cloned()
+        .map(|x| into_serializable_value(x, serializer, visited))
+        .collect::<Result<Vec<_>>>()?;
+
+    let body_exp = c.body_exp().iter().cloned().collect();
+
+    Ok(SerializedLambda {
+        id: c.id,
+        body_exp,
+        arity: c.arity as usize,
+        is_multi_arity: c.is_multi_arity,
+        captures,
+    })
+}
 
 // TODO: Why can't I put sync here?
 // #[cfg(feature = "sync")]

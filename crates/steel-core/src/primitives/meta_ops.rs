@@ -4,8 +4,7 @@ use crate::{
     gc::{get_object_count, Gc},
     rvals::FutureResult,
 };
-use alloc::format;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, format, vec::Vec};
 
 use futures_util::future::join_all;
 

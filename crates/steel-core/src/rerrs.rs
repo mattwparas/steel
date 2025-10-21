@@ -1,10 +1,8 @@
 use crate::steel_vm::vm::DehydratedCallContext;
 use crate::{parser::parser::ParseError, rvals::Custom, steel_vm::vm::DehydratedStackTrace};
-use alloc::format;
-use alloc::string::String;
-use alloc::vec;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 use core::{convert::Infallible, fmt::Formatter};
+#[cfg(feature = "std")]
 #[cfg(feature = "std")]
 use std::io::IsTerminal;
 // use thiserror::Error;
@@ -77,12 +75,14 @@ impl ErrorKind {
     }
 }
 
+#[cfg(feature = "std")]
 impl From<std::io::Error> for SteelErr {
     fn from(v: std::io::Error) -> Self {
         SteelErr::_new(v.into())
     }
 }
 
+#[cfg(feature = "std")]
 impl From<std::io::Error> for Repr {
     fn from(v: std::io::Error) -> Self {
         Repr {
@@ -150,6 +150,7 @@ pub struct SteelErr {
     repr: Box<Repr>,
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for SteelErr {}
 
 impl fmt::Display for SteelErr {
@@ -245,6 +246,7 @@ impl SteelErr {
         }
     }
 
+    #[cfg(feature = "std")]
     pub fn emit_result(&self, file_name: &str, file_content: &str) {
         // let opts = Opts::();
         // let config = codespan_reporting::term::Config::default();
@@ -267,6 +269,9 @@ impl SteelErr {
         //     term::emit(&mut writer.lock(), &config, &file, &diagnostic)?;
         // }
     }
+
+    #[cfg(not(feature = "std"))]
+    pub fn emit_result(&self, _file_name: &str, _file_content: &str) {}
 
     pub fn emit_result_to_string(&self, file_name: &str, file_content: &str) -> String {
         // let writer = StandardStream::from(String::new());
