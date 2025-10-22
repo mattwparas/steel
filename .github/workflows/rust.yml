@@ -25,14 +25,10 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Remove sync feature from build
         run: sed -i 's/"stacker", "sync"/"stacker"/' Cargo.toml
@@ -61,18 +57,16 @@ jobs:
           cd cogs/
           cargo run -- install.scm
 
-      - uses: actions-rs/cargo@v1
+      - name: Run tests
         env:
           STEEL_HOME: ${{ env.STEEL_HOME }}
-        with:
-          command: test
-          args: --all
+        run: cargo test --workspace
 
       - name: install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --force
 
       - name: run code coverage
-        run: cargo tarpaulin --exclude steel-derive --all --no-default-features -o "lcov" --engine llvm
+        run: cargo tarpaulin --exclude steel-derive --workspace --no-default-features -o "lcov" --engine llvm
 
       - name: Coveralls GitHub Action
         uses: coverallsapp/github-action@v1.1.2
@@ -99,14 +93,10 @@ jobs:
         shell: bash
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Set the STEEL_HOME environment variable
         run: echo STEEL_HOME=${PWD}/.steel-sync >> $GITHUB_ENV 
@@ -133,12 +123,10 @@ jobs:
           cd cogs/
           cargo run -- install.scm
 
-      - uses: actions-rs/cargo@v1
+      - name: Run tests
         env:
           STEEL_HOME: ${{ env.STEEL_HOME }}
-        with:
-          command: test
-          args: --all
+        run: cargo test --workspace
 
       - name: Install shared libraries
         env:
@@ -152,13 +140,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
+        uses: dtolnay/rust-toolchain@stable
       - name: Build x86_64-unknown-redox
         run: |
           sudo apt-get update -y && sudo apt-get install fuse3 libfuse3-dev pkg-config -y
@@ -170,13 +154,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
+        uses: dtolnay/rust-toolchain@stable
       - name: Build wasm32-unknown-unknown
         run: |
           cd crates/steel-core/
@@ -189,17 +169,10 @@ jobs:
     needs: test
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
           components: rustfmt
       - name: Check formatting
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
-
+        run: cargo fmt --workspace -- --check

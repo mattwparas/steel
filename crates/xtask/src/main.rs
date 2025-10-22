@@ -133,7 +133,7 @@ fn install_cogs() -> Result<(), Box<dyn Error>> {
 fn run_tests() -> Result<(), Box<dyn Error>> {
     std::process::Command::new("cargo")
         .arg("test")
-        .arg("--all")
+        .arg("--workspace")
         .spawn()?
         .wait()?;
 
