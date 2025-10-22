@@ -299,25 +299,27 @@ pub fn string_constructor(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
 // TODO: avoid allocation in `-ci` variants
 
 macro_rules! impl_str_comparison {
-    (-ci, $name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
+    (-ci, $name:ident, $ext_name:literal, $mode:literal, $op:expr, $(#[$attr:meta])*) => {
         #[doc = concat!("Compares strings lexicographically (as in\"", $mode, "\"),")]
         #[doc = "in a case insensitive fashion."]
         #[doc = ""]
         #[doc = concat!("(", $ext_name, " s1 s2 ... ) -> bool?")]
         #[doc = "* s1 : string?"]
         #[doc = "* s2 : string?"]
+        $(#[$attr])*
         #[function(name = $ext_name, constant = true)]
         pub fn $name(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
             let cm = CaseMapper::new();
             monotonic!(rest.map(|val| val.map(|s| cm.fold_string(s))), $op)
         }
     };
-    ($name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
+    ($name:ident, $ext_name:literal, $mode:literal, $op:expr, $(#[$attr:meta])*) => {
         #[doc = concat!("Compares strings lexicographically (as in\"", $mode, "\").")]
         #[doc = ""]
         #[doc = concat!("(", $ext_name, " s1 s2 ... ) -> bool?")]
         #[doc = "* s1 : string?"]
         #[doc = "* s2 : string?"]
+        $(#[$attr])*
         #[function(name = $ext_name, constant = true)]
         pub fn $name(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
             monotonic!(rest, $op)
@@ -329,53 +331,117 @@ impl_str_comparison!(
     string_less_than,
     "string<?",
     "less-than",
-    |s1: &_, s2: &_| s1 < s2
+    |s1: &_, s2: &_| s1 < s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string<? "a" "b") ;; => #t
+    /// > (string<? "a" "b" "c") ;; => #t
+    /// > (string<? "a" "b" "b") ;; => #f
+    /// ```
 );
 impl_str_comparison!(
     string_less_than_equal_to,
     "string<=?",
     "less-than-equal-to",
-    |s1: &_, s2: &_| s1 <= s2
+    |s1: &_, s2: &_| s1 <= s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string<=? "a" "b") ;; => #t
+    /// > (string<=? "a" "b" "c") ;; => #t
+    /// > (string<=? "a" "b" "b") ;; => #t
+    /// ```
 );
 impl_str_comparison!(
     string_greater_than,
     "string>?",
     "greater-than",
-    |s1: &_, s2: &_| s1 > s2
+    |s1: &_, s2: &_| s1 > s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string>? "b" "a") ;; => #t
+    /// > (string>? "c" "b" "a") ;; => #t
+    /// > (string>? "c" "b" "b") ;; => #f
+    /// ```
 );
 impl_str_comparison!(
     string_greater_than_equal_to,
     "string>=?",
     "greater-than-or-equal",
-    |s1: &_, s2: &_| s1 >= s2
+    |s1: &_, s2: &_| s1 >= s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string>=? "b" "a") ;; => #t
+    /// > (string>=? "c" "b" "a") ;; => #t
+    /// > (string>=? "c" "b" "b") ;; => #t
+    /// ```
 );
 impl_str_comparison!(
     -ci,
     string_ci_less_than,
     "string-ci<?",
     "less-than",
-    |s1: &_, s2: &_| s1 < s2
+    |s1: &_, s2: &_| s1 < s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string-ci<? "a" "b") ;; => #t
+    /// > (string-ci<? "a" "B") ;; => #t
+    /// > (string-ci<? "a" "B" "c") ;; => #t
+    /// > (string-ci<? "a" "B" "b") ;; => #f
+    /// > (string-ci<? "Straßburg" "STRASSE" "straßenbahn") ;; => #t
+    /// ```
 );
 impl_str_comparison!(
     -ci,
     string_ci_less_than_equal_to,
     "string-ci<=?",
     "less-than-or-equal",
-    |s1: &_, s2: &_| s1 <= s2
+    |s1: &_, s2: &_| s1 <= s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string-ci<=? "a" "b") ;; => #t
+    /// > (string-ci<=? "a" "B") ;; => #t
+    /// > (string-ci<=? "a" "B" "c") ;; => #t
+    /// > (string-ci<=? "a" "B" "b") ;; => #t
+    /// > (string-ci<=? "Straßburg" "STRASSE" "straßenbahn") ;; => #t
+    /// ```
 );
 impl_str_comparison!(
     -ci,
     string_ci_greater_than,
     "string-ci>?",
     "greater-than",
-    |s1: &_, s2: &_| s1 > s2
+    |s1: &_, s2: &_| s1 > s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string-ci>? "b" "a") ;; => #t
+    /// > (string-ci>? "B" "a") ;; => #t
+    /// > (string-ci>? "c" "B" "a") ;; => #t
+    /// > (string-ci>? "c" "B" "b") ;; => #f
+    /// > (string-ci>? "straßenbahn" "STRASSE" "Straßburg") ;; => #t
+    /// ```
 );
 impl_str_comparison!(
     -ci,
     string_ci_greater_than_equal_to,
     "string-ci>=?",
     "greater-than-or-equal",
-    |s1: &_, s2: &_| s1 >= s2
+    |s1: &_, s2: &_| s1 >= s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string-ci>=? "b" "a") ;; => #t
+    /// > (string-ci>=? "B" "a") ;; => #t
+    /// > (string-ci>=? "c" "B" "a") ;; => #t
+    /// > (string-ci>=? "c" "B" "b") ;; => #f
+    /// > (string-ci>=? "straßenbahn" "STRASSE" "Straßburg") ;; => #t
+    /// ```
 );
 
 /// Compares strings for equality.

@@ -2885,6 +2885,15 @@ in a case insensitive fashion.
 (string-ci<=? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string-ci<=? "a" "b") ;; => #t
+ > (string-ci<=? "a" "B") ;; => #t
+ > (string-ci<=? "a" "B" "c") ;; => #t
+ > (string-ci<=? "a" "B" "b") ;; => #t
+ > (string-ci<=? "Straßburg" "STRASSE" "straßenbahn") ;; => #t
+ ```
 ### **string-ci<?**
 Compares strings lexicographically (as in"less-than"),
 in a case insensitive fashion.
@@ -2892,6 +2901,15 @@ in a case insensitive fashion.
 (string-ci<? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string-ci<? "a" "b") ;; => #t
+ > (string-ci<? "a" "B") ;; => #t
+ > (string-ci<? "a" "B" "c") ;; => #t
+ > (string-ci<? "a" "B" "b") ;; => #f
+ > (string-ci<? "Straßburg" "STRASSE" "straßenbahn") ;; => #t
+ ```
 ### **string-ci=?**
 Compares strings for equality, in a case insensitive fashion.
 
@@ -2911,6 +2929,15 @@ in a case insensitive fashion.
 (string-ci>=? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string-ci>=? "b" "a") ;; => #t
+ > (string-ci>=? "B" "a") ;; => #t
+ > (string-ci>=? "c" "B" "a") ;; => #t
+ > (string-ci>=? "c" "B" "b") ;; => #f
+ > (string-ci>=? "straßenbahn" "STRASSE" "Straßburg") ;; => #t
+ ```
 ### **string-ci>?**
 Compares strings lexicographically (as in"greater-than"),
 in a case insensitive fashion.
@@ -2918,6 +2945,15 @@ in a case insensitive fashion.
 (string-ci>? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string-ci>? "b" "a") ;; => #t
+ > (string-ci>? "B" "a") ;; => #t
+ > (string-ci>? "c" "B" "a") ;; => #t
+ > (string-ci>? "c" "B" "b") ;; => #f
+ > (string-ci>? "straßenbahn" "STRASSE" "Straßburg") ;; => #t
+ ```
 ### **string-contains?**
 Searches a string to check if it contains the second argument.
 
@@ -3017,12 +3053,26 @@ Compares strings lexicographically (as in"less-than-equal-to").
 (string<=? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string<=? "a" "b") ;; => #t
+ > (string<=? "a" "b" "c") ;; => #t
+ > (string<=? "a" "b" "b") ;; => #t
+ ```
 ### **string<?**
 Compares strings lexicographically (as in"less-than").
 
 (string<? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string<? "a" "b") ;; => #t
+ > (string<? "a" "b" "c") ;; => #t
+ > (string<? "a" "b" "b") ;; => #f
+ ```
 ### **string=?**
 Compares strings for equality.
 
@@ -3043,12 +3093,26 @@ Compares strings lexicographically (as in"greater-than-or-equal").
 (string>=? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string>=? "b" "a") ;; => #t
+ > (string>=? "c" "b" "a") ;; => #t
+ > (string>=? "c" "b" "b") ;; => #t
+ ```
 ### **string>?**
 Compares strings lexicographically (as in"greater-than").
 
 (string>? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string>? "b" "a") ;; => #t
+ > (string>? "c" "b" "a") ;; => #t
+ > (string>? "c" "b" "b") ;; => #f
+ ```
 ### **string?**
 Returns true if the value is a string.
 
