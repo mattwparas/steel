@@ -420,7 +420,7 @@ impl core::fmt::Debug for TypeInfo {
                 .finish(),
             Self::DependentFunction(_) => f
                 .debug_tuple("DependentFunction")
-                .field(&"<#function>".to_string())
+                .field(&"<#function>")
                 .finish(),
             Self::UnionOf(arg0) => f.debug_tuple("UnionOf").field(arg0).finish(),
             Self::IntersectionOf(arg0) => f.debug_tuple("IntersectionOf").field(arg0).finish(),

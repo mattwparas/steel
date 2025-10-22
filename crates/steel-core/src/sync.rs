@@ -127,6 +127,15 @@ mod std_sync {
         }
     }
 
+    unsafe impl<T: ?Sized + Send> Send for RwLock<T> {}
+    unsafe impl<T: ?Sized + Send> Sync for RwLock<T> {}
+
+    unsafe impl<'a, T: ?Sized + Send> Send for RwLockReadGuard<'a, T> {}
+    unsafe impl<'a, T: ?Sized + Send> Sync for RwLockReadGuard<'a, T> {}
+
+    unsafe impl<'a, T: ?Sized + Send> Send for RwLockWriteGuard<'a, T> {}
+    unsafe impl<'a, T: ?Sized + Send> Sync for RwLockWriteGuard<'a, T> {}
+
     impl<T: ?Sized> RwLock<T> {
         #[inline]
         pub fn read(&self) -> RwLockReadGuard<'_, T> {

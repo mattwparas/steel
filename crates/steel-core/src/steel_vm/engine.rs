@@ -7,7 +7,9 @@ use super::{
     primitives::{register_builtin_modules, CONSTANTS},
     vm::{SteelThread, Synchronizer, ThreadStateController},
 };
-use alloc::borrow::Cow;
+use crate::alloc::string::ToString;
+use alloc::borrow::{Cow, ToOwned};
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::rc::Rc;
 use alloc::string::String;
@@ -367,7 +369,7 @@ impl NonInteractiveProgramImage {
 }
 
 // fn steel_create_bootstrap() {
-//     Engine::create_bootstrap_from_programs("src/boot/bootstrap.bin".into());
+//     Engine::create_bootstrap_from_programs("src/boot/bootstrap.bin");
 // }
 
 pub struct LifetimeGuard<'a> {
@@ -1721,6 +1723,7 @@ impl Engine {
         }
     }
 
+    #[cfg(feature = "std")]
     pub fn expand_to_file<E, P>(&mut self, exprs: E, path: P)
     where
         E: AsRef<str> + Into<Cow<'static, str>>,
@@ -1737,6 +1740,7 @@ impl Engine {
         });
     }
 
+    #[cfg(feature = "std")]
     pub fn load_from_expanded_file(&mut self, path: &str) {
         let program = self.with_sources_guard(|| {
             self.virtual_machine
@@ -1804,7 +1808,7 @@ impl Engine {
         let symbol_map_offset = self.virtual_machine.compiler.read().symbol_map.len();
 
         let result = program.build(
-            "TestProgram".to_string(),
+            "TestProgram".into(),
             &mut self.virtual_machine.compiler.write().symbol_map,
         );
 
@@ -2064,7 +2068,7 @@ impl Engine {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new();
-    /// let external_value = "hello-world".to_string();
+    /// let external_value = String::from("hello-world");
     /// vm.register_external_value("hello-world", external_value).unwrap();
     /// vm.run("hello-world").unwrap(); // Will return the string
     /// ```
@@ -2086,7 +2090,7 @@ impl Engine {
     /// use steel::rvals::SteelVal;
     ///
     /// let mut vm = Engine::new();
-    /// let external_value = SteelVal::StringV("hello-world".to_string().into());
+    /// let external_value = SteelVal::StringV("hello-world".into());
     /// vm.register_value("hello-world", external_value);
     /// vm.run("hello-world").unwrap(); // Will return the string
     /// ```
@@ -2295,7 +2299,7 @@ impl Engine {
         match self.virtual_machine.compiler.read().get_doc(value)? {
             crate::compiler::compiler::StringOrSteelString::String(s) => Some(s),
             crate::compiler::compiler::StringOrSteelString::SteelString(steel_string) => {
-                Some(steel_string.as_str().to_string())
+                Some(steel_string.as_str().into())
             }
         }
     }

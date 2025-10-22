@@ -3,7 +3,7 @@ use crate::steel_vm::{builtin::get_function_name, vm::Continuation, vm::Continua
 use crate::values::lists::Pair;
 #[cfg(feature = "std")]
 use crate::values::port::SteelPort;
-use alloc::{collections::VecDeque, format, vec::Vec};
+use alloc::{boxed::Box, collections::VecDeque, format, vec::Vec};
 use core::cell::Cell;
 use num_bigint::BigInt;
 

@@ -188,7 +188,7 @@ impl Custom for OpaqueFFIValueReturn {
         }
 
         #[cfg(not(feature = "ffi-format"))]
-        Some(Ok("#<OpaqueFFIValue>".to_string()))
+        Some(Ok(String::from("#<OpaqueFFIValue>")))
     }
 }
 

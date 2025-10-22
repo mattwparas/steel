@@ -1,4 +1,6 @@
-use alloc::{borrow::Cow, format, string::String, sync::Arc, vec, vec::Vec};
+use crate::alloc::string::ToString;
+use alloc::borrow::ToOwned;
+use alloc::{borrow::Cow, boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
 use core::cell::RefCell;
 
 use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadContainer};
@@ -394,7 +396,7 @@ impl BuiltInModuleRepr {
     }
 
     pub(crate) fn unreadable_name(&self) -> String {
-        "%-builtin-module-".to_string() + &self.name
+        format!("%-builtin-module-{}", self.name)
     }
 
     /// Add a value to the module namespace. This value can be any legal SteelVal, or if you're explicitly attempting
@@ -693,7 +695,7 @@ impl BuiltInModule {
     }
 
     pub(crate) fn unreadable_name(&self) -> String {
-        "%-builtin-module-".to_string() + &self.module.read().name
+        format!("%-builtin-module-{}", self.module.read().name)
     }
 
     /// Add a value to the module namespace. This value can be any legal SteelVal, or if you're explicitly attempting

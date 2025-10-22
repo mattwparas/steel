@@ -1,6 +1,7 @@
 #![allow(unused)]
 
-use alloc::{format, rc::Rc, string::String, sync::Arc};
+use crate::alloc::string::ToString;
+use alloc::{boxed::Box, format, rc::Rc, string::String, sync::Arc};
 use core::{cell::RefCell, future::Future, marker::PhantomData, ops::DerefMut};
 
 use super::{

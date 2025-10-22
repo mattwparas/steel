@@ -263,7 +263,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                 )))),
 
                 Pair(_) => Err("Can't convert from pair to expression!"),
-
+                #[cfg(feature = "std")]
                 PortV(_) => Err("Can't convert from port to expression!"),
                 Closure(_) => Err("Can't convert from bytecode closure to expression"),
                 HashMapV(_) => Err("Can't convert from hashmap to expression!"),

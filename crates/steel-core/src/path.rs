@@ -324,6 +324,11 @@ impl PathBuf {
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.0)
     }
+
+    #[inline]
+    pub fn to_str(&self) -> Option<&str> {
+        Some(&self.0)
+    }
 }
 
 #[cfg(not(feature = "std"))]

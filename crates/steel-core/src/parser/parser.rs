@@ -4,6 +4,7 @@ use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::HashSet;
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 use alloc::format;
+use alloc::string::String;
 
 use crate::path::PathBuf;
 use alloc::borrow::Cow;
@@ -312,11 +313,11 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
         match value {
             OpenParen(p, _) => Err(SteelErr::new(
                 ErrorKind::UnexpectedToken,
-                p.open().to_string(),
+                String::from(p.open()),
             )),
             CloseParen(p) => Err(SteelErr::new(
                 ErrorKind::UnexpectedToken,
-                p.close().to_string(),
+                String::from(p.close()),
             )),
             CharacterLiteral(x) => Ok(CharV(x)),
             BooleanLiteral(x) => Ok(BoolV(x)),
@@ -324,15 +325,18 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
             Number(x) => x.into_steelval(),
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
-            QuoteTick => Err(SteelErr::new(ErrorKind::UnexpectedToken, "'".to_string())),
-            Unquote => Err(SteelErr::new(ErrorKind::UnexpectedToken, ",".to_string())),
-            QuasiQuote => Err(SteelErr::new(ErrorKind::UnexpectedToken, "`".to_string())),
-            UnquoteSplice => Err(SteelErr::new(ErrorKind::UnexpectedToken, ",@".to_string())),
-            Comment => Err(SteelErr::new(
+            QuoteTick => Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("'"))),
+            Unquote => Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from(","))),
+            QuasiQuote => Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("`"))),
+            UnquoteSplice => Err(SteelErr::new(
                 ErrorKind::UnexpectedToken,
-                "comment".to_string(),
+                String::from(",@"),
             )),
-            DatumComment => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#;".to_string())),
+            Comment => Err(SteelErr::new(ErrorKind::UnexpectedToken, "comment".into())),
+            DatumComment => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                String::from("#;"),
+            )),
             If => Ok(SymbolV("if".into())),
             Define => Ok(SymbolV("define".into())),
             Let => Ok(SymbolV("let".into())),
@@ -346,13 +350,23 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
             Ellipses => Ok(SymbolV("...".into())),
             Set => Ok(SymbolV("set!".into())),
             Require => Ok(SymbolV("require".into())),
-            QuasiQuoteSyntax => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#`".to_string())),
-            UnquoteSyntax => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,".to_string())),
-            QuoteSyntax => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#'".to_string())),
-            UnquoteSpliceSyntax => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,@".to_string()))
-            }
-            Dot => Err(SteelErr::new(ErrorKind::UnexpectedToken, ".".to_string())),
+            QuasiQuoteSyntax => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                String::from("#`"),
+            )),
+            UnquoteSyntax => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                String::from("#,"),
+            )),
+            QuoteSyntax => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                String::from("#'"),
+            )),
+            UnquoteSpliceSyntax => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                String::from("#,@"),
+            )),
+            Dot => Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("."))),
         }
     }
 }
@@ -366,9 +380,11 @@ impl TryFrom<SyntaxObject> for SteelVal {
             OpenParen(..) => {
                 Err(SteelErr::new(ErrorKind::UnexpectedToken, format!("{}", e.ty)).with_span(span))
             }
-            CloseParen(p) => Err(
-                SteelErr::new(ErrorKind::UnexpectedToken, p.close().to_string()).with_span(span),
-            ),
+            CloseParen(p) => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                String::from(p.close()),
+            )
+            .with_span(span)),
             CharacterLiteral(x) => Ok(CharV(x)),
             BooleanLiteral(x) => Ok(BoolV(x)),
             Identifier(x) => Ok(SymbolV(x.into())),
@@ -376,22 +392,22 @@ impl TryFrom<SyntaxObject> for SteelVal {
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "'".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("'")).with_span(span))
             }
             Unquote => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, ",".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from(",")).with_span(span))
             }
             QuasiQuote => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "`".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("`")).with_span(span))
             }
             UnquoteSplice => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, ",@".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from(",@")).with_span(span))
             }
             Comment => Err(
-                SteelErr::new(ErrorKind::UnexpectedToken, "comment".to_string()).with_span(span),
+                SteelErr::new(ErrorKind::UnexpectedToken, String::from("comment")).with_span(span),
             ),
             DatumComment => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#;".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("#;")).with_span(span))
             }
             If => Ok(SymbolV("if".into())),
             Define => Ok(SymbolV("define".into())),
@@ -407,18 +423,20 @@ impl TryFrom<SyntaxObject> for SteelVal {
             Set => Ok(SymbolV("set!".into())),
             Require => Ok(SymbolV("require".into())),
             QuasiQuoteSyntax => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#`".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("#`")).with_span(span))
             }
             UnquoteSyntax => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("#,")).with_span(span))
             }
             QuoteSyntax => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#'".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("#'")).with_span(span))
             }
             UnquoteSpliceSyntax => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,@".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("#,@")).with_span(span))
             }
-            Dot => Err(SteelErr::new(ErrorKind::UnexpectedToken, ".".to_string()).with_span(span)),
+            Dot => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from(".")).with_span(span))
+            }
         }
     }
 }

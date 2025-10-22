@@ -15,6 +15,8 @@ use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 use crate::values::lists::List;
 
 #[cfg(not(feature = "std"))]
+use crate::alloc::string::ToString;
+#[cfg(not(feature = "std"))]
 use crate::rvals::Result;
 #[cfg(feature = "std")]
 use crate::values::port::SteelPortRepr;
@@ -57,7 +59,7 @@ impl EngineWrapper {
         self.0
             .modules()
             .iter()
-            .map(|x| x.0.to_str().unwrap().to_string())
+            .map(|x| x.0.to_str().unwrap().into())
             .collect()
     }
 
@@ -211,6 +213,7 @@ pub fn expand_macros(arguments: &[SteelVal]) -> Result<SteelVal> {
         .map(SteelVal::ListV)
 }
 
+#[cfg(feature = "std")]
 fn drain_custom_output_port() -> String {
     CAPTURED_OUTPUT_PORT.with(|x| {
         // Flush the buffer
@@ -224,6 +227,11 @@ fn drain_custom_output_port() -> String {
             .unwrap_or("Unable to capture std out")
             .to_string()
     })
+}
+
+#[cfg(not(feature = "std"))]
+fn drain_custom_output_port() -> String {
+    String::new()
 }
 
 #[cfg(feature = "std")]

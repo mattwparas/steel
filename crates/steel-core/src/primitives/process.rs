@@ -9,7 +9,7 @@ use std::io::{BufReader, BufWriter};
 use std::process::{Child, Command, Stdio};
 
 pub fn process_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/process".to_string());
+    let mut module = BuiltInModule::new("steel/process");
 
     module
         .register_fn("command", CommandBuilder::new)

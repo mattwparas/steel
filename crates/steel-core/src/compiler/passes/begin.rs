@@ -456,7 +456,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
         .iter()
         .any(|x| matches!(x, ExpressionType::DefineFunction(_)))
     {
-        // let starting_iter = ExprKind::atom("void".to_string())
+        // let starting_iter = ExprKind::atom("void")
 
         // TODO: last expression needs to be something, otherwise this doesn't work
         // if let Some(last) = expression_types.last() {
@@ -610,7 +610,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
                     top_level_dummy_args.push(arg);
                     top_level_arguments.push(d.name.clone());
                     // top_level_arguments.push(d.name.clone());
-                    // let name_prime = atom("#####".to_string() + name + i.to_string().as_str());
+                    // let name_prime = atom("#####".into() + name + i.to_string().as_str());
                     // let set_expr = set(d.name.clone(), name_prime.clone());
                     // bound_names.push(name_prime);
                     // set_expressions.push(set_expr);
@@ -655,7 +655,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
             // If will _only_ go in the right order of assignment
             ExpressionType::Expression => {
                 // TODO: This is definitly not right
-                // let expr = atom("#####define-conversion".to_string() + i.to_string().as_str());
+                // let expr = atom("#####define-conversion".into() + i.to_string().as_str());
                 // top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 //     TokenType::IntegerLiteral(123),
                 // ))));

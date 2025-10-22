@@ -112,7 +112,7 @@ pub(crate) fn thread_join_impl(handle: &ThreadHandle) -> Result<SteelVal> {
     if let Some(handle) = handle.handle.lock().unwrap().take() {
         handle
             .join()
-            .map_err(|_| SteelErr::new(ErrorKind::Generic, "thread panicked!".to_string()))?
+            .map_err(|_| SteelErr::new(ErrorKind::Generic, "thread panicked!".into()))?
             .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
     } else {
         stop!(ContractViolation => "thread handle has already been joined!");

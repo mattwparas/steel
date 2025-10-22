@@ -20,6 +20,7 @@ use crate::{
     SteelErr,
 };
 use alloc::{
+    boxed::Box,
     format,
     rc::{Rc, Weak},
     vec,
@@ -828,7 +829,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 if non_constant_arguments.is_empty() {
                     // println!("Returning here!");
                     return ExprKind::try_from(&value_output)
-                        .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
+                        .map_err(|x| SteelErr::new(ErrorKind::Generic, x.into()))
                         .map(|x| {
                             ExprKind::Quote(Box::new(Quote::new(
                                 x,

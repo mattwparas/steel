@@ -3019,8 +3019,8 @@ impl<'a> VisitorMutRefUnit for LiftPureFunctionsToGlobalScope<'a> {
                             // with the right thing
 
                             // Name the closure something mangled, but something we can refer to later
-                            let constructed_name = "##__lifted_pure_function".to_string()
-                                + l.syntax_object_id.to_string().as_ref();
+                            let constructed_name =
+                                format!("##__lifted_pure_function{}", l.syntax_object_id);
 
                             // Point the reference to a dummy list - this is just an ephemeral placeholder
                             let mut dummy = ExprKind::List(List::new(Vec::new()));
@@ -3424,7 +3424,7 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
 
         for (index, _name, _id) in functions.into_iter().rev() {
             // let constructed_name =
-            //     "##lambda-lifting##".to_string() + &name + id.0.to_string().as_str();
+            //     "##lambda-lifting##".into() + &name + id.0.to_string().as_str();
 
             // let mut dummy_define = ExprKind::Define(Box::new(Define::new(
             //     ExprKind::atom(name),
@@ -3482,7 +3482,7 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
         if let Some(ident) = a.ident_mut() {
             if self.identifiers_to_replace.contains(ident) {
                 if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
-                    // *ident = ("#%prim.".to_string() + builtin_name).into();
+                    // *ident = ("#%prim.".into() + builtin_name).into();
 
                     *ident = builtin_to_reserved(builtin_name);
                     self.changed = true;
@@ -3550,7 +3550,7 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
                         self.identifiers_to_replace.insert(*ident);
 
-                        // *ident = ("#%prim.".to_string() + builtin_name).into();
+                        // *ident = ("#%prim.".into() + builtin_name).into();
 
                         *ident = builtin_to_reserved(builtin_name);
 
@@ -3581,7 +3581,7 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesWithReservedPrimitiveReferenc
 
                                     self.identifiers_to_replace.insert(*ident);
 
-                                    // *ident = ("#%prim.".to_string() + builtin_name).into();
+                                    // *ident = ("#%prim.".into() + builtin_name).into();
                                     *ident = builtin_to_reserved(builtin_name);
 
                                     // println!("MUTATED IDENT TO BE: {} -> {}", original, ident);
@@ -5210,10 +5210,9 @@ impl<'a> SemanticAnalysis<'a> {
                 let mut find_call_site_by_id =
                     FindUsages::new(id, &self.analysis, |_: &Analysis, usage: &mut Atom| {
                         if let Some(ident) = usage.ident_mut() {
-                            *ident = ("##lambda-lifting##".to_string()
-                                + ident.resolve()
-                                + id.0.to_string().as_str())
-                            .into();
+                            let new_ident =
+                                format!("##lambda-lifting##{}{}", ident.resolve(), id.0);
+                            *ident = new_ident.into();
                             true
                         } else {
                             false
@@ -5237,10 +5236,8 @@ impl<'a> SemanticAnalysis<'a> {
                         }
 
                         if let Some(name) = define.name.atom_identifier_mut() {
-                            *name = ("##lambda-lifting##".to_string()
-                                + name.resolve()
-                                + id.0.to_string().as_str())
-                            .into();
+                            let new_name = format!("##lambda-lifting##{}{}", name.resolve(), id.0);
+                            *name = new_name.into();
                         } else {
                             unreachable!("This should explicitly be an identifier here - perhaps a macro was invalid?");
                         }
@@ -5606,7 +5603,7 @@ mod analysis_pass_tests {
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                "unused arguments".to_string(),
+                "unused arguments".into(),
                 var.1,
             );
         }
@@ -5797,7 +5794,7 @@ mod analysis_pass_tests {
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                "Free identifier".to_string(),
+                "Free identifier".into(),
                 var.span,
             );
         }
@@ -5887,7 +5884,7 @@ mod analysis_pass_tests {
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                "last usage".to_string(),
+                "last usage".into(),
                 var.span,
             );
         }
@@ -5936,7 +5933,7 @@ mod analysis_pass_tests {
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                "let-var".to_string(),
+                "let-var".into(),
                 var.span,
             );
         }
@@ -5960,7 +5957,7 @@ mod analysis_pass_tests {
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                "last usage".to_string(),
+                "last usage".into(),
                 var.span,
             );
         }
@@ -6006,7 +6003,7 @@ mod analysis_pass_tests {
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                "let-var".to_string(),
+                "let-var".into(),
                 var.span,
             );
         }
@@ -6051,7 +6048,7 @@ mod analysis_pass_tests {
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                "tail call".to_string(),
+                "tail call".into(),
                 var.span,
             );
         }
@@ -6091,7 +6088,7 @@ mod analysis_pass_tests {
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                "tail call".to_string(),
+                "tail call".into(),
                 var.span,
             );
         }
@@ -6137,7 +6134,7 @@ mod analysis_pass_tests {
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                "tail call".to_string(),
+                "tail call".into(),
                 var.span,
             );
         }
@@ -6176,7 +6173,7 @@ mod analysis_pass_tests {
                 ErrorKind::FreeIdentifier.to_error_code(),
                 "input.rkt",
                 script,
-                "tail call".to_string(),
+                "tail call".into(),
                 var.span,
             );
         }
@@ -6543,7 +6540,7 @@ mod analysis_pass_tests {
                     ErrorKind::FreeIdentifier.to_error_code(),
                     "input.rkt",
                     script,
-                    "Free identifier".to_string(),
+                    "Free identifier".into(),
                     var.span,
                 );
             }
@@ -6557,7 +6554,7 @@ mod analysis_pass_tests {
             //         ErrorKind::FreeIdentifier.to_error_code(),
             //         "input.rkt",
             //         script,
-            //         "Unused variable".to_string(),
+            //         "Unused variable".into(),
             //         var.span,
             //     );
             // }
@@ -6567,7 +6564,7 @@ mod analysis_pass_tests {
             //         ErrorKind::FreeIdentifier.to_error_code(),
             //         "input.rkt",
             //         script,
-            //         "global var".to_string(),
+            //         "global var".into(),
             //         var.span,
             //     );
             // }
@@ -6577,7 +6574,7 @@ mod analysis_pass_tests {
             //         ErrorKind::FreeIdentifier.to_error_code(),
             //         "input.rkt",
             //         script,
-            //         "last usage of variable".to_string(),
+            //         "last usage of variable".into(),
             //         var.span,
             //     );
             // }

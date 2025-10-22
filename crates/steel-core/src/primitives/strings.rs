@@ -874,10 +874,13 @@ pub fn utf8_length(value: &SteelString) -> usize {
 /// > (string-append "foo" "bar") ;; => "foobar"
 /// ```
 #[function(name = "string-append")]
-pub fn string_append(mut rest: RestArgsIter<'_, &SteelString>) -> Result<SteelVal> {
-    rest.0
-        .try_fold("".to_string(), |accum, next| Ok(accum + next?.as_str()))
-        .map(|x| SteelVal::StringV(x.into()))
+pub fn string_append(rest: RestArgsIter<'_, &SteelString>) -> Result<SteelVal> {
+    let mut accum = String::new();
+    for next in rest.0 {
+        let next = next?;
+        accum.push_str(next.as_str());
+    }
+    Ok(SteelVal::StringV(accum.into()))
 }
 
 /// Checks if all characters are equal.

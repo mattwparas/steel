@@ -282,7 +282,7 @@ impl FromSteelVal for char {
         } else {
             Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Expected character".to_string(),
+                "Expected character".into(),
             ))
         }
     }
@@ -401,7 +401,7 @@ impl TryFrom<SteelVal> for String {
             SteelVal::SymbolV(ref x) => Ok(x.to_string()),
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Expected string".to_string(),
+                "Expected string".into(),
             )),
         }
     }
@@ -443,7 +443,7 @@ impl TryFrom<&SteelVal> for String {
             SteelVal::SymbolV(x) => Ok(x.to_string()),
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Expected string".to_string(),
+                "Expected string".into(),
             )),
         }
     }
@@ -995,7 +995,7 @@ mod try_from_tests {
 
     #[test]
     fn try_from_steelval_string() {
-        let expected = "foo".to_string();
+        let expected = String::from("foo");
         let input = SteelVal::StringV("foo".into());
 
         let res = String::try_from(input);
@@ -1004,7 +1004,7 @@ mod try_from_tests {
 
     #[test]
     fn try_from_steelval_ref_string() {
-        let expected = "foo".to_string();
+        let expected = String::from("foo");
         let input = SteelVal::StringV("foo".into());
 
         let res = String::try_from(&input);

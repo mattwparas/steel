@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
@@ -143,8 +144,9 @@ impl<'a> VisitorMutControlFlow for EllipsesExpanderVisitor<'a> {
                 if let Some(previously_seen_length) = self.found_length {
                     // Check that the length is the same
                     if previously_seen_length != found_list.len() {
-                        self.error =
-                            Some("Mismatched lengths found in ellipses expansion".to_owned());
+                        self.error = Some(String::from(
+                            "Mismatched lengths found in ellipses expansion",
+                        ));
                         return ControlFlow::Break(());
                     }
 
@@ -408,18 +410,16 @@ impl<'a> ReplaceExpressions<'a> {
                         // TODO
                         if resolved.starts_with("##") {
                             if let Some(body) = self.bindings.get(transformer) {
-                                buffer.push_str(body.to_string().as_str());
+                                buffer.push_str(format!("{body}").as_str());
                             } else {
                                 let (_, cdr) = resolved.split_at(2);
                                 buffer.push_str(cdr);
                             }
                         } else {
                             // Try to get the prepended variable
-                            if let Some(body) =
-                                self.bindings.get(&("##".to_string() + resolved).into())
-                            {
+                            if let Some(body) = self.bindings.get(&format!("##{resolved}").into()) {
                                 // println!("Found datum: {}", transformer);
-                                buffer.push_str(body.to_string().as_str());
+                                buffer.push_str(format!("{body}").as_str());
                             } else {
                                 // println!("Unable to find datum: {}", transformer);
                                 buffer.push_str(resolved);

@@ -132,34 +132,34 @@ mod type_checking {
     fn fib_test() {
         let fib_test = TypedExpr::IfElse(
             Box::new(TypedExpr::LtE(
-                Box::new(TypedExpr::Identifier("n".to_string())),
-                Box::new(TypedExpr::Literal("2".to_string(), JitType::Int)),
+                Box::new(TypedExpr::Identifier("n".into())),
+                Box::new(TypedExpr::Literal("2".into(), JitType::Int)),
             )),
-            vec![TypedExpr::Literal("1".to_string(), JitType::Int)],
+            vec![TypedExpr::Literal("1".into(), JitType::Int)],
             vec![TypedExpr::Add(
                 Box::new(TypedExpr::Call(
-                    "fib".to_string(),
+                    "fib".into(),
                     vec![TypedExpr::Sub(
-                        Box::new(TypedExpr::Identifier("n".to_string())),
-                        Box::new(TypedExpr::Literal("1".to_string(), JitType::Int)),
+                        Box::new(TypedExpr::Identifier("n".into())),
+                        Box::new(TypedExpr::Literal("1".into(), JitType::Int)),
                     )],
                 )),
                 Box::new(TypedExpr::Call(
-                    "fib".to_string(),
+                    "fib".into(),
                     vec![TypedExpr::Sub(
-                        Box::new(TypedExpr::Identifier("n".to_string())),
-                        Box::new(TypedExpr::Literal("2".to_string(), JitType::Int)),
+                        Box::new(TypedExpr::Identifier("n".into())),
+                        Box::new(TypedExpr::Literal("2".into(), JitType::Int)),
                     )],
                 )),
             )],
         );
 
         let mut bindings = HashMap::new();
-        bindings.insert("n".to_string(), JitType::Int);
+        bindings.insert("n".into(), JitType::Int);
 
         let mut functions = HashMap::new();
         functions.insert(
-            "fib".to_string(),
+            "fib".into(),
             JitFunctionSignature::new(vec![JitType::Int], JitType::Int),
         );
 

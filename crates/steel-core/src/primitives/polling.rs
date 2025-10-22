@@ -100,7 +100,7 @@ pub fn delete_interest(poller: &SteelVal, socket: &SteelVal) -> Result<SteelVal>
 }
 
 pub fn polling_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/polling".to_string());
+    let mut module = BuiltInModule::new("steel/polling");
 
     module
         .register_native_fn_definition(FRESH_KEY_DEFINITION)

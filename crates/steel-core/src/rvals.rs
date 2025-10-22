@@ -1,5 +1,7 @@
 pub mod cycles;
 
+#[cfg(not(feature = "std"))]
+use crate::values::functions::SerializedLambda;
 #[cfg(feature = "std")]
 use crate::values::port::{SendablePort, SteelPort};
 #[cfg(feature = "std")]
@@ -2749,9 +2751,10 @@ mod or_else_tests {
     #[test]
     fn string_or_else_test_good() {
         let input = SteelVal::StringV("foo".into());
+        let expected = "foo";
         assert_eq!(
             input.string_or_else(throw!(Generic => "test")).unwrap(),
-            "foo".to_string()
+            expected
         );
     }
 
@@ -2764,9 +2767,10 @@ mod or_else_tests {
     #[test]
     fn symbol_or_else_test_good() {
         let input = SteelVal::SymbolV("foo".into());
+        let expected = "foo";
         assert_eq!(
             input.symbol_or_else(throw!(Generic => "test")).unwrap(),
-            "foo".to_string()
+            expected
         );
     }
 

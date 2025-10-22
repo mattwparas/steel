@@ -36,6 +36,7 @@ use core::{
     hash::Hash,
     ops::Deref,
 };
+use fxhash::FxBuildHasher;
 
 use super::closed::Heap;
 use super::functions::BoxedDynFunction;
@@ -117,12 +118,24 @@ impl StructTypeDescriptor {
     // TODO: Use inline reference to avoid reference count when getting the fields
     #[cfg(not(feature = "sync"))]
     fn fields(&self) -> SteelVal {
-        FIELDS_KEY.with(|key| VTABLE.with(|x| x.borrow().entries[self.0].properties[&key].clone()))
+        FIELDS_KEY.with(|key| {
+            VTABLE.with(|x| {
+                x.borrow().entries[self.0]
+                    .properties
+                    .get(key)
+                    .cloned()
+                    .expect("#:fields entry missing on struct properties")
+            })
+        })
     }
 
     #[cfg(feature = "sync")]
     fn fields(&self) -> SteelVal {
-        STATIC_VTABLE.read().entries[self.0].properties[&STATIC_FIELDS_KEY].clone()
+        STATIC_VTABLE.read().entries[self.0]
+            .properties
+            .get(&STATIC_FIELDS_KEY)
+            .cloned()
+            .expect("#:fields entry missing on struct properties")
     }
 }
 
@@ -356,7 +369,7 @@ impl UserDefinedStruct {
 
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            Some(descriptor.name().resolve().to_string().into()),
+            Some(Arc::new(String::from(descriptor.name().resolve()))),
             Some(len as _),
         )))
     }
@@ -386,7 +399,7 @@ impl UserDefinedStruct {
 
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            Some(name.resolve().to_string().into()),
+            Some(Arc::new(String::from(name.resolve()))),
             Some(len as _),
         )))
     }
@@ -411,7 +424,7 @@ impl UserDefinedStruct {
 
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            Some(descriptor.name().resolve().to_string().into()),
+            Some(Arc::new(String::from(descriptor.name().resolve()))),
             Some(1),
         )))
     }
@@ -454,7 +467,7 @@ impl UserDefinedStruct {
 
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            Some(descriptor.name().resolve().to_string().into()),
+            Some(Arc::new(String::from(descriptor.name().resolve()))),
             Some(2),
         )))
     }
@@ -492,7 +505,7 @@ impl UserDefinedStruct {
 
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            Some(descriptor.name().resolve().to_string().into()),
+            Some(Arc::new(String::from(descriptor.name().resolve()))),
             Some(1),
         )))
     }
@@ -915,10 +928,20 @@ thread_local! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
         });
 
-        #[cfg(not(feature = "sync"))]
+        #[cfg(all(not(feature = "sync"), feature = "std"))]
         let result_options = Gc::new(im_rc::hashmap! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
         });
+
+        #[cfg(all(not(feature = "sync"), not(feature = "std")))]
+        let result_options = {
+            let mut map = HashMap::<SteelVal, SteelVal>::new();
+            map.insert(
+                SteelVal::SymbolV("#:transparent".into()),
+                SteelVal::BoolV(true),
+            );
+            Gc::new(map)
+        };
 
         map.insert("Ok".into(), result_options.clone());
         map.insert("Err".into(), result_options.clone());
@@ -933,7 +956,8 @@ thread_local! {
         }))
     };
 
-    pub static DEFAULT_PROPERTIES: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(HashMap::new());
+    pub static DEFAULT_PROPERTIES: Gc<HashMap<SteelVal, SteelVal>> =
+        Gc::new(HashMap::<SteelVal, SteelVal>::new());
 
     #[cfg(all(feature = "sync", not(feature = "imbl")))]
     pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im::hashmap! {
@@ -946,10 +970,20 @@ thread_local! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(not(feature = "sync"), feature = "std"))]
     pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
+
+    #[cfg(all(not(feature = "sync"), not(feature = "std")))]
+    pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = {
+        let mut map = HashMap::<SteelVal, SteelVal>::new();
+        map.insert(
+            SteelVal::SymbolV("#:transparent".into()),
+            SteelVal::BoolV(true),
+        );
+        Gc::new(map)
+    };
 
     pub static OK_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*OK_RESULT_LABEL, None);
     pub static ERR_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*ERR_RESULT_LABEL, None);
@@ -971,10 +1005,20 @@ thread_local! {
         )))
     };
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(not(feature = "sync"), feature = "std"))]
     pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
+
+    #[cfg(all(not(feature = "sync"), not(feature = "std")))]
+    pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = {
+        let mut map = HashMap::<SteelVal, SteelVal>::new();
+        map.insert(
+            SteelVal::SymbolV("#:transparent".into()),
+            SteelVal::BoolV(true),
+        );
+        Gc::new(map)
+    };
 
     #[cfg(all(feature = "sync", not(feature = "imbl")))]
     pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im::hashmap! {
@@ -1023,7 +1067,7 @@ pub(crate) fn build_type_id_module() -> BuiltInModule {
 
 pub(crate) fn build_result_structs() -> BuiltInModule {
     // Build module
-    let mut module = BuiltInModule::new("steel/core/result".to_string());
+    let mut module = BuiltInModule::new("steel/core/result");
 
     #[cfg(not(feature = "sync"))]
     {
@@ -1055,7 +1099,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
                         1,
                         OK_DESCRIPTOR.with(|x| *x),
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(1),
                 ))),
             )
@@ -1093,7 +1137,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
                         1,
                         *STATIC_OK_DESCRIPTOR,
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(1),
                 ))),
             )
@@ -1122,7 +1166,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
                         1,
                         ERR_DESCRIPTOR.with(|x| *x),
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(1),
                 ))),
             )
@@ -1151,7 +1195,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
                         1,
                         *STATIC_ERR_DESCRIPTOR,
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(1),
                 ))),
             )
@@ -1164,7 +1208,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
 
 pub(crate) fn build_option_structs() -> BuiltInModule {
     // Build module
-    let mut module = BuiltInModule::new("steel/core/option".to_string());
+    let mut module = BuiltInModule::new("steel/core/option");
 
     if cfg!(feature = "sync") {
         VTable::set_entry(
@@ -1211,7 +1255,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
                         1,
                         SOME_DESCRIPTOR.with(|x| *x),
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(1),
                 ))),
             )
@@ -1238,7 +1282,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
                         1,
                         *STATIC_SOME_DESCRIPTOR,
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(1),
                 ))),
             )
@@ -1261,7 +1305,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
                         0,
                         NONE_DESCRIPTOR.with(|x| *x),
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(0),
                 ))),
             )
@@ -1283,7 +1327,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
                         0,
                         *STATIC_NONE_DESCRIPTOR,
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(0),
                 ))),
             )

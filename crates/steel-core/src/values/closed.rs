@@ -1,5 +1,7 @@
 use core::cell::RefCell;
 
+use crate::alloc::string::ToString;
+
 #[cfg(feature = "sync")]
 use alloc::sync::Arc;
 

@@ -1187,7 +1187,7 @@ impl RawProgramWithSymbols {
     //     Ok(Self::new(
     //         instruction_set,
     //         constant_map,
-    //         "0.0.1".to_string(),
+    //         "0.0.1".into(),
     //     ))
     // }
 

@@ -4,6 +4,7 @@ use crate::parser::parser::SyntaxObject;
 use crate::parser::rename_idents::RenameIdentifiersVisitor;
 use crate::parser::replace_idents::replace_identifiers;
 use crate::parser::tokens::TokenType;
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::vec;
@@ -343,7 +344,7 @@ impl MacroCase {
                 MacroPattern::Single(s) | MacroPattern::Quote(s)
                     if *s != InternedString::from_static("_") =>
                 {
-                    idents.push(s.resolve().to_owned());
+                    idents.push(String::from(s.resolve()));
                 }
                 MacroPattern::Nested(n, _) => {
                     for p in &n.args {
@@ -547,7 +548,7 @@ impl MacroPattern {
                 let special = special_forms.contains(s) || *s == InternedString::from_static("_");
 
                 if !special {
-                    *self = Single(("##".to_string() + s.resolve()).into())
+                    *self = Single(format!("##{}", s.resolve()).into())
                 }
             }
             Nested(v, _) => {

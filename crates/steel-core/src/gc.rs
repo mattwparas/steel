@@ -1497,7 +1497,7 @@ pub mod unsafe_erased_pointers {
         let mut nursery = MutableReferenceNursery::new();
 
         let mut object = FooBar {
-            baz: "hello world!".to_string(),
+            baz: "hello world!".into(),
         };
 
         let mut baz = Baz {

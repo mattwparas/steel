@@ -73,7 +73,7 @@ fn download_file(_url: &SteelString, _file: &SteelString) -> Result<SteelVal> {
     {
         Err(SteelErr::new(
             ErrorKind::BadSyntax,
-            "download-file! is not implemented".to_string(),
+            "download-file! is not implemented".into(),
         ))
     }
 
@@ -217,7 +217,7 @@ pub fn parse_http_response(vector: &SteelByteVector) -> Result<SteelVal> {
 }
 
 pub fn http_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/http".to_string());
+    let mut module = BuiltInModule::new("steel/http");
 
     module
         .register_native_fn_definition(PARSE_HTTP_REQUEST_DEFINITION)

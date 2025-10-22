@@ -122,7 +122,7 @@ impl<T: IntoSteelVal> IntoSteelVal for Vec<T> {
             Ok(l) => Ok(SteelVal::ListV(l.into())),
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Could not convert vector of values to SteelVal list".to_string(),
+                "Could not convert vector of values to SteelVal list".into(),
             )),
         }
     }
@@ -141,7 +141,7 @@ impl<T: FromSteelVal> FromSteelVal for Vec<T> {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::new(
                         ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
+                        "Could not convert SteelVal list to Vector of values".into(),
                     )),
                 }
             }
@@ -155,7 +155,7 @@ impl<T: FromSteelVal> FromSteelVal for Vec<T> {
             //         Ok(x) => Ok(x),
             //         _ => Err(SteelErr::new(
             //             ErrorKind::ConversionError,
-            //             "Could not convert SteelVal list to Vector of values".to_string(),
+            //             "Could not convert SteelVal list to Vector of values".into(),
             //         )),
             //     }
             // }
@@ -166,13 +166,13 @@ impl<T: FromSteelVal> FromSteelVal for Vec<T> {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::new(
                         ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
+                        "Could not convert SteelVal list to Vector of values".into(),
                     )),
                 }
             } // TODO
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Could not convert SteelVal list to Vector of values".to_string(),
+                "Could not convert SteelVal list to Vector of values".into(),
             )),
         }
     }
@@ -191,7 +191,7 @@ impl<T: FromSteelVal> FromSteelVal for Box<[T]> {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::new(
                         ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
+                        "Could not convert SteelVal list to Vector of values".into(),
                     )),
                 }
             }
@@ -202,13 +202,13 @@ impl<T: FromSteelVal> FromSteelVal for Box<[T]> {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::new(
                         ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
+                        "Could not convert SteelVal list to Vector of values".into(),
                     )),
                 }
             } // TODO
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Could not convert SteelVal list to Vector of values".to_string(),
+                "Could not convert SteelVal list to Vector of values".into(),
             )),
         }
     }
@@ -249,7 +249,7 @@ impl<K: FromSteelVal + Eq + core::hash::Hash, V: FromSteelVal> FromSteelVal
         } else {
             Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Could not convert SteelVal to HashMap".to_string(),
+                "Could not convert SteelVal to HashMap".into(),
             ))
         }
     }
@@ -360,7 +360,7 @@ impl<K: FromSteelVal + Eq + core::hash::Hash> FromSteelVal for MutableHashSet<K>
         } else {
             Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Could not convert SteelVal to HashSet".to_string(),
+                "Could not convert SteelVal to HashSet".into(),
             ))
         }
     }
@@ -455,9 +455,9 @@ mod conversion_tests {
     #[cfg(feature = "std")]
     #[test]
     fn hashmap_into_steelval() {
-        let mut input = HashMap::new();
-        input.insert("foo".to_string(), "bar".to_string());
-        input.insert("foo2".to_string(), "bar2".to_string());
+        let mut input: HashMap<String, String> = HashMap::new();
+        input.insert(String::from("foo"), String::from("bar"));
+        input.insert(String::from("foo2"), String::from("bar2"));
 
         let expected = SteelVal::HashMapV(
             Gc::new(hashmap! {
@@ -481,9 +481,9 @@ mod conversion_tests {
             .into(),
         );
 
-        let mut expected = HashMap::new();
-        expected.insert("foo".to_string(), "bar".to_string());
-        expected.insert("foo2".to_string(), "bar2".to_string());
+        let mut expected: HashMap<String, String> = HashMap::new();
+        expected.insert(String::from("foo"), String::from("bar"));
+        expected.insert(String::from("foo2"), String::from("bar2"));
 
         assert_eq!(
             <HashMap<String, String>>::from_steelval(&input).unwrap(),
@@ -494,9 +494,9 @@ mod conversion_tests {
     #[cfg(feature = "std")]
     #[test]
     fn hashset_into_steelval() {
-        let mut input = HashSet::new();
-        input.insert("foo".to_string());
-        input.insert("bar".to_string());
+        let mut input: HashSet<String> = HashSet::new();
+        input.insert(String::from("foo"));
+        input.insert(String::from("bar"));
 
         let expected = SteelVal::HashSetV(
             Gc::new(hashset! {
@@ -520,9 +520,9 @@ mod conversion_tests {
             .into(),
         );
 
-        let mut expected = HashSet::new();
-        expected.insert("foo".to_string());
-        expected.insert("bar".to_string());
+        let mut expected: HashSet<String> = HashSet::new();
+        expected.insert(String::from("foo"));
+        expected.insert(String::from("bar"));
 
         assert_eq!(<HashSet<String>>::from_steelval(&input).unwrap(), expected);
     }

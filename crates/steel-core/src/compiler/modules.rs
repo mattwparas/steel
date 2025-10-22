@@ -602,7 +602,7 @@ impl ModuleManager {
             //     );
             // }
 
-            // let module_name = Cow::from(module.name.to_str().unwrap().to_string());
+            // let module_name = Cow::from(module.name.to_str().unwrap().into());
 
             for expr in ast.iter_mut() {
                 // @matt 12/8/2023
@@ -631,7 +631,7 @@ impl ModuleManager {
                 //     kernel.as_mut(),
                 //     // We don't need to expand those here
                 //     ModuleContainer::default(),
-                //     module.name.to_str().unwrap().to_string(),
+                //     module.name.to_str().unwrap().into(),
                 //     &kernel_macros_in_scope,
                 // )?;
 
@@ -646,7 +646,7 @@ impl ModuleManager {
                 //     first_round_expanded,
                 //     kernel.as_mut(),
                 //     ModuleContainer::default(),
-                //     module.name.to_str().unwrap().to_string(),
+                //     module.name.to_str().unwrap().into(),
                 // )?;
 
                 // This is pretty suspect, and needs to be revisited - only the output of the
@@ -727,7 +727,7 @@ impl ModuleManager {
             //         //     kernel.as_mut(),
             //         //     // We don't need to expand those here
             //         //     ModuleContainer::default(),
-            //         //     module.name.to_str().unwrap().to_string(),
+            //         //     module.name.to_str().unwrap().into(),
             //         //     &kernel_macros_in_scope,
             //         // )?;
 
@@ -742,7 +742,7 @@ impl ModuleManager {
             //         //     first_round_expanded,
             //         //     kernel.as_mut(),
             //         //     ModuleContainer::default(),
-            //         //     module.name.to_str().unwrap().to_string(),
+            //         //     module.name.to_str().unwrap().into(),
             //         // )?;
 
             //         // This is pretty suspect, and needs to be revisited - only the output of the
@@ -764,7 +764,7 @@ impl ModuleManager {
             //                 // source_id,
             //             )?;
 
-            //             let module_name = module.name.to_str().unwrap().to_string();
+            //             let module_name = module.name.to_str().unwrap().into();
 
             //             // Expanding the kernel with only these macros...
             //             let changed = expand_kernel_in_env_with_change(
@@ -1336,7 +1336,7 @@ impl CompiledModule {
                                     //     let hash_get = expr_list![
                                     //         ExprKind::atom(*PROTO_HASH_GET),
                                     //         ExprKind::atom(
-                                    //             "__module-".to_string() + &other_module_prefix
+                                    //             "__module-".into() + &other_module_prefix
                                     //         ),
                                     //         ExprKind::Quote(Box::new(Quote::new(
                                     //             name.clone(),
@@ -1693,7 +1693,7 @@ impl CompiledModule {
                 "module".into(),
             )))),
             ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                ("___".to_string() + self.name.to_string_lossy().as_ref()).into(),
+                format!("___{}", self.name.to_string_lossy()).into(),
             )))),
         ];
 
@@ -1707,7 +1707,7 @@ impl CompiledModule {
         // Reconsider how to address this expansion.
         // We really don't want to pollute the module space - perhaps disallow shadowed built-ins so we don't need this?
         // That would probably be annoying
-        // let steel_base = ExprKind::List(List::new(vec![ExprKind::atom("steel/base".to_string())]));
+        // let steel_base = ExprKind::List(List::new(vec![ExprKind::atom("steel/base")]));
 
         // self.ast.pretty_print();
 
@@ -2787,7 +2787,7 @@ impl<'a> ModuleBuilder<'a> {
                                     existing_prefix.push_str(prefix.resolve());
                                 }
                                 None => {
-                                    require_object.prefix = Some(prefix.resolve().to_string());
+                                    require_object.prefix = Some(prefix.resolve().into());
                                 }
                             }
 

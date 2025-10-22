@@ -311,15 +311,15 @@ impl JIT {
         // let mut legal_vars = HashSet::new();
 
         // Register the functions that are legal to reference inside the machine code
-        // legal_vars.insert("car".to_string());
-        // legal_vars.insert("cdr".to_string());
-        // legal_vars.insert("cons".to_string());
-        // legal_vars.insert("empty?".to_string());
-        // legal_vars.insert("null?".to_string());
+        // legal_vars.insert("car");
+        // legal_vars.insert("cdr");
+        // legal_vars.insert("cons");
+        // legal_vars.insert("empty?");
+        // legal_vars.insert("null?");
 
         // First, parse the string, producing AST nodes.
         let (name, params, the_return, stmts) = lower_function(input, &mut self.legal_vars)
-            .ok_or_else(|| "Unable to lower the input AST".to_string())?;
+            .ok_or_else(|| "Unable to lower the input AST")?;
         // type_check_please(&input).map_err(|e| e.to_string())?;
 
         // Get the arity from the number of parameters of the function we're compiling
@@ -593,7 +593,7 @@ impl<'a> FunctionTranslator<'a> {
 
             Expr::Le(lhs, rhs) => self.translate_icmp(IntCC::SignedLessThanOrEqual, *lhs, *rhs),
             // Expr::Le(lhs, rhs) => {
-            //     // self.translate_call("<=".to_string(), vec![*lhs, *rhs])
+            //     // self.translate_call("<=".into(), vec![*lhs, *rhs])
             //     self.translate_icmp(IntCC::SignedLessThanOrEqual, *lhs, *rhs)
             // }
             Expr::Gt(lhs, rhs) => self.translate_icmp(IntCC::SignedGreaterThan, *lhs, *rhs),

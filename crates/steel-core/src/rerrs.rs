@@ -396,13 +396,29 @@ macro_rules! steelerr {
         Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+)))
     };
     ($type:ident => $thing:expr) => {
-        Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()))
+        Err($crate::rerrs::SteelErr::new(
+            $crate::rerrs::ErrorKind::$type,
+            $crate::alloc::string::ToString::to_string(&($thing)),
+        ))
     };
     ($type:ident => $thing:expr; $span:expr) => {
-        Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))
+        Err(
+            $crate::rerrs::SteelErr::new(
+                $crate::rerrs::ErrorKind::$type,
+                $crate::alloc::string::ToString::to_string(&($thing)),
+            )
+            .with_span($span),
+        )
     };
     ($type:ident => $thing:expr; $span:expr; $source:expr) => {
-        Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span).with_source($source))
+        Err(
+            $crate::rerrs::SteelErr::new(
+                $crate::rerrs::ErrorKind::$type,
+                $crate::alloc::string::ToString::to_string(&($thing)),
+            )
+            .with_span($span)
+            .with_source($source),
+        )
     };
 }
 
@@ -418,13 +434,24 @@ macro_rules! stop {
         return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+)))
     };
     ($type:ident => $thing:expr) => {
-        return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()))
+        return Err($crate::rerrs::SteelErr::new(
+            $crate::rerrs::ErrorKind::$type,
+            $crate::alloc::string::ToString::to_string(&($thing)),
+        ))
     };
     ($type:ident => $thing:expr; $span:expr) => {
-        return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))
+        return Err($crate::rerrs::SteelErr::new(
+            $crate::rerrs::ErrorKind::$type,
+            $crate::alloc::string::ToString::to_string(&($thing)),
+        )
+        .with_span($span))
     };
     ($type:ident => $thing:expr; $span:expr; $source:expr) => {
-        return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))
+        return Err($crate::rerrs::SteelErr::new(
+            $crate::rerrs::ErrorKind::$type,
+            $crate::alloc::string::ToString::to_string(&($thing)),
+        )
+        .with_span($span))
 
         // .with_source($source))
     };
@@ -439,13 +466,29 @@ macro_rules! builtin_stop {
         return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+))))
     };
     ($type:ident => $thing:expr) => {
-        return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string())))
+        return Some(Err($crate::rerrs::SteelErr::new(
+            $crate::rerrs::ErrorKind::$type,
+            $crate::alloc::string::ToString::to_string(&($thing)),
+        )))
     };
     ($type:ident => $thing:expr; $span:expr) => {
-        return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span)))
+        return Some(Err(
+            $crate::rerrs::SteelErr::new(
+                $crate::rerrs::ErrorKind::$type,
+                $crate::alloc::string::ToString::to_string(&($thing)),
+            )
+            .with_span($span),
+        ))
     };
     ($type:ident => $thing:expr; $span:expr; $source:expr) => {
-        return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span).with_source($source)))
+        return Some(Err(
+            $crate::rerrs::SteelErr::new(
+                $crate::rerrs::ErrorKind::$type,
+                $crate::alloc::string::ToString::to_string(&($thing)),
+            )
+            .with_span($span)
+            .with_source($source),
+        ))
     };
 }
 
@@ -458,9 +501,16 @@ macro_rules! throw {
         || $crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+))
     };
     ($type:ident => $thing:expr) => {
-        || $crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string())
+        || $crate::rerrs::SteelErr::new(
+            $crate::rerrs::ErrorKind::$type,
+            $crate::alloc::string::ToString::to_string(&($thing)),
+        )
     };
     ($type:ident => $thing:expr; $span:expr) => {
-        || $crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span)
+        || $crate::rerrs::SteelErr::new(
+            $crate::rerrs::ErrorKind::$type,
+            $crate::alloc::string::ToString::to_string(&($thing)),
+        )
+        .with_span($span)
     };
 }

@@ -195,7 +195,7 @@ fn system_time_duration_since(
 }
 
 pub fn time_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/time".to_string());
+    let mut module = BuiltInModule::new("steel/time");
 
     module.register_doc("steel/time", TIME_MODULE_DOC);
 

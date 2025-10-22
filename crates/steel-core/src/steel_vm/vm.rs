@@ -1,3 +1,4 @@
+use crate::alloc::string::ToString;
 use crate::compiler::compiler::Compiler;
 use crate::core::instructions::u24;
 #[cfg(feature = "sync")]
@@ -239,7 +240,7 @@ fn empty_instruction_set() -> StandardShared<[DenseInstruction]> {
         return existing.clone();
     }
 
-    let new_value = StandardShared::from([]);
+    let new_value = StandardShared::<[DenseInstruction]>::from([]);
     *guard = Some(new_value.clone());
     new_value
 }
@@ -3908,7 +3909,7 @@ impl<'a> VmCore<'a> {
             None
         } else {
             // let ret_val = self.thread.stack.pop().ok_or_else(|| {
-            //     SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
+            //     SteelErr::new(ErrorKind::Generic, "stack empty at pop".into())
             //         .with_span(self.current_span())
             // });
 
@@ -3991,7 +3992,7 @@ impl<'a> VmCore<'a> {
             None
         } else {
             let ret_val = self.thread.stack.pop().ok_or_else(|| {
-                SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
+                SteelErr::new(ErrorKind::Generic, String::from("stack empty at pop"))
                     .with_span(self.current_span())
             });
 
@@ -5541,7 +5542,7 @@ fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result
     match res {
         Ok(program) => {
             let result = program.build(
-                "eval-context".to_string(),
+                "eval-context".into(),
                 &mut ctx.thread.compiler.write().symbol_map,
             )?;
 
@@ -5808,7 +5809,7 @@ fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> R
     match res {
         Ok(program) => {
             let result = program.build(
-                "eval-context".to_string(),
+                "eval-context".into(),
                 &mut ctx.thread.compiler.write().symbol_map,
             )?;
 
@@ -5842,7 +5843,7 @@ fn eval_string_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) ->
     match res {
         Ok(program) => {
             let result = program.build(
-                "eval-context".to_string(),
+                "eval-context".into(),
                 &mut ctx.thread.compiler.write().symbol_map,
             )?;
 
@@ -6041,7 +6042,7 @@ pub fn dump_profiler(value: &SteelVal) -> Result<SteelVal> {
         total_count += count;
 
         if let Some(name) = name {
-            values.push((name.resolve().to_string(), count));
+            values.push((name.resolve().into(), count));
             // println!("{} : {}", name, count);
         } else {
             values.push((id.to_string(), count));

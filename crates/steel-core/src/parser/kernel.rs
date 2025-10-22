@@ -1,19 +1,18 @@
 use crate::collections::MutableHashSet as HashSet;
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use core::ops::{Deref, DerefMut};
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 #[cfg(feature = "sync")]
 use once_cell::sync::Lazy;
 use steel_parser::tokens::TokenType;
 
-#[cfg(all(not(feature = "std"), not(feature = "sync")))]
 use crate::sync::Mutex;
-#[cfg(not(feature = "std"))]
-use crate::sync::RwLock;
 use crate::{
     compiler::{
         passes::analysis::SemanticAnalysis,
@@ -28,8 +27,6 @@ use crate::{
     values::lists::List,
 };
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
-#[cfg(feature = "std")]
-use std::sync::RwLock;
 
 use steel_parser::expr_list;
 
@@ -102,13 +99,34 @@ pub(crate) fn fresh_kernel_image(sandbox: bool) -> Engine {
     }
 }
 
-type TransformerMap = FxHashMap<String, FxHashSet<InternedString>>;
+#[derive(Clone, Debug, Default)]
+struct TransformerMap(FxHashMap<String, FxHashSet<InternedString>>);
+
+impl Deref for TransformerMap {
+    type Target = FxHashMap<String, FxHashSet<InternedString>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for TransformerMap {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+unsafe impl Send for TransformerMap {}
+unsafe impl Sync for TransformerMap {}
 
 // Internal set of transformers that we'll embed
 #[derive(Clone, Debug)]
 struct Transformers {
-    set: Arc<RwLock<TransformerMap>>,
+    set: Arc<Mutex<TransformerMap>>,
 }
+
+unsafe impl Send for Transformers {}
+unsafe impl Sync for Transformers {}
 
 /// The Kernel is an engine context used to evaluate defmacro style macros
 /// It lives inside the compiler, so in theory there could be tiers of kernels
@@ -135,20 +153,18 @@ impl Kernel {
         let mut engine = fresh_kernel_image(!cfg!(feature = "unsandboxed-kernel"));
 
         let transformers = Transformers {
-            set: Arc::new(RwLock::new(TransformerMap::default())),
+            set: Arc::new(Mutex::new(TransformerMap::default())),
         };
 
         let embedded_transformer_object = transformers.clone();
         engine.register_fn(
             "register-macro-transformer!",
             move |name: String, env: String| {
-                embedded_transformer_object
+                let mut guard = embedded_transformer_object
                     .set
-                    .write()
-                    .unwrap()
-                    .entry(env)
-                    .or_default()
-                    .insert(name.as_str().into())
+                    .lock()
+                    .expect("transformer mutex poisoned");
+                guard.entry(env).or_default().insert(name.as_str().into())
             },
         );
 
@@ -156,19 +172,18 @@ impl Kernel {
         engine.register_fn(
             "current-macro-transformers!",
             move |env: SteelString| -> SteelVal {
-                embedded_transformer_object
+                let guard = embedded_transformer_object
                     .set
-                    .read()
-                    .unwrap()
-                    .get(env.as_str())
-                    .map(|set| {
-                        set.iter()
-                            .map(|x| x.resolve().to_string())
-                            .map(|x| SteelVal::SymbolV(x.into()))
-                            .collect::<crate::values::lists::List<SteelVal>>()
-                            .into()
-                    })
-                    .unwrap_or_else(|| SteelVal::ListV(List::new()))
+                    .lock()
+                    .expect("transformer mutex poisoned");
+                if let Some(set) = guard.get(env.as_str()) {
+                    set.iter()
+                        .map(|x| SteelVal::SymbolV(x.resolve().into()))
+                        .collect::<crate::values::lists::List<SteelVal>>()
+                        .into()
+                } else {
+                    SteelVal::ListV(List::new())
+                }
             },
         );
 
@@ -188,7 +203,7 @@ impl Kernel {
         }
 
         // let mut macros = HashSet::new();
-        // macros.insert("%better-lambda%".to_string());
+        // macros.insert("%better-lambda%");
         // macros.insert(*STRUCT_KEYWORD);
         // macros.insert(*DEFINE_VALUES);
 
@@ -223,7 +238,7 @@ impl Kernel {
     //         .read()
     //         .unwrap()
     //         .iter()
-    //         .map(|x| x.resolve().to_string())
+    //         .map(|x| x.resolve().into())
     //         .map(|x| SteelVal::SymbolV(x.into()))
     //         .collect::<crate::values::lists::List<SteelVal>>()
     //         .into()
@@ -236,7 +251,7 @@ impl Kernel {
     // engine.run_raw_program(raw_program.clone()).unwrap();
 
     // let mut macros = HashSet::new();
-    // macros.insert("%better-lambda%".to_string());
+    // macros.insert("%better-lambda%");
     // macros.insert(*STRUCT_KEYWORD);
     // macros.insert(*DEFINE_VALUES);
 
@@ -272,7 +287,7 @@ impl Kernel {
     //         .read()
     //         .unwrap()
     //         .iter()
-    //         .map(|x| x.resolve().to_string())
+    //         .map(|x| x.resolve().into())
     //         .map(|x| SteelVal::SymbolV(x.into()))
     //         .collect::<crate::values::lists::List<SteelVal>>()
     //         .into()
@@ -406,7 +421,7 @@ impl Kernel {
             .run_raw_program_from_exprs(vec![generated_module])?;
 
         self.engine
-            .run("(set! #%loading-current-module \"default\")".to_owned())?;
+            .run(String::from("(set! #%loading-current-module \"default\")"))?;
 
         Ok(())
     }
@@ -547,12 +562,12 @@ impl Kernel {
     }
 
     pub fn exported_defmacros(&self, environment: &str) -> Option<FxHashSet<InternedString>> {
-        self.transformers
+        let guard = self
+            .transformers
             .set
-            .read()
-            .unwrap()
-            .get(environment)
-            .cloned()
+            .lock()
+            .expect("transformer mutex poisoned");
+        guard.get(environment).cloned()
     }
 
     pub fn contains_syntax_object_macro(
@@ -564,29 +579,28 @@ impl Kernel {
             // TODO: Come back to this - but we really just
             // want a chain of environment that we've added to
             // transformers
-            let base_environment = self
+            let guard = self
                 .transformers
                 .set
-                .read()
-                .unwrap()
+                .lock()
+                .expect("transformer mutex poisoned");
+            let base_environment = guard
                 .get(environment)
                 .map(|x| x.contains(ident))
                 .unwrap_or_default();
+            let default_environment = guard
+                .get("default")
+                .map(|x| x.contains(ident))
+                .unwrap_or_default();
 
-            base_environment
-                || self
-                    .transformers
-                    .set
-                    .read()
-                    .unwrap()
-                    .get("default")
-                    .map(|x| x.contains(ident))
-                    .unwrap_or_default()
+            base_environment || default_environment
         } else {
-            self.transformers
+            let guard = self
+                .transformers
                 .set
-                .read()
-                .unwrap()
+                .lock()
+                .expect("transformer mutex poisoned");
+            guard
                 .get("default")
                 .map(|x| x.contains(ident))
                 .unwrap_or_default()
@@ -620,8 +634,7 @@ impl Kernel {
         } else {
             // Check if there is anything to expand in this environment
             if let Ok(SteelVal::HashMapV(map)) = self.engine.extract_value(environment) {
-                if let Some(func) = map.get(&SteelVal::SymbolV(ident.resolve().to_string().into()))
-                {
+                if let Some(func) = map.get(&SteelVal::SymbolV(ident.resolve().into())) {
                     func.clone()
                 } else {
                     self.engine.extract_value(ident.resolve())?

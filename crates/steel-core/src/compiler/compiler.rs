@@ -890,7 +890,7 @@ impl Compiler {
 
         if let Some(kernel) = self.kernel.as_mut() {
             // Label anything at the top as well - top level
-            kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
+            kernel.load_syntax_transformers(&mut expanded_statements, String::from("top-level"))?;
         }
 
         for expr in expanded_statements.iter_mut() {
@@ -1075,7 +1075,7 @@ impl Compiler {
 
         if let Some(kernel) = self.kernel.as_mut() {
             // Label anything at the top as well - top level
-            kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
+            kernel.load_syntax_transformers(&mut expanded_statements, String::from("top-level"))?;
         }
 
         for expr in expanded_statements.iter_mut() {
@@ -1310,11 +1310,8 @@ impl Compiler {
 
         let instructions = self.generate_instructions_for_executable(expanded_statements)?;
 
-        let mut raw_program = RawProgramWithSymbols::new(
-            instructions,
-            self.constant_map.clone(),
-            "0.1.0".to_string(),
-        );
+        let mut raw_program =
+            RawProgramWithSymbols::new(instructions, self.constant_map.clone(), "0.1.0".into());
 
         // Make sure to apply the peephole optimizations
         raw_program.apply_optimizations();
@@ -1338,11 +1335,8 @@ impl Compiler {
 
         let instructions = self.generate_instructions_for_executable(expanded_statements)?;
 
-        let mut raw_program = RawProgramWithSymbols::new(
-            instructions,
-            self.constant_map.clone(),
-            "0.1.0".to_string(),
-        );
+        let mut raw_program =
+            RawProgramWithSymbols::new(instructions, self.constant_map.clone(), "0.1.0".into());
 
         // Make sure to apply the peephole optimizations
         raw_program.apply_optimizations();

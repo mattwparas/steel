@@ -87,7 +87,7 @@ pub fn tcp_stream_set_non_blocking(value: &SteelVal) -> Result<SteelVal> {
 }
 
 pub fn tcp_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/tcp".to_string());
+    let mut module = BuiltInModule::new("steel/tcp");
 
     module
         .register_native_fn_definition(TCP_CONNECT_DEFINITION)
