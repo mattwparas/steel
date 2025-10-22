@@ -1,20 +1,20 @@
 #![allow(unused)]
 
-use alloc::vec::Vec;
-use alloc::string::String;
+use crate::collections::Vector;
+use crate::collections::{HashMap, HashSet};
 use crate::gc::Gc;
 use crate::jit::ir::*;
 use crate::jit::value::{
     decode, to_encoded_double, to_encoded_double_from_const_ptr, to_encoded_double_raw,
 };
 use crate::parser::ast::ExprKind;
-use crate::collections::Vector;
 use crate::SteelVal;
+use alloc::string::String;
+use alloc::vec::Vec;
 use cranelift::prelude::types::{F64, I64};
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
-use crate::collections::{HashMap, HashSet};
 use std::slice;
 
 use core::cell::RefCell;
