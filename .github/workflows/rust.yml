@@ -175,4 +175,4 @@ jobs:
         with:
           components: rustfmt
       - name: Check formatting
-        run: cargo fmt --workspace -- --check
+        run: cargo fmt --all -- --check
