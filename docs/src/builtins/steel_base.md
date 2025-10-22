@@ -1833,7 +1833,7 @@ time complexity is O(n/64). Meaning, for small lists this can be constant.
 #### Examples
 ```scheme
 > (list-ref (list 1 2 3 4) 2) ;; => 3
-> (list-ref (range 0 100) 42) ;; => 42"
+> (list-ref (range 0 100) 42) ;; => 42
 > (list-ref (list 1 2 3 4) 10)
 error[E11]: Generic
   ┌─ :1:2
