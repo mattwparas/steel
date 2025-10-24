@@ -202,7 +202,22 @@ fn number_to_string_impl(value: &SteelVal, radix: Option<usize>) -> Result<Steel
     string.into_steelval()
 }
 
-/// Converts the given number to a string.
+/// Converts the given number to a string, with an optional radix.
+///
+/// Returns an error, if the value given is not a number.
+///
+/// (number->string number? [radix]) -> string?
+///
+/// * radix: number?
+///
+/// ```scheme
+/// > (number->string 10) ;; => "10"
+/// > (number->string 1.0) ;; => "1.0"
+/// > (number->string 1/2) ;; => "1.0"
+/// > (number->string 1+2i) ;; => "1+2i"
+/// > (number->string 255 16) ;; => "ff"
+/// > (number->string 1/2 2) ;; => "1/10"
+/// ```
 #[function(name = "number->string", constant = true)]
 pub fn number_to_string(value: &SteelVal, mut rest: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let radix = rest.next();
@@ -229,6 +244,19 @@ pub fn number_to_string(value: &SteelVal, mut rest: RestArgsIter<'_, isize>) -> 
 ///
 /// * digits : string?
 /// * radix : number?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (string->number "10") ;; => 10
+/// > (string->number "1.0") ;; => 1.0
+/// > (string->number "1/2") ;; => 1/2
+/// > (string->number "1+2i") ;; => 1+2i
+/// > (string->number "ff") ;; => #f
+/// > (string->number "ff" 16) ;; => 255
+/// > (string->number "1/10" 2) ;; => 1/2
+/// > (string->number "not-a-number") ;; => #f
+/// ```
 #[function(name = "string->number", constant = true)]
 pub fn string_to_number(
     value: &SteelString,
@@ -253,6 +281,16 @@ pub fn string_to_number(
 }
 
 /// Constructs a string from the given characters
+///
+/// (string . char?) -> string?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (string #\h #\e #\l #\l #\o) ;; => "hello"
+/// > (string #\λ) ;; => "λ"
+/// > (string) ;; => ""
+/// ```
 #[function(name = "string")]
 pub fn string_constructor(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
     rest.collect::<Result<String>>().map(|x| x.into())
@@ -261,25 +299,27 @@ pub fn string_constructor(rest: RestArgsIter<'_, char>) -> Result<SteelVal> {
 // TODO: avoid allocation in `-ci` variants
 
 macro_rules! impl_str_comparison {
-    (-ci, $name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
+    (-ci, $name:ident, $ext_name:literal, $mode:literal, $op:expr, $(#[$attr:meta])*) => {
         #[doc = concat!("Compares strings lexicographically (as in\"", $mode, "\"),")]
         #[doc = "in a case insensitive fashion."]
         #[doc = ""]
         #[doc = concat!("(", $ext_name, " s1 s2 ... ) -> bool?")]
         #[doc = "* s1 : string?"]
         #[doc = "* s2 : string?"]
+        $(#[$attr])*
         #[function(name = $ext_name, constant = true)]
         pub fn $name(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
             let cm = CaseMapper::new();
             monotonic!(rest.map(|val| val.map(|s| cm.fold_string(s))), $op)
         }
     };
-    ($name:ident, $ext_name:literal, $mode:literal, $op:expr) => {
+    ($name:ident, $ext_name:literal, $mode:literal, $op:expr, $(#[$attr:meta])*) => {
         #[doc = concat!("Compares strings lexicographically (as in\"", $mode, "\").")]
         #[doc = ""]
         #[doc = concat!("(", $ext_name, " s1 s2 ... ) -> bool?")]
         #[doc = "* s1 : string?"]
         #[doc = "* s2 : string?"]
+        $(#[$attr])*
         #[function(name = $ext_name, constant = true)]
         pub fn $name(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
             monotonic!(rest, $op)
@@ -291,53 +331,117 @@ impl_str_comparison!(
     string_less_than,
     "string<?",
     "less-than",
-    |s1: &_, s2: &_| s1 < s2
+    |s1: &_, s2: &_| s1 < s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string<? "a" "b") ;; => #t
+    /// > (string<? "a" "b" "c") ;; => #t
+    /// > (string<? "a" "b" "b") ;; => #f
+    /// ```
 );
 impl_str_comparison!(
     string_less_than_equal_to,
     "string<=?",
     "less-than-equal-to",
-    |s1: &_, s2: &_| s1 <= s2
+    |s1: &_, s2: &_| s1 <= s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string<=? "a" "b") ;; => #t
+    /// > (string<=? "a" "b" "c") ;; => #t
+    /// > (string<=? "a" "b" "b") ;; => #t
+    /// ```
 );
 impl_str_comparison!(
     string_greater_than,
     "string>?",
     "greater-than",
-    |s1: &_, s2: &_| s1 > s2
+    |s1: &_, s2: &_| s1 > s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string>? "b" "a") ;; => #t
+    /// > (string>? "c" "b" "a") ;; => #t
+    /// > (string>? "c" "b" "b") ;; => #f
+    /// ```
 );
 impl_str_comparison!(
     string_greater_than_equal_to,
     "string>=?",
     "greater-than-or-equal",
-    |s1: &_, s2: &_| s1 >= s2
+    |s1: &_, s2: &_| s1 >= s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string>=? "b" "a") ;; => #t
+    /// > (string>=? "c" "b" "a") ;; => #t
+    /// > (string>=? "c" "b" "b") ;; => #t
+    /// ```
 );
 impl_str_comparison!(
     -ci,
     string_ci_less_than,
     "string-ci<?",
     "less-than",
-    |s1: &_, s2: &_| s1 < s2
+    |s1: &_, s2: &_| s1 < s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string-ci<? "a" "b") ;; => #t
+    /// > (string-ci<? "a" "B") ;; => #t
+    /// > (string-ci<? "a" "B" "c") ;; => #t
+    /// > (string-ci<? "a" "B" "b") ;; => #f
+    /// > (string-ci<? "Straßburg" "STRASSE" "straßenbahn") ;; => #t
+    /// ```
 );
 impl_str_comparison!(
     -ci,
     string_ci_less_than_equal_to,
     "string-ci<=?",
     "less-than-or-equal",
-    |s1: &_, s2: &_| s1 <= s2
+    |s1: &_, s2: &_| s1 <= s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string-ci<=? "a" "b") ;; => #t
+    /// > (string-ci<=? "a" "B") ;; => #t
+    /// > (string-ci<=? "a" "B" "c") ;; => #t
+    /// > (string-ci<=? "a" "B" "b") ;; => #t
+    /// > (string-ci<=? "Straßburg" "STRASSE" "straßenbahn") ;; => #t
+    /// ```
 );
 impl_str_comparison!(
     -ci,
     string_ci_greater_than,
     "string-ci>?",
     "greater-than",
-    |s1: &_, s2: &_| s1 > s2
+    |s1: &_, s2: &_| s1 > s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string-ci>? "b" "a") ;; => #t
+    /// > (string-ci>? "B" "a") ;; => #t
+    /// > (string-ci>? "c" "B" "a") ;; => #t
+    /// > (string-ci>? "c" "B" "b") ;; => #f
+    /// > (string-ci>? "straßenbahn" "STRASSE" "Straßburg") ;; => #t
+    /// ```
 );
 impl_str_comparison!(
     -ci,
     string_ci_greater_than_equal_to,
     "string-ci>=?",
     "greater-than-or-equal",
-    |s1: &_, s2: &_| s1 >= s2
+    |s1: &_, s2: &_| s1 >= s2,
+    /// # Examples
+    ///
+    /// ```scheme
+    /// > (string-ci>=? "b" "a") ;; => #t
+    /// > (string-ci>=? "B" "a") ;; => #t
+    /// > (string-ci>=? "c" "B" "a") ;; => #t
+    /// > (string-ci>=? "c" "B" "b") ;; => #f
+    /// > (string-ci>=? "straßenbahn" "STRASSE" "Straßburg") ;; => #t
+    /// ```
 );
 
 /// Compares strings for equality.
@@ -378,12 +482,17 @@ pub fn string_ci_equals(rest: RestArgsIter<&SteelString>) -> Result<SteelVal> {
     )
 }
 
-/// Extracts the nth character out of a given string.
+/// Extracts the nth character out of a given string, starting at 0.
 ///
 /// (string-ref str n) -> char?
 ///
 /// * str : string?
 /// * n : int?
+///
+/// ```scheme
+/// (string-ref "one" 1) ;; => #\n
+/// (string-ref "αβγ" 1) ;; => #\β
+/// ```
 #[function(name = "string-ref", constant = true)]
 pub fn string_ref(value: &SteelString, index: usize) -> Result<SteelVal> {
     let res = if index < value.len() {
@@ -436,6 +545,13 @@ pub fn substring(
 ///
 /// * len : int?
 /// * char : char? = #\0
+///
+/// # Examples
+///
+/// ```scheme
+/// > (make-string 5 #\a) ;; => "aaaaa"
+/// > (make-string 5) ;; => "\0\0\0\0\0"
+/// ```
 #[function(name = "make-string")]
 pub fn make_string(k: usize, mut c: RestArgsIter<'_, char>) -> Result<SteelVal> {
     // If the char is there, we want to take it
@@ -541,6 +657,9 @@ pub fn string_to_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<St
 
 /// Converts an integer into a string.
 ///
+/// Use of this procedure is discouraged in favor of the more powerful and more
+/// portable `(number->string)` procedure.
+///
 /// (int->string int?) -> string?
 ///
 /// # Examples
@@ -554,6 +673,9 @@ pub fn int_to_string(value: isize) -> String {
 }
 
 /// Converts a string into an int. Raises an error if the string cannot be converted to an integer.
+///
+/// Use of this procedure is discouraged in favor of the more powerful and more
+/// portable `(string->number)` procedure.
 ///
 /// (string->int string?) -> int?
 ///
@@ -576,16 +698,17 @@ pub fn string_to_int(value: &SteelString) -> Result<SteelVal> {
 
 /// Converts a string into a list of characters.
 ///
-/// (string->list s [start] [end]) -> (listof char?)
+/// (string->list str [start] [end]) -> (listof char?)
 ///
-/// * s : string?
+/// * str : string?
 /// * start : int? = 0
-/// * end : int?
+/// * end : int? = (string-length str)
 ///
 /// # Examples
 ///
 /// ```scheme
 /// > (string->list "hello") ;; => '(#\h #\e #\l #\l #\o)
+/// > (string->list "one two three" 4 7) ;; => '(#\t #\w #\o)
 /// ```
 #[function(name = "string->list")]
 pub fn string_to_list(value: &SteelString, mut rest: RestArgsIter<isize>) -> Result<SteelVal> {
@@ -733,6 +856,7 @@ pub fn trim_start_matches(value: &SteelString, pat: &SteelString) -> String {
 ///
 /// ```scheme
 /// (split-whitespace "apples bananas fruits veggies") ;; '("apples" "bananas" "fruits" "veggies")
+/// (split-whitespace "one\t \ttwo\nthree") ;; '("one" "two" "three")
 /// ```
 #[function(name = "split-whitespace")]
 pub fn split_whitespace(value: &SteelString) -> SteelVal {
@@ -894,7 +1018,8 @@ pub fn char_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
     monotonic!(rest, |ch1: &_, ch2: &_| ch1 == ch2)
 }
 
-/// Checks if all characters are equal, in a case-insensitive fashion.
+/// Checks if all characters are equal, in a case-insensitive fashion
+/// (i.e. as if char-foldcase was applied to the arguments).
 ///
 /// Requires that all inputs are characters, and will otherwise raise an error.
 ///
@@ -921,8 +1046,8 @@ pub fn char_ci_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
 
 macro_rules! impl_char_comparison {
     (-ci, $name:ident, $ext_name:literal, $mode:literal, $op:expr, $(#[$attr:meta])*) => {
-        #[doc = concat!("Compares characters according to their codepoints (as in \"", $mode, "\")")]
-        #[doc = "in a case-insensitive fashion."]
+        #[doc = concat!("Returns `#t` if the characters are ", $mode ," according to their codepoints,")]
+        #[doc = "in a case-insensitive fashion (as if char-foldcase was applied to the arguments)."]
         #[doc = ""]
         #[doc = concat!("(", $ext_name, " char1 char2 ... ) -> bool?")]
         #[doc = "* char1 : char?"]
@@ -935,7 +1060,7 @@ macro_rules! impl_char_comparison {
         }
     };
     ($name:ident, $ext_name:literal, $mode:literal, $op:expr, $(#[$attr:meta])*) => {
-        #[doc = concat!("Compares characters according to their codepoints, in a \"", $mode, "\" fashion.")]
+        #[doc = concat!("Returns `#t` if the characters are ", $mode ," according to their codepoints.")]
         #[doc = ""]
         #[doc = concat!("(", $ext_name, " char1 char2 ... ) -> bool?")]
         #[doc = "* char1 : char?"]
@@ -951,7 +1076,7 @@ macro_rules! impl_char_comparison {
 impl_char_comparison!(
     char_less_than,
     "char<?",
-    "less-than",
+    "monotonically increasing",
     |ch1: &_, ch2: &_| ch1 < ch2,
     /// # Examples
     ///
@@ -965,7 +1090,7 @@ impl_char_comparison!(
     -ci,
     char_ci_less_than,
     "char-ci<?",
-    "less-than",
+    "monotonically increasing",
     |ch1: &_, ch2: &_| ch1 < ch2,
     /// # Examples
     ///
@@ -979,7 +1104,7 @@ impl_char_comparison!(
 impl_char_comparison!(
     char_less_than_equal_to,
     "char<=?",
-    "less-than-or-equal",
+    "monotonically non-decreasing",
     |ch1: &_, ch2: &_| ch1 <= ch2,
     /// # Examples
     ///
@@ -994,7 +1119,7 @@ impl_char_comparison!(
     -ci,
     char_ci_less_than_equal_to,
     "char-ci<=?",
-    "less-than-or-equal",
+    "monotonically non-decreasing",
     |ch1: &_, ch2: &_| ch1 <= ch2,
     /// # Examples
     ///
@@ -1008,7 +1133,7 @@ impl_char_comparison!(
 impl_char_comparison!(
     char_greater_than,
     "char>?",
-    "greater-than",
+    "monotonically decreasing",
     |ch1: &_, ch2: &_| ch1 > ch2,
     /// # Examples
     ///
@@ -1022,7 +1147,7 @@ impl_char_comparison!(
     -ci,
     char_ci_greater_than,
     "char-ci>?",
-    "greater-than",
+    "monotonically decreasing",
     |ch1: &_, ch2: &_| ch1 > ch2,
     /// # Examples
     ///
@@ -1036,7 +1161,7 @@ impl_char_comparison!(
 impl_char_comparison!(
     char_greater_than_equal_to,
     "char>=?",
-    "greater-than-or-equal",
+    "monotonically non-increasing",
     |ch1: &_, ch2: &_| ch1 >= ch2,
     /// # Examples
     ///
@@ -1050,7 +1175,7 @@ impl_char_comparison!(
     -ci,
     char_ci_greater_than_equal_to,
     "char-ci>=?",
-    "greater-than-or-equal",
+    "monotonically non-increasing",
     |ch1: &_, ch2: &_| ch1 >= ch2,
     /// # Examples
     ///
@@ -1065,6 +1190,13 @@ impl_char_comparison!(
 /// Returns the Unicode codepoint of a given character.
 ///
 /// (char->integer char?) -> integer?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (char->integer #\a) ;; => 97
+/// > (char->integer #\λ) ;; => 955
+/// ```
 #[function(name = "char->integer")]
 pub fn char_to_integer(ch: char) -> u32 {
     ch as u32
@@ -1073,6 +1205,13 @@ pub fn char_to_integer(ch: char) -> u32 {
 /// Returns the character corresponding to a given Unicode codepoint.
 ///
 /// (integer->char integer?) -> char?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (integer->char #x61) ;; => #\a
+/// > (integer->char 955) ;; => #\λ
+/// ```
 #[function(name = "integer->char")]
 pub fn integer_to_char(int: u32) -> Result<SteelVal> {
     let Some(ch) = char::from_u32(int) else {
@@ -1084,11 +1223,18 @@ pub fn integer_to_char(int: u32) -> Result<SteelVal> {
 
 /// Encodes a string as UTF-8 into a bytevector.
 ///
-/// (string->bytes string?) -> bytes?
+/// (string->bytes str [start] [end]) -> bytes?
+///
+/// * str : string?
+/// * start : int? = 0
+/// * end : int? = (string-length str)
 ///
 /// # Examples
+///
 /// ```scheme
-/// (string->bytes "Apple") ;; => (bytes 65 112 112 108 101)
+/// (string->bytes "Apple") ;; => #u8(#x41 #x70 #x70 #x6C #x65)
+/// (string->bytes "αβγ") ;; => #u8(#xCE #xB1 #xCE #xB2 #xCE #xB3)
+/// (string->bytes "one two three" 4 7) ;; => #u8(#x74 #x77 #x6F)
 /// ```
 #[function(name = "string->bytes", alias = "string->utf8")]
 pub fn string_to_bytes(value: &SteelString, mut rest: RestArgsIter<isize>) -> Result<SteelVal> {
@@ -1108,11 +1254,17 @@ pub fn string_to_bytes(value: &SteelString, mut rest: RestArgsIter<isize>) -> Re
 
 /// Returns a vector containing the characters of a given string
 ///
-/// (string->vector string?) -> vector?
+/// (string->vector s [start] [end]) -> vector?
+///
+/// * str : string?
+/// * start : int? = 0
+/// * end : int? = (string-length str)
 ///
 /// # Examples
+///
 /// ```scheme
 /// (string->vector "hello") ;; => '#(#\h #\e #\l #\l #\o)
+/// (string->vector "one two three" 4 7) ;; => '#(#\t #\w #\o)
 /// ```
 #[function(name = "string->vector")]
 pub fn string_to_vector(value: &SteelString, mut rest: RestArgsIter<isize>) -> Result<SteelVal> {
@@ -1221,6 +1373,16 @@ fn char_downcase(c: char) -> char {
 }
 
 /// Apply simple unicode case-folding to a char
+///
+/// (char-foldcase char?) -> char?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (char-foldcase #\A) ;; => #\a
+/// > (char-foldcase #\c) ;; => #\c
+/// > (char-foldcase #\ς) ;; => #\σ
+/// ```
 #[function(name = "char-foldcase")]
 fn char_foldcase(c: char) -> char {
     let cm = CaseMapper::new();
@@ -1228,19 +1390,50 @@ fn char_foldcase(c: char) -> char {
 }
 
 /// Returns `#t` if the character is a whitespace character.
+///
+/// # Example
+///
+/// ```scheme
+/// > (char-whitespace? #\space) ;; => #t
+/// > (char-whitespace? #\newline) ;; => #t
+/// ; nbsp character
+/// > (char-whitespace? #\xA0) ;; => #t
+/// > (char-whitespace? #\越) ;; => #f
+/// ```
 #[function(name = "char-whitespace?")]
 fn char_is_whitespace(c: char) -> bool {
     c.is_whitespace()
 }
 
-/// Returns `#t` if the character is a decimal digit.
+/// Returns `#t` if the character is an ascii decimal digit.
+///
+/// (char-digit? char?) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (char-digit? #\4) ;; => #t
+/// > (char-digit? #\a) ;; => #f
+/// > (char-digit? #\٣) ;; => #f
+/// > (char-digit? #\①) ;; => #f
+/// ```
 #[function(name = "char-digit?")]
 fn char_is_digit(c: char) -> bool {
     c.is_digit(10)
 }
 
-/// Attemps to convert the character into a decimal digit,
+/// Attemps to convert the character into an ascii decimal digit,
 /// and returns `#f` on failure.
+///
+/// (char->number char?) -> (or/c number? bool?)
+///
+/// # Examples
+///
+/// ```scheme
+/// > (char->number #\4) ;; => 4
+/// > (char->number #\a) ;; => #f
+/// > (char->number #\٣) ;; => #f
+/// ```
 #[function(name = "char->number")]
 fn char_to_number(c: char) -> Option<u32> {
     c.to_digit(10)
