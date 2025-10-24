@@ -877,6 +877,62 @@ Returns `#t` if the value is an EOF object.
 Returns the message of an error object.
 
 (error-object-message error?) -> string?
+### **euclidean-quotient**
+Returns the quotient of a euclidean integer division of a given numerator *n*
+by a given denominator *m*.
+
+(euclidean-quotient n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (euclidean-quotient 5 2) ;; => 2
+> (euclidean-quotient -5 2) ;; => -3
+> (euclidean-quotient 5 -2) ;; => -2
+> (euclidean-quotient -5 -2) ;; => 3
+```
+### **euclidean-remainder**
+Returns the arithmetic remainder of a euclidean integer division of a given
+numerator *n* by a given denominator *m*.
+
+The return value of this procedure is always positive.
+
+(euclidean-remainder n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (euclidean-remainder 5 2) ;; => 1
+> (euclidean-remainder -5 2) ;; => 1
+> (euclidean-remainder 5 -2) ;; => 1
+> (euclidean-remainder -5 -2) ;; => 1
+```
+### **euclidean/**
+Simultaneously returns the quotient and the arithmetic remainder of a euclidean
+integer division of a given numerator *n* by a given denominator *m*.
+
+Equivalent to `(values (euclidean-quotient n m) (euclidean-remainder n m))`,
+but may be computed more efficiently.
+
+(euclidean/ n m) -> (integer? integer?)
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (euclidean/ 5 2) ;; => (2 1)
+> (euclidean/ -5 2) ;; => (-3 1)
+> (euclidean/ 5 -2) ;; => (-2 1)
+> (euclidean/ -5 -2) ;; => (3 1)
+```
 ### **even?**
 Checks if the given number is even
 
@@ -1086,6 +1142,62 @@ Rounds the given number down to the nearest integer not larger than it.
 > (floor 3.14) ;; => 3
 > (floor 4.99) ;; => 4
 > (floor -2.5) ;; => -3
+```
+### **floor-quotient**
+Returns the quotient of a floored integer division of a given numerator *n*
+by a given denominator *m*.
+
+Equivalent to `(values (floor-quotient n m) (floor-remainder n m))`, but
+may be computed more efficiently.
+
+(floor-quotient n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (floor-quotient 5 2) ;; => 2
+> (floor-quotient -5 2) ;; => -3
+> (floor-quotient 5 -2) ;; => -3
+> (floor-quotient -5 -2) ;; => 2
+```
+### **floor-remainder**
+Returns the arithmetic remainder of a floored integer division of a given
+numerator *n* by a given denominator *m*.
+
+The return value of this procedure has the same sign as the denominator.
+
+(floor-remainder n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (floor-remainder 5 2) ;; => 1
+> (floor-remainder -5 2) ;; => 1
+> (floor-remainder 5 -2) ;; => -1
+> (floor-remainder -5 -2) ;; => -1
+```
+### **floor/**
+Simultaneously returns the quotient and the arithmetic remainder of a floored
+integer division of a given numerator *n* by a given denominator *m*.
+
+(floor/ n m) -> (integer? integer?)
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (floor/ 5 2) ;; => (2 1)
+> (floor/ -5 2) ;; => (-3 1)
+> (floor/ 5 -2) ;; => (-3 -1)
+> (floor/ -5 -2) ;; => (2 -1)
 ```
 ### **fs-metadata-accessed**
 Get the last accessed time from the file metadata
@@ -1813,8 +1925,10 @@ Create a mapping iterator
 (transduce (list 1 2 3) (mapping (λ (x) (+ x 1))) (into-list)) ;; => '(2 3 4)
 ```
 ### **modulo**
-Returns the euclidean remainder of the division of the first number by the second
-This differs from the remainder operator when using negative numbers.
+Returns the arithmetic remainder of a floored integer division of a given
+numerator *n* by a given denominator *m*.
+
+This procedure is an alias of `floor-remainder`.
 
 (modulo n m) -> integer?
 
@@ -1822,11 +1936,12 @@ This differs from the remainder operator when using negative numbers.
 * m : integer?
 
 #### Examples
+
 ```scheme
-> (modulo 10 3) ;; => 1
-> (modulo -10 3) ;; => 2
-> (modulo 10 -3) ;; => -2
-> (module -10 -3) ;; => -1
+> (modulo 5 2) ;; => 1
+> (modulo -5 2) ;; => 1
+> (modulo 5 -2) ;; => -1
+> (modulo -5 -2) ;; => -1
 ```
 ### **mut-vec-len**
 Returns the length of a mutable vector.
@@ -2204,12 +2319,15 @@ Prepends an element to the given vector.
 > (push-front 1 A) ;; => '#(1 2 3 4)
 ```
 ### **quotient**
-Returns quotient of dividing numerator by denomintator.
+Returns the quotient of a truncated integer division of a given numerator *n*
+by a given denominator *m*.
 
-(quotient numerator denominator) -> integer?
+This procedure is an alias of `truncate-quotient`.
 
-* numerator : integer? - The numerator.
-* denominator : integer? - The denominator.
+(quotient n m) -> integer?
+
+* n : integer? - The numerator.
+* m : integer? - The denominator.
 
 #### Examples
 ```scheme
@@ -2437,8 +2555,10 @@ Returns the index of the channel arguments passed in which is ready.
 
 Using this directly is not recommended.
 ### **remainder**
-Returns the arithmetic remainder of the division of the first number by the second.
-This differs from the modulo operator when using negative numbers.
+Returns the arithmetic remainder of a truncated integer division of a given
+numerator *n* by a given denominator *m*.
+
+This procedure is an alias of `truncate-remainder`.
 
 (remainder n m) -> integer?
 
@@ -2446,11 +2566,12 @@ This differs from the modulo operator when using negative numbers.
 * m : integer?
 
 #### Examples
+
 ```scheme
-> (remainder 10 3) ;; => 1
-> (remainder -10 3) ;; => -1
-> (remainder 10 -3) ;; => 1
-> (remainder -10 -3) ;; => -1
+> (remainder 5 2) ;; => 1
+> (remainder -5 2) ;; => -1
+> (remainder 5 -2) ;; => 1
+> (remainder -5 -2) ;; => -1
 ```
 ### **rest**
 Returns the rest of the list. Will raise an error if the list is empty.
@@ -3169,6 +3290,62 @@ larger than it.
 > (truncate 42) ;; => 42
 > (truncate 42.1) ;; => 42
 > (truncate -42.1) ;; => -42
+```
+### **truncate-quotient**
+Returns the quotient of a truncated integer division of a given numerator *n*
+by a given denominator *m*.
+
+(truncate-quotient n m) -> integer?
+
+* n : integer? - The numerator.
+* m : integer? - The denominator.
+
+#### Examples
+
+```scheme
+> (truncate-quotient 5 2) ;; => 2
+> (truncate-quotient -5 2) ;; => -2
+> (truncate-quotient 5 -2) ;; => -2
+> (truncate-quotient -5 -2) ;; => 2
+```
+### **truncate-remainder**
+Returns the arithmetic remainder of a truncated integer division of a given
+numerator *n* by a given denominator *m*.
+
+The return value of this procedure has the same sign as the numerator.
+
+(truncate-remainder n m) -> integer?
+
+* n : integer? - The numerator.
+* m : integer? - The denominator.
+
+#### Examples
+
+```scheme
+> (truncate-remainder 5 2) ;; => 1
+> (truncate-remainder -5 2) ;; => -1
+> (truncate-remainder 5 -2) ;; => 1
+> (truncate-remainder -5 -2) ;; => -1
+```
+### **truncate/**
+Simultaneously returns the quotient and the arithmetic remainder of a truncated
+integer division of a given numerator *n* by a given denominator *m*.
+
+Equivalent to `(values (truncate-quotient n m) (truncate-remainder n m))`,
+but may be computed more efficiently.
+
+(truncate/ n m) -> (integer? integer?)
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (truncate/ 5 2) ;; => (2 1)
+> (truncate/ -5 2) ;; => (-2 -1)
+> (truncate/ 5 -2) ;; => (-2 1)
+> (truncate/ -5 -2) ;; => (2 -1)
 ```
 ### **utf8->string**
 Alias of `bytes->string/utf8`.
