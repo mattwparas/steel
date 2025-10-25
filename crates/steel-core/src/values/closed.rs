@@ -438,6 +438,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                 crate::values::transducers::Transducers::Enumerating => {}
                 crate::values::transducers::Transducers::Zipping(z) => self.push_back(z),
                 crate::values::transducers::Transducers::Interleaving(i) => self.push_back(i),
+                crate::values::transducers::Transducers::MapPair(i) => self.push_back(i),
             }
         }
     }
@@ -2510,6 +2511,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
                 crate::values::transducers::Transducers::Enumerating => {}
                 crate::values::transducers::Transducers::Zipping(z) => self.push_back(z),
                 crate::values::transducers::Transducers::Interleaving(i) => self.push_back(i),
+                crate::values::transducers::Transducers::MapPair(i) => self.push_back(i),
             }
         }
     }
@@ -2743,6 +2745,7 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
                 crate::values::transducers::Transducers::Enumerating => {}
                 crate::values::transducers::Transducers::Zipping(z) => self.push_back(z),
                 crate::values::transducers::Transducers::Interleaving(i) => self.push_back(i),
+                crate::values::transducers::Transducers::MapPair(i) => self.push_back(i),
             }
         }
     }

@@ -17,7 +17,9 @@
 (define SEP (if (equal? (current-os!) "windows") "\\" "/"))
 
 (define (append-with-separator path dir)
-  (if (ends-with? path SEP) (string-append path dir) (string-append path SEP dir)))
+  (if (ends-with? path SEP)
+      (string-append path dir)
+      (string-append path SEP dir)))
 
 (define (path-from-steel-home dir)
   (~> (steel-home-location) (append-with-separator dir)))
@@ -28,6 +30,10 @@
 (define *DYLIB-DIR* (path-from-steel-home "native"))
 (define *CARGO_TARGET_DIR* (path-from-steel-home "target"))
 
+;; Git clone to the temporary source, and then we're going to
+;; hash the directory contents, find the version.
+(define *TEMPORARY-SOURCES* (path-from-steel-home "temp"))
+
 ;;@doc
 ;; Most likely should use gix here instead of shelling out to git?
 ;; Use the sha to pin to a specific commit, if interested
@@ -36,7 +42,9 @@
   (define resulting-path
     (string-append installation-dir
                    "/"
-                   (if (symbol? package-name) (symbol->string package-name) package-name)))
+                   (if (symbol? package-name)
+                       (symbol->string package-name)
+                       package-name)))
 
   (displayln "Fetching package from git: " package-name)
 
@@ -89,7 +97,9 @@
 (define (wait-for-jobs)
   (unless (empty? *jobs*)
     (displayln "Waiting for dylib builds to finish")
-    (if (feature-dylib-build?) (for-each thread-join! *jobs*) (for-each wait *jobs*))))
+    (if (feature-dylib-build?)
+        (for-each thread-join! *jobs*)
+        (for-each wait *jobs*))))
 
 ;; Run the cargo-steel-lib installer in the target directory
 ; (define (run-dylib-installation target-directory #:subdir [subdir ""])
@@ -123,6 +133,33 @@
           Ok->value
           wait)))
 
+;; (require ("term.scm"))
+;;
+;; Steps:
+;; 1. Clone to a temp directory
+;; 2. Identify the version
+;; 3. Move to a versioned cog directory
+;; 4. Transparently use versioned imports where
+;;    necessary by just having the values be included
+;;    as part of the require statement.
+(define (download-cog-to-temp-dir-and-parse-module library-name
+                                                   git-url
+                                                   #:subdir [subdir ""]
+                                                   #:sha [*sha* void])
+
+  (define found-library-name
+    (if (void? library-name)
+        (~> (split-many git-url "/") last (trim-end-matches ".git"))
+        library-name))
+
+  ;; Download to temporary location?
+  (~> (maybe-git-clone found-library-name git-url *COG-SOURCES* #:sha *sha*)
+      ;; If we're attempting to install the package from a subdirectory of
+      ;; git urls, we should do that accordingly here.
+      (append-with-separator subdir)
+      parse-cog
+      car))
+
 ;;@doc
 ;; Download cog source to sources directory, and then install from there.
 ;; Returns the resulting cog module hash. Will fail if the subdirectory
@@ -137,6 +174,7 @@
         (~> (split-many git-url "/") last (trim-end-matches ".git"))
         library-name))
 
+  ;; Download to temporary location?
   (~> (maybe-git-clone found-library-name git-url *COG-SOURCES* #:sha *sha*)
       ;; If we're attempting to install the package from a subdirectory of
       ;; git urls, we should do that accordingly here.

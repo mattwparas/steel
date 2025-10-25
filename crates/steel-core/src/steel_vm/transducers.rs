@@ -438,6 +438,10 @@ impl<'global, 'a> VmCore<'a> {
                     };
                     Box::new(interleave(iter, other))
                 }
+
+                Transducers::MapPair(p) => {
+                    todo!()
+                }
             }
         }
 

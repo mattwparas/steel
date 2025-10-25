@@ -1,6 +1,3 @@
-; (require "steel/tests/unit-test.scm"
-;          (for-syntax "steel/tests/unit-test.scm"))
-
 (require "steel/iterators")
 
 (provide list-transduce
@@ -47,7 +44,9 @@
 (define (compose . functions)
   (define (make-chain thunk chain)
     (lambda args (call-with-values (lambda () (apply thunk args)) chain)))
-  (if (null? functions) values (fold make-chain (car functions) (cdr functions))))
+  (if (null? functions)
+      values
+      (fold make-chain (car functions) (cdr functions))))
 
 (struct reduced (val))
 
@@ -55,20 +54,28 @@
 
 ;; helper function which ensures x is reduced.
 (define (ensure-reduced x)
-  (if (reduced? x) x (reduced x)))
+  (if (reduced? x)
+      x
+      (reduced x)))
 
 ;; helper function that wraps a reduced value twice since reducing functions (like list-reduce)
 ;; unwraps them. tconcatenate is a good example: it re-uses it's reducer on it's input using list-reduce.
 ;; If that reduction finishes early and returns a reduced value, list-reduce would "unreduce"
 ;; that value and try to continue the transducing process.
 (define (preserving-reduced reducer)
-  (lambda (a b) (let ([return (reducer a b)]) (if (reduced? return) (reduced return) return))))
+  (lambda (a b)
+    (let ([return (reducer a b)])
+      (if (reduced? return)
+          (reduced return)
+          return))))
 
 (define (list-reduce f identity lst)
   (if (null? lst)
       identity
       (%plain-let ((v (f identity (car lst))))
-                  (if (reduced? v) (unreduce v) (list-reduce f v (cdr lst))))))
+                  (if (reduced? v)
+                      (unreduce v)
+                      (list-reduce f v (cdr lst))))))
 
 (define (vector-reduce f identity vec)
   (let ([len (vector-length vec)])
@@ -77,7 +84,9 @@
       (if (= i len)
           acc
           (let ([acc (f acc (vector-ref vec i))])
-            (if (reduced? acc) (unreduce acc) (loop (+ i 1) acc)))))))
+            (if (reduced? acc)
+                (unreduce acc)
+                (loop (+ i 1) acc)))))))
 
 ;; Note: this is the same as the string-reduce
 (define (iterator-reduce f identity hmap)
@@ -88,7 +97,10 @@
         ;; static instead of thread local
         (if (equal? ITERATOR-FINISHED next)
             acc
-            (let ([acc (f acc next)]) (if (reduced? acc) (unreduce acc) (loop acc))))))))
+            (let ([acc (f acc next)])
+              (if (reduced? acc)
+                  (unreduce acc)
+                  (loop acc))))))))
 
 (define (string-reduce f identity str)
   (let ([iter (value->iterator str)])
@@ -98,7 +110,10 @@
         ;; static instead of thread local
         (if (equal? ITERATOR-FINISHED next)
             acc
-            (let ([acc (f acc next)]) (if (reduced? acc) (unreduce acc) (loop acc))))))))
+            (let ([acc (f acc next)])
+              (if (reduced? acc)
+                  (unreduce acc)
+                  (loop acc))))))))
 
 (define (bytevector-u8-reduce f identity vec)
   (let ([len (bytes-length vec)])
@@ -107,21 +122,29 @@
       (if (= i len)
           acc
           (let ([acc (f acc (bytes-ref vec i))])
-            (if (reduced? acc) (unreduce acc) (loop (+ i 1) acc)))))))
+            (if (reduced? acc)
+                (unreduce acc)
+                (loop (+ i 1) acc)))))))
 
 (define (port-reduce f identity reader port)
   (let loop ([val (reader port)]
              [acc identity])
     (if (eof-object? val)
         acc
-        (let ([acc (f acc val)]) (if (reduced? acc) (unreduce acc) (loop (reader port) acc))))))
+        (let ([acc (f acc val)])
+          (if (reduced? acc)
+              (unreduce acc)
+              (loop (reader port) acc))))))
 
 (define (generator-reduce f identity gen)
   (let loop ([val (gen)]
              [acc identity])
     (if (eof-object? val)
         acc
-        (let ([acc (f acc val)]) (if (reduced? acc) (unreduce acc) (loop (gen) acc))))))
+        (let ([acc (f acc val)])
+          (if (reduced? acc)
+              (unreduce acc)
+              (loop (gen) acc))))))
 
 (struct <Nothing> ())
 
@@ -220,13 +243,21 @@
   (case-lambda
     [() #f]
     [(result) result]
-    [(result input) (let ([test (pred input)]) (if test (reduced test) #f))]))
+    [(result input)
+     (let ([test (pred input)])
+       (if test
+           (reduced test)
+           #f))]))
 
 (define (revery pred)
   (case-lambda
     [() #t]
     [(result) result]
-    [(result input) (let ([test (pred input)]) (if (and result test) test (reduced #f)))]))
+    [(result input)
+     (let ([test (pred input)])
+       (if (and result test)
+           test
+           (reduced #f)))]))
 
 (struct PortTransducer (reader port))
 
@@ -346,24 +377,37 @@
     (case-lambda
       [() (reducer)]
       [(result) (reducer result)]
-      [(result input) (if (pred input) (reducer result input) result)])))
+      [(result input)
+       (if (pred input)
+           (reducer result input)
+           result)])))
 
 (define (tremove pred)
   (lambda (reducer)
     (case-lambda
       [() (reducer)]
       [(result) (reducer result)]
-      [(result input) (if (not (pred input)) (reducer result input) result)])))
+      [(result input)
+       (if (not (pred input))
+           (reducer result input)
+           result)])))
 
 (define (tfilter-map f)
   (compose (tmap f) (tfilter values)))
 
 (define (hash-table-ref/default m key default)
-  (if (hash-contains? m key) (hash-get m key) default))
+  (if (hash-contains? m key)
+      (hash-get m key)
+      default))
 
 (define (make-replacer map)
   (cond
-    [(list? map) (lambda (x) (let ([replacer? (assoc x map)]) (if replacer? (cdr replacer?) x)))]
+    [(list? map)
+     (lambda (x)
+       (let ([replacer? (assoc x map)])
+         (if replacer?
+             (cdr replacer?)
+             x)))]
     [(hash? map) (lambda (x) (hash-table-ref/default map x x))]
     [(procedure? map) map]
     [else (error "Unsupported mapping in treplace" map)]))
@@ -379,7 +423,9 @@
         [(result) (reducer result)]
         [(result input)
          (set! new-n (- new-n 1))
-         (if (positive? new-n) result (reducer result input))]))))
+         (if (positive? new-n)
+             result
+             (reducer result input))]))))
 
 (define (tdrop-while pred)
   (lambda (reducer)
@@ -404,9 +450,13 @@
         [() (reducer)]
         [(result) (reducer result)]
         [(result input)
-         (let ([result (if (positive? new-n) (reducer result input) result)])
+         (let ([result (if (positive? new-n)
+                           (reducer result input)
+                           result)])
            (set! new-n (- new-n 1))
-           (if (not (positive? new-n)) (ensure-reduced result) result))]))))
+           (if (not (positive? new-n))
+               (ensure-reduced result)
+               result))]))))
 
 (define ttake-while
   (case-lambda
@@ -506,10 +556,14 @@
             [(result)
              ;; if there is anything collected when we are asked to quit
              ;; we flush it to the remaining transducers
-             (let ([result (if (zero? i) result (reducer result (vector->list collect 0 i)))])
+             (let ([result (if (zero? i)
+                               result
+                               (reducer result (vector->list collect 0 i)))])
                (set! i 0)
                ;; now finally, pass it downstreams
-               (if (reduced? result) (reducer (unreduce result)) (reducer result)))]
+               (if (reduced? result)
+                   (reducer (unreduce result))
+                   (reducer result)))]
             [(result input)
              (vector-set! collect i input)
              (set! i (+ i 1))
@@ -527,9 +581,13 @@
       (case-lambda
         [() (reducer)]
         [(result)
-         (let ([result (if (null? collect) result (reducer result (reverse collect)))])
+         (let ([result (if (null? collect)
+                           result
+                           (reducer result (reverse collect)))])
            (set! collect '())
-           (if (reduced? result) (reducer (unreduce result)) (reducer result)))]
+           (if (reduced? result)
+               (reducer (unreduce result))
+               (reducer result)))]
         [(result input)
          (let ([fout (f input)])
            (cond
@@ -554,7 +612,9 @@
         [(result input)
          (if send-elem?
              (let ([result (reducer result elem)])
-               (if (reduced? result) result (reducer result input)))
+               (if (reduced? result)
+                   result
+                   (reducer result input)))
              (begin
                (set! send-elem? #t)
                (reducer result input)))]))))
@@ -586,31 +646,3 @@
          [(result input)
           (log-function result input)
           (reducer result input)]))]))
-
-; (test-module
-;  "transducers tests"
-;  (check-equal? "tmap with basic addition and rcons"
-;                (list-transduce (tmap (lambda (x) (+ x 1))) rcons (list 0 1 2 3))
-;                (list 1 2 3 4))
-;  (check-equal? "tfilter with a basic predicate"
-;                (list-transduce (tfilter even?) rcons (list 0 1 2 3 4 5))
-;                (list 0 2 4))
-;  (check-equal? "tflatten basic flattening"
-;                (list-transduce tflatten rcons (list 1 2 (list 3 4 '(5 6) 7 8)))
-;                (list 1 2 3 4 5 6 7 8))
-;  (check-equal? "tdelete-neighbor-duplicates"
-;                (list-transduce (tdelete-neighbor-duplicates) rcons (list 1 1 2 2 3 3 4 4))
-;                (list 1 2 3 4))
-;  (check-equal? "tenumerate"
-;                (list-transduce (tenumerate) rcons (list 1 1 2 2 3 3 4 4))
-;                '((0 1) (1 1) (2 2) (3 2) (4 3) (5 3) (6 4) (7 4)))
-;  (check-equal? "tadd-between"
-;                (list-transduce (tadd-between 10) rcons (list 1 2 3 4 5))
-;                '(1 10 2 10 3 10 4 10 5))
-;  (check-equal? "ttake" (list-transduce (ttake 4) rcons (list 1 2 3 4 5 6 7 8 9 10)) (list 1 2 3 4))
-;  (check-equal? "ttake-while"
-;                (list-transduce (ttake-while even?) rcons (list 2 4 6 8 9 10))
-;                (list 2 4 6 8))
-;  (check-equal? "tconcatenate"
-;                (list-transduce tconcatenate rcons '((10 20) (30 40) (50 60)))
-;                '(10 20 30 40 50 60)))

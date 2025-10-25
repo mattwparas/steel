@@ -979,6 +979,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                     crate::values::transducers::Transducers::Enumerating => {}
                     crate::values::transducers::Transducers::Zipping(z) => self.push_back(z),
                     crate::values::transducers::Transducers::Interleaving(i) => self.push_back(i),
+                    crate::values::transducers::Transducers::MapPair(p) => self.push_back(p),
                 }
             }
         }
@@ -2459,6 +2460,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
                 crate::values::transducers::Transducers::Enumerating => {}
                 crate::values::transducers::Transducers::Zipping(z) => self.push_back(z),
                 crate::values::transducers::Transducers::Interleaving(i) => self.push_back(i),
+                crate::values::transducers::Transducers::MapPair(p) => self.push_back(p),
             }
         }
     }

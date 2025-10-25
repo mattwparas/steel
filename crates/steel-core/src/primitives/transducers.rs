@@ -60,6 +60,10 @@ enum TransducerKind {
     Enumerating,
     Zipping,
     Interleaving,
+
+    // Optimized variants that understand
+    // the input data coming in
+    MapPair,
 }
 
 #[steel_derive::function(name = "#%transducers->funcs")]
@@ -114,6 +118,8 @@ pub fn transducers_func(arg: &SteelVal) -> Option<SteelVal> {
                         Transducers::Interleaving(steel_val) => {
                             pair(TransducerKind::Interleaving, steel_val.clone())
                         }
+
+                        Transducers::MapPair(p) => pair(TransducerKind::MapPair, p.clone()),
                     });
                 }
             }
