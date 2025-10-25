@@ -38,7 +38,8 @@ pub fn transducer_module() -> BuiltInModule {
         .register_value("into-for-each", crate::values::transducers::FOR_EACH)
         .register_value("into-nth", crate::values::transducers::NTH)
         .register_value("into-reducer", crate::values::transducers::REDUCER)
-        .register_native_fn_definition(TRANSDUCERS_FUNC_DEFINITION);
+        .register_native_fn_definition(TRANSDUCERS_FUNC_DEFINITION)
+        .register_native_fn_definition(REDUCER_TO_INT_DEFINITION);
 
     module
 }
@@ -64,6 +65,41 @@ enum TransducerKind {
     // Optimized variants that understand
     // the input data coming in
     MapPair,
+}
+
+#[steel_derive::function(name = "#%reducer->int")]
+pub fn reducer_to_int(arg: &SteelVal) -> Option<SteelVal> {
+    if let SteelVal::ReducerV(r) = arg {
+        Some(match r.as_ref() {
+            crate::values::transducers::Reducer::Sum => SteelVal::IntV(0),
+            crate::values::transducers::Reducer::Multiply => SteelVal::IntV(1),
+            crate::values::transducers::Reducer::Max => SteelVal::IntV(2),
+            crate::values::transducers::Reducer::Min => SteelVal::IntV(3),
+            crate::values::transducers::Reducer::Count => SteelVal::IntV(4),
+            crate::values::transducers::Reducer::Nth(n) => SteelVal::Pair(Gc::new(
+                crate::values::lists::Pair::cons(SteelVal::IntV(5), SteelVal::IntV(*n as _)),
+            )),
+            crate::values::transducers::Reducer::List => SteelVal::IntV(6),
+            crate::values::transducers::Reducer::Vector => SteelVal::IntV(7),
+            crate::values::transducers::Reducer::HashMap => SteelVal::IntV(8),
+            crate::values::transducers::Reducer::HashSet => SteelVal::IntV(9),
+            crate::values::transducers::Reducer::String => SteelVal::IntV(10),
+            crate::values::transducers::Reducer::Last => SteelVal::IntV(11),
+            crate::values::transducers::Reducer::ForEach(steel_val) => SteelVal::Pair(Gc::new(
+                crate::values::lists::Pair::cons(SteelVal::IntV(12), steel_val.clone()),
+            )),
+            crate::values::transducers::Reducer::Generic(reducer_func) => SteelVal::ListV(
+                vec![
+                    SteelVal::IntV(13),
+                    reducer_func.initial_value.clone(),
+                    reducer_func.function.clone(),
+                ]
+                .into(),
+            ),
+        })
+    } else {
+        None
+    }
 }
 
 #[steel_derive::function(name = "#%transducers->funcs")]

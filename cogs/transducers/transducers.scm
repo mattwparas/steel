@@ -37,8 +37,10 @@
          new-into-immutable-vector
          new-into-vector
          new-into-for-each
+         new-into-list
          rany
          revery
+         rcount
          compose)
 
 (define (compose . functions)
@@ -172,6 +174,8 @@
     [(lst) (reverse lst)]
     [(lst x) (cons x lst)]))
 
+(define new-into-list rcons)
+
 (define new-into-hashmap
   (case-lambda
     [() (hash)]
@@ -199,11 +203,13 @@
      (vector-push! v elem)
      v]))
 
-(define new-into-for-each
+(define (new-into-for-each func)
   (case-lambda
     [() void]
     [(v) v]
-    [(v elem) void]))
+    [(v elem)
+     (func elem)
+     void]))
 
 ;;@doc
 ;; A transducer-friendly cons with the empty list as identity. Acts like rcons, however will reverse

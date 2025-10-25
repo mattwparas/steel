@@ -2,7 +2,9 @@
 
 (define (split-last lst)
   (define (loop accum lst)
-    (if (empty? (cdr lst)) (cons (reverse accum) (car lst)) (loop (cons (car lst) accum) (cdr lst))))
+    (if (empty? (cdr lst))
+        (cons (reverse accum) (car lst))
+        (loop (cons (car lst) accum) (cdr lst))))
   (loop '() lst))
 
 (define (builtin-transducer->userspace p)
@@ -15,7 +17,7 @@
     [(3) (tdrop func)]
     [(4) (tflat-map func)]
     [(5) tflatten]
-    [(6) (error "implement twindow")]
+    [(6) (tsegment func)]
     [(7) (ttake-while func)]
     [(8) (tdrop-while func)]
     [(9) (error "implement extend")]
@@ -23,13 +25,47 @@
     [(11) tenumerate]
     [(12) (error "implement zip")]
     [(13) (error "implement interleaving")]
-    [else (error "Unknown transducer")]))
+    [(14) (error "implement map pair")]
+    [else p]))
+
+(define (builtin-reduce->userspace reducer)
+  (define kind (#%reducer->int reducer))
+  (cond
+    [(int? kind)
+     (case kind
+       ; [(0) (new-into-sum)]
+       ; [(1) (new-into-product)]
+       ; [(2) (new-into-max)]
+       ; [(3) (new-into-min)]
+       [(4) (rcount)]
+       [(5) (new-into-list)]
+       [(6) (new-into-vector)]
+       [(7) (new-into-hashmap)]
+       [(8) (new-into-hashset)]
+       ; [(9) (new-into-string)]
+       ; [(10) (new-into-last)]
+       ; [(11) (new-into-for-each)]
+       ; [(12) (new-into-nth)]
+       ; [(13) (new-into-reducer)]
+       [else (error "Unknown or unimplemented reducer: " kind)])]
+
+    [(list? kind) (error "unimplemented generic reducer")]
+    [(pair? kind) (new-into-for-each (cdr kind))]
+    [else (error "unknown reducer")]))
 
 (define (all func lst)
-  (if (null? lst) #t (if (func (car lst)) (all func (cdr lst)) #f)))
+  (if (null? lst)
+      #t
+      (if (func (car lst))
+          (all func (cdr lst))
+          #f)))
 
 (define (any lst)
-  (if (null? lst) #f (if (car lst) #t (any (cdr lst)))))
+  (if (null? lst)
+      #f
+      (if (car lst)
+          #t
+          (any (cdr lst)))))
 
 (define (all-function-pointer? p)
   (all #%function-pointer? p))
@@ -50,8 +86,11 @@
   (define transducers (builtin->transducer (car split)))
 
   ;; TODO: map the reducers as well!
-  (define reducer (cdr split))
+  (define reducer (builtin-reduce->userspace (cdr split)))
 
-  (new-transduce (if (> (length args) 1) (apply compose transducers) (car transducers))
+  (new-transduce (cond
+                   [(empty? transducers) (tmap (lambda (x) x))]
+                   [(> (length transducers) 1) (apply compose transducers)]
+                   [else (car transducers)])
                  reducer
                  collection))
