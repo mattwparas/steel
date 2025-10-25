@@ -1,0 +1,56 @@
+(define (assert-equal! expected actual)
+  (let ([ok (equal? expected actual)])
+    (when (not ok)
+      (error "expected" expected "but got" actual))))
+
+(assert! (char=? #\a #\a))
+(assert! (not (char=? #\S #\s)))
+(assert! (char-ci=? #\S #\s))
+(assert! (char-ci=? #\ẞ #\ß))
+(assert! (char-ci=? #\σ #\Σ #\ς))
+(assert! (char-ci=? #\K #\K #\k))
+
+(assert! (char<? #\a #\b))
+(assert! (char-ci<? #\a #\b))
+(assert! (not (char<? #\c #\D)))
+(assert! (char-ci<? #\c #\D))
+
+(assert! (char>? #\f #\e))
+(assert! (char-ci>? #\f #\e))
+(assert! (not (char>? #\F #\e)))
+(assert! (char-ci>? #\F #\e))
+
+(assert-equal! (char-foldcase #\K) #\k)
+(assert-equal! (char-foldcase #\I) #\i)
+(assert-equal! (char-foldcase #\ß) #\ß)
+(assert-equal! (char-foldcase #\Σ) #\σ)
+(assert-equal! (char-foldcase #\ς) #\σ)
+
+(assert-equal! (char-downcase #\D) #\d)
+(assert-equal! (char-downcase #\d) #\d)
+(assert-equal! (char-downcase #\ẞ) #\ß)
+(assert-equal! (char-downcase #\Σ) #\σ)
+
+(assert-equal! (char-upcase #\U) #\U)
+(assert-equal! (char-upcase #\u) #\U)
+(assert-equal! (char-upcase #\σ) #\Σ)
+(assert-equal! (char-upcase #\ς) #\Σ)
+(assert-equal! (char-upcase #\ß) #\ß)
+
+(assert! (string-ci=? "Straße" "STRASSE" "strasse" "STRAẞE"))
+(assert! (string-ci=? "hEllO WorLd" "HELLO worlD"))
+(assert! (string-ci=? "ὈΔΥΣΣΕΎΣ" "ὀδυσσεύς"))
+(assert! (string-ci=? "ὈΔΥΣΣΕΎΣ" "ὀδυσσεύσ"))
+(assert! (string-ci=? "ﬃ" "ﬀi" "fﬁ" "ffi"))
+
+(assert-equal! (string->lower "STRAẞE") "straße")
+(assert-equal! (string-downcase "UppER") "upper")
+(assert-equal! (string-downcase "ὈΔΥΣΣΕΎΣ") "ὀδυσσεύς")
+(assert-equal! (string-downcase "STRAẞE") "straße")
+
+(assert-equal! (string->upper "straße") "STRASSE")
+(assert-equal! (string-upcase "loWer") "LOWER")
+(assert-equal! (string-upcase "straße") "STRASSE")
+
+(assert-equal! (string-foldcase "hEllO WorLd") "hello world")
+(assert-equal! (string-foldcase "Straße") "strasse")

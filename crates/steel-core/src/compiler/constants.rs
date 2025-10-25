@@ -233,6 +233,14 @@ impl ConstantMap {
                     })
                     .collect(),
             )),
+            SteelVal::VectorV(v) => Some(SteelVal::VectorV(
+                v.iter()
+                    .map(|value| {
+                        let idx = self.add_or_get(value.clone());
+                        self.get(idx)
+                    })
+                    .collect(),
+            )),
             _ => None,
         }
     }
@@ -240,7 +248,7 @@ impl ConstantMap {
     // This is certainly not what we want. This time complexity is
     // questionable
     pub fn add_or_get(&mut self, mut val: SteelVal) -> usize {
-        if let SteelVal::ListV(_) = &val {
+        if let SteelVal::ListV(_) | SteelVal::VectorV(_) = &val {
             if let Some(new_list) = self.walk_constants(&val) {
                 val = new_list;
             };

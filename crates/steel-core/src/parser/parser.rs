@@ -6,8 +6,7 @@ use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
 use num_rational::{BigRational, Rational32};
 use std::borrow::Cow;
-use std::path::PathBuf;
-use std::str;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use steel_parser::interner::InternedString;
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral, TokenType};
@@ -148,7 +147,7 @@ impl InterierSources {
         self.paths.get(source_id).cloned()
     }
 
-    pub fn get_id(&self, path: &PathBuf) -> Option<SourceId> {
+    pub fn get_id(&self, path: &Path) -> Option<SourceId> {
         self.reverse.get(path).copied()
     }
 
@@ -226,7 +225,7 @@ impl Sources {
         self.sources.add_source(source, path)
     }
 
-    pub fn get_source_id(&self, path: &PathBuf) -> Option<SourceId> {
+    pub fn get_source_id(&self, path: &Path) -> Option<SourceId> {
         self.sources.get_id(path)
     }
 
@@ -290,7 +289,7 @@ impl IntoSteelVal for NumberLiteral {
     }
 }
 
-impl<'a> IntoSteelVal for &'a NumberLiteral {
+impl IntoSteelVal for &NumberLiteral {
     fn into_steelval(self) -> Result<SteelVal, SteelErr> {
         // as we do not have an owned `self`, we have to clone here, as
         // we need all the BigInts owned

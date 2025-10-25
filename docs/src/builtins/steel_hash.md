@@ -3,30 +3,26 @@
 Creates an immutable hash table with each given `key` mapped to the following `val`.
 Each key must have a val, so the total number of arguments must be even.
 
-
 (hash key val ...) -> hash?
 
-key : hashable?
-val : any/c
+* key : hashable?
+* val : any/c
 
 Note: the keys must be hashable.
 
 #### Examples
 ```scheme
-> (hash 'a 10 'b 20)",
-r#"=> #<hashmap {
-'a: 10,
-'b: 20,
-}>"#,
+> (hash 'a 10 'b 20)
+=> '#hash((a . 10) (b . 20))
 ```
 ### **hash-clear**
 Clears the entries out of the existing hashmap.
 Will attempt to reuse the existing memory if there are no other references
 to the hashmap.
 
-(hash-clear h) -> hash?
+(hash-clear map) -> hash?
 
-h: hash?
+* map : hash?
 
 #### Examples
 ```scheme
@@ -50,9 +46,9 @@ Checks whether the given map contains the given key. Key must be hashable.
 ### **hash-empty?**
 Checks whether the hash map is empty
 
-(hash-empty? m) -> bool?
+(hash-empty? map) -> bool?
 
-m: hash?
+* map : hash?
 
 #### Examples
 ```scheme
@@ -70,45 +66,40 @@ so the old hash map is still accessible.
 * val : any/c
 
 #### Examples
+
 ```scheme
 > (hash-insert (hash 'a 10 'b 20) 'c 30)
-
-=> #<hashmap {
-'a: 10,
-'b: 20,
-'c: 30
-}>
+=> '#hash((a . 10) (b . 20) (c . 30))
 ```
 ### **hash-keys->list**
 Returns the keys of the given hash map as a list.
 
-```scheme
 (hash-keys->list map) -> (listof hashable?)
-```
 
 * map : hash?
 
 #### Examples
 
 ```scheme
-> (hash-keys->list? (hash 'a 'b 20)) ;; => '(a b)
+> (hash-keys->list (hash 'a 10 'b 20))
+=> '(a b)
 ```
 ### **hash-keys->vector**
 Returns the keys of the given hash map as an immutable vector
 
-(hash-keys->vector map) -> (vectorof any/c)?
+(hash-keys->vector map) -> (vectorof hashable?)
 
-map: hash?
+* map: hash?
 
 #### Examples
 ```scheme
-> (hash-keys->vector (hash 'a 10 'b 20)),
-=> ['a 'b]",
+> (hash-keys->vector (hash 'a 10 'b 20))
+=> '#(a b)
 ```
 ### **hash-length**
 Returns the number of key value pairs in the map
 
-(hash-length map) -> (and positive? int?)
+(hash-length map) -> (and/c positive? int?)
 
 * map : hash?
 
@@ -126,6 +117,7 @@ Gets the `key` from the given `map`. Raises an error if the key does not exist. 
 * key : any/c
 
 #### Examples
+
 ```scheme
 > (hash-ref (hash 'a 10 'b 20) 'b) ;; => 20
 ```
@@ -139,9 +131,9 @@ update, so the old hash map is still available with the original key value pair.
 * key : any/c
 
 #### Examples
+
 ```scheme
 > (hash-remove (hash 'a 10 'b 20) 'a)
-
 => '#hash(('b . 20))
 ```
 ### **hash-try-get**
@@ -173,26 +165,28 @@ Will reuse memory where possible.
 ### **hash-values->list**
 Returns the values of the given hash map as a list
 
-(hash-values->list? map) -> (listof any/c)?
+(hash-values->list map) -> (listof any/c)
 
-map: hash?
+* map : hash?
 
 #### Examples
+
 ```scheme
-> (hash-values->list? (hash 'a 10 'b 20)),
-=> '(10 20)",
+> (hash-values->list (hash 'a 10 'b 20))
+=> '(10 20)
 ```
 ### **hash-values->vector**
 Returns the values of the given hash map as an immutable vector
 
 (hash-values->vector map) -> (vectorof any/c)?
 
-map: hash?
+* map : hash?
 
 #### Examples
+
 ```scheme
-> (hash-keys->vector (hash 'a 10 'b 20)),
-=> [10 10]",
+> (hash-values->vector (hash 'a 10 'b 20))
+=> '#(10 20)
 ```
 ### **%keyword-hash**
 ### **hash-get**

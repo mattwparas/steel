@@ -135,11 +135,9 @@ create_prelude!(
 
 #[cfg(not(target_family = "wasm"))]
 pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
-    std::env::var("STEEL_SEARCH_PATHS").ok().map(|x| {
-        std::env::split_paths(x.as_str())
-            .map(PathBuf::from)
-            .collect::<Vec<_>>()
-    })
+    std::env::var("STEEL_SEARCH_PATHS")
+        .ok()
+        .map(|x| std::env::split_paths(x.as_str()).collect::<Vec<_>>())
 });
 
 pub fn steel_search_dirs() -> Vec<PathBuf> {
@@ -899,6 +897,27 @@ impl ModuleManager {
             mangled_asts.append(&mut module_ast);
         }
 
+        {
+            let mut should_mangle = false;
+            for (_, smacro) in module.macro_map.iter() {
+                if !smacro.special_mangled && !smacro.is_mangled() {
+                    should_mangle = true;
+                    break;
+                }
+            }
+
+            if should_mangle {
+                for (_, smacro) in Arc::make_mut(&mut module.macro_map).iter_mut() {
+                    if !smacro.special_mangled && !smacro.is_mangled() {
+                        for expr in smacro.exprs_mut() {
+                            name_mangler.visit(expr);
+                        }
+                        smacro.mark_mangled();
+                    }
+                }
+            }
+        }
+
         // let provided_macros = module.provides_for
         // let expander = Expander::new(&module.macro_map);
         // TODO
@@ -918,27 +937,12 @@ impl ModuleManager {
                     .filter_map(|x| x.atom_identifier())
             }))
             .filter_map(|x| {
-                let smacro = Arc::make_mut(&mut module.macro_map).get_mut(x);
-
+                let smacro = module.macro_map.get(x);
                 if let Some(smacro) = smacro {
-                    if !smacro.special_mangled {
-                        for expr in smacro.exprs_mut() {
-                            name_mangler.visit(expr);
-                        }
-                    }
-
                     Some((*x, smacro.clone()))
                 } else {
                     None
                 }
-
-                // if !x.1.special_mangled {
-                //     for expr in x.1.exprs_mut() {
-                //         name_mangler.visit(expr);
-                //     }
-                // }
-
-                // (x.0, x.1.clone())
             })
             .collect::<FxHashMap<_, _>>();
 
@@ -2613,7 +2617,7 @@ impl<'a> ModuleBuilder<'a> {
                 }
 
                 // Try this?
-                if let Some(lib) = BUILT_INS.into_iter().cloned().find(|x| x.0 == s.as_str()) {
+                if let Some(lib) = BUILT_INS.iter().cloned().find(|x| x.0 == s.as_str()) {
                     // self.built_ins.push(PathBuf::from(lib.0));
 
                     require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));

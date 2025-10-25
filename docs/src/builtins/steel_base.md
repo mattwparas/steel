@@ -154,16 +154,23 @@ Computes the angle `θ` of a complex number `z` where `z = r * (cos θ + i sin �
 
 - number : number?
 ### **append**
-Appends the given lists together. If provided with no lists, will return the empty list.
+Appends the given lists together. If provided with no lists, will return
+the empty list.
 
-(append lst ...)
+If the last element is not a list, an improper list will be returned
 
-lst : list?
+(append lst ...) -> list?  
+(append lst ... v) -> any/c
+
+* lst : list?
+* v : any/c
 
 #### Examples
 ```scheme
 > (append (list 1 2) (list 3 4)) ;; => '(1 2 3 4)
 > (append) ;; => '()
+> (append (list 1 2) (cons 3 4)) ;; => '(1 2 3 . 4)
+> (append '() 'a) ;; => 'a
 ```
 ### **apply**
 Applies the given `function` with arguments as the contents of the `list`.
@@ -422,17 +429,17 @@ Returns the rest of the list. Will raise an error if the list is empty.
 > (cdr (list 10)) ;; => '()
 > (cdr '())
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (cdr '())
-│  ^^^ cdr expects a non empty list
+  │  ^^^ cdr expects a non empty list
 ```
 ### **ceiling**
 Rounds the given number up to the nearest integer not less than it.
 
 (ceiling number) -> integer?
 
-* number : number? - The number to round up.
+* number : real? - The number to round up.
 
 #### Examples
 ```scheme
@@ -456,31 +463,194 @@ Change the current working directory
 Returns the Unicode codepoint of a given character.
 
 (char->integer char?) -> integer?
+
+#### Examples
+
+```scheme
+> (char->integer #\a) ;; => 97
+> (char->integer #\λ) ;; => 955
+```
 ### **char->number**
-Attemps to convert the character into a decimal digit,
+Attemps to convert the character into an ascii decimal digit,
 and returns `#f` on failure.
+
+(char->number char?) -> (or/c number? bool?)
+
+#### Examples
+
+```scheme
+> (char->number #\4) ;; => 4
+> (char->number #\a) ;; => #f
+> (char->number #\٣) ;; => #f
+```
+### **char-ci<=?**
+Returns `#t` if the characters are monotonically non-decreasing according to their codepoints,
+in a case-insensitive fashion (as if char-foldcase was applied to the arguments).
+
+(char-ci<=? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+ # Examples
+
+ ```scheme
+ > (char-ci<=? #\a #\b) ;; => #t
+ > (char-ci<=? #\a #\B) ;; => #t
+ > (char-ci<=? #\a #\B #\c) ;; => #t
+ > (char-ci<=? #\a #\B #\b) ;; => #t
+ ```
+### **char-ci<?**
+Returns `#t` if the characters are monotonically increasing according to their codepoints,
+in a case-insensitive fashion (as if char-foldcase was applied to the arguments).
+
+(char-ci<? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+ # Examples
+
+ ```scheme
+ > (char-ci<? #\a #\b) ;; => #t
+ > (char-ci<? #\a #\B) ;; => #t
+ > (char-ci<? #\a #\B #\c) ;; => #t
+ > (char-ci<? #\a #\B #\b) ;; => #f
+ ```
+### **char-ci=?**
+Checks if all characters are equal, in a case-insensitive fashion
+(i.e. as if char-foldcase was applied to the arguments).
+
+Requires that all inputs are characters, and will otherwise raise an error.
+
+(char-ci=? char1 char2 ...) -> bool?
+
+* char1 : char?
+* char2 : char?
+
+#### Examples
+
+```scheme
+> (char-ci=? #\s #\S) ;; => #t
+> (char-ci=? #\ß #\ẞ) ;; => #t
+> (char-ci=? #\σ #\Σ #\ς) ;; => #t
+```
+### **char-ci>=?**
+Returns `#t` if the characters are monotonically non-increasing according to their codepoints,
+in a case-insensitive fashion (as if char-foldcase was applied to the arguments).
+
+(char-ci>=? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+ # Examples
+
+ ```scheme
+ > (char-ci>? #\b #\a) ;; => #t
+ > (char-ci>? #\B #\a) ;; => #t
+ > (char-ci>? #\c #\B #\a) ;; => #t
+ > (char-ci>? #\c #\B #\b) ;; => #t
+ ```
+### **char-ci>?**
+Returns `#t` if the characters are monotonically decreasing according to their codepoints,
+in a case-insensitive fashion (as if char-foldcase was applied to the arguments).
+
+(char-ci>? char1 char2 ... ) -> bool?
+* char1 : char?
+* char2 : char?
+ # Examples
+
+ ```scheme
+ > (char-ci>? #\b #\a) ;; => #t
+ > (char-ci>? #\B #\a) ;; => #t
+ > (char-ci>? #\c #\B #\a) ;; => #t
+ > (char-ci>? #\c #\B #\b) ;; => #f
+ ```
 ### **char-digit?**
-Returns `#t` if the character is a decimal digit.
+Returns `#t` if the character is an ascii decimal digit.
+
+(char-digit? char?) -> bool?
+
+#### Examples
+
+```scheme
+> (char-digit? #\4) ;; => #t
+> (char-digit? #\a) ;; => #f
+> (char-digit? #\٣) ;; => #f
+> (char-digit? #\①) ;; => #f
+```
 ### **char-downcase**
 Returns the lower case version of a character, if defined by Unicode,
 or the same character otherwise.
+
+(char-downcase char?) -> char?
+
+#### Examples
+
+```scheme
+> (char-downcase #\U) ;; => #\u
+> (char-downcase #\d) ;; => #\d
+> (char-downcase #\ẞ) ;; => #\ß
+```
+### **char-foldcase**
+Apply simple unicode case-folding to a char
+
+(char-foldcase char?) -> char?
+
+#### Examples
+
+```scheme
+> (char-foldcase #\A) ;; => #\a
+> (char-foldcase #\c) ;; => #\c
+> (char-foldcase #\ς) ;; => #\σ
+```
 ### **char-upcase**
 Returns the upper case version of a character, if defined by Unicode,
 or the same character otherwise.
+
+(char-upcase char?) -> char?
+
+#### Examples
+
+```scheme
+> (char-upcase #\d) ;; => #\D
+> (char-upcase #\U) ;; => #\U
+> (char-upcase #\ß) ;; => #\ß
+```
 ### **char-whitespace?**
 Returns `#t` if the character is a whitespace character.
+
+#### Example
+
+```scheme
+> (char-whitespace? #\space) ;; => #t
+> (char-whitespace? #\newline) ;; => #t
+; nbsp character
+> (char-whitespace? #\xA0) ;; => #t
+> (char-whitespace? #\越) ;; => #f
+```
 ### **char<=?**
-Compares characters according to their codepoints, in a "less-than-or-equal" fashion.
+Returns `#t` if the characters are monotonically non-decreasing according to their codepoints.
 
 (char<=? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char<=? #\a #\b) ;; => #t
+ > (char<=? #\a #\B) ;; => #f
+ > (char<=? #\a #\b #\c) ;; => #t
+ > (char<=? #\a #\b #\b) ;; => #t
+ ```
 ### **char<?**
-Compares characters according to their codepoints, in a "less-than" fashion.
+Returns `#t` if the characters are monotonically increasing according to their codepoints.
 
 (char<? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char<? #\a #\b) ;; => #t
+ > (char<? #\a #\b #\c) ;; => #t
+ > (char<? #\a #\b #\b) ;; => #f
+ ```
 ### **char=?**
 Checks if all characters are equal.
 
@@ -490,18 +660,40 @@ Requires that all inputs are characters, and will otherwise raise an error.
 
 * char1 : char?
 * char2 : char?
+
+#### Examples
+
+```scheme
+> (char=? #\a #\a) ;; => #t
+> (char=? #\a #\b) ;; => #f
+> (char=? #\a #\A) ;; => #f
+```
 ### **char>=?**
-Compares characters according to their codepoints, in a "greater-than-or-equal" fashion.
+Returns `#t` if the characters are monotonically non-increasing according to their codepoints.
 
 (char>=? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char>=? #\b #\a) ;; => #t
+ > (char>=? #\c #\b #\a) ;; => #t
+ > (char>=? #\c #\b #\b) ;; => #t
+ ```
 ### **char>?**
-Compares characters according to their codepoints, in a "greater-than" fashion.
+Returns `#t` if the characters are monotonically decreasing according to their codepoints.
 
 (char>? char1 char2 ... ) -> bool?
 * char1 : char?
 * char2 : char?
+ # Examples
+
+ ```scheme
+ > (char>? #\b #\a) ;; => #t
+ > (char>? #\c #\b #\a) ;; => #t
+ > (char>? #\c #\b #\b) ;; => #f
+ ```
 ### **close-input-port**
 Close an input port. If the port is a file, the file will be closed.
 
@@ -538,9 +730,9 @@ Compose multiple iterators into one iterator
 #### Examples
 ```scheme
 (compose
-(mapping (λ (x) (+ x 1)))
-(filtering odd?)
-(taking 15))
+    (mapping (λ (x) (+ x 1)))
+    (filtering odd?)
+    (taking 15))
 ```
 ### **concat-symbols**
 Concatenates zero or more symbols into a new symbol.
@@ -704,8 +896,8 @@ Checks if the input string ends with a given suffix
 
 (ends-with? input pattern) -> bool?
 
-input : string?
-pattern: string?
+* input : string?
+* pattern: string?
 
 #### Examples
 
@@ -734,6 +926,62 @@ Returns `#t` if the value is an EOF object.
 Returns the message of an error object.
 
 (error-object-message error?) -> string?
+### **euclidean-quotient**
+Returns the quotient of a euclidean integer division of a given numerator *n*
+by a given denominator *m*.
+
+(euclidean-quotient n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (euclidean-quotient 5 2) ;; => 2
+> (euclidean-quotient -5 2) ;; => -3
+> (euclidean-quotient 5 -2) ;; => -2
+> (euclidean-quotient -5 -2) ;; => 3
+```
+### **euclidean-remainder**
+Returns the arithmetic remainder of a euclidean integer division of a given
+numerator *n* by a given denominator *m*.
+
+The return value of this procedure is always positive.
+
+(euclidean-remainder n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (euclidean-remainder 5 2) ;; => 1
+> (euclidean-remainder -5 2) ;; => 1
+> (euclidean-remainder 5 -2) ;; => 1
+> (euclidean-remainder -5 -2) ;; => 1
+```
+### **euclidean/**
+Simultaneously returns the quotient and the arithmetic remainder of a euclidean
+integer division of a given numerator *n* by a given denominator *m*.
+
+Equivalent to `(values (euclidean-quotient n m) (euclidean-remainder n m))`,
+but may be computed more efficiently.
+
+(euclidean/ n m) -> (integer? integer?)
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (euclidean/ 5 2) ;; => (2 1)
+> (euclidean/ -5 2) ;; => (-3 1)
+> (euclidean/ 5 -2) ;; => (-2 1)
+> (euclidean/ -5 -2) ;; => (3 1)
+```
 ### **even?**
 Checks if the given number is even
 
@@ -761,18 +1009,7 @@ Converts a number to an exact number.
 > (exact 1.5+2.5i) ;; => 3/2+5/2i
 ```
 ### **exact->inexact**
-Converts an exact number to an inexact number.
-
-(exact->inexact num) -> number?
-
-* num : number? - The number to convert from exact to inexact.
-
-#### Examples
-```scheme
-> (exact->inexact 10) ;; => 10
-> (exact->inexact 1/2) ;; => 0.5
-> (exact->inexact 1+2i) ;; => 1+2i
-```
+Alias of `inexact`.
 ### **exact-integer-sqrt**
 Computes the integer square root of the given non-negative integer.
 
@@ -943,17 +1180,73 @@ Checks if the given value is a floating-point number
 > (float? #t) ;; => #f
 ```
 ### **floor**
-Computes the largest integer less than or equal to the given number.
+Rounds the given number down to the nearest integer not larger than it.
 
 (floor number) -> number?
 
-* number : number? - The number to compute the floor for.
+* number : real? - The number to compute the floor for.
 
 #### Examples
 ```scheme
 > (floor 3.14) ;; => 3
 > (floor 4.99) ;; => 4
 > (floor -2.5) ;; => -3
+```
+### **floor-quotient**
+Returns the quotient of a floored integer division of a given numerator *n*
+by a given denominator *m*.
+
+Equivalent to `(values (floor-quotient n m) (floor-remainder n m))`, but
+may be computed more efficiently.
+
+(floor-quotient n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (floor-quotient 5 2) ;; => 2
+> (floor-quotient -5 2) ;; => -3
+> (floor-quotient 5 -2) ;; => -3
+> (floor-quotient -5 -2) ;; => 2
+```
+### **floor-remainder**
+Returns the arithmetic remainder of a floored integer division of a given
+numerator *n* by a given denominator *m*.
+
+The return value of this procedure has the same sign as the denominator.
+
+(floor-remainder n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (floor-remainder 5 2) ;; => 1
+> (floor-remainder -5 2) ;; => 1
+> (floor-remainder 5 -2) ;; => -1
+> (floor-remainder -5 -2) ;; => -1
+```
+### **floor/**
+Simultaneously returns the quotient and the arithmetic remainder of a floored
+integer division of a given numerator *n* by a given denominator *m*.
+
+(floor/ n m) -> (integer? integer?)
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (floor/ 5 2) ;; => (2 1)
+> (floor/ -5 2) ;; => (-3 1)
+> (floor/ 5 -2) ;; => (-3 -1)
+> (floor/ -5 -2) ;; => (2 -1)
 ```
 ### **fs-metadata-accessed**
 Get the last accessed time from the file metadata
@@ -1003,30 +1296,26 @@ Get the value out of the thread local storage slot.
 Creates an immutable hash table with each given `key` mapped to the following `val`.
 Each key must have a val, so the total number of arguments must be even.
 
-
 (hash key val ...) -> hash?
 
-key : hashable?
-val : any/c
+* key : hashable?
+* val : any/c
 
 Note: the keys must be hashable.
 
 #### Examples
 ```scheme
-> (hash 'a 10 'b 20)",
-r#"=> #<hashmap {
-'a: 10,
-'b: 20,
-}>"#,
+> (hash 'a 10 'b 20)
+=> '#hash((a . 10) (b . 20))
 ```
 ### **hash-clear**
 Clears the entries out of the existing hashmap.
 Will attempt to reuse the existing memory if there are no other references
 to the hashmap.
 
-(hash-clear h) -> hash?
+(hash-clear map) -> hash?
 
-h: hash?
+* map : hash?
 
 #### Examples
 ```scheme
@@ -1050,9 +1339,9 @@ Checks whether the given map contains the given key. Key must be hashable.
 ### **hash-empty?**
 Checks whether the hash map is empty
 
-(hash-empty? m) -> bool?
+(hash-empty? map) -> bool?
 
-m: hash?
+* map : hash?
 
 #### Examples
 ```scheme
@@ -1070,45 +1359,40 @@ so the old hash map is still accessible.
 * val : any/c
 
 #### Examples
+
 ```scheme
 > (hash-insert (hash 'a 10 'b 20) 'c 30)
-
-=> #<hashmap {
-'a: 10,
-'b: 20,
-'c: 30
-}>
+=> '#hash((a . 10) (b . 20) (c . 30))
 ```
 ### **hash-keys->list**
 Returns the keys of the given hash map as a list.
 
-```scheme
 (hash-keys->list map) -> (listof hashable?)
-```
 
 * map : hash?
 
 #### Examples
 
 ```scheme
-> (hash-keys->list? (hash 'a 'b 20)) ;; => '(a b)
+> (hash-keys->list (hash 'a 10 'b 20))
+=> '(a b)
 ```
 ### **hash-keys->vector**
 Returns the keys of the given hash map as an immutable vector
 
-(hash-keys->vector map) -> (vectorof any/c)?
+(hash-keys->vector map) -> (vectorof hashable?)
 
-map: hash?
+* map: hash?
 
 #### Examples
 ```scheme
-> (hash-keys->vector (hash 'a 10 'b 20)),
-=> ['a 'b]",
+> (hash-keys->vector (hash 'a 10 'b 20))
+=> '#(a b)
 ```
 ### **hash-length**
 Returns the number of key value pairs in the map
 
-(hash-length map) -> (and positive? int?)
+(hash-length map) -> (and/c positive? int?)
 
 * map : hash?
 
@@ -1126,6 +1410,7 @@ Gets the `key` from the given `map`. Raises an error if the key does not exist. 
 * key : any/c
 
 #### Examples
+
 ```scheme
 > (hash-ref (hash 'a 10 'b 20) 'b) ;; => 20
 ```
@@ -1139,9 +1424,9 @@ update, so the old hash map is still available with the original key value pair.
 * key : any/c
 
 #### Examples
+
 ```scheme
 > (hash-remove (hash 'a 10 'b 20) 'a)
-
 => '#hash(('b . 20))
 ```
 ### **hash-try-get**
@@ -1173,26 +1458,28 @@ Will reuse memory where possible.
 ### **hash-values->list**
 Returns the values of the given hash map as a list
 
-(hash-values->list? map) -> (listof any/c)?
+(hash-values->list map) -> (listof any/c)
 
-map: hash?
+* map : hash?
 
 #### Examples
+
 ```scheme
-> (hash-values->list? (hash 'a 10 'b 20)),
-=> '(10 20)",
+> (hash-values->list (hash 'a 10 'b 20))
+=> '(10 20)
 ```
 ### **hash-values->vector**
 Returns the values of the given hash map as an immutable vector
 
 (hash-values->vector map) -> (vectorof any/c)?
 
-map: hash?
+* map : hash?
 
 #### Examples
+
 ```scheme
-> (hash-keys->vector (hash 'a 10 'b 20)),
-=> [10 10]",
+> (hash-values->vector (hash 'a 10 'b 20))
+=> '#(10 20)
 ```
 ### **hash?**
 Returns true if the value is a hash map.
@@ -1336,18 +1623,7 @@ Converts a number to an inexact number.
 > (inexact 1+2i) ;; => 1+2i
 ```
 ### **inexact->exact**
-Converts an inexact number to an exact number.
-
-(inexact->exact num) -> number?
-
-* num : number? - The number to convert from inexact to exact.
-
-#### Examples
-```scheme
-> (inexact->exact 10.0) ;; => 10
-> (inexact->exact 1.5) ;; => 3/2
-> (inexact->exact 1.5+2.5i) ;; => 3/2+5/2i
-```
+Alias of `exact`.
 ### **inexact?**
 Checks if the given value is inexact.
 
@@ -1387,6 +1663,9 @@ Checks if a given value is an input port
 ### **int->string**
 Converts an integer into a string.
 
+Use of this procedure is discouraged in favor of the more powerful and more
+portable `(number->string)` procedure.
+
 (int->string int?) -> string?
 
 #### Examples
@@ -1411,6 +1690,13 @@ Checks if the given value is an integer, an alias for `integer?`
 Returns the character corresponding to a given Unicode codepoint.
 
 (integer->char integer?) -> char?
+
+#### Examples
+
+```scheme
+> (integer->char #x61) ;; => #\a
+> (integer->char 955) ;; => #\λ
+```
 ### **integer?**
 Checks if the given value is an integer, an alias for `int?`
 
@@ -1550,10 +1836,10 @@ time complexity is O(n/64). Meaning, for small lists this can be constant.
 > (list-ref (range 0 100) 42) ;; => 42"
 > (list-ref (list 1 2 3 4) 10)
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (list-ref (list 1 2 3 4) 10)
-│  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
+  │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
 ```
 ### **list-tail**
 Same as `list-drop`, except raise an error if `n` is greater than the length of `lst`.
@@ -1568,11 +1854,11 @@ Same as `list-drop`, except raise an error if `n` is greater than the length of 
 > (list-tail '(1 2 3 4 5) 2) ;; => '(3 4 5)
 > (list-tail '() 3)
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (list-tail '() 3)
-│  ^^^^^^^^^ list-tail expects at least 3
-elements in the list, found: 0
+  │  ^^^^^^^^^ list-tail expects at least 3
+                    elements in the list, found: 0
 ```
 ### **list?**
 Returns true if the value is a list.
@@ -1661,6 +1947,13 @@ Creates a string of a given length, filled with an optional character
 
 * len : int?
 * char : char? = #\0
+
+#### Examples
+
+```scheme
+> (make-string 5 #\a) ;; => "aaaaa"
+> (make-string 5) ;; => "\0\0\0\0\0"
+```
 ### **make-tls**
 Creates a thread local storage slot. These slots are static, and will _not_ be reclaimed.
 
@@ -1698,8 +1991,10 @@ Create a mapping iterator
 (transduce (list 1 2 3) (mapping (λ (x) (+ x 1))) (into-list)) ;; => '(2 3 4)
 ```
 ### **modulo**
-Returns the euclidean remainder of the division of the first number by the second
-This differs from the remainder operator when using negative numbers.
+Returns the arithmetic remainder of a floored integer division of a given
+numerator *n* by a given denominator *m*.
+
+This procedure is an alias of `floor-remainder`.
 
 (modulo n m) -> integer?
 
@@ -1707,11 +2002,12 @@ This differs from the remainder operator when using negative numbers.
 * m : integer?
 
 #### Examples
+
 ```scheme
-> (modulo 10 3) ;; => 1
-> (modulo -10 3) ;; => 2
-> (modulo 10 -3) ;; => -2
-> (module -10 -3) ;; => -1
+> (modulo 5 2) ;; => 1
+> (modulo -5 2) ;; => 1
+> (modulo 5 -2) ;; => -1
+> (modulo -5 -2) ;; => -1
 ```
 ### **mut-vec-len**
 Returns the length of a mutable vector.
@@ -1861,7 +2157,22 @@ Checks if the given list or vector is empty.
 > (null? '(1 2 3)) ;; => #f
 ```
 ### **number->string**
-Converts the given number to a string.
+Converts the given number to a string, with an optional radix.
+
+Returns an error, if the value given is not a number.
+
+(number->string number? [radix]) -> string?
+
+* radix: number?
+
+```scheme
+> (number->string 10) ;; => "10"
+> (number->string 1.0) ;; => "1.0"
+> (number->string 1/2) ;; => "1.0"
+> (number->string 1+2i) ;; => "1+2i"
+> (number->string 255 16) ;; => "ff"
+> (number->string 1/2 2) ;; => "1/10"
+```
 ### **number?**
 Checks if the given value is a number
 
@@ -1916,10 +2227,10 @@ if the file does not exist
 > (open-input-file "foo-bar.txt") ;; => #<input-port:foo-bar.txt>
 > (open-input-file "file-does-not-exist.txt")
 error[E08]: Io
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (open-input-file "foo-bar.txt")
-│  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
+  │  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
 ```
 ### **open-input-string**
 Creates an input port from a string, that will return the string contents.
@@ -2089,12 +2400,15 @@ Prepends an element to the given vector.
 > (push-front 1 A) ;; => '#(1 2 3 4)
 ```
 ### **quotient**
-Returns quotient of dividing numerator by denomintator.
+Returns the quotient of a truncated integer division of a given numerator *n*
+by a given denominator *m*.
 
-(quotient numerator denominator) -> integer?
+This procedure is an alias of `truncate-quotient`.
 
-* numerator : integer? - The numerator.
-* denominator : integer? - The denominator.
+(quotient n m) -> integer?
+
+* n : integer? - The numerator.
+* m : integer? - The denominator.
 
 #### Examples
 ```scheme
@@ -2105,7 +2419,7 @@ Returns quotient of dividing numerator by denomintator.
 ### **range**
 Returns a newly allocated list of the elements in the range [n, m) or [0, m) when n is not given.
 
-(range m)   -> (listof int?)
+(range m)   -> (listof int?)  
 (range n m) -> (listof int?)
 
 * n : int?
@@ -2322,8 +2636,10 @@ Returns the index of the channel arguments passed in which is ready.
 
 Using this directly is not recommended.
 ### **remainder**
-Returns the arithmetic remainder of the division of the first number by the second.
-This differs from the modulo operator when using negative numbers.
+Returns the arithmetic remainder of a truncated integer division of a given
+numerator *n* by a given denominator *m*.
+
+This procedure is an alias of `truncate-remainder`.
 
 (remainder n m) -> integer?
 
@@ -2331,11 +2647,12 @@ This differs from the modulo operator when using negative numbers.
 * m : integer?
 
 #### Examples
+
 ```scheme
-> (remainder 10 3) ;; => 1
-> (remainder -10 3) ;; => -1
-> (remainder 10 -3) ;; => 1
-> (remainder -10 -3) ;; => -1
+> (remainder 5 2) ;; => 1
+> (remainder -5 2) ;; => -1
+> (remainder 5 -2) ;; => 1
+> (remainder -5 -2) ;; => -1
 ```
 ### **rest**
 Returns the rest of the list. Will raise an error if the list is empty.
@@ -2348,12 +2665,12 @@ Returns the rest of the list. Will raise an error if the list is empty.
 ```scheme
 > (rest (list 10 20 30)) ;; => '(20 30)
 > (rest (list 10)) ;; => '()
-> (rest '() )
+> (rest '())
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (rest '())
-│  ^^^^ rest expects a non empty list
+  │  ^^^^ rest expects a non empty list
 ```
 ### **reverse**
 Returns a list that has the same elements as `lst`, but in reverse order.
@@ -2368,17 +2685,20 @@ This function takes time proportional to the length of `lst`.
 > (reverse (list 1 2 3 4)) ;; '(4 3 2 1)
 ```
 ### **round**
-Rounds the given number to the nearest integer.
+Rounds the given number to the nearest integer, rounding half-way cases to
+the even number.
 
 (round number) -> number?
 
-* number : number? - The number to round.
+* number : real? - The number to round.
 
 #### Examples
 ```scheme
 > (round 3.14) ;; => 3
 > (round 4.6) ;; => 5
-> (round -2.5) ;; => -3
+> (round 2.5) ;; => 2
+> (round 3.5) ;; => 4
+> (round -2.5) ;; => -2
 ```
 ### **second**
 Get the second element of the list. Raises an error if the list does not have an element in the second position.
@@ -2391,12 +2711,11 @@ Get the second element of the list. Raises an error if the list does not have an
 
 ```scheme
 > (second '(1 2 3)) ;; => 2
-> (second '())
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (second '())
-│  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+  │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
 ```
 ### **set-tls!**
 Set the value in the the thread local storage. Only this thread will see the updates associated
@@ -2484,6 +2803,7 @@ Returns a list of strings from the original string split on the whitespace
 
 ```scheme
 (split-whitespace "apples bananas fruits veggies") ;; '("apples" "bananas" "fruits" "veggies")
+(split-whitespace "one\t \ttwo\nthree") ;; '("one" "two" "three")
 ```
 ### **sqrt**
 Computes the square root of the given number.
@@ -2537,17 +2857,37 @@ Gets the port handle to stdin
 ```
 ### **string**
 Constructs a string from the given characters
+
+(string . char?) -> string?
+
+#### Examples
+
+```scheme
+> (string #\h #\e #\l #\l #\o) ;; => "hello"
+> (string #\λ) ;; => "λ"
+> (string) ;; => ""
+```
 ### **string->bytes**
 Encodes a string as UTF-8 into a bytevector.
 
-(string->bytes string?) -> bytes?
+(string->bytes str [start] [end]) -> bytes?
+
+* str : string?
+* start : int? = 0
+* end : int? = (string-length str)
 
 #### Examples
+
 ```scheme
-(string->bytes "Apple") ;; => (bytes 65 112 112 108 101)
+(string->bytes "Apple") ;; => #u8(#x41 #x70 #x70 #x6C #x65)
+(string->bytes "αβγ") ;; => #u8(#xCE #xB1 #xCE #xB2 #xCE #xB3)
+(string->bytes "one two three" 4 7) ;; => #u8(#x74 #x77 #x6F)
 ```
 ### **string->int**
 Converts a string into an int. Raises an error if the string cannot be converted to an integer.
+
+Use of this procedure is discouraged in favor of the more powerful and more
+portable `(string->number)` procedure.
 
 (string->int string?) -> int?
 
@@ -2571,27 +2911,20 @@ Deserializes a JSON string into a Steel value.
 ### **string->list**
 Converts a string into a list of characters.
 
-(string->list s [start] [end]) -> (listof char?)
+(string->list str [start] [end]) -> (listof char?)
 
-* s : string?
+* str : string?
 * start : int? = 0
-* end : int?
+* end : int? = (string-length str)
 
 #### Examples
 
 ```scheme
 > (string->list "hello") ;; => '(#\h #\e #\l #\l #\o)
+> (string->list "one two three" 4 7) ;; => '(#\t #\w #\o)
 ```
 ### **string->lower**
-Creates a new lowercased version of the input string
-
-(string->lower string?) -> string?
-
-#### Examples
-
-```scheme
-> (string->lower "sPonGeBoB tExT") ;; => "spongebob text"
-```
+Alias of `string-downcase`.
 ### **string->number**
 Converts the given string to a number, with an optional radix.
 On failure, it returns `#f`
@@ -2600,36 +2933,59 @@ On failure, it returns `#f`
 
 * digits : string?
 * radix : number?
+
+#### Examples
+
+```scheme
+> (string->number "10") ;; => 10
+> (string->number "1.0") ;; => 1.0
+> (string->number "1/2") ;; => 1/2
+> (string->number "1+2i") ;; => 1+2i
+> (string->number "ff") ;; => #f
+> (string->number "ff" 16) ;; => 255
+> (string->number "1/10" 2) ;; => 1/2
+> (string->number "not-a-number") ;; => #f
+```
 ### **string->symbol**
-Converts a string into a symbol.
+Returns an interned symbol from the given string.
 
 (string->symbol string?) -> symbol?
 
 #### Examples
 
 ```scheme
-> (string->symbol "FooBar") ;; => 'FooBar
+> (string->symbol "abc") ;; => 'abc
+> (string->symbol "pea pod") ;; => '|pea pod|
 ```
-### **string->upper**
-Creates a new uppercased version of the input string
+### **string->uninterned-symbol**
+Return an uninterned symbol from the given string.
 
-(string->upper string?) -> string?
+(string->uninterned-symbol string?) -> symbol?
 
 #### Examples
 
 ```scheme
-> (string->upper "lower") ;; => "LOWER"
+(string->uninterned-symbol "abc") ;; => 'abc
+(string->uninterned-symbol "pea pod") ;; => '|pea pod|
 ```
+### **string->upper**
+Alias of `string-upcase`.
 ### **string->utf8**
 Alias of `string->bytes`.
 ### **string->vector**
 Returns a vector containing the characters of a given string
 
-(string->vector string?) -> vector?
+(string->vector s [start] [end]) -> vector?
+
+* str : string?
+* start : int? = 0
+* end : int? = (string-length str)
 
 #### Examples
+
 ```scheme
 (string->vector "hello") ;; => '#(#\h #\e #\l #\l #\o)
+(string->vector "one two three" 4 7) ;; => '#(#\t #\w #\o)
 ```
 ### **string-append**
 Concatenates all of the given strings into one
@@ -2650,6 +3006,15 @@ in a case insensitive fashion.
 (string-ci<=? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string-ci<=? "a" "b") ;; => #t
+ > (string-ci<=? "a" "B") ;; => #t
+ > (string-ci<=? "a" "B" "c") ;; => #t
+ > (string-ci<=? "a" "B" "b") ;; => #t
+ > (string-ci<=? "Straßburg" "STRASSE" "straßenbahn") ;; => #t
+ ```
 ### **string-ci<?**
 Compares strings lexicographically (as in"less-than"),
 in a case insensitive fashion.
@@ -2657,8 +3022,27 @@ in a case insensitive fashion.
 (string-ci<? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string-ci<? "a" "b") ;; => #t
+ > (string-ci<? "a" "B") ;; => #t
+ > (string-ci<? "a" "B" "c") ;; => #t
+ > (string-ci<? "a" "B" "b") ;; => #f
+ > (string-ci<? "Straßburg" "STRASSE" "straßenbahn") ;; => #t
+ ```
 ### **string-ci=?**
 Compares strings for equality, in a case insensitive fashion.
+
+(string-ci=? string? string? ...) -> bool?
+
+#### Examples
+
+```scheme
+> (string-ci=? "hEllO WorLd" "HELLO worlD") ;; => #t
+> (string-ci=? "Straße" "STRASSE" "strasse" "STRAẞE") ;; => #t
+> (string-ci=? "ὈΔΥΣΣΕΎΣ" "ὀδυσσεύς" "ὀδυσσεύσ") ;; => #t
+```
 ### **string-ci>=?**
 Compares strings lexicographically (as in"greater-than-or-equal"),
 in a case insensitive fashion.
@@ -2666,6 +3050,15 @@ in a case insensitive fashion.
 (string-ci>=? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string-ci>=? "b" "a") ;; => #t
+ > (string-ci>=? "B" "a") ;; => #t
+ > (string-ci>=? "c" "B" "a") ;; => #t
+ > (string-ci>=? "c" "B" "b") ;; => #f
+ > (string-ci>=? "straßenbahn" "STRASSE" "Straßburg") ;; => #t
+ ```
 ### **string-ci>?**
 Compares strings lexicographically (as in"greater-than"),
 in a case insensitive fashion.
@@ -2673,6 +3066,15 @@ in a case insensitive fashion.
 (string-ci>? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string-ci>? "b" "a") ;; => #t
+ > (string-ci>? "B" "a") ;; => #t
+ > (string-ci>? "c" "B" "a") ;; => #t
+ > (string-ci>? "c" "B" "b") ;; => #f
+ > (string-ci>? "straßenbahn" "STRASSE" "Straßburg") ;; => #t
+ ```
 ### **string-contains?**
 Searches a string to check if it contains the second argument.
 
@@ -2682,6 +3084,28 @@ Searches a string to check if it contains the second argument.
 ```scheme
 (string-contains? "hello" "lo") ;;=> #t
 (string-contains? "hello" "world") ;;=> #f
+```
+### **string-downcase**
+Creates a new lowercased version of the input string
+
+(string-downcase string?) -> string?
+
+#### Examples
+
+```scheme
+> (string-downcase "sPonGeBoB tExT") ;; => "spongebob text"
+> (string-downcase "ὈΔΥΣΣΕΎΣ") ;; => "ὀδυσσεύς"
+> (string-downcase "STRAẞE") ;; => "straße"
+```
+### **string-foldcase**
+Applies full unicode case-folding to the input string
+
+(string-foldcase string?) -> string?
+
+#### Examples
+
+```scheme
+> (string-foldcase "Straße") ;; => "strasse"
 ```
 ### **string-join**
 Joins the given list of strings, with an optional separator.
@@ -2709,12 +3133,17 @@ Get the number of characters in the string.
 > (string-length "✅") ;; => 1
 ```
 ### **string-ref**
-Extracts the nth character out of a given string.
+Extracts the nth character out of a given string, starting at 0.
 
 (string-ref str n) -> char?
 
 * str : string?
 * n : int?
+
+```scheme
+(string-ref "one" 1) ;; => #\n
+(string-ref "αβγ" 1) ;; => #\β
+```
 ### **string-replace**
 Replaces all occurrences of a pattern into the given string
 
@@ -2728,18 +3157,43 @@ Replaces all occurrences of a pattern into the given string
 ```scheme
 (string-replace "hello world" "o" "@") ;; => "hell@ w@rld"
 ```
+### **string-upcase**
+Creates a new uppercased version of the input string
+
+(string-upcase string?) -> string?
+
+#### Examples
+
+```scheme
+> (string-upcase "lower") ;; => "LOWER"
+> (string-upcase "straße") ;; => "STRASSE"
+```
 ### **string<=?**
 Compares strings lexicographically (as in"less-than-equal-to").
 
 (string<=? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string<=? "a" "b") ;; => #t
+ > (string<=? "a" "b" "c") ;; => #t
+ > (string<=? "a" "b" "b") ;; => #t
+ ```
 ### **string<?**
 Compares strings lexicographically (as in"less-than").
 
 (string<? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string<? "a" "b") ;; => #t
+ > (string<? "a" "b" "c") ;; => #t
+ > (string<? "a" "b" "b") ;; => #f
+ ```
 ### **string=?**
 Compares strings for equality.
 
@@ -2747,18 +3201,39 @@ Compares strings for equality.
 
 * string1 : string?
 * string2 : string?
+
+#### Examples
+
+```scheme
+> (string=? "hello" "hello") ;; => #t
+> (string=? "hello" "HELLO") ;; => #f
+```
 ### **string>=?**
 Compares strings lexicographically (as in"greater-than-or-equal").
 
 (string>=? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string>=? "b" "a") ;; => #t
+ > (string>=? "c" "b" "a") ;; => #t
+ > (string>=? "c" "b" "b") ;; => #t
+ ```
 ### **string>?**
 Compares strings lexicographically (as in"greater-than").
 
 (string>? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string>? "b" "a") ;; => #t
+ > (string>? "c" "b" "a") ;; => #t
+ > (string>? "c" "b" "b") ;; => #f
+ ```
 ### **string?**
 Returns true if the value is a string.
 
@@ -2900,10 +3375,10 @@ Get the third element of the list. Raises an error if the list does not have an 
 > (third '(1 2 3)) ;; => 3
 > (third '())
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (third '())
-│  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
+  │  ^^^^^ third: Index out of bounds - list did not have an element in the second position: []
 ```
 ### **thread-finished?**
 Check if the given thread is finished running.
@@ -2992,8 +3467,91 @@ of the string
 ```scheme
 > (trim-start-matches "123foo1bar123123" "123") ;; => "foo1bar123123"
 ```
+### **truncate**
+Rounds the given number to the nearest integer, whose absolute value is not
+larger than it.
+
+(truncate number) -> integer?
+
+* number : real? - The number to truncate.
+
+#### Examples
+
+```scheme
+> (truncate 42) ;; => 42
+> (truncate 42.1) ;; => 42
+> (truncate -42.1) ;; => -42
+```
+### **truncate-quotient**
+Returns the quotient of a truncated integer division of a given numerator *n*
+by a given denominator *m*.
+
+(truncate-quotient n m) -> integer?
+
+* n : integer? - The numerator.
+* m : integer? - The denominator.
+
+#### Examples
+
+```scheme
+> (truncate-quotient 5 2) ;; => 2
+> (truncate-quotient -5 2) ;; => -2
+> (truncate-quotient 5 -2) ;; => -2
+> (truncate-quotient -5 -2) ;; => 2
+```
+### **truncate-remainder**
+Returns the arithmetic remainder of a truncated integer division of a given
+numerator *n* by a given denominator *m*.
+
+The return value of this procedure has the same sign as the numerator.
+
+(truncate-remainder n m) -> integer?
+
+* n : integer? - The numerator.
+* m : integer? - The denominator.
+
+#### Examples
+
+```scheme
+> (truncate-remainder 5 2) ;; => 1
+> (truncate-remainder -5 2) ;; => -1
+> (truncate-remainder 5 -2) ;; => 1
+> (truncate-remainder -5 -2) ;; => -1
+```
+### **truncate/**
+Simultaneously returns the quotient and the arithmetic remainder of a truncated
+integer division of a given numerator *n* by a given denominator *m*.
+
+Equivalent to `(values (truncate-quotient n m) (truncate-remainder n m))`,
+but may be computed more efficiently.
+
+(truncate/ n m) -> (integer? integer?)
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (truncate/ 5 2) ;; => (2 1)
+> (truncate/ -5 2) ;; => (-2 -1)
+> (truncate/ 5 -2) ;; => (-2 1)
+> (truncate/ -5 -2) ;; => (2 -1)
+```
 ### **utf8->string**
 Alias of `bytes->string/utf8`.
+### **utf8-length**
+Get the length of the string in UTF-8 bytes.
+
+(utf8-length string?) -> int?
+
+#### Examples
+
+```scheme
+> (utf8-length "apples") ;; => 6
+> (utf8-length "αβγ") ;; => 6
+> (utf8-length "✅") ;; => 3
+```
 ### **value->jsexpr-string**
 Serializes a Steel value into a string.
 
@@ -3413,7 +3971,6 @@ Create a zipping iterator
 ### **thread/available-parallelism**
 ### **thread::current/id**
 ### **transduce**
-### **truncate**
 ### **try-list-ref**
 ### **unbox**
 ### **unbox-strong**

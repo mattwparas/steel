@@ -637,7 +637,11 @@ fn parse_doc_comment(input: ItemFn) -> Option<proc_macro2::TokenStream> {
                     .map(|s| s.to_string())
                     .collect::<Vec<_>>()
             })
-            .map(|line| line.trim().to_string())
+            .map(|line| {
+                line.strip_prefix(" ")
+                    .map(ToOwned::to_owned)
+                    .unwrap_or(line)
+            })
             .collect();
 
         let doc = trimmed.join("\n");

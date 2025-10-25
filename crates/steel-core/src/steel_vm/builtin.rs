@@ -619,7 +619,7 @@ impl BuiltInModule {
             BuiltInFunctionType::Context(value) => SteelVal::BuiltIn(value),
         };
 
-        let names = std::iter::once(definition.name).chain(definition.aliases.into_iter().cloned());
+        let names = std::iter::once(definition.name).chain(definition.aliases.iter().cloned());
 
         for name in names {
             self.register_value(name, steel_val.clone());

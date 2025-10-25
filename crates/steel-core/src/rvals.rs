@@ -543,13 +543,11 @@ pub trait AsRefMutSteelVal: Sized {
 }
 
 pub(crate) trait AsRefMutSteelValFromRef: Sized {
-    fn as_mut_ref_from_ref<'a>(
-        val: &'a SteelVal,
-    ) -> crate::rvals::Result<TemporaryMutableView<Self>>;
+    fn as_mut_ref_from_ref(val: &SteelVal) -> crate::rvals::Result<TemporaryMutableView<Self>>;
 }
 
 pub(crate) trait AsRefSteelValFromRef: Sized {
-    fn as_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<TemporaryReadonlyView<Self>>;
+    fn as_ref_from_ref(val: &SteelVal) -> crate::rvals::Result<TemporaryReadonlyView<Self>>;
 }
 
 impl AsRefSteelVal for UserDefinedStruct {
@@ -1201,6 +1199,13 @@ pub struct SteelMutableVector(pub(crate) Gc<RefCell<Vec<SteelVal>>>);
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SteelVector(pub(crate) Gc<Vector<SteelVal>>);
 
+impl FromIterator<SteelVal> for SteelVector {
+    fn from_iter<T: IntoIterator<Item = SteelVal>>(iter: T) -> Self {
+        let vec = Vector::from_iter(iter);
+        SteelVector(Gc::new(vec))
+    }
+}
+
 impl Deref for SteelVector {
     type Target = Vector<SteelVal>;
 
@@ -1571,19 +1576,15 @@ impl SteelVal {
 
     pub fn as_ptr_usize(&self) -> Option<usize> {
         match self {
-            // Closure(_) => todo!(),
-            // BoolV(_) => todo!(),
-            // NumV(_) => todo!(),
-            // IntV(_) => todo!(),
-            // CharV(_) => todo!(),
-            // VectorV(_) => todo!(),
+            Closure(l) => Some(l.as_ptr() as usize),
+            VectorV(v) => Some(v.0.as_ptr() as usize),
             // Void => todo!(),
-            // StringV(_) => todo!(),
-            // FuncV(_) => todo!(),
+            StringV(s) => Some(s.0.as_ptr() as usize),
+            FuncV(_) => todo!(),
             // SymbolV(_) => todo!(),
             // SteelVal::Custom(_) => todo!(),
-            // HashMapV(_) => todo!(),
-            // HashSetV(_) => todo!(),
+            HashMapV(h) => Some(h.0.as_ptr() as usize),
+            HashSetV(h) => Some(h.0.as_ptr() as usize),
             CustomStruct(c) => Some(c.as_ptr() as usize),
             // PortV(_) => todo!(),
             // IterV(_) => todo!(),
@@ -1594,15 +1595,16 @@ impl SteelVal {
             // BoxedFunction(_) => todo!(),
             // ContinuationFunction(_) => todo!(),
             ListV(l) => Some(l.as_ptr_usize()),
-            // MutFunc(_) => todo!(),
-            // BuiltIn(_) => todo!(),
-            // MutableVector(_) => todo!(),
+            MutableVector(v) => Some(v.as_ptr_usize()),
+            Custom(c) => Some(c.as_ptr() as usize),
             // BoxedIterator(_) => todo!(),
             // SteelVal::SyntaxObject(_) => todo!(),
-            // Boxed(_) => todo!(),
+            Boxed(b) => Some(b.as_ptr() as usize),
             HeapAllocated(h) => Some(h.as_ptr_usize()),
+            Pair(p) => Some(p.as_ptr() as usize),
+            SyntaxObject(s) => Some(s.as_ptr() as usize),
             // Reference(_) => todo!(),
-            // BigNum(_) => todo!(),
+            BigNum(b) => Some(b.as_ptr() as usize),
             _ => None,
         }
     }
@@ -1822,7 +1824,7 @@ pub struct OpaqueIterator {
 
 impl Custom for OpaqueIterator {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        Some(Ok(format!("#<iterator>")))
+        Some(Ok("#<iterator>".to_owned()))
     }
 }
 
@@ -1927,7 +1929,7 @@ impl SteelVal {
             (Void, Void) => true,
             (StringV(l), StringV(r)) => crate::gc::Shared::ptr_eq(l, r),
             (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
-            (SymbolV(l), SymbolV(r)) => crate::gc::Shared::ptr_eq(l, r) || l == r,
+            (SymbolV(l), SymbolV(r)) => crate::gc::Shared::ptr_eq(l, r),
             (SteelVal::Custom(l), SteelVal::Custom(r)) => Gc::ptr_eq(l, r),
             (HashMapV(l), HashMapV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (HashSetV(l), HashSetV(r)) => Gc::ptr_eq(&l.0, &r.0),

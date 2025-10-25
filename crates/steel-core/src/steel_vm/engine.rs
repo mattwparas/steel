@@ -59,7 +59,7 @@ use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
@@ -329,7 +329,7 @@ pub struct NonInteractiveProgramImage {
 }
 
 impl NonInteractiveProgramImage {
-    pub fn write_bytes_to_file(&self, out: &PathBuf) {
+    pub fn write_bytes_to_file(&self, out: &Path) {
         let mut f = std::fs::File::create(out).unwrap();
         bincode::serialize_into(&mut f, self).unwrap();
     }
@@ -2177,7 +2177,7 @@ impl Engine {
         self.extract_value(&module_path)
     }
 
-    pub fn get_source_id(&self, path: &PathBuf) -> Option<SourceId> {
+    pub fn get_source_id(&self, path: &Path) -> Option<SourceId> {
         self.virtual_machine
             .compiler
             .read()

@@ -147,7 +147,7 @@ impl GlobalSlotRecycler {
     }
 }
 
-impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
+impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
     type Output = ();
 
     fn default_output(&mut self) -> Self::Output {}
@@ -1734,7 +1734,7 @@ impl Heap {
 
                 let stats = self.mark_and_sweep_new(
                     None,
-                    values.into_iter().cloned(),
+                    values.iter().cloned(),
                     roots,
                     live_functions,
                     globals,
@@ -2028,7 +2028,7 @@ impl ParallelMarker {
         }
     }
 
-    pub fn mark(&self, queue: &Vec<SteelVal>) -> MarkAndSweepStats {
+    pub fn mark(&self, queue: &[SteelVal]) -> MarkAndSweepStats {
         let guard = self.senders.lock().unwrap();
 
         for value in queue.iter() {
@@ -2528,9 +2528,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
 impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContextRefQueue<'a> {
     type Output = ();
 
-    fn default_output(&mut self) -> Self::Output {
-        ()
-    }
+    fn default_output(&mut self) -> Self::Output {}
 
     fn pop_front(&mut self) -> Option<SteelValPointer> {
         self.local_queue.pop().or_else(|| self.queue.pop())

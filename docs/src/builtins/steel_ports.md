@@ -49,10 +49,10 @@ if the file does not exist
 > (open-input-file "foo-bar.txt") ;; => #<input-port:foo-bar.txt>
 > (open-input-file "file-does-not-exist.txt")
 error[E08]: Io
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (open-input-file "foo-bar.txt")
-│  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
+  │  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
 ```
 ### **open-input-string**
 Creates an input port from a string, that will return the string contents.

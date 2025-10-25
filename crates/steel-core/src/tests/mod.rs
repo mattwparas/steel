@@ -107,6 +107,7 @@ test_harness_success! {
     into_string,
     letrec_mutual_recursion,
     letrec_simple_recursion,
+    list_append,
     list_functions,
     local_struct,
     matcher,
@@ -139,6 +140,7 @@ test_harness_success! {
     stack_struct,
     stack_test_with_contract,
     string,
+    string_eq,
     structs,
     symbols,
     // TODO: @Matt 11/11/2023
