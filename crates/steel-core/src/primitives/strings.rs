@@ -5,6 +5,7 @@ use crate::rvals::{IntoSteelVal, RestArgsIter, Result, SteelByteVector, SteelStr
 use crate::steel_vm::{builtin::BuiltInModule, vm::VmCore};
 use crate::{builtin_stop, stop, Vector};
 
+use std::hint::unreachable_unchecked;
 use std::io::Write as _;
 
 use icu_casemap::CaseMapper;
@@ -77,7 +78,8 @@ pub fn string_module() -> BuiltInModule {
         .register_native_fn_definition(STRING_TO_BYTES_DEFINITION)
         .register_native_fn_definition(STRING_TO_VECTOR_DEFINITION)
         .register_native_fn_definition(STRING_JOIN_DEFINITION)
-        .register_native_fn_definition(STRING_CONTAINS_DEFINITION);
+        .register_native_fn_definition(STRING_CONTAINS_DEFINITION)
+        .register_native_fn_definition(STRING_PUSH_DEFINITION);
 
     module
 }
@@ -612,6 +614,35 @@ pub fn to_string(args: &[SteelVal]) -> Result<SteelVal> {
     }
 
     Ok(SteelVal::StringV(error_message.into()))
+}
+
+#[function(name = "string-push")]
+pub fn string_push(value: &mut SteelVal, character_or_string: SteelVal) -> Result<SteelVal> {
+    if let SteelVal::StringV(_) = value {
+        let SteelVal::StringV(mut s) = std::mem::take(value) else {
+            unsafe { unreachable_unchecked() }
+        };
+
+        let updated = Gc::make_mut(&mut s.0);
+
+        match character_or_string {
+            SteelVal::CharV(c) => {
+                updated.push(c);
+            }
+
+            SteelVal::StringV(s) => {
+                updated.push_str(s.as_str());
+            }
+
+            _ => {
+                stop!(TypeMismatch => "string-push expects either a string or character, found: {}", character_or_string)
+            }
+        }
+
+        Ok(SteelVal::StringV(s))
+    } else {
+        stop!(TypeMismatch => "string-push expected a string, found: {}", value);
+    }
 }
 
 /// Return an uninterned symbol from the given string.
