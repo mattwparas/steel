@@ -2,9 +2,7 @@
 
 (define (split-last lst)
   (define (loop accum lst)
-    (if (empty? (cdr lst))
-        (cons (reverse accum) (car lst))
-        (loop (cons (car lst) accum) (cdr lst))))
+    (if (empty? (cdr lst)) (cons (reverse accum) (car lst)) (loop (cons (car lst) accum) (cdr lst))))
   (loop '() lst))
 
 (define (builtin-transducer->userspace p)
@@ -38,10 +36,10 @@
        ; [(2) (new-into-max)]
        ; [(3) (new-into-min)]
        [(4) (rcount)]
-       [(5) (new-into-list)]
-       [(6) (new-into-vector)]
-       [(7) (new-into-hashmap)]
-       [(8) (new-into-hashset)]
+       [(6) new-into-list]
+       [(7) (new-into-vector)]
+       [(8) new-into-hashmap]
+       [(9) new-into-hashset]
        ; [(9) (new-into-string)]
        ; [(10) (new-into-last)]
        ; [(11) (new-into-for-each)]
@@ -54,18 +52,10 @@
     [else (error "unknown reducer")]))
 
 (define (all func lst)
-  (if (null? lst)
-      #t
-      (if (func (car lst))
-          (all func (cdr lst))
-          #f)))
+  (if (null? lst) #t (if (func (car lst)) (all func (cdr lst)) #f)))
 
 (define (any lst)
-  (if (null? lst)
-      #f
-      (if (car lst)
-          #t
-          (any (cdr lst)))))
+  (if (null? lst) #f (if (car lst) #t (any (cdr lst)))))
 
 (define (all-function-pointer? p)
   (all #%function-pointer? p))
