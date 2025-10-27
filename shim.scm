@@ -31,18 +31,17 @@
   (cond
     [(int? kind)
      (case kind
-       ; [(0) (new-into-sum)]
-       ; [(1) (new-into-product)]
-       ; [(2) (new-into-max)]
-       ; [(3) (new-into-min)]
+       [(0) (new-into-sum)]
+       [(1) (new-into-product)]
+       [(2) (new-into-max)]
+       [(3) (new-into-min)]
        [(4) (rcount)]
        [(6) new-into-list]
        [(7) (new-into-vector)]
        [(8) new-into-hashmap]
        [(9) new-into-hashset]
        [(10) new-into-string]
-       ; [(10) (new-into-last)]
-       ; [(11) (new-into-for-each)]
+       [(11) (new-into-last)]
        ; [(12) (new-into-nth)]
        ; [(13) (new-into-reducer)]
        [else (error "Unknown or unimplemented reducer: " kind)])]
