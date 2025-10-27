@@ -44,6 +44,8 @@
          new-into-max
          new-into-min
          new-into-last
+         new-into-nth
+         new-into-reducer
          rany
          revery
          rcount
@@ -209,29 +211,41 @@
     [(v) v]
     [(v elem) (* v elem)]))
 
-(define (new-into-max)
-  (define value #false)
+(define new-into-max
   (case-lambda
-    [() value]
+    [() #f]
     [(v) v]
-    [(v elem)
-     (set! value (if max (min value elem) elem))
-     value]))
+    [(v elem) (if v (max v elem) elem)]))
 
-(define (new-into-min)
-  (define value #false)
+(define new-into-min
   (case-lambda
-    [() value]
+    [() #f]
     [(v) v]
-    [(v elem)
-     (set! value (if value (min value elem) elem))
-     value]))
+    [(v elem) (if v (min v elem) elem)]))
 
 (define new-into-last
   (case-lambda
     [() #f]
     [(v) v]
     [(v elem) elem]))
+
+(define (new-into-nth n)
+  (define iter 0)
+  (case-lambda
+    [() #f]
+    [(v) v]
+    [(v elem)
+     (if (= iter n)
+         (reduced elem)
+         (begin
+           (set! iter (+ 1 iter))
+           elem))]))
+
+(define (new-into-reducer func init)
+  (case-lambda
+    [() init]
+    [(v) v]
+    [(v elem) (func v elem)]))
 
 ;;@doc
 ;; A transducer-friendly cons with the empty list as identity. Acts like rcons, however will reverse

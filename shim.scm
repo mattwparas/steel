@@ -33,8 +33,8 @@
      (case kind
        [(0) (new-into-sum)]
        [(1) (new-into-product)]
-       [(2) (new-into-max)]
-       [(3) (new-into-min)]
+       [(2) new-into-max]
+       [(3) new-into-min]
        [(4) (rcount)]
        [(6) new-into-list]
        [(7) (new-into-vector)]
@@ -42,12 +42,14 @@
        [(9) new-into-hashset]
        [(10) new-into-string]
        [(11) (new-into-last)]
-       ; [(12) (new-into-nth)]
-       ; [(13) (new-into-reducer)]
        [else (error "Unknown or unimplemented reducer: " kind)])]
 
-    [(list? kind) (error "unimplemented generic reducer")]
-    [(pair? kind) (new-into-for-each (cdr kind))]
+    [(list? kind) (new-into-reducer (list-ref kind 1) (list-ref kind 2))]
+    [(pair? kind)
+     (define id (car kind))
+     (case id
+       [(5) (new-into-nth (cdr kind))]
+       [else (new-into-for-each (cdr kind))])]
     [else (error "unknown reducer")]))
 
 (define (all func lst)
