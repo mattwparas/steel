@@ -40,7 +40,7 @@
        [(7) (new-into-vector)]
        [(8) new-into-hashmap]
        [(9) new-into-hashset]
-       [(10) (new-into-string)]
+       [(10) new-into-string]
        ; [(10) (new-into-last)]
        ; [(11) (new-into-for-each)]
        ; [(12) (new-into-nth)]

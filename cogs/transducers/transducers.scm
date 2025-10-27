@@ -186,7 +186,7 @@
      (func elem)
      void]))
 
-(define (new-into-string)
+(define new-into-string
   (case-lambda
     [() (string)]
     [(v) v]
