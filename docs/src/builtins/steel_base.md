@@ -1994,6 +1994,8 @@ Create a mapping iterator
 Returns the arithmetic remainder of a floored integer division of a given
 numerator *n* by a given denominator *m*.
 
+The return value of this procedure has the same sign as the denominator.
+
 This procedure is an alias of `floor-remainder`.
 
 (modulo n m) -> integer?
@@ -2411,10 +2413,12 @@ This procedure is an alias of `truncate-quotient`.
 * m : integer? - The denominator.
 
 #### Examples
+
 ```scheme
-> (quotient 11 2) ;; => 5
-> (quotient 10 2) ;; => 5
-> (quotient -10 2) ;; => -5
+> (quotient 5 2) ;; => 2
+> (quotient -5 2) ;; => -2
+> (quotient 5 -2) ;; => -2
+> (quotient -5 -2) ;; => 2
 ```
 ### **range**
 Returns a newly allocated list of the elements in the range [n, m) or [0, m) when n is not given.
@@ -2638,6 +2642,8 @@ Using this directly is not recommended.
 ### **remainder**
 Returns the arithmetic remainder of a truncated integer division of a given
 numerator *n* by a given denominator *m*.
+
+The return value of this procedure has the same sign as the numerator.
 
 This procedure is an alias of `truncate-remainder`.
 
