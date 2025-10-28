@@ -2,7 +2,9 @@
 
 (define (split-last lst)
   (define (loop accum lst)
-    (if (empty? (cdr lst)) (cons (reverse accum) (car lst)) (loop (cons (car lst) accum) (cdr lst))))
+    (if (empty? (cdr lst))
+        (cons (reverse accum) (car lst))
+        (loop (cons (car lst) accum) (cdr lst))))
   (loop '() lst))
 
 (define (builtin-transducer->userspace p)
@@ -53,17 +55,31 @@
     [else (error "unknown reducer")]))
 
 (define (all func lst)
-  (if (null? lst) #t (if (func (car lst)) (all func (cdr lst)) #f)))
+  (if (null? lst)
+      #t
+      (if (func (car lst))
+          (all func (cdr lst))
+          #f)))
 
 (define (any lst)
-  (if (null? lst) #f (if (car lst) #t (any (cdr lst)))))
+  (if (null? lst)
+      #f
+      (if (car lst)
+          #t
+          (any (cdr lst)))))
 
+;; TODO:
+;; Speed this up:
 (define (all-function-pointer? p)
-  (all #%function-pointer? p))
+  (all #%function-pointer? (map cdr p)))
 
 (define (builtin->transducer transducers)
   ;; Check: If these all
   (define conversions (#%transducers->funcs transducers))
+
+  ; (displayln conversions)
+  ; (when (all-function-pointer? conversions)
+  ;   (displayln "Could be lowered to native transduce"))
 
   (define converted (map (lambda (p) (builtin-transducer->userspace p)) conversions))
 
