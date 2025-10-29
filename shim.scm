@@ -2,30 +2,31 @@
 
 (define (split-last lst)
   (define (loop accum lst)
-    (if (empty? (cdr lst))
-        (cons (reverse accum) (car lst))
-        (loop (cons (car lst) accum) (cdr lst))))
+    (if (empty? (cdr lst)) (cons (reverse accum) (car lst)) (loop (cons (car lst) accum) (cdr lst))))
   (loop '() lst))
 
 (define (builtin-transducer->userspace p)
-  (define kind (car p))
-  (define func (cdr p))
-  (case kind
-    [(0) (tmap func)]
-    [(1) (tfilter func)]
-    [(2) (ttake func)]
-    [(3) (tdrop func)]
-    [(4) (tflat-map func)]
-    [(5) tflatten]
-    [(6) (tsegment func)]
-    [(7) (ttake-while func)]
-    [(8) (tdrop-while func)]
-    [(9) (error "implement extend")]
-    [(10) (error "implement cycle")]
-    [(11) tenumerate]
-    [(12) (error "implement zip")]
-    [(13) (error "implement interleaving")]
-    [(14) (error "implement map pair")]
+  (cond
+    [(pair? p)
+     (define kind (car p))
+     (define func (cdr p))
+     (case kind
+       [(0) (tmap func)]
+       [(1) (tfilter func)]
+       [(2) (ttake func)]
+       [(3) (tdrop func)]
+       [(4) (tflat-map func)]
+       [(5) tflatten]
+       [(6) (tsegment func)]
+       [(7) (ttake-while func)]
+       [(8) (tdrop-while func)]
+       [(9) (textend func)]
+       [(10) (error "implement cycle")]
+       [(11) tenumerate]
+       [(12) (tzip func)]
+       [(13) (tinterleave func)]
+       [(14) (error "implement map pair")]
+       [else p])]
     [else p]))
 
 (define (builtin-reduce->userspace reducer)
@@ -55,18 +56,10 @@
     [else (error "unknown reducer")]))
 
 (define (all func lst)
-  (if (null? lst)
-      #t
-      (if (func (car lst))
-          (all func (cdr lst))
-          #f)))
+  (if (null? lst) #t (if (func (car lst)) (all func (cdr lst)) #f)))
 
 (define (any lst)
-  (if (null? lst)
-      #f
-      (if (car lst)
-          #t
-          (any (cdr lst)))))
+  (if (null? lst) #f (if (car lst) #t (any (cdr lst)))))
 
 ;; TODO:
 ;; Speed this up:

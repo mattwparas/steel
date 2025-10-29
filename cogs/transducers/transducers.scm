@@ -27,9 +27,12 @@
          tenumerate
          tlog
          tadd-between
+         tinterleave
+         tzip
          ttake
          ttake-while
          tconcatenate
+         textend
          rcons
          reverse-rcons
          new-into-hashmap
@@ -307,7 +310,7 @@
        [(bytes? coll) (bytevector-u8-transduce xform f coll)]
        ;; TODO: Fix this with transduce
        ; [(port? coll) (port-transduce xform f coll)]
-       [else (error "unimplemented")])]
+       [else (error "unimplemented: " coll)])]
 
     [(xform f init coll)
      (cond
@@ -496,11 +499,31 @@
       [(result) (reducer result)]
       [(result input) (list-reduce preserving-reducer result input)])))
 
+(define (textend collection)
+  (lambda (reducer)
+    (let ([preserving-reducer (preserving-reduced reducer)])
+      (case-lambda
+        [() (reducer)]
+        ;; Continue with the collection?
+        [(result)
+
+         (cond
+           [(list? result) (reducer (list-reduce preserving-reducer result collection))]
+           [(hash? result) (reducer (iterator-reduce preserving-reducer result collection))]
+           [(set? result) (reducer (iterator-reduce preserving-reducer result collection))]
+           [(vector? result) (reducer (iterator-reduce preserving-reducer result collection))]
+           [(string? result) (reducer (string-reduce preserving-reducer result collection))]
+           [(bytes? result) (reducer (bytevector-u8-reduce preserving-reducer result collection))]
+           ;; Idk, what would we put here?
+           ; [(port? result) (port-reduce (preserving-reduced (tflatten reducer)) result input)]
+           [else (reducer result)])]
+        [(result input) (reducer result input)]))))
+
 (define (tappend-map f)
   (compose (tmap f) tconcatenate))
 
 (define (tflat-map f)
-  (compose (tmap f) flatten))
+  (compose (tmap f) tflatten))
 
 ;;@doc
 ;; Flattens everything and passes each value through the reducer
@@ -619,6 +642,35 @@
         [(result input)
          (if send-elem?
              (let ([result (reducer result elem)])
+               (if (reduced? result) result (reducer result input)))
+             (begin
+               (set! send-elem? #t)
+               (reducer result input)))]))))
+
+(define (tzip elems)
+  (define iter (value->iterator elems))
+  (lambda (reducer)
+    (case-lambda
+      [() (reducer)]
+      [(result) (reducer result)]
+      [(result input)
+       ;; Zip together into a pair
+       (define next (iter-next! iter))
+       (reducer result (cons input next))])))
+
+(define (tinterleave elems)
+  (define iter (value->iterator elems))
+  (lambda (reducer)
+    (let ([send-elem? #f])
+      (case-lambda
+        [() (reducer)]
+        [(result) (reducer result)]
+        [(result input)
+         (if send-elem?
+             ;; TODO: Properly return reduced? if this is eof
+             ;; So what I mean is actually use a transducer instead
+             ;; of the iterator directly since it can abstract over the things
+             (let ([result (reducer result (iter-next! iter))])
                (if (reduced? result) result (reducer result input)))
              (begin
                (set! send-elem? #t)

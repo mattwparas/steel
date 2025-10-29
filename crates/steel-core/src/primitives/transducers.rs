@@ -158,6 +158,8 @@ pub fn transducers_func(arg: &SteelVal) -> Option<SteelVal> {
                         Transducers::MapPair(p) => pair(TransducerKind::MapPair, p.clone()),
                     });
                 }
+            } else {
+                funcs.push(value.clone());
             }
         }
 

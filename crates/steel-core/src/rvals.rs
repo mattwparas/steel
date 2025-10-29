@@ -1894,6 +1894,7 @@ pub fn value_into_iterator(val: SteelVal) -> Option<SteelVal> {
         SteelVal::StringV(s) => Some(BuiltInDataStructureIterator::String(Chunks::new(s))),
         SteelVal::HashSetV(s) => Some(BuiltInDataStructureIterator::Set((*s).clone().into_iter())),
         SteelVal::HashMapV(m) => Some(BuiltInDataStructureIterator::Map((*m).clone().into_iter())),
+        // TODO: Add byte vectors here
         _ => None,
     }
     .map(|iterator| BuiltInDataStructureIterator::into_boxed_iterator(iterator, root))
