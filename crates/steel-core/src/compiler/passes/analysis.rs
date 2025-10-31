@@ -2884,6 +2884,31 @@ struct FindContextsWithOffset<'a> {
 }
 
 impl<'a> VisitorMutUnitRef<'a> for FindContextsWithOffset<'a> {
+    fn visit_define(&mut self, define: &'a Define) {
+        if let ExprKind::LambdaFunction(lambda_function) = &define.body {
+            let mut span = get_span(&lambda_function.body);
+
+            span.start = define.location.span.start;
+
+            log::debug!("Defined function span: {:?} - offset: {}", span, self.offset);
+
+            if span.range().contains(&(self.offset as u32)) {
+                if let Some(info) = self.analysis.get_function_info(lambda_function) {
+                    if define.location.span.source_id == Some(self.source_id) {
+                        let mut new_info = info.clone();
+
+                        new_info.aliases_to = define.name_id();
+
+                        self.contexts
+                            .push(SemanticInformationType::Function(new_info));
+                    }
+                }
+            }
+
+            self.visit(&lambda_function.body);
+        }
+    }
+
     fn visit_lambda_function(&mut self, lambda_function: &'a LambdaFunction) {
         if lambda_function.location.span.end as usize >= self.offset {
             return;
@@ -2944,6 +2969,68 @@ impl<'a> VisitorMutUnitRef<'a> for GlobalDefinitionFinder<'a> {
                 self.globals.push((*a.ident().unwrap(), info.span));
             }
         }
+    }
+}
+
+struct TopLevelDefinitionFinder<'a> {
+    analysis: &'a Analysis,
+    definitions: Vec<(InternedString, ExprKind, Span)>,
+}
+
+impl<'a> TopLevelDefinitionFinder<'a> {
+    pub fn new(analysis: &'a Analysis) -> Self {
+        Self {
+            analysis,
+            definitions: Vec::new(),
+        }
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for TopLevelDefinitionFinder<'a> {
+    fn visit_define(&mut self, expr: &Define) {
+        if let ExprKind::Atom(a) = &expr.name {
+            if let Some(info) = self.analysis.get(&a.syn) {
+                let kind = &expr.body;
+                let name = *a.ident().unwrap_or(&InternedString::from_static("unnamed"));
+
+                self.definitions.push((name, kind.clone(), info.span));
+            } else {
+                let kind = &expr.body;
+                let name= *a.ident().unwrap_or(&InternedString::from_str("unknown"));
+
+                self.definitions.push((name, kind.clone(), expr.location.span));
+            }
+        }
+    }
+}
+
+struct LetBindingsFinder<'a> {
+    analysis: &'a Analysis,
+    definitions: Vec<(InternedString, Span)>,
+}
+
+impl<'a> LetBindingsFinder<'a> {
+    pub fn new(analysis: &'a Analysis) -> Self {
+        Self {
+            analysis,
+            definitions: Vec::new(),
+        }
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for LetBindingsFinder<'a> {
+    fn visit_let(&mut self, expr: &'a Let) {
+        for (k, _v) in expr.bindings.iter() {
+            if let ExprKind::Atom(a) = k {
+                if let Some(info) = self.analysis.get(&a.syn) {
+                    let name = *a.ident().unwrap_or(&InternedString::from_static("unnamed"));
+
+                    self.definitions.push((name, info.span));
+                }
+            }
+        }
+
+        self.visit(&expr.body_expr);
     }
 }
 
@@ -5020,6 +5107,26 @@ impl<'a> SemanticAnalysis<'a> {
             .info
             .values()
             .filter(|x| x.kind == IdentifierStatus::Global)
+    }
+
+    pub fn find_top_level_definitions(&self) -> Vec<(InternedString, ExprKind, Span)> {
+        let mut visitor = TopLevelDefinitionFinder::new(&self.analysis);
+
+        for expr in self.exprs.iter() {
+            visitor.visit(expr);
+        }
+
+        visitor.definitions
+    }
+
+    pub fn find_let_bindings(&self) -> Vec<(InternedString, Span)> {
+        let mut visitor = LetBindingsFinder::new(&self.analysis);
+
+        for expr in self.exprs.iter() {
+            visitor.visit(expr);
+        }
+
+        visitor.definitions
     }
 
     pub fn find_global_defs(&self) -> Vec<(InternedString, Span)> {
