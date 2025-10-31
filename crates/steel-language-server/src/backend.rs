@@ -378,7 +378,225 @@ impl LanguageServer for Backend {
         Ok(definition)
     }
 
-    async fn references(&self, _params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+    // Finding references:
+    // Go over every file, and then iterate over each module
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        // let modules = { ENGINE.read().unwrap().modules().clone() };
+        // for (p, m) in modules.iter() {
+        //     for item in m.get_ast() {
+        //         self.client
+        //             .log_message(MessageType::INFO, item.to_pretty(60))
+        //             .await;
+        //     }
+        // }
+
+        let definition = async {
+            let uri = params.text_document_position.text_document.uri;
+
+            let mut ast = self.ast_map.get_mut(uri.as_str())?;
+            let mut rope = self.document_map.get(uri.as_str())?.clone();
+
+            let position = params.text_document_position.position;
+            let offset = self.config.position_to_offset(position, &rope)?;
+
+            let analysis = SemanticAnalysis::new(&mut ast);
+
+            let (_syntax_object_id, information) =
+                analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
+
+            self.client
+                .log_message(MessageType::INFO, format!("{:#?}", information))
+                .await;
+
+            let refers_to = information.refers_to?;
+
+            let maybe_definition = analysis.get_identifier(refers_to)?;
+
+            let mut identifier = None;
+            let mut resulting_span = maybe_definition.span;
+
+            let mut module_path = None;
+
+            for expr in analysis.exprs.iter() {
+                match expr {
+                    ExprKind::Define(d) => {
+                        if d.name_id() == Some(refers_to) {
+                            identifier = d
+                                .name
+                                .atom_syntax_object()
+                                .and_then(|x| x.ty.identifier().cloned());
+                        }
+                    }
+                    ExprKind::Begin(b) => {
+                        for expr in &b.exprs {
+                            if let ExprKind::Define(d) = expr {
+                                if d.name_id() == Some(refers_to) {
+                                    identifier = d
+                                        .name
+                                        .atom_syntax_object()
+                                        .and_then(|x| x.ty.identifier().cloned());
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let mut resolver = |mut interned: InternedString,
+                                name: String,
+                                original|
+             -> Option<()> {
+                let maybe_renamed = interned;
+
+                if let Some(original) = original {
+                    if interned != original {
+                        interned = original;
+                    }
+                }
+
+                let mut module_prefix_path_to_check =
+                    name.trim_end_matches(if maybe_renamed == interned {
+                        interned.resolve()
+                    } else {
+                        maybe_renamed.resolve()
+                    });
+
+                resulting_span = {
+                    let guard = ENGINE.read().ok()?;
+
+                    let modules = guard.modules();
+
+                    let module = modules
+                        .values()
+                        .find(|x| x.prefix() == module_prefix_path_to_check)?;
+
+                    module_path = Some(module.name().to_owned());
+
+                    let module_ast = module.get_ast();
+
+                    let top_level_define = query_top_level_define(module_ast, interned.resolve())
+                        .or_else(|| {
+                        query_top_level_define_on_condition(
+                            module_ast,
+                            interned.resolve(),
+                            |name, target| target.ends_with(name),
+                        )
+                    })?;
+
+                    let syntax = top_level_define.name.atom_syntax_object()?;
+
+                    identifier = syntax.ty.identifier().cloned();
+
+                    syntax.span
+                };
+
+                Some(())
+            };
+
+            if maybe_definition.is_required_identifier {
+                match analysis.resolve_required_identifier(refers_to)? {
+                    RequiredIdentifierInformation::Resolved(
+                        resolved,
+                        mut interned,
+                        name,
+                        original,
+                    ) => {
+                        if let Some(original) = original {
+                            if interned != original {
+                                resolver(interned, name, Some(original))?;
+                            } else {
+                                resulting_span = resolved.span;
+
+                                identifier = Some(original);
+                            }
+                        } else {
+                            resulting_span = resolved.span;
+
+                            identifier = Some(name.into());
+                        }
+                    }
+
+                    RequiredIdentifierInformation::Unresolved(mut interned, name, original) => {
+                        resolver(interned, name, original)?;
+                    }
+                }
+            }
+
+            let location = source_id_to_uri(resulting_span.source_id()?)?;
+
+            if location != uri {
+                let expression = ENGINE
+                    .read()
+                    .ok()?
+                    .get_source(&resulting_span.source_id()?)?;
+
+                rope = self
+                    .document_map
+                    .get(location.as_str())
+                    .map(|x| x.clone())
+                    .unwrap_or_else(|| Rope::from_str(&expression));
+
+                self.document_map.insert(location.to_string(), rope.clone());
+            }
+
+            self.client
+                .log_message(
+                    MessageType::INFO,
+                    format!("Found identifier: {:?}", identifier),
+                )
+                .await;
+
+            Some((identifier, module_path))
+        }
+        .await;
+
+        // Now that we have the definition, we should also check for where this came from.
+        // We'll walk through the modules, look at what they require, and find
+        // the ASTs that we have to analyze to find references to this identifier.
+        if let Some((Some(identifier), module_path)) = definition {
+            let mut should_index = Vec::new();
+
+            // If we have an identifier and its from another module,
+            // then we should calculate the reverse dependencies. That way we can
+            // at least attempt to build a reverse index for find references.
+            if let Some(module_path) = module_path {
+                let guard = ENGINE.read().unwrap();
+                let all_modules = guard.modules();
+
+                for (p, module) in all_modules.iter() {
+                    if &module_path == p {
+                        continue;
+                    }
+
+                    let require_objects = module.get_requires();
+
+                    for req in require_objects {
+                        if req.path.get_path().as_path() == module_path {
+                            // Note: Once the logging is fixed we can remove the clone here
+                            should_index.push(module.name().clone());
+                        }
+                    }
+
+                    // Now, just find the spans of all of the instances
+                    // of this identifier, meaning, query the identifiers within this
+                    // file, and index it appropriately.
+                    //
+                    // Note: This should be cached. We really just need to create a mapping of
+                    // identifier -> span range, because re parsing each file is probably not ideal, although
+                    // given that we have this dependency mapping its also probably not that bad
+                    // at least for now.
+                }
+            }
+
+            self.client
+                .log_message(
+                    MessageType::INFO,
+                    format!("should index: {:?}", should_index),
+                )
+                .await;
+        }
+
         Ok(None)
     }
 

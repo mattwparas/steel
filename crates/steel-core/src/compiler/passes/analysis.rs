@@ -57,9 +57,9 @@ pub enum IdentifierStatus {
 pub struct SemanticInformation {
     pub kind: IdentifierStatus,
     pub set_bang: bool,
-    pub depth: usize,
+    pub depth: u32,
     pub shadows: Option<SyntaxObjectId>,
-    pub usage_count: usize,
+    pub usage_count: u32,
     pub span: Span,
     // Referring to a local var definition
     pub refers_to: Option<SyntaxObjectId>,
@@ -86,7 +86,7 @@ fn check_size_of_info() {
 }
 
 impl SemanticInformation {
-    pub fn new(kind: IdentifierStatus, depth: usize, span: Span) -> Self {
+    pub fn new(kind: IdentifierStatus, depth: u32, span: Span) -> Self {
         Self {
             kind,
             set_bang: false,
@@ -117,7 +117,7 @@ impl SemanticInformation {
     }
 
     #[inline(always)]
-    pub fn with_usage_count(mut self, count: usize) -> Self {
+    pub fn with_usage_count(mut self, count: u32) -> Self {
         self.usage_count = count;
         self
     }
@@ -862,7 +862,7 @@ impl<'a> AnalysisPass<'a> {
             } else {
                 identifier_status_if_local
             },
-            depth,
+            depth as _,
             atom_syntax_object.span,
         );
 
@@ -941,7 +941,7 @@ impl<'a> AnalysisPass<'a> {
                     arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::HeapAllocated,
-                        depth,
+                        depth as _,
                         arg.atom_syntax_object().unwrap().span,
                     ),
                 );
@@ -959,7 +959,7 @@ impl<'a> AnalysisPass<'a> {
                     arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::Local,
-                        depth,
+                        depth as _,
                         arg.atom_syntax_object().unwrap().span,
                     ),
                 );
@@ -1023,7 +1023,7 @@ impl<'a> AnalysisPass<'a> {
             };
 
             let mut semantic_info =
-                SemanticInformation::new(kind, depth, var.atom_syntax_object().unwrap().span);
+                SemanticInformation::new(kind, depth as _, var.atom_syntax_object().unwrap().span);
 
             // Update the usage count to collect how many times the variable was referenced
             // Inside of the scope in which the variable existed
@@ -1039,7 +1039,7 @@ impl<'a> AnalysisPass<'a> {
             // log::debug!("Found unused argument: {:?}", ident);
             // }
 
-            semantic_info = semantic_info.with_usage_count(count);
+            semantic_info = semantic_info.with_usage_count(count as _);
 
             // If this variable name is already in scope, we should mark that this variable
             // shadows the previous id
@@ -1338,7 +1338,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::HeapAllocated,
-                        self.info.scope.depth(),
+                        self.info.scope.depth() as _,
                         arg.atom_syntax_object().unwrap().span,
                     ),
                 );
@@ -1359,7 +1359,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     arg.atom_syntax_object().unwrap().syntax_object_id,
                     SemanticInformation::new(
                         IdentifierStatus::LetVar,
-                        self.info.scope.depth(),
+                        self.info.scope.depth() as _,
                         arg.atom_syntax_object().unwrap().span,
                     ),
                 );
@@ -1761,7 +1761,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     self.info.get_mut(&global_var_id).unwrap().usage_count += 1;
 
                     let mut semantic_information =
-                        SemanticInformation::new(IdentifierStatus::Global, depth, a.syn.span)
+                        SemanticInformation::new(IdentifierStatus::Global, depth as _, a.syn.span)
                             .with_usage_count(1)
                             .refers_to(global_var_id);
 
@@ -1818,11 +1818,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 // In the event there is a local define, we want to count the usage here
                 if let Some(local_define) = self.info.get_mut(&mut_ref_id) {
-                    local_define.usage_count = mut_ref_usage_count;
+                    local_define.usage_count = mut_ref_usage_count as _;
                 }
 
                 let mut semantic_info =
-                    SemanticInformation::new(IdentifierStatus::Local, depth, a.syn.span)
+                    SemanticInformation::new(IdentifierStatus::Local, depth as _, a.syn.span)
                         .with_usage_count(1)
                         .refers_to(mut_ref_id);
 
@@ -1882,7 +1882,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 }
 
                 if let Some(local_define) = self.info.get_mut(&captured.id) {
-                    local_define.usage_count = captured.usage_count;
+                    local_define.usage_count = captured.usage_count as _;
 
                     // If this _is_ in fact a locally defined function, we don't want to capture it
                     // This is something that is going to get lifted to the top environment anyway
@@ -1893,7 +1893,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 }
 
                 let mut semantic_info =
-                    SemanticInformation::new(identifier_status, depth, a.syn.span)
+                    SemanticInformation::new(identifier_status, depth as _, a.syn.span)
                         .with_usage_count(1)
                         .refers_to(captured.id);
 
@@ -1958,7 +1958,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 let mut identifier_status = IdentifierStatus::Captured;
 
                 if let Some(local_define) = self.info.get_mut(&is_captured_id) {
-                    local_define.usage_count = is_captured_usage_count;
+                    local_define.usage_count = is_captured_usage_count as _;
 
                     // If this _is_ in fact a locally defined function, we don't want to capture it
                     // This is something that is going to get lifted to the top environment anyway
@@ -1969,7 +1969,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 }
 
                 let mut semantic_info =
-                    SemanticInformation::new(identifier_status, depth, a.syn.span)
+                    SemanticInformation::new(identifier_status, depth as _, a.syn.span)
                         .with_usage_count(1)
                         .refers_to(is_captured_id);
                 // .with_offset(
@@ -1997,7 +1997,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 analysis.usage_count += 1;
             } else {
                 let mut semantic_info =
-                    SemanticInformation::new(IdentifierStatus::Free, depth, a.syn.span);
+                    SemanticInformation::new(IdentifierStatus::Free, depth as _, a.syn.span);
 
                 // TODO: We _really_ should be providing the built-ins in a better way thats not
                 // passing around a thread local

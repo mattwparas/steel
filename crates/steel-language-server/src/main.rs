@@ -72,6 +72,27 @@ async fn main() {
         }
     }
 
+    // Walk all of the files that end with .scm, and require them:
+    for result in ignore::Walk::new("./") {
+        match result {
+            Ok(entry) => {
+                entry.path();
+
+                let path = entry.path();
+
+                // Require the path to warm the compiler
+                let _ = ENGINE
+                    .write()
+                    .unwrap()
+                    .emit_expanded_ast_without_optimizations(
+                        &format!(r"(require {:?})", path),
+                        None,
+                    );
+            }
+            _ => {}
+        }
+    }
+
     let (service, socket) = LspService::build(|client| Backend {
         config: Config::new(),
         client,
