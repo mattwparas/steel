@@ -188,6 +188,7 @@ impl LanguageServer for Backend {
                     },
                 })),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
                 ..ServerCapabilities::default()
             },
         })
@@ -244,6 +245,80 @@ impl LanguageServer for Backend {
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         Ok(self.hover_impl(params).await)
+    }
+
+    async fn document_symbol(&self, params: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
+        let symbols = async {
+            let uri = params.text_document.uri;
+            let mut ast = self.ast_map.get_mut(uri.as_str())?;
+            let mut rope = self.document_map.get(uri.as_str())?.clone();
+
+            let analysis = SemanticAnalysis::new(&mut ast);
+
+            let global_defs = analysis.find_global_defs();
+
+            let defs_arranged = global_defs.iter()
+                .filter_map(|(id, span)| analysis.find_identifier_at_offset((span.start as usize), uri_to_source_id(&uri)?))
+                // .filter(|(id, information)|
+                //     match information.kind {
+                //         IdentifierStatus::Global => true,
+                //         IdentifierStatus::LocallyDefinedFunction => true,
+                //         IdentifierStatus::Local => false,
+                //         IdentifierStatus::LetVar => false,
+                //         IdentifierStatus::Captured => false,
+                //         IdentifierStatus::Free => false,
+                //         IdentifierStatus::HeapAllocated => false,
+                //     }
+                // )
+                .enumerate()
+                .map(|(idx, (id, information))| {
+                    let name = match analysis.resolve_required_identifier(*id) {
+                        Some(RequiredIdentifierInformation::Resolved(
+                            resolved,
+                            mut interned,
+                            name,
+                            original,
+                        )) => {
+                            name
+                        }
+
+                        Some(RequiredIdentifierInformation::Unresolved(mut interned, name, original)) => {
+                            name
+                        }
+
+                        _ => {
+                            let start = information.span.start;
+                            let end = information.span.end;
+                            let name = (start..end).filter_map(|i| rope.get_char(i as usize)).collect::<String>();
+                            format!("symbol #{idx} ({name})")
+                        }
+                    };
+
+                    let kind = information.kind;
+
+                    SymbolInformation {
+                        name: format!("{name} ({kind:?})"),
+                        kind: match information.kind {
+                            IdentifierStatus::Global => SymbolKind::CONSTANT,
+                            IdentifierStatus::Local => SymbolKind::CONSTANT,
+                            IdentifierStatus::LocallyDefinedFunction => SymbolKind::FUNCTION,
+                            IdentifierStatus::LetVar => SymbolKind::VARIABLE,
+                            IdentifierStatus::Captured => SymbolKind::VARIABLE,
+                            IdentifierStatus::Free => SymbolKind::CONSTANT,
+                            IdentifierStatus::HeapAllocated => SymbolKind::CONSTANT,
+                        },
+                        tags: None,
+                        deprecated: None,
+                        location: Location { uri: uri.clone(), range: self.config.span_to_range(&information.span, &rope).unwrap() },
+                        container_name: None
+                    }
+                })
+                .collect();
+
+            Some(DocumentSymbolResponse::Flat(defs_arranged))
+        }.await;
+
+        Ok(symbols)
     }
 
     async fn goto_definition(
