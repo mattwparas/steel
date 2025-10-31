@@ -518,9 +518,10 @@ impl Analysis {
     }
 
     // TODO: This needs to just take an iterator?
-    pub fn run(&mut self, exprs: &[ExprKind]) {
-        // let mut scope: ScopeMap<InternedString, ScopeInfo> = ScopeMap::new();
-        self.scope.clear_all();
+    pub fn run_with_scope(&mut self, exprs: &[ExprKind], clear_scope: bool) {
+        if clear_scope {
+            self.scope.clear_all();
+        }
 
         // TODO: Functions should be globally resolvable but top level identifiers cannot be used before they are defined
         // The way this is implemented right now doesn't respect that
@@ -585,6 +586,10 @@ impl Analysis {
                 }
             }
         }
+    }
+
+    pub fn run(&mut self, exprs: &[ExprKind]) {
+        self.run_with_scope(exprs, true)
     }
 
     pub fn get_function_info(&self, function: &LambdaFunction) -> Option<&FunctionInformation> {
@@ -2660,7 +2665,7 @@ pub(crate) fn is_a_builtin_definition(def: &Define) -> bool {
 }
 
 #[inline(always)]
-pub(crate) fn is_a_require_definition(def: &Define) -> bool {
+pub fn is_a_require_definition(def: &Define) -> bool {
     if let ExprKind::List(l) = &def.body {
         match l.first_ident() {
             Some(func) if *func == *PROTO_HASH_GET => {
@@ -2674,7 +2679,7 @@ pub(crate) fn is_a_require_definition(def: &Define) -> bool {
 }
 
 #[inline(always)]
-pub(crate) fn require_defitinion_to_original_symbol(def: &Define) -> Option<InternedString> {
+pub fn require_defitinion_to_original_symbol(def: &Define) -> Option<InternedString> {
     if let ExprKind::List(l) = &def.body {
         match l.first_ident() {
             Some(func) if *func == *PROTO_HASH_GET => {

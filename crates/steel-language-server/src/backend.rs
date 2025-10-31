@@ -19,7 +19,8 @@ use steel::{
     compiler::{
         modules::{steel_home, MANGLER_PREFIX, MODULE_PREFIX},
         passes::analysis::{
-            query_top_level_define, query_top_level_define_on_condition, IdentifierStatus,
+            query_top_level_define, query_top_level_define_on_condition,
+            require_defitinion_to_original_symbol, Analysis, IdentifierStatus,
             RequiredIdentifierInformation, SemanticAnalysis,
         },
     },
@@ -34,7 +35,10 @@ use steel::{
     rvals::{AsRefSteelVal, FromSteelVal, SteelString},
     steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn},
 };
-use steel_parser::ast::ToDoc;
+use steel_parser::{
+    ast::{Define, ToDoc},
+    parser::SyntaxObjectId,
+};
 use tower_lsp::jsonrpc::{self, Result};
 use tower_lsp::lsp_types::notification::Notification;
 use tower_lsp::lsp_types::*;
@@ -551,18 +555,23 @@ impl LanguageServer for Backend {
         }
         .await;
 
+        let mut things_to_log: Vec<String> = Vec::new();
+
+        self.client
+            .log_message(MessageType::INFO, format!("Definition -> {:?}", definition))
+            .await;
+
         // Now that we have the definition, we should also check for where this came from.
         // We'll walk through the modules, look at what they require, and find
         // the ASTs that we have to analyze to find references to this identifier.
         if let Some((Some(identifier), module_path)) = definition {
-            let mut should_index = Vec::new();
-
             // If we have an identifier and its from another module,
             // then we should calculate the reverse dependencies. That way we can
             // at least attempt to build a reverse index for find references.
             if let Some(module_path) = module_path {
                 let guard = ENGINE.read().unwrap();
                 let all_modules = guard.modules();
+                let mut should_index = Vec::new();
 
                 for (p, module) in all_modules.iter() {
                     if &module_path == p {
@@ -574,27 +583,104 @@ impl LanguageServer for Backend {
                     for req in require_objects {
                         if req.path.get_path().as_path() == module_path {
                             // Note: Once the logging is fixed we can remove the clone here
-                            should_index.push(module.name().clone());
+                            should_index.push(module);
                         }
                     }
+                }
 
-                    // Now, just find the spans of all of the instances
-                    // of this identifier, meaning, query the identifiers within this
-                    // file, and index it appropriately.
-                    //
-                    // Note: This should be cached. We really just need to create a mapping of
-                    // identifier -> span range, because re parsing each file is probably not ideal, although
-                    // given that we have this dependency mapping its also probably not that bad
-                    // at least for now.
+                // Now, just find the spans of all of the instances of
+                // this identifier, meaning, query the identifiers within
+                // this  file, and index it appropriately.
+                // Note: This should be cached. We really just need to create a
+                // mapping of identifier -> span range, because re parsing each
+                // file is probably not ideal, although  given that we have
+                // this dependency mapping its also probably not that bad  at
+                // least for now.
+
+                // Find the module get definition within the ast:
+                // This would correspond to like (proto-hash-get name (module-name ...))
+                // (%proto-hash-get% __module-##mm21__%#__ (quote values)))
+                //
+                // And then, just scan the corresponding analysis for the module, and index
+                // the refers to for this thing.
+                //
+                // We can probably do that for each one, one by one, at bootup time,
+                // and simply query it directly. Maybe that is what we should do.
+                //
+                // We can just implement the simple thing first though, which is naively
+                // re-indexing it and then revisit a more optimized implementation
+                // later.
+
+                let mut spans = Vec::new();
+
+                for module in should_index {
+                    let ast = module.get_ast();
+
+                    let ident = ExprKind::atom(identifier);
+                    let id = ident.atom_syntax_object().unwrap().syntax_object_id;
+                    let top_level = ExprKind::Define(Box::new(Define {
+                        name: ident,
+                        body: ExprKind::empty(),
+                        location: steel_parser::parser::SyntaxObject::default(
+                            steel_parser::tokens::TokenType::Define,
+                        ),
+                    }));
+
+                    let mut analysis = Analysis::default();
+                    analysis.run(&[top_level]);
+                    analysis.run_with_scope(ast, false);
+
+                    for (_, info) in analysis.identifier_info() {
+                        if let Some(refers_to) = info.refers_to {
+                            if refers_to == id {
+                                things_to_log.push(format!("Found span: {:?}", info.span));
+                                spans.push(info.span);
+                            }
+                        }
+                    }
+                }
+
+                let mut locations: Vec<Location> = Vec::new();
+
+                for span in spans {
+                    if let Some(source) = span.source_id().and_then(|x| guard.get_source(&x)) {
+                        if let Some(path) = span
+                            .source_id()
+                            .and_then(|x| guard.get_path_for_source_id(&x))
+                        {
+                            if let Ok(url) = Url::from_file_path(path) {
+                                let url_str = url.to_string();
+
+                                let rope = if let Some(rope) = self.document_map.get(&url_str) {
+                                    rope.clone()
+                                } else {
+                                    let rope = ropey::Rope::from(source.to_string());
+                                    self.document_map.insert(url_str, rope.clone());
+                                    rope
+                                };
+
+                                if let Some(range) = self.config.span_to_range(&span, &rope) {
+                                    locations.push(Location::new(url, range));
+                                }
+                            } else {
+                                things_to_log.push("Unable to convert path to url".to_string());
+                            }
+                        }
+                    } else {
+                        things_to_log.push("Unable to find source for source id".to_string());
+                    }
+                }
+
+                if !locations.is_empty() {
+                    return Ok(Some(locations));
+                } else {
+                    things_to_log.push("Found no locations".to_string());
                 }
             }
 
-            self.client
-                .log_message(
-                    MessageType::INFO,
-                    format!("should index: {:?}", should_index),
-                )
-                .await;
+            for line in things_to_log {
+                self.client.log_message(MessageType::INFO, line).await;
+            }
         }
 
         Ok(None)
@@ -915,6 +1001,16 @@ struct TextDocumentItem {
     uri: Url,
     text: String,
     version: i32,
+}
+
+fn find_associated_define(expr: &Define, ident: InternedString) -> Option<SyntaxObjectId> {
+    if let Some(found) = require_defitinion_to_original_symbol(expr) {
+        if ident == found {
+            return expr.name.atom_syntax_object().map(|x| x.syntax_object_id);
+        }
+    }
+
+    None
 }
 
 fn fetch_stdlib_doc(ident: &str) -> Option<SteelString> {

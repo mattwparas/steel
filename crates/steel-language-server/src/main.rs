@@ -9,7 +9,7 @@ use steel::{
 };
 use steel_language_server::backend::{lsp_home, Backend, Config, ExternalModuleResolver, ENGINE};
 
-use tower_lsp::{LspService, Server};
+use tower_lsp::{lsp_types::Url, LspService, Server};
 
 #[tokio::main]
 async fn main() {
@@ -80,14 +80,13 @@ async fn main() {
 
                 let path = entry.path();
 
+                let mut guard = ENGINE.write().unwrap();
+
                 // Require the path to warm the compiler
-                let _ = ENGINE
-                    .write()
-                    .unwrap()
-                    .emit_expanded_ast_without_optimizations(
-                        &format!(r"(require {:?})", path),
-                        None,
-                    );
+                let _ = guard.emit_expanded_ast_without_optimizations(
+                    &format!(r"(require {:?})", path),
+                    None,
+                );
             }
             _ => {}
         }
