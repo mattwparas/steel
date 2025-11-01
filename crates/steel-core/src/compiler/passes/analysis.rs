@@ -339,6 +339,20 @@ impl Analysis {
         &self.info
     }
 
+    pub fn syntax_object_ids_to_identifiers<'a>(
+        &self,
+        exprs: &'a [ExprKind],
+        ids: &'a mut HashMap<SyntaxObjectId, Option<InternedString>>,
+    ) -> &'a mut HashMap<SyntaxObjectId, Option<InternedString>> {
+        let mut identifier_finder = IdentifierFinder { ids };
+
+        for expr in exprs.iter() {
+            identifier_finder.visit(expr);
+        }
+
+        identifier_finder.ids
+    }
+
     pub fn fresh_from_exprs(&mut self, exprs: &[ExprKind]) {
         self.clear();
 
@@ -1561,14 +1575,21 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // We're entering a new scope since we've entered a lambda function
         self.info.scope.push_layer();
 
-        // let let_level_bindings = lambda_function.arguments().unwrap();
-
-        let let_level_bindings: smallvec::SmallVec<[_; 8]> = lambda_function
+        // TODO: @matt
+        // This seems to cause a crash in the LSP
+        // We should just filter out non args for now?
+        let let_level_bindings: Option<smallvec::SmallVec<[_; 8]>> = lambda_function
             .args
             .iter()
             .map(|x| x.atom_identifier())
-            .collect::<Option<_>>()
-            .unwrap();
+            .collect::<Option<_>>();
+
+        let let_level_bindings = if let Some(b) = let_level_bindings {
+            b
+        } else {
+            eprintln!("unknown arg found: {}", lambda_function);
+            panic!()
+        };
 
         let depth = self.info.scope.depth();
 

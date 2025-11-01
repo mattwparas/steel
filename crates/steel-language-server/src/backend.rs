@@ -21,7 +21,7 @@ use steel::{
         passes::analysis::{
             query_top_level_define, query_top_level_define_on_condition,
             require_defitinion_to_original_symbol, Analysis, IdentifierStatus,
-            RequiredIdentifierInformation, SemanticAnalysis,
+            RequiredIdentifierInformation, SemanticAnalysis, SemanticInformation,
         },
     },
     parser::{
@@ -394,6 +394,8 @@ impl LanguageServer for Backend {
         //     }
         // }
 
+        let mut found_locations = Vec::new();
+
         let definition = async {
             let uri = params.text_document_position.text_document.uri;
 
@@ -405,12 +407,18 @@ impl LanguageServer for Backend {
 
             let analysis = SemanticAnalysis::new(&mut ast);
 
-            let (_syntax_object_id, information) =
+            let (syntax_object_id, information) =
                 analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
 
-            self.client
-                .log_message(MessageType::INFO, format!("{:#?}", information))
-                .await;
+            // If this is a built in, lets just bail
+            if information.builtin {
+                if let Some(l) = self
+                    .find_references_builtin(&analysis, *syntax_object_id, information)
+                    .await
+                {
+                    found_locations = l;
+                }
+            }
 
             let refers_to = information.refers_to?;
 
@@ -544,18 +552,9 @@ impl LanguageServer for Backend {
                 self.document_map.insert(location.to_string(), rope.clone());
             }
 
-            self.client
-                .log_message(
-                    MessageType::INFO,
-                    format!("Found identifier: {:?}", identifier),
-                )
-                .await;
-
             Some((identifier, module_path))
         }
         .await;
-
-        let mut things_to_log: Vec<String> = Vec::new();
 
         self.client
             .log_message(MessageType::INFO, format!("Definition -> {:?}", definition))
@@ -569,117 +568,12 @@ impl LanguageServer for Backend {
             // then we should calculate the reverse dependencies. That way we can
             // at least attempt to build a reverse index for find references.
             if let Some(module_path) = module_path {
-                let guard = ENGINE.read().unwrap();
-                let all_modules = guard.modules();
-                let mut should_index = Vec::new();
-
-                for (p, module) in all_modules.iter() {
-                    if &module_path == p {
-                        continue;
-                    }
-
-                    let require_objects = module.get_requires();
-
-                    for req in require_objects {
-                        if req.path.get_path().as_path() == module_path {
-                            // Note: Once the logging is fixed we can remove the clone here
-                            should_index.push(module);
-                        }
-                    }
-                }
-
-                // Now, just find the spans of all of the instances of
-                // this identifier, meaning, query the identifiers within
-                // this  file, and index it appropriately.
-                // Note: This should be cached. We really just need to create a
-                // mapping of identifier -> span range, because re parsing each
-                // file is probably not ideal, although  given that we have
-                // this dependency mapping its also probably not that bad  at
-                // least for now.
-
-                // Find the module get definition within the ast:
-                // This would correspond to like (proto-hash-get name (module-name ...))
-                // (%proto-hash-get% __module-##mm21__%#__ (quote values)))
-                //
-                // And then, just scan the corresponding analysis for the module, and index
-                // the refers to for this thing.
-                //
-                // We can probably do that for each one, one by one, at bootup time,
-                // and simply query it directly. Maybe that is what we should do.
-                //
-                // We can just implement the simple thing first though, which is naively
-                // re-indexing it and then revisit a more optimized implementation
-                // later.
-
-                let mut spans = Vec::new();
-
-                for module in should_index {
-                    let ast = module.get_ast();
-
-                    let ident = ExprKind::atom(identifier);
-                    let id = ident.atom_syntax_object().unwrap().syntax_object_id;
-                    let top_level = ExprKind::Define(Box::new(Define {
-                        name: ident,
-                        body: ExprKind::empty(),
-                        location: steel_parser::parser::SyntaxObject::default(
-                            steel_parser::tokens::TokenType::Define,
-                        ),
-                    }));
-
-                    let mut analysis = Analysis::default();
-                    analysis.run(&[top_level]);
-                    analysis.run_with_scope(ast, false);
-
-                    for (_, info) in analysis.identifier_info() {
-                        if let Some(refers_to) = info.refers_to {
-                            if refers_to == id {
-                                things_to_log.push(format!("Found span: {:?}", info.span));
-                                spans.push(info.span);
-                            }
-                        }
-                    }
-                }
-
-                let mut locations: Vec<Location> = Vec::new();
-
-                for span in spans {
-                    if let Some(source) = span.source_id().and_then(|x| guard.get_source(&x)) {
-                        if let Some(path) = span
-                            .source_id()
-                            .and_then(|x| guard.get_path_for_source_id(&x))
-                        {
-                            if let Ok(url) = Url::from_file_path(path) {
-                                let url_str = url.to_string();
-
-                                let rope = if let Some(rope) = self.document_map.get(&url_str) {
-                                    rope.clone()
-                                } else {
-                                    let rope = ropey::Rope::from(source.to_string());
-                                    self.document_map.insert(url_str, rope.clone());
-                                    rope
-                                };
-
-                                if let Some(range) = self.config.span_to_range(&span, &rope) {
-                                    locations.push(Location::new(url, range));
-                                }
-                            } else {
-                                things_to_log.push("Unable to convert path to url".to_string());
-                            }
-                        }
-                    } else {
-                        things_to_log.push("Unable to find source for source id".to_string());
-                    }
-                }
-
-                if !locations.is_empty() {
-                    return Ok(Some(locations));
-                } else {
-                    things_to_log.push("Found no locations".to_string());
-                }
-            }
-
-            for line in things_to_log {
-                self.client.log_message(MessageType::INFO, line).await;
+                let external_module_refs =
+                    self.find_references_external_module(identifier, module_path);
+                return Ok(Some(external_module_refs));
+            } else if !found_locations.is_empty() {
+                // This is a built in, so we're gonna just check all the things
+                return Ok(Some(found_locations));
             }
         }
 
@@ -1001,6 +895,156 @@ struct TextDocumentItem {
     uri: Url,
     text: String,
     version: i32,
+}
+
+impl Backend {
+    async fn find_references_builtin(
+        &self,
+        analysis: &SemanticAnalysis<'_>,
+        syntax_object_id: SyntaxObjectId,
+        info: &SemanticInformation,
+    ) -> Option<Vec<Location>> {
+        let mut syntax_object_id_to_interned_string = HashMap::new();
+        syntax_object_id_to_interned_string.insert(syntax_object_id, None);
+        analysis.syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
+
+        let identifier = syntax_object_id_to_interned_string
+            .get(&syntax_object_id)?
+            .clone()?;
+
+        // Go through the modules and see which asts are there?
+        // Are built ins renamed?
+        // let guard = ENGINE.read().unwrap();
+        let mut spans = Vec::new();
+
+        let modules = { ENGINE.read().unwrap().modules().clone() };
+
+        {
+            for (key, module) in modules.iter() {
+                // Calculate the built ins that we have:
+                let ast = module.get_ast();
+
+                eprintln!("Reading module: {:?}", key);
+
+                let top_level_define = query_top_level_define(ast, identifier.resolve());
+                if let Some(top_level_define) = top_level_define {
+                    let id = top_level_define
+                        .name
+                        .atom_syntax_object()
+                        .unwrap()
+                        .syntax_object_id;
+
+                    let now = std::time::Instant::now();
+
+                    let mut analysis = Analysis::default();
+                    analysis.run(ast);
+
+                    eprintln!("Analysis time: {:?}", now.elapsed());
+
+                    for (_, info) in analysis.identifier_info() {
+                        if let Some(refers_to) = info.refers_to {
+                            if refers_to == id {
+                                spans.push(info.span);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut locations: Vec<Location> = Vec::new();
+
+        let guard = ENGINE.read().unwrap();
+        self.spans_to_locations(&guard, spans, &mut locations);
+
+        Some(locations)
+    }
+
+    fn find_references_external_module(
+        &self,
+        identifier: InternedString,
+        module_path: PathBuf,
+    ) -> Vec<Location> {
+        let guard = ENGINE.read().unwrap();
+        let all_modules = guard.modules();
+        let mut should_index = Vec::new();
+
+        for (p, module) in all_modules.iter() {
+            if &module_path == p {
+                continue;
+            }
+
+            let require_objects = module.get_requires();
+
+            for req in require_objects {
+                if req.path.get_path().as_path() == module_path {
+                    // Note: Once the logging is fixed we can remove the clone here
+                    should_index.push(module);
+                }
+            }
+        }
+
+        let mut spans = Vec::new();
+
+        for module in should_index {
+            let ast = module.get_ast();
+
+            let ident = ExprKind::atom(identifier);
+            let id = ident.atom_syntax_object().unwrap().syntax_object_id;
+            let top_level = ExprKind::Define(Box::new(Define {
+                name: ident,
+                body: ExprKind::empty(),
+                location: steel_parser::parser::SyntaxObject::default(
+                    steel_parser::tokens::TokenType::Define,
+                ),
+            }));
+
+            let mut analysis = Analysis::default();
+            analysis.run(&[top_level]);
+            analysis.run_with_scope(ast, false);
+
+            for (_, info) in analysis.identifier_info() {
+                if let Some(refers_to) = info.refers_to {
+                    if refers_to == id {
+                        spans.push(info.span);
+                    }
+                }
+            }
+        }
+
+        let mut locations: Vec<Location> = Vec::new();
+
+        self.spans_to_locations(&guard, spans, &mut locations);
+
+        locations
+    }
+
+    fn spans_to_locations(&self, guard: &Engine, spans: Vec<Span>, locations: &mut Vec<Location>) {
+        for span in spans {
+            if let Some(source) = span.source_id().and_then(|x| guard.get_source(&x)) {
+                if let Some(path) = span
+                    .source_id()
+                    .and_then(|x| guard.get_path_for_source_id(&x))
+                {
+                    if let Ok(url) = Url::from_file_path(path) {
+                        let url_str = url.to_string();
+
+                        let rope = if let Some(rope) = self.document_map.get(&url_str) {
+                            rope.clone()
+                        } else {
+                            let rope = ropey::Rope::from(source.to_string());
+                            self.document_map.insert(url_str, rope.clone());
+                            rope
+                        };
+
+                        if let Some(range) = self.config.span_to_range(&span, &rope) {
+                            locations.push(Location::new(url, range));
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn find_associated_define(expr: &Define, ident: InternedString) -> Option<SyntaxObjectId> {

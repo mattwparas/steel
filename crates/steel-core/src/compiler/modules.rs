@@ -2378,6 +2378,16 @@ impl<'a> ModuleBuilder<'a> {
             FlattenBegin::flatten(expr);
         }
 
+        // And then finally, expand the keyword arguments:
+        for expr in &mut ast {
+            expand_kernel_in_env(
+                expr,
+                self.kernel.as_mut(),
+                self.builtin_modules.clone(),
+                self.name.to_str().unwrap(),
+            )?;
+        }
+
         // TODO: @Matt - fix this hack
         {
             self.source_ast = ast;

@@ -892,16 +892,16 @@ impl Compiler {
             kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
         }
 
-        for expr in expanded_statements.iter_mut() {
-            expand_kernel_in_env(
-                expr,
-                self.kernel.as_mut(),
-                self.builtin_modules.clone(),
-                "top-level",
-            )?;
+        // for expr in expanded_statements.iter_mut() {
+        //     expand_kernel_in_env(
+        //         expr,
+        //         self.kernel.as_mut(),
+        //         self.builtin_modules.clone(),
+        //         "top-level",
+        //     )?;
 
-            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
-        }
+        //     crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+        // }
 
         for expr in expanded_statements.iter_mut() {
             expand_kernel_in_env(
