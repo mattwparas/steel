@@ -2918,49 +2918,6 @@ impl<'a> VisitorMutUnitRef<'a> for GlobalDefinitionFinder<'a> {
     }
 }
 
-// impl<'a, F> VisitorMutRefUnit for AnonymousFunctionCallSites<'a, F>
-// where
-//     F: FnMut(&Analysis, &mut ExprKind) -> bool,
-// {
-//     fn visit(&mut self, expr: &mut ExprKind) {
-//         match expr {
-//             ExprKind::If(f) => self.visit_if(f),
-//             ExprKind::Define(d) => self.visit_define(d),
-//             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
-//             ExprKind::Begin(b) => self.visit_begin(b),
-//             ExprKind::Return(r) => self.visit_return(r),
-//             ExprKind::Quote(q) => self.visit_quote(q),
-//             ExprKind::Macro(m) => self.visit_macro(m),
-//             ExprKind::Atom(a) => self.visit_atom(a),
-//             list @ ExprKind::List(_) => {
-//                 // Bottom up approach - visit everything first, then, on the way back up,
-//                 // modify the value
-//                 if let ExprKind::List(l) = list {
-//                     self.visit_list(l);
-//                 }
-
-//                 if let ExprKind::List(l) = &list {
-//                     if l.is_anonymous_function_call() {
-//                         // TODO: rerunning analysis might be worth it here - we want to be able to trigger a re run if a mutation would cause a change
-//                         // In the state of the analysis
-//                         if (self.func)(self.analysis, list) {
-//                             // return self.visit(list);
-//                             // log::debug!("Modified anonymous function call site!");
-//                         }
-//                     }
-//                 }
-//             }
-//             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
-//             ExprKind::Set(s) => self.visit_set(s),
-//             ExprKind::Require(r) => self.visit_require(r),
-//             ExprKind::Let(l) => self.visit_let(l),
-//             ExprKind::Vector(v) => self.visit_vector(v),
-//         }
-//     }
-
-//     fn visit_quote(&mut self, _quote: &mut Quote) {}
-// }
-
 struct SymbolDefinitionFinder<'a> {
     analysis: &'a Analysis,
     definitions: Vec<(InternedString, ExprKind, Span)>,
@@ -5067,36 +5024,6 @@ impl<'a> SemanticAnalysis<'a> {
             .values()
             .filter(|x| x.kind == IdentifierStatus::Global)
     }
-
-    // pub fn find_usages(&self, identifier: SyntaxObjectId) -> Vec<(InternedString, Span)> {
-    //     // let mut usages = Vec::new();
-
-    //     // let mut usages_finder = FindUsages::new(
-    //     //     identifier,
-    //     //     &self.analysis,
-    //     //      |analysis, atom| {
-    //     //         usages.push(atom);
-    //     //         true
-    //     //     });
-
-    //     //     FindUsages::new(identifier, &self.analysis, |_: &Analysis, usage: &mut Atom| {
-    //     //         if let Some(ident) = usage.ident_mut() {
-    //     //             // ident.resolve()
-    //     //             // identifier.0.to_string().as_str())
-    //     //             // .into();
-    //     //             usage.
-    //     //             true
-    //     //         } else {
-    //     //             false
-    //     //         }
-    //     //     });
-
-    //     // for expr in self.exprs.iter_mut() {
-    //     //     usages_finder.visit(expr);
-    //     // }
-
-    //     usages
-    // }
 
     pub fn find_global_symbols(&self) -> Vec<(InternedString, ExprKind, Span)> {
         let mut global_finder = SymbolDefinitionFinder::new(&self.analysis);

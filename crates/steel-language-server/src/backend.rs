@@ -413,19 +413,6 @@ impl LanguageServer for Backend {
     }
 
     async fn references(&self, _params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        // use FindUsages
-
-        // let mut global_finder = GlobalDefinitionFinder {
-        //     analysis: &self.analysis,
-        //     globals: Vec::new(),
-        // };
-
-        // for expr in self.exprs.iter() {
-        //     global_finder.visit(expr);
-        // }
-
-        // let globals = global_finder.globals
-
         Ok(None)
     }
 
