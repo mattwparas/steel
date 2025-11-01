@@ -193,6 +193,11 @@ pub trait Custom: private::Sealed {
         false
     }
 
+    #[cfg(feature = "custom-hash")]
+    fn try_as_dyn_hash(&self) -> Option<&dyn DynHash> {
+        None
+    }
+
     #[doc(hidden)]
     fn into_error(self) -> std::result::Result<SteelErr, Self>
     where
@@ -214,6 +219,7 @@ pub trait MaybeSendSyncStatic: Send + Sync + 'static {}
 #[cfg(feature = "sync")]
 impl<T: Send + Sync + 'static> MaybeSendSyncStatic for T {}
 
+/// Dyn compatible version of [Hash]
 #[cfg(feature = "custom-hash")]
 pub trait DynHash {
     fn dyn_hash(&self, h: &mut dyn ::std::hash::Hasher);
@@ -346,6 +352,11 @@ impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
         Self: Sized,
     {
         self.into_error()
+    }
+
+    #[cfg(feature = "custom-hash")]
+    fn try_as_dyn_hash(&self) -> Option<&dyn DynHash> {
+        Custom::try_as_dyn_hash(self)
     }
 }
 
