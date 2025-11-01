@@ -255,61 +255,42 @@ impl LanguageServer for Backend {
 
             let analysis = SemanticAnalysis::new(&mut ast);
 
-            let global_defs = analysis.find_global_defs();
+            let global_defs = analysis.find_global_symbols();
 
             let defs_arranged = global_defs.iter()
-                .filter_map(|(id, span)| analysis.find_identifier_at_offset((span.start as usize), uri_to_source_id(&uri)?))
-                // .filter(|(id, information)|
-                //     match information.kind {
-                //         IdentifierStatus::Global => true,
-                //         IdentifierStatus::LocallyDefinedFunction => true,
-                //         IdentifierStatus::Local => false,
-                //         IdentifierStatus::LetVar => false,
-                //         IdentifierStatus::Captured => false,
-                //         IdentifierStatus::Free => false,
-                //         IdentifierStatus::HeapAllocated => false,
-                //     }
-                // )
+                // .filter_map(|(id, span)| analysis.find_identifier_at_offset((span.start as usize), uri_to_source_id(&uri)?))
                 .enumerate()
-                .map(|(idx, (id, information))| {
-                    let name = match analysis.resolve_required_identifier(*id) {
-                        Some(RequiredIdentifierInformation::Resolved(
-                            resolved,
-                            mut interned,
-                            name,
-                            original,
-                        )) => {
-                            name
-                        }
+                .map(|(idx, (name, span))| {
+                    // let name = match analysis.resolve_required_identifier(*id) {
+                    //     Some(RequiredIdentifierInformation::Resolved(
+                    //         resolved,
+                    //         mut interned,
+                    //         name,
+                    //         original,
+                    //     )) => {
+                    //         name
+                    //     }
 
-                        Some(RequiredIdentifierInformation::Unresolved(mut interned, name, original)) => {
-                            name
-                        }
+                    //     Some(RequiredIdentifierInformation::Unresolved(mut interned, name, original)) => {
+                    //         name
+                    //     }
 
-                        _ => {
-                            let start = information.span.start;
-                            let end = information.span.end;
-                            let name = (start..end).filter_map(|i| rope.get_char(i as usize)).collect::<String>();
-                            format!("symbol #{idx} ({name})")
-                        }
-                    };
+                    //     _ => {
+                    //         let start = information.span.start;
+                    //         let end = information.span.end;
+                    //         let name = (start..end).filter_map(|i| rope.get_char(i as usize)).collect::<String>();
+                    //         format!("symbol #{idx} ({name})")
+                    //     }
+                    // };
 
-                    let kind = information.kind;
+                    // let kind = information.kind;
 
                     SymbolInformation {
-                        name: format!("{name} ({kind:?})"),
-                        kind: match information.kind {
-                            IdentifierStatus::Global => SymbolKind::CONSTANT,
-                            IdentifierStatus::Local => SymbolKind::CONSTANT,
-                            IdentifierStatus::LocallyDefinedFunction => SymbolKind::FUNCTION,
-                            IdentifierStatus::LetVar => SymbolKind::VARIABLE,
-                            IdentifierStatus::Captured => SymbolKind::VARIABLE,
-                            IdentifierStatus::Free => SymbolKind::CONSTANT,
-                            IdentifierStatus::HeapAllocated => SymbolKind::CONSTANT,
-                        },
+                        name: name.resolve().into(),
+                        kind: SymbolKind::CONSTANT,
                         tags: None,
                         deprecated: None,
-                        location: Location { uri: uri.clone(), range: self.config.span_to_range(&information.span, &rope).unwrap() },
+                        location: Location { uri: uri.clone(), range: self.config.span_to_range(span, &rope).unwrap() },
                         container_name: None
                     }
                 })
@@ -454,6 +435,19 @@ impl LanguageServer for Backend {
     }
 
     async fn references(&self, _params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        // use FindUsages
+
+        // let mut global_finder = GlobalDefinitionFinder {
+        //     analysis: &self.analysis,
+        //     globals: Vec::new(),
+        // };
+
+        // for expr in self.exprs.iter() {
+        //     global_finder.visit(expr);
+        // }
+
+        // let globals = global_finder.globals
+
         Ok(None)
     }
 
