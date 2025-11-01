@@ -378,8 +378,34 @@ impl LanguageServer for Backend {
         Ok(definition)
     }
 
-    async fn references(&self, _params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        Ok(None)
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let locations = async {
+            let uri = params.text_document_position.text_document.uri;
+            let mut ast = self.ast_map.get_mut(uri.as_str())?;
+            let mut rope = self.document_map.get(uri.as_str())?.clone();
+
+            let analysis = SemanticAnalysis::new(&mut ast);
+
+            let position = params.text_document_position.position;
+            let offset = self.config.position_to_offset(position, &rope)?;
+
+            let (syntax_object_id, _info) =
+                analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
+
+            let references = analysis.find_symbol_references(*syntax_object_id);
+
+            let mut refs: Vec<Location> = references.iter()
+                .filter(|span| span.source_id == uri_to_source_id(&uri))
+                .map(|span| {
+                    Location { uri: uri.clone(), range: self.config.span_to_range(span, &rope).unwrap() }
+                })
+                .collect();
+
+            Some(refs)
+        }
+        .await;
+
+        Ok(locations)
     }
 
     async fn semantic_tokens_full(
