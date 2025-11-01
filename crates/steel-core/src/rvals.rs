@@ -295,6 +295,12 @@ pub trait CustomType {
     fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
         false
     }
+
+    #[cfg(feature = "custom-hash")]
+    fn try_as_dyn_hash(&self) -> Option<&dyn DynHash> {
+        None
+    }
+
     #[doc(hidden)]
     fn into_error_(self) -> std::result::Result<SteelErr, Self>
     where
