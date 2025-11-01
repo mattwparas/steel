@@ -1017,15 +1017,51 @@ impl Backend {
             for req in require_objects {
                 if req.path.get_path().as_path() == module_path {
                     // Note: Once the logging is fixed we can remove the clone here
-                    should_index.push(module);
+                    should_index.push((module, req));
                 }
             }
         }
 
         let mut spans = Vec::new();
 
-        for module in should_index {
+        for (module, req) in should_index {
             let ast = module.get_ast();
+            // Build the identifier based on what we actually want.
+            // Could be renamed, or could be prefixed. In that case
+            // then we want to find the prefixed reference.
+
+            let mut identifier = identifier;
+
+            // There are only specific idents to import, so we'll want to
+            // not index this file if this identifier is not brought in.
+            if !req.idents_to_import.is_empty() {
+                let mut found = false;
+                for idents_to_import in &req.idents_to_import {
+                    match idents_to_import {
+                        steel::compiler::modules::MaybeRenamed::Normal(expr_kind) => {
+                            if expr_kind.atom_identifier().copied() == Some(identifier) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        steel::compiler::modules::MaybeRenamed::Renamed(expr_kind, expr_kind1) => {
+                            if expr_kind.atom_identifier().copied() == Some(identifier) {
+                                found = true;
+                                identifier = *expr_kind1.atom_identifier().unwrap();
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if !found {
+                    continue;
+                }
+            }
+
+            if let Some(prefix) = &req.prefix {
+                identifier = (prefix.to_string() + identifier.resolve()).into();
+            }
 
             let ident = ExprKind::atom(identifier);
             let id = ident.atom_syntax_object().unwrap().syntax_object_id;
@@ -1351,10 +1387,12 @@ impl Backend {
                 // TODO: Add span to the macro definition!
                 let mut introduced_macros: HashMap<InternedString, SteelMacro> = HashMap::new();
 
+                let now = std::time::Instant::now();
                 let expressions = guard.emit_expanded_ast_without_optimizations(
                     &expression,
                     params.uri.to_file_path().ok(),
                 );
+                eprintln!("on change time: {:?}", now.elapsed());
 
                 guard.in_scope_macros_mut().retain(|key, value| {
                     if macro_env_before.contains(key) {
