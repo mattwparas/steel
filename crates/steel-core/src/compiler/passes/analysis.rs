@@ -2918,12 +2918,12 @@ impl<'a> VisitorMutUnitRef<'a> for GlobalDefinitionFinder<'a> {
     }
 }
 
-struct SymbolDefinitionFinder<'a> {
+struct TopLevelDefinitionFinder<'a> {
     analysis: &'a Analysis,
     definitions: Vec<(InternedString, ExprKind, Span)>,
 }
 
-impl<'a> SymbolDefinitionFinder<'a> {
+impl<'a> TopLevelDefinitionFinder<'a> {
     pub fn new(analysis: &'a Analysis) -> Self {
         Self {
             analysis,
@@ -2932,7 +2932,7 @@ impl<'a> SymbolDefinitionFinder<'a> {
     }
 }
 
-impl<'a> VisitorMutUnitRef<'a> for SymbolDefinitionFinder<'a> {
+impl<'a> VisitorMutUnitRef<'a> for TopLevelDefinitionFinder<'a> {
     fn visit_define(&mut self, expr: &Define) {
         if let ExprKind::Atom(a) = &expr.name {
             if let Some(info) = self.analysis.get(&a.syn) {
@@ -2945,6 +2945,34 @@ impl<'a> VisitorMutUnitRef<'a> for SymbolDefinitionFinder<'a> {
                 let name= *a.ident().unwrap_or(&InternedString::from_str("unknown"));
 
                 self.definitions.push((name, kind.clone(), expr.location.span));
+            }
+        }
+    }
+}
+
+struct LetBindingsFinder<'a> {
+    analysis: &'a Analysis,
+    definitions: Vec<(InternedString, Span)>,
+}
+
+impl<'a> LetBindingsFinder<'a> {
+    pub fn new(analysis: &'a Analysis) -> Self {
+        Self {
+            analysis,
+            definitions: Vec::new(),
+        }
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for LetBindingsFinder<'a> {
+    fn visit_let(&mut self, expr: &'a Let) {
+        for (k, v) in expr.bindings.iter() {
+            if let ExprKind::Atom(a) = k {
+                if let Some(info) = self.analysis.get(&a.syn) {
+                    let name = *a.ident().unwrap_or(&InternedString::from_static("unnamed"));
+
+                    self.definitions.push((name, info.span));
+                }
             }
         }
     }
@@ -5025,14 +5053,24 @@ impl<'a> SemanticAnalysis<'a> {
             .filter(|x| x.kind == IdentifierStatus::Global)
     }
 
-    pub fn find_global_symbols(&self) -> Vec<(InternedString, ExprKind, Span)> {
-        let mut global_finder = SymbolDefinitionFinder::new(&self.analysis);
+    pub fn find_top_level_definitions(&self) -> Vec<(InternedString, ExprKind, Span)> {
+        let mut visitor = TopLevelDefinitionFinder::new(&self.analysis);
 
         for expr in self.exprs.iter() {
-            global_finder.visit(expr);
+            visitor.visit(expr);
         }
 
-        global_finder.definitions
+        visitor.definitions
+    }
+
+    pub fn find_let_bindings(&self) -> Vec<(InternedString, Span)> {
+        let mut visitor = LetBindingsFinder::new(&self.analysis);
+
+        for expr in self.exprs.iter() {
+            visitor.visit(expr);
+        }
+
+        visitor.definitions
     }
 
     pub fn find_global_defs(&self) -> Vec<(InternedString, Span)> {

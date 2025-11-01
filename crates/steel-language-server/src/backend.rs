@@ -254,9 +254,9 @@ impl LanguageServer for Backend {
 
             let analysis = SemanticAnalysis::new(&mut ast);
 
-            let global_defs = analysis.find_global_symbols();
+            let top_level_defs = analysis.find_top_level_definitions();
 
-            let defs_arranged = global_defs.iter()
+            let mut defs1: Vec<SymbolInformation> = top_level_defs.iter()
                 .filter(|(name, kind, span)| span.source_id == uri_to_source_id(&uri))
                 .enumerate()
                 .map(|(idx, (name, kind, span))| {
@@ -274,7 +274,26 @@ impl LanguageServer for Backend {
                 })
                 .collect();
 
-            Some(DocumentSymbolResponse::Flat(defs_arranged))
+            let let_bindings = analysis.find_let_bindings();
+
+            let defs2: Vec<SymbolInformation> = let_bindings.iter()
+                .filter(|(name, span)| span.source_id == uri_to_source_id(&uri))
+                .enumerate()
+                .map(|(idx, (name, span))| {
+                    SymbolInformation {
+                        name: name.resolve().into(),
+                        kind: SymbolKind::VARIABLE,
+                        tags: None,
+                        deprecated: None,
+                        location: Location { uri: uri.clone(), range: self.config.span_to_range(span, &rope).unwrap() },
+                        container_name: None
+                    }
+                })
+                .collect();
+
+            defs1.extend(defs2);
+
+            Some(DocumentSymbolResponse::Flat(defs1))
         }.await;
 
         Ok(symbols)
