@@ -78,6 +78,10 @@ pub const LEGEND_TYPE: &[SemanticTokenType] = &[
     SemanticTokenType::PARAMETER,
 ];
 
+pub struct FileState {
+    pub opened: bool,
+}
+
 pub struct Backend {
     pub config: Config,
 
@@ -85,11 +89,14 @@ pub struct Backend {
     pub ast_map: DashMap<String, Vec<ExprKind>>,
     pub lowered_ast_map: DashMap<String, Vec<ExprKind>>,
     pub document_map: DashMap<String, Rope>,
+    pub vfs: DashMap<Url, FileState>,
     // TODO: This needs to hold macros to help with resolving definitions
     pub _macro_map: DashMap<String, HashMap<InternedString, SteelMacro>>,
     pub ignore_set: Arc<DashSet<InternedString>>,
     pub globals_set: Arc<DashSet<InternedString>>,
     pub defined_globals: DashSet<String>,
+
+    pub root: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -385,15 +392,6 @@ impl LanguageServer for Backend {
     // Finding references:
     // Go over every file, and then iterate over each module
     async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
-        // let modules = { ENGINE.read().unwrap().modules().clone() };
-        // for (p, m) in modules.iter() {
-        //     for item in m.get_ast() {
-        //         self.client
-        //             .log_message(MessageType::INFO, item.to_pretty(60))
-        //             .await;
-        //     }
-        // }
-
         let mut found_locations = Vec::new();
 
         let definition = async {
@@ -1030,7 +1028,17 @@ impl Backend {
                     .source_id()
                     .and_then(|x| guard.get_path_for_source_id(&x))
                 {
-                    if let Ok(url) = Url::from_file_path(path) {
+                    if let Ok(url) = Url::from_file_path(&path) {
+                        // if this is present in the VFS, then we'll render it.
+                        // Otherwise, we'll check if the file exists from the root of this
+                        // directory, and then we'll show that too, in order to avoid
+                        // needing a file watcher (for now). Compilation should check
+                        // time stamps and update accordingly.
+
+                        if self.vfs.get(&url).is_none() || !path.starts_with(&self.root) {
+                            continue;
+                        }
+
                         let url_str = url.to_string();
 
                         let rope = if let Some(rope) = self.document_map.get(&url_str) {
@@ -1286,6 +1294,7 @@ impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
         let now = std::time::Instant::now();
 
+        // Ensure this document is marked as open from the perspective of the LSP
         let rope = ropey::Rope::from_str(&params.text);
         self.document_map
             .insert(params.uri.to_string(), rope.clone());

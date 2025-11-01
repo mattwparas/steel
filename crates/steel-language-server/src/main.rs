@@ -7,7 +7,9 @@ use steel::{
     parser::interner::InternedString,
     steel_vm::{engine::Engine, register_fn::RegisterFn},
 };
-use steel_language_server::backend::{lsp_home, Backend, Config, ExternalModuleResolver, ENGINE};
+use steel_language_server::backend::{
+    lsp_home, Backend, Config, ExternalModuleResolver, FileState, ENGINE,
+};
 
 use tower_lsp::{lsp_types::Url, LspService, Server};
 
@@ -72,6 +74,8 @@ async fn main() {
         }
     }
 
+    let vfs = DashMap::new();
+
     // Walk all of the files that end with .scm, and require them:
     for result in ignore::Walk::new("./") {
         match result {
@@ -79,6 +83,14 @@ async fn main() {
                 entry.path();
 
                 let path = entry.path();
+
+                let url = Url::from_file_path(path);
+
+                // Only show things that are actually present within the
+                // context of this file
+                if let Ok(url) = url {
+                    vfs.insert(url, FileState { opened: false });
+                }
 
                 let mut guard = ENGINE.write().unwrap();
 
@@ -92,9 +104,13 @@ async fn main() {
         }
     }
 
+    let root = std::env::current_dir().unwrap();
+
     let (service, socket) = LspService::build(|client| Backend {
         config: Config::new(),
         client,
+        vfs,
+        root,
         ast_map: DashMap::new(),
         lowered_ast_map: DashMap::new(),
         document_map: DashMap::new(),
