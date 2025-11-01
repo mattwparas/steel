@@ -2966,7 +2966,7 @@ impl<'a> LetBindingsFinder<'a> {
 
 impl<'a> VisitorMutUnitRef<'a> for LetBindingsFinder<'a> {
     fn visit_let(&mut self, expr: &'a Let) {
-        for (k, v) in expr.bindings.iter() {
+        for (k, _v) in expr.bindings.iter() {
             if let ExprKind::Atom(a) = k {
                 if let Some(info) = self.analysis.get(&a.syn) {
                     let name = *a.ident().unwrap_or(&InternedString::from_static("unnamed"));
@@ -2975,6 +2975,8 @@ impl<'a> VisitorMutUnitRef<'a> for LetBindingsFinder<'a> {
                 }
             }
         }
+
+        self.visit(&expr.body_expr);
     }
 }
 
