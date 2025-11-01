@@ -17,10 +17,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use steel::{
     compiler::{
-        modules::{steel_home, MANGLER_PREFIX, MODULE_PREFIX},
+        modules::{MANGLER_PREFIX, MODULE_PREFIX, steel_home},
         passes::analysis::{
-            query_top_level_define, query_top_level_define_on_condition, IdentifierStatus,
-            RequiredIdentifierInformation, SemanticAnalysis,
+            Analysis, IdentifierStatus, RequiredIdentifierInformation, SemanticAnalysis, query_top_level_define, query_top_level_define_on_condition
         },
     },
     parser::{
@@ -258,6 +257,7 @@ impl LanguageServer for Backend {
             let global_defs = analysis.find_global_symbols();
 
             let defs_arranged = global_defs.iter()
+                .filter(|(name, kind, span)| span.source_id == uri_to_source_id(&uri))
                 .enumerate()
                 .map(|(idx, (name, kind, span))| {
                     SymbolInformation {
