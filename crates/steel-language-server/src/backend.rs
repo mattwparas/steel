@@ -577,6 +577,10 @@ impl LanguageServer for Backend {
             }
         }
 
+        if !found_locations.is_empty() {
+            return Ok(Some(found_locations));
+        }
+
         Ok(None)
     }
 
