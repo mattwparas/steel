@@ -2963,7 +2963,7 @@ impl<'a> VisitorMutUnitRef<'a> for GlobalDefinitionFinder<'a> {
 
 struct SymbolDefinitionFinder<'a> {
     analysis: &'a Analysis,
-    definitions: Vec<(InternedString, Span)>,
+    definitions: Vec<(InternedString, ExprKind, Span)>,
 }
 
 impl<'a> SymbolDefinitionFinder<'a> {
@@ -2979,9 +2979,15 @@ impl<'a> VisitorMutUnitRef<'a> for SymbolDefinitionFinder<'a> {
     fn visit_define(&mut self, expr: &Define) {
         if let ExprKind::Atom(a) = &expr.name {
             if let Some(info) = self.analysis.get(&a.syn) {
-                self.definitions.push((*a.ident().unwrap_or(&InternedString::from_static("unnamed")), info.span));
+                let kind = &expr.body;
+                let name = *a.ident().unwrap_or(&InternedString::from_static("unnamed"));
+
+                self.definitions.push((name, kind.clone(), info.span));
             } else {
-                self.definitions.push((*a.ident().unwrap_or(&InternedString::from_static("unknown")), expr.location.span));
+                let kind = &expr.body;
+                let name= *a.ident().unwrap_or(&InternedString::from_str("unknown"));
+
+                self.definitions.push((name, kind.clone(), expr.location.span));
             }
         }
     }
@@ -5092,7 +5098,7 @@ impl<'a> SemanticAnalysis<'a> {
     //     usages
     // }
 
-    pub fn find_global_symbols(&self) -> Vec<(InternedString, Span)> {
+    pub fn find_global_symbols(&self) -> Vec<(InternedString, ExprKind, Span)> {
         let mut global_finder = SymbolDefinitionFinder::new(&self.analysis);
 
         for expr in self.exprs.iter() {

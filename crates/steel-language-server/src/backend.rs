@@ -258,36 +258,14 @@ impl LanguageServer for Backend {
             let global_defs = analysis.find_global_symbols();
 
             let defs_arranged = global_defs.iter()
-                // .filter_map(|(id, span)| analysis.find_identifier_at_offset((span.start as usize), uri_to_source_id(&uri)?))
                 .enumerate()
-                .map(|(idx, (name, span))| {
-                    // let name = match analysis.resolve_required_identifier(*id) {
-                    //     Some(RequiredIdentifierInformation::Resolved(
-                    //         resolved,
-                    //         mut interned,
-                    //         name,
-                    //         original,
-                    //     )) => {
-                    //         name
-                    //     }
-
-                    //     Some(RequiredIdentifierInformation::Unresolved(mut interned, name, original)) => {
-                    //         name
-                    //     }
-
-                    //     _ => {
-                    //         let start = information.span.start;
-                    //         let end = information.span.end;
-                    //         let name = (start..end).filter_map(|i| rope.get_char(i as usize)).collect::<String>();
-                    //         format!("symbol #{idx} ({name})")
-                    //     }
-                    // };
-
-                    // let kind = information.kind;
-
+                .map(|(idx, (name, kind, span))| {
                     SymbolInformation {
                         name: name.resolve().into(),
-                        kind: SymbolKind::CONSTANT,
+                        kind: match kind {
+                            ExprKind::LambdaFunction(_) => SymbolKind::FUNCTION,
+                            _ => SymbolKind::CONSTANT,
+                        },
                         tags: None,
                         deprecated: None,
                         location: Location { uri: uri.clone(), range: self.config.span_to_range(span, &rope).unwrap() },
