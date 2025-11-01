@@ -17,10 +17,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use steel::{
     compiler::{
-        modules::{steel_home, MANGLER_PREFIX, MODULE_PREFIX},
+        modules::{MANGLER_PREFIX, MODULE_PREFIX, steel_home},
         passes::analysis::{
-            query_top_level_define, query_top_level_define_on_condition, IdentifierStatus,
-            RequiredIdentifierInformation, SemanticAnalysis,
+            Analysis, IdentifierStatus, RequiredIdentifierInformation, SemanticAnalysis, query_top_level_define, query_top_level_define_on_condition
         },
     },
     parser::{
@@ -188,6 +187,7 @@ impl LanguageServer for Backend {
                     },
                 })),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
                 ..ServerCapabilities::default()
             },
         })
@@ -244,6 +244,59 @@ impl LanguageServer for Backend {
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         Ok(self.hover_impl(params).await)
+    }
+
+    async fn document_symbol(&self, params: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
+        let symbols = async {
+            let uri = params.text_document.uri;
+            let mut ast = self.ast_map.get_mut(uri.as_str())?;
+            let mut rope = self.document_map.get(uri.as_str())?.clone();
+
+            let analysis = SemanticAnalysis::new(&mut ast);
+
+            let top_level_defs = analysis.find_top_level_definitions();
+
+            let mut defs1: Vec<SymbolInformation> = top_level_defs.iter()
+                .filter(|(name, kind, span)| span.source_id == uri_to_source_id(&uri))
+                .enumerate()
+                .map(|(idx, (name, kind, span))| {
+                    SymbolInformation {
+                        name: name.resolve().into(),
+                        kind: match kind {
+                            ExprKind::LambdaFunction(_) => SymbolKind::FUNCTION,
+                            _ => SymbolKind::CONSTANT,
+                        },
+                        tags: None,
+                        deprecated: None,
+                        location: Location { uri: uri.clone(), range: self.config.span_to_range(span, &rope).unwrap() },
+                        container_name: None
+                    }
+                })
+                .collect();
+
+            let let_bindings = analysis.find_let_bindings();
+
+            let defs2: Vec<SymbolInformation> = let_bindings.iter()
+                .filter(|(name, span)| span.source_id == uri_to_source_id(&uri))
+                .enumerate()
+                .map(|(idx, (name, span))| {
+                    SymbolInformation {
+                        name: name.resolve().into(),
+                        kind: SymbolKind::VARIABLE,
+                        tags: None,
+                        deprecated: None,
+                        location: Location { uri: uri.clone(), range: self.config.span_to_range(span, &rope).unwrap() },
+                        container_name: None
+                    }
+                })
+                .collect();
+
+            defs1.extend(defs2);
+
+            Some(DocumentSymbolResponse::Flat(defs1))
+        }.await;
+
+        Ok(symbols)
     }
 
     async fn goto_definition(

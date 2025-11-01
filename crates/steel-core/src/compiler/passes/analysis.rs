@@ -2918,6 +2918,68 @@ impl<'a> VisitorMutUnitRef<'a> for GlobalDefinitionFinder<'a> {
     }
 }
 
+struct TopLevelDefinitionFinder<'a> {
+    analysis: &'a Analysis,
+    definitions: Vec<(InternedString, ExprKind, Span)>,
+}
+
+impl<'a> TopLevelDefinitionFinder<'a> {
+    pub fn new(analysis: &'a Analysis) -> Self {
+        Self {
+            analysis,
+            definitions: Vec::new(),
+        }
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for TopLevelDefinitionFinder<'a> {
+    fn visit_define(&mut self, expr: &Define) {
+        if let ExprKind::Atom(a) = &expr.name {
+            if let Some(info) = self.analysis.get(&a.syn) {
+                let kind = &expr.body;
+                let name = *a.ident().unwrap_or(&InternedString::from_static("unnamed"));
+
+                self.definitions.push((name, kind.clone(), info.span));
+            } else {
+                let kind = &expr.body;
+                let name= *a.ident().unwrap_or(&InternedString::from_str("unknown"));
+
+                self.definitions.push((name, kind.clone(), expr.location.span));
+            }
+        }
+    }
+}
+
+struct LetBindingsFinder<'a> {
+    analysis: &'a Analysis,
+    definitions: Vec<(InternedString, Span)>,
+}
+
+impl<'a> LetBindingsFinder<'a> {
+    pub fn new(analysis: &'a Analysis) -> Self {
+        Self {
+            analysis,
+            definitions: Vec::new(),
+        }
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for LetBindingsFinder<'a> {
+    fn visit_let(&mut self, expr: &'a Let) {
+        for (k, _v) in expr.bindings.iter() {
+            if let ExprKind::Atom(a) = k {
+                if let Some(info) = self.analysis.get(&a.syn) {
+                    let name = *a.ident().unwrap_or(&InternedString::from_static("unnamed"));
+
+                    self.definitions.push((name, info.span));
+                }
+            }
+        }
+
+        self.visit(&expr.body_expr);
+    }
+}
+
 struct UnusedArguments<'a> {
     analysis: &'a Analysis,
     unused_args: Vec<(InternedString, Span)>,
@@ -4991,6 +5053,26 @@ impl<'a> SemanticAnalysis<'a> {
             .info
             .values()
             .filter(|x| x.kind == IdentifierStatus::Global)
+    }
+
+    pub fn find_top_level_definitions(&self) -> Vec<(InternedString, ExprKind, Span)> {
+        let mut visitor = TopLevelDefinitionFinder::new(&self.analysis);
+
+        for expr in self.exprs.iter() {
+            visitor.visit(expr);
+        }
+
+        visitor.definitions
+    }
+
+    pub fn find_let_bindings(&self) -> Vec<(InternedString, Span)> {
+        let mut visitor = LetBindingsFinder::new(&self.analysis);
+
+        for expr in self.exprs.iter() {
+            visitor.visit(expr);
+        }
+
+        visitor.definitions
     }
 
     pub fn find_global_defs(&self) -> Vec<(InternedString, Span)> {
