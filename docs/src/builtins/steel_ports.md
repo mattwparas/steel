@@ -2,11 +2,11 @@
 ### **close-input-port**
 Close an input port. If the port is a file, the file will be closed.
 
-(close-port input-port?) -> void
+(close-input-port input-port?) -> void
 ### **close-output-port**
 Close an output port. If the port is a file, the file will be closed.
 
-(close-port output-port?) -> void
+(close-output-port output-port?) -> void
 ### **close-port**
 Close a port. If the port is a file, the file will be closed.
 

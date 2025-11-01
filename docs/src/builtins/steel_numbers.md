@@ -495,6 +495,8 @@ Create a complex number with `re` as the real part and `im` as the imaginary par
 Returns the arithmetic remainder of a floored integer division of a given
 numerator *n* by a given denominator *m*.
 
+The return value of this procedure has the same sign as the denominator.
+
 This procedure is an alias of `floor-remainder`.
 
 (modulo n m) -> integer?
@@ -585,10 +587,12 @@ This procedure is an alias of `truncate-quotient`.
 * m : integer? - The denominator.
 
 #### Examples
+
 ```scheme
-> (quotient 11 2) ;; => 5
-> (quotient 10 2) ;; => 5
-> (quotient -10 2) ;; => -5
+> (quotient 5 2) ;; => 2
+> (quotient -5 2) ;; => -2
+> (quotient 5 -2) ;; => -2
+> (quotient -5 -2) ;; => 2
 ```
 ### **real-part**
 Returns the real part of a number
@@ -603,6 +607,8 @@ Returns the real part of a number
 ### **remainder**
 Returns the arithmetic remainder of a truncated integer division of a given
 numerator *n* by a given denominator *m*.
+
+The return value of this procedure has the same sign as the numerator.
 
 This procedure is an alias of `truncate-remainder`.
 

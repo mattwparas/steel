@@ -287,7 +287,7 @@ fn negativep(value: &SteelVal) -> Result<SteelVal> {
 pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("-", args)?;
     match args {
-        [] => steelerr!(TypeMismatch => "- requires at least one argument"),
+        [] => steelerr!(ArityMismatch => "- requires at least one argument"),
         [x] => negate(x),
         [x, ys @ ..] => {
             let y = negate(&add_primitive_no_check(ys)?)?;
@@ -1889,7 +1889,7 @@ pub fn real_part(value: &SteelVal) -> Result<SteelVal> {
         | val @ SteelVal::BigRational(_)
         | val @ SteelVal::NumV(_) => Ok(val.clone()),
         SteelVal::Complex(complex) => Ok(complex.re.clone()),
-        _ => steelerr!(TypeMismatch => "real-part expected number"),
+        _ => steelerr!(TypeMismatch => "real-part expects a number, found {}", value),
     }
 }
 
@@ -1911,7 +1911,7 @@ pub fn imag_part(value: &SteelVal) -> Result<SteelVal> {
         | SteelVal::BigRational(_)
         | SteelVal::NumV(_) => Ok(SteelVal::IntV(0)),
         SteelVal::Complex(complex) => Ok(complex.im.clone()),
-        _ => steelerr!(TypeMismatch => "imag-part expected number"),
+        _ => steelerr!(TypeMismatch => "imag-part expects a number, found {}", value),
     }
 }
 
@@ -1939,7 +1939,7 @@ fn magnitude(number: &SteelVal) -> Result<SteelVal> {
             let c_squared = add_two(&square(&x.re)?, &square(&x.im)?)?;
             sqrt(&c_squared)
         }
-        _ => steelerr!(TypeMismatch => "magnitude expects a number, found {number}"),
+        _ => steelerr!(TypeMismatch => "magnitude expects a number, found {}", number),
     }
 }
 
@@ -1956,7 +1956,7 @@ pub fn angle(number: &SteelVal) -> Result<SteelVal> {
         | re @ SteelVal::Rational(_)
         | re @ SteelVal::BigNum(_) => (re, &SteelVal::IntV(0)),
         SteelVal::Complex(complex) => (&complex.re, &complex.im),
-        _ => stop!(TypeMismatch => "angle expects a number, found {number}"),
+        _ => stop!(TypeMismatch => "angle expects a number, found {}", number),
     };
 
     atan2(im, re)
@@ -1969,7 +1969,7 @@ fn atan2(y: &SteelVal, x: &SteelVal) -> Result<SteelVal> {
         SteelVal::IntV(arg) => Ok(*arg as f64),
         SteelVal::Rational(arg) => Ok(*arg.numer() as f64 / *arg.denom() as f64),
         SteelVal::BigNum(arg) => Ok(arg.to_f64().unwrap()),
-        _ => steelerr!(TypeMismatch => "atan2 expects a number, found {arg}"),
+        _ => steelerr!(TypeMismatch => "atan2 expects a number, found {}", arg),
     };
 
     let y = as_f64(y)?;
@@ -2043,7 +2043,7 @@ fn exact_integer_sqrt(number: &SteelVal) -> Result<SteelVal> {
             (ans.into_steelval()?, rem.into_steelval()?).into_steelval()
         }
         _ => {
-            steelerr!(TypeMismatch => "exact-integer-sqrt expects a non-negative integer but found {number}")
+            steelerr!(TypeMismatch => "exact-integer-sqrt expects a non-negative integer but found {}", number)
         }
     }
 }
