@@ -2903,6 +2903,38 @@ impl<'a> VisitorMutUnitRef<'a> for FindContextsWithOffset<'a> {
     }
 }
 
+struct SymbolReferencesFinder<'a> {
+    analysis: &'a Analysis,
+    references: Vec<Span>,
+    symbol_id: SyntaxObjectId,
+}
+
+impl<'a> SymbolReferencesFinder<'a> {
+    pub fn new(analysis: &'a Analysis, symbol_id: SyntaxObjectId) -> Self {
+        Self {
+            analysis,
+            references: Vec::new(),
+            symbol_id,
+        }
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for SymbolReferencesFinder<'a> {
+    fn visit_atom(&mut self, expr: &Atom) {
+        if let Some(info) = self.analysis.get(&expr.syn) {
+            if let Some(refers_to) = info.refers_to {
+                if refers_to == self.symbol_id {
+                    self.references.push(expr.syn.span);
+                }
+            } else if let Some(aliases_to) = info.aliases_to {
+                if aliases_to == self.symbol_id {
+                    self.references.push(expr.syn.span);
+                }
+            }
+        }
+    }
+}
+
 struct GlobalDefinitionFinder<'a> {
     analysis: &'a Analysis,
     globals: Vec<(InternedString, Span)>,
@@ -4991,6 +5023,16 @@ impl<'a> SemanticAnalysis<'a> {
             .info
             .values()
             .filter(|x| x.kind == IdentifierStatus::Global)
+    }
+
+    pub fn find_symbol_references(&self, symbol_id: SyntaxObjectId) -> Vec<Span> {
+        let mut visitor = SymbolReferencesFinder::new(&self.analysis, symbol_id);
+
+        for expr in self.exprs.iter() {
+            visitor.visit(expr);
+        }
+
+        visitor.references
     }
 
     pub fn find_global_defs(&self) -> Vec<(InternedString, Span)> {
