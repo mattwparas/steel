@@ -258,6 +258,10 @@ impl LanguageServer for Backend {
         Ok(self.hover_impl(params).await)
     }
 
+    // TODO: For macros (and otherwise for find references to)
+    // Simplest way to do this is to get an unexpanded ast, and then find the macro
+    // that we're interested in identifying, and then we'll index against that by treating it
+    // like a function call that we index against.
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
