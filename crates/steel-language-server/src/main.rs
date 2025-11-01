@@ -84,7 +84,9 @@ async fn main() {
 
                 let path = entry.path();
 
-                let url = Url::from_file_path(path);
+                let url = std::fs::canonicalize(path)
+                    .map_err(|_| ())
+                    .and_then(|path| Url::from_file_path(path));
 
                 // Only show things that are actually present within the
                 // context of this file

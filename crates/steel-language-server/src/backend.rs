@@ -78,6 +78,7 @@ pub const LEGEND_TYPE: &[SemanticTokenType] = &[
     SemanticTokenType::PARAMETER,
 ];
 
+#[derive(Debug)]
 pub struct FileState {
     pub opened: bool,
 }
@@ -395,7 +396,7 @@ impl LanguageServer for Backend {
         let mut found_locations = Vec::new();
 
         let definition = async {
-            let uri = params.text_document_position.text_document.uri;
+            let uri = params.text_document_position.text_document.uri.clone();
 
             let mut ast = self.ast_map.get_mut(uri.as_str())?;
             let mut rope = self.document_map.get(uri.as_str())?.clone();
@@ -410,15 +411,34 @@ impl LanguageServer for Backend {
 
             // If this is a built in, lets just bail
             if information.builtin {
-                if let Some(l) = self
+                if let Some(mut l) = self
                     .find_references_builtin(&analysis, *syntax_object_id, information)
                     .await
                 {
-                    found_locations = l;
+                    found_locations.append(&mut l);
                 }
             }
 
-            let refers_to = information.refers_to?;
+            // Either refers to something, or is the existing definition
+            let refers_to = information.refers_to.unwrap_or_else(|| {
+                eprintln!("Unable to find a refers to for this identifier");
+                *syntax_object_id
+            });
+
+            {
+                let mut spans = Vec::new();
+                for (_, info) in analysis.analysis.identifier_info() {
+                    if let Some(found_refers_to) = info.refers_to {
+                        if found_refers_to == refers_to {
+                            spans.push(info.span);
+                        }
+                    }
+                }
+
+                self.spans_to_locations(&ENGINE.read().unwrap(), spans, &mut found_locations)
+            }
+
+            // Find all the locations which refer to it
 
             let maybe_definition = analysis.get_identifier(refers_to)?;
 
@@ -550,13 +570,19 @@ impl LanguageServer for Backend {
                 self.document_map.insert(location.to_string(), rope.clone());
             }
 
+            // Include the declaration and the location isn't
+            if params.context.include_declaration {
+                let mut definition_span = vec![resulting_span];
+                self.spans_to_locations(
+                    &ENGINE.read().unwrap(),
+                    definition_span,
+                    &mut found_locations,
+                );
+            }
+
             Some((identifier, module_path))
         }
         .await;
-
-        self.client
-            .log_message(MessageType::INFO, format!("Definition -> {:?}", definition))
-            .await;
 
         // Now that we have the definition, we should also check for where this came from.
         // We'll walk through the modules, look at what they require, and find
@@ -566,15 +592,25 @@ impl LanguageServer for Backend {
             // then we should calculate the reverse dependencies. That way we can
             // at least attempt to build a reverse index for find references.
             if let Some(module_path) = module_path {
-                let external_module_refs =
+                let mut external_module_refs =
                     self.find_references_external_module(identifier, module_path);
-                return Ok(Some(external_module_refs));
-            } else if !found_locations.is_empty() {
-                // This is a built in, so we're gonna just check all the things
-                return Ok(Some(found_locations));
+                found_locations.append(&mut external_module_refs);
+            } else {
+                let module_path = params
+                    .text_document_position
+                    .text_document
+                    .uri
+                    .clone()
+                    .to_file_path();
+                if let Ok(module_path) = module_path {
+                    let mut external_module_refs =
+                        self.find_references_external_module(identifier, module_path);
+                    found_locations.append(&mut external_module_refs);
+                }
             }
         }
 
+        // TODO: Dedupe the found locations
         if !found_locations.is_empty() {
             return Ok(Some(found_locations));
         }
@@ -1034,7 +1070,7 @@ impl Backend {
                         // directory, and then we'll show that too, in order to avoid
                         // needing a file watcher (for now). Compilation should check
                         // time stamps and update accordingly.
-
+                        // TODO: Lift this up to where we actually index the files instead
                         if self.vfs.get(&url).is_none() || !path.starts_with(&self.root) {
                             continue;
                         }
@@ -1298,6 +1334,9 @@ impl Backend {
         let rope = ropey::Rope::from_str(&params.text);
         self.document_map
             .insert(params.uri.to_string(), rope.clone());
+
+        self.vfs
+            .insert(params.uri.clone(), FileState { opened: true });
 
         let expression = params.text;
 
