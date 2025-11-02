@@ -978,6 +978,9 @@ impl Backend {
 
                     let now = std::time::Instant::now();
 
+                    // This can be cached - basically all built ins
+                    // don't need to result in a re analysis pass
+                    // assuming the modules hasn't changed
                     let mut analysis = Analysis::default();
                     analysis.run(ast);
 
@@ -1077,6 +1080,8 @@ impl Backend {
                 ),
             }));
 
+            // TODO: Can we cache this analysis? Probably keep an analysis per identifier?
+            // Also, does the module level expose when this was last updated?
             let mut analysis = Analysis::default();
             analysis.run(&[top_level]);
             analysis.run_with_scope(ast, false);

@@ -439,8 +439,8 @@ impl<'global, 'a> VmCore<'a> {
                     Box::new(interleave(iter, other))
                 }
 
-                Transducers::MapPair(p) => {
-                    todo!()
+                Transducers::MapPair(_p) => {
+                    todo!("Implement mapping a function with two args over a collection that produces two args")
                 }
             }
         }

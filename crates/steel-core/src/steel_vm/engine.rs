@@ -2140,6 +2140,15 @@ impl Engine {
         RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| x.modules())
     }
 
+    pub fn module_metadata(&self) -> crate::HashMap<PathBuf, std::time::SystemTime> {
+        self.virtual_machine
+            .compiler
+            .read()
+            .module_manager
+            .file_metadata
+            .clone()
+    }
+
     pub fn global_exists(&self, ident: &str) -> bool {
         let spur = if let Some(spur) = InternedString::try_get(ident) {
             spur

@@ -209,7 +209,7 @@ pub fn steel_home() -> Option<String> {
 #[derive(Clone)]
 pub(crate) struct ModuleManager {
     pub(crate) compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
-    file_metadata: crate::HashMap<PathBuf, SystemTime>,
+    pub(crate) file_metadata: crate::HashMap<PathBuf, SystemTime>,
     visited: FxHashSet<PathBuf>,
     custom_builtins: HashMap<String, String>,
     rollback_metadata: crate::HashMap<PathBuf, SystemTime>,
