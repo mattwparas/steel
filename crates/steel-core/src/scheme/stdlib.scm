@@ -210,9 +210,7 @@
 
     ;; Internal, we don't do anything special
     [(quasisyntax #%internal-crunch x)
-     (if (empty? 'x)
-         (#%syntax/raw '() '() (#%syntax-span x))
-         (#%syntax/raw 'x 'x (#%syntax-span x)))]
+     (if (empty? 'x) (#%syntax/raw '() '() (#%syntax-span x)) (#%syntax/raw 'x 'x (#%syntax-span x)))]
 
     [(quasisyntax (x xs ...))
      (syntax (#%syntax/raw (quote (x xs ...))
@@ -583,38 +581,44 @@
 ; (define compose (lambda (f g) (lambda (arg) (f (g arg)))))
 
 (define (foldl func accum lst)
-  (if (null? lst)
-      accum
-      (foldl func (func (car lst) accum) (cdr lst))))
+  (if (null? lst) accum (foldl func (func (car lst) accum) (cdr lst))))
 
-(define (map func lst . lsts)
+;;@doc
+;; Applies `func` to the elements of the `lsts` from the first
+;; elements to the last. The `func` argument must accept the same
+;; number of arguments as the number of supplied `lsts`, and all
+;; `lsts` must have the same number of elements. The result is a list
+;; containing each result of `func` in order.
+;;
+;; (map func lst . lsts) -> list?
+;;
+;; # Examples
+;; ```scheme
+;; (map add1 (range 0 5)) ;; '(1 2 3 4 5)
+;; ```
+(define (map function list1 . more-lists)
+  (define (some? function list)
+    (and (pair? list) (or (function (car list)) (some? function (cdr list)))))
 
-  (cond
-    [(null? lst) '()]
-    [(null? lsts) (transduce lst (mapping func) (into-list))]
-    [else
-     =>
-     (define (crunch composer remaining-lists)
-       (if (null? remaining-lists)
-           composer
-           (crunch (compose composer (zipping (car remaining-lists))) (cdr remaining-lists))))
-     (if (null? lsts)
-         (map func lst)
-         ;; Handle the case for many lists
-         (let ([composed-transducer (crunch (compose) lsts)])
-           (transduce lst composed-transducer (mapping (lambda (x) (apply func x))) (into-list))))]))
+  (define (map1 func accum lst)
+    (if (null? lst) (reverse accum) (map1 func (cons (func (car lst)) accum) (cdr lst))))
+
+  (define (map-many func accum lsts)
+    (if (some? null? lsts)
+        (reverse accum)
+        (map-many func (cons (apply function (map1 car '() lsts)) accum) (map1 cdr '() lsts))))
+
+  (if (null? more-lists)
+      (map1 function '() list1)
+      (let ([lists (cons list1 more-lists)])
+        (if (some? null? lists) '() (map-many function '() lists)))))
 
 (define foldr
-  (lambda (func accum lst)
-    (if (null? lst)
-        accum
-        (func (car lst) (foldr func accum (cdr lst))))))
+  (lambda (func accum lst) (if (null? lst) accum (func (car lst) (foldr func accum (cdr lst))))))
 
 (define unfold
   (lambda (func init pred)
-    (if (pred init)
-        (cons init '())
-        (cons init (unfold func (func init) pred)))))
+    (if (pred init) (cons init '()) (cons init (unfold func (func init) pred)))))
 
 (define fold (lambda (f a l) (foldl f a l)))
 (define reduce (lambda (f a l) (fold f a l)))
@@ -628,26 +632,12 @@
 (define mem-helper
   (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 
-; (define memq
-;   (lambda (x los)
-;     (cond
-;       [(null? los) #f]
-;       [(eq? x (car los)) los]
-;       [else (memq x (cdr los))])))
-
 (define memv
   (lambda (x los)
     (cond
       [(null? los) #f]
       [(eqv? x (car los)) los]
       [else (memv x (cdr los))])))
-
-; (define member
-;   (lambda (x los)
-;     (cond
-;       [(null? los) #f]
-;       [(equal? x (car los)) los]
-;       [else (member x (cdr los))])))
 
 (define (contains? pred? lst)
   (cond
@@ -656,25 +646,13 @@
     [else (contains? pred? (cdr lst))]))
 
 (define (assoc thing alist)
-  (if (null? alist)
-      #f
-      (if (equal? (car (car alist)) thing)
-          (car alist)
-          (assoc thing (cdr alist)))))
+  (if (null? alist) #f (if (equal? (car (car alist)) thing) (car alist) (assoc thing (cdr alist)))))
 
 (define (assq thing alist)
-  (if (null? alist)
-      #f
-      (if (eq? (car (car alist)) thing)
-          (car alist)
-          (assq thing (cdr alist)))))
+  (if (null? alist) #f (if (eq? (car (car alist)) thing) (car alist) (assq thing (cdr alist)))))
 
 (define (assv thing alist)
-  (if (null? alist)
-      #f
-      (if (eq? (car (car alist)) thing)
-          (car alist)
-          (assv thing (cdr alist)))))
+  (if (null? alist) #f (if (eq? (car (car alist)) thing) (car alist) (assv thing (cdr alist)))))
 
 ;;@doc
 ;; Returns new list, keeping elements from `lst` which applying `pred` to the element
@@ -686,32 +664,21 @@
 ;; ```scheme
 ;; (filter even? (range 0 5)) ;; '(0 2 4)
 ;; ```
-(define (filter pred lst)
-  (if (empty? lst)
-      '()
-      (transduce lst (filtering pred) (into-list))))
+(define (filter function lst)
+  (define (filter-inner function accum lst)
+    (if (null? lst)
+        (reverse accum)
+        (let ([next (car lst)])
+          (if (function next)
+              (filter-inner function (cons next accum) (cdr lst))
+              (filter-inner function accum (cdr lst))))))
 
-; (define (fact n)
-;   (define factorial-tail (lambda (n acc)
-;                            (if (= n 0)
-;                                acc
-;                                (factorial-tail (- n 1)  (* acc n )))))
-;   (factorial-tail n 1))
+  (filter-inner function '() lst))
 
-(define even-rec?
-  (lambda (x)
-    (if (= x 0)
-        #t
-        (odd-rec? (- x 1)))))
-(define odd-rec?
-  (lambda (x)
-    (if (= x 0)
-        #f
-        (even-rec? (- x 1)))))
+(define even-rec? (lambda (x) (if (= x 0) #t (odd-rec? (- x 1)))))
+(define odd-rec? (lambda (x) (if (= x 0) #f (even-rec? (- x 1)))))
 
 (define sum (lambda (x) (reduce + 0 x)))
-;; (define head car)
-;; (define tail cdr)
 (define (add1 n)
   (+ 1 n))
 (define (sub1 n)
@@ -719,19 +686,9 @@
 (define (zero? n)
   (= n 0))
 
-;; currently broken, doesn't work properly
-; (defn (take lst n)
-;   (defn (loop x l acc)
-;     (if (= x 0)
-;         acc
-;         (loop (- x 1) (cdr l) (cons (car l) acc))))
-;   (loop n lst (list)))
-
 (define (drop lst n)
   (define (loop x l)
-    (if (zero? x)
-        l
-        (loop (sub1 x) (cdr l))))
+    (if (zero? x) l (loop (sub1 x) (cdr l))))
   (loop n lst))
 
 (define (slice l offset n)
@@ -749,9 +706,7 @@
     [else (gcd b (modulo a b))]))
 
 (define (lcm a b)
-  (if (or (zero? a) (zero? b))
-      0
-      (abs (* b (floor (/ a (gcd a b)))))))
+  (if (or (zero? a) (zero? b)) 0 (abs (* b (floor (/ a (gcd a b)))))))
 
 (define (for-each func lst)
   (if (null? lst)

@@ -1,16 +1,27 @@
-;; The empty list? How to make it so it doesn't get passed in?
-(define (map proc lst . lsts)
-  (define (map-inner func accum lst)
-    (if (empty? lst)
+(define (map function list1 . more-lists)
+  (define (some? function list)
+    (and (pair? list) (or (function (car list)) (some? function (cdr list)))))
+
+  (define (map1 func accum lst)
+    (if (null? lst) (reverse accum) (map1 func (cons (func (car lst)) accum) (cdr lst))))
+
+  (define (map-many func accum lsts)
+    (if (some? null? lsts)
         (reverse accum)
-        (map-inner func (cons (func (car lst)) accum) (cdr lst))))
+        (map-many func (cons (apply function (map1 car '() lsts)) accum) (map1 cdr '() lsts))))
 
-  (define (map-multiple-inner func accum lsts)
-    ;; Call `cdr` on each element, and then apply
-    ;; the function with those args
-    (error "todo"))
+  (if (null? more-lists)
+      (map1 function '() list1)
+      (let ([lists (cons list1 more-lists)])
+        (if (some? null? lists) '() (map-many function '() lists)))))
 
-  (if (empty? lsts)
-      (map-inner proc '() lst)
+(define (filter function lst)
+  (define (filter-inner function accum lst)
+    (if (null? lst)
+        (reverse accum)
+        (let ([next (car lst)])
+          (if (function next)
+              (filter-inner function (cons accum next) (cdr lst))
+              (filter-inner function accum (cdr lst))))))
 
-      (map-multiple-inner proc '() cons lst lsts)))
+  (filter-inner function '() lst))
