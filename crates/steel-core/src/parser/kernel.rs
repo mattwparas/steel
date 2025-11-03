@@ -353,7 +353,11 @@ impl Kernel {
 
         self.engine.run(format!(
             "(set! #%loading-current-module \"{}\")",
-            environment
+            if cfg!(windows) {
+                environment.replace("\\", "/")
+            } else {
+                environment
+            }
         ))?;
 
         // TODO: Load this as a module instead, so that way we have some real
