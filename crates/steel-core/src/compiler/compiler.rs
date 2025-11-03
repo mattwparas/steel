@@ -382,7 +382,7 @@ pub enum OptLevel {
     Three,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct KernelDefMacroSpec {
     pub(crate) _env: String,
     pub(crate) _exported: Option<HashSet<InternedString>>,
@@ -957,7 +957,7 @@ impl Compiler {
         // TODO: At this point, we'll want to remove
         // any remaining provide statements.
 
-        log::debug!(target: "expansion-phase", "Beginning constant folding");
+        // log::debug!(target: "expansion-phase", "Beginning constant folding");
 
         // Remove remaining provides from the top level.
 
@@ -969,9 +969,25 @@ impl Compiler {
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements, true);
 
+        for expr in &expanded_statements {
+            eprintln!("{}", expr.to_pretty(60));
+        }
+
+        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
+
+        let mut expanded_statements = filter_provides(expanded_statements);
+
+        eprintln!("made it here");
+
+        for expr in expanded_statements.iter() {
+            eprintln!("{}", expr.to_pretty(60));
+        }
+
         let mut analysis = std::mem::take(&mut self.analysis);
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
+
+        eprintln!("Got this far");
 
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
@@ -1000,10 +1016,6 @@ impl Compiler {
         log::debug!(target: "expansion-phase", "Flattening begins, converting internal defines to let expressions");
 
         let mut analysis = semantic.into_analysis();
-
-        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
-
-        let mut expanded_statements = filter_provides(expanded_statements);
 
         // After define expansion, we'll want this
         // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);

@@ -84,6 +84,10 @@ async fn main() {
 
                 let path = entry.path();
 
+                if path.extension().and_then(|x| x.to_str()) != Some("scm") {
+                    continue;
+                }
+
                 let url = std::fs::canonicalize(path)
                     .map_err(|_| ())
                     .and_then(|path| Url::from_file_path(path));
@@ -96,11 +100,24 @@ async fn main() {
 
                 let mut guard = ENGINE.write().unwrap();
 
-                // Require the path to warm the compiler
-                let _ = guard.emit_expanded_ast_without_optimizations(
-                    &format!(r"(require {:?})", path),
-                    None,
-                );
+                eprintln!("Visiting: {:?}", path);
+
+                // guard.add_module(path.to_str().unwrap().to_string()).ok();
+
+                // Require the path to warm the compiler, but don't bring this into the global scope.
+                // We're going to fake this into a different file, by creating another module
+                // that will require this, and then require that explicitly.
+                // let _ = guard.emit_expanded_ast_without_optimizations(
+                //     &format!(r"(require {:?})", path),
+                //     None,
+                // );
+
+                // TODO: This is still causing issues.
+                // Somehow it seems there is something wrong with the modules as they get loaded,
+                // and the environments between ASTs is not correct
+                let _ = guard.emit_expanded_ast(&format!(r"(require {:?})", path), None);
+
+                eprintln!("Successfully loaded: {:?}", path);
             }
             _ => {}
         }

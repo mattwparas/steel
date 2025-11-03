@@ -44,6 +44,10 @@
 (define-syntax #%syntax-transformer-module
   (syntax-rules (provide)
 
+    [(#%syntax-transformer-module name)
+     (define (datum->syntax name)
+       (%proto-hash%))]
+
     [(#%syntax-transformer-module name (provide ids ...) funcs ...)
      (define (datum->syntax name)
        (let ()
@@ -84,19 +88,19 @@
 
     [(#%define-syntax (name arg) expr)
      (begin
-       (register-macro-transformer! (symbol->string 'name) "default")
+       (register-macro-transformer! (symbol->string 'name) (current-env))
        (define (name arg)
          expr))]
 
     [(#%define-syntax (name arg) exprs ...)
      (begin
-       (register-macro-transformer! (symbol->string 'name) "default")
+       (register-macro-transformer! (symbol->string 'name) (current-env))
        (define (name arg)
          exprs ...))]
 
     [(#%define-syntax name expr)
      (begin
-       (register-macro-transformer! (symbol->string 'name) "default")
+       (register-macro-transformer! (symbol->string 'name) (current-env))
        (define name expr))]))
 
 ;; Kernal-lambda -> Used in the meantime while `lambda` finds its way out of the reserved keywords.
@@ -489,26 +493,30 @@
  (if (equal? env "default")
 
      (begin
+       (stdout-simple-displayln "installing at the top level")
        (eval `(define ,name ,func))
        ;; Register into the top environment
        (register-macro-transformer! name env))
 
-     (with-handler (lambda (_)
+     (with-handler
+      (lambda (e1)
 
-                     (with-handler (lambda (_)
-                                     ;; We failed to find an existing environment to install it in.
-                                     (eval `(define top-level (hash (quote ,name) ,func)))
-                                     (register-macro-transformer! name "top-level"))
-                                   ;; We failed to find an existing environment to install it in.
-                                   (eval `(set! top-level
-                                                (%proto-hash-insert% top-level (quote ,name) ,func)))
-                                   (register-macro-transformer! name "top-level"))
+        (with-handler
+         (lambda (e2)
+           (stdout-simple-displayln "Failed to do the thing, install at the top level: " e2)
+           ;; We failed to find an existing environment to install it in.
+           (eval `(define top-level (hash (quote ,name) ,func)))
+           (register-macro-transformer! name "top-level"))
+         (stdout-simple-displayln "Failed to do the thing, install at the top level: " e1)
+         ;; We failed to find an existing environment to install it in.
+         (eval `(set! top-level (%proto-hash-insert% top-level (quote ,name) ,func)))
+         (register-macro-transformer! name "top-level"))
 
-                     ;; Does this work?
-                     ; (eval `(define ,name ,func))
-                     'void)
-                   ;;
-                   (eval `(set! ,(string->symbol env)
-                                (%proto-hash-insert% ,(string->symbol env) (quote ,name) ,func)))
-                   (register-macro-transformer! name env)))
+        ;; Does this work?
+        ; (eval `(define ,name ,func))
+        'void)
+      ;;
+      (eval `(set! ,(string->symbol env)
+                   (%proto-hash-insert% ,(string->symbol env) (quote ,name) ,func)))
+      (register-macro-transformer! name env)))
  'void)

@@ -1588,6 +1588,9 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             b
         } else {
             eprintln!("unknown arg found: {}", lambda_function);
+            for arg in &lambda_function.args {
+                eprintln!("{} - {}", arg.atom_identifier().is_some(), arg);
+            }
             panic!()
         };
 
