@@ -2200,9 +2200,16 @@ fn syntax_to_module_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
 
         if let Some(source) = source {
             let path = ctx.thread.compiler.read().sources.get_path(&source);
-            return path
-                .map(|x| x.to_str().unwrap().to_string())
-                .into_steelval();
+            // Check the OS:
+            if cfg!(windows) {
+                return path
+                    .map(|x| x.to_str().unwrap().to_string().replace("\\", "/"))
+                    .into_steelval();
+            } else {
+                return path
+                    .map(|x| x.to_str().unwrap().to_string())
+                    .into_steelval();
+            }
         }
     }
 
