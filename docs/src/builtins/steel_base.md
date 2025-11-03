@@ -392,11 +392,11 @@ Creates a copy of a bytevector.
 (bytevector-copy vec 1 3) ;; => (bytes 2 3)
 ```
 ### **canonicalize-path**
-Returns canonical path with all components normalized
+Returns canonical path with all components normalized.
 
 (canonicalize-path path) -> string?
 
-* path : (string?) - The path to canonicalize
+* path : string? - The path to canonicalize.
 
 #### Examples
 ```scheme
@@ -697,11 +697,11 @@ Returns `#t` if the characters are monotonically decreasing according to their c
 ### **close-input-port**
 Close an input port. If the port is a file, the file will be closed.
 
-(close-port input-port?) -> void
+(close-input-port input-port?) -> void
 ### **close-output-port**
 Close an output port. If the port is a file, the file will be closed.
 
-(close-port output-port?) -> void
+(close-output-port output-port?) -> void
 ### **close-port**
 Close a port. If the port is a file, the file will be closed.
 
@@ -763,12 +763,12 @@ Returns a newly allocated list whose first element is `a` and second element is 
 > (cons 1 '()) ;; => '(1)
 ```
 ### **copy-directory-recursively!**
-Recursively copies the contents of the source directory to the destination
+Recursively copies the contents of the source directory to the destination.
 
 (copy-directory-recursively! source destination) -> void?
 
-* source : (string?) - The directory to copy.
-* destination : (string?) - The destination directory into which to copy.
+* source : string? - The directory to copy.
+* destination : string? - The destination directory into which to copy.
 
 #### Examples
 ```scheme
@@ -1100,11 +1100,11 @@ Sums all given floats
 ### **file-metadata**
 Access the file metadata for a given path
 ### **file-name**
-Gets the filename for a given path
+Gets the filename for a given path.
 
 (file-name path) -> string?
 
-* path : (string?) - The path to check
+* path : string? - The path from which to get the file name.
 
 #### Examples
 ```scheme
@@ -1720,11 +1720,11 @@ Create an interleaving iterator
 (transduce (list 1 2 3) (interleaving (list 4 5 6)) (into-list)) ;; => '(1 4 2 5 3 6)
 ```
 ### **is-dir?**
-Checks if a path is a directory
+Checks if a path is a directory.
 
 (is-dir? path) -> bool?
 
-* path : (string?) - The path to check
+* path : string? - The path to check.
 
 #### Examples
 ```scheme
@@ -1732,11 +1732,11 @@ Checks if a path is a directory
 > (is-dir? "logs/today.json") ;; => #false
 ```
 ### **is-file?**
-Checks if a path is a file
+Checks if a path is a file.
 
 (is-file? path) -> bool?
 
-* path : (string?) - The path to check
+* path : string? - The path to check.
 
 #### Examples
 ```scheme
@@ -1833,7 +1833,7 @@ time complexity is O(n/64). Meaning, for small lists this can be constant.
 #### Examples
 ```scheme
 > (list-ref (list 1 2 3 4) 2) ;; => 3
-> (list-ref (range 0 100) 42) ;; => 42"
+> (list-ref (range 0 100) 42) ;; => 42
 > (list-ref (list 1 2 3 4) 10)
 error[E11]: Generic
   ┌─ :1:2
@@ -1993,6 +1993,8 @@ Create a mapping iterator
 ### **modulo**
 Returns the arithmetic remainder of a floored integer division of a given
 numerator *n* by a given denominator *m*.
+
+The return value of this procedure has the same sign as the denominator.
 
 This procedure is an alias of `floor-remainder`.
 
@@ -2301,11 +2303,11 @@ Checks if the given value can be treated as a pair.
 > (pair? '()) ;; => #false
 ```
 ### **parent-name**
-Gets the parent directory name for a given path
+Gets the parent directory name for a given path.
 
 (parent-name path) -> string?
 
-* path : (string?) - The path to check
+* path : string? - The path from which to get the parent.
 
 #### Examples
 ```scheme
@@ -2313,11 +2315,11 @@ Gets the parent directory name for a given path
 > (parent-name "logs/today.json") ;; => "logs"
 ```
 ### **path->extension**
-Gets the extension from a path
+Gets the extension from a path.
 
 (path->extension path) -> (or/c string? void?)
 
-* path : (string?) - The path to check
+* path : string? - The path from which to get the extension.
 
 #### Examples
 ```scheme
@@ -2325,7 +2327,7 @@ Gets the extension from a path
 > (path->extension "logs/today.json") ;; => ".json"
 ```
 ### **path-exists?**
-Checks if a path exists
+Checks if a path exists.
 
 (path-exists? path) -> bool?
 
@@ -2411,10 +2413,12 @@ This procedure is an alias of `truncate-quotient`.
 * m : integer? - The denominator.
 
 #### Examples
+
 ```scheme
-> (quotient 11 2) ;; => 5
-> (quotient 10 2) ;; => 5
-> (quotient -10 2) ;; => -5
+> (quotient 5 2) ;; => 2
+> (quotient -5 2) ;; => -2
+> (quotient 5 -2) ;; => -2
+> (quotient -5 -2) ;; => 2
 ```
 ### **range**
 Returns a newly allocated list of the elements in the range [n, m) or [0, m) when n is not given.
@@ -2489,7 +2493,7 @@ Returns the contents of the directory as a list
 
 (read-dir path) -> list?
 
-* path : (string?) - The path to check
+* path : string? - The path to the directory.
 
 #### Examples
 ```scheme
@@ -2638,6 +2642,8 @@ Using this directly is not recommended.
 ### **remainder**
 Returns the arithmetic remainder of a truncated integer division of a given
 numerator *n* by a given denominator *m*.
+
+The return value of this procedure has the same sign as the numerator.
 
 This procedure is an alias of `truncate-remainder`.
 
