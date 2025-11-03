@@ -382,7 +382,7 @@ pub enum OptLevel {
     Three,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct KernelDefMacroSpec {
     pub(crate) _env: String,
     pub(crate) _exported: Option<HashSet<InternedString>>,
@@ -892,16 +892,16 @@ impl Compiler {
             kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
         }
 
-        for expr in expanded_statements.iter_mut() {
-            expand_kernel_in_env(
-                expr,
-                self.kernel.as_mut(),
-                self.builtin_modules.clone(),
-                "top-level",
-            )?;
+        // for expr in expanded_statements.iter_mut() {
+        //     expand_kernel_in_env(
+        //         expr,
+        //         self.kernel.as_mut(),
+        //         self.builtin_modules.clone(),
+        //         "top-level",
+        //     )?;
 
-            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
-        }
+        //     crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+        // }
 
         for expr in expanded_statements.iter_mut() {
             expand_kernel_in_env(
@@ -957,7 +957,7 @@ impl Compiler {
         // TODO: At this point, we'll want to remove
         // any remaining provide statements.
 
-        log::debug!(target: "expansion-phase", "Beginning constant folding");
+        // log::debug!(target: "expansion-phase", "Beginning constant folding");
 
         // Remove remaining provides from the top level.
 
@@ -968,6 +968,10 @@ impl Compiler {
 
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements, true);
+
+        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
+
+        let mut expanded_statements = filter_provides(expanded_statements);
 
         let mut analysis = std::mem::take(&mut self.analysis);
         analysis.fresh_from_exprs(&expanded_statements);
@@ -1000,10 +1004,6 @@ impl Compiler {
         log::debug!(target: "expansion-phase", "Flattening begins, converting internal defines to let expressions");
 
         let mut analysis = semantic.into_analysis();
-
-        let expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
-
-        let mut expanded_statements = filter_provides(expanded_statements);
 
         // After define expansion, we'll want this
         // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);

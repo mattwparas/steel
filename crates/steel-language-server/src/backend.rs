@@ -19,8 +19,9 @@ use steel::{
     compiler::{
         modules::{steel_home, MANGLER_PREFIX, MODULE_PREFIX},
         passes::analysis::{
-            query_top_level_define, query_top_level_define_on_condition, IdentifierStatus,
-            RequiredIdentifierInformation, SemanticAnalysis,
+            query_top_level_define, query_top_level_define_on_condition,
+            require_defitinion_to_original_symbol, Analysis, IdentifierStatus,
+            RequiredIdentifierInformation, SemanticAnalysis, SemanticInformation,
         },
     },
     parser::{
@@ -34,7 +35,10 @@ use steel::{
     rvals::{AsRefSteelVal, FromSteelVal, SteelString},
     steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn},
 };
-use steel_parser::ast::ToDoc;
+use steel_parser::{
+    ast::{Define, ToDoc},
+    parser::SyntaxObjectId,
+};
 use tower_lsp::jsonrpc::{self, Result};
 use tower_lsp::lsp_types::notification::Notification;
 use tower_lsp::lsp_types::*;
@@ -74,6 +78,11 @@ pub const LEGEND_TYPE: &[SemanticTokenType] = &[
     SemanticTokenType::PARAMETER,
 ];
 
+#[derive(Debug)]
+pub struct FileState {
+    pub opened: bool,
+}
+
 pub struct Backend {
     pub config: Config,
 
@@ -81,11 +90,14 @@ pub struct Backend {
     pub ast_map: DashMap<String, Vec<ExprKind>>,
     pub lowered_ast_map: DashMap<String, Vec<ExprKind>>,
     pub document_map: DashMap<String, Rope>,
+    pub vfs: DashMap<Url, FileState>,
     // TODO: This needs to hold macros to help with resolving definitions
     pub _macro_map: DashMap<String, HashMap<InternedString, SteelMacro>>,
     pub ignore_set: Arc<DashSet<InternedString>>,
     pub globals_set: Arc<DashSet<InternedString>>,
     pub defined_globals: DashSet<String>,
+
+    pub root: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -246,6 +258,10 @@ impl LanguageServer for Backend {
         Ok(self.hover_impl(params).await)
     }
 
+    // TODO: For macros (and otherwise for find references to)
+    // Simplest way to do this is to get an unexpanded ast, and then find the macro
+    // that we're interested in identifying, and then we'll index against that by treating it
+    // like a function call that we index against.
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -378,7 +394,231 @@ impl LanguageServer for Backend {
         Ok(definition)
     }
 
-    async fn references(&self, _params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+    // Finding references:
+    // Go over every file, and then iterate over each module
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let mut found_locations = Vec::new();
+
+        let definition = async {
+            let uri = params.text_document_position.text_document.uri.clone();
+
+            let mut ast = self.ast_map.get_mut(uri.as_str())?;
+            let mut rope = self.document_map.get(uri.as_str())?.clone();
+
+            let position = params.text_document_position.position;
+            let offset = self.config.position_to_offset(position, &rope)?;
+
+            let analysis = SemanticAnalysis::new(&mut ast);
+
+            let (syntax_object_id, information) =
+                analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
+
+            // If this is a built in, lets just bail
+            if information.builtin {
+                if let Some(mut l) = self
+                    .find_references_builtin(&analysis, *syntax_object_id, information)
+                    .await
+                {
+                    found_locations.append(&mut l);
+                }
+            }
+
+            // Either refers to something, or is the existing definition
+            let refers_to = information.refers_to.unwrap_or_else(|| {
+                eprintln!("Unable to find a refers to for this identifier");
+                *syntax_object_id
+            });
+
+            {
+                let mut spans = Vec::new();
+                for (_, info) in analysis.analysis.identifier_info() {
+                    if let Some(found_refers_to) = info.refers_to {
+                        if found_refers_to == refers_to {
+                            spans.push(info.span);
+                        }
+                    }
+                }
+
+                self.spans_to_locations(&ENGINE.read().unwrap(), spans, &mut found_locations)
+            }
+
+            // Find all the locations which refer to it
+
+            let maybe_definition = analysis.get_identifier(refers_to)?;
+
+            let mut identifier = None;
+            let mut resulting_span = maybe_definition.span;
+
+            let mut module_path = None;
+
+            for expr in analysis.exprs.iter() {
+                match expr {
+                    ExprKind::Define(d) => {
+                        if d.name_id() == Some(refers_to) {
+                            identifier = d
+                                .name
+                                .atom_syntax_object()
+                                .and_then(|x| x.ty.identifier().cloned());
+                        }
+                    }
+                    ExprKind::Begin(b) => {
+                        for expr in &b.exprs {
+                            if let ExprKind::Define(d) = expr {
+                                if d.name_id() == Some(refers_to) {
+                                    identifier = d
+                                        .name
+                                        .atom_syntax_object()
+                                        .and_then(|x| x.ty.identifier().cloned());
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let mut resolver = |mut interned: InternedString,
+                                name: String,
+                                original|
+             -> Option<()> {
+                let maybe_renamed = interned;
+
+                if let Some(original) = original {
+                    if interned != original {
+                        interned = original;
+                    }
+                }
+
+                let mut module_prefix_path_to_check =
+                    name.trim_end_matches(if maybe_renamed == interned {
+                        interned.resolve()
+                    } else {
+                        maybe_renamed.resolve()
+                    });
+
+                resulting_span = {
+                    let guard = ENGINE.read().ok()?;
+
+                    let modules = guard.modules();
+
+                    let module = modules
+                        .values()
+                        .find(|x| x.prefix() == module_prefix_path_to_check)?;
+
+                    module_path = Some(module.name().to_owned());
+
+                    let module_ast = module.get_ast();
+
+                    let top_level_define = query_top_level_define(module_ast, interned.resolve())
+                        .or_else(|| {
+                        query_top_level_define_on_condition(
+                            module_ast,
+                            interned.resolve(),
+                            |name, target| target.ends_with(name),
+                        )
+                    })?;
+
+                    let syntax = top_level_define.name.atom_syntax_object()?;
+
+                    identifier = syntax.ty.identifier().cloned();
+
+                    syntax.span
+                };
+
+                Some(())
+            };
+
+            if maybe_definition.is_required_identifier {
+                match analysis.resolve_required_identifier(refers_to)? {
+                    RequiredIdentifierInformation::Resolved(
+                        resolved,
+                        mut interned,
+                        name,
+                        original,
+                    ) => {
+                        if let Some(original) = original {
+                            if interned != original {
+                                resolver(interned, name, Some(original))?;
+                            } else {
+                                resulting_span = resolved.span;
+
+                                identifier = Some(original);
+                            }
+                        } else {
+                            resulting_span = resolved.span;
+
+                            identifier = Some(name.into());
+                        }
+                    }
+
+                    RequiredIdentifierInformation::Unresolved(mut interned, name, original) => {
+                        resolver(interned, name, original)?;
+                    }
+                }
+            }
+
+            let location = source_id_to_uri(resulting_span.source_id()?)?;
+
+            if location != uri {
+                let expression = ENGINE
+                    .read()
+                    .ok()?
+                    .get_source(&resulting_span.source_id()?)?;
+
+                rope = self
+                    .document_map
+                    .get(location.as_str())
+                    .map(|x| x.clone())
+                    .unwrap_or_else(|| Rope::from_str(&expression));
+
+                self.document_map.insert(location.to_string(), rope.clone());
+            }
+
+            // Include the declaration and the location isn't
+            if params.context.include_declaration {
+                let mut definition_span = vec![resulting_span];
+                self.spans_to_locations(
+                    &ENGINE.read().unwrap(),
+                    definition_span,
+                    &mut found_locations,
+                );
+            }
+
+            Some((identifier, module_path))
+        }
+        .await;
+
+        // Now that we have the definition, we should also check for where this came from.
+        // We'll walk through the modules, look at what they require, and find
+        // the ASTs that we have to analyze to find references to this identifier.
+        if let Some((Some(identifier), module_path)) = definition {
+            // If we have an identifier and its from another module,
+            // then we should calculate the reverse dependencies. That way we can
+            // at least attempt to build a reverse index for find references.
+            if let Some(module_path) = module_path {
+                let mut external_module_refs =
+                    self.find_references_external_module(identifier, module_path);
+                found_locations.append(&mut external_module_refs);
+            } else {
+                let module_path = params
+                    .text_document_position
+                    .text_document
+                    .uri
+                    .clone()
+                    .to_file_path();
+                if let Ok(module_path) = module_path {
+                    let mut external_module_refs =
+                        self.find_references_external_module(identifier, module_path);
+                    found_locations.append(&mut external_module_refs);
+                }
+            }
+        }
+
+        // TODO: Dedupe the found locations
+        if !found_locations.is_empty() {
+            return Ok(Some(found_locations));
+        }
+
         Ok(None)
     }
 
@@ -699,6 +939,217 @@ struct TextDocumentItem {
     version: i32,
 }
 
+impl Backend {
+    async fn find_references_builtin(
+        &self,
+        analysis: &SemanticAnalysis<'_>,
+        syntax_object_id: SyntaxObjectId,
+        info: &SemanticInformation,
+    ) -> Option<Vec<Location>> {
+        let mut syntax_object_id_to_interned_string = HashMap::new();
+        syntax_object_id_to_interned_string.insert(syntax_object_id, None);
+        analysis.syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
+
+        let identifier = syntax_object_id_to_interned_string
+            .get(&syntax_object_id)?
+            .clone()?;
+
+        // Go through the modules and see which asts are there?
+        // Are built ins renamed?
+        // let guard = ENGINE.read().unwrap();
+        let mut spans = Vec::new();
+
+        let modules = { ENGINE.read().unwrap().modules().clone() };
+
+        {
+            for (key, module) in modules.iter() {
+                // Calculate the built ins that we have:
+                let ast = module.get_ast();
+
+                eprintln!("Reading module: {:?}", key);
+
+                let top_level_define = query_top_level_define(ast, identifier.resolve());
+                if let Some(top_level_define) = top_level_define {
+                    let id = top_level_define
+                        .name
+                        .atom_syntax_object()
+                        .unwrap()
+                        .syntax_object_id;
+
+                    let now = std::time::Instant::now();
+
+                    // This can be cached - basically all built ins
+                    // don't need to result in a re analysis pass
+                    // assuming the modules hasn't changed
+                    let mut analysis = Analysis::default();
+                    analysis.run(ast);
+
+                    eprintln!("Analysis time: {:?}", now.elapsed());
+
+                    for (_, info) in analysis.identifier_info() {
+                        if let Some(refers_to) = info.refers_to {
+                            if refers_to == id {
+                                spans.push(info.span);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut locations: Vec<Location> = Vec::new();
+
+        let guard = ENGINE.read().unwrap();
+        self.spans_to_locations(&guard, spans, &mut locations);
+
+        Some(locations)
+    }
+
+    fn find_references_external_module(
+        &self,
+        identifier: InternedString,
+        module_path: PathBuf,
+    ) -> Vec<Location> {
+        let guard = ENGINE.read().unwrap();
+        let all_modules = guard.modules();
+        let mut should_index = Vec::new();
+
+        for (p, module) in all_modules.iter() {
+            if &module_path == p {
+                continue;
+            }
+
+            let require_objects = module.get_requires();
+
+            for req in require_objects {
+                if req.path.get_path().as_path() == module_path {
+                    // Note: Once the logging is fixed we can remove the clone here
+                    should_index.push((module, req));
+                }
+            }
+        }
+
+        let mut spans = Vec::new();
+
+        for (module, req) in should_index {
+            let ast = module.get_ast();
+            // Build the identifier based on what we actually want.
+            // Could be renamed, or could be prefixed. In that case
+            // then we want to find the prefixed reference.
+
+            let mut identifier = identifier;
+
+            // There are only specific idents to import, so we'll want to
+            // not index this file if this identifier is not brought in.
+            if !req.idents_to_import.is_empty() {
+                let mut found = false;
+                for idents_to_import in &req.idents_to_import {
+                    match idents_to_import {
+                        steel::compiler::modules::MaybeRenamed::Normal(expr_kind) => {
+                            if expr_kind.atom_identifier().copied() == Some(identifier) {
+                                found = true;
+                                break;
+                            }
+                        }
+                        steel::compiler::modules::MaybeRenamed::Renamed(expr_kind, expr_kind1) => {
+                            if expr_kind.atom_identifier().copied() == Some(identifier) {
+                                found = true;
+                                identifier = *expr_kind1.atom_identifier().unwrap();
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if !found {
+                    continue;
+                }
+            }
+
+            if let Some(prefix) = &req.prefix {
+                identifier = (prefix.to_string() + identifier.resolve()).into();
+            }
+
+            let ident = ExprKind::atom(identifier);
+            let id = ident.atom_syntax_object().unwrap().syntax_object_id;
+            let top_level = ExprKind::Define(Box::new(Define {
+                name: ident,
+                body: ExprKind::empty(),
+                location: steel_parser::parser::SyntaxObject::default(
+                    steel_parser::tokens::TokenType::Define,
+                ),
+            }));
+
+            // TODO: Can we cache this analysis? Probably keep an analysis per identifier?
+            // Also, does the module level expose when this was last updated?
+            let mut analysis = Analysis::default();
+            analysis.run(&[top_level]);
+            analysis.run_with_scope(ast, false);
+
+            for (_, info) in analysis.identifier_info() {
+                if let Some(refers_to) = info.refers_to {
+                    if refers_to == id {
+                        spans.push(info.span);
+                    }
+                }
+            }
+        }
+
+        let mut locations: Vec<Location> = Vec::new();
+
+        self.spans_to_locations(&guard, spans, &mut locations);
+
+        locations
+    }
+
+    fn spans_to_locations(&self, guard: &Engine, spans: Vec<Span>, locations: &mut Vec<Location>) {
+        for span in spans {
+            if let Some(source) = span.source_id().and_then(|x| guard.get_source(&x)) {
+                if let Some(path) = span
+                    .source_id()
+                    .and_then(|x| guard.get_path_for_source_id(&x))
+                {
+                    if let Ok(url) = Url::from_file_path(&path) {
+                        // if this is present in the VFS, then we'll render it.
+                        // Otherwise, we'll check if the file exists from the root of this
+                        // directory, and then we'll show that too, in order to avoid
+                        // needing a file watcher (for now). Compilation should check
+                        // time stamps and update accordingly.
+                        // TODO: Lift this up to where we actually index the files instead
+                        if self.vfs.get(&url).is_none() || !path.starts_with(&self.root) {
+                            continue;
+                        }
+
+                        let url_str = url.to_string();
+
+                        let rope = if let Some(rope) = self.document_map.get(&url_str) {
+                            rope.clone()
+                        } else {
+                            let rope = ropey::Rope::from(source.to_string());
+                            self.document_map.insert(url_str, rope.clone());
+                            rope
+                        };
+
+                        if let Some(range) = self.config.span_to_range(&span, &rope) {
+                            locations.push(Location::new(url, range));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn find_associated_define(expr: &Define, ident: InternedString) -> Option<SyntaxObjectId> {
+    if let Some(found) = require_defitinion_to_original_symbol(expr) {
+        if ident == found {
+            return expr.name.atom_syntax_object().map(|x| x.syntax_object_id);
+        }
+    }
+
+    None
+}
+
 fn fetch_stdlib_doc(ident: &str) -> Option<SteelString> {
     let mut guard = ENGINE.write().unwrap();
 
@@ -924,9 +1375,13 @@ impl Backend {
     async fn on_change(&self, params: TextDocumentItem) {
         let now = std::time::Instant::now();
 
+        // Ensure this document is marked as open from the perspective of the LSP
         let rope = ropey::Rope::from_str(&params.text);
         self.document_map
             .insert(params.uri.to_string(), rope.clone());
+
+        self.vfs
+            .insert(params.uri.clone(), FileState { opened: true });
 
         let expression = params.text;
 
@@ -941,10 +1396,12 @@ impl Backend {
                 // TODO: Add span to the macro definition!
                 let mut introduced_macros: HashMap<InternedString, SteelMacro> = HashMap::new();
 
+                let now = std::time::Instant::now();
                 let expressions = guard.emit_expanded_ast_without_optimizations(
                     &expression,
                     params.uri.to_file_path().ok(),
                 );
+                eprintln!("on change time: {:?}", now.elapsed());
 
                 guard.in_scope_macros_mut().retain(|key, value| {
                     if macro_env_before.contains(key) {

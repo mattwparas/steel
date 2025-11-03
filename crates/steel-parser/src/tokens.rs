@@ -104,6 +104,14 @@ impl<T> TokenType<T> {
             None
         }
     }
+
+    pub fn identifier(&self) -> Option<&T> {
+        if let Self::Identifier(i) = self {
+            Some(i)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -129,7 +129,7 @@ impl<'a> VisitorMutRefUnit for NameUnMangler<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct NameMangler {
     pub(crate) globals: FxHashSet<InternedString>,
     prefix: CompactString,

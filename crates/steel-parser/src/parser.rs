@@ -3,7 +3,7 @@ use std::{
     path::PathBuf,
     rc::Rc,
     result,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
 };
 
 use serde::{Deserialize, Serialize};
@@ -22,6 +22,8 @@ use crate::{
     tokens::{Paren, ParenMod, Token, TokenLike, TokenType},
 };
 
+static SOURCE_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
+
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
 )]
@@ -31,6 +33,10 @@ pub struct SourceId(pub u32);
 impl SourceId {
     pub const fn none() -> Option<Self> {
         None
+    }
+
+    pub fn fresh() -> Self {
+        SourceId(SOURCE_ID_COUNTER.fetch_add(1, Ordering::Relaxed))
     }
 }
 

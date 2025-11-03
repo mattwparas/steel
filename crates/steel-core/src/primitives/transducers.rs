@@ -8,20 +8,6 @@ use crate::steel_vm::{
 use crate::values::transducers::{Transducer, Transducers};
 use crate::{builtin_stop, stop, SteelErr};
 
-// declare_const_ref_functions!(
-//     COMPOSE => compose,
-//     ENUMERATING => enumerating,
-//     ZIPPING => zipping,
-//     INTERLEAVING => interleaving,
-//     MAPPING => map,
-//     EXTENDING => extending,
-//     FLAT_MAPPING => flat_map,
-//     FLATTENING => flatten,
-//     FILTERING => filter,
-//     TAKING => take,
-//     DROPPING => dropping,
-// );
-
 pub fn transducer_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/transducers");
 
@@ -51,8 +37,136 @@ pub fn transducer_module() -> BuiltInModule {
         .register_value("into-last", crate::values::transducers::INTO_LAST)
         .register_value("into-for-each", crate::values::transducers::FOR_EACH)
         .register_value("into-nth", crate::values::transducers::NTH)
-        .register_value("into-reducer", crate::values::transducers::REDUCER);
+        .register_value("into-reducer", crate::values::transducers::REDUCER)
+        .register_native_fn_definition(TRANSDUCERS_FUNC_DEFINITION)
+        .register_native_fn_definition(REDUCER_TO_INT_DEFINITION);
+
     module
+}
+
+#[repr(usize)]
+#[derive(Copy, Clone)]
+enum TransducerKind {
+    Map,
+    Filter,
+    Take,
+    Drop,
+    FlatMap,
+    Flatten,
+    Window,
+    TakeWhile,
+    DropWhile,
+    Extend,
+    Cycle,
+    Enumerating,
+    Zipping,
+    Interleaving,
+
+    // Optimized variants that understand
+    // the input data coming in
+    MapPair,
+}
+
+#[steel_derive::function(name = "#%reducer->int")]
+pub fn reducer_to_int(arg: &SteelVal) -> Option<SteelVal> {
+    if let SteelVal::ReducerV(r) = arg {
+        Some(match r.as_ref() {
+            crate::values::transducers::Reducer::Sum => SteelVal::IntV(0),
+            crate::values::transducers::Reducer::Multiply => SteelVal::IntV(1),
+            crate::values::transducers::Reducer::Max => SteelVal::IntV(2),
+            crate::values::transducers::Reducer::Min => SteelVal::IntV(3),
+            crate::values::transducers::Reducer::Count => SteelVal::IntV(4),
+            crate::values::transducers::Reducer::Nth(n) => SteelVal::Pair(Gc::new(
+                crate::values::lists::Pair::cons(SteelVal::IntV(5), SteelVal::IntV(*n as _)),
+            )),
+            crate::values::transducers::Reducer::List => SteelVal::IntV(6),
+            crate::values::transducers::Reducer::Vector => SteelVal::IntV(7),
+            crate::values::transducers::Reducer::HashMap => SteelVal::IntV(8),
+            crate::values::transducers::Reducer::HashSet => SteelVal::IntV(9),
+            crate::values::transducers::Reducer::String => SteelVal::IntV(10),
+            crate::values::transducers::Reducer::Last => SteelVal::IntV(11),
+            crate::values::transducers::Reducer::ForEach(steel_val) => SteelVal::Pair(Gc::new(
+                crate::values::lists::Pair::cons(SteelVal::IntV(12), steel_val.clone()),
+            )),
+            crate::values::transducers::Reducer::Generic(reducer_func) => SteelVal::ListV(
+                vec![
+                    SteelVal::IntV(13),
+                    reducer_func.initial_value.clone(),
+                    reducer_func.function.clone(),
+                ]
+                .into(),
+            ),
+        })
+    } else {
+        None
+    }
+}
+
+#[steel_derive::function(name = "#%transducers->funcs")]
+pub fn transducers_func(arg: &SteelVal) -> Option<SteelVal> {
+    let mut funcs = Vec::new();
+
+    fn pair(kind: TransducerKind, cdr: SteelVal) -> SteelVal {
+        SteelVal::Pair(Gc::new(crate::values::lists::Pair::cons(
+            SteelVal::IntV(kind as usize as _),
+            cdr,
+        )))
+    }
+
+    if let SteelVal::ListV(i) = arg {
+        for value in i {
+            if let SteelVal::IterV(i) = value {
+                for op in &i.ops {
+                    funcs.push(match op {
+                        Transducers::Map(steel_val) => pair(TransducerKind::Map, steel_val.clone()),
+                        Transducers::Filter(steel_val) => {
+                            pair(TransducerKind::Filter, steel_val.clone())
+                        }
+                        Transducers::Take(steel_val) => {
+                            pair(TransducerKind::Take, steel_val.clone())
+                        }
+                        Transducers::Drop(steel_val) => {
+                            pair(TransducerKind::Drop, steel_val.clone())
+                        }
+                        Transducers::FlatMap(steel_val) => {
+                            pair(TransducerKind::FlatMap, steel_val.clone())
+                        }
+                        Transducers::Flatten => pair(TransducerKind::Flatten, SteelVal::Void),
+                        Transducers::Window(steel_val) => {
+                            pair(TransducerKind::Window, steel_val.clone())
+                        }
+                        Transducers::TakeWhile(steel_val) => {
+                            pair(TransducerKind::TakeWhile, steel_val.clone())
+                        }
+                        Transducers::DropWhile(steel_val) => {
+                            pair(TransducerKind::DropWhile, steel_val.clone())
+                        }
+                        Transducers::Extend(steel_val) => {
+                            pair(TransducerKind::Extend, steel_val.clone())
+                        }
+                        Transducers::Cycle => pair(TransducerKind::Cycle, SteelVal::Void),
+                        Transducers::Enumerating => {
+                            pair(TransducerKind::Enumerating, SteelVal::Void)
+                        }
+                        Transducers::Zipping(steel_val) => {
+                            pair(TransducerKind::Zipping, steel_val.clone())
+                        }
+                        Transducers::Interleaving(steel_val) => {
+                            pair(TransducerKind::Interleaving, steel_val.clone())
+                        }
+
+                        Transducers::MapPair(p) => pair(TransducerKind::MapPair, p.clone()),
+                    });
+                }
+            } else {
+                funcs.push(value.clone());
+            }
+        }
+
+        return Some(SteelVal::ListV(funcs.into()));
+    }
+
+    None
 }
 
 /// Compose multiple iterators into one iterator

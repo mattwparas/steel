@@ -4,7 +4,10 @@ use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::HashSet;
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
+use fxhash::FxHashMap;
 use num_rational::{BigRational, Rational32};
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -46,6 +49,9 @@ struct GcMetadata {
     threshold: usize,
 }
 
+static GLOBAL_SOURCE_MAPPING: Lazy<Mutex<FxHashMap<SourceId, PathBuf>>> =
+    Lazy::new(|| Mutex::new(FxHashMap::default()));
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub(crate) struct InterierSources {
     paths: crate::HashMap<SourceId, PathBuf>,
@@ -66,8 +72,6 @@ pub(crate) struct InterierSources {
     // a fine way to remove sources.
     sources: crate::HashMap<SourceId, Arc<Cow<'static, str>>>,
 
-    counter: usize,
-
     gc_metadata: GcMetadata,
 }
 
@@ -77,7 +81,6 @@ impl InterierSources {
             paths: crate::HashMap::new(),
             reverse: crate::HashMap::new(),
             sources: crate::HashMap::new(),
-            counter: 0,
             gc_metadata: GcMetadata {
                 size_in_bytes: 0,
                 // Start with 8 Mb. Which will grow to 64 if there
@@ -95,11 +98,6 @@ impl InterierSources {
                 std::mem::size_of_val(x)
             })
             .sum()
-    }
-
-    fn gensym(&mut self) -> usize {
-        self.counter += 1;
-        self.counter
     }
 
     // TODO: Source Id should probably be a weak pointer back here rather than an ID
@@ -123,8 +121,7 @@ impl InterierSources {
             }
         }
 
-        let index = self.gensym();
-        let id = SourceId(index as _);
+        let id = SourceId::fresh();
         let expr = source.into();
 
         self.gc_metadata.size_in_bytes += expr.len();
@@ -133,6 +130,7 @@ impl InterierSources {
 
         if let Some(path) = path {
             self.paths.insert(id, path.clone());
+            GLOBAL_SOURCE_MAPPING.lock().insert(id, path.clone());
             self.reverse.insert(path, id);
         }
 
@@ -144,7 +142,10 @@ impl InterierSources {
     }
 
     pub fn get_path(&self, source_id: &SourceId) -> Option<PathBuf> {
-        self.paths.get(source_id).cloned()
+        self.paths
+            .get(source_id)
+            .cloned()
+            .or_else(|| GLOBAL_SOURCE_MAPPING.lock().get(source_id).cloned())
     }
 
     pub fn get_id(&self, path: &Path) -> Option<SourceId> {
@@ -199,7 +200,7 @@ impl<'a> VisitorMutUnitRef<'a> for SourcesCollector {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Sources {
     pub(crate) sources: InterierSources,
 }
