@@ -30,10 +30,6 @@
 (define *DYLIB-DIR* (path-from-steel-home "native"))
 (define *CARGO_TARGET_DIR* (path-from-steel-home "target"))
 
-;; Git clone to the temporary source, and then we're going to
-;; hash the directory contents, find the version.
-(define *TEMPORARY-SOURCES* (path-from-steel-home "temp"))
-
 ;;@doc
 ;; Most likely should use gix here instead of shelling out to git?
 ;; Use the sha to pin to a specific commit, if interested
