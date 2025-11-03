@@ -939,19 +939,15 @@
     [(delay expr) (lambda () expr)]))
 
 (define values list)
-; (define (call-with-values producer consumer)
-;   (define result (apply consumer (producer)))
-;   (cond
-;     [(not (list? result)) result]
-;     [(= (length result) 1) (car result)]
-;     [else result]))
 
 (define (call-with-values producer consumer)
   (define result (producer))
   (cond
     [(not (list? result)) (consumer result)]
-    [(= (length result) 1) (apply consumer result)]
-    [else result]))
+    ;; Does this work?
+    [else
+     (define res (apply consumer result))
+     (if (and (list? res) (= (length res) 1)) (car res) res)]))
 
 (define-syntax @doc
   (syntax-rules (struct define/contract)

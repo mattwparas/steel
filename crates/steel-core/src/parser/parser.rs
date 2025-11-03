@@ -1,8 +1,8 @@
 use crate::compiler::passes::VisitorMutUnitRef;
 use crate::primitives::numbers::make_polar;
 use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
+use crate::HashSet;
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
-use crate::{HashMap, HashSet};
 
 use fxhash::FxHashMap;
 use num_rational::{BigRational, Rational32};

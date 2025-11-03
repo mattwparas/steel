@@ -147,9 +147,7 @@
                  (define options
                    (let ([raw (cdddr unwrapped)])
                      ; (displayln raw)
-                     (if (empty? raw)
-                         raw
-                         (map syntax->datum raw))))
+                     (if (empty? raw) raw (map syntax->datum raw))))
                  (define result (struct-impl struct-name fields options))
                  (syntax/loc result
                    (syntax-span expr)))
@@ -273,9 +271,7 @@
                                                             (list-ref prototypes 4)])
          (set! ,struct-prop-name struct-type-descriptor)
          (#%vtable-update-entry! struct-type-descriptor ,maybe-procedure-field ,struct-options-name)
-         (if ,(not (bool? maybe-finalizer))
-             (#%start-will-executor)
-             void)
+         (if ,(not (bool? maybe-finalizer)) (#%start-will-executor) void)
          ,(if mutable?
               (if maybe-finalizer
                   `(set! ,struct-name
@@ -298,13 +294,10 @@
 
                   `(set! ,struct-name constructor-proto)))
          ,(new-make-predicate struct-predicate struct-name fields)
-         ,@(if mutable?
-               (mutable-make-getters struct-name fields)
-               (new-make-getters struct-name fields))
+         ,@
+         (if mutable? (mutable-make-getters struct-name fields) (new-make-getters struct-name fields))
          ;; If this is a mutable struct, generate the setters
-         ,@(if mutable?
-               (mutable-make-setters struct-name fields)
-               (list))
+         ,@(if mutable? (mutable-make-setters struct-name fields) (list))
          void)))))
 
 (define (new-make-predicate struct-predicate-name struct-name fields)
@@ -483,40 +476,33 @@
  ;; Just register a syntax transformer?
  (define func (parse-def-syntax unwrapped))
  (define name-expr (list-ref unwrapped 1))
- (define name
-   (if (list? name-expr)
-       (list-ref name-expr 0)
-       name-expr))
+ (define name (if (list? name-expr) (list-ref name-expr 0) name-expr))
  (define originating-file (syntax-originating-file expression))
  ;; We'd like to
  (define env (or originating-file "default"))
  (if (equal? env "default")
 
      (begin
-       (stdout-simple-displayln "installing at the top level")
        (eval `(define ,name ,func))
        ;; Register into the top environment
        (register-macro-transformer! name env))
 
-     (with-handler
-      (lambda (e1)
+     (with-handler (lambda (e1)
 
-        (with-handler
-         (lambda (e2)
-           (stdout-simple-displayln "Failed to do the thing, install at the top level: " e2)
-           ;; We failed to find an existing environment to install it in.
-           (eval `(define top-level (hash (quote ,name) ,func)))
-           (register-macro-transformer! name "top-level"))
-         (stdout-simple-displayln "Failed to do the thing, install at the top level: " e1)
-         ;; We failed to find an existing environment to install it in.
-         (eval `(set! top-level (%proto-hash-insert% top-level (quote ,name) ,func)))
-         (register-macro-transformer! name "top-level"))
+                     (with-handler (lambda (e2)
+                                     ;; We failed to find an existing environment to install it in.
+                                     (eval `(define top-level (hash (quote ,name) ,func)))
+                                     (register-macro-transformer! name "top-level"))
+                                   ;; We failed to find an existing environment to install it in.
+                                   (eval `(set! top-level
+                                                (%proto-hash-insert% top-level (quote ,name) ,func)))
+                                   (register-macro-transformer! name "top-level"))
 
-        ;; Does this work?
-        ; (eval `(define ,name ,func))
-        'void)
-      ;;
-      (eval `(set! ,(string->symbol env)
-                   (%proto-hash-insert% ,(string->symbol env) (quote ,name) ,func)))
-      (register-macro-transformer! name env)))
+                     ;; Does this work?
+                     ; (eval `(define ,name ,func))
+                     'void)
+                   ;;
+                   (eval `(set! ,(string->symbol env)
+                                (%proto-hash-insert% ,(string->symbol env) (quote ,name) ,func)))
+                   (register-macro-transformer! name env)))
  'void)
