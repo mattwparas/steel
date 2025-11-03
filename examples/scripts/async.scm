@@ -1,6 +1,3 @@
-(define (test)
-  10)
-
 ; *thread-queue* : list[continuation]
 (define *thread-queue* '())
 
