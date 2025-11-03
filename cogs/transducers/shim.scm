@@ -1,4 +1,4 @@
-(require "cogs/transducers/transducers.scm")
+(require "transducers.scm")
 
 (define (split-last lst)
   (define (loop accum lst)
