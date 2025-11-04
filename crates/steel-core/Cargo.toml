@@ -153,6 +153,7 @@ experimental = []
 triomphe = ["dep:triomphe"]
 op-code-profiling = []
 imbl = ["dep:imbl"]
+custom-hash = []
 
 ffi-format = []
 

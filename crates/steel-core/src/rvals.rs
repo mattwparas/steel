@@ -194,6 +194,11 @@ pub trait Custom: private::Sealed {
         false
     }
 
+    #[cfg(feature = "custom-hash")]
+    fn try_as_dyn_hash(&self) -> Option<&dyn DynHash> {
+        None
+    }
+
     #[doc(hidden)]
     fn into_error(self) -> std::result::Result<SteelErr, Self>
     where
@@ -214,6 +219,19 @@ pub trait MaybeSendSyncStatic: Send + Sync + 'static {}
 
 #[cfg(feature = "sync")]
 impl<T: Send + Sync + 'static> MaybeSendSyncStatic for T {}
+
+/// Dyn compatible version of [Hash]
+#[cfg(feature = "custom-hash")]
+pub trait DynHash {
+    fn dyn_hash(&self, h: &mut dyn ::std::hash::Hasher);
+}
+
+#[cfg(feature = "custom-hash")]
+impl<T: ::std::hash::Hash> DynHash for T {
+    fn dyn_hash(&self, h: &mut dyn ::std::hash::Hasher) {
+        self.hash(&mut Box::new(h))
+    }
+}
 
 #[cfg(feature = "sync")]
 pub trait CustomType: MaybeSendSyncStatic {
@@ -239,6 +257,11 @@ pub trait CustomType: MaybeSendSyncStatic {
     }
     fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
         false
+    }
+
+    #[cfg(feature = "custom-hash")]
+    fn try_as_dyn_hash(&self) -> Option<&dyn DynHash> {
+        None
     }
 
     #[doc(hidden)]
@@ -273,6 +296,12 @@ pub trait CustomType {
     fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
         false
     }
+
+    #[cfg(feature = "custom-hash")]
+    fn try_as_dyn_hash(&self) -> Option<&dyn DynHash> {
+        None
+    }
+
     #[doc(hidden)]
     fn into_error_(self) -> std::result::Result<SteelErr, Self>
     where
@@ -330,6 +359,11 @@ impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
         Self: Sized,
     {
         self.into_error()
+    }
+
+    #[cfg(feature = "custom-hash")]
+    fn try_as_dyn_hash(&self) -> Option<&dyn DynHash> {
+        Custom::try_as_dyn_hash(self)
     }
 }
 
@@ -2096,6 +2130,14 @@ impl Hash for SteelVal {
                 state.write_u8(21);
                 (*v).hash(state)
             }
+            #[cfg(feature = "custom-hash")]
+            Custom(v) => match v.read().try_as_dyn_hash() {
+                Some(x) => {
+                    state.write_u8(22);
+                    x.dyn_hash(state);
+                }
+                _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
+            },
             _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
         }
     }
@@ -2116,21 +2158,13 @@ impl SteelVal {
     }
 
     pub fn is_hashable(&self) -> bool {
-        matches!(
-            self,
-            BoolV(_)
-                | IntV(_)
-                | CharV(_)
-                // | Pair(_)
-                | VectorV(_)
-                | StringV(_)
-                | SymbolV(_)
-                | HashMapV(_)
-                | Closure(_)
-                | ListV(_)
-                | FuncV(_)
-                | CustomStruct(_)
-        )
+        match self {
+            BoolV(_) | IntV(_) | CharV(_) | VectorV(_) | StringV(_) | SymbolV(_) | HashMapV(_)
+            | Closure(_) | ListV(_) | FuncV(_) | CustomStruct(_) => true,
+            #[cfg(feature = "custom-hash")]
+            Custom(v) => v.read().try_as_dyn_hash().is_some(),
+            _ => false,
+        }
     }
 
     pub fn is_function(&self) -> bool {
