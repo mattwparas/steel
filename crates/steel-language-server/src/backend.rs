@@ -359,7 +359,7 @@ impl LanguageServer for Backend {
                         });
 
                         SymbolInformation {
-                            name: name.resolve().into(),
+                            name: rope.slice(span.usize_range()).to_string(),
                             kind: SymbolKind::VARIABLE,
                             tags: None,
                             deprecated: None,
