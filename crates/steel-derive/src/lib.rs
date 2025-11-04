@@ -1,5 +1,6 @@
 extern crate proc_macro;
 extern crate proc_macro2;
+extern crate alloc;
 #[macro_use]
 extern crate syn;
 extern crate quote;
@@ -1245,6 +1246,7 @@ pub fn function(
 
             pub fn #copied_function_name(args: &[SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
+                use alloc::string::ToString;
                 use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
                 if args.len() < #arity_number {
@@ -1302,6 +1304,7 @@ pub fn function(
 
                 pub fn #copied_function_name(args: &mut [SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
+                    use alloc::string::ToString;
                     use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef, PrimitiveAsRefMut};
 
                     // if args.len() != #arity_number {
@@ -1363,6 +1366,7 @@ pub fn function(
 
         pub fn #copied_function_name(args: &[SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
+            use alloc::string::ToString;
             use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
             if args.len() != #arity_number {
@@ -1617,6 +1621,7 @@ pub fn custom_function(
 
             pub fn #copied_function_name(args: &[SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
+                use alloc::string::ToString;
                 use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
                 if args.len() < #arity_number {
@@ -1674,6 +1679,7 @@ pub fn custom_function(
 
                 pub fn #copied_function_name(args: &mut [SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
+                    use alloc::string::ToString;
                     use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef, PrimitiveAsRefMut};
 
                     // if args.len() != #arity_number {
@@ -1735,6 +1741,7 @@ pub fn custom_function(
 
         pub fn #copied_function_name(args: &[SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
+            use alloc::string::ToString;
             use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
             if args.len() != #arity_number {

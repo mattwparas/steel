@@ -36,6 +36,8 @@ pub mod transducers;
 mod utils;
 pub mod vectors;
 
+use alloc::string::ToString;
+
 // This is for boot strapping the package
 // manager with an embedded git implementation,
 // as to not require depending on the system git.

@@ -9,7 +9,6 @@ use crate::{
     steel_vm::builtin::BuiltInModule,
 };
 use alloc::format;
-use alloc::string::ToString;
 #[cfg(test)]
 use alloc::vec::Vec;
 
@@ -403,30 +402,42 @@ pub fn hm_union(mut hml: &mut SteelVal, mut hmr: &mut SteelVal) -> Result<SteelV
             SteelVal::HashMapV(SteelHashMap(ref mut r)),
         ) => match (Gc::get_mut(l), Gc::get_mut(r)) {
             (None, None) => {
-                let hml = l.unwrap();
-                let hmr = r.unwrap();
-                Ok(SteelVal::HashMapV(Gc::new(hml.union(hmr)).into()))
+                let left = l.unwrap();
+                let right = r.unwrap();
+                #[cfg(feature = "std")]
+                let merged = left.union(right);
+                #[cfg(not(feature = "std"))]
+                let merged = left.union(&right);
+                Ok(SteelVal::HashMapV(Gc::new(merged).into()))
             }
             (None, Some(r_map)) => {
-                let right_side_value = core::mem::take(r_map);
-
-                *r_map = l.unwrap().union(right_side_value);
-
+                let left = l.unwrap();
+                let right = core::mem::take(r_map);
+                #[cfg(feature = "std")]
+                let merged = left.union(right);
+                #[cfg(not(feature = "std"))]
+                let merged = left.union(&right);
+                *r_map = merged;
                 Ok(core::mem::replace(hmr, SteelVal::Void))
             }
             (Some(l_map), None) => {
-                let left_side_value = core::mem::take(l_map);
-
-                *l_map = left_side_value.union(r.unwrap());
-
+                let right = r.unwrap();
+                let left = core::mem::take(l_map);
+                #[cfg(feature = "std")]
+                let merged = left.union(right);
+                #[cfg(not(feature = "std"))]
+                let merged = left.union(&right);
+                *l_map = merged;
                 Ok(core::mem::replace(hml, SteelVal::Void))
             }
             (Some(l_map), Some(r_map)) => {
-                let left_side_value = core::mem::take(l_map);
-                let right_side_value = core::mem::take(r_map);
-
-                *l_map = left_side_value.union(right_side_value);
-
+                let left = core::mem::take(l_map);
+                let right = core::mem::take(r_map);
+                #[cfg(feature = "std")]
+                let merged = left.union(right);
+                #[cfg(not(feature = "std"))]
+                let merged = left.union(&right);
+                *l_map = merged;
                 Ok(core::mem::replace(hml, SteelVal::Void))
             }
         },

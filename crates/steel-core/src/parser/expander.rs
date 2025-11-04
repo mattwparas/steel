@@ -32,9 +32,12 @@ use steel_parser::tokens::IntLiteral;
 use steel_parser::tokens::NumberLiteral;
 
 use super::macro_template::MacroTemplate;
-use super::{ast::Quote, interner::InternedString, parser::Parser};
+use super::{ast::Quote, interner::InternedString};
+#[cfg(feature = "std")]
+use super::parser::Parser;
 
 // Given path, update the extension
+#[cfg(feature = "std")]
 fn update_extension(mut path: SteelPath, extension: &str) -> SteelPath {
     path.set_extension(extension);
     path

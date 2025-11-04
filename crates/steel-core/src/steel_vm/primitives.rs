@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "std"), allow(dead_code, unused_imports))]
+
 use super::engine::Engine;
 use super::register_fn::RegisterFn;
 use super::vm::list_modules;
@@ -16,9 +18,10 @@ use super::{
 #[cfg(feature = "std")]
 use crate::compiler::modules::steel_home;
 use crate::gc::{shared::ShareableMut, GcMut};
+#[cfg(feature = "std")]
+use crate::parser::ast::TryFromSteelValVisitorForExprKind;
 use crate::parser::{
-    ast::TryFromSteelValVisitorForExprKind, interner::InternedString, span::Span,
-    tryfrom_visitor::TryFromExprKindForSteelVal,
+    interner::InternedString, span::Span, tryfrom_visitor::TryFromExprKindForSteelVal,
 };
 #[cfg(feature = "std")]
 use crate::primitives::bytevectors::bytevector_module;
@@ -110,7 +113,9 @@ use core::cmp::Ordering;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 #[cfg(feature = "std")]
 use once_cell::sync::Lazy;
-use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
+#[cfg(feature = "std")]
+use steel_parser::interner::interned_current_memory_usage;
+use steel_parser::{ast::ExprKind, parser::SourceId};
 
 #[cfg(all(feature = "std", not(target_family = "wasm")))]
 use crate::primitives::polling::polling_module;

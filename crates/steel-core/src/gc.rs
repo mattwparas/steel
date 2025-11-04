@@ -5,10 +5,13 @@ use crate::stop;
 use crate::sync::RwLock;
 #[allow(unused_imports)]
 use alloc::{boxed::Box, format, string::String, vec::Vec};
+#[allow(unused_imports)]
+use alloc::string::ToString;
 
 #[cfg(not(feature = "sync"))]
 use core::cell::RefCell;
 
+#[cfg(feature = "std")]
 use crate::os_strings::OsStr;
 use core::fmt;
 use core::fmt::Pointer;

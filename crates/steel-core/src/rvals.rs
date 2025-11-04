@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "std"), allow(dead_code, unused_imports, unused_variables))]
+
 pub mod cycles;
 
 #[cfg(not(feature = "std"))]
@@ -31,7 +33,8 @@ use crate::{
         transducers::{Reducer, Transducer},
     },
 };
-use alloc::{boxed::Box, format, rc::Rc, string::String, sync::Arc, vec, vec::IntoIter, vec::Vec};
+use alloc::{borrow::ToOwned, boxed::Box, format, rc::Rc, string::String, sync::Arc, vec, vec::IntoIter, vec::Vec};
+use alloc::string::ToString;
 use core::{
     any::{Any, TypeId},
     cell::RefCell,
@@ -1278,6 +1281,27 @@ impl Hash for SteelHashMap {
     }
 }
 
+#[cfg(not(feature = "imbl"))]
+impl Hash for SteelHashMap {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        let mut entry_hashes = Vec::with_capacity(self.len());
+        for (key, value) in self.iter() {
+            let mut entry_hasher = SimpleHasher::new();
+            key.hash(&mut entry_hasher);
+            value.hash(&mut entry_hasher);
+            entry_hashes.push(entry_hasher.finish());
+        }
+        entry_hashes.sort_unstable();
+        state.write_usize(entry_hashes.len());
+        for hash in entry_hashes {
+            state.write_u64(hash);
+        }
+    }
+}
+
 impl Deref for SteelHashMap {
     type Target = HashMap<SteelVal, SteelVal>;
 
@@ -1289,6 +1313,12 @@ impl Deref for SteelHashMap {
 impl From<Gc<HashMap<SteelVal, SteelVal>>> for SteelHashMap {
     fn from(value: Gc<HashMap<SteelVal, SteelVal>>) -> Self {
         SteelHashMap(value)
+    }
+}
+
+impl AsRef<HashMap<SteelVal, SteelVal>> for SteelHashMap {
+    fn as_ref(&self) -> &HashMap<SteelVal, SteelVal> {
+        self.0.as_ref()
     }
 }
 
@@ -1307,6 +1337,62 @@ impl Hash for SteelHashSet {
     }
 }
 
+#[cfg(not(feature = "imbl"))]
+#[derive(Clone, Copy)]
+struct SimpleHasher(u64);
+
+#[cfg(not(feature = "imbl"))]
+impl SimpleHasher {
+    #[inline]
+    fn new() -> Self {
+        Self(0xcbf29ce484222325)
+    }
+}
+
+#[cfg(not(feature = "imbl"))]
+impl Default for SimpleHasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(not(feature = "imbl"))]
+impl Hasher for SimpleHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        const FNV_PRIME: u64 = 0x100000001b3;
+        for byte in bytes {
+            self.0 ^= u64::from(*byte);
+            self.0 = self.0.wrapping_mul(FNV_PRIME);
+        }
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+#[cfg(not(feature = "imbl"))]
+impl Hash for SteelHashSet {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        let mut entry_hashes = Vec::with_capacity(self.len());
+        for value in self.iter() {
+            let mut entry_hasher = SimpleHasher::new();
+            value.hash(&mut entry_hasher);
+            entry_hashes.push(entry_hasher.finish());
+        }
+        entry_hashes.sort_unstable();
+        state.write_usize(entry_hashes.len());
+        for hash in entry_hashes {
+            state.write_u64(hash);
+        }
+    }
+}
+
 impl Deref for SteelHashSet {
     type Target = HashSet<SteelVal>;
 
@@ -1318,6 +1404,12 @@ impl Deref for SteelHashSet {
 impl From<Gc<HashSet<SteelVal>>> for SteelHashSet {
     fn from(value: Gc<HashSet<SteelVal>>) -> Self {
         SteelHashSet(value)
+    }
+}
+
+impl AsRef<HashSet<SteelVal>> for SteelHashSet {
+    fn as_ref(&self) -> &HashSet<SteelVal> {
+        self.0.as_ref()
     }
 }
 

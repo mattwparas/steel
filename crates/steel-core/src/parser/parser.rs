@@ -76,9 +76,9 @@ pub(crate) struct InterierSources {
 impl InterierSources {
     pub fn new() -> Self {
         InterierSources {
-            paths: crate::HashMap::new(),
-            reverse: crate::HashMap::new(),
-            sources: crate::HashMap::new(),
+            paths: crate::HashMap::default(),
+            reverse: crate::HashMap::default(),
+            sources: crate::HashMap::default(),
             counter: 0,
             gc_metadata: GcMetadata {
                 size_in_bytes: 0,

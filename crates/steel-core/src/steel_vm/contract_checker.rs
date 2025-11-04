@@ -107,7 +107,7 @@ pub enum BuiltInFunctionContract {
 // Generate the bindings for the built in functions
 pub fn built_in_contract_map() -> HashMap<&'static str, TypeInfo> {
     use TypeInfo::*;
-    let mut map = HashMap::new();
+    let mut map = HashMap::default();
 
     map.insert(
         "+",

@@ -3,8 +3,13 @@
 #[allow(unused_extern_crates)]
 pub extern crate alloc; // Required for heap-backed types when std is disabled
 
+#[allow(unused_imports)]
+use alloc::string::ToString;
+
 #[cfg(not(feature = "std"))]
 mod std {
+    #![allow(unused_imports)]
+
     pub mod result {
         pub use core::result::Result;
     }

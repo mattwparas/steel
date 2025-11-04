@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "std"), allow(dead_code, unused_imports, unused_variables))]
+
 use crate::compiler::compiler::Compiler;
 use crate::core::instructions::u24;
 #[cfg(feature = "sync")]
@@ -8,6 +10,7 @@ use crate::gc::shared::{
 };
 use crate::parser::expander::BindingKind;
 use crate::parser::replace_idents::expand_template;
+#[cfg(feature = "std")]
 use crate::path::PathBuf;
 use crate::primitives::lists::car;
 use crate::primitives::lists::cdr;
@@ -16,6 +19,7 @@ use crate::primitives::lists::steel_cons;
 use crate::primitives::lists::steel_list_ref;
 use crate::primitives::numbers::add_two;
 use crate::primitives::vectors::vec_ref;
+#[cfg(feature = "std")]
 use crate::rvals::as_underlying_type;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
 use crate::rvals::number_equality;
@@ -32,7 +36,6 @@ use crate::values::closed::Heap;
 use crate::values::closed::MarkAndSweepContext;
 use crate::values::functions::CaptureVec;
 use crate::values::functions::RootedInstructions;
-use crate::values::functions::SerializedLambda;
 use crate::values::structs::UserDefinedStruct;
 use crate::values::transducers::Reducer;
 use crate::{
@@ -63,7 +66,7 @@ use crate::{
     values::functions::ByteCodeLambda,
 };
 use alloc::sync::Arc;
-use core::{cell::RefCell, iter::Iterator, sync::atomic::AtomicBool};
+use core::{iter::Iterator, sync::atomic::AtomicBool};
 #[cfg(feature = "std")]
 use std::io::Read as _;
 
@@ -83,7 +86,7 @@ use steel_parser::interner::InternedString;
 #[cfg(feature = "std")]
 use threads::ThreadHandle;
 
-use crate::rvals::{into_serializable_value, IntoSteelVal};
+use crate::rvals::IntoSteelVal;
 
 #[cfg(feature = "std")]
 pub(crate) mod threads;

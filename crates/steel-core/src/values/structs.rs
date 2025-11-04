@@ -935,7 +935,7 @@ thread_local! {
 
         #[cfg(all(not(feature = "sync"), not(feature = "std")))]
         let result_options = {
-            let mut map = HashMap::<SteelVal, SteelVal>::new();
+            let mut map = HashMap::<SteelVal, SteelVal>::default();
             map.insert(
                 SteelVal::SymbolV("#:transparent".into()),
                 SteelVal::BoolV(true),
@@ -957,7 +957,7 @@ thread_local! {
     };
 
     pub static DEFAULT_PROPERTIES: Gc<HashMap<SteelVal, SteelVal>> =
-        Gc::new(HashMap::<SteelVal, SteelVal>::new());
+        Gc::new(HashMap::<SteelVal, SteelVal>::default());
 
     #[cfg(all(feature = "sync", not(feature = "imbl")))]
     pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im::hashmap! {
@@ -977,7 +977,7 @@ thread_local! {
 
     #[cfg(all(not(feature = "sync"), not(feature = "std")))]
     pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = {
-        let mut map = HashMap::<SteelVal, SteelVal>::new();
+        let mut map = HashMap::<SteelVal, SteelVal>::default();
         map.insert(
             SteelVal::SymbolV("#:transparent".into()),
             SteelVal::BoolV(true),
@@ -1012,7 +1012,7 @@ thread_local! {
 
     #[cfg(all(not(feature = "sync"), not(feature = "std")))]
     pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = {
-        let mut map = HashMap::<SteelVal, SteelVal>::new();
+        let mut map = HashMap::<SteelVal, SteelVal>::default();
         map.insert(
             SteelVal::SymbolV("#:transparent".into()),
             SteelVal::BoolV(true),

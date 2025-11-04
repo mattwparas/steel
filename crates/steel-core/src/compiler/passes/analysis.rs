@@ -1,4 +1,4 @@
-use crate::collections::{hash_map, MutableHashMap as HashMap, MutableHashSet as HashSet};
+use crate::collections::{MutableHashMap as HashMap, MutableHashSet as HashSet};
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -1402,14 +1402,17 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         //     self.info.get_mut(&id).unwrap().last_usage = true;
         // }
 
-        if let hash_map::Entry::Vacant(e) = self.info.let_info.entry(l.syntax_object_id) {
-            e.insert(LetInformation::new(
-                // self.stack_offset,
-                rollback_offset,
-                self.function_context,
-                arguments,
-            ));
-        }
+        self.info
+            .let_info
+            .entry(l.syntax_object_id)
+            .or_insert_with(|| {
+                LetInformation::new(
+                    // self.stack_offset,
+                    rollback_offset,
+                    self.function_context,
+                    arguments,
+                )
+            });
 
         if is_top_level {
             self.info.scope.pop_layer();

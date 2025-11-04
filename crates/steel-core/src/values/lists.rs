@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "std"), allow(dead_code, unused_imports))]
+
 use alloc::format;
 use core::cell::Cell;
 

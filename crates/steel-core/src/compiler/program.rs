@@ -21,6 +21,7 @@ use crate::{
     },
     rvals::IntoSteelVal,
 };
+#[cfg_attr(not(feature = "std"), allow(unused_imports))]
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;

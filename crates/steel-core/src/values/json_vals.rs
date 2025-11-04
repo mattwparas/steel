@@ -85,7 +85,7 @@ fn unescape(s: &str) -> String {
 impl TryFrom<Map<String, Value>> for SteelVal {
     type Error = SteelErr;
     fn try_from(map: Map<String, Value>) -> core::result::Result<Self, Self::Error> {
-        let mut hm = HashMap::new();
+        let mut hm = HashMap::default();
         for (key, value) in map {
             hm.insert(SteelVal::SymbolV(key.into()), value.try_into()?);
         }

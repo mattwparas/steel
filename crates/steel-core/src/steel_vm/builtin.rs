@@ -393,6 +393,11 @@ impl BuiltInModuleRepr {
             {
                 println!("{value}")
             }
+
+            #[cfg(not(feature = "std"))]
+            {
+                let _ = value;
+            }
         }
     }
 
@@ -766,7 +771,7 @@ pub struct InternalDocumentation {
 impl InternalDocumentation {
     pub fn new() -> Self {
         Self {
-            definitions: HashMap::new(),
+            definitions: HashMap::default(),
         }
     }
 

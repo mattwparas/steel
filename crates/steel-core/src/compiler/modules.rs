@@ -21,7 +21,7 @@ use crate::{
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 use alloc::{
-    borrow::{Cow, ToOwned},
+    borrow::Cow,
     boxed::Box,
     format,
     string::{String, ToString},
@@ -38,7 +38,9 @@ use once_cell::sync::Lazy;
 // use smallvec::SmallVec;
 #[cfg(feature = "std")]
 use std::{fs, io::Read};
-use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
+use steel_parser::{ast::PROTO_HASH_GET, expr_list, span::Span};
+#[cfg(feature = "std")]
+use steel_parser::parser::SourceId;
 
 use crate::parser::expander::SteelMacro;
 use crate::stop;
@@ -253,7 +255,7 @@ impl ModuleManager {
             file_metadata,
             visited: FxHashSet::default(),
             custom_builtins: HashMap::default(),
-            rollback_metadata: crate::collections::HashMap::new(),
+            rollback_metadata: crate::collections::HashMap::default(),
             module_resolvers: Vec::new(),
         }
     }

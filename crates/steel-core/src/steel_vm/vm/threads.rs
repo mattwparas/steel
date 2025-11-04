@@ -8,9 +8,12 @@ use fxhash::FxHashMap;
 use steel_derive::function;
 
 use crate::{
-    rvals::{AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer, SerializableSteelVal},
+    rvals::{
+        AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer, SerializableSteelVal,
+        into_serializable_value,
+    },
     steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn},
-    values::functions::SerializedLambdaPrototype,
+    values::functions::{SerializedLambda, SerializedLambdaPrototype},
 };
 
 #[cfg(feature = "sync")]
@@ -18,6 +21,8 @@ use crate::time::Instant;
 
 use super::*;
 use crate::sync::Mutex;
+#[cfg(feature = "std")]
+use std::cell::RefCell;
 
 pub struct ThreadHandle {
     pub(crate) handle:

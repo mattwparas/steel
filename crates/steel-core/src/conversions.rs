@@ -2,6 +2,7 @@ use crate::values::lists::List;
 #[cfg(test)]
 use alloc::string::String;
 use alloc::{borrow::Cow, boxed::Box, format, vec, vec::Vec};
+use alloc::string::ToString;
 
 use crate::collections::{
     HashMap as ImmutableHashMap, HashSet as ImmutableHashSet, MutableHashMap, MutableHashSet,
@@ -227,7 +228,7 @@ impl FromSteelVal for Box<str> {
 // HashMap
 impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for MutableHashMap<K, V> {
     fn into_steelval(self) -> Result<SteelVal> {
-        let mut hm = ImmutableHashMap::new();
+        let mut hm = ImmutableHashMap::default();
         for (key, val) in self.into_iter() {
             hm.insert(key.into_steelval()?, val.into_steelval()?);
         }
@@ -319,7 +320,7 @@ where
 // HashSet
 impl<K: IntoSteelVal> IntoSteelVal for MutableHashSet<K> {
     fn into_steelval(self) -> Result<SteelVal> {
-        let mut hs = ImmutableHashSet::new();
+        let mut hs = ImmutableHashSet::default();
         for value in self.into_iter() {
             hs.insert(value.into_steelval()?);
         }

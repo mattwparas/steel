@@ -13,6 +13,82 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
+#[cfg(not(feature = "std"))]
+fn vector_push_back(vec: &mut Vector<SteelVal>, value: SteelVal) {
+    vec.push(value);
+}
+
+#[cfg(feature = "std")]
+fn vector_push_back(vec: &mut Vector<SteelVal>, value: SteelVal) {
+    vec.push_back(value);
+}
+
+#[cfg(not(feature = "std"))]
+fn vector_push_front(vec: &mut Vector<SteelVal>, value: SteelVal) {
+    vec.insert(0, value);
+}
+
+#[cfg(feature = "std")]
+fn vector_push_front(vec: &mut Vector<SteelVal>, value: SteelVal) {
+    vec.push_front(value);
+}
+
+#[cfg(not(feature = "std"))]
+fn vector_pop_front(vec: &mut Vector<SteelVal>) -> Option<SteelVal> {
+    if vec.is_empty() {
+        None
+    } else {
+        Some(vec.remove(0))
+    }
+}
+
+#[cfg(feature = "std")]
+fn vector_pop_front(vec: &mut Vector<SteelVal>) -> Option<SteelVal> {
+    vec.pop_front()
+}
+
+#[cfg(not(feature = "std"))]
+fn vector_pop_back(vec: &mut Vector<SteelVal>) -> Option<SteelVal> {
+    vec.pop()
+}
+
+#[cfg(feature = "std")]
+fn vector_pop_back(vec: &mut Vector<SteelVal>) -> Option<SteelVal> {
+    vec.pop_back()
+}
+
+#[cfg(not(feature = "std"))]
+fn vector_set(vec: &mut Vector<SteelVal>, index: usize, value: SteelVal) {
+    if index < vec.len() {
+        vec[index] = value;
+    }
+}
+
+#[cfg(feature = "std")]
+fn vector_set(vec: &mut Vector<SteelVal>, index: usize, value: SteelVal) {
+    vec.set(index, value);
+}
+
+#[cfg(not(feature = "std"))]
+fn vector_take_clone(vec: &Vector<SteelVal>, count: usize) -> Vector<SteelVal> {
+    vec.iter().cloned().take(count).collect()
+}
+
+#[cfg(feature = "std")]
+fn vector_take_clone(vec: &Vector<SteelVal>, count: usize) -> Vector<SteelVal> {
+    vec.take(count)
+}
+
+#[cfg(not(feature = "std"))]
+fn vector_drop_clone(vec: &Vector<SteelVal>, count: usize) -> Vector<SteelVal> {
+    vec.iter().cloned().skip(count).collect()
+}
+
+#[cfg(feature = "std")]
+fn vector_drop_clone(vec: &Vector<SteelVal>, count: usize) -> Vector<SteelVal> {
+    vec.skip(count)
+}
+
 #[steel_derive::define_module(name = "steel/immutable-vectors")]
 pub fn immutable_vectors_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/immutable-vectors");
@@ -54,12 +130,12 @@ fn immutable_vector_rest(vector: &mut SteelVal) -> Result<SteelVal> {
     match vector {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
             Some(v) => {
-                v.pop_front();
+                vector_pop_front(v);
                 Ok(core::mem::replace(vector, SteelVal::Void))
             }
             None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
                 let mut v = v.unwrap();
-                v.pop_front();
+                vector_pop_front(&mut v);
                 v
             })))),
         },
@@ -354,12 +430,12 @@ fn immutable_vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<Steel
     match vector {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
             Some(v) => {
-                v.push_back(value);
+                vector_push_back(v, value);
                 Ok(core::mem::replace(vector, SteelVal::Void))
             }
             None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
                 let mut v = v.unwrap();
-                v.push_back(value);
+                vector_push_back(&mut v, value);
                 v
             })))),
         },
@@ -376,12 +452,12 @@ fn vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
     match vector {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
             Some(v) => {
-                v.push_back(value);
+                vector_push_back(v, value);
                 Ok(core::mem::replace(vector, SteelVal::Void))
             }
             None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
                 let mut v = v.unwrap();
-                v.push_back(value);
+                vector_push_back(&mut v, value);
                 v
             })))),
         },
@@ -414,12 +490,12 @@ fn immutable_vector_push_front(vector: &mut SteelVal, value: SteelVal) -> Result
     match vector {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
             Some(v) => {
-                v.push_front(value);
+                vector_push_front(v, value);
                 Ok(core::mem::replace(vector, SteelVal::Void))
             }
             None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
                 let mut v = v.unwrap();
-                v.push_front(value);
+                vector_push_front(&mut v, value);
                 v
             })))),
         },
@@ -456,7 +532,7 @@ fn immutable_vector_set(vector: &mut SteelVal, index: usize, value: SteelVal) ->
                     stop!(Generic => "immutable-vector-set: index out of bounds - attempted to index at offset: {} with length {}", index, v.len());
                 }
 
-                v.set(index, value);
+                vector_set(v, index, value.clone());
                 Ok(core::mem::replace(vector, SteelVal::Void))
             }
             None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
@@ -465,7 +541,7 @@ fn immutable_vector_set(vector: &mut SteelVal, index: usize, value: SteelVal) ->
                 }
 
                 let mut v = v.unwrap();
-                v.set(index, value);
+                vector_set(&mut v, index, value);
                 v
             })))),
         },
@@ -482,7 +558,7 @@ fn immutable_vector_pop_back(vector: &mut SteelVal) -> Result<SteelVal> {
     match vector {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
             Some(v) => {
-                let back = v.pop_back();
+                let back = vector_pop_back(v);
 
                 match back {
                     Some(back) => {
@@ -496,16 +572,14 @@ fn immutable_vector_pop_back(vector: &mut SteelVal) -> Result<SteelVal> {
                 }
             }
             None => {
-                // Ok(SteelVal::VectorV(SteelVector(Gc::new({
-                // if index > v.len() {
-                //     stop!(Generic => "immutable-vector-set: index out of bounds - attempted to index at offset: {} with length {}", index, v.len());
-                // }
-
-                // let mut v = v.unwrap();
-                // v.set(index, value);
-                // v
-                todo!()
-                // })))),
+                let mut cloned = v.unwrap();
+                match vector_pop_back(&mut cloned) {
+                    Some(back) => Ok(SteelVal::Pair(Gc::new(Pair {
+                        car: back,
+                        cdr: SteelVal::VectorV(SteelVector(Gc::new(cloned))),
+                    }))),
+                    None => Ok(SteelVal::BoolV(false)),
+                }
             }
         },
 
@@ -535,7 +609,9 @@ fn immutable_vector_take(vector: &mut SteelVal, count: usize) -> Result<SteelVal
                 v.truncate(count);
                 Ok(core::mem::replace(vector, SteelVal::Void))
             }
-            None => Ok(SteelVal::VectorV(SteelVector(Gc::new(v.take(count))))),
+            None => Ok(SteelVal::VectorV(SteelVector(Gc::new(
+                vector_take_clone(v.as_ref(), count),
+            )))),
         },
 
         _ => {
@@ -581,13 +657,15 @@ fn immutable_vector_drop(vector: &mut SteelVal, count: usize) -> Result<SteelVal
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
             Some(v) => {
                 for _ in 0..count {
-                    v.pop_front();
+                    vector_pop_front(v);
                 }
 
                 // v.truncate(count);
                 Ok(core::mem::replace(vector, SteelVal::Void))
             }
-            None => Ok(SteelVal::VectorV(SteelVector(Gc::new(v.skip(count))))),
+            None => Ok(SteelVal::VectorV(SteelVector(Gc::new(
+                vector_drop_clone(v.as_ref(), count),
+            )))),
         },
 
         _ => {
@@ -1270,13 +1348,13 @@ pub fn vec_push(args: &[SteelVal]) -> Result<SteelVal> {
     match lst {
         SteelVal::VectorV(v) => {
             let mut vec = v.0.unwrap();
-            vec.push_back(elem.clone());
+            vector_push_back(&mut vec, elem.clone());
             Ok(SteelVal::VectorV(Gc::new(vec).into()))
         }
         _ => {
             let mut new = Vector::new();
-            new.push_front(elem.clone());
-            new.push_front(lst.clone());
+            vector_push_front(&mut new, elem.clone());
+            vector_push_front(&mut new, lst.clone());
             Ok(SteelVal::VectorV(Gc::new(new).into()))
         }
     }
@@ -1302,13 +1380,13 @@ pub fn vec_cons(args: &[SteelVal]) -> Result<SteelVal> {
     match lst {
         SteelVal::VectorV(v) => {
             let mut vec = v.0.unwrap();
-            vec.push_front(elem.clone());
+            vector_push_front(&mut vec, elem.clone());
             Ok(SteelVal::VectorV(Gc::new(vec).into()))
         }
         _ => {
             let mut new = Vector::new();
-            new.push_front(lst.clone());
-            new.push_front(elem.clone());
+            vector_push_front(&mut new, lst.clone());
+            vector_push_front(&mut new, elem.clone());
             Ok(SteelVal::VectorV(Gc::new(new).into()))
         }
     }
@@ -1330,7 +1408,7 @@ pub fn vec_car(args: &[SteelVal]) -> Result<SteelVal> {
     match &args[0] {
         SteelVal::VectorV(v) => {
             let mut vec = v.0.unwrap();
-            match vec.pop_front() {
+            match vector_pop_front(&mut vec) {
                 Some(val) => Ok(val),
                 None => stop!(ContractViolation => "car expects a non-empty list"),
             }
@@ -1358,7 +1436,7 @@ pub fn vec_cdr(args: &[SteelVal]) -> Result<SteelVal> {
             if vec.is_empty() {
                 stop!(ContractViolation => "cdr expects a non-empty list");
             } else {
-                vec.pop_front();
+                vector_pop_front(&mut vec);
                 Ok(SteelVal::VectorV(Gc::new(vec).into()))
             }
         }
