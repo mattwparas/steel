@@ -8,13 +8,7 @@ use crate::{stop, throw};
 
 use crate::values::lists::List;
 
-use crate::core::utils::{
-    arity_check, declare_const_mut_ref_functions, declare_const_ref_functions,
-};
-
-declare_const_ref_functions! {
-    LIST_TO_STRING => steel_list_to_string,
-}
+use crate::core::utils::{arity_check, declare_const_mut_ref_functions};
 
 declare_const_mut_ref_functions! {
     PUSH_BACK => push_back,
@@ -72,7 +66,7 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(REVERSE_DEFINITION)
         .register_native_fn_definition(LIST_REF_DEFINITION)
         .register_native_fn_definition(TRY_LIST_REF_DEFINITION)
-        .register_value("list->string", crate::primitives::lists::LIST_TO_STRING)
+        .register_native_fn_definition(LIST_TO_STRING_DEFINITION)
         .register_value("push-back", crate::primitives::lists::PUSH_BACK)
         .register_native_fn_definition(PAIR_DEFINITION)
         .register_native_fn_definition(APPLY_DEFINITION)
@@ -90,9 +84,51 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(PLIST_GET_POSITIONAL_LIST_DEFINITION)
         .register_native_fn_definition(PLIST_VALIDATE_ARGS_DEFINITION)
         .register_native_fn_definition(DROP_START_DEFINITION)
-        .register_native_fn_definition(CHUNKS_DEFINITION);
+        .register_native_fn_definition(CHUNKS_DEFINITION)
+        .register_native_fn_definition(MEMBER_DEFINITION)
+        .register_native_fn_definition(MEMQ_DEFINITION)
+        .register_native_fn_definition(LIST_CONTAINS_DEFINITION);
 
     module
+}
+
+#[steel_derive::function(name = "member")]
+pub fn member(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
+    let mut list = list.clone();
+    while let Some(first) = list.first() {
+        if first == value {
+            return Ok(SteelVal::ListV(list));
+        }
+
+        list.cdr_mut();
+    }
+
+    Ok(SteelVal::BoolV(false))
+}
+
+#[steel_derive::function(name = "memq")]
+pub fn memq(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
+    let mut list = list.clone();
+    while let Some(first) = list.first() {
+        if SteelVal::ptr_eq(first, value) {
+            return Ok(SteelVal::ListV(list));
+        }
+
+        list.cdr_mut();
+    }
+
+    Ok(SteelVal::BoolV(false))
+}
+
+#[steel_derive::function(name = "list-contains")]
+pub fn list_contains(value: &SteelVal, list: &List<SteelVal>) -> Result<SteelVal> {
+    for item in list.iter() {
+        if item == value {
+            return Ok(SteelVal::BoolV(true));
+        }
+    }
+
+    Ok(SteelVal::BoolV(false))
 }
 
 #[steel_derive::function(name = "list-chunks", constant = true)]
@@ -114,12 +150,12 @@ pub fn chunks(list: &List<SteelVal>) -> Result<SteelVal> {
 ///
 /// ```scheme
 /// > (second '(1 2 3)) ;; => 2
-/// > (second '())
 /// error[E11]: Generic
-///         ┌─ :1:2
-///         │
-///         1 │ (second '())
-///         │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+///   ┌─ :1:2
+///   │
+/// 1 │ (second '())
+///   │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+/// ```
 #[steel_derive::function(name = "second", constant = true)]
 pub fn second(list: &List<SteelVal>) -> Result<SteelVal> {
     list.get(1).cloned().ok_or_else(throw!(Generic => "second: index out of bounds - list did not have an element in the second position: {:?}", list))
@@ -136,16 +172,34 @@ pub fn second(list: &List<SteelVal>) -> Result<SteelVal> {
 /// > (third '(1 2 3)) ;; => 3
 /// > (third '())
 /// error[E11]: Generic
-///        ┌─ :1:2
-///        │
-///        1 │ (third '())
-///        │  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
+///   ┌─ :1:2
+///   │
+/// 1 │ (third '())
+///   │  ^^^^^ third: Index out of bounds - list did not have an element in the second position: []
 /// ```
 #[steel_derive::function(name = "third", constant = true)]
 pub(crate) fn third(list: &List<SteelVal>) -> Result<SteelVal> {
     list.get(2).cloned().ok_or_else(throw!(Generic => "third: Index out of bounds - list did not have an element in the second position: {:?}", list))
 }
 
+/// Same as `list-drop`, except raise an error if `n` is greater than the length of `lst`.
+///
+/// (list-tail lst n) -> any/c
+///
+/// * lst : list?
+/// * n : int?
+///
+/// # Examples
+/// ```scheme
+/// > (list-tail '(1 2 3 4 5) 2) ;; => '(3 4 5)
+/// > (list-tail '() 3)
+/// error[E11]: Generic
+///   ┌─ :1:2
+///   │
+/// 1 │ (list-tail '() 3)
+///   │  ^^^^^^^^^ list-tail expects at least 3
+///                     elements in the list, found: 0
+/// ```
 #[steel_derive::function(name = "list-tail")]
 pub fn list_tail(list_or_pair: &SteelVal, pos: usize) -> Result<SteelVal> {
     match list_or_pair {
@@ -296,7 +350,7 @@ macro_rules! debug_unreachable {
 
 /// Returns a newly allocated list of the elements in the range [n, m) or [0, m) when n is not given.
 ///
-/// (range m)   -> (listof int?)
+/// (range m)   -> (listof int?)  
 /// (range n m) -> (listof int?)
 ///
 /// * n : int?
@@ -322,7 +376,7 @@ fn range(args: &[SteelVal]) -> Result<SteelVal> {
     }
 
     Ok(SteelVal::ListV(
-        (lower..upper).into_iter().map(SteelVal::IntV).collect(),
+        (lower..upper).map(SteelVal::IntV).collect(),
     ))
 }
 
@@ -347,7 +401,7 @@ fn length(list: &List<SteelVal>) -> usize {
 ///
 /// (reverse lst) -> list?
 ///
-/// * l : list?
+/// * lst : list?
 ///
 /// # Examples
 /// ```scheme
@@ -450,10 +504,10 @@ fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (cdr (list 10)) ;; => '()
 /// > (cdr '())
 /// error[E11]: Generic
-///    ┌─ :1:2
-///    │
-///    1 │ (cdr '())
-///    │  ^^^ cdr expects a non empty list
+///   ┌─ :1:2
+///   │
+/// 1 │ (cdr '())
+///   │  ^^^ cdr expects a non empty list
 /// ```
 #[steel_derive::function(name = "cdr", constant = true)]
 pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
@@ -486,12 +540,12 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
 /// ```scheme
 /// > (rest (list 10 20 30)) ;; => '(20 30)
 /// > (rest (list 10)) ;; => '()
-/// > (rest '() )
+/// > (rest '())
 /// error[E11]: Generic
-///    ┌─ :1:2
-///    │
-///    1 │ (rest '())
-///    │  ^^^^ rest expects a non empty list
+///   ┌─ :1:2
+///   │
+/// 1 │ (rest '())
+///   │  ^^^^ rest expects a non empty list
 /// ```
 #[steel_derive::function(name = "rest", constant = true, arity = "Exact(1)")]
 fn rest(arg: &mut SteelVal) -> Result<SteelVal> {
@@ -531,20 +585,44 @@ fn take(list: &List<SteelVal>, n: isize) -> Result<SteelVal> {
     }
 }
 
-/// Appends the given lists together. If provided with no lists, will return the empty list.
+/// Appends the given lists together. If provided with no lists, will return
+/// the empty list.
 ///
-/// (append lst ...)
+/// If the last element is not a list, an improper list will be returned
 ///
-/// lst : list?
+/// (append lst ...) -> list?  
+/// (append lst ... v) -> any/c
+///
+/// * lst : list?
+/// * v : any/c
 ///
 /// # Examples
 /// ```scheme
 /// > (append (list 1 2) (list 3 4)) ;; => '(1 2 3 4)
 /// > (append) ;; => '()
+/// > (append (list 1 2) (cons 3 4)) ;; => '(1 2 3 . 4)
+/// > (append '() 'a) ;; => 'a
 /// ```
 #[steel_derive::native_mut(name = "append", constant = true, arity = "AtLeast(0)")]
 fn append(args: &mut [SteelVal]) -> Result<SteelVal> {
-    if let Some((first, rest)) = args.split_first_mut() {
+    if let Some((last, rest)) = args
+        .split_last_mut()
+        .filter(|(val, _)| !matches!(*val, SteelVal::ListV(_)))
+    {
+        let mut last = last.clone();
+        for value in rest.iter().rev() {
+            if let SteelVal::ListV(lst) = value {
+                // TODO: potentially save this allocation
+                for item in lst.clone().reverse().into_iter() {
+                    last = SteelVal::Pair(Gc::new(Pair::cons(item, last)));
+                }
+            } else {
+                stop!(TypeMismatch => "append expects a list, found: {}", value);
+            }
+        }
+
+        Ok(last)
+    } else if let Some((first, rest)) = args.split_first_mut() {
         let initial = if let SteelVal::ListV(ref mut l) = first {
             l
         } else {
@@ -559,9 +637,9 @@ fn append(args: &mut [SteelVal]) -> Result<SteelVal> {
             }
         }
 
-        return Ok(SteelVal::ListV(initial.clone()));
+        Ok(SteelVal::ListV(initial.clone()))
     } else {
-        return Ok(SteelVal::ListV(List::new()));
+        Ok(SteelVal::ListV(List::new()))
     }
 }
 
@@ -576,6 +654,18 @@ pub fn try_list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
     }
 }
 
+/// Remove a certain number of elements (`n`) from the front of `lst`.
+///
+/// (list-drop lst n) -> any/c
+///
+/// * lst : list?
+/// * n : int?
+///
+/// # Examples
+/// ```scheme
+/// > (list-drop '(1 2 3 4 5) 2) ;; => '(3 4 5)
+/// > (list-drop '() 3) ;; => '()
+/// ```
 #[steel_derive::function(name = "list-drop", constant = true)]
 pub fn drop_start(list: &List<SteelVal>, skip: usize) -> Result<SteelVal> {
     let mut list = list.clone();
@@ -587,14 +677,37 @@ pub fn drop_start(list: &List<SteelVal>, skip: usize) -> Result<SteelVal> {
 
 #[steel_derive::function(name = "plist-get", constant = true)]
 pub fn plist_get(list: &List<SteelVal>, key: &SteelVal) -> Result<SteelVal> {
-    let mut iter = list.iter();
-    // TODO: Change this to be pointer equality!
+    plist_get_impl(list.iter(), key)
+}
+
+pub(crate) fn plist_get_impl<'a>(
+    mut iter: impl Iterator<Item = &'a SteelVal>,
+    key: &SteelVal,
+) -> Result<SteelVal> {
     let symbol = iter.find(|x| *x == key);
     let value = iter.next();
     match (symbol, value) {
         (None, _) => stop!(Generic => format!("Key not found: {}", key)),
         (Some(_), None) => stop!(Generic => format!("Missing value for key: {}", key)),
         (Some(_), Some(v)) => Ok(v.clone()),
+    }
+}
+
+pub trait KeywordDictionary<'a> {
+    fn get(self, key: &'a SteelVal) -> Option<&'a SteelVal>;
+}
+
+impl<'a, T> KeywordDictionary<'a> for T
+where
+    T: Iterator<Item = &'a SteelVal>,
+{
+    fn get(mut self, key: &'a SteelVal) -> Option<&'a SteelVal> {
+        let symbol = self.find(|x| *x == key);
+        let value = self.next();
+        match (symbol, value) {
+            (Some(_), Some(v)) => Some(v),
+            _ => None,
+        }
     }
 }
 
@@ -660,12 +773,11 @@ pub fn plist_validate_args(
 
     // What is the range of arguments that we could expect?
     // we should see at least
-    return found_positional >= required_positional_arg_count
+    found_positional >= required_positional_arg_count
         && (is_rest
-            || found_positional
-                <= (required_positional_arg_count + optional_positional_arg_count))
+            || found_positional <= (required_positional_arg_count + optional_positional_arg_count))
         && found_keyword >= required_keyword_arg_count
-        && (is_rest || found_keyword <= (required_keyword_arg_count + optional_keyword_arg_count));
+        && (is_rest || found_keyword <= (required_keyword_arg_count + optional_keyword_arg_count))
 }
 
 // Find the arg by index, skipping keyword pairs
@@ -743,8 +855,14 @@ pub fn plist_try_get(
     key: &SteelVal,
     default_value: SteelVal,
 ) -> Result<SteelVal> {
-    let mut iter = list.iter();
+    plist_try_get_impl(list.iter(), key, default_value)
+}
 
+pub(crate) fn plist_try_get_impl<'a>(
+    mut iter: impl Iterator<Item = &'a SteelVal>,
+    key: &SteelVal,
+    default_value: SteelVal,
+) -> Result<SteelVal> {
     Ok(iter
         .find(|x| x.ptr_eq(key))
         .and_then(|_| iter.next().cloned())
@@ -764,7 +882,7 @@ pub fn plist_try_get(
 /// # Examples
 /// ```scheme
 /// > (list-ref (list 1 2 3 4) 2) ;; => 3
-/// > (list-ref (range 0 100) 42) ;; => 42"
+/// > (list-ref (range 0 100) 42) ;; => 42
 /// > (list-ref (list 1 2 3 4) 10)
 /// error[E11]: Generic
 ///   ┌─ :1:2
@@ -783,6 +901,16 @@ pub fn list_ref(list: &List<SteelVal>, index: isize) -> Result<SteelVal> {
         .ok_or_else(throw!(Generic => format!("out of bounds index in list-ref - list length: {}, index: {}", list.len(), index)))
 }
 
+/// Convert a list of charecters to a string.
+///
+/// (list->string lst) -> string?
+///
+/// * lst : (listof char?)
+///
+/// # Examples
+/// ```scheme
+/// (list->string '(#\a #\b #\c)) ;; => "abc"
+/// ```
 #[steel_derive::function(name = "list->string", constant = true)]
 fn list_to_string(list: &List<SteelVal>) -> Result<SteelVal> {
     list.iter()

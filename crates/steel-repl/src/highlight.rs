@@ -13,7 +13,7 @@ use rustyline::validate::{ValidationContext, ValidationResult, Validator};
 use rustyline::Helper;
 use rustyline::{hint::Hinter, Context};
 
-use steel_parser::lexer::TokenStream;
+use steel_parser::lexer::{TokenError, TokenStream};
 
 use rustyline::completion::Completer;
 use rustyline::completion::Pair;
@@ -45,14 +45,15 @@ impl Completer for RustylineHelper {
         _ctx: &Context<'_>,
     ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
         // Only do completions if we're in an identifier
-        let Some((span, symbol)) =
-            TokenStream::new(line, true, SourceId::none()).find_map(|token| match token.ty {
-                TokenType::Identifier(ref symbol) => (
+        let Some((span, symbol)) = TokenStream::new(line, true, SourceId::none())
+            .filter_map(Result::ok)
+            .find_map(|token| match token.ty {
+                TokenType::Identifier(ref symbol) => {
                     // Inclusive range as curser usually placed directly after the symbol
-                    token.span().start()..=token.span().end()
-                )
-                    .contains(&pos)
-                    .then_some((token.span(), symbol.clone())),
+                    (token.span().start()..=token.span().end())
+                        .contains(&(pos as u32))
+                        .then_some((token.span(), *symbol))
+                }
                 _ => None,
             })
         else {
@@ -64,9 +65,9 @@ impl Completer for RustylineHelper {
         let mut containing = Vec::new();
         for interned in self.globals.lock().unwrap().iter() {
             let str = interned.resolve();
-            if str.starts_with(symbol.as_ref()) {
+            if str.starts_with(symbol.resolve()) {
                 starting.push(str.to_owned());
-            } else if str.contains(symbol.as_ref()) {
+            } else if str.contains(symbol.resolve()) {
                 containing.push(str.to_owned())
             }
         }
@@ -80,7 +81,7 @@ impl Completer for RustylineHelper {
         };
         starting.sort_by(compare);
         containing.sort_by(compare);
-        let candidates = starting.into_iter().chain(containing.into_iter());
+        let candidates = starting.into_iter().chain(containing);
 
         // Apply colors to distinguish completion from typed text
         let completions = candidates
@@ -90,7 +91,7 @@ impl Completer for RustylineHelper {
             })
             .collect();
 
-        Ok((span.start(), completions))
+        Ok((span.start() as usize, completions))
     }
 
     fn update(
@@ -102,9 +103,12 @@ impl Completer for RustylineHelper {
     ) {
         // Cursor can be anywhere in the identifier, so find its span again.
         if let Some(end) = TokenStream::new(line, true, SourceId::none())
-            .find_map(|token| (token.span().start() == start).then_some(token.span().end()))
+            .filter_map(Result::ok)
+            .find_map(|token| {
+                (token.span().start() as usize == start).then_some(token.span().end())
+            })
         {
-            line.replace(start..end, elected, cl);
+            line.replace(start..end as usize, elected, cl);
         }
     }
 }
@@ -120,17 +124,26 @@ impl Validator for RustylineHelper {
         let mut unfinished = false;
 
         for token in token_stream {
+            let token = match token {
+                Ok(token) => token,
+                Err(err) => {
+                    unfinished = std::matches!(
+                        err.ty,
+                        TokenError::IncompleteString
+                            | TokenError::IncompleteIdentifier
+                            | TokenError::IncompleteComment
+                    );
+
+                    break;
+                }
+            };
+
             match token.ty {
                 TokenType::OpenParen(..) => {
                     balance += 1;
                 }
                 TokenType::CloseParen(_) => {
                     balance -= 1;
-                }
-                TokenType::Error => {
-                    unfinished = token.source.starts_with("\"") || token.source.starts_with("#|");
-
-                    break;
                 }
                 _ => {}
             }
@@ -165,7 +178,9 @@ impl Highlighter for RustylineHelper {
 
         let mut line_to_highlight = line.to_owned();
 
-        let mut token_stream = TokenStream::new(line, true, SourceId::none()).peekable();
+        let mut token_stream = TokenStream::new(line, true, SourceId::none())
+            .filter_map(Result::ok)
+            .peekable();
 
         let mut ranges_to_replace: Vec<(std::ops::Range<usize>, String)> = Vec::new();
 
@@ -175,17 +190,13 @@ impl Highlighter for RustylineHelper {
         let mut paren_to_highlight = None;
 
         while let Some(token) = token_stream.next() {
-            // todo!()
-
-            // if token.span().end() > pos {
-            //     return self.highlighter.highlight(line, pos);
-            // }
-
             match token.typ() {
                 TokenType::OpenParen(paren, paren_mod) if paren_to_highlight.is_none() => {
                     let open_span = TokenType::open_span(token.span, *paren_mod);
 
-                    if open_span.start == pos || (open_span.start == pos + 1 && cursor.is_none()) {
+                    if open_span.start as usize == pos
+                        || (open_span.start as usize == pos + 1 && cursor.is_none())
+                    {
                         cursor = Some((*paren, open_span));
                     }
 
@@ -193,9 +204,9 @@ impl Highlighter for RustylineHelper {
                 }
 
                 TokenType::CloseParen(paren) if paren_to_highlight.is_none() => {
-                    let mut matches = token.span.start == pos;
+                    let mut matches = token.span.start as usize == pos;
 
-                    if token.span.end == pos {
+                    if token.span.end as usize == pos {
                         let next_span = match token_stream.peek() {
                             Some(steel_parser::tokens::Token {
                                 ty: TokenType::CloseParen(_),
@@ -213,7 +224,7 @@ impl Highlighter for RustylineHelper {
                         };
 
                         matches = match next_span {
-                            Some(span) => span.start > pos,
+                            Some(span) => span.start as usize > pos,
 
                             _ => true,
                         }
@@ -248,7 +259,7 @@ impl Highlighter for RustylineHelper {
                 | TokenType::Require => {
                     let highlighted = format!("{}", token.source().bright_purple());
 
-                    ranges_to_replace.push((token.span().range(), highlighted));
+                    ranges_to_replace.push((token.span().usize_range(), highlighted));
 
                     // line_to_highlight.replace_range(token.span().range(), &highlighted);
                 }
@@ -262,19 +273,14 @@ impl Highlighter for RustylineHelper {
                 // steel::parser::tokens::TokenType::Comment => todo!(),
                 TokenType::BooleanLiteral(_) => {
                     let highlighted = format!("{}", token.source().bright_magenta());
-                    ranges_to_replace.push((token.span().range(), highlighted));
+                    ranges_to_replace.push((token.span().usize_range(), highlighted));
                 }
                 TokenType::Identifier(ident) => {
                     // If its a free identifier, nix it?
 
-                    if self
-                        .globals
-                        .lock()
-                        .unwrap()
-                        .contains(&InternedString::from(&**ident))
-                    {
+                    if self.globals.lock().unwrap().contains(ident) {
                         let highlighted = format!("{}", token.source().bright_blue());
-                        ranges_to_replace.push((token.span().range(), highlighted));
+                        ranges_to_replace.push((token.span().usize_range(), highlighted));
                     }
 
                     // TODO:
@@ -287,11 +293,11 @@ impl Highlighter for RustylineHelper {
                 // steel::parser::tokens::TokenType::Keyword(_) => todo!(),
                 TokenType::Number(_) => {
                     let highlighted = format!("{}", token.source().bright_yellow());
-                    ranges_to_replace.push((token.span().range(), highlighted));
+                    ranges_to_replace.push((token.span().usize_range(), highlighted));
                 }
                 TokenType::StringLiteral(_) => {
                     let highlighted = format!("{}", token.source().bright_green());
-                    ranges_to_replace.push((token.span().range(), highlighted));
+                    ranges_to_replace.push((token.span().usize_range(), highlighted));
                 }
                 // steel::parser::tokens::TokenType::Error => todo!(),
                 _ => {}
@@ -305,7 +311,7 @@ impl Highlighter for RustylineHelper {
 
             // println!("pos: {}")
 
-            let old_length = line_to_highlight.as_bytes().len();
+            let old_length = line_to_highlight.len();
 
             // self.bracket.set(check_bracket(&line_to_highlight, start));
 
@@ -313,11 +319,11 @@ impl Highlighter for RustylineHelper {
 
             line_to_highlight.replace_range(range, &highlighted);
 
-            let new_length = line_to_highlight.as_bytes().len();
+            let new_length = line_to_highlight.len();
 
             // TODO just store the updated location back in
             if let Some(pos) = paren_to_highlight {
-                if start <= pos {
+                if start <= pos as _ {
                     offset += new_length - old_length;
                 }
             }
@@ -335,7 +341,7 @@ impl Highlighter for RustylineHelper {
 
         // highlight matching brace/bracket/parenthesis if it exists
         if let Some(pos) = paren_to_highlight {
-            let idx = if pos == 0 { 0 } else { pos + offset };
+            let idx = if pos == 0 { 0 } else { pos as usize + offset };
 
             line_to_highlight.replace_range(
                 idx..=idx,

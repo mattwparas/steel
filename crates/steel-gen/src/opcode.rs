@@ -119,11 +119,29 @@ declare_opcodes! {
         VEC;
         Apply;
         POPJMP;
-        CALLGLOBALTAILPOP;
         BINOPADDTAIL;
         LOADINT0POP; // Load const 0
         LOADINT1POP;
-        LOADINT2POP
+        LOADINT2POP;
+        READLOCAL0CALLGLOBAL;
+        READLOCAL1CALLGLOBAL;
+        LISTREF;
+        VECTORREF;
+        TRUE;
+        FALSE;
+        NULLIF;
+        UNBOXCALL;
+        UNBOXTAIL;
+        EQUALCONST;
+        EQUAL2;
+        // Calling functions w/o arity checks, if we can statically assert
+        // that the arity check is correct. If the arity check _isn't_
+        // correct, then we won't report it at compile time.
+        CALLGLOBALNOARITY;
+        CALLGLOBALTAILNOARITY;
+        FUNCNOARITY;
+        TAILCALLNOARITY;
+        SELFTAILCALLNOARITY
     }
 
     // Super instructions

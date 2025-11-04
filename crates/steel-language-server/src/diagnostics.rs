@@ -9,12 +9,15 @@ use std::{
 use dashmap::DashSet;
 use ropey::Rope;
 use steel::{
-    compiler::passes::{
-        analysis::{
-            query_top_level_define, query_top_level_define_on_condition,
-            RequiredIdentifierInformation, SemanticAnalysis,
+    compiler::{
+        modules::{MANGLED_MODULE_PREFIX, MANGLER_PREFIX, MODULE_PREFIX},
+        passes::{
+            analysis::{
+                query_top_level_define, query_top_level_define_on_condition,
+                RequiredIdentifierInformation, SemanticAnalysis,
+            },
+            VisitorMutUnitRef,
         },
-        VisitorMutUnitRef,
     },
     define_primitive_symbols, define_symbols,
     parser::{
@@ -28,7 +31,7 @@ use steel::{
 };
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Range, Url};
 
-use crate::backend::{make_error, offset_to_position};
+use crate::backend::Config;
 
 pub struct DiagnosticContext<'a> {
     pub engine: &'a Engine,
@@ -36,6 +39,7 @@ pub struct DiagnosticContext<'a> {
     pub uri: &'a Url,
     pub source_id: Option<SourceId>,
     pub rope: Rope,
+    pub config: &'a Config,
     pub globals_set: &'a DashSet<InternedString>,
     pub ignore_set: &'a DashSet<InternedString>,
 }
@@ -60,8 +64,16 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
 
                 let resolved = ident.resolve();
 
+                if resolved.starts_with(MANGLER_PREFIX) {
+                    return None;
+                }
+
                 // We can just ignore those as well
                 if resolved.starts_with("mangler") {
+                    return None;
+                }
+
+                if resolved.starts_with(MANGLED_MODULE_PREFIX) {
                     return None;
                 }
 
@@ -69,14 +81,13 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
                     return None;
                 }
 
-                let start_position = offset_to_position(span.start, &context.rope)?;
-                let end_position = offset_to_position(span.end, &context.rope)?;
-
-                // TODO: Publish the diagnostics for each file separately, if we have them
-                Some(make_error(Diagnostic::new_simple(
-                    Range::new(start_position, end_position),
+                let range = context.config.span_to_range(&span, &context.rope)?;
+                let diagnostic = create_diagnostic(
+                    range,
+                    DiagnosticSeverity::ERROR,
                     format!("free identifier: {}", resolved),
-                )))
+                );
+                Some(diagnostic)
             })
             .chain(
                 context
@@ -107,16 +118,12 @@ impl DiagnosticGenerator for FreeIdentifiersAndUnusedIdentifiers {
                             }
                         }
 
-                        let start_position = offset_to_position(span.start, &context.rope)?;
-                        let end_position = offset_to_position(span.end, &context.rope)?;
-
-                        let mut diagnostic = Diagnostic::new_simple(
-                            Range::new(start_position, end_position),
-                            format!("unused variable"),
+                        let range = context.config.span_to_range(&span, &context.rope)?;
+                        let diagnostic = create_diagnostic(
+                            range,
+                            DiagnosticSeverity::INFORMATION,
+                            "unused variable".to_owned(),
                         );
-
-                        diagnostic.severity = Some(DiagnosticSeverity::INFORMATION);
-
                         Some(diagnostic)
                     }),
             )
@@ -289,15 +296,14 @@ impl<'a, 'b> StaticCallSiteArityChecker<'a, 'b> {
     }
 }
 
-fn create_diagnostic(rope: &Rope, span: &Span, message: String) -> Option<Diagnostic> {
-    let start_position = offset_to_position(span.start, &rope)?;
-    let end_position = offset_to_position(span.end, &rope)?;
-
-    let mut diagnostic = Diagnostic::new_simple(Range::new(start_position, end_position), message);
-
-    diagnostic.severity = Some(DiagnosticSeverity::INFORMATION);
-
-    Some(diagnostic)
+pub fn create_diagnostic(
+    range: Range,
+    severity: DiagnosticSeverity,
+    message: String,
+) -> Diagnostic {
+    let mut diagnostic = Diagnostic::new_simple(range, message);
+    diagnostic.severity = Some(severity);
+    diagnostic
 }
 
 impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
@@ -331,7 +337,7 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                     .extract_value(l.first_ident().unwrap().resolve())
                                     .ok()?
                                 {
-                                    b.arity.map(Arity::Exact)
+                                    b.arity.map(|x| Arity::Exact(x as _))
                                 } else {
                                     None
                                 }
@@ -343,16 +349,19 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                     let span =
                                         l.first().unwrap().atom_syntax_object().unwrap().span;
 
-                                    if let Some(diagnostic) = create_diagnostic(
-                                        &self.context.rope,
-                                        &span,
-                                        format!(
-                                            "Arity mismatch: {} expects {} arguments, found {}",
-                                            l.first().unwrap(),
-                                            arity,
-                                            l.args.len() - 1
-                                        ),
-                                    ) {
+                                    if let Some(range) =
+                                        self.context.config.span_to_range(&span, &self.context.rope)
+                                    {
+                                        let diagnostic = create_diagnostic(
+                                            range,
+                                            DiagnosticSeverity::ERROR,
+                                            format!(
+                                                "ArityMismatch: {} expects {} arguments, found {}",
+                                                l.first().unwrap(),
+                                                arity,
+                                                l.args.len() - 1
+                                            ),
+                                        );
                                         self.diagnostics.push(diagnostic);
                                     }
                                 }
@@ -362,18 +371,20 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                     let span =
                                         l.first().unwrap().atom_syntax_object().unwrap().span;
 
-                                    if let Some(diagnostic) = create_diagnostic(
-                                    &self.context.rope,
-                                    &span,
-                                    format!(
-                                        "Arity mismatch: {} expects at least {} arguments, found {}",
-                                        l.first().unwrap(),
-                                        arity,
-                                        l.args.len() - 1
-                                    ),
-                                ) {
-                                    self.diagnostics.push(diagnostic);
-                                }
+                                    if let Some(range) =
+                                        self.context.config.span_to_range(&span, &self.context.rope)
+                                    {
+                                        let diagnostic = create_diagnostic(
+                                            range,
+                                            DiagnosticSeverity::ERROR,
+                                            format!("ArityMismatch: {} expects at least {} arguments, found {}",
+                                                l.first().unwrap(),
+                                                arity,
+                                                l.args.len() - 1
+                                            ),
+                                        );
+                                        self.diagnostics.push(diagnostic);
+                                    }
                                 }
                             }
                             Some(Arity::AtMost(arity)) => {
@@ -381,16 +392,19 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                     let span =
                                         l.first().unwrap().atom_syntax_object().unwrap().span;
 
-                                    if let Some(diagnostic) = create_diagnostic(
-                                        &self.context.rope,
-                                        &span,
-                                        format!(
-                                        "Arity mismatch: {} expects at most {} arguments, found {}",
-                                        l.first().unwrap(),
-                                        arity,
-                                        l.args.len() - 1
-                                    ),
-                                    ) {
+                                    if let Some(range) =
+                                        self.context.config.span_to_range(&span, &self.context.rope)
+                                    {
+                                        let diagnostic = create_diagnostic(
+                                            range,
+                                            DiagnosticSeverity::ERROR,
+                                            format!(
+                                                "ArityMismatch: {} expects at most {} arguments, found {}",
+                                                l.first().unwrap(),
+                                                arity,
+                                                l.args.len() - 1
+                                            ),
+                                        );
                                         self.diagnostics.push(diagnostic);
                                     }
                                 }
@@ -401,17 +415,20 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                     let span =
                                         l.first().unwrap().atom_syntax_object().unwrap().span;
 
-                                    if let Some(diagnostic) = create_diagnostic(
-                                        &self.context.rope,
-                                        &span,
-                                        format!(
-                                    "Arity mismatch: {} expects {} to {} arguments, found {}",
-                                    l.first().unwrap(),
-                                    n,
-                                    m,
-                                    arg_amount
-                                ),
-                                    ) {
+                                    if let Some(range) =
+                                        self.context.config.span_to_range(&span, &self.context.rope)
+                                    {
+                                        let diagnostic = create_diagnostic(
+                                            range,
+                                            DiagnosticSeverity::ERROR,
+                                            format!(
+                                                "ArityMismatch: {} expects {} to {} arguments, found {}",
+                                                l.first().unwrap(),
+                                                n,
+                                                m,
+                                                arg_amount
+                                            ),
+                                        );
                                         self.diagnostics.push(diagnostic);
                                     }
                                 }
@@ -423,16 +440,19 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                             if l.args.len() != arity + 1 {
                                 let span = l.first().unwrap().atom_syntax_object().unwrap().span;
 
-                                if let Some(diagnostic) = create_diagnostic(
-                                    &self.context.rope,
-                                    &span,
-                                    format!(
-                                        "Arity mismatch: {} expects {} arguments, found {}",
-                                        l.first().unwrap(),
-                                        arity,
-                                        l.args.len() - 1
-                                    ),
-                                ) {
+                                if let Some(range) =
+                                    self.context.config.span_to_range(&span, &self.context.rope)
+                                {
+                                    let diagnostic = create_diagnostic(
+                                        range,
+                                        DiagnosticSeverity::ERROR,
+                                        format!(
+                                            "ArityMismatch: {} expects {} arguments, found {}",
+                                            l.first().unwrap(),
+                                            arity,
+                                            l.args.len() - 1
+                                        ),
+                                    );
                                     self.diagnostics.push(diagnostic);
                                 }
                             }
@@ -576,6 +596,7 @@ fn function_contract(expr: &ExprKind) -> Option<steel::rvals::Result<StaticContr
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
+#[allow(unpredictable_function_pointer_comparisons)]
 pub enum TypeInfo {
     // We don't have enough information to say what this type is
     // Either, the function has come externally or it was unable to be inferred for some reason

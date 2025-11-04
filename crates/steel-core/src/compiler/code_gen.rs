@@ -4,7 +4,6 @@ use super::{
         Analysis,
         CallKind::{Normal, SelfTailCall, TailCall},
     },
-    program::number_literal_to_steel,
 };
 use crate::{
     compiler::passes::analysis::IdentifierStatus::{
@@ -23,6 +22,7 @@ use crate::{
         tryfrom_visitor::TryFromExprKindForSteelVal,
         visitors::VisitorMut,
     },
+    rvals::IntoSteelVal,
     stop, SteelVal,
 };
 use smallvec::SmallVec;
@@ -55,21 +55,19 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
 fn try_eval_atom(t: &SyntaxObject) -> Option<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Some((*b).into()),
-        TokenType::Number(n) => number_literal_to_steel(n).ok(),
+        TokenType::Number(n) => (&**n).into_steelval().ok(),
         TokenType::StringLiteral(s) => Some(SteelVal::StringV(s.to_string().into())),
         TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
         TokenType::Keyword(k) => Some(SteelVal::SymbolV(k.clone().into())),
-        _what => {
-            return None;
-        }
+        _what => None,
     }
 }
 
 fn try_eval_atom_with_context(t: &SyntaxObject) -> Result<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Ok((*b).into()),
-        TokenType::Number(n) => number_literal_to_steel(n).map_err(|e| e.with_span(t.span)),
+        TokenType::Number(n) => (&**n).into_steelval().map_err(|e| e.with_span(t.span)),
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
@@ -733,15 +731,24 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         };
 
         if let Some(call_info) = self.analysis.call_info.get(&l.syntax_object_id) {
+            // TODO: Check the arity of the function call, against the arity
+            // of the bound identifier. This can probably be included in the analysis
+            // assuming we have it?
             let op_code = match call_info.kind {
                 Normal => OpCode::FUNC,
                 TailCall => OpCode::TAILCALL,
+                super::passes::analysis::CallKind::NoArityNormal => OpCode::FUNCNOARITY,
+                super::passes::analysis::CallKind::NoArityTailCall => OpCode::TAILCALLNOARITY,
+                super::passes::analysis::CallKind::NoAritySelfTailCall(_) => {
+                    self.instructions.pop();
+                    OpCode::SELFTAILCALLNOARITY
+                }
+                // Elide the arity checks, if we can
                 SelfTailCall(_) => {
                     // We don't need to push the function onto the stack if we're doing a self
                     // tail call
                     self.instructions.pop();
                     OpCode::TCOJMP
-                    // OpCode::TAILCALL
                 }
             };
 
@@ -848,10 +855,12 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         // FUNC 2
         // LETENDSCOPE 0 <- index of the stack when we entered this let expr
 
+        // if !l.bindings.is_empty() {
         self.push(
             LabeledInstruction::builder(OpCode::BEGINSCOPE)
                 .payload(*self.local_count.last().unwrap_or(&0)),
         );
+        // }
 
         let info = self
             .analysis

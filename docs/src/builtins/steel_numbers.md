@@ -132,7 +132,7 @@ Rounds the given number up to the nearest integer not less than it.
 
 (ceiling number) -> integer?
 
-* number : number? - The number to round up.
+* number : real? - The number to round up.
 
 #### Examples
 ```scheme
@@ -167,6 +167,62 @@ Retrieves the denominator of the given rational number.
 > (denominator 3/4) ;; => 4
 > (denominator 4) ;; => 1
 ```
+### **euclidean-quotient**
+Returns the quotient of a euclidean integer division of a given numerator *n*
+by a given denominator *m*.
+
+(euclidean-quotient n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (euclidean-quotient 5 2) ;; => 2
+> (euclidean-quotient -5 2) ;; => -3
+> (euclidean-quotient 5 -2) ;; => -2
+> (euclidean-quotient -5 -2) ;; => 3
+```
+### **euclidean-remainder**
+Returns the arithmetic remainder of a euclidean integer division of a given
+numerator *n* by a given denominator *m*.
+
+The return value of this procedure is always positive.
+
+(euclidean-remainder n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (euclidean-remainder 5 2) ;; => 1
+> (euclidean-remainder -5 2) ;; => 1
+> (euclidean-remainder 5 -2) ;; => 1
+> (euclidean-remainder -5 -2) ;; => 1
+```
+### **euclidean/**
+Simultaneously returns the quotient and the arithmetic remainder of a euclidean
+integer division of a given numerator *n* by a given denominator *m*.
+
+Equivalent to `(values (euclidean-quotient n m) (euclidean-remainder n m))`,
+but may be computed more efficiently.
+
+(euclidean/ n m) -> (integer? integer?)
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (euclidean/ 5 2) ;; => (2 1)
+> (euclidean/ -5 2) ;; => (-3 1)
+> (euclidean/ 5 -2) ;; => (-2 1)
+> (euclidean/ -5 -2) ;; => (3 1)
+```
 ### **even?**
 Checks if the given number is even
 
@@ -194,18 +250,7 @@ Converts a number to an exact number.
 > (exact 1.5+2.5i) ;; => 3/2+5/2i
 ```
 ### **exact->inexact**
-Converts an exact number to an inexact number.
-
-(exact->inexact num) -> number?
-
-* num : number? - The number to convert from exact to inexact.
-
-#### Examples
-```scheme
-> (exact->inexact 10) ;; => 10
-> (exact->inexact 1/2) ;; => 0.5
-> (exact->inexact 1+2i) ;; => 1+2i
-```
+Alias of `inexact`.
 ### **exact-integer-sqrt**
 Computes the integer square root of the given non-negative integer.
 
@@ -287,17 +332,73 @@ Returns `#t` if the given number is finite.
 > (finite? +nan.0) ;; => #f
 ```
 ### **floor**
-Computes the largest integer less than or equal to the given number.
+Rounds the given number down to the nearest integer not larger than it.
 
 (floor number) -> number?
 
-* number : number? - The number to compute the floor for.
+* number : real? - The number to compute the floor for.
 
 #### Examples
 ```scheme
 > (floor 3.14) ;; => 3
 > (floor 4.99) ;; => 4
 > (floor -2.5) ;; => -3
+```
+### **floor-quotient**
+Returns the quotient of a floored integer division of a given numerator *n*
+by a given denominator *m*.
+
+Equivalent to `(values (floor-quotient n m) (floor-remainder n m))`, but
+may be computed more efficiently.
+
+(floor-quotient n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (floor-quotient 5 2) ;; => 2
+> (floor-quotient -5 2) ;; => -3
+> (floor-quotient 5 -2) ;; => -3
+> (floor-quotient -5 -2) ;; => 2
+```
+### **floor-remainder**
+Returns the arithmetic remainder of a floored integer division of a given
+numerator *n* by a given denominator *m*.
+
+The return value of this procedure has the same sign as the denominator.
+
+(floor-remainder n m) -> integer?
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (floor-remainder 5 2) ;; => 1
+> (floor-remainder -5 2) ;; => 1
+> (floor-remainder 5 -2) ;; => -1
+> (floor-remainder -5 -2) ;; => -1
+```
+### **floor/**
+Simultaneously returns the quotient and the arithmetic remainder of a floored
+integer division of a given numerator *n* by a given denominator *m*.
+
+(floor/ n m) -> (integer? integer?)
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (floor/ 5 2) ;; => (2 1)
+> (floor/ -5 2) ;; => (-3 1)
+> (floor/ 5 -2) ;; => (-3 -1)
+> (floor/ -5 -2) ;; => (2 -1)
 ```
 ### **imag-part**
 Returns the imaginary part of a number
@@ -323,18 +424,7 @@ Converts a number to an inexact number.
 > (inexact 1+2i) ;; => 1+2i
 ```
 ### **inexact->exact**
-Converts an inexact number to an exact number.
-
-(inexact->exact num) -> number?
-
-* num : number? - The number to convert from inexact to exact.
-
-#### Examples
-```scheme
-> (inexact->exact 10.0) ;; => 10
-> (inexact->exact 1.5) ;; => 3/2
-> (inexact->exact 1.5+2.5i) ;; => 3/2+5/2i
-```
+Alias of `exact`.
 ### **inexact?**
 Checks if the given value is inexact.
 
@@ -402,8 +492,12 @@ Create a complex number with `re` as the real part and `im` as the imaginary par
 - re : real?
 - im : real?
 ### **modulo**
-Returns the euclidean remainder of the division of the first number by the second
-This differs from the remainder operator when using negative numbers.
+Returns the arithmetic remainder of a floored integer division of a given
+numerator *n* by a given denominator *m*.
+
+The return value of this procedure has the same sign as the denominator.
+
+This procedure is an alias of `floor-remainder`.
 
 (modulo n m) -> integer?
 
@@ -411,11 +505,12 @@ This differs from the remainder operator when using negative numbers.
 * m : integer?
 
 #### Examples
+
 ```scheme
-> (modulo 10 3) ;; => 1
-> (modulo -10 3) ;; => 2
-> (modulo 10 -3) ;; => -2
-> (module -10 -3) ;; => -1
+> (modulo 5 2) ;; => 1
+> (modulo -5 2) ;; => 1
+> (modulo 5 -2) ;; => -1
+> (modulo -5 -2) ;; => -1
 ```
 ### **nan?**
 Returns `#t` if the real number is Nan.
@@ -481,18 +576,23 @@ Checks if the given real number is positive.
 > (positive? -1) ;; => #f
 ```
 ### **quotient**
-Returns quotient of dividing numerator by denomintator.
+Returns the quotient of a truncated integer division of a given numerator *n*
+by a given denominator *m*.
 
-(quotient numerator denominator) -> integer?
+This procedure is an alias of `truncate-quotient`.
 
-* numerator : integer? - The numerator.
-* denominator : integer? - The denominator.
+(quotient n m) -> integer?
+
+* n : integer? - The numerator.
+* m : integer? - The denominator.
 
 #### Examples
+
 ```scheme
-> (quotient 11 2) ;; => 5
-> (quotient 10 2) ;; => 5
-> (quotient -10 2) ;; => -5
+> (quotient 5 2) ;; => 2
+> (quotient -5 2) ;; => -2
+> (quotient 5 -2) ;; => -2
+> (quotient -5 -2) ;; => 2
 ```
 ### **real-part**
 Returns the real part of a number
@@ -505,8 +605,12 @@ Returns the real part of a number
 > (real-part 42) ;; => 42
 ```
 ### **remainder**
-Returns the arithmetic remainder of the division of the first number by the second.
-This differs from the modulo operator when using negative numbers.
+Returns the arithmetic remainder of a truncated integer division of a given
+numerator *n* by a given denominator *m*.
+
+The return value of this procedure has the same sign as the numerator.
+
+This procedure is an alias of `truncate-remainder`.
 
 (remainder n m) -> integer?
 
@@ -514,24 +618,28 @@ This differs from the modulo operator when using negative numbers.
 * m : integer?
 
 #### Examples
+
 ```scheme
-> (remainder 10 3) ;; => 1
-> (remainder -10 3) ;; => -1
-> (remainder 10 -3) ;; => 1
-> (remainder -10 -3) ;; => -1
+> (remainder 5 2) ;; => 1
+> (remainder -5 2) ;; => -1
+> (remainder 5 -2) ;; => 1
+> (remainder -5 -2) ;; => -1
 ```
 ### **round**
-Rounds the given number to the nearest integer.
+Rounds the given number to the nearest integer, rounding half-way cases to
+the even number.
 
 (round number) -> number?
 
-* number : number? - The number to round.
+* number : real? - The number to round.
 
 #### Examples
 ```scheme
 > (round 3.14) ;; => 3
 > (round 4.6) ;; => 5
-> (round -2.5) ;; => -3
+> (round 2.5) ;; => 2
+> (round 3.5) ;; => 4
+> (round -2.5) ;; => -2
 ```
 ### **sin**
 Returns the sine value of the input angle, measured in radians.
@@ -586,6 +694,77 @@ Returns the tangent value of the input angle, measured in radians.
 > (tan 1) ;; => 1.557407724654902
 > (tan 2.0) ;; => -2.185039863261519
 > (tan 3.14) ;; => -0.0015926549364072232
+```
+### **truncate**
+Rounds the given number to the nearest integer, whose absolute value is not
+larger than it.
+
+(truncate number) -> integer?
+
+* number : real? - The number to truncate.
+
+#### Examples
+
+```scheme
+> (truncate 42) ;; => 42
+> (truncate 42.1) ;; => 42
+> (truncate -42.1) ;; => -42
+```
+### **truncate-quotient**
+Returns the quotient of a truncated integer division of a given numerator *n*
+by a given denominator *m*.
+
+(truncate-quotient n m) -> integer?
+
+* n : integer? - The numerator.
+* m : integer? - The denominator.
+
+#### Examples
+
+```scheme
+> (truncate-quotient 5 2) ;; => 2
+> (truncate-quotient -5 2) ;; => -2
+> (truncate-quotient 5 -2) ;; => -2
+> (truncate-quotient -5 -2) ;; => 2
+```
+### **truncate-remainder**
+Returns the arithmetic remainder of a truncated integer division of a given
+numerator *n* by a given denominator *m*.
+
+The return value of this procedure has the same sign as the numerator.
+
+(truncate-remainder n m) -> integer?
+
+* n : integer? - The numerator.
+* m : integer? - The denominator.
+
+#### Examples
+
+```scheme
+> (truncate-remainder 5 2) ;; => 1
+> (truncate-remainder -5 2) ;; => -1
+> (truncate-remainder 5 -2) ;; => 1
+> (truncate-remainder -5 -2) ;; => -1
+```
+### **truncate/**
+Simultaneously returns the quotient and the arithmetic remainder of a truncated
+integer division of a given numerator *n* by a given denominator *m*.
+
+Equivalent to `(values (truncate-quotient n m) (truncate-remainder n m))`,
+but may be computed more efficiently.
+
+(truncate/ n m) -> (integer? integer?)
+
+* n : integer?
+* m : integer?
+
+#### Examples
+
+```scheme
+> (truncate/ 5 2) ;; => (2 1)
+> (truncate/ -5 2) ;; => (-2 -1)
+> (truncate/ 5 -2) ;; => (-2 1)
+> (truncate/ -5 -2) ;; => (2 -1)
 ```
 ### **zero?**
 Checks if the given real number is zero.

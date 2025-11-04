@@ -109,19 +109,21 @@ fn vector_to_string(
     match vector {
         Either::Left(vector) => immutable_vector_to_string(vector, rest),
         Either::Right(vec) => {
-            let (start, end) = bounds_mut(rest, "vector->string", 3, &vec.get())?;
+            // TODO: Get rid of this unnecessary clone on the get
+            let (start, end) = vec.borrow(|x| bounds_mut(rest, "vector->string", 3, x))?;
 
-            vec.get()
-                .iter()
-                .skip(start)
-                .take(end - start)
-                .map(|x| {
-                    x.char_or_else(throw!(TypeMismatch => "vector->string
+            vec.borrow(|x| {
+                x.iter()
+                    .skip(start)
+                    .take(end - start)
+                    .map(|x| {
+                        x.char_or_else(throw!(TypeMismatch => "vector->string
                 expected a succession of characters"))
-                })
-                .collect::<Result<String>>()
-                .map(|x| x.into())
-                .map(SteelVal::StringV)
+                    })
+                    .collect::<Result<String>>()
+                    .map(|x| x.into())
+                    .map(SteelVal::StringV)
+            })
         }
     }
 }
@@ -193,8 +195,8 @@ fn vector_copy(
                 let copy: Vec<_> = vector
                     .iter()
                     .skip(start)
-                    .cloned()
                     .take(end - start)
+                    .cloned()
                     .collect();
 
                 let vec = ctx.make_mutable_vector(copy);
@@ -229,8 +231,8 @@ fn immutable_vector_copy(vector: &SteelVector, rest: RestArgsIter<'_, isize>) ->
     let copy: Vector<_> = vector
         .iter()
         .skip(start)
-        .cloned()
         .take(end - start)
+        .cloned()
         .collect();
 
     Ok(SteelVal::VectorV(Gc::new(copy).into()))
@@ -722,11 +724,13 @@ pub fn mut_vec_construct_vec(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resu
 pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     fn make_vector_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
         match &args {
-            &[SteelVal::IntV(i)] if *i >= 0 => {
-                Ok(ctx.make_mutable_vector(vec![SteelVal::IntV(0); *i as usize]))
-            }
+            &[SteelVal::IntV(i)] if *i >= 0 => Ok(ctx
+                .make_mutable_vector_iter(std::iter::repeat(SteelVal::IntV(0)).take(*i as usize))),
             &[SteelVal::IntV(i), initial_value] if *i >= 0 => {
-                Ok(ctx.make_mutable_vector(vec![initial_value.clone(); *i as usize]))
+                // Ok(ctx.make_mutable_vector(vec![initial_value.clone(); *i as usize]))
+                Ok(ctx.make_mutable_vector_iter(
+                    std::iter::repeat(initial_value.clone()).take(*i as usize),
+                ))
             }
             _ => {
                 stop!(TypeMismatch => "make-vector expects a positive integer, and optionally a value to initialize the vector with, found: {:?}", args)
@@ -787,7 +791,7 @@ pub fn mut_vector_copy(
                 dest_guard
                     .iter_mut()
                     .skip(dest_start)
-                    .zip(temporary_buffer.into_iter())
+                    .zip(temporary_buffer)
                     .for_each(|(dest, src)| {
                         *dest = src;
                     })
@@ -940,12 +944,43 @@ pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> R
 
     let guard = &mut ptr.write().value;
 
-    if i as usize > guard.len() {
+    if i >= guard.len() {
         stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
     }
 
     // Update the vector position
-    guard[i as usize] = value;
+    guard[i] = value;
+
+    Ok(SteelVal::Void)
+}
+
+/// Swaps the value of the specified indices in a mutable vector.
+///
+/// (vector-swap! vec a b) -> void?
+///
+/// * vec : vector? - The mutable vector to modify.
+/// * a : integer? - The first index of `vec` to swap with `b` (must be within bounds).
+/// * b : integer? - The first index of `vec` to swap with `a` (must be within bounds).
+///
+/// # Examples
+/// ```scheme
+/// > (define A (mutable-vector 1 2 3)) ;;
+/// > (vector-swap! A 0 1) ;;
+/// > A ;; => '#(2 1 3)
+/// ```
+#[steel_derive::function(name = "vector-swap!")]
+pub fn mut_vec_swap(vec: &HeapRef<Vec<SteelVal>>, i: usize, j: usize) -> Result<SteelVal> {
+    let ptr = vec.strong_ptr();
+
+    let guard = &mut ptr.write().value;
+
+    if i >= guard.len() {
+        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
+    } else if j >= guard.len() {
+        stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", j, guard.len());
+    }
+
+    guard.swap(i, j);
 
     Ok(SteelVal::Void)
 }
@@ -991,7 +1026,7 @@ pub fn immutable_vector_construct_alternate(args: &[SteelVal]) -> Result<SteelVa
 pub fn vec_length(v: Either<&SteelVector, &HeapRef<Vec<SteelVal>>>) -> SteelVal {
     match v {
         Either::Left(v) => SteelVal::IntV(v.len() as _),
-        Either::Right(v) => SteelVal::IntV(v.get().len() as _),
+        Either::Right(v) => SteelVal::IntV(v.borrow(|x| x.len() as _)),
     }
 }
 
@@ -1164,11 +1199,8 @@ pub fn vec_append(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (define B (mutable-vector 5 15 25)) ;;
 /// > (vector-ref B 2) ;; => 25
 /// ```
-#[steel_derive::native(name = "vector-ref", constant = true, arity = "Exact(2)")]
-pub fn vec_ref(args: &[SteelVal]) -> Result<SteelVal> {
-    let vec = &args[0];
-    let idx = &args[1];
-
+#[steel_derive::function(name = "vector-ref", constant = true)]
+pub fn vec_ref(vec: &SteelVal, idx: &SteelVal) -> Result<SteelVal> {
     // First, ensure the index is a valid non-negative integer
     if let SteelVal::IntV(i) = idx {
         if *i < 0 {
@@ -1180,8 +1212,10 @@ pub fn vec_ref(args: &[SteelVal]) -> Result<SteelVal> {
         // Now match on the vector type
         match vec {
             SteelVal::MutableVector(v) => {
+                // TODO: If we move this into a context aware function,
+                // then we can avoid the lookup cost since we won't be in a safepoint.
                 let ptr = v.strong_ptr();
-                let guard = &mut ptr.write().value;
+                let guard = &ptr.read().value;
 
                 if idx_usize >= guard.len() {
                     stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
@@ -1373,7 +1407,7 @@ fn bounds_mut(
     mut rest: RestArgsIter<'_, isize>,
     name: &str,
     args: usize,
-    vector: &Vec<SteelVal>,
+    vector: &[SteelVal],
 ) -> Result<(usize, usize)> {
     if rest.len() > 2 {
         stop!(ArityMismatch => "{} expects at most {} arguments", name, args);
@@ -1438,8 +1472,11 @@ mod vector_prim_tests {
     #[cfg(not(feature = "sync"))]
     use im_rc::vector;
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     use im::vector;
+
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    use imbl::vector;
 
     #[test]
     fn vec_construct_test() {

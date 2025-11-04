@@ -198,7 +198,6 @@ impl VisitorMutRefUnit for FlattenBegin {
 
                 if begin.exprs.len() == 1 {
                     *expr = std::mem::take(&mut begin.exprs).into_iter().next().unwrap();
-                    return;
                 }
             }
             ExprKind::Return(r) => self.visit_return(r),
@@ -394,7 +393,7 @@ impl ExpressionType {
                     let name = d
                         .name
                         .atom_identifier_or_else(|| {})
-                        .expect("Define without a legal name");
+                        .expect(&format!("Define without a legal name: {}", d.name));
 
                     defined_idents.insert(*name);
 
@@ -563,7 +562,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        IntLiteral::Small(123).into(),
+                        IntLiteral::Small(0).into(),
                     ))));
                     let name_prime = ExprKind::atom(compact_str::format_compact!(
                         "_____{}{}",
@@ -584,7 +583,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        IntLiteral::Small(123).into(),
+                        IntLiteral::Small(0).into(),
                     ))));
                     let name_prime = ExprKind::atom(compact_str::format_compact!(
                         "_____{}{}",
@@ -616,7 +615,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
                 if let ExprKind::Define(d) = &exprs[i] {
                     top_level_arguments.push(d.name.clone());
                     top_level_dummy_args.push(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                        IntLiteral::Small(123).into(),
+                        IntLiteral::Small(0).into(),
                     ))));
                     let name_prime = ExprKind::atom(compact_str::format_compact!(
                         "_____{}{}",

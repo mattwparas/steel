@@ -159,22 +159,22 @@ macro_rules! expr_list {
 }
 
 impl ExprKind {
-    pub fn span(&self) -> Option<Span> {
+    pub fn span(&self) -> Span {
         match self {
-            ExprKind::Atom(expr) => Some(expr.syn.span),
-            ExprKind::If(expr) => Some(expr.location.span),
-            ExprKind::Let(expr) => Some(expr.location.span),
-            ExprKind::Define(expr) => Some(expr.location.span),
-            ExprKind::LambdaFunction(expr) => Some(expr.location.span),
-            ExprKind::Begin(expr) => Some(expr.location.span),
-            ExprKind::Return(expr) => Some(expr.location.span),
-            ExprKind::Quote(expr) => Some(expr.location.span),
-            ExprKind::Macro(expr) => Some(expr.location.span),
-            ExprKind::SyntaxRules(expr) => Some(expr.location.span),
-            ExprKind::List(expr) => Some(expr.location),
-            ExprKind::Set(expr) => Some(expr.location.span),
-            ExprKind::Require(expr) => Some(expr.location.span),
-            ExprKind::Vector(vec) => Some(vec.span),
+            ExprKind::Atom(expr) => expr.syn.span,
+            ExprKind::If(expr) => expr.location.span,
+            ExprKind::Let(expr) => expr.location.span,
+            ExprKind::Define(expr) => expr.location.span,
+            ExprKind::LambdaFunction(expr) => expr.location.span,
+            ExprKind::Begin(expr) => expr.location.span,
+            ExprKind::Return(expr) => expr.location.span,
+            ExprKind::Quote(expr) => expr.location.span,
+            ExprKind::Macro(expr) => expr.location.span,
+            ExprKind::SyntaxRules(expr) => expr.location.span,
+            ExprKind::List(expr) => expr.location,
+            ExprKind::Set(expr) => expr.location.span,
+            ExprKind::Require(expr) => expr.location.span,
+            ExprKind::Vector(vec) => vec.span,
         }
     }
 
@@ -278,16 +278,15 @@ impl ExprKind {
     }
 
     pub fn define_syntax_ident(&self) -> bool {
-        match self {
+        matches!(
+            self,
             Self::Atom(Atom {
-                syn:
-                    SyntaxObject {
-                        ty: TokenType::DefineSyntax,
-                        ..
-                    },
-            }) => true,
-            _ => false,
-        }
+                syn: SyntaxObject {
+                    ty: TokenType::DefineSyntax,
+                    ..
+                },
+            })
+        )
     }
 
     pub fn atom_identifier_mut(&mut self) -> Option<&mut InternedString> {
@@ -431,11 +430,11 @@ impl ExprKind {
 }
 
 pub trait ToDoc {
-    fn to_doc(&self) -> RcDoc<()>;
+    fn to_doc(&self) -> RcDoc<'_, ()>;
 }
 
 impl ToDoc for ExprKind {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         match self {
             ExprKind::Atom(a) => a.to_doc(),
             ExprKind::If(i) => i.to_doc(),
@@ -533,7 +532,7 @@ impl fmt::Display for Atom {
 }
 
 impl ToDoc for Atom {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text(self.syn.ty.to_string())
     }
 }
@@ -590,7 +589,7 @@ impl fmt::Display for Let {
 }
 
 impl ToDoc for Let {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(%plain-let")
             .append(RcDoc::space())
             .append(RcDoc::text("("))
@@ -646,7 +645,7 @@ impl fmt::Display for Set {
 }
 
 impl ToDoc for Set {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(set!")
             .append(RcDoc::space())
             .append(self.variable.to_doc())
@@ -673,7 +672,7 @@ pub struct If {
 }
 
 impl ToDoc for If {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(if")
             .append(RcDoc::space())
             .append(self.test_expr.to_doc())
@@ -735,7 +734,7 @@ impl fmt::Display for Define {
 }
 
 impl ToDoc for Define {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(define")
             .append(RcDoc::space())
             .append(self.name.to_doc())
@@ -822,7 +821,7 @@ impl fmt::Display for LambdaFunction {
 }
 
 impl ToDoc for LambdaFunction {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         if self.rest && self.args.len() == 1 {
             RcDoc::text("(λ")
                 .append(RcDoc::space())
@@ -922,7 +921,7 @@ impl fmt::Display for Begin {
 }
 
 impl ToDoc for Begin {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(begin")
             .append(RcDoc::line())
             .nest(5)
@@ -962,7 +961,7 @@ impl Return {
 }
 
 impl ToDoc for Return {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(return")
             .append(RcDoc::line())
             .append(self.expr.to_doc())
@@ -996,7 +995,7 @@ impl Require {
 }
 
 impl ToDoc for Require {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(require")
             .append(RcDoc::line())
             .append(
@@ -1069,7 +1068,7 @@ impl fmt::Display for Vector {
 }
 
 impl ToDoc for Vector {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text(self.prefix().as_str())
             .append("(")
             .append(
@@ -1288,7 +1287,7 @@ impl List {
     }
 
     pub fn is_anonymous_function_call(&self) -> bool {
-        matches!(self.args.get(0), Some(ExprKind::LambdaFunction(_)))
+        matches!(self.args.first(), Some(ExprKind::LambdaFunction(_)))
     }
 
     pub fn is_a_builtin_expr(&self) -> bool {
@@ -1321,7 +1320,7 @@ impl List {
 }
 
 impl ToDoc for List {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         if let Some(func) = self.first_func().filter(|_| !self.improper) {
             let mut args_iter = self.args.iter();
             args_iter.next();
@@ -1425,7 +1424,7 @@ impl Quote {
 }
 
 impl ToDoc for Quote {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(quote")
             .append(RcDoc::line())
             .append(self.expr.to_doc())
@@ -1462,7 +1461,7 @@ impl fmt::Display for Macro {
 }
 
 impl ToDoc for Macro {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(define-syntax")
             .append(RcDoc::line())
             .append(self.name.to_doc())
@@ -1521,7 +1520,7 @@ impl fmt::Display for SyntaxRules {
 }
 
 impl ToDoc for SyntaxRules {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("(syntax-rules")
             .append(RcDoc::line())
             .append(RcDoc::text("("))
@@ -1555,13 +1554,29 @@ pub struct PatternPair {
 }
 
 impl PatternPair {
-    pub fn new(pattern: ExprKind, body: ExprKind) -> Self {
-        PatternPair { pattern, body }
+    pub fn new(pattern: ExprKind, body: ExprKind) -> Result<Self, ParseError> {
+        if let Some(list) = pattern.list() {
+            if list.is_empty() {
+                return Err(ParseError::SyntaxError(
+                    "syntax-rules expects a non empty list for the pattern".to_string(),
+                    list.location,
+                    None,
+                ));
+            }
+        } else {
+            return Err(ParseError::SyntaxError(
+                "syntax-rules expects a list for the pattern".to_string(),
+                pattern.span(),
+                None,
+            ));
+        }
+
+        Ok(PatternPair { pattern, body })
     }
 }
 
 impl ToDoc for PatternPair {
-    fn to_doc(&self) -> RcDoc<()> {
+    fn to_doc(&self) -> RcDoc<'_, ()> {
         RcDoc::text("[")
             .append(self.pattern.to_doc())
             .append(RcDoc::line())
@@ -2250,7 +2265,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     let pair_object = PatternPair::new(
                                         pair_iter.next().unwrap(),
                                         pair_iter.next().unwrap(),
-                                    );
+                                    )?;
                                     pairs.push(pair_object);
                                 } else {
                                     return Err(ParseError::SyntaxError(
@@ -2301,7 +2316,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     let pair_object = PatternPair::new(
                                         pair_iter.next().unwrap(),
                                         pair_iter.next().unwrap(),
-                                    );
+                                    )?;
                                     pairs.push(pair_object);
                                 } else {
                                     return Err(ParseError::SyntaxError(

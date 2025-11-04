@@ -44,6 +44,10 @@
 (define-syntax #%syntax-transformer-module
   (syntax-rules (provide)
 
+    [(#%syntax-transformer-module name)
+     (define (datum->syntax name)
+       (%proto-hash%))]
+
     [(#%syntax-transformer-module name (provide ids ...) funcs ...)
      (define (datum->syntax name)
        (let ()
@@ -84,19 +88,19 @@
 
     [(#%define-syntax (name arg) expr)
      (begin
-       (register-macro-transformer! (symbol->string 'name) "default")
+       (register-macro-transformer! (symbol->string 'name) (current-env))
        (define (name arg)
          expr))]
 
     [(#%define-syntax (name arg) exprs ...)
      (begin
-       (register-macro-transformer! (symbol->string 'name) "default")
+       (register-macro-transformer! (symbol->string 'name) (current-env))
        (define (name arg)
          exprs ...))]
 
     [(#%define-syntax name expr)
      (begin
-       (register-macro-transformer! (symbol->string 'name) "default")
+       (register-macro-transformer! (symbol->string 'name) (current-env))
        (define name expr))]))
 
 ;; Kernal-lambda -> Used in the meantime while `lambda` finds its way out of the reserved keywords.
@@ -225,7 +229,10 @@
          [options-map (if (hash-try-get options-map '#:printer)
                           options-map
                           (hash-insert options-map '#:printer default-printer-function))]
-         [maybe-procedure-field (hash-try-get options-map '#:prop:procedure)])
+         [maybe-procedure-field (hash-try-get options-map '#:prop:procedure)]
+         [maybe-finalizer (hash-try-get options-map '#:finalizer)])
+
+    ; (displayln maybe-finalizer)
 
     (when (and maybe-procedure-field (> maybe-procedure-field (length fields)))
       (error! "struct #:prop:procedure cannot refer to an index that is out of bounds"))
@@ -236,7 +243,7 @@
 
     `(begin
        ; (#%black-box "STRUCT" (quote ,struct-name))
-       (define ,struct-options-name (hash ,@(hash->list options-map)))
+       (define ,struct-options-name (#%prim.hash ,@(hash->list options-map)))
        (define ,struct-name 'unintialized)
        (define ,struct-prop-name 'uninitialized)
        (define ,struct-predicate 'uninitialized)
@@ -264,11 +271,28 @@
                                                             (list-ref prototypes 4)])
          (set! ,struct-prop-name struct-type-descriptor)
          (#%vtable-update-entry! struct-type-descriptor ,maybe-procedure-field ,struct-options-name)
+         (if ,(not (bool? maybe-finalizer)) (#%start-will-executor) void)
          ,(if mutable?
-              `(set! ,struct-name
-                     (lambda ,fields (constructor-proto ,@(map (lambda (x) `(#%box ,x)) fields))))
+              (if maybe-finalizer
+                  `(set! ,struct-name
+                         (lambda ,fields
+                           ;; TODO: Put the right thing on here
+                           (#%register-struct-finalizer
+                            (constructor-proto ,@(map (lambda (x) `(#%box ,x)) fields)
+                                               ,maybe-finalizer))))
 
-              `(set! ,struct-name constructor-proto))
+                  `(set! ,struct-name
+                         (lambda ,fields
+                           ;; TODO: Put the right thing on here
+                           (constructor-proto ,@(map (lambda (x) `(#%box ,x)) fields)))))
+
+              (if maybe-finalizer
+                  `(set! ,struct-name
+                         (lambda ,fields
+                           (#%register-struct-finalizer (constructor-proto ,@fields)
+                                                        ,maybe-finalizer)))
+
+                  `(set! ,struct-name constructor-proto)))
          ,(new-make-predicate struct-predicate struct-name fields)
          ,@
          (if mutable? (mutable-make-getters struct-name fields) (new-make-getters struct-name fields))
@@ -463,9 +487,9 @@
        ;; Register into the top environment
        (register-macro-transformer! name env))
 
-     (with-handler (lambda (_)
+     (with-handler (lambda (e1)
 
-                     (with-handler (lambda (_)
+                     (with-handler (lambda (e2)
                                      ;; We failed to find an existing environment to install it in.
                                      (eval `(define top-level (hash (quote ,name) ,func)))
                                      (register-macro-transformer! name "top-level"))

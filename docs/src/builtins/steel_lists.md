@@ -12,16 +12,23 @@ Indexing into a list also takes O(n/64) - which means you'll get constant time i
 (list 10 20 30 40) ;; => '(10 20 30 40)
 ```
 ### **append**
-Appends the given lists together. If provided with no lists, will return the empty list.
+Appends the given lists together. If provided with no lists, will return
+the empty list.
 
-(append lst ...)
+If the last element is not a list, an improper list will be returned
 
-lst : list?
+(append lst ...) -> list?  
+(append lst ... v) -> any/c
+
+* lst : list?
+* v : any/c
 
 #### Examples
 ```scheme
 > (append (list 1 2) (list 3 4)) ;; => '(1 2 3 4)
 > (append) ;; => '()
+> (append (list 1 2) (cons 3 4)) ;; => '(1 2 3 . 4)
+> (append '() 'a) ;; => 'a
 ```
 ### **apply**
 Applies the given `function` with arguments as the contents of the `list`.
@@ -62,10 +69,10 @@ Returns the rest of the list. Will raise an error if the list is empty.
 > (cdr (list 10)) ;; => '()
 > (cdr '())
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (cdr '())
-│  ^^^ cdr expects a non empty list
+  │  ^^^ cdr expects a non empty list
 ```
 ### **cons**
 Returns a newly allocated list whose first element is `a` and second element is `d`.
@@ -142,6 +149,30 @@ Returns a newly allocated list containing the vs as its elements.
 > (list 1 2 3 4 5) ;; => '(1 2 3 4 5)
 > (list (list 1 2) (list 3 4)) ;; => '((1 2) (3 4))
 ```
+### **list->string**
+Convert a list of charecters to a string.
+
+(list->string lst) -> string?
+
+* lst : (listof char?)
+
+#### Examples
+```scheme
+(list->string '(#\a #\b #\c)) ;; => "abc"
+```
+### **list-drop**
+Remove a certain number of elements (`n`) from the front of `lst`.
+
+(list-drop lst n) -> any/c
+
+* lst : list?
+* n : int?
+
+#### Examples
+```scheme
+> (list-drop '(1 2 3 4 5) 2) ;; => '(3 4 5)
+> (list-drop '() 3) ;; => '()
+```
 ### **list-ref**
 Returns the value located at the given index. Will raise an error if you try to index out of bounds.
 
@@ -156,13 +187,32 @@ time complexity is O(n/64). Meaning, for small lists this can be constant.
 #### Examples
 ```scheme
 > (list-ref (list 1 2 3 4) 2) ;; => 3
-> (list-ref (range 0 100) 42) ;; => 42"
+> (list-ref (range 0 100) 42) ;; => 42
 > (list-ref (list 1 2 3 4) 10)
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (list-ref (list 1 2 3 4) 10)
-│  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
+  │  ^^^^^^^^ out of bounds index in list-ref - list length: 4, index: 10
+```
+### **list-tail**
+Same as `list-drop`, except raise an error if `n` is greater than the length of `lst`.
+
+(list-tail lst n) -> any/c
+
+* lst : list?
+* n : int?
+
+#### Examples
+```scheme
+> (list-tail '(1 2 3 4 5) 2) ;; => '(3 4 5)
+> (list-tail '() 3)
+error[E11]: Generic
+  ┌─ :1:2
+  │
+1 │ (list-tail '() 3)
+  │  ^^^^^^^^^ list-tail expects at least 3
+                    elements in the list, found: 0
 ```
 ### **pair?**
 Checks if the given value can be treated as a pair.
@@ -179,7 +229,7 @@ Checks if the given value can be treated as a pair.
 ### **range**
 Returns a newly allocated list of the elements in the range [n, m) or [0, m) when n is not given.
 
-(range m)   -> (listof int?)
+(range m)   -> (listof int?)  
 (range n m) -> (listof int?)
 
 * n : int?
@@ -200,12 +250,12 @@ Returns the rest of the list. Will raise an error if the list is empty.
 ```scheme
 > (rest (list 10 20 30)) ;; => '(20 30)
 > (rest (list 10)) ;; => '()
-> (rest (list 10))
+> (rest '())
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (rest '())
-│  ^^^^ rest expects a non empty list
+  │  ^^^^ rest expects a non empty list
 ```
 ### **reverse**
 Returns a list that has the same elements as `lst`, but in reverse order.
@@ -213,7 +263,7 @@ This function takes time proportional to the length of `lst`.
 
 (reverse lst) -> list?
 
-* l : list?
+* lst : list?
 
 #### Examples
 ```scheme
@@ -230,12 +280,12 @@ Get the second element of the list. Raises an error if the list does not have an
 
 ```scheme
 > (second '(1 2 3)) ;; => 2
-> (second '())
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (second '())
-│  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+  │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
+```
 ### **take**
 Returns the first n elements of the list l as a new list.
 
@@ -262,17 +312,17 @@ Get the third element of the list. Raises an error if the list does not have an 
 > (third '(1 2 3)) ;; => 3
 > (third '())
 error[E11]: Generic
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (third '())
-│  ^^^^^^ third: index out of bounds - list did not have an element in the second position: []
+  │  ^^^^^ third: Index out of bounds - list did not have an element in the second position: []
 ```
 ### **cdr-null?**
-### **list->string**
 ### **list->vector**
 ### **list-chunks**
-### **list-drop**
-### **list-tail**
+### **list-contains**
+### **member**
+### **memq**
 ### **plist-get**
 ### **plist-get-kwarg**
 ### **plist-get-positional-arg**

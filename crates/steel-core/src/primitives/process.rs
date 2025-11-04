@@ -1,5 +1,5 @@
 use crate::gc::Gc;
-use crate::values::port::{SteelPort, SteelPortRepr};
+use crate::values::port::{Peekable, SteelPort, SteelPortRepr};
 use crate::values::structs::SteelResult;
 use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
@@ -38,13 +38,13 @@ struct ChildProcess {
 }
 
 fn binary_exists_on_path(binary: String) -> Option<String> {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(any(target_family = "wasm", target_env = "newlib")))]
     match which::which(binary) {
         Ok(v) => Some(v.into_os_string().into_string().unwrap()),
         Err(_) => None,
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_family = "wasm", target_env = "newlib"))]
     None
 }
 
@@ -54,48 +54,39 @@ impl ChildProcess {
     }
 
     pub fn stdout(&mut self) -> Option<SteelVal> {
-        let stdout = self
-            .child
-            .as_mut()
-            .and_then(|x| x.stdout.take())
-            .and_then(|x| {
-                Some(SteelVal::PortV(SteelPort {
-                    port: Gc::new_mut(SteelPortRepr::ChildStdOutput(BufReader::new(x))),
-                }))
-            });
+        let stdout = self.child.as_mut().and_then(|x| x.stdout.take()).map(|x| {
+            SteelVal::PortV(SteelPort {
+                port: Gc::new_mut(SteelPortRepr::ChildStdOutput(Peekable::new(
+                    BufReader::new(x),
+                ))),
+            })
+        });
 
         stdout
     }
 
     pub fn stderr(&mut self) -> Option<SteelVal> {
-        let stdout = self
-            .child
-            .as_mut()
-            .and_then(|x| x.stderr.take())
-            .and_then(|x| {
-                Some(SteelVal::PortV(SteelPort {
-                    port: Gc::new_mut(SteelPortRepr::ChildStdError(BufReader::new(x))),
-                }))
-            });
+        let stdout = self.child.as_mut().and_then(|x| x.stderr.take()).map(|x| {
+            SteelVal::PortV(SteelPort {
+                port: Gc::new_mut(SteelPortRepr::ChildStdError(Peekable::new(BufReader::new(
+                    x,
+                )))),
+            })
+        });
 
         stdout
     }
 
     pub fn stdin(&mut self) -> Option<SteelVal> {
-        let stdout = self
-            .child
-            .as_mut()
-            .and_then(|x| x.stdin.take())
-            .and_then(|x| {
-                Some(SteelVal::PortV(SteelPort {
-                    port: Gc::new_mut(SteelPortRepr::ChildStdInput(BufWriter::new(x))),
-                }))
-            });
+        let stdout = self.child.as_mut().and_then(|x| x.stdin.take()).map(|x| {
+            SteelVal::PortV(SteelPort {
+                port: Gc::new_mut(SteelPortRepr::ChildStdInput(BufWriter::new(x))),
+            })
+        });
 
         stdout
-
-        //     todo!()
     }
+
     fn wait_impl(&mut self) -> Result<SteelVal, SteelErr> {
         let exit_status = self
             .child

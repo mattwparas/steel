@@ -1,4 +1,11 @@
-use crate::gc::shared::{MutContainer, ShareableMut};
+use crate::gc::shared::MutContainer;
+
+// #[cfg(not(feature = "triomphe"))]
+// use crate::gc::shared::ShareableMut;
+
+#[cfg(not(feature = "sync"))]
+use crate::gc::shared::ShareableMut;
+
 use crate::gc::{Shared, SharedMut};
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 use crate::rvals::{
@@ -26,6 +33,7 @@ pub struct ConstantMap {
     values: SharedMut<Vec<SteelVal>>,
     // TODO: Flush to these values after a compilation. - maybe have two of them to
     reified_values: Arc<ArcSwap<Vec<SteelVal>>>,
+    local_values: Vec<SteelVal>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -43,6 +51,7 @@ impl Clone for ConstantMap {
             values: Shared::clone(&self.values),
             map: Shared::clone(&self.map),
             reified_values: Arc::clone(&self.reified_values),
+            local_values: Vec::new(),
         }
     }
 }
@@ -54,6 +63,7 @@ impl ConstantMap {
             map: Shared::new(MutContainer::new(HashMap::new())),
             // Does this help at all?
             reified_values: Arc::new(ArcSwap::from_pointee(Vec::new())),
+            local_values: Vec::new(),
         }
     }
 
@@ -79,6 +89,7 @@ impl ConstantMap {
             reified_values: Arc::new(ArcSwap::from_pointee(
                 self.values.read().iter().cloned().collect(),
             )),
+            local_values: self.local_values.clone(),
         }
     }
 
@@ -107,6 +118,7 @@ impl ConstantMap {
             )),
             values: Shared::new(MutContainer::new(vec.clone())),
             reified_values: Arc::new(ArcSwap::from_pointee(vec)),
+            local_values: Vec::new(),
         }
     }
 
@@ -179,12 +191,28 @@ impl ConstantMap {
 
     // Fallible
     #[inline(always)]
-    pub fn get(&self, idx: usize) -> SteelVal {
+    pub fn get(&mut self, idx: usize) -> SteelVal {
+        // Just check if the values are the same. Otherwise, push down to the proper one?
+
+        // if let Some(value) = self.local_values.get(idx) {
+        //     return value.clone();
+        // } else {
+        //     self.local_values = self.reified_values.load().to_vec();
+        //     self.local_values[idx].clone()
+        // }
+
         self.values.read()[idx].clone()
     }
 
     pub fn get_value(&self, idx: usize) -> SteelVal {
         self.reified_values.load()[idx].clone()
+        // self.values.read()[idx].clone()
+    }
+
+    pub fn get_map<T>(&self, idx: usize, func: impl FnOnce(&SteelVal) -> T) -> T {
+        // let value = &self.values.read()[idx];
+        let value = &self.reified_values.load()[idx];
+        func(value)
     }
 
     pub fn try_get(&self, idx: usize) -> Option<SteelVal> {
@@ -203,6 +231,14 @@ impl ConstantMap {
                     })
                     .collect(),
             )),
+            SteelVal::VectorV(v) => Some(SteelVal::VectorV(
+                v.iter()
+                    .map(|value| {
+                        let idx = self.add_or_get(value.clone());
+                        self.get(idx)
+                    })
+                    .collect(),
+            )),
             _ => None,
         }
     }
@@ -210,7 +246,7 @@ impl ConstantMap {
     // This is certainly not what we want. This time complexity is
     // questionable
     pub fn add_or_get(&mut self, mut val: SteelVal) -> usize {
-        if let SteelVal::ListV(_) = &val {
+        if let SteelVal::ListV(_) | SteelVal::VectorV(_) = &val {
             if let Some(new_list) = self.walk_constants(&val) {
                 val = new_list;
             };

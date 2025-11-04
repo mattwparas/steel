@@ -1,7 +1,7 @@
 1
 2
 #false
-Error: Parse: Parse: Unexpected token: CloseParen(Round)
+Error: Parse: Unexpected character: ')'
 #<void>
 120
 #<void>

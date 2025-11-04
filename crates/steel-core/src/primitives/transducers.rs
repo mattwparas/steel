@@ -5,24 +5,8 @@ use crate::steel_vm::{
     builtin::BuiltInModule,
     vm::{VmContext, VmCore},
 };
-use crate::{builtin_stop, stop};
-
-use crate::values::transducers::Transducer;
-use crate::values::transducers::Transducers;
-
-// declare_const_ref_functions!(
-//     COMPOSE => compose,
-//     ENUMERATING => enumerating,
-//     ZIPPING => zipping,
-//     INTERLEAVING => interleaving,
-//     MAPPING => map,
-//     EXTENDING => extending,
-//     FLAT_MAPPING => flat_map,
-//     FLATTENING => flatten,
-//     FILTERING => filter,
-//     TAKING => take,
-//     DROPPING => dropping,
-// );
+use crate::values::transducers::{Transducer, Transducers};
+use crate::{builtin_stop, stop, SteelErr};
 
 pub fn transducer_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/transducers");
@@ -53,8 +37,136 @@ pub fn transducer_module() -> BuiltInModule {
         .register_value("into-last", crate::values::transducers::INTO_LAST)
         .register_value("into-for-each", crate::values::transducers::FOR_EACH)
         .register_value("into-nth", crate::values::transducers::NTH)
-        .register_value("into-reducer", crate::values::transducers::REDUCER);
+        .register_value("into-reducer", crate::values::transducers::REDUCER)
+        .register_native_fn_definition(TRANSDUCERS_FUNC_DEFINITION)
+        .register_native_fn_definition(REDUCER_TO_INT_DEFINITION);
+
     module
+}
+
+#[repr(usize)]
+#[derive(Copy, Clone)]
+enum TransducerKind {
+    Map,
+    Filter,
+    Take,
+    Drop,
+    FlatMap,
+    Flatten,
+    Window,
+    TakeWhile,
+    DropWhile,
+    Extend,
+    Cycle,
+    Enumerating,
+    Zipping,
+    Interleaving,
+
+    // Optimized variants that understand
+    // the input data coming in
+    MapPair,
+}
+
+#[steel_derive::function(name = "#%reducer->int")]
+pub fn reducer_to_int(arg: &SteelVal) -> Option<SteelVal> {
+    if let SteelVal::ReducerV(r) = arg {
+        Some(match r.as_ref() {
+            crate::values::transducers::Reducer::Sum => SteelVal::IntV(0),
+            crate::values::transducers::Reducer::Multiply => SteelVal::IntV(1),
+            crate::values::transducers::Reducer::Max => SteelVal::IntV(2),
+            crate::values::transducers::Reducer::Min => SteelVal::IntV(3),
+            crate::values::transducers::Reducer::Count => SteelVal::IntV(4),
+            crate::values::transducers::Reducer::Nth(n) => SteelVal::Pair(Gc::new(
+                crate::values::lists::Pair::cons(SteelVal::IntV(5), SteelVal::IntV(*n as _)),
+            )),
+            crate::values::transducers::Reducer::List => SteelVal::IntV(6),
+            crate::values::transducers::Reducer::Vector => SteelVal::IntV(7),
+            crate::values::transducers::Reducer::HashMap => SteelVal::IntV(8),
+            crate::values::transducers::Reducer::HashSet => SteelVal::IntV(9),
+            crate::values::transducers::Reducer::String => SteelVal::IntV(10),
+            crate::values::transducers::Reducer::Last => SteelVal::IntV(11),
+            crate::values::transducers::Reducer::ForEach(steel_val) => SteelVal::Pair(Gc::new(
+                crate::values::lists::Pair::cons(SteelVal::IntV(12), steel_val.clone()),
+            )),
+            crate::values::transducers::Reducer::Generic(reducer_func) => SteelVal::ListV(
+                vec![
+                    SteelVal::IntV(13),
+                    reducer_func.initial_value.clone(),
+                    reducer_func.function.clone(),
+                ]
+                .into(),
+            ),
+        })
+    } else {
+        None
+    }
+}
+
+#[steel_derive::function(name = "#%transducers->funcs")]
+pub fn transducers_func(arg: &SteelVal) -> Option<SteelVal> {
+    let mut funcs = Vec::new();
+
+    fn pair(kind: TransducerKind, cdr: SteelVal) -> SteelVal {
+        SteelVal::Pair(Gc::new(crate::values::lists::Pair::cons(
+            SteelVal::IntV(kind as usize as _),
+            cdr,
+        )))
+    }
+
+    if let SteelVal::ListV(i) = arg {
+        for value in i {
+            if let SteelVal::IterV(i) = value {
+                for op in &i.ops {
+                    funcs.push(match op {
+                        Transducers::Map(steel_val) => pair(TransducerKind::Map, steel_val.clone()),
+                        Transducers::Filter(steel_val) => {
+                            pair(TransducerKind::Filter, steel_val.clone())
+                        }
+                        Transducers::Take(steel_val) => {
+                            pair(TransducerKind::Take, steel_val.clone())
+                        }
+                        Transducers::Drop(steel_val) => {
+                            pair(TransducerKind::Drop, steel_val.clone())
+                        }
+                        Transducers::FlatMap(steel_val) => {
+                            pair(TransducerKind::FlatMap, steel_val.clone())
+                        }
+                        Transducers::Flatten => pair(TransducerKind::Flatten, SteelVal::Void),
+                        Transducers::Window(steel_val) => {
+                            pair(TransducerKind::Window, steel_val.clone())
+                        }
+                        Transducers::TakeWhile(steel_val) => {
+                            pair(TransducerKind::TakeWhile, steel_val.clone())
+                        }
+                        Transducers::DropWhile(steel_val) => {
+                            pair(TransducerKind::DropWhile, steel_val.clone())
+                        }
+                        Transducers::Extend(steel_val) => {
+                            pair(TransducerKind::Extend, steel_val.clone())
+                        }
+                        Transducers::Cycle => pair(TransducerKind::Cycle, SteelVal::Void),
+                        Transducers::Enumerating => {
+                            pair(TransducerKind::Enumerating, SteelVal::Void)
+                        }
+                        Transducers::Zipping(steel_val) => {
+                            pair(TransducerKind::Zipping, steel_val.clone())
+                        }
+                        Transducers::Interleaving(steel_val) => {
+                            pair(TransducerKind::Interleaving, steel_val.clone())
+                        }
+
+                        Transducers::MapPair(p) => pair(TransducerKind::MapPair, p.clone()),
+                    });
+                }
+            } else {
+                funcs.push(value.clone());
+            }
+        }
+
+        return Some(SteelVal::ListV(funcs.into()));
+    }
+
+    None
 }
 
 /// Compose multiple iterators into one iterator
@@ -82,6 +194,22 @@ pub fn compose(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::IterV(Gc::new(transformers)))
 }
 
+enum FlattenOk<'a> {
+    Ok(std::iter::Cloned<std::slice::Iter<'a, Transducers>>),
+    Err(Option<SteelErr>),
+}
+
+impl Iterator for FlattenOk<'_> {
+    type Item = Result<Transducers>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            FlattenOk::Ok(vec) => vec.next().map(Ok),
+            FlattenOk::Err(err) => err.take().map(Err),
+        }
+    }
+}
+
 #[steel_derive::context(name = "transduce", arity = "AtLeast(2)")]
 pub fn transduce(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() < 2 {
@@ -93,40 +221,34 @@ pub fn transduce(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
     let mut arg_iter = args.iter();
     let collection = arg_iter.next().unwrap();
 
-    // TODO make this way better
-    let transducers: Vec<_> = match arg_iter
-        .map(|x| {
-            if let SteelVal::IterV(i) = x {
-                Ok(i)
-            } else {
-                stop!(TypeMismatch => format!("transduce expects a transducer, found: {x}"); ctx.previous_span())
-            }
+    let transducers = match arg_iter
+        .flat_map(|x| match x {
+            SteelVal::IterV(x) => FlattenOk::Ok(x.ops.iter().cloned()),
+            _ => FlattenOk::Err(Some(
+                SteelErr::new(
+                    crate::rerrs::ErrorKind::TypeMismatch,
+                    format!("transduce expects a transducer, found: {x}"),
+                )
+                .with_span(ctx.previous_span()),
+            )),
         })
         .collect::<Result<Vec<_>>>()
     {
-        Ok(vec) => vec,
+        Ok(transducers) => transducers,
         Err(err) => return Some(Err(err)),
     };
 
-    let transducers = transducers
-        .into_iter()
-        .flat_map(|x| x.ops.clone())
-        .collect::<Vec<_>>();
-
-    if let SteelVal::ReducerV(r) = &reducer {
-        // TODO get rid of this unwrap
-        // just pass a reference instead
-
+    if let SteelVal::ReducerV(reducer) = &reducer {
         if ctx.depth > 32 {
             #[cfg(feature = "stacker")]
             return stacker::maybe_grow(32 * 1024, 1024 * 1024, || {
-                Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
+                Some(ctx.call_transduce(&transducers, collection.clone(), reducer, None))
             });
 
             #[cfg(not(feature = "stacker"))]
-            Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
+            Some(ctx.call_transduce(&transducers, collection.clone(), reducer, None))
         } else {
-            Some(ctx.call_transduce(&transducers, collection.clone(), r.unwrap(), None))
+            Some(ctx.call_transduce(&transducers, collection.clone(), reducer, None))
         }
     } else {
         builtin_stop!(TypeMismatch => format!("transduce requires that the last argument be a reducer, found: {reducer}"); ctx.previous_span())

@@ -1,6 +1,6 @@
 [package]
 name = "steel-parser"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["mattwparas <matthewparas2020@u.northwestern.edu>"]
@@ -11,7 +11,7 @@ description = "Parser for use within steel"
 
 [dependencies]
 fxhash = "0.2.1"
-lasso = { version = "0.7.3", features = ["multi-threaded", "ahash", "serialize"] }
+lasso = { version = "0.7.3", features = ["multi-threaded", "ahash", "serialize", "inline-more"] }
 num-rational = "0.4.2"
 num-traits = "0.2.19"
 num-bigint = { version = "0.4.6", features = ["serde"] }

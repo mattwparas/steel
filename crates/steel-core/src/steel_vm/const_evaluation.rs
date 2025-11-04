@@ -1,5 +1,4 @@
-use crate::compiler::program::number_literal_to_steel;
-use crate::rvals::{Result, SteelVal};
+use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::{
     compiler::compiler::OptLevel,
     parser::{
@@ -156,7 +155,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
         let mut collector = CollectSet::new(&mut self.set_idents);
 
         for expr in &input {
-            collector.visit(&expr);
+            collector.visit(expr);
         }
 
         // let mut collector = CollectSet::new(&mut self.set_idents);
@@ -292,7 +291,7 @@ impl<'a> ConstantEvaluator<'a> {
                 self.bindings.borrow_mut().get(s)
             }
             // todo!() figure out if it is ok to expand scope of eval_atom.
-            TokenType::Number(n) => number_literal_to_steel(n).ok(),
+            TokenType::Number(n) => (&**n).into_steelval().ok(),
             TokenType::StringLiteral(s) => Some(SteelVal::StringV((s.clone()).into())),
             TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
             _ => None,
@@ -567,20 +566,20 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         match &a.syn.ty {
             TokenType::Identifier(s) => {
                 // If we found a set identifier, skip it
-                if self.set_idents.get(&s).is_some() || self.expr_level_set_idents.contains(&s) {
-                    self.bindings.borrow_mut().unbind(&s);
+                if self.set_idents.get(s).is_some() || self.expr_level_set_idents.contains(s) {
+                    self.bindings.borrow_mut().unbind(s);
 
                     return Ok(ExprKind::Atom(a));
                 };
                 if let Some(new_token) = self
                     .bindings
                     .borrow_mut()
-                    .get(&s)
+                    .get(s)
                     .and_then(|x| steelval_to_atom(&x))
                 {
-                    return Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
+                    Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
                         new_token, a.syn.span,
-                    ))));
+                    ))))
                 } else {
                     Ok(ExprKind::Atom(a))
                 }
@@ -877,12 +876,14 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         stop!(Generic => "unexpected syntax rules in const evaluator");
     }
 
-    fn visit_set(&mut self, s: Box<crate::parser::ast::Set>) -> Self::Output {
+    fn visit_set(&mut self, mut s: Box<crate::parser::ast::Set>) -> Self::Output {
         let identifier = &s.variable.atom_identifier_or_else(
             throw!(BadSyntax => "set expects an identifier"; s.location.span),
         )?;
 
         self.bindings.borrow_mut().unbind(identifier);
+
+        s.expr = self.visit(s.expr)?;
 
         Ok(ExprKind::Set(s))
     }
@@ -908,7 +909,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     }
 
     fn visit_vector(&mut self, v: crate::parser::ast::Vector) -> Self::Output {
-        return Ok(v.into());
+        Ok(v.into())
     }
 }
 

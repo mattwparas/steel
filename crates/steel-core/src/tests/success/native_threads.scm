@@ -21,4 +21,12 @@
 ;; Could do some timing tests - but for now this will work
 (assert! (= (sum results) 100))
 
-; (assert! (equal? results 100))
+(define foobar 100)
+
+(thread-join! (spawn-native-thread (lambda () (set! foobar 200))))
+
+(assert! (= foobar 200))
+
+(thread-join! (spawn-native-thread (lambda () (eval '(define foobarbaz 3000)))))
+
+(assert! (= (eval 'foobarbaz) 3000))

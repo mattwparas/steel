@@ -19,37 +19,26 @@ fn workspace_dir() -> PathBuf {
 fn generate_docs() -> Result<(), Box<dyn Error>> {
     println!("Generating docs...");
 
-    let mut workspace_dir = workspace_dir();
+    let workspace_dir = workspace_dir();
 
-    let mut base = workspace_dir.clone();
-
-    workspace_dir.push("crates");
-    workspace_dir.push("steel-doc");
-
+    let steel_doc_dir = workspace_dir.join("crates/steel-doc");
     std::process::Command::new("cargo")
         .arg("run")
-        .current_dir(&workspace_dir)
+        .current_dir(&steel_doc_dir)
         .spawn()?
         .wait()?;
 
-    workspace_dir.pop();
-    workspace_dir.pop();
-
-    workspace_dir.push("docs");
-    workspace_dir.push("src");
-    workspace_dir.push("builtins");
-
     println!("Cleaning target directory...");
 
-    std::fs::remove_dir_all(&workspace_dir)?;
-
-    base.push("crates");
-    base.push("steel-doc");
-    base.push("generated");
+    let docs = workspace_dir.join("docs/src");
+    std::fs::remove_dir_all(&docs.join("builtins"))?;
+    std::fs::remove_dir_all(&docs.join("stdlib"))?;
 
     println!("Moving generated docs into place...");
 
-    std::fs::rename(base, &workspace_dir)?;
+    let generated = steel_doc_dir.join("generated");
+    std::fs::rename(generated.join("builtins"), docs.join("builtins"))?;
+    std::fs::rename(generated.join("stdlib"), docs.join("stdlib"))?;
 
     println!("Done!");
 
@@ -86,6 +75,7 @@ fn install_everything() -> Result<(), Box<dyn Error>> {
         .arg("install")
         .arg("--path")
         .arg(&workspace_dir)
+        .arg("--force")
         .spawn()?
         .wait()?;
 
@@ -115,6 +105,7 @@ fn install_everything() -> Result<(), Box<dyn Error>> {
         .arg("install")
         .arg("--path")
         .arg(&workspace_dir)
+        .arg("--force")
         .spawn()?
         .wait()?;
 

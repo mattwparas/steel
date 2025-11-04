@@ -952,7 +952,7 @@ pub fn generate_opcode_map() -> String {
 
     for pattern in patterns {
         let original_pattern = pattern;
-        let pattern = Pattern::from_opcodes(&pattern);
+        let pattern = Pattern::from_opcodes(pattern);
 
         if pattern.is_empty() {
             dbg!("Pattern produced empty result: {:?}", original_pattern);

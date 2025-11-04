@@ -1,12 +1,17 @@
 pub mod cycles;
 
+use crate::steel_vm::vm::threads::closure_into_serializable;
+use crate::steel_vm::vm::BuiltInSignature;
+use crate::steel_vm::vm::Continuation;
+#[cfg(feature = "sync")]
+use crate::steel_vm::vm::ContinuationMark;
 use crate::{
     gc::{
         shared::{
             MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
             ScopedWriteContainer, ShareableMut,
         },
-        unsafe_erased_pointers::OpaqueReference,
+        unsafe_erased_pointers::{OpaqueReference, TemporaryMutableView, TemporaryReadonlyView},
         Gc, GcMut,
     },
     parser::{
@@ -17,14 +22,12 @@ use crate::{
     },
     primitives::numbers::realp,
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::{
-        engine::ModuleContainer,
-        vm::{threads::closure_into_serializable, BuiltInSignature, Continuation},
-    },
+    steel_vm::engine::ModuleContainer,
     values::{
         closed::{Heap, HeapRef, MarkAndSweepContext},
         functions::{BoxedDynFunction, ByteCodeLambda},
         lazy_stream::{LazyStream, SerializableStream},
+        lists::Pair,
         port::{SendablePort, SteelPort},
         structs::{SerializableUserDefinedStruct, UserDefinedStruct},
         transducers::{Reducer, Transducer},
@@ -70,6 +73,7 @@ macro_rules! list {
 }
 
 use bigdecimal::BigDecimal;
+use parking_lot::RwLock;
 use smallvec::SmallVec;
 use SteelVal::*;
 
@@ -166,6 +170,11 @@ pub trait Custom: private::Sealed {
         None
     }
 
+    #[cfg(feature = "dylibs")]
+    fn fmt_ffi(&self) -> Option<abi_stable::std_types::RString> {
+        None
+    }
+
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
     }
@@ -186,6 +195,14 @@ pub trait Custom: private::Sealed {
 
     fn equality_hint_general(&self, _other: &SteelVal) -> bool {
         false
+    }
+
+    #[doc(hidden)]
+    fn into_error(self) -> std::result::Result<SteelErr, Self>
+    where
+        Self: Sized,
+    {
+        Err(self)
     }
 }
 
@@ -210,19 +227,29 @@ pub trait CustomType: MaybeSendSyncStatic {
     }
     fn inner_type_id(&self) -> TypeId;
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-        Ok(format!("#<{}>", self.name().to_string()))
+        Ok(format!("#<{}>", self.name()))
     }
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
     }
     fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
     fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
+    // TODO: Add this back at some point
+    // fn visit_children_ref_queue(&self, _context: &mut MarkAndSweepContextRefQueue) {}
     fn visit_children_for_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
     fn check_equality_hint(&self, _other: &dyn CustomType) -> bool {
         true
     }
     fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
         false
+    }
+
+    #[doc(hidden)]
+    fn into_error_(self) -> std::result::Result<SteelErr, Self>
+    where
+        Self: Sized,
+    {
+        Err(self)
     }
 }
 
@@ -235,7 +262,7 @@ pub trait CustomType {
     }
     fn inner_type_id(&self) -> TypeId;
     fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-        Ok(format!("#<{}>", self.name().to_string()))
+        Ok(format!("#<{}>", self.name()))
     }
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
@@ -248,6 +275,13 @@ pub trait CustomType {
     }
     fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
         false
+    }
+    #[doc(hidden)]
+    fn into_error_(self) -> std::result::Result<SteelErr, Self>
+    where
+        Self: Sized,
+    {
+        Err(self)
     }
 }
 
@@ -265,7 +299,7 @@ impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
         if let Some(formatted) = self.fmt() {
             formatted
         } else {
-            Ok(format!("#<{}>", self.name().to_string()))
+            Ok(format!("#<{}>", self.name()))
         }
     }
 
@@ -293,11 +327,22 @@ impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
     fn check_equality_hint_general(&self, other: &SteelVal) -> bool {
         self.equality_hint_general(other)
     }
+
+    fn into_error_(self) -> std::result::Result<SteelErr, Self>
+    where
+        Self: Sized,
+    {
+        self.into_error()
+    }
 }
 
 impl<T: CustomType + 'static> IntoSteelVal for T {
     fn into_steelval(self) -> Result<SteelVal> {
         Ok(SteelVal::Custom(Gc::new_mut(Box::new(self))))
+    }
+
+    fn as_error(self) -> std::result::Result<SteelErr, Self> {
+        T::into_error_(self)
     }
 }
 
@@ -308,9 +353,6 @@ pub trait IntoSerializableSteelVal {
 impl<T: CustomType + Clone + Send + Sync + 'static> IntoSerializableSteelVal for T {
     fn into_serializable_steelval(val: &SteelVal) -> Result<SerializableSteelVal> {
         if let SteelVal::Custom(v) = val {
-            // let left_type = v.borrow().as_any_ref();
-            // TODO: @Matt - dylibs cause issues here, as the underlying type ids are different
-            // across workspaces and builds
             let left = v.read().as_any_ref().downcast_ref::<T>().cloned();
             let _lifted = left.ok_or_else(|| {
                 let error_message = format!(
@@ -370,6 +412,11 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
 /// steel derive.
 pub trait IntoSteelVal: Sized {
     fn into_steelval(self) -> Result<SteelVal>;
+
+    #[doc(hidden)]
+    fn as_error(self) -> std::result::Result<SteelErr, Self> {
+        Err(self)
+    }
 }
 
 /// The exit point for turning SteelVals into outside world values
@@ -498,12 +545,12 @@ pub trait AsRefMutSteelVal: Sized {
     fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<MappedScopedWriteContainer<'b, Self>>;
 }
 
-pub trait AsRefMutSteelValFromRef: Sized {
-    fn as_mut_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a mut Self>;
+pub(crate) trait AsRefMutSteelValFromRef: Sized {
+    fn as_mut_ref_from_ref(val: &SteelVal) -> crate::rvals::Result<TemporaryMutableView<Self>>;
 }
 
-pub trait AsRefSteelValFromRef: Sized {
-    fn as_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a Self>;
+pub(crate) trait AsRefSteelValFromRef: Sized {
+    fn as_ref_from_ref(val: &SteelVal) -> crate::rvals::Result<TemporaryReadonlyView<Self>>;
 }
 
 impl AsRefSteelVal for UserDefinedStruct {
@@ -999,23 +1046,27 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                         let value = std::mem::take(value);
 
                         if let Some(value) = value {
-                            let value = from_serializable_value(ctx, value);
-                            let allocation = ctx.heap.allocate_without_collection(value);
+                            let _ = from_serializable_value(ctx, value);
 
-                            ctx.fake_heap
-                                .insert(v, SerializedHeapRef::Closed(allocation.clone()));
+                            todo!()
+                            // let allocation = ctx.heap.allocate_without_collection(value);
 
-                            SteelVal::HeapAllocated(allocation)
+                            // ctx.fake_heap
+                            //     .insert(v, SerializedHeapRef::Closed(allocation.clone()));
+
+                            // SteelVal::HeapAllocated(allocation)
                         } else {
                             // println!("If we're getting here - it means the value from the heap has already
                             // been converting. if so, we should do something...");
 
-                            let fake_allocation =
-                                ctx.heap.allocate_without_collection(SteelVal::Void);
+                            todo!()
 
-                            ctx.values_to_fill_in.insert(v, fake_allocation.clone());
+                            // let fake_allocation =
+                            //     ctx.heap.allocate_without_collection(SteelVal::Void);
 
-                            SteelVal::HeapAllocated(fake_allocation)
+                            // ctx.values_to_fill_in.insert(v, fake_allocation.clone());
+
+                            // SteelVal::HeapAllocated(fake_allocation)
                         }
                     }
 
@@ -1024,12 +1075,14 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             } else {
                 // Shouldn't silently fail here, but we will... for now
 
-                let allocation = ctx.heap.allocate_without_collection(SteelVal::Void);
+                // let allocation = ctx.heap.allocate_without_collection(SteelVal::Void);
 
-                ctx.fake_heap
-                    .insert(v, SerializedHeapRef::Closed(allocation.clone()));
+                // ctx.fake_heap
+                //     .insert(v, SerializedHeapRef::Closed(allocation.clone()));
 
-                SteelVal::HeapAllocated(allocation)
+                // SteelVal::HeapAllocated(allocation)
+
+                todo!()
             }
         }
         SerializableSteelVal::Pair(pair) => {
@@ -1211,11 +1264,18 @@ pub fn into_serializable_value(
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SteelMutableVector(pub(crate) Gc<RefCell<Vec<SteelVal>>>);
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SteelVector(pub(crate) Gc<Vector<SteelVal>>);
+
+impl FromIterator<SteelVal> for SteelVector {
+    fn from_iter<T: IntoIterator<Item = SteelVal>>(iter: T) -> Self {
+        let vec = Vector::from_iter(iter);
+        SteelVector(Gc::new(vec))
+    }
+}
 
 impl Deref for SteelVector {
     type Target = Vector<SteelVal>;
@@ -1231,8 +1291,20 @@ impl From<Gc<Vector<SteelVal>>> for SteelVector {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SteelHashMap(pub(crate) Gc<HashMap<SteelVal, SteelVal>>);
+
+#[cfg(feature = "imbl")]
+impl Hash for SteelHashMap {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        for i in self.iter() {
+            i.hash(state);
+        }
+    }
+}
 
 impl Deref for SteelHashMap {
     type Target = HashMap<SteelVal, SteelVal>;
@@ -1248,8 +1320,20 @@ impl From<Gc<HashMap<SteelVal, SteelVal>>> for SteelHashMap {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SteelHashSet(pub(crate) Gc<HashSet<SteelVal>>);
+
+#[cfg(feature = "imbl")]
+impl Hash for SteelHashSet {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        for i in self.iter() {
+            i.hash(state);
+        }
+    }
+}
 
 impl Deref for SteelHashSet {
     type Target = HashSet<SteelVal>;
@@ -1365,6 +1449,71 @@ pub enum SteelVal {
     ByteVector(SteelByteVector),
 }
 
+impl Default for SteelVal {
+    fn default() -> Self {
+        SteelVal::Void
+    }
+}
+
+// Avoid as much dropping as possible. Otherwise we thrash the drop impl
+// on steel values.
+#[cfg(feature = "sync")]
+pub(crate) enum SteelValPointer {
+    /// Represents a bytecode closure.
+    Closure(*const ByteCodeLambda),
+    VectorV(*const Vector<SteelVal>),
+    Custom(*const RwLock<Box<dyn CustomType>>),
+    HashMapV(*const HashMap<SteelVal, SteelVal>),
+    HashSetV(*const HashSet<SteelVal>),
+    CustomStruct(*const UserDefinedStruct),
+    IterV(*const Transducer),
+    ReducerV(*const Reducer),
+    StreamV(*const LazyStream),
+    ContinuationFunction(*const RwLock<ContinuationMark>),
+    ListV(crate::values::lists::CellPointer<SteelVal>),
+    Pair(*const crate::values::lists::Pair),
+    MutableVector(HeapRef<Vec<SteelVal>>),
+    SyntaxObject(*const Syntax),
+    BoxedIterator(*const RwLock<OpaqueIterator>),
+    Boxed(*const RwLock<SteelVal>),
+    HeapAllocated(HeapRef<SteelVal>),
+}
+
+#[cfg(feature = "sync")]
+unsafe impl Sync for SteelValPointer {}
+#[cfg(feature = "sync")]
+unsafe impl Send for SteelValPointer {}
+
+#[cfg(feature = "sync")]
+impl SteelValPointer {
+    pub(crate) fn from_value(value: &SteelVal) -> Option<Self> {
+        match value {
+            Closure(gc) => Some(Self::Closure(gc.as_ptr())),
+            VectorV(steel_vector) => Some(Self::VectorV(steel_vector.0.as_ptr())),
+            SteelVal::Custom(gc) => Some(Self::Custom(gc.as_ptr())),
+            HashMapV(steel_hash_map) => Some(Self::HashMapV(steel_hash_map.0.as_ptr())),
+            HashSetV(steel_hash_set) => Some(Self::HashSetV(steel_hash_set.0.as_ptr())),
+            CustomStruct(gc) => Some(Self::CustomStruct(gc.as_ptr())),
+            IterV(gc) => Some(Self::IterV(gc.as_ptr())),
+            ReducerV(gc) => Some(Self::ReducerV(gc.as_ptr())),
+            StreamV(gc) => Some(Self::StreamV(gc.as_ptr())),
+            ListV(generic_list) => Some(Self::ListV(generic_list.as_ptr())),
+            Pair(gc) => Some(Self::Pair(gc.as_ptr())),
+            SteelVal::ContinuationFunction(continuation) => Some(Self::ContinuationFunction(
+                crate::gc::shared::StandardShared::as_ptr(&continuation.inner),
+            )),
+            // TODO: See if we can avoid these clones?
+            MutableVector(heap_ref) => Some(Self::MutableVector(heap_ref.clone())),
+            BoxedIterator(gc) => Some(Self::BoxedIterator(gc.as_ptr())),
+            SteelVal::SyntaxObject(gc) => Some(Self::SyntaxObject(gc.as_ptr())),
+            Boxed(gc) => Some(Self::Boxed(gc.as_ptr())),
+            // TODO: See if we can avoid these clones?
+            HeapAllocated(heap_ref) => Some(Self::HeapAllocated(heap_ref.clone())),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(feature = "sync")]
 #[test]
 fn check_send_sync() {
@@ -1375,7 +1524,7 @@ fn check_send_sync() {
     handle.join().unwrap();
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SteelByteVector {
     pub(crate) vec: GcMut<Vec<u8>>,
 }
@@ -1498,19 +1647,15 @@ impl SteelVal {
 
     pub fn as_ptr_usize(&self) -> Option<usize> {
         match self {
-            // Closure(_) => todo!(),
-            // BoolV(_) => todo!(),
-            // NumV(_) => todo!(),
-            // IntV(_) => todo!(),
-            // CharV(_) => todo!(),
-            // VectorV(_) => todo!(),
+            Closure(l) => Some(l.as_ptr() as usize),
+            VectorV(v) => Some(v.0.as_ptr() as usize),
             // Void => todo!(),
-            // StringV(_) => todo!(),
-            // FuncV(_) => todo!(),
+            StringV(s) => Some(s.0.as_ptr() as usize),
+            FuncV(_) => todo!(),
             // SymbolV(_) => todo!(),
             // SteelVal::Custom(_) => todo!(),
-            // HashMapV(_) => todo!(),
-            // HashSetV(_) => todo!(),
+            HashMapV(h) => Some(h.0.as_ptr() as usize),
+            HashSetV(h) => Some(h.0.as_ptr() as usize),
             CustomStruct(c) => Some(c.as_ptr() as usize),
             // PortV(_) => todo!(),
             // IterV(_) => todo!(),
@@ -1521,15 +1666,16 @@ impl SteelVal {
             // BoxedFunction(_) => todo!(),
             // ContinuationFunction(_) => todo!(),
             ListV(l) => Some(l.as_ptr_usize()),
-            // MutFunc(_) => todo!(),
-            // BuiltIn(_) => todo!(),
-            // MutableVector(_) => todo!(),
+            MutableVector(v) => Some(v.as_ptr_usize()),
+            Custom(c) => Some(c.as_ptr() as usize),
             // BoxedIterator(_) => todo!(),
             // SteelVal::SyntaxObject(_) => todo!(),
-            // Boxed(_) => todo!(),
+            Boxed(b) => Some(b.as_ptr() as usize),
             HeapAllocated(h) => Some(h.as_ptr_usize()),
+            Pair(p) => Some(p.as_ptr() as usize),
+            SyntaxObject(s) => Some(s.as_ptr() as usize),
             // Reference(_) => todo!(),
-            // BigNum(_) => todo!(),
+            BigNum(b) => Some(b.as_ptr() as usize),
             _ => None,
         }
     }
@@ -1632,7 +1778,7 @@ impl SteelVal {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
-pub struct SteelString(Gc<String>);
+pub struct SteelString(pub(crate) Gc<String>);
 
 impl Deref for SteelString {
     type Target = crate::gc::Shared<String>;
@@ -1649,11 +1795,19 @@ impl From<Arc<String>> for SteelString {
     }
 }
 
+#[cfg(all(feature = "sync", feature = "triomphe"))]
+impl From<std::sync::Arc<String>> for SteelString {
+    fn from(value: Arc<String>) -> Self {
+        SteelString(Gc(triomphe::Arc::new((*value).clone())))
+    }
+}
+
 impl SteelString {
     pub(crate) fn to_arc_string(&self) -> Arc<String> {
         #[cfg(feature = "sync")]
         {
-            self.0 .0.clone()
+            // self.0 .0.clone()
+            Arc::new(self.0.unwrap())
         }
         #[cfg(not(feature = "sync"))]
         Arc::new(self.0.unwrap())
@@ -1741,7 +1895,7 @@ pub struct OpaqueIterator {
 
 impl Custom for OpaqueIterator {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        Some(Ok(format!("#<iterator>")))
+        Some(Ok("#<iterator>".to_owned()))
     }
 }
 
@@ -1793,7 +1947,9 @@ impl Iterator for BuiltInDataStructureIterator {
             Self::Vector(v) => v.next(),
             Self::String(s) => s.remaining.next().map(SteelVal::CharV),
             Self::Set(s) => s.next(),
-            Self::Map(s) => s.next().map(|x| SteelVal::ListV(vec![x.0, x.1].into())),
+            Self::Map(s) => s
+                .next()
+                .map(|x| SteelVal::Pair(Gc::new(Pair::cons(x.0, x.1)))),
             Self::Opaque(s) => s.next(),
         }
     }
@@ -1809,6 +1965,7 @@ pub fn value_into_iterator(val: SteelVal) -> Option<SteelVal> {
         SteelVal::StringV(s) => Some(BuiltInDataStructureIterator::String(Chunks::new(s))),
         SteelVal::HashSetV(s) => Some(BuiltInDataStructureIterator::Set((*s).clone().into_iter())),
         SteelVal::HashMapV(m) => Some(BuiltInDataStructureIterator::Map((*m).clone().into_iter())),
+        // TODO: Add byte vectors here
         _ => None,
     }
     .map(|iterator| BuiltInDataStructureIterator::into_boxed_iterator(iterator, root))
@@ -1852,53 +2009,164 @@ impl SteelVal {
             (Closure(l), Closure(r)) => Gc::ptr_eq(l, r),
             (IterV(l), IterV(r)) => Gc::ptr_eq(l, r),
             (ReducerV(l), ReducerV(r)) => Gc::ptr_eq(l, r),
-            #[allow(clippy::ambiguous_wide_pointer_comparisons)]
             (FutureFunc(l), FutureFunc(r)) => crate::gc::Shared::ptr_eq(l, r),
             (FutureV(l), FutureV(r)) => Gc::ptr_eq(l, r),
             (StreamV(l), StreamV(r)) => Gc::ptr_eq(l, r),
             (BoxedFunction(l), BoxedFunction(r)) => Gc::ptr_eq(l, r),
             (ContinuationFunction(l), ContinuationFunction(r)) => Continuation::ptr_eq(l, r),
             (ListV(l), ListV(r)) => {
-                l.ptr_eq(r) || l.storage_ptr_eq(r) || l.is_empty() && r.is_empty()
+                // Happy path
+                l.ptr_eq(r) || l.storage_ptr_eq(r) || (l.is_empty() && r.is_empty()) || {
+                    slow_path_eq_lists(l, r)
+                }
             }
             (MutFunc(l), MutFunc(r)) => *l as usize == *r as usize,
             (BuiltIn(l), BuiltIn(r)) => *l as usize == *r as usize,
             (MutableVector(l), MutableVector(r)) => HeapRef::ptr_eq(l, r),
             (BigNum(l), BigNum(r)) => Gc::ptr_eq(l, r),
             (ByteVector(l), ByteVector(r)) => Gc::ptr_eq(&l.vec, &r.vec),
-            (_, _) => false,
+            (Pair(l), Pair(r)) => Gc::ptr_eq(l, r),
+            (_, _) => {
+                // dbg!(pointers);
+                false
+            }
         }
     }
+}
+
+// How can we keep track of the provenance of where the pointers go?
+// for pointer equality?
+#[inline]
+fn slow_path_eq_lists(
+    _l: &crate::values::lists::List<SteelVal>,
+    _r: &crate::values::lists::List<SteelVal>,
+) -> bool {
+    false
+
+    /*
+
+    // If the next pointers are the same,
+    // then we need to check the values of the
+    // current node for equality. There is now the possibility
+    // that the previous version of this doesn't match up, and
+    // we need to keep the history of the previous values in order
+    // to do this properly.
+    //
+    // I think we can only really do this _if_ the next pointer
+    // exists. Otherwise this doesn't really make sense
+    let left_next = l.next_ptr_as_usize();
+    let right_next = r.next_ptr_as_usize();
+
+    if left_next.is_some() && right_next.is_some() && left_next == right_next && l.len() == r.len()
+    {
+        let left_iter = l.current_node_iter();
+        let right_iter = r.current_node_iter();
+
+        for (l, r) in left_iter.zip(right_iter) {
+            if l != r {
+                return false;
+            }
+        }
+
+        true
+    } else {
+        false
+    }
+
+    */
 }
 
 impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
-            BoolV(b) => b.hash(state),
-            NumV(n) => n.to_string().hash(state),
-            IntV(i) => i.hash(state),
-            Rational(f) => f.hash(state),
-            BigNum(n) => n.hash(state),
-            BigRational(f) => f.hash(state),
-            Complex(x) => x.hash(state),
-            CharV(c) => c.hash(state),
-            ListV(l) => l.hash(state),
-            CustomStruct(s) => s.hash(state),
-            VectorV(v) => v.hash(state),
-            v @ Void => v.hash(state),
-            StringV(s) => s.hash(state),
-            FuncV(s) => (*s as *const FunctionSignature).hash(state),
+            BoolV(b) => {
+                state.write_u8(0);
+                b.hash(state)
+            }
+            NumV(n) => {
+                state.write_u8(1);
+                n.to_string().hash(state)
+            }
+            IntV(i) => {
+                state.write_u8(2);
+                i.hash(state)
+            }
+            Rational(f) => {
+                state.write_u8(3);
+                f.hash(state)
+            }
+            BigNum(n) => {
+                state.write_u8(4);
+                n.hash(state)
+            }
+            BigRational(f) => {
+                state.write_u8(5);
+                f.hash(state)
+            }
+            Complex(x) => {
+                state.write_u8(6);
+                x.hash(state)
+            }
+            CharV(c) => {
+                state.write_u8(7);
+                c.hash(state)
+            }
+            ListV(l) => {
+                state.write_u8(8);
+                l.hash(state)
+            }
+            CustomStruct(s) => {
+                state.write_u8(9);
+                s.hash(state)
+            }
+            VectorV(v) => {
+                state.write_u8(10);
+                v.hash(state)
+            }
+            v @ Void => {
+                state.write_u8(11);
+                v.hash(state)
+            }
+            StringV(s) => {
+                state.write_u8(12);
+                s.hash(state)
+            }
+            FuncV(s) => {
+                state.write_u8(13);
+                (*s as *const FunctionSignature).hash(state)
+            }
             SymbolV(sym) => {
-                "symbol".hash(state);
+                state.write_u8(14);
                 sym.hash(state);
             }
-            Closure(b) => b.hash(state),
-            HashMapV(hm) => hm.hash(state),
-            IterV(s) => s.hash(state),
-            HashSetV(hs) => hs.hash(state),
-            SyntaxObject(s) => s.raw.hash(state),
-            Pair(p) => (&**p).hash(state),
-            ByteVector(v) => (&*v).hash(state),
+            Closure(b) => {
+                state.write_u8(15);
+                b.hash(state)
+            }
+            HashMapV(hm) => {
+                state.write_u8(16);
+                hm.hash(state)
+            }
+            IterV(s) => {
+                state.write_u8(17);
+                s.hash(state)
+            }
+            HashSetV(hs) => {
+                state.write_u8(18);
+                hs.hash(state)
+            }
+            SyntaxObject(s) => {
+                state.write_u8(19);
+                s.raw.hash(state)
+            }
+            Pair(p) => {
+                state.write_u8(20);
+                (**p).hash(state)
+            }
+            ByteVector(v) => {
+                state.write_u8(21);
+                (*v).hash(state)
+            }
             _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
         }
     }
@@ -2298,7 +2566,7 @@ impl PartialOrd for SteelVal {
             }
             (BigNum(x), BigRational(y)) => {
                 let x_big_rational = BigRational::from_integer(x.unwrap());
-                x_big_rational.partial_cmp(&y)
+                x_big_rational.partial_cmp(y)
             }
             (BigNum(x), NumV(y)) => {
                 let x_decimal = BigDecimal::new(x.unwrap(), 0);
@@ -2342,7 +2610,7 @@ impl PartialOrd for SteelVal {
                         .to_bigint()
                         .expect("integers are representable by bigint"),
                 );
-                x_big_rational.partial_cmp(&y)
+                x_big_rational.partial_cmp(y)
             }
             (Rational(x), NumV(y)) => (*x.numer() as f64 / *x.denom() as f64).partial_cmp(y),
 
@@ -2403,9 +2671,17 @@ impl PartialOrd for SteelVal {
     }
 }
 
+pub(crate) struct SteelValDisplay<'a>(pub(crate) &'a SteelVal);
+
+impl<'a> fmt::Display for SteelValDisplay<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        CycleDetector::detect_and_display_cycles(self.0, f, false)
+    }
+}
+
 impl fmt::Display for SteelVal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        CycleDetector::detect_and_display_cycles(self, f)
+        CycleDetector::detect_and_display_cycles(self, f, true)
     }
 }
 
@@ -2419,7 +2695,7 @@ impl fmt::Debug for SteelVal {
         };
         // display_helper(self, f)
 
-        CycleDetector::detect_and_display_cycles(self, f)
+        CycleDetector::detect_and_display_cycles(self, f, true)
     }
 }
 
@@ -2428,8 +2704,11 @@ mod or_else_tests {
 
     use super::*;
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     use im::vector;
+
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    use imbl::vector;
 
     #[cfg(not(feature = "sync"))]
     use im_rc::vector;

@@ -308,4 +308,19 @@ Sets the value at a specified index in a mutable vector.
 > (vector-set! A 1 42) ;;
 > A ;; => '#(1 42 3)
 ```
+### **vector-swap!**
+Swaps the value of the specified indices in a mutable vector.
+
+(vector-swap! vec a b) -> void?
+
+* vec : vector? - The mutable vector to modify.
+* a : integer? - The first index of `vec` to swap with `b` (must be within bounds).
+* b : integer? - The first index of `vec` to swap with `a` (must be within bounds).
+
+#### Examples
+```scheme
+> (define A (mutable-vector 1 2 3)) ;;
+> (vector-swap! A 0 1) ;;
+> A ;; => '#(2 1 3)
+```
 ### **vector-push!**

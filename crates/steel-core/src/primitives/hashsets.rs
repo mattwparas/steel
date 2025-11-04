@@ -12,6 +12,9 @@ pub(crate) fn hashset_module() -> BuiltInModule {
         .register_native_fn_definition(HS_CONSTRUCT_DEFINITION)
         .register_native_fn_definition(HASHSET_LENGTH_DEFINITION)
         .register_native_fn_definition(HASHSET_CONTAINS_DEFINITION)
+        .register_native_fn_definition(HASHSET_UNION_DEFINITION)
+        .register_native_fn_definition(HASHSET_INTERSECTION_DEFINITION)
+        .register_native_fn_definition(HASHSET_DIFFERENCE_DEFINITION)
         .register_native_fn_definition(HS_INSERT_DEFINITION)
         .register_native_fn_definition(HASHSET_TO_LIST_DEFINITION)
         .register_native_fn_definition(HASHSET_TO_IMMUTABLE_VECTOR_DEFINITION)
@@ -123,6 +126,48 @@ pub fn hashset_to_list(hashset: &SteelHashSet) -> SteelVal {
     SteelVal::ListV(hashset.iter().cloned().collect::<List<SteelVal>>())
 }
 
+/// Finds the union between the two hash sets.
+///
+/// # Examples
+/// ```scheme
+/// (hashset-union (hashset 10) (hashset 20)) ;; => (hashset 10 20)
+/// ```
+#[steel_derive::function(name = "hashset-union")]
+pub fn hashset_union(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
+    SteelVal::HashSetV(SteelHashSet(Gc::new(l.0.unwrap().union(r.0.unwrap()))))
+}
+
+/// Finds the intersection between the two hash sets.
+///
+/// # Examples
+/// ```scheme
+/// (hashset-intersection (hashset 10 20) (hashset 20)) ;; => (hashset 10)
+/// ```
+#[steel_derive::function(name = "hashset-intersection")]
+pub fn hashset_intersection(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
+    SteelVal::HashSetV(SteelHashSet(Gc::new(
+        l.0.unwrap().intersection(r.0.unwrap()),
+    )))
+}
+
+/// Finds the difference between the two hash sets.
+///
+/// # Examples
+/// ```scheme
+/// (hashset-difference (hashset 10 20 30) (hashset 20 30 40)) ;; => (hashset 40 10)
+/// ```
+#[steel_derive::function(name = "hashset-difference")]
+pub fn hashset_difference(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
+    #[cfg(not(feature = "imbl"))]
+    {
+        SteelVal::HashSetV(SteelHashSet(Gc::new(l.0.unwrap().difference(r.0.unwrap()))))
+    }
+    #[cfg(feature = "imbl")]
+    SteelVal::HashSetV(SteelHashSet(Gc::new(
+        l.0.unwrap().symmetric_difference(r.0.unwrap()),
+    )))
+}
+
 /// Creates an immutable vector from this hashset. The order of the vector is not guaranteed.
 ///
 /// # Examples
@@ -197,8 +242,11 @@ mod hashset_tests {
     #[cfg(not(feature = "sync"))]
     use im_rc::vector;
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     use im::vector;
+
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    use imbl::vector;
 
     #[test]
     fn hs_construct_normal() {

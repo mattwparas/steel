@@ -776,3 +776,5 @@
 (displayln "Failed: " (hash-ref r5rs-test-stats 'failure-count))
 
 (for-each (lambda (x) (displayln "    > " x)) (hash-ref r5rs-test-stats 'failures))
+
+(assert! (= 0 (hash-ref r5rs-test-stats 'failure-count)))

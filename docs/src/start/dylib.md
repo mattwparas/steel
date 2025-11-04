@@ -196,3 +196,56 @@ with `lib`.
 
 This can then be installed as a library itself on the machine, and required just
 like any other library, using a `cog.scm` file for the manifest.
+
+
+### Calling functions from the host
+
+It might prove to be useful to be able to call an arbitrary steel function from the host,
+such as a logger or just some function define in steel code. You can do this using the
+`HostRuntimeFunction` struct, like so:
+
+```rust
+static LOGGER: OnceLock<HostRuntimeFunction> = OnceLock::new();
+
+declare_module!(create_module);
+
+fn register_logger_interface(host: HostRuntimeFunction) {
+    LOGGER.set(host).ok().unwrap();
+}
+
+fn log(value: String) {
+    LOGGER
+        .get()
+        .unwrap()
+        .call(RSliceMut::from_mut_slice(&mut [FFIValue::StringV(
+            RString::from(value),
+        )]))
+        .unwrap();
+}
+
+fn test_logging() {
+    log("Hello world from dylib".to_string());
+}
+
+fn create_module() -> FFIModule {
+    let mut module = FFIModule::new("steel/sys-info");
+
+    module
+        .register_fn("register-logger", register_logger_interface)
+        .register_fn("test-logging", test_logging);
+
+    module
+}
+```
+
+
+```scheme
+(require-builtin steel/ffi)
+
+(#%require-dylib "libsteel_sys_info"
+                 (only-in register-logger test-logging))
+
+
+;; Assuming our function is `log::info!` or whatever we want to use here
+(register-logger (function->ffi-function (lambda (line) (log::info! (to-string line)))))
+```

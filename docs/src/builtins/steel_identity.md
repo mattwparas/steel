@@ -1,4 +1,37 @@
 # steel/identity
+### **bool?**
+Alias for `boolean?`. Returns true if the value is a boolean.
+
+(bool? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (bool? #false)
+#true
+
+> (bool? "hi")
+#false
+```
+### **boolean?**
+Returns true if the value is a boolean (`#true` or `#false`).
+
+(boolean? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (boolean? #true)
+#true
+
+> (boolean? #false)
+#true
+
+> (boolean? 0)
+#false
+```
 ### **complex?**
 Checks if the given value is a complex number
 
@@ -42,6 +75,39 @@ Checks if the given value is a floating-point number
 > (float? 3.14) ;; => #t
 > (float? #t) ;; => #f
 ```
+### **function?**
+Returns true if the value is a function or callable.
+
+(function? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (function? (lambda (x) x))
+#true
+
+> (function? map)
+#true
+
+> (function? 42)
+#false
+```
+### **hash?**
+Returns true if the value is a hash map.
+
+(hash? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (hash? (hash 'a 10 'b 20))
+#true
+
+> (hash? '(a b c))
+#false
+```
 ### **int?**
 Checks if the given value is an integer, an alias for `integer?`
 
@@ -67,6 +133,39 @@ Checks if the given value is an integer, an alias for `int?`
 > (integer? 42) ;; => #t
 > (integer? 3.14) ;; => #f
 > (integer? "hello") ;; => #f
+```
+### **list?**
+Returns true if the value is a list.
+
+(list? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (list? '(1 2 3))
+#true
+
+> (list? "not-a-list")
+#false
+```
+### **not**
+Returns true if the given value is exactly `#false`.
+
+(not value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (not #false)
+#true
+
+> (not #true)
+#false
+
+> (not "hello")
+#false
 ```
 ### **number?**
 Checks if the given value is a number
@@ -110,24 +209,88 @@ Checks if the given value is a real number
 > (real? 3+4i) ;; => #f
 > (real? "hello") ;; => #f
 ```
+### **set?**
+Returns true if the value is a hash set.
+
+(set? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (set? (hashset 10 20 30 40))
+#true
+
+> (set? "abc")
+#false
+```
+### **string?**
+Returns true if the value is a string.
+
+(string? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (string? "hello")
+#true
+
+> (string? 'foo)
+#false
+```
+### **symbol?**
+Returns true if the value is a symbol.
+
+(symbol? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (symbol? 'hello)
+#true
+
+> (symbol? "hello")
+#false
+```
+### **vector?**
+Returns true if the value is a vector (mutable or immutable).
+
+(vector? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (vector? #(1 2 3))
+#true
+
+> (vector? 'foo)
+#false
+```
+### **void?**
+Returns true if the value is `void`.
+
+(void? value) -> boolean?
+
+* `value` : any — the value to test
+
+#### Examples
+```scheme
+> (void? void)
+#true
+
+> (void? 42)
+#false
+```
 ### **atom?**
-### **bool?**
-### **boolean?**
 ### **char?**
 ### **continuation?**
 ### **error-object?**
-### **function?**
 ### **future?**
-### **hash?**
 ### **immutable-vector?**
-### **list?**
 ### **mutable-vector?**
-### **not**
 ### **port?**
 ### **procedure?**
-### **set?**
-### **string?**
 ### **struct?**
-### **symbol?**
-### **vector?**
-### **void?**

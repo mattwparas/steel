@@ -1,9 +1,9 @@
 use crate::core::instructions::u24;
 use crate::core::labels::Expr;
+use crate::gc::shared::StandardShared;
 use crate::gc::Shared;
 use crate::parser::span_visitor::get_span;
-use crate::primitives::numbers::make_polar;
-use crate::rvals::{Result, SteelComplex};
+use crate::rvals::Result;
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::Instruction, opcode::OpCode},
@@ -19,12 +19,8 @@ use crate::{
     },
     rvals::IntoSteelVal,
 };
-
-use num_bigint::BigInt;
-use num_rational::{BigRational, Rational32};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, convert::TryInto, time::SystemTime};
-use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
+use std::{collections::HashMap, time::SystemTime};
 
 #[cfg(feature = "profiling")]
 use std::time::Instant;
@@ -36,54 +32,11 @@ use super::{compiler::DebruijnIndicesInterner, map::SymbolMap};
 
 const _TILE_SUPER_INSTRUCTIONS: bool = true;
 
-pub fn number_literal_to_steel(n: &NumberLiteral) -> Result<SteelVal> {
-    // real_to_steel does some cloning of bignums. It may be possible to optimize this away.
-    let real_to_steel = |re: &RealLiteral| match re {
-        RealLiteral::Int(IntLiteral::Small(i)) => i.into_steelval(),
-        RealLiteral::Int(IntLiteral::Big(i)) => i.clone().into_steelval(),
-        RealLiteral::Rational(n, d) => match (n, d) {
-            (IntLiteral::Small(n), IntLiteral::Small(d)) => {
-                match (i32::try_from(*n), i32::try_from(*d)) {
-                    (Ok(n), Ok(0)) => {
-                        stop!(BadSyntax => format!("division by zero in {:?}/0", n))
-                    }
-                    (Ok(n), Ok(d)) => Rational32::new(n, d).into_steelval(),
-                    _ => BigRational::new(BigInt::from(*n), BigInt::from(*d)).into_steelval(),
-                }
-            }
-            (IntLiteral::Small(n), IntLiteral::Big(d)) => {
-                BigRational::new(BigInt::from(*n), *d.clone()).into_steelval()
-            }
-            (IntLiteral::Big(n), IntLiteral::Small(d)) => {
-                BigRational::new(*n.clone(), BigInt::from(*d)).into_steelval()
-            }
-            (IntLiteral::Big(n), IntLiteral::Big(d)) => {
-                BigRational::new(*n.clone(), *d.clone()).into_steelval()
-            }
-        },
-        RealLiteral::Float(f) => f.into_steelval(),
-    };
-    match n {
-        NumberLiteral::Real(re) => real_to_steel(re),
-        NumberLiteral::Complex(re, im) => SteelComplex {
-            re: real_to_steel(re)?,
-            im: real_to_steel(im)?,
-        }
-        .into_steelval(),
-        NumberLiteral::Polar(r, theta) => {
-            let r = real_to_steel(r)?;
-            let theta = real_to_steel(theta)?;
-
-            make_polar(&r, &theta)
-        }
-    }
-}
-
 /// Evaluates an atom expression in given environment.
 fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Ok((*b).into()),
-        TokenType::Number(n) => number_literal_to_steel(n),
+        TokenType::Number(n) => (&**n).into_steelval(),
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.to_string().into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
@@ -91,6 +44,35 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
         what => {
             // println!("getting here in the eval_atom - code_generator");
             stop!(UnexpectedToken => what; t.span)
+        }
+    }
+}
+
+// Call global if -> merge with if, when possible
+pub fn merge_call_global_if(instructions: &mut [Instruction]) {
+    if instructions.len() < 3 {
+        return;
+    }
+
+    for i in 0..instructions.len() - 2 {
+        let maybe_call_global = instructions.get(i);
+        let maybe_if = instructions.get(i + 2);
+
+        match (
+            maybe_call_global.map(|x| x.op_code),
+            maybe_if.map(|x| x.op_code),
+        ) {
+            // (Some(OpCode::CALLGLOBAL), Some(OpCode::IF)) => {
+            //     if let Some(x) = instructions.get_mut(i) {
+            //         x.op_code = OpCode::CALLGLOBALIF;
+            //     }
+            // }
+            (Some(OpCode::NULL), Some(OpCode::IF)) => {
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::NULLIF;
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -191,11 +173,13 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
                 }),
                 ..,
             ) => {
-                let value = eval_atom(&syn)?;
+                let value = eval_atom(syn)?;
                 let opcode = match &value {
                     SteelVal::IntV(0) => OpCode::LOADINT0,
                     SteelVal::IntV(1) => OpCode::LOADINT1,
                     SteelVal::IntV(2) => OpCode::LOADINT2,
+                    SteelVal::BoolV(true) => OpCode::TRUE,
+                    SteelVal::BoolV(false) => OpCode::FALSE,
                     _ => continue,
                 };
                 instructions.get_mut(i).unwrap().op_code = opcode;
@@ -204,6 +188,137 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+// (READLOCAL0, CALLGLOBAL): 1200919
+// (READLOCAL1, CALLGLOBAL): 1088780
+pub fn specialize_call_global_local(instructions: &mut [Instruction]) {
+    if instructions.is_empty() {
+        return;
+    }
+
+    for i in 0..instructions.len() - 1 {
+        let readlocal = instructions.get(i);
+        let callglobal = instructions.get(i + 1);
+
+        match (readlocal, callglobal) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::READLOCAL0,
+                    // payload_size: index,
+                    // contents: Some(Expr::Atom(ident)),
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::CALLGLOBAL,
+                    // payload_size: arity,
+                    ..
+                }),
+            ) => {
+                // TODO:
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::READLOCAL0CALLGLOBAL;
+                    // x.payload_size = index;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    // Leave this as the OpCode::FUNC;
+                    x.op_code = OpCode::PASS;
+                    // x.payload_size = u24::from_usize(arity);
+                }
+            }
+
+            (
+                Some(Instruction {
+                    op_code: OpCode::READLOCAL1,
+                    // payload_size: index,
+                    // contents: Some(Expr::Atom(ident)),
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::CALLGLOBAL,
+                    // payload_size: arity,
+                    ..
+                }),
+            ) => {
+                // TODO:
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::READLOCAL1CALLGLOBAL;
+                    // x.payload_size = index;
+                }
+
+                if let Some(x) = instructions.get_mut(i + 1) {
+                    // Leave this as the OpCode::FUNC;
+                    x.op_code = OpCode::PASS;
+                    // x.payload_size = u24::from_usize(arity);
+                }
+            }
+
+            _ => {}
+        }
+    }
+}
+
+pub fn unbox_function_call(instructions: &mut [Instruction]) {
+    if instructions.is_empty() {
+        return;
+    }
+
+    // Should look like:
+    for i in 0..instructions.len() {
+        let push = instructions.get(i);
+        let func = instructions.get(i + 1);
+        let unbox_call = instructions.get(i + 2);
+
+        match (push, func, unbox_call) {
+            (
+                Some(Instruction {
+                    op_code: OpCode::PUSH,
+                    contents: Some(Expr::Atom(ident)),
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::FUNC,
+                    payload_size: unbox_arity,
+                    ..
+                }),
+                Some(Instruction {
+                    op_code: OpCode::FUNC | OpCode::TAILCALL,
+                    payload_size: unbox_call_arity,
+                    ..
+                }),
+            ) => {
+                let arity = unbox_arity.to_usize();
+                let unbox_call_arity = *unbox_call_arity;
+
+                let call_kind = unbox_call.unwrap().op_code;
+
+                if let TokenType::Identifier(ident) = ident.ty {
+                    match ident {
+                        _ if ident == *UNBOX || ident == *PRIM_UNBOX && arity == 1 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::UNBOXCALL;
+
+                                if call_kind == OpCode::FUNC {
+                                    x.op_code = OpCode::UNBOXCALL;
+                                } else {
+                                    x.op_code = OpCode::UNBOXTAIL;
+                                }
+
+                                x.payload_size = unbox_call_arity;
+                                continue;
+                            }
+                        }
+
+                        _ => {
+                            // println!("Converting call global: {}", ident);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 pub fn convert_call_globals(instructions: &mut [Instruction]) {
@@ -224,13 +339,14 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                     ..
                 }),
                 Some(Instruction {
-                    op_code: OpCode::FUNC,
+                    op_code: func_op @ OpCode::FUNC | func_op @ OpCode::FUNCNOARITY,
                     payload_size: arity,
                     ..
                 }),
             ) => {
                 let arity = arity.to_usize();
                 let index = *index;
+                let func_op = *func_op;
 
                 if let TokenType::Identifier(ident) = ident.ty {
                     match ident {
@@ -265,7 +381,7 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                             }
                         }
 
-                        _ if ident == *SETBOX || ident == *PRIM_SETBOX && arity == 1 => {
+                        _ if ident == *SETBOX || ident == *PRIM_SETBOX && arity == 2 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::SETBOX;
                                 continue;
@@ -275,6 +391,29 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                         _ if ident == *PRIM_CAR && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CAR;
+                                continue;
+                            }
+                        }
+
+                        // TODO: Figure out why this isn't working correctly?
+                        _ if ident == *PRIM_LIST_SYMBOL => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::LIST;
+                                x.payload_size = u24::from_usize(arity);
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *PRIM_LIST_REF && arity == 2 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::LISTREF;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *PRIM_VECTOR_REF && arity == 2 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::VECTORREF;
                                 continue;
                             }
                         }
@@ -314,7 +453,11 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
 
                 // TODO:
                 if let Some(x) = instructions.get_mut(i) {
-                    x.op_code = OpCode::CALLGLOBAL;
+                    if func_op == OpCode::FUNC {
+                        x.op_code = OpCode::CALLGLOBAL;
+                    } else {
+                        x.op_code = OpCode::CALLGLOBALNOARITY;
+                    }
                     x.payload_size = index;
                 }
 
@@ -332,13 +475,14 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                     ..
                 }),
                 Some(Instruction {
-                    op_code: OpCode::TAILCALL,
-                    // payload_size: arity,
+                    op_code: tail_op @ OpCode::TAILCALL | tail_op @ OpCode::TAILCALLNOARITY,
+                    payload_size: arity,
                     ..
                 }),
             ) => {
-                // let arity = *arity;
+                let arity = arity.to_usize();
                 let index = *index;
+                let tail_op = *tail_op;
 
                 if let TokenType::Identifier(ident) = ident.ty {
                     match ident {
@@ -350,30 +494,52 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                             }
                         }
 
-                        _ if ident == *BOX || ident == *PRIM_BOX => {
+                        _ if ident == *BOX || ident == *PRIM_BOX && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::NEWBOX;
                                 continue;
                             }
                         }
 
-                        _ if ident == *UNBOX || ident == *PRIM_UNBOX => {
+                        _ if ident == *UNBOX || ident == *PRIM_UNBOX && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::UNBOX;
                                 continue;
                             }
                         }
 
-                        _ if ident == *SETBOX || ident == *PRIM_SETBOX => {
+                        _ if ident == *SETBOX || ident == *PRIM_SETBOX && arity == 2 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::SETBOX;
                                 continue;
                             }
                         }
 
-                        _ if ident == *PRIM_CAR => {
+                        _ if ident == *PRIM_CAR && arity == 1 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::CAR;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *PRIM_LIST_REF && arity == 2 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::LISTREF;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *PRIM_VECTOR_REF && arity == 2 => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::VECTORREF;
+                                continue;
+                            }
+                        }
+
+                        _ if ident == *PRIM_LIST_SYMBOL => {
+                            if let Some(x) = instructions.get_mut(i) {
+                                x.op_code = OpCode::LIST;
+                                x.payload_size = u24::from_usize(arity);
                                 continue;
                             }
                         }
@@ -387,7 +553,11 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 }
 
                 if let Some(x) = instructions.get_mut(i) {
-                    x.op_code = OpCode::CALLGLOBALTAIL;
+                    if tail_op == OpCode::TAILCALL {
+                        x.op_code = OpCode::CALLGLOBALTAIL;
+                    } else {
+                        x.op_code = OpCode::CALLGLOBALTAILNOARITY;
+                    }
                     x.payload_size = index;
                 }
 
@@ -483,6 +653,8 @@ define_symbols! {
     PRIM_CONS_SYMBOL => "#%prim.cons",
     LIST_SYMBOL => "list",
     PRIM_LIST_SYMBOL => "#%prim.list",
+    PRIM_LIST_REF => "#%prim.list-ref",
+    PRIM_VECTOR_REF => "#%prim.vector-ref",
     BOX => "#%box",
     PRIM_BOX => "#%prim.box",
     UNBOX => "#%unbox",
@@ -492,6 +664,24 @@ define_symbols! {
     DEFMACRO => "defmacro",
     BEGIN_FOR_SYNTAX => "begin-for-syntax",
     ELLIPSES_SYMBOL => "...",
+    DOT => ".",
+}
+
+pub fn flatten_equal_const(instructions: &mut [Instruction]) {
+    for i in 0..instructions.len() {
+        let push_const = instructions.get(i);
+        let equal = instructions.get(i + 1);
+
+        match (push_const.map(|x| x.op_code), equal.map(|x| x.op_code)) {
+            (Some(OpCode::PUSHCONST), Some(OpCode::EQUAL2)) => {
+                if let Some(x) = instructions.get_mut(i) {
+                    x.op_code = OpCode::EQUALCONST;
+                }
+            }
+
+            _ => {}
+        }
+    }
 }
 
 pub fn inline_num_operations(instructions: &mut [Instruction]) {
@@ -501,7 +691,12 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
 
         if let (
             Some(Instruction {
-                op_code: OpCode::PUSH | OpCode::CALLGLOBAL | OpCode::CALLGLOBALTAIL,
+                op_code:
+                    OpCode::PUSH
+                    | OpCode::CALLGLOBAL
+                    | OpCode::CALLGLOBALTAIL
+                    | OpCode::CALLGLOBALNOARITY
+                    | OpCode::CALLGLOBALTAILNOARITY,
                 ..
             }),
             Some(Instruction {
@@ -529,6 +724,7 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
                 x if x == *PRIM_DIV && payload_size > 0 => Some(OpCode::DIV),
                 x if x == *PRIM_STAR && payload_size > 0 => Some(OpCode::MUL),
                 x if x == *PRIM_NUM_EQUAL && payload_size == 2 => Some(OpCode::NUMEQUAL),
+                x if x == *PRIM_EQUAL && payload_size == 2 => Some(OpCode::EQUAL2),
                 x if x == *PRIM_EQUAL && payload_size > 0 => Some(OpCode::EQUAL),
                 x if x == *PRIM_LTE && payload_size > 0 => Some(OpCode::LTE),
                 _ => None,
@@ -1007,6 +1203,8 @@ impl RawProgramWithSymbols {
         // Run down the optimizations here
         for instructions in &mut self.instructions {
             inline_num_operations(instructions);
+            flatten_equal_const(instructions);
+            unbox_function_call(instructions);
             convert_call_globals(instructions);
             specialize_read_local(instructions);
             merge_conditions_with_if(instructions);
@@ -1023,12 +1221,12 @@ impl RawProgramWithSymbols {
     ) -> Result<Vec<String>> {
         let mut interner = DebruijnIndicesInterner::default();
 
-        for expression in &mut self.instructions {
-            interner.collect_first_pass_defines(expression, symbol_map)?
+        for (index, expression) in self.instructions.iter_mut().enumerate() {
+            interner.collect_first_pass_defines(index, expression, symbol_map)?
         }
 
-        for expression in &mut self.instructions {
-            interner.collect_second_pass_defines(expression, symbol_map)?
+        for (index, expression) in self.instructions.iter_mut().enumerate() {
+            interner.collect_second_pass_defines(index, expression, symbol_map)?
         }
 
         // TODO try here - the loop condition local const arity two seems to rely on the
@@ -1069,12 +1267,12 @@ impl RawProgramWithSymbols {
 
         let mut interner = DebruijnIndicesInterner::default();
 
-        for expression in &mut self.instructions {
-            interner.collect_first_pass_defines(expression, symbol_map)?
+        for (index, expression) in self.instructions.iter_mut().enumerate() {
+            interner.collect_first_pass_defines(index, expression, symbol_map)?
         }
 
-        for expression in &mut self.instructions {
-            interner.collect_second_pass_defines(expression, symbol_map)?
+        for (index, expression) in self.instructions.iter_mut().enumerate() {
+            interner.collect_second_pass_defines(index, expression, symbol_map)?
         }
 
         // TODO try here - the loop condition local const arity two seems to rely on the
@@ -1114,12 +1312,12 @@ impl RawProgramWithSymbols {
 
         let mut interner = DebruijnIndicesInterner::default();
 
-        for expression in &mut self.instructions {
-            interner.collect_first_pass_defines(expression, symbol_map)?
+        for (index, expression) in self.instructions.iter_mut().enumerate() {
+            interner.collect_first_pass_defines(index, expression, symbol_map)?
         }
 
-        for expression in &mut self.instructions {
-            interner.collect_second_pass_defines(expression, symbol_map)?
+        for (index, expression) in self.instructions.iter_mut().enumerate() {
+            interner.collect_second_pass_defines(index, expression, symbol_map)?
         }
 
         // if std::env::var("CODE_GEN_V2").is_err() {
@@ -1132,6 +1330,10 @@ impl RawProgramWithSymbols {
             // gimmick_super_instruction(instructions);
             // move_read_local_call_global(instructions);
             specialize_read_local(instructions);
+
+            merge_call_global_if(instructions);
+
+            // specialize_call_global_local(instructions);
         }
         // }
 
@@ -1150,13 +1352,13 @@ impl RawProgramWithSymbols {
         Ok(Executable {
             name: Shared::new(name),
             version: Shared::new(self.version),
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(not(target_family = "wasm"))]
             time_stamp: Some(SystemTime::now()),
-            #[cfg(target_arch = "wasm32")]
+            #[cfg(target_family = "wasm")]
             time_stamp: None,
             instructions: instructions
                 .into_iter()
-                .map(|x| Shared::from(x.into_boxed_slice()))
+                .map(|x| StandardShared::from(x.into_boxed_slice()))
                 .collect(),
             constant_map: self.constant_map,
             spans,
@@ -1203,15 +1405,7 @@ fn extract_spans(
         .map(|x| {
             // let len = x.len();
             x.into_iter()
-                .map(|i| {
-                    DenseInstruction::new(
-                        i.op_code,
-                        i.payload_size.try_into().unwrap_or_else(|_| {
-                            println!("{:?}", i);
-                            panic!("Unable to lower instruction to bytecode!")
-                        }),
-                    )
-                })
+                .map(|i| DenseInstruction::new(i.op_code, i.payload_size))
                 .collect()
         })
         .collect();
@@ -1227,7 +1421,7 @@ pub struct Executable {
     pub(crate) name: Shared<String>,
     pub(crate) version: Shared<String>,
     pub(crate) time_stamp: Option<SystemTime>, // TODO -> don't use system time, probably not as portable, prefer date time
-    pub(crate) instructions: Vec<Shared<[DenseInstruction]>>,
+    pub(crate) instructions: Vec<StandardShared<[DenseInstruction]>>,
     pub(crate) constant_map: ConstantMap,
     pub(crate) spans: Vec<Shared<[Span]>>,
 }

@@ -1,12 +1,11 @@
 #![allow(unused)]
 
-use std::{cell::RefCell, future::Future, marker::PhantomData, rc::Rc, sync::Arc};
+use std::{cell::RefCell, future::Future, marker::PhantomData, ops::DerefMut, rc::Rc, sync::Arc};
 
 use super::{
     builtin::{Arity, FunctionSignatureMetadata},
     engine::Engine,
 };
-use crate::{gc::Gc, rvals::MaybeSendSyncStatic, values::lists::List};
 use crate::{
     gc::{
         shared::MutContainer,
@@ -16,6 +15,7 @@ use crate::{
 };
 use crate::{
     gc::{
+        shared::StandardShared,
         unsafe_erased_pointers::{
             BorrowedObject, OpaqueReferenceNursery, ReadOnlyBorrowedObject, ReadOnlyTemporary,
             Temporary,
@@ -26,6 +26,11 @@ use crate::{
         AsRefMutSteelValFromRef, AsRefSteelVal, AsRefSteelValFromUnsized, AsSlice, FromSteelVal,
         IntoSteelVal, Result, SteelVal,
     },
+};
+use crate::{
+    gc::{unsafe_erased_pointers::increment_borrow_flag, Gc},
+    rvals::MaybeSendSyncStatic,
+    values::lists::List,
 };
 use crate::{rvals::AsRefSteelValFromRef, stop};
 use crate::{
@@ -163,7 +168,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
             let input = <SELF>::as_ref(&args[0]).map_err(|mut e| {
@@ -238,7 +243,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input);
+            let res = func(&mut input.as_mut());
 
             res.into_steelval()
         };
@@ -276,7 +281,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, &mut area);
+            let res = func(&mut input.as_mut(), &mut area);
 
             res.into_steelval()
         };
@@ -314,7 +319,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, &mut area);
+            let res = func(&mut input.as_mut(), &mut area);
 
             res.into_steelval()
         };
@@ -363,7 +368,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, area, &mut frame, &mut ctx);
+            let res = func(&mut input, area, &mut frame.as_mut(), &mut ctx.as_mut());
 
             res.into_steelval()
         };
@@ -411,7 +416,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, area, &mut frame, &mut ctx);
+            let res = func(&mut input, area, &mut frame.as_mut(), &mut ctx.as_mut());
 
             res.into_steelval()
         };
@@ -437,7 +442,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 4 {
+            if args.len() != 3 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
@@ -456,7 +461,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, &area, &mut ctx);
+            let res = func(&mut input, &area, &mut ctx.as_mut());
 
             res.into_steelval()
         };
@@ -482,7 +487,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 4 {
+            if args.len() != 3 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
@@ -501,7 +506,7 @@ impl<
                 e
             })?;
 
-            let res = func(&input, area, &ctx);
+            let res = func(&input, area, ctx.as_ro());
 
             res.into_steelval()
         };
@@ -545,7 +550,7 @@ impl<
             })?;
 
             let res = func(
-                &mut input,
+                &mut input.as_mut(),
                 temp_res.as_slice_repr(),
                 F::from_steelval(&args[2])?,
             );
@@ -584,7 +589,7 @@ impl<
             })?;
 
             let res = func(
-                &mut input,
+                &mut input.as_mut(),
                 temp_res.as_slice_repr(),
                 F::from_steelval(&args[2])?,
             );
@@ -615,7 +620,7 @@ impl<
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -628,7 +633,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, temp_res.as_slice_repr());
+            let res = func(&mut input.as_mut(), temp_res.as_slice_repr());
 
             res.into_steelval()
         };
@@ -650,7 +655,7 @@ impl<
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -663,7 +668,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, temp_res.as_slice_repr());
+            let res = func(&mut input.as_mut(), temp_res.as_slice_repr());
 
             res.into_steelval()
         };
@@ -691,7 +696,7 @@ impl<
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -704,7 +709,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, temp_res.as_slice_repr());
+            let res = func(&mut input.as_mut(), temp_res.as_slice_repr());
 
             res.into_steelval()
         };
@@ -724,7 +729,7 @@ impl<
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -737,7 +742,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, temp_res.as_slice_repr());
+            let res = func(&mut input.as_mut(), temp_res.as_slice_repr());
 
             res.into_steelval()
         };
@@ -783,14 +788,16 @@ impl<
                 e
             })?;
 
-            let res = func(input);
+            let pointer = input.as_mut().deref_mut() as *mut _;
+
+            let res = func(unsafe { &mut (*pointer) });
 
             let erased = res as *mut _;
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::TemporaryObject { ptr: wrapped };
@@ -809,7 +816,7 @@ impl<
                 .unwrap();
 
             // Mark as borrowed now
-            borrow_flag.set(true);
+            borrow_flag.store(true, std::sync::atomic::Ordering::SeqCst);
 
             let mut borrowed = BorrowedObject::new(weak_ptr).with_parent_flag(borrow_flag);
 
@@ -867,14 +874,16 @@ impl<
                 e
             })?;
 
-            let res = func(input);
+            let pointer = input.as_mut().deref_mut() as *mut _;
+
+            let res = func(unsafe { &mut (*pointer) });
 
             let erased = res as *const _;
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
@@ -893,7 +902,9 @@ impl<
                 .get_borrow_count_if_borrowed_object::<SELFSTAT>()
                 .unwrap();
 
-            borrow_flag.set(borrow_flag.get() + 1);
+            // borrow_flag.set(borrow_flag.get() + 1);
+
+            increment_borrow_flag(&borrow_flag);
 
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
@@ -949,14 +960,16 @@ impl<
                 e
             })?;
 
-            let res = func(input, arg);
+            let pointer = input.as_mut().deref_mut() as *mut _;
+
+            let res = func(unsafe { &mut (*pointer) }, arg);
 
             let erased = res as *const _;
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
@@ -975,7 +988,7 @@ impl<
                 .get_borrow_count_if_borrowed_object::<SELFSTAT>()
                 .unwrap();
 
-            borrow_flag.set(borrow_flag.get() + 1);
+            increment_borrow_flag(&borrow_flag);
 
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
@@ -1026,23 +1039,22 @@ impl<
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
+
+            let pointer = input.as_ro() as *const _;
+
             let arg = ARG::from_steelval(&args[1]).map_err(|mut e| {
                 e.prepend_message(&format!("{}:", name));
                 e
             })?;
 
-            let res = func(input, arg);
-
-            // let lifted = unsafe { std::mem::transmute::<RET, RETSTAT>(res) };
-
-            // lifted.into_steelval()
+            let res = func(unsafe { &(*pointer) }, arg);
 
             let erased = res;
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(erased);
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(erased);
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
@@ -1101,7 +1113,9 @@ impl<
                 e
             })?;
 
-            let res = func(input);
+            let pointer = input.as_ro() as *const _;
+
+            let res = func(unsafe { &(*pointer) });
 
             // let lifted = unsafe { std::mem::transmute::<RET, RETSTAT>(res) };
 
@@ -1111,8 +1125,8 @@ impl<
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(erased);
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(erased);
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
@@ -1157,7 +1171,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 4 {
+            if args.len() != 3 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
@@ -1176,7 +1190,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input, &area, &mut ctx);
+            let res = func(&mut input, &area, &mut ctx.as_mut());
 
             res.into_steelval()
         };
@@ -1202,7 +1216,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 4 {
+            if args.len() != 3 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 3, args.len()));
             }
 
@@ -1221,7 +1235,7 @@ impl<
                 e
             })?;
 
-            let res = func(&input, area, &ctx);
+            let res = func(&input, area, ctx.as_ro());
 
             res.into_steelval()
         };
@@ -1250,8 +1264,8 @@ impl<
         // use std::Borrow();
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 3 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+            if args.len() != 2 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -1265,7 +1279,7 @@ impl<
             })?;
 
             let res = func(
-                &mut input,
+                &mut input.as_mut(),
                 temp_res.as_slice_repr(),
                 F::from_steelval(&args[2])?,
             );
@@ -1278,7 +1292,7 @@ impl<
             SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new(
                 Arc::new(f),
                 Some(name),
-                Some(3),
+                Some(2),
             ))),
         )
     }
@@ -1289,8 +1303,8 @@ impl<
         let cloned_name = name.clone();
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            if args.len() != 3 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+            if args.len() != 2 {
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -1304,7 +1318,7 @@ impl<
             })?;
 
             let res = func(
-                &mut input,
+                &mut input.as_mut(),
                 temp_res.as_slice_repr(),
                 F::from_steelval(&args[2]).map_err(|mut e| {
                     e.prepend_message(&format!("{}:", name));
@@ -1320,7 +1334,7 @@ impl<
             SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
                 Arc::new(f),
                 Some(cloned_name.into()),
-                Some(3),
+                Some(2),
             ))),
         )
     }
@@ -1357,14 +1371,16 @@ impl<
                 e
             })?;
 
-            let res = func(input);
+            let pointer = input.as_mut().deref_mut() as *mut _;
+
+            let res = func(unsafe { &mut (*pointer) });
 
             let erased = res as *mut _;
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::TemporaryObject { ptr: wrapped };
@@ -1382,7 +1398,7 @@ impl<
                 .get_borrow_flag_if_borrowed_object::<SELFSTAT>()
                 .unwrap();
 
-            borrow_flag.set(true);
+            borrow_flag.store(true, std::sync::atomic::Ordering::SeqCst);
 
             let borrowed = BorrowedObject::new(weak_ptr).with_parent_flag(borrow_flag);
 
@@ -1441,14 +1457,16 @@ impl<
                 e
             })?;
 
-            let res = func(input);
+            let pointer = input.as_mut().deref_mut() as *mut _;
+
+            let res = func(unsafe { &mut (*pointer) });
 
             let erased = res as *const _;
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
@@ -1467,7 +1485,7 @@ impl<
                 .get_borrow_count_if_borrowed_object::<SELFSTAT>()
                 .unwrap();
 
-            borrow_flag.set(borrow_flag.get() + 1);
+            increment_borrow_flag(&borrow_flag);
 
             // TODO: Mark the parent as borrowed -> Can't be access again until
             // the child value is out of scope. We shouldn't have a problem with RO values
@@ -1527,14 +1545,16 @@ impl<
                 e
             })?;
 
-            let res = func(input, arg);
+            let pointer = input.as_mut().deref_mut() as *mut _;
+
+            let res = func(unsafe { &mut (*pointer) }, arg);
 
             let erased = res as *const _;
 
             // Take the result - but we need to tie this lifetime to the existing lifetime of the parent one.
             // So here we should have a weak reference to the existing lifetime?
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let temporary_borrowed_object =
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
@@ -1553,7 +1573,7 @@ impl<
                 .get_borrow_count_if_borrowed_object::<SELFSTAT>()
                 .unwrap();
 
-            borrow_flag.set(borrow_flag.get() + 1);
+            increment_borrow_flag(&borrow_flag);
 
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
@@ -1698,7 +1718,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
             let mut nursery = <SELF::Nursery>::default();
@@ -1765,7 +1785,7 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref(&args[0]).map_err(|mut e| {
@@ -1800,7 +1820,7 @@ impl<
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
             let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -1808,7 +1828,7 @@ impl<
                 e
             })?;
 
-            let res = func(&mut input);
+            let res = func(&mut input.as_mut());
 
             res.into_steelval()
         };
@@ -1830,7 +1850,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
             let mut input = <SELF>::as_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -1838,7 +1858,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 e
             })?;
 
-            let res = func(input);
+            let res = func(input.as_ro());
 
             res.into_steelval()
         };
@@ -1864,7 +1884,7 @@ impl<
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 2 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
             }
 
             let mut input = <SELF>::as_ref_from_ref(&args[0])?;
@@ -1874,7 +1894,7 @@ impl<
                 err
             })?;
 
-            let res = func(input, arg);
+            let res = func(input.as_ro(), arg);
 
             res.into_steelval()
         };
@@ -1898,7 +1918,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
             if args.len() != 1 {
-                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 0, args.len()));
+                stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
             }
 
             let mut input = <SELF>::as_ref_from_ref(&args[0]).map_err(|mut e| {
@@ -1906,7 +1926,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 e
             })?;
 
-            let res = func(input);
+            let res = func(input.as_ro());
 
             res.into_steelval()
         };
@@ -2230,7 +2250,7 @@ macro_rules! impl_register_fn_self {
                 e
             })?;
 
-                    let res = func(&mut input, $(<$param>::from_steelval(&args[$idx]).map_err(|mut err| {
+                    let res = func(&mut input.as_mut(), $(<$param>::from_steelval(&args[$idx]).map_err(|mut err| {
                             err.prepend_message(":");
                             err.prepend_message(name);
                             err
@@ -2260,14 +2280,14 @@ macro_rules! impl_register_fn_self {
                  }
 
                  let mut input = <SELF>::as_mut_ref_from_ref(&args[0]).map_err(|mut e| {
-                e.prepend_message(&format!("{}:", name));
-                e
-            })?;
+                    e.prepend_message(&format!("{}:", name));
+                    e
+                 })?;
 
-                 let res = func(&mut input, $(<$param>::from_steelval(&args[$idx]).map_err(|mut e| {
-                e.prepend_message(&format!("{}:", name));
-                e
-            })?,)*);
+                 let res = func(&mut input.as_mut(), $(<$param>::from_steelval(&args[$idx]).map_err(|mut e| {
+                    e.prepend_message(&format!("{}:", name));
+                    e
+                 })?,)*);
 
                  res.into_steelval()
              };

@@ -6,12 +6,135 @@ extern crate quote;
 use std::collections::HashMap;
 
 use proc_macro::TokenStream;
+use proc_macro2::Group;
 use quote::{quote, ToTokens};
 use syn::{
     punctuated::Punctuated, spanned::Spanned, token::Comma, Attribute, Data, DeriveInput, Expr,
     ExprGroup, ExprLit, FnArg, Ident, ItemFn, Lit, LitStr, Meta, Pat, ReturnType, Signature, Type,
     TypeReference,
 };
+
+#[proc_macro]
+pub fn steel_quote(input: TokenStream) -> TokenStream {
+    let token_iter = proc_macro2::TokenStream::from(input).into_iter();
+
+    let mut identifiers: Vec<Ident> = Vec::new();
+    let mut list_identifiers: Vec<Ident> = Vec::new();
+    let mut tokens: Vec<proc_macro2::TokenTree> = Vec::new();
+
+    walk(
+        token_iter,
+        &mut list_identifiers,
+        &mut identifiers,
+        &mut tokens,
+    );
+
+    let original = proc_macro2::TokenStream::from_iter(tokens).to_string();
+
+    let identifier_str = identifiers.iter().map(|x| x.to_string());
+    let list_identifiers_str = list_identifiers.iter().map(|x| x.to_string());
+
+    quote! {
+        ::steel::parser::replace_idents::expand_template_pair(
+            steel::::parser::parser::Parser::parse(#original).unwrap(),
+            vec![
+                #(
+                    (#identifier_str.into(), (::steel::parser::expander::BindingKind::Single, #identifiers)),
+                )*
+
+                #(
+                   (#list_identifiers_str.into(), (::steel::parser::expander::BindingKind::Many, #list_identifiers)),
+                )*
+            ]
+        )
+
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn internal_steel_quote(input: TokenStream) -> TokenStream {
+    let token_iter = proc_macro2::TokenStream::from(input).into_iter();
+
+    let mut identifiers: Vec<Ident> = Vec::new();
+    let mut list_identifiers: Vec<Ident> = Vec::new();
+    let mut tokens: Vec<proc_macro2::TokenTree> = Vec::new();
+
+    walk(
+        token_iter,
+        &mut list_identifiers,
+        &mut identifiers,
+        &mut tokens,
+    );
+
+    let original = proc_macro2::TokenStream::from_iter(tokens).to_string();
+
+    let identifier_str = identifiers.iter().map(|x| x.to_string());
+    let list_identifiers_str = list_identifiers.iter().map(|x| x.to_string());
+
+    quote! {
+        crate::parser::replace_idents::expand_template_pair(
+            crate::parser::parser::Parser::parse(#original).unwrap(),
+            vec![
+                #(
+                    (#identifier_str.into(), (crate::parser::expander::BindingKind::Single, #identifiers)),
+                )*
+
+                #(
+                   (#list_identifiers_str.into(), (crate::parser::expander::BindingKind::Many, #list_identifiers)),
+                )*
+            ]
+        )
+
+    }
+    .into()
+}
+
+fn walk(
+    mut token_iter: proc_macro2::token_stream::IntoIter,
+    list_identifiers: &mut Vec<Ident>,
+    identifiers: &mut Vec<Ident>,
+    tokens: &mut Vec<proc_macro2::TokenTree>,
+) {
+    while let Some(next) = token_iter.next() {
+        match &next {
+            proc_macro2::TokenTree::Group(g) => {
+                let mut child = Vec::new();
+
+                walk(
+                    g.stream().into_iter(),
+                    list_identifiers,
+                    identifiers,
+                    &mut child,
+                );
+
+                tokens.push(proc_macro2::TokenTree::Group(Group::new(
+                    g.delimiter(),
+                    proc_macro2::TokenStream::from_iter(child.into_iter()),
+                )));
+            }
+            proc_macro2::TokenTree::Punct(p) if p.as_char() == '@' => {
+                if let Some(proc_macro2::TokenTree::Ident(next_ident)) = token_iter.next() {
+                    list_identifiers.push(next_ident.clone());
+                    tokens.push(proc_macro2::TokenTree::Ident(next_ident));
+                } else {
+                    panic!();
+                };
+            }
+            proc_macro2::TokenTree::Punct(p) if p.as_char() == '#' => {
+                if let Some(proc_macro2::TokenTree::Ident(next_ident)) = token_iter.next() {
+                    identifiers.push(next_ident.clone());
+                    tokens.push(proc_macro2::TokenTree::Ident(next_ident));
+                } else {
+                    panic!();
+                };
+            }
+            _ => {
+                tokens.push(next);
+            }
+        }
+    }
+}
 
 fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> TokenStream {
     let name = &input.ident;
@@ -129,6 +252,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                     #[doc = "Registers the struct functions with this module"]
                     fn register_type(module: &mut #prefix::steel_vm::builtin::BuiltInModule) ->
                         &mut #prefix::steel_vm::builtin::BuiltInModule {
+                        use #prefix::steel_vm::register_fn::RegisterFn;
                         #(
                             module.register_fn(#names, #values);
                         )*
@@ -150,7 +274,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                 let identifier = &variant.ident;
 
                 for attr in &variant.attrs {
-                    if !filter_out_ignored_attr(&attr) {
+                    if !filter_out_ignored_attr(attr) {
                         continue 'variant;
                     }
                 }
@@ -331,6 +455,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                     #[doc = "Registers the enum variant functions with this module"]
                     fn register_enum_variants(module: &mut #prefix::steel_vm::builtin::BuiltInModule) ->
                         &mut #prefix::steel_vm::builtin::BuiltInModule {
+                        use #prefix::steel_vm::register_fn::RegisterFn;
                         #(
                             module.register_fn(#names, #values);
                         )*
@@ -512,7 +637,11 @@ fn parse_doc_comment(input: ItemFn) -> Option<proc_macro2::TokenStream> {
                     .map(|s| s.to_string())
                     .collect::<Vec<_>>()
             })
-            .map(|line| line.trim().to_string())
+            .map(|line| {
+                line.strip_prefix(" ")
+                    .map(ToOwned::to_owned)
+                    .unwrap_or(line)
+            })
             .collect();
 
         let doc = trimmed.join("\n");
@@ -541,9 +670,9 @@ fn parse_doc_comment(input: ItemFn) -> Option<proc_macro2::TokenStream> {
         args.push(expr);
     }
 
-    return Some(quote! {
+    Some(quote! {
         concat![#(#args),*]
-    });
+    })
 }
 
 #[proc_macro_attribute]
@@ -622,7 +751,7 @@ fn arity_code_injection(
     let (name, numb, end_numb) = arity_number
         .strip_suffix(')')
         .and_then(|stripped| stripped.split_once('('))
-        .and_then(|(name, rest)| {
+        .map(|(name, rest)| {
             if let Some((start, end)) = rest.split_once(',') {
                 // Handle Range(start, end)
                 let start = start
@@ -631,13 +760,13 @@ fn arity_code_injection(
                 let end = end
                     .parse::<usize>()
                     .expect("Arity end value must be an integer");
-                Some((name, start, end))
+                (name, start, end)
             } else {
                 // Handle AtLeast(n) or single-value cases
                 let num = rest
                     .parse::<usize>()
                     .expect("Arity value must be an integer");
-                Some((name, num, 0))
+                (name, num, 0)
             }
         })
         .expect("Arity header is wrongly formatted");
@@ -702,7 +831,7 @@ struct NativeMacroComponents {
 }
 
 fn native_macro_setup(input: &ItemFn, args: &Punctuated<Meta, Comma>) -> NativeMacroComponents {
-    let keyword_map = parse_key_value_pairs(&args);
+    let keyword_map = parse_key_value_pairs(args);
 
     let steel_function_name = keyword_map
         .get("name")
@@ -1010,15 +1139,13 @@ pub fn function(
     // TODO: Awful hack, but this just keeps track of which
     // variables are presented as mutable, which we can then use to chn
     let promote_to_mutable = type_vec.iter().any(|x| {
-        if let Type::Reference(TypeReference {
-            mutability: Some(_),
-            ..
-        }) = **x
-        {
-            true
-        } else {
-            false
-        }
+        matches!(
+            **x,
+            Type::Reference(TypeReference {
+                mutability: Some(_),
+                ..
+            })
+        )
     });
 
     let conversion_functions = type_vec.clone().into_iter().map(|x| {
@@ -1383,15 +1510,13 @@ pub fn custom_function(
     // TODO: Awful hack, but this just keeps track of which
     // variables are presented as mutable, which we can then use to chn
     let promote_to_mutable = type_vec.iter().any(|x| {
-        if let Type::Reference(TypeReference {
-            mutability: Some(_),
-            ..
-        }) = **x
-        {
-            true
-        } else {
-            false
-        }
+        matches!(
+            **x,
+            Type::Reference(TypeReference {
+                mutability: Some(_),
+                ..
+            })
+        )
     });
 
     let conversion_functions = type_vec.clone().into_iter().map(|x| {

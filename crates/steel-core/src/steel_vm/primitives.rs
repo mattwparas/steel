@@ -1,14 +1,15 @@
 use super::{
-    builtin::{BuiltInModule, MarkdownDoc},
+    builtin::{Arity, BuiltInModule, MarkdownDoc},
     cache::WeakMemoizationTable,
     engine::Engine,
     register_fn::RegisterFn,
     vm::{
-        get_test_mode, list_modules, set_test_mode, threads::SERIALIZE_THREAD_DEFINITION, VmCore,
-        CALL_CC_DEFINITION, CALL_WITH_EXCEPTION_HANDLER_DEFINITION, DEBUG_GLOBALS_DEFINITION,
+        get_test_mode, list_modules, set_test_mode, VmCore, CALLSTACK_HYDRATE_NAMES_DEFINITION,
+        CALL_CC_DEFINITION, CALL_WITH_EXCEPTION_HANDLER_DEFINITION, DUMP_PROFILER_DEFINITION,
         EVAL_DEFINITION, EVAL_FILE_DEFINITION, EVAL_STRING_DEFINITION,
         EXPAND_SYNTAX_CASE_DEFINITION, EXPAND_SYNTAX_OBJECTS_DEFINITION, INSPECT_DEFINITION,
-        MACRO_CASE_BINDINGS_DEFINITION, MATCH_SYNTAX_CASE_DEFINITION,
+        MACRO_CASE_BINDINGS_DEFINITION, MAKE_CALLSTACK_PROFILER_DEFINITION,
+        MATCH_SYNTAX_CASE_DEFINITION, SAMPLE_STACKS_DEFINITION,
     },
 };
 use crate::{
@@ -42,10 +43,10 @@ use crate::{
             MUTABLE_VECTOR_POP_DEFINITION, MUTABLE_VECTOR_TO_STRING_DEFINITION,
             MUT_VECTOR_COPY_DEFINITION, MUT_VEC_APPEND_DEFINITION, MUT_VEC_CONSTRUCT_DEFINITION,
             MUT_VEC_CONSTRUCT_VEC_DEFINITION, MUT_VEC_GET_DEFINITION, MUT_VEC_LENGTH_DEFINITION,
-            MUT_VEC_PUSH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_TO_LIST_DEFINITION,
-            VECTOR_FILL_DEFINITION, VEC_APPEND_DEFINITION, VEC_CAR_DEFINITION, VEC_CDR_DEFINITION,
-            VEC_CONS_DEFINITION, VEC_LENGTH_DEFINITION, VEC_PUSH_DEFINITION, VEC_RANGE_DEFINITION,
-            VEC_REF_DEFINITION,
+            MUT_VEC_PUSH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_SWAP_DEFINITION,
+            MUT_VEC_TO_LIST_DEFINITION, VECTOR_FILL_DEFINITION, VEC_APPEND_DEFINITION,
+            VEC_CAR_DEFINITION, VEC_CDR_DEFINITION, VEC_CONS_DEFINITION, VEC_LENGTH_DEFINITION,
+            VEC_PUSH_DEFINITION, VEC_RANGE_DEFINITION, VEC_REF_DEFINITION,
         },
         ControlOperations, IoFunctions, MetaOperations, StreamOperations,
     },
@@ -57,10 +58,13 @@ use crate::{
     },
     steel_vm::{
         builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
-        vm::threads::threading_module,
+        vm::{
+            threads::{threading_module, SERIALIZE_THREAD_DEFINITION},
+            DEBUG_GLOBALS_DEFINITION,
+        },
     },
     values::{
-        closed::HeapRef,
+        closed::{HeapRef, MAKE_WEAK_BOX_DEFINITION, WEAK_BOX_VALUE_DEFINITION},
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
         lists::{List, SteelList},
         structs::{
@@ -69,6 +73,11 @@ use crate::{
         },
     },
 };
+
+use crate::values::closed::{
+    MAKE_WILL_EXECUTOR_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
+};
+
 use crate::{
     rvals::IntoSteelVal,
     values::structs::{build_option_structs, build_result_structs},
@@ -80,13 +89,13 @@ use crate::{
 use compact_str::CompactString;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
-use std::cmp::Ordering;
+use std::{borrow::Cow, cmp::Ordering};
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 use crate::primitives::polling::polling_module;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(target_family = "wasm")]
 fn polling_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/polling".to_string());
 
@@ -514,6 +523,16 @@ pub fn private_prim_module() -> BuiltInModule {
     module.register_fn("%module/lookup-function", BuiltInModule::search);
     module.register_fn("%string->render-markdown", render_as_md);
     module.register_fn(
+        "#%module-add-doc",
+        |module: &mut BuiltInModule, name: SteelString, value: String| {
+            module.register_doc(
+                Cow::Owned(name.as_str().to_string()),
+                super::builtin::Documentation::Markdown(MarkdownDoc(value.into())),
+            );
+        },
+    );
+
+    module.register_fn(
         "%module-bound-identifiers->list",
         BuiltInModule::bound_identifiers,
     );
@@ -894,6 +913,7 @@ fn vector_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/vectors");
     module
         .register_native_fn_definition(MUT_VEC_CONSTRUCT_DEFINITION)
+        .register_native_fn_definition(MUT_VEC_SWAP_DEFINITION)
         .register_native_fn_definition(MUT_VEC_CONSTRUCT_VEC_DEFINITION)
         .register_native_fn_definition(MAKE_VECTOR_DEFINITION)
         .register_native_fn_definition(MUT_VEC_TO_LIST_DEFINITION)
@@ -922,36 +942,137 @@ fn vector_module() -> BuiltInModule {
     module
 }
 
+/// Returns true if the given value is exactly `#false`.
+///
+/// (not value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (not #false)
+/// #true
+///
+/// > (not #true)
+/// #false
+///
+/// > (not "hello")
+/// #false
+/// ```
 #[steel_derive::function(name = "not", constant = true)]
 fn not(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoolV(false))
 }
 
+/// Returns true if the value is a string.
+///
+/// (string? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (string? "hello")
+/// #true
+///
+/// > (string? 'foo)
+/// #false
+/// ```
 #[steel_derive::function(name = "string?", constant = true)]
 fn stringp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::StringV(_))
 }
 
+/// Returns true if the value is a list.
+///
+/// (list? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (list? '(1 2 3))
+/// #true
+///
+/// > (list? "not-a-list")
+/// #false
+/// ```
 #[steel_derive::function(name = "list?", constant = true)]
 fn listp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::ListV(_))
 }
 
+/// Returns true if the value is a vector (mutable or immutable).
+///
+/// (vector? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (vector? #(1 2 3))
+/// #true
+///
+/// > (vector? 'foo)
+/// #false
+/// ```
 #[steel_derive::function(name = "vector?", constant = true)]
 fn vectorp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::VectorV(_) | SteelVal::MutableVector(_))
 }
 
+/// Returns true if the value is a symbol.
+///
+/// (symbol? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (symbol? 'hello)
+/// #true
+///
+/// > (symbol? "hello")
+/// #false
+/// ```
 #[steel_derive::function(name = "symbol?", constant = true)]
 fn symbolp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::SymbolV(_))
 }
 
+/// Returns true if the value is a hash map.
+///
+/// (hash? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (hash? (hash 'a 10 'b 20))
+/// #true
+///
+/// > (hash? '(a b c))
+/// #false
+/// ```
 #[steel_derive::function(name = "hash?", constant = true)]
 fn hashp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::HashMapV(_))
 }
 
+/// Returns true if the value is a hash set.
+///
+/// (set? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (set? (hashset 10 20 30 40))
+/// #true
+///
+/// > (set? "abc")
+/// #false
+/// ```
 #[steel_derive::function(name = "set?", constant = true)]
 fn hashsetp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::HashSetV(_))
@@ -962,16 +1083,61 @@ fn continuationp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::ContinuationFunction(_))
 }
 
+/// Returns true if the value is a boolean (`#true` or `#false`).
+///
+/// (boolean? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (boolean? #true)
+/// #true
+///
+/// > (boolean? #false)
+/// #true
+///
+/// > (boolean? 0)
+/// #false
+/// ```
 #[steel_derive::function(name = "boolean?", constant = true)]
 fn booleanp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoolV(_))
 }
 
+/// Alias for `boolean?`. Returns true if the value is a boolean.
+///
+/// (bool? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (bool? #false)
+/// #true
+///
+/// > (bool? "hi")
+/// #false
+/// ```
 #[steel_derive::function(name = "bool?", constant = true)]
 fn boolp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoolV(_))
 }
 
+/// Returns true if the value is `void`.
+///
+/// (void? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (void? void)
+/// #true
+///
+/// > (void? 42)
+/// #false
+/// ```
 #[steel_derive::function(name = "void?", constant = true)]
 fn voidp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::Void)
@@ -1006,6 +1172,29 @@ fn error_objectp(value: &SteelVal) -> bool {
     as_underlying_type::<SteelErr>(val.read().as_ref()).is_some()
 }
 
+#[steel_derive::function(name = "#%function-pointer?")]
+fn is_function_pointer(value: &SteelVal) -> bool {
+    matches!(value, |SteelVal::FuncV(_)| SteelVal::BoxedFunction(_)
+        | SteelVal::MutFunc(_))
+}
+
+/// Returns true if the value is a function or callable.
+///
+/// (function? value) -> boolean?
+///
+/// * `value` : any — the value to test
+///
+/// # Examples
+/// ```scheme
+/// > (function? (lambda (x) x))
+/// #true
+///
+/// > (function? map)
+/// #true
+///
+/// > (function? 42)
+/// #false
+/// ```
 #[steel_derive::function(name = "function?", constant = true)]
 fn functionp(value: &SteelVal) -> bool {
     matches!(
@@ -1068,6 +1257,7 @@ fn identity_module() -> BuiltInModule {
         .register_value("char?", gen_pred!(CharV))
         .register_value("future?", gen_pred!(FutureV))
         .register_native_fn_definition(FUNCTIONP_DEFINITION)
+        .register_native_fn_definition(IS_FUNCTION_POINTER_DEFINITION)
         .register_native_fn_definition(PROCEDUREP_DEFINITION)
         .register_value(
             "atom?",
@@ -1110,6 +1300,7 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::MULTIPLY_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::DIVIDE_PRIMITIVE_DEFINITION)
         .register_native_fn_definition(numbers::SUBTRACT_PRIMITIVE_DEFINITION)
+        .register_native_fn_definition(numbers::TRUNCATE_DEFINITION)
         .register_native_fn_definition(numbers::EVEN_DEFINITION)
         .register_native_fn_definition(numbers::ODD_DEFINITION)
         .register_native_fn_definition(numbers::ARITHMETIC_SHIFT_DEFINITION)
@@ -1128,9 +1319,7 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::FLOOR_DEFINITION)
         .register_native_fn_definition(numbers::INEXACTP_DEFINITION)
         .register_native_fn_definition(numbers::INEXACT_DEFINITION)
-        .register_native_fn_definition(numbers::EXACT_TO_INEXACT_DEFINITION)
         .register_native_fn_definition(numbers::EXACT_DEFINITION)
-        .register_native_fn_definition(numbers::INEXACT_TO_EXACT_DEFINITION)
         .register_native_fn_definition(numbers::INFINITEP_DEFINITION)
         .register_native_fn_definition(numbers::LOG_DEFINITION)
         .register_native_fn_definition(numbers::MAGNITUDE_DEFINITION)
@@ -1140,9 +1329,18 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::REAL_PART_DEFINITION)
         .register_native_fn_definition(numbers::IMAG_PART_DEFINITION)
         .register_native_fn_definition(numbers::NUMERATOR_DEFINITION)
+        .register_native_fn_definition(numbers::TRUNCATE_SLASH_DEFINITION)
+        .register_native_fn_definition(numbers::TRUNCATE_QUOTIENT_DEFINITION)
+        .register_native_fn_definition(numbers::TRUNCATE_REMAINDER_DEFINITION)
+        .register_native_fn_definition(numbers::FLOOR_SLASH_DEFINITION)
+        .register_native_fn_definition(numbers::FLOOR_QUOTIENT_DEFINITION)
+        .register_native_fn_definition(numbers::FLOOR_REMAINDER_DEFINITION)
+        .register_native_fn_definition(numbers::EUCLIDEAN_SLASH_DEFINITION)
+        .register_native_fn_definition(numbers::EUCLIDEAN_QUOTIENT_DEFINITION)
+        .register_native_fn_definition(numbers::EUCLIDEAN_REMAINDER_DEFINITION)
         .register_native_fn_definition(numbers::QUOTIENT_DEFINITION)
-        .register_native_fn_definition(numbers::MODULO_DEFINITION)
         .register_native_fn_definition(numbers::REMAINDER_DEFINITION)
+        .register_native_fn_definition(numbers::MODULO_DEFINITION)
         .register_native_fn_definition(numbers::ROUND_DEFINITION)
         .register_native_fn_definition(numbers::SQUARE_DEFINITION)
         .register_native_fn_definition(numbers::SQRT_DEFINITION)
@@ -1220,7 +1418,10 @@ fn ord_module() -> BuiltInModule {
 
     fn ensure_real(x: &SteelVal) -> Result<&SteelVal> {
         realp(x).then_some(x).ok_or_else(|| {
-            SteelErr::new(ErrorKind::TypeMismatch, "expected real numbers".to_owned())
+            SteelErr::new(
+                ErrorKind::TypeMismatch,
+                format!("expected real numbers, found: {}", x),
+            )
         })
     }
 
@@ -1422,7 +1623,7 @@ fn error_object_message(val: &SteelVal) -> Result<SteelVal> {
     Ok(error.message().to_string().into())
 }
 
-fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
+pub fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
     match value {
         SteelVal::BoxedFunction(f) => f.name().map(|x| x.into_steelval().unwrap()),
         SteelVal::FuncV(f) => get_function_name(f).map(|x| x.name.into_steelval().unwrap()),
@@ -1435,6 +1636,25 @@ fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
                 .map(|x| x.name().into_steelval().unwrap())
         }
         _ => None,
+    }
+}
+
+#[steel_derive::context(name = "#%lookup-doc", arity = "Exact(1)")]
+pub fn lookup_doc_ctx(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    // Attempt to find the docs for a given value.
+    let compiler = ctx.thread.compiler.read();
+    let value = args[0].clone();
+
+    let doc = compiler.get_doc(value);
+
+    match doc {
+        Some(crate::compiler::compiler::StringOrSteelString::String(s)) => {
+            Some(Ok(SteelVal::StringV(s.into())))
+        }
+        Some(crate::compiler::compiler::StringOrSteelString::SteelString(s)) => {
+            Some(Ok(SteelVal::StringV(s)))
+        }
+        None => Some(Ok(SteelVal::BoolV(false))),
     }
 }
 
@@ -1471,6 +1691,45 @@ fn lookup_doc(value: SteelVal) -> bool {
         }
         _ => false,
     }
+}
+
+fn lookup_doc_value(value: SteelVal) -> Option<String> {
+    match value {
+        SteelVal::FuncV(f) => {
+            let metadata = get_function_metadata(BuiltInFunctionType::Reference(f));
+            metadata.and_then(|x| x.doc.map(|x| x.0.to_string()))
+        }
+        SteelVal::MutFunc(f) => {
+            let metadata = get_function_metadata(BuiltInFunctionType::Mutable(f));
+            metadata.and_then(|x| x.doc.map(|x| x.0.to_string()))
+        }
+        SteelVal::BuiltIn(f) => {
+            let metadata = get_function_metadata(BuiltInFunctionType::Context(f));
+            metadata.and_then(|x| x.doc.map(|x| x.0.to_string()))
+        }
+        _ => None,
+    }
+}
+
+fn arity_to_list(arity: &Arity) -> SteelVal {
+    match arity {
+        Arity::Exact(e) => vec!["exact".into_steelval().unwrap(), e.into_steelval().unwrap()],
+        Arity::AtLeast(e) => vec![
+            "at-least".into_steelval().unwrap(),
+            e.into_steelval().unwrap(),
+        ],
+        Arity::AtMost(e) => vec![
+            "at-most".into_steelval().unwrap(),
+            e.into_steelval().unwrap(),
+        ],
+        Arity::Range(l, h) => vec![
+            "range".into_steelval().unwrap(),
+            l.into_steelval().unwrap(),
+            h.into_steelval().unwrap(),
+        ],
+    }
+    .into_steelval()
+    .unwrap()
 }
 
 // Only works with fixed size arity functions
@@ -1636,11 +1895,24 @@ impl Reader {
         if let Some(buffer) = self.buffer.get(self.offset..) {
             let mut parser = crate::parser::parser::Parser::new_flat(buffer, SourceId::none());
 
+            // TODO: This reparses everything while it hasn't yet finished the expression.
+            // What we need to do is keep the parser around while we finish it.
+            // For that, we should leave the parser around, and just leak buffer?
+            // or swap in something else? I think the stack needs to be saved
+            // in between runs. If we hit a situation where we EOF, we want to
+            // resume where we were, and keep the stack in the proper spot. Otherwise,
+            // we reparse everything up to that point since we're reading line by line?
             if let Some(raw) = parser.next() {
-                let next = if let Ok(next) = raw {
-                    next
-                } else {
-                    return Ok(SteelVal::Void);
+                let next = match raw {
+                    Ok(next) => next,
+                    // Err(steel_parser::parser::ParseError::UnexpectedEOF(_, _)) => {
+                    //     return Ok(SteelVal::Void);
+                    // }
+                    _ => {
+                        // dbg!(parser.offset());
+
+                        return Ok(SteelVal::Void);
+                    }
                 };
 
                 self.offset += parser.offset();
@@ -1680,6 +1952,19 @@ impl Reader {
     }
 }
 
+#[steel_derive::context(name = "#%intern", arity = "Exact(1)")]
+pub fn intern_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let mut guard = ctx.thread.compiler.write();
+    let arg = args[0].clone();
+    if let SteelVal::Void = arg {
+        return Some(Ok(arg));
+    }
+
+    let interned_index = guard.constant_map.add_or_get(arg);
+    let value = guard.constant_map.get(interned_index);
+    Some(Ok(value))
+}
+
 fn reader_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("#%private/steel/reader");
 
@@ -1691,7 +1976,8 @@ fn reader_module() -> BuiltInModule {
         .register_fn(
             "reader-read-one-syntax-object",
             Reader::read_one_syntax_object,
-        );
+        )
+        .register_native_fn_definition(INTERN_SYMBOL_DEFINITION);
 
     module
 }
@@ -1740,9 +2026,9 @@ fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
         ));
     }
 
-    let count = ctx.gc_collect();
+    ctx.gc_collect();
 
-    Some(Ok(SteelVal::IntV(count as _)))
+    Some(Ok(SteelVal::Void))
 }
 
 fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
@@ -1756,7 +2042,7 @@ fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
         args[0].clone(), // TODO: Could actually move off of the stack entirely
         &ctx.thread.stack,
         ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-        ctx.thread.global_env.roots().as_slice(),
+        ctx.thread.global_env.roots(),
         &ctx.thread.thread_local_storage,
         &mut ctx.thread.synchronizer,
     );
@@ -1798,6 +2084,7 @@ fn meta_module() -> BuiltInModule {
         )
         .register_fn("#%function-ptr-table-add", LambdaMetadataTable::add)
         .register_fn("#%function-ptr-table-get", LambdaMetadataTable::get)
+        .register_native_fn_definition(LOOKUP_DOC_CTX_DEFINITION)
         .register_fn("#%private-cycle-collector", SteelCycleCollector::from_root)
         .register_fn("#%private-cycle-collector-get", SteelCycleCollector::get)
         .register_fn(
@@ -1815,6 +2102,7 @@ fn meta_module() -> BuiltInModule {
             MetaOperations::block_on_with_local_executor(),
         )
         .register_value("join!", MetaOperations::join_futures())
+        .register_value("futures-join-all", MetaOperations::join_futures())
         .register_fn(
             "#%struct-property-ref",
             |value: &UserDefinedStruct, key: SteelVal| UserDefinedStruct::get(value, &key),
@@ -1880,8 +2168,11 @@ fn meta_module() -> BuiltInModule {
             std::env::set_var::<String, String>(name, val)
         })
         .register_fn("arity?", arity)
+        .register_fn("function-arity", arity)
+        .register_fn("arity-object->list", arity_to_list)
         .register_fn("function-name", lookup_function_name)
         .register_fn("#%native-fn-ptr-doc", lookup_doc)
+        .register_fn("#%native-fn-ptr-doc->string", lookup_doc_value)
         .register_fn("multi-arity?", is_multi_arity)
         .register_value("make-struct-type", SteelVal::FuncV(make_struct_type))
         .register_value(
@@ -1891,6 +2182,8 @@ fn meta_module() -> BuiltInModule {
         .register_fn("box-strong", SteelVal::boxed)
         .register_native_fn_definition(UNBOX_DEFINITION)
         .register_native_fn_definition(SET_BOX_DEFINITION)
+        .register_native_fn_definition(MAKE_WEAK_BOX_DEFINITION)
+        .register_native_fn_definition(WEAK_BOX_VALUE_DEFINITION)
         .register_value("#%box", SteelVal::BuiltIn(make_mutable_box))
         .register_value("#%gc-collect", SteelVal::BuiltIn(gc_collection))
         .register_value("box", SteelVal::BuiltIn(make_mutable_box))
@@ -1898,17 +2191,28 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(UNBOX_MUTABLE_DEFINITION)
         .register_native_fn_definition(PLAIN_UNBOX_MUTABLE_DEFINITION)
         .register_native_fn_definition(PLAIN_SET_BOX_MUTABLE_DEFINITION)
+        .register_native_fn_definition(MAKE_CALLSTACK_PROFILER_DEFINITION)
+        .register_native_fn_definition(CALLSTACK_HYDRATE_NAMES_DEFINITION)
+        .register_native_fn_definition(SAMPLE_STACKS_DEFINITION)
+        .register_native_fn_definition(DUMP_PROFILER_DEFINITION)
         .register_value(
             "attach-contract-struct!",
             SteelVal::FuncV(attach_contract_struct),
         )
         .register_value("get-contract-struct", SteelVal::FuncV(get_contract))
         .register_fn("current-os!", || std::env::consts::OS)
+        .register_fn("target-arch!", || std::env::consts::ARCH)
+        .register_fn("platform-dll-prefix!", || std::env::consts::DLL_PREFIX)
+        .register_fn("path-separator", || std::path::MAIN_SEPARATOR_STR)
+        .register_fn("platform-dll-extension!", || {
+            std::env::consts::DLL_EXTENSION
+        })
         .register_fn(
             "#%build-dylib",
             |_args: Vec<String>, _env_vars: Vec<(String, String)>| {
                 #[cfg(feature = "dylib-build")]
-                cargo_steel_lib::run(_args, _env_vars).ok()
+                cargo_steel_lib::run(_args, _env_vars)
+                    .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
             },
         )
         .register_fn("feature-dylib-build?", || cfg!(feature = "dylib-build"))
@@ -1916,6 +2220,11 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(ERROR_OBJECT_MESSAGE_DEFINITION)
         .register_fn("steel-home-location", steel_home)
         .register_fn("%#interner-memory-usage", interned_current_memory_usage);
+
+    module
+        .register_native_fn_definition(WILL_EXECUTE_DEFINITION)
+        .register_native_fn_definition(WILL_REGISTER_DEFINITION)
+        .register_native_fn_definition(MAKE_WILL_EXECUTOR_DEFINITION);
 
     #[cfg(not(feature = "dylibs"))]
     module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);
@@ -1952,10 +2261,17 @@ fn syntax_to_module_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
         let source = span.source_id();
 
         if let Some(source) = source {
-            let path = ctx.thread.sources.get_path(&source);
-            return path
-                .map(|x| x.to_str().unwrap().to_string())
-                .into_steelval();
+            let path = ctx.thread.compiler.read().sources.get_path(&source);
+            // Check the OS:
+            if cfg!(windows) {
+                return path
+                    .map(|x| x.to_str().unwrap().to_string().replace("\\", "/"))
+                    .into_steelval();
+            } else {
+                return path
+                    .map(|x| x.to_str().unwrap().to_string())
+                    .into_steelval();
+            }
         }
     }
 

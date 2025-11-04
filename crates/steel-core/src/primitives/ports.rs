@@ -1,27 +1,33 @@
+use std::fs::OpenOptions;
+
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
-use crate::rvals::{RestArgsIter, Result, SteelByteVector, SteelString, SteelVal};
+use crate::primitives::lists::plist_get_impl;
+use crate::rvals::{
+    FromSteelVal, RestArgsIter, Result, SteelByteVector, SteelString, SteelVal, SteelValDisplay,
+};
 use crate::steel_vm::builtin::BuiltInModule;
-use crate::stop;
-use crate::values::port::{would_block, SteelPort, SteelPortRepr, WOULD_BLOCK_OBJECT};
+use crate::values::port::{would_block, Peekable, SteelPort, SteelPortRepr, WOULD_BLOCK_OBJECT};
 use crate::values::structs::{make_struct_singleton, StructTypeDescriptor};
+use crate::{stop, throw};
 
-use steel_derive::function;
+use steel_derive::{function, native};
 
 #[cfg(not(feature = "sync"))]
 thread_local! {
     static EOF_OBJECT: once_cell::unsync::Lazy<(SteelVal, StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
-        make_struct_singleton("eof".into())
+        make_struct_singleton("eof")
     });
 }
 
 #[cfg(feature = "sync")]
 pub static EOF_OBJECT: once_cell::sync::Lazy<(SteelVal, StructTypeDescriptor)> =
-    once_cell::sync::Lazy::new(|| make_struct_singleton("eof".into()));
+    once_cell::sync::Lazy::new(|| make_struct_singleton("eof"));
 
 pub fn port_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ports");
     module
+        .register_native_fn_definition(DISPLAY_DEFINITION)
         .register_native_fn_definition(OPEN_STDIN_DEFINITION)
         .register_native_fn_definition(OPEN_STDOUT_DEFINITION)
         .register_native_fn_definition(OPEN_INPUT_FILE_DEFINITION)
@@ -34,10 +40,13 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(WRITE_CHAR_DEFINITION)
         .register_native_fn_definition(FLUSH_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_STRING_DEFINITION)
-        .register_native_fn_definition(READ_LINE_TO_STRING_DEFINITION)
+        .register_native_fn_definition(READ_LINE_DEFINITION)
+        .register_native_fn_definition(READ_LINE_FROM_PORT_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_STRING_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(IS_INPUT_DEFINITION)
+        .register_native_fn_definition(IS_STRING_INPUT_DEFINITION)
+        .register_native_fn_definition(IS_FILE_INPUT_DEFINITION)
         .register_native_fn_definition(IS_OUTPUT_DEFINITION)
         .register_native_fn_definition(DEFAULT_INPUT_PORT_DEFINITION)
         .register_native_fn_definition(DEFAULT_OUTPUT_PORT_DEFINITION)
@@ -50,6 +59,7 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(OPEN_INPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(READ_BYTE_DEFINITION)
         .register_native_fn_definition(READ_CHAR_DEFINITION)
+        .register_native_fn_definition(PEEK_CHAR_DEFINITION)
         .register_native_fn_definition(WRITE_BYTE_DEFINITION)
         .register_native_fn_definition(WRITE_BYTES_DEFINITION)
         .register_native_fn_definition(PEEK_BYTE_DEFINITION)
@@ -63,6 +73,7 @@ pub fn port_module() -> BuiltInModule {
 pub fn port_module_without_filesystem() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ports");
     module
+        .register_native_fn_definition(DISPLAY_DEFINITION)
         .register_native_fn_definition(OPEN_STDIN_DEFINITION)
         .register_native_fn_definition(OPEN_STDOUT_DEFINITION)
         .register_native_fn_definition(OPEN_INPUT_FILE_SANDBOXED_DEFINITION)
@@ -75,7 +86,8 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
         .register_native_fn_definition(WRITE_CHAR_DEFINITION)
         .register_native_fn_definition(FLUSH_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_STRING_DEFINITION)
-        .register_native_fn_definition(READ_LINE_TO_STRING_DEFINITION)
+        .register_native_fn_definition(READ_LINE_DEFINITION)
+        .register_native_fn_definition(READ_LINE_FROM_PORT_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_STRING_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(IS_INPUT_DEFINITION)
@@ -91,13 +103,16 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
         .register_native_fn_definition(OPEN_INPUT_BYTEVECTOR_DEFINITION)
         .register_native_fn_definition(READ_BYTE_DEFINITION)
         .register_native_fn_definition(READ_CHAR_DEFINITION)
+        .register_native_fn_definition(PEEK_CHAR_DEFINITION)
         .register_native_fn_definition(WRITE_BYTE_DEFINITION)
         .register_native_fn_definition(WRITE_BYTES_DEFINITION)
         .register_native_fn_definition(PEEK_BYTE_DEFINITION)
         .register_native_fn_definition(READ_BYTES_DEFINITION)
         .register_native_fn_definition(READ_BYTES_INTO_BUF_DEFINITION)
         .register_native_fn_definition(WOULD_BLOCK_OBJECTP_DEFINITION)
-        .register_native_fn_definition(WOULD_BLOCK_OBJECT_DEFINITION);
+        .register_native_fn_definition(WOULD_BLOCK_OBJECT_DEFINITION)
+        .register_native_fn_definition(IS_STRING_INPUT_DEFINITION)
+        .register_native_fn_definition(IS_FILE_INPUT_DEFINITION);
     module
 }
 
@@ -110,12 +125,12 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
 /// # Examples
 ///
 /// ```scheme
-/// > (stdin) ;; => #<port>
+/// > (stdin) ;; => #<input-port:stdin>
 /// ```
 #[function(name = "stdin")]
 pub fn open_stdin() -> SteelVal {
     SteelVal::PortV(SteelPort {
-        port: Gc::new_mut(SteelPortRepr::StdInput(std::io::stdin())),
+        port: Gc::new_mut(SteelPortRepr::StdInput(Peekable::new(std::io::stdin()))),
     })
 }
 
@@ -133,7 +148,7 @@ pub fn open_stdout() -> SteelVal {
 ///
 /// # Examples
 /// ```scheme
-/// > (open-input-file "foo-bar.txt") ;; => #<port>
+/// > (open-input-file "foo-bar.txt") ;; => #<input-port:foo-bar.txt>
 /// > (open-input-file "file-does-not-exist.txt")
 /// error[E08]: Io
 ///   ┌─ :1:2
@@ -152,11 +167,55 @@ pub fn open_input_file(path: &SteelString) -> Result<SteelVal> {
 ///
 /// # Examples
 /// ```scheme
-/// > (open-output-file "foo-bar.txt") ;; => #<port>
+/// > (open-output-file "foo-bar.txt") ;; => #<output-port:foo-bar.txt>
 /// ```
-#[function(name = "open-output-file")]
-pub fn open_output_file(path: &SteelString) -> Result<SteelVal> {
-    SteelPort::new_textual_file_output(path).map(SteelVal::PortV)
+#[native(name = "open-output-file", arity = "AtLeast(1)")]
+pub fn open_output_file(args: &[SteelVal]) -> Result<SteelVal> {
+    let path = SteelString::from_steelval(&args[0])?;
+    let opts = create_open_options(&args[1..])?;
+    SteelPort::new_textual_file_output_with_options(&path, opts).map(SteelVal::PortV)
+}
+
+pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
+    #[cfg(feature = "sync")]
+    static EXISTS_FLAG: once_cell::sync::Lazy<SteelVal> =
+        once_cell::sync::Lazy::new(|| SteelVal::SymbolV("#:exists".into()));
+
+    #[cfg(feature = "sync")]
+    let exists_flag = plist_get_impl(args.iter(), &EXISTS_FLAG).ok();
+
+    #[cfg(not(feature = "sync"))]
+    thread_local! {
+        static EXISTS_FLAG: SteelVal = SteelVal::SymbolV("#:exists".into());
+    }
+
+    #[cfg(not(feature = "sync"))]
+    let exists_flag = EXISTS_FLAG.with(|x| plist_get_impl(args.iter(), x)).ok();
+
+    let mut options = OpenOptions::new();
+
+    // We want to write the file no matter what in this context
+    options.write(true).create(true);
+
+    match exists_flag {
+        Some(flag) => {
+            let flag = flag.symbol_or_else(
+                throw!(Generic => "#:exists flag expects a symbol, found: {}", flag),
+            )?;
+
+            match flag {
+                "append" => {
+                    options.append(true);
+                    options.truncate(false)
+                }
+                "truncate" => options.truncate(true),
+                _ => stop!(Generic => "unexpected option provided to open options"),
+            };
+        }
+        None => {}
+    }
+
+    Ok(options)
 }
 
 /// Takes a filename `path` referring to an existing file and returns an input port. Raises an error
@@ -166,7 +225,7 @@ pub fn open_output_file(path: &SteelString) -> Result<SteelVal> {
 ///
 /// # Examples
 /// ```scheme
-/// > (open-input-file "foo-bar.txt") ;; => #<port>
+/// > (open-input-file "foo-bar.txt") ;; => #<input-port:foo-bar.txt>
 /// > (open-input-file "file-does-not-exist.txt")
 /// error[E08]: Io
 ///   ┌─ :1:2
@@ -185,7 +244,7 @@ pub fn open_input_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
 ///
 /// # Examples
 /// ```scheme
-/// > (open-output-file "foo-bar.txt") ;; => #<port>
+/// > (open-output-file "foo-bar.txt") ;; => #<output-port:foo-bar.txt>
 /// ```
 #[function(name = "open-output-file")]
 pub fn open_output_file_sandboxed(_: &SteelString) -> Result<SteelVal> {
@@ -278,6 +337,44 @@ pub fn is_input(maybe_port: &SteelVal) -> bool {
     }
 }
 
+/// Checks if a given value is a string input port
+///
+/// (string-input-port? any/c) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (string-input-port? (stdin)) ;; => #false
+/// > (string-input-port? (open-input-string "foo")) ;; => #true
+/// ```
+#[function(name = "#%string-input-port?")]
+pub fn is_string_input(maybe_port: &SteelVal) -> bool {
+    if let SteelVal::PortV(port) = maybe_port {
+        port.is_string_input()
+    } else {
+        false
+    }
+}
+
+/// Checks if a given value is a file input port
+///
+/// (file-input-port? any/c) -> bool?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (file-input-port? (stdin)) ;; => #false
+/// > (file-input-port? (open-input-file "foo.scm")) ;; => #true
+/// ```
+#[function(name = "#%file-input-port?")]
+pub fn is_file_input(maybe_port: &SteelVal) -> bool {
+    if let SteelVal::PortV(port) = maybe_port {
+        port.is_file_input()
+    } else {
+        false
+    }
+}
+
 /// Checks if a given value is an output port
 ///
 /// (output-port? any/c) -> bool?
@@ -297,19 +394,42 @@ pub fn is_output(maybe_port: &SteelVal) -> bool {
     }
 }
 
-#[function(name = "read-line-from-port")]
-pub fn read_line_to_string(port: &SteelPort) -> Result<SteelVal> {
-    let res = port.read_line();
+/// Reads a line from an input port.
+///
+/// (read-line [port]) -> string?
+///
+/// * port : input-port? = (current-input-port)
+#[function(name = "read-line")]
+pub fn read_line(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = input_args(rest)?;
+    let (size, mut result) = port.read_line()?;
 
-    if let Ok((size, result)) = res {
-        if size == 0 {
-            Ok(eof())
-        } else {
-            Ok(SteelVal::StringV(result.into()))
-        }
+    if size == 0 {
+        Ok(eof())
     } else {
-        // bit of a hack for now we'll see
-        res.map(|_| unreachable!())
+        // r7rs read-line doesn't return the trailing \n
+        if result.ends_with('\n') {
+            result.pop();
+        }
+
+        Ok(SteelVal::StringV(result.into()))
+    }
+}
+
+/// Reads a line from the given port, including the '\n' at the end.
+///
+/// Use of this procedure is discouraged in favor of the (read-line) procedure,
+/// which is included in the scheme spec and therefore more portable.
+///
+/// (read-line-from-port port?) -> string?
+#[function(name = "read-line-from-port")]
+pub fn read_line_from_port(port: &SteelPort) -> Result<SteelVal> {
+    let (size, result) = port.read_line()?;
+
+    if size == 0 {
+        Ok(eof())
+    } else {
+        Ok(SteelVal::StringV(result.into()))
     }
 }
 
@@ -328,8 +448,20 @@ pub fn write_line(port: &SteelPort, line: &SteelVal) -> Result<SteelVal> {
 #[function(name = "#%raw-write")]
 pub fn write(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = output_args(rest)?;
-    let line = line.to_string();
-    let res = port.write(line.as_str().as_bytes());
+    let res = port.write(line.to_string().as_bytes());
+
+    if res.is_ok() {
+        Ok(SteelVal::Void)
+    } else {
+        stop!(Generic => "unable to write string to port");
+    }
+}
+
+#[function(name = "#%raw-display")]
+pub fn display(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = output_args(rest)?;
+    let line = SteelValDisplay(line).to_string();
+    let res = port.write(line.as_bytes());
 
     if res.is_ok() {
         Ok(SteelVal::Void)
@@ -356,9 +488,9 @@ pub fn write_string(line: &SteelVal, rest: RestArgsIter<&SteelPort>) -> Result<S
     let port = output_args(rest)?;
 
     let res = if let SteelVal::StringV(s) = line {
-        port.write(s.as_str().as_bytes())
+        port.write(s.as_bytes())
     } else {
-        port.write(line.to_string().as_str().as_bytes())
+        port.write(line.to_string().as_bytes())
     };
 
     if res.is_ok() {
@@ -427,7 +559,7 @@ pub fn close_port(port: &SteelPort) -> SteelVal {
 
 /// Close an output port. If the port is a file, the file will be closed.
 ///
-/// (close-port output-port?) -> void
+/// (close-output-port output-port?) -> void
 #[function(name = "close-output-port")]
 pub fn close_output_port(port: &SteelPort) -> Result<SteelVal> {
     port.close_output_port().map(|_| SteelVal::Void)
@@ -435,7 +567,7 @@ pub fn close_output_port(port: &SteelPort) -> Result<SteelVal> {
 
 /// Close an input port. If the port is a file, the file will be closed.
 ///
-/// (close-port input-port?) -> void
+/// (close-input-port input-port?) -> void
 #[function(name = "close-input-port")]
 pub fn close_input_port(port: &SteelPort) -> Result<SteelVal> {
     port.close_input_port().map(|_| SteelVal::Void)
@@ -503,19 +635,12 @@ pub fn would_block_objectp(value: &SteelVal) -> bool {
 pub fn read_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = input_args(rest)?;
 
-    let maybe_byte = port.read_byte()?;
-
-    match maybe_byte {
+    match port.read_byte()? {
         crate::values::port::MaybeBlocking::Nonblocking(b) => {
             Ok(b.map(|b| SteelVal::IntV(b.into())).unwrap_or_else(eof))
         }
         crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
     }
-
-    // Ok(port
-    //     .read_byte()?
-    //     .map(|b| SteelVal::IntV(b.into()))
-    //     .unwrap_or_else(eof))
 }
 
 /// Reads bytes from an input port.
@@ -535,7 +660,7 @@ pub fn read_bytes(amt: usize, rest: RestArgsIter<&SteelPort>) -> Result<SteelVal
             if b.is_empty() {
                 Ok(eof_object())
             } else {
-                Ok(SteelVal::ByteVector(SteelByteVector::new(b).into()))
+                Ok(SteelVal::ByteVector(SteelByteVector::new(b)))
             }
         }
         crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
@@ -566,7 +691,7 @@ pub fn read_bytes_into_buf(
     let res = port.read_bytes_into_buf(&mut guard)?;
 
     match res {
-        crate::values::port::MaybeBlocking::Nonblocking((amt, _)) => Ok(SteelVal::IntV(amt as _)),
+        crate::values::port::MaybeBlocking::Nonblocking(amt) => Ok(SteelVal::IntV(amt as _)),
         crate::values::port::MaybeBlocking::WouldBlock => Ok(SteelVal::Void),
     }
 }
@@ -608,10 +733,12 @@ pub fn write_bytes(bytes: &SteelByteVector, rest: RestArgsIter<&SteelPort>) -> R
 pub fn peek_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = input_args(rest)?;
 
-    Ok(port
-        .peek_byte()?
-        .map(|b| SteelVal::IntV(b.into()))
-        .unwrap_or_else(eof))
+    match port.peek_byte()? {
+        crate::values::port::MaybeBlocking::Nonblocking(b) => {
+            Ok(b.map(|b| SteelVal::IntV(b.into())).unwrap_or_else(eof))
+        }
+        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+    }
 }
 
 /// Reads the next character from an input port.
@@ -623,9 +750,24 @@ pub fn peek_byte(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
 pub fn read_char(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     let port = input_args(rest)?;
 
-    let char = port.read_char()?;
+    match port.read_char()? {
+        crate::values::port::MaybeBlocking::Nonblocking(c) => {
+            Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
+        }
+        crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+    }
+}
 
-    match char {
+/// Peeks the next character from an input port.
+///
+/// (peek-char [port]) -> char?
+///
+/// * port : input-port? = (current-input-port)
+#[function(name = "peek-char")]
+pub fn peek_char(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = input_args(rest)?;
+
+    match port.peek_char()? {
         crate::values::port::MaybeBlocking::Nonblocking(c) => {
             Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
         }

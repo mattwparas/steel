@@ -1,0 +1,32 @@
+(define (assert-equal! expected actual)
+  (unless (equal? expected actual)
+    (error "Expected value" expected "but got" actual)))
+
+(let ([port (open-output-string)])
+  (write-string "line" port)
+  (write-char #\newline port)
+  (newline port)
+  (write-char #\λ port)
+  (write-char #\space port)
+  (write-string "test" port)
+  (let* ([str (get-output-string port)]
+         [port (open-input-string str)])
+    (assert-equal! "line" (read-line port))
+    (assert-equal! "" (read-line port))
+    (assert-equal! "λ test" (read-line port))
+    (assert! (eof-object? (read-line port)))))
+
+(let ([port (open-input-string "abλø")])
+  (assert-equal! #\a (peek-char port))
+  (assert-equal! (char->integer #\a) (peek-byte port))
+  (assert-equal! (char->integer #\a) (read-byte port))
+  (assert-equal! #\b (read-char port))
+  (assert-equal! #\λ (peek-char port))
+  (assert-equal! #xce (peek-byte port)) ; λ is encoded as '(#xce #xbb) in utf-8
+  (assert-equal! #\λ (peek-char port))
+  (assert-equal! #\λ (read-char port))
+  (assert-equal! #\ø (peek-char port))
+  (assert-equal! #xc3 (peek-byte port)) ; ø is encoded as '(#xc3 #xb8) in utf-8
+  (assert-equal! #\ø (read-char port))
+  (assert! (eof-object? (read-char port)))
+  (assert! (eof-object? (read-byte port))))

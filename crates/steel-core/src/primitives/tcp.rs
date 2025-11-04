@@ -7,7 +7,7 @@ use crate::gc::Gc;
 use crate::rvals::{AsRefSteelVal, Custom, IntoSteelVal, Result, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::values::lists::Pair;
-use crate::values::port::SteelPort;
+use crate::values::port::{Peekable, SteelPort};
 use crate::values::SteelPortRepr;
 
 impl Custom for TcpStream {}
@@ -40,7 +40,7 @@ pub fn tcp_input_port(stream: &SteelVal) -> Result<SteelVal> {
 pub fn tcp_output_port(stream: &SteelVal) -> Result<SteelVal> {
     let reader = TcpStream::as_ref(stream)?.try_clone().unwrap();
     Ok(SteelVal::PortV(SteelPort {
-        port: Gc::new_mut(SteelPortRepr::TcpStream(reader)),
+        port: Gc::new_mut(SteelPortRepr::TcpStream(Peekable::new(reader))),
     }))
 }
 
@@ -48,7 +48,9 @@ pub fn tcp_output_port(stream: &SteelVal) -> Result<SteelVal> {
 pub fn tcp_buffered_output_port(stream: &SteelVal) -> Result<SteelVal> {
     let reader = TcpStream::as_ref(stream)?.try_clone().unwrap();
     Ok(SteelVal::PortV(SteelPort {
-        port: Gc::new_mut(SteelPortRepr::DynReader(BufReader::new(Box::new(reader)))),
+        port: Gc::new_mut(SteelPortRepr::DynReader(Peekable::new(BufReader::new(
+            Box::new(reader),
+        )))),
     }))
 }
 

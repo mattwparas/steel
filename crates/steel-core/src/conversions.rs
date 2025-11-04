@@ -346,14 +346,23 @@ mod conversion_tests {
     #[cfg(not(feature = "sync"))]
     use im_rc::hashset;
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     use im::vector;
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     use im::hashmap;
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", not(feature = "imbl")))]
     use im::hashset;
+
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    use imbl::vector;
+
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    use imbl::hashmap;
+
+    #[cfg(all(feature = "sync", feature = "imbl"))]
+    use imbl::hashset;
 
     #[test]
     fn vec_into_list() {

@@ -156,7 +156,7 @@ impl<'global, 'a> VmCore<'a> {
             }
             SteelVal::MutableVector(v) => {
                 // Copy over the mutable vector into the nursery
-                *nursery = Some(v.get().clone());
+                *nursery = Some(v.get());
 
                 Ok(Box::new(nursery.as_ref().unwrap().iter().cloned().map(Ok)))
             }
@@ -170,7 +170,7 @@ impl<'global, 'a> VmCore<'a> {
         &mut self,
         ops: &[Transducers],
         root: SteelVal,
-        reducer: Reducer,
+        reducer: &Reducer,
         cur_inst_span: &Span,
     ) -> Result<SteelVal> {
         let vm = Rc::new(RefCell::new(self));
@@ -207,9 +207,23 @@ impl<'global, 'a> VmCore<'a> {
                             func(&mut arg_vec).map_err(|x| x.set_span_if_none(*cur_inst_span))
                         })),
                         SteelVal::Closure(closure) => {
-                            Box::new(iter.map(move |arg| {
-                                vm_copy.borrow_mut().call_with_one_arg(closure, arg?)
-                            }))
+                            let multi_arity = if !closure.is_multi_arity() && closure.arity != 1 {
+                                stop!(ArityMismatch => "map expects a function with one arg");
+                            } else {
+                                closure.is_multi_arity()
+                            };
+
+                            if multi_arity {
+                                Box::new(iter.map(move |arg| {
+                                    vm_copy
+                                        .borrow_mut()
+                                        .call_with_one_arg_test::<true>(closure, arg?)
+                                }))
+                            } else {
+                                Box::new(iter.map(move |arg| {
+                                    vm_copy.borrow_mut().call_with_one_arg(closure, arg?)
+                                }))
+                            }
                         }
                         _ => stop!(TypeMismatch => "map expected a function"; *cur_inst_span),
                     }
@@ -424,6 +438,10 @@ impl<'global, 'a> VmCore<'a> {
                     };
                     Box::new(interleave(iter, other))
                 }
+
+                Transducers::MapPair(_p) => {
+                    todo!("Implement mapping a function with two args over a collection that produces two args")
+                }
             }
         }
 
@@ -432,7 +450,7 @@ impl<'global, 'a> VmCore<'a> {
 
     fn into_value(
         vm_ctx: Rc<RefCell<&'global mut Self>>,
-        reducer: Reducer,
+        reducer: &Reducer,
         mut iter: impl Iterator<Item = Result<SteelVal>>,
         cur_inst_span: &Span,
     ) -> Result<SteelVal> {
@@ -468,7 +486,7 @@ impl<'global, 'a> VmCore<'a> {
                 Ok(SteelVal::IntV(iter.count().try_into().unwrap())) // TODO have proper big int
             },
             Reducer::Nth(usize) => {
-                iter.nth(usize).unwrap_or_else(|| stop!(Generic => "`nth` - index given is greater than the length of the iterator"))
+                iter.nth(*usize).unwrap_or_else(|| stop!(Generic => "`nth` - index given is greater than the length of the iterator"))
             },
             Reducer::List => iter.collect::<Result<List<_>>>().map(SteelVal::ListV),
             Reducer::Vector => vec_construct_iter(iter),
@@ -517,7 +535,7 @@ impl<'global, 'a> VmCore<'a> {
             Reducer::ForEach(f) => {
                 for value in iter {
                     vm_ctx.borrow_mut().call_func_or_else(
-                        &f,
+                        f,
                         value?,
                         cur_inst_span,
                         throw!(TypeMismatch => format!("for-each expected a function, found: {}", &f))

@@ -1,7 +1,7 @@
 use crate::throw;
 use crate::{parser::interner::InternedString, rvals::Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// At the REPL or within an application, a script might be repeatedly
 /// loaded. In this situation, the behavior that Steel picks is that
@@ -20,7 +20,7 @@ use std::collections::HashMap;
 /// candidate set to drop. Reachability in this case, is just checking
 /// if the global variable is referenced by any instructions. That offset
 /// into the global namespace is the only way that globals get referenced.
-#[derive(Default, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Clone)]
+#[derive(Default, Debug, PartialEq, Eq, Serialize, Deserialize, Clone)]
 pub struct FreeList {
     // Slots which are potentially unreachable.
     pub(crate) shadowed_slots: Vec<usize>,
@@ -39,6 +39,8 @@ pub struct FreeList {
     pub(crate) multiplier: usize,
 
     pub(crate) epoch: usize,
+
+    pub(crate) recently_freed: HashSet<usize>,
 }
 
 impl FreeList {
@@ -47,7 +49,14 @@ impl FreeList {
     }
 
     pub fn pop_next_free(&mut self) -> Option<usize> {
-        self.free_list.pop()
+        self.free_list.pop().map(|x| {
+            self.recently_freed.insert(x);
+            x
+        })
+    }
+
+    pub fn clear_recently_freed(&mut self) {
+        self.recently_freed.clear();
     }
 
     pub fn shadowed_count(&self) -> usize {
@@ -108,6 +117,10 @@ impl SymbolMap {
         self.values.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.values.is_empty()
+    }
+
     pub fn roll_back(&mut self, index: usize) {
         for value in self.values.drain(index..) {
             self.map.remove(&value);
@@ -142,8 +155,6 @@ impl SymbolMap {
         // And now that we're overriding it, go ahead and put
         // it in the shadowed_slots.
         if let Some(prev) = prev {
-            // println!("Potentially shadowed: {} -> {}", ident, prev);
-
             self.free_list.add_shadowed(prev);
         }
 

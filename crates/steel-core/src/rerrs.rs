@@ -122,12 +122,10 @@ impl fmt::Display for ErrorKind {
 
 impl From<ParseError> for Repr {
     fn from(v: ParseError) -> Self {
-        // unimplemented!()
         let (span, _source) = match &v {
-            ParseError::UnexpectedEOF(source) => (None, source),
-            ParseError::Unexpected(_, s, source)
+            ParseError::UnexpectedEOF(s, source)
+            | ParseError::MismatchedParen(_, s, source)
             | ParseError::UnexpectedChar(_, s, source)
-            | ParseError::IncompleteString(_, s, source)
             | ParseError::SyntaxError(_, s, source)
             | ParseError::ArityMismatch(_, s, source) => (Some(*s), source),
         };
@@ -136,7 +134,6 @@ impl From<ParseError> for Repr {
             kind: ErrorKind::Parse,
             message: v.to_string(),
             span,
-            // source: source.clone(),
             stack_trace: None,
         }
     }
@@ -160,6 +157,10 @@ impl Custom for SteelErr {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
         Some(Ok(format!("{}", self)))
     }
+
+    fn into_error(self) -> std::result::Result<SteelErr, Self> {
+        Ok(self)
+    }
 }
 
 impl SteelErr {
@@ -178,7 +179,7 @@ impl SteelErr {
     }
 
     pub fn prepend_message(&mut self, message: &str) {
-        self.repr.message.insert_str(0, &message)
+        self.repr.message.insert_str(0, message)
     }
 
     pub fn new(kind: ErrorKind, message: String) -> Self {
@@ -411,12 +412,6 @@ macro_rules! stop {
     };
     ($type:ident => $thing:expr; $span:expr) => {
         return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))
-    };
-    ($type:ident => $thing:expr; opt $span:expr) => {
-        match $span {
-            Some(span) => stop!($type => $thing; span),
-            None => stop!($type => $thing)
-        }
     };
     ($type:ident => $thing:expr; $span:expr; $source:expr) => {
         return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))

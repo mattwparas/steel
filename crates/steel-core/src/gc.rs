@@ -14,6 +14,7 @@ pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 
 pub use shared::{GcMut, MutContainer, ShareableMut, Shared, SharedMut};
+pub use unsafe_erased_pointers::is_reference_type;
 
 #[cfg(feature = "sync")]
 use parking_lot::RwLock;
@@ -58,10 +59,26 @@ pub mod shared {
     pub type GcMut<T> = Gc<RefCell<T>>;
 
     #[cfg(feature = "sync")]
-    pub type Shared<T> = Arc<T>;
+    pub type StandardShared<T> = std::sync::Arc<T>;
 
     #[cfg(feature = "sync")]
+    pub type StandardSharedMut<T> = std::sync::Arc<RwLock<T>>;
+
+    #[cfg(not(feature = "sync"))]
+    pub type StandardShared<T> = std::rc::Rc<T>;
+
+    #[cfg(not(feature = "sync"))]
+    pub type StandardSharedMut<T> = std::rc::Rc<RefCell<T>>;
+
+    #[cfg(all(feature = "sync", not(feature = "triomphe")))]
+    pub type Shared<T> = Arc<T>;
+    #[cfg(all(feature = "sync", not(feature = "triomphe")))]
     pub type SharedMut<T> = Arc<RwLock<T>>;
+
+    #[cfg(all(feature = "sync", feature = "triomphe"))]
+    pub type Shared<T> = triomphe::Arc<T>;
+    #[cfg(all(feature = "sync", feature = "triomphe"))]
+    pub type SharedMut<T> = triomphe::Arc<RwLock<T>>;
 
     #[cfg(feature = "sync")]
     pub type GcMut<T> = Gc<RwLock<T>>;
@@ -430,7 +447,6 @@ impl<T: Clone> Gc<T> {
 }
 
 impl<T> Gc<T> {
-    // in order to fully sandbox, I have to check the memory limit
     pub fn new(val: T) -> Gc<T> {
         // OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
         Gc(Shared::new(val))
@@ -462,6 +478,22 @@ impl<T> Gc<T> {
         Ok(())
     }
 
+    pub fn try_unwrap(self) -> Result<T, Gc<T>> {
+        Shared::try_unwrap(self.0).map_err(|x| Gc(x))
+    }
+
+    pub fn check_memory() -> Result<usize, SteelErr> {
+        let mem: usize = OBJECT_COUNT.fetch_add(0, Ordering::SeqCst);
+        if mem > MAXIMUM_OBJECTS {
+            stop!(Generic => "ran out of memory!")
+        }
+        Ok(mem)
+    }
+}
+
+impl<T: ?Sized> Gc<T> {
+    // in order to fully sandbox, I have to check the memory limit
+
     pub fn get_mut(&mut self) -> Option<&mut T> {
         Shared::get_mut(&mut self.0)
     }
@@ -474,20 +506,16 @@ impl<T> Gc<T> {
         Shared::as_ptr(&self.0)
     }
 
-    pub fn try_unwrap(self) -> Result<T, Gc<T>> {
-        Shared::try_unwrap(self.0).map_err(|x| Gc(x))
+    pub fn into_raw(self) -> *const T {
+        Shared::into_raw(self.0)
+    }
+
+    pub unsafe fn from_raw(this: *const T) -> Self {
+        Self(Shared::from_raw(this))
     }
 
     pub fn strong_count(this: &Self) -> usize {
         Shared::strong_count(&this.0)
-    }
-
-    pub fn check_memory() -> Result<usize, SteelErr> {
-        let mem: usize = OBJECT_COUNT.fetch_add(0, Ordering::SeqCst);
-        if mem > MAXIMUM_OBJECTS {
-            stop!(Generic => "ran out of memory!")
-        }
-        Ok(mem)
     }
 }
 
@@ -497,7 +525,7 @@ impl<T> AsRef<T> for Gc<T> {
     }
 }
 
-impl<T> Deref for Gc<T> {
+impl<T: ?Sized> Deref for Gc<T> {
     type Target = T;
     fn deref(&self) -> &T {
         self.0.deref()
@@ -636,17 +664,26 @@ pub mod unsafe_erased_pointers {
 
     use std::cell::Cell;
     use std::rc::{Rc, Weak};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
     use std::{any::Any, cell::RefCell, marker::PhantomData};
 
+    use crate::gc::shared::{
+        MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
+        ScopedWriteContainer, StandardSharedMut,
+    };
     use crate::steel_vm::engine::EngineId;
     use once_cell::sync::Lazy;
+    use parking_lot::Mutex;
     use std::collections::HashMap;
 
     use crate::rvals::cycles::IterativeDropHandler;
     use crate::rvals::{AsRefSteelValFromRef, MaybeSendSyncStatic};
     use crate::{rerrs::ErrorKind, rvals::AsRefMutSteelValFromRef, SteelErr, SteelVal};
 
-    use super::shared::{MutContainer, ShareableMut as _, WeakShared, WeakSharedMut};
+    use super::shared::{
+        MutContainer, ShareableMut as _, StandardShared, WeakShared, WeakSharedMut,
+    };
     use super::{Gc, Shared};
 
     // TODO: This needs to be exanded to n args, probably like 8 with a macro
@@ -676,14 +713,14 @@ pub mod unsafe_erased_pointers {
 
             // Wrap the original mutable pointer in an object that respects borrowing
             // rules for runtime borrow checking
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let borrowed = BorrowedObject::new(weak_ptr);
 
             let erased2 = original_b as *mut _;
-            let wrapped2 = Shared::new(MutContainer::new(erased2));
-            let weak_ptr2 = Shared::downgrade(&wrapped2);
+            let wrapped2 = StandardShared::new(MutContainer::new(erased2));
+            let weak_ptr2 = StandardShared::downgrade(&wrapped2);
 
             let borrowed2 = BorrowedObject::new(weak_ptr2);
 
@@ -711,10 +748,10 @@ pub mod unsafe_erased_pointers {
 
             // Wrap the original mutable pointer in an object that respects borrowing
             // rules for runtime borrow checking
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
-            let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, Rc::new(Cell::new(0)));
+            let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, Arc::new(Mutex::new(0)));
 
             thunk(borrowed)
         }
@@ -728,8 +765,8 @@ pub mod unsafe_erased_pointers {
 
             // Wrap the original mutable pointer in an object that respects borrowing
             // rules for runtime borrow checking
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let borrowed = BorrowedObject::new(weak_ptr);
 
@@ -795,13 +832,13 @@ pub mod unsafe_erased_pointers {
             std::any::type_name::<Self>()
         }
         fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-            Ok(format!("#<{}>", self.name().to_string()))
+            Ok(format!("#<{}>", self.name()))
         }
         fn visit(&self) {}
         fn drop_mut(&mut self, drop_handler: &mut IterativeDropHandler) {}
     }
 
-    impl<'a, T: CustomReference + 'static> ReferenceCustomType for T {
+    impl<T: CustomReference + 'static> ReferenceCustomType for T {
         fn as_any_ref(&self) -> &dyn Any {
             self as &dyn Any
         }
@@ -809,7 +846,7 @@ pub mod unsafe_erased_pointers {
             self as &mut dyn Any
         }
         fn display(&self) -> std::result::Result<String, std::fmt::Error> {
-            Ok(format!("#<{}>", self.name().to_string()))
+            Ok(format!("#<{}>", self.name()))
         }
         fn visit(&self) {
             self.walk()
@@ -833,7 +870,7 @@ pub mod unsafe_erased_pointers {
     /// to be run over this pool - just check the amount of weak pointer allocations to each allocation
     /// and drop those from the vec.
     pub(crate) struct TemporaryObject<T> {
-        pub(crate) ptr: Shared<MutContainer<*mut T>>,
+        pub(crate) ptr: StandardShared<MutContainer<*mut T>>,
     }
 
     #[cfg(feature = "sync")]
@@ -843,7 +880,7 @@ pub mod unsafe_erased_pointers {
 
     // TODO: Probably combine this and the above
     pub(crate) struct ReadOnlyTemporaryObject<T> {
-        pub(crate) ptr: Shared<MutContainer<*const T>>,
+        pub(crate) ptr: StandardShared<MutContainer<*const T>>,
     }
 
     #[cfg(feature = "sync")]
@@ -854,7 +891,7 @@ pub mod unsafe_erased_pointers {
     // Not a reference explicitly. This might contain a reference, but on its own it is a
     // value type. This should probably only deal with immutable references for now.
     pub(crate) struct Temporary<T> {
-        pub(crate) ptr: Shared<T>,
+        pub(crate) ptr: StandardShared<T>,
     }
 
     // #[cfg(feature = "sync")]
@@ -867,25 +904,25 @@ pub mod unsafe_erased_pointers {
     impl<T> CustomReference for ReadOnlyTemporaryObject<T> {}
 
     impl<T: MaybeSendSyncStatic> TemporaryObject<T> {
-        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+        pub(crate) fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
-                inner: Shared::new(self),
+                inner: StandardShared::new(self),
             }
         }
     }
 
     impl<T: MaybeSendSyncStatic> ReadOnlyTemporaryObject<T> {
-        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+        pub(crate) fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
-                inner: Shared::new(self),
+                inner: StandardShared::new(self),
             }
         }
     }
 
     impl<T: MaybeSendSyncStatic> Temporary<T> {
-        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+        pub(crate) fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
-                inner: Shared::new(self),
+                inner: StandardShared::new(self),
             }
         }
     }
@@ -905,16 +942,16 @@ pub mod unsafe_erased_pointers {
     }
 
     impl<T: MaybeSendSyncStatic> ReadOnlyTemporary<T> {
-        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+        pub(crate) fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
-                inner: Shared::new(self),
+                inner: StandardShared::new(self),
             }
         }
     }
 
     pub struct ReadOnlyBorrowedObject<T> {
         pub(crate) ptr: WeakSharedMut<*const T>,
-        pub(crate) parent_borrow_count: Rc<Cell<BorrowFlag>>,
+        pub(crate) parent_borrow_count: Arc<Mutex<BorrowFlag>>,
     }
 
     impl<T> CustomReference for ReadOnlyBorrowedObject<T> {}
@@ -922,7 +959,7 @@ pub mod unsafe_erased_pointers {
     impl<T> ReadOnlyBorrowedObject<T> {
         pub fn new(
             ptr: WeakSharedMut<*const T>,
-            parent_borrow_count: Rc<Cell<BorrowFlag>>,
+            parent_borrow_count: Arc<Mutex<BorrowFlag>>,
         ) -> Self {
             Self {
                 ptr,
@@ -933,8 +970,8 @@ pub mod unsafe_erased_pointers {
 
     impl<T> Drop for ReadOnlyBorrowedObject<T> {
         fn drop(&mut self) {
-            self.parent_borrow_count
-                .set(self.parent_borrow_count.get() - 1);
+            let mut guard = self.parent_borrow_count.lock();
+            *guard = *guard - 1;
         }
     }
 
@@ -942,15 +979,15 @@ pub mod unsafe_erased_pointers {
         fn clone(&self) -> Self {
             Self {
                 ptr: WeakShared::clone(&self.ptr),
-                parent_borrow_count: Rc::clone(&self.parent_borrow_count),
+                parent_borrow_count: Arc::clone(&self.parent_borrow_count),
             }
         }
     }
 
     impl<T: 'static> ReadOnlyBorrowedObject<T> {
-        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+        pub(crate) fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
-                inner: Shared::new(self),
+                inner: StandardShared::new(self),
             }
         }
     }
@@ -975,38 +1012,35 @@ pub mod unsafe_erased_pointers {
 
     pub struct BorrowedObject<T> {
         pub(crate) ptr: WeakSharedMut<*mut T>,
-
-        //// MAJOR TODO:
-        //// WE HAVE CURRENTLY IMPLEMENTED SEND AND SYNC FOR THIS
-        //// BUT IT IS VERY MUCH NOT! THESE NEED TO BE REPLACED
-        //// WITH THE THREAD SAFE VARIANTS
-
-        // TODO: This might need to just be a direct reference to the parent?
-        pub(crate) parent_borrow_flag: Rc<Cell<bool>>,
-        pub(crate) child_borrow_flag: Rc<Cell<bool>>,
-        // TODO:
-        // This really should be the way to do things...
-        pub(crate) borrow_count: Rc<Cell<BorrowFlag>>,
+        pub(crate) parent_borrow_flag: Arc<AtomicBool>,
+        pub(crate) child_borrow_flag: Arc<AtomicBool>,
+        pub(crate) borrow_count: Arc<Mutex<BorrowFlag>>,
     }
 
     impl<T> Drop for BorrowedObject<T> {
         fn drop(&mut self) {
             // We're not borrowing anymore, so we can do this
-            self.parent_borrow_flag.set(false);
+            self.parent_borrow_flag
+                .store(false, std::sync::atomic::Ordering::SeqCst);
         }
     }
 
+    pub(crate) fn increment_borrow_flag(value: &Arc<Mutex<BorrowFlag>>) {
+        let mut guard = value.lock();
+        *guard = *guard + 1;
+    }
+
     impl<T> BorrowedObject<T> {
-        pub fn new(ptr: WeakSharedMut<*mut T>) -> Self {
+        pub(crate) fn new(ptr: WeakSharedMut<*mut T>) -> Self {
             Self {
                 ptr,
-                parent_borrow_flag: Rc::new(Cell::new(false)),
-                child_borrow_flag: Rc::new(Cell::new(false)),
-                borrow_count: Rc::new(Cell::new(0)),
+                parent_borrow_flag: Arc::new(AtomicBool::new(false)),
+                child_borrow_flag: Arc::new(AtomicBool::new(false)),
+                borrow_count: Arc::new(Mutex::new(0)),
             }
         }
 
-        pub fn with_parent_flag(mut self, parent_borrow_flag: Rc<Cell<bool>>) -> Self {
+        pub(crate) fn with_parent_flag(mut self, parent_borrow_flag: Arc<AtomicBool>) -> Self {
             self.parent_borrow_flag = parent_borrow_flag;
 
             self
@@ -1016,14 +1050,14 @@ pub mod unsafe_erased_pointers {
     impl SteelVal {
         pub(crate) fn get_borrow_flag_if_borrowed_object<T: AsRefMutSteelValFromRef + 'static>(
             &self,
-        ) -> crate::rvals::Result<Rc<Cell<bool>>> {
+        ) -> crate::rvals::Result<Arc<AtomicBool>> {
             if let SteelVal::Reference(v) = self {
                 let res = v.inner.as_any_ref();
 
                 if res.is::<BorrowedObject<T>>() {
                     let borrowed_object = res.downcast_ref::<BorrowedObject<T>>().unwrap();
 
-                    Ok(Rc::clone(&borrowed_object.child_borrow_flag))
+                    Ok(Arc::clone(&borrowed_object.child_borrow_flag))
                 } else {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
@@ -1045,14 +1079,14 @@ pub mod unsafe_erased_pointers {
 
         pub(crate) fn get_borrow_count_if_borrowed_object<T: AsRefMutSteelValFromRef + 'static>(
             &self,
-        ) -> crate::rvals::Result<Rc<Cell<BorrowFlag>>> {
+        ) -> crate::rvals::Result<Arc<Mutex<BorrowFlag>>> {
             if let SteelVal::Reference(v) = self {
                 let res = v.inner.as_any_ref();
 
                 if res.is::<BorrowedObject<T>>() {
                     let borrowed_object = res.downcast_ref::<BorrowedObject<T>>().unwrap();
 
-                    Ok(Rc::clone(&borrowed_object.borrow_count))
+                    Ok(Arc::clone(&borrowed_object.borrow_count))
                 } else {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
@@ -1075,21 +1109,21 @@ pub mod unsafe_erased_pointers {
 
     impl<T> CustomReference for BorrowedObject<T> {}
 
-    impl<'a, T> Clone for BorrowedObject<T> {
+    impl<T> Clone for BorrowedObject<T> {
         fn clone(&self) -> Self {
             Self {
                 ptr: WeakShared::clone(&self.ptr),
-                parent_borrow_flag: Rc::clone(&self.parent_borrow_flag),
-                child_borrow_flag: Rc::clone(&self.child_borrow_flag),
-                borrow_count: Rc::clone(&self.borrow_count),
+                parent_borrow_flag: Arc::clone(&self.parent_borrow_flag),
+                child_borrow_flag: Arc::clone(&self.child_borrow_flag),
+                borrow_count: Arc::clone(&self.borrow_count),
             }
         }
     }
 
     impl<T: 'static> BorrowedObject<T> {
-        pub fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
+        pub(crate) fn into_opaque_reference<'a>(self) -> OpaqueReference<'a> {
             OpaqueReference {
-                inner: Shared::new(self),
+                inner: StandardShared::new(self),
             }
         }
     }
@@ -1101,7 +1135,8 @@ pub mod unsafe_erased_pointers {
 
     pub(crate) trait Opaque {}
 
-    impl<T> Opaque for Shared<MutContainer<T>> {}
+    // impl<T> Opaque for Shared<MutContainer<T>> {}
+    impl<T> Opaque for StandardShared<MutContainer<T>> {}
 
     // TODO: Use this to chain multiple references together. The engine should be able to accept something
     // `with_reference` and then have the value be scoped to that lifetime.
@@ -1175,8 +1210,8 @@ pub mod unsafe_erased_pointers {
 
             // Wrap the original mutable pointer in an object that respects borrowing
             // rules for runtime borrow checking
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
             let borrowed = BorrowedObject::new(weak_ptr);
 
@@ -1212,10 +1247,11 @@ pub mod unsafe_erased_pointers {
 
             // Wrap the original mutable pointer in an object that respects borrowing
             // rules for runtime borrow checking
-            let wrapped = Shared::new(MutContainer::new(erased));
-            let weak_ptr = Shared::downgrade(&wrapped);
+            let wrapped = StandardShared::new(MutContainer::new(erased));
+            let weak_ptr = StandardShared::downgrade(&wrapped);
 
-            let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, Rc::new(Cell::new(0)));
+            let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, Arc::new(Mutex::new(0)));
+            // let borrowed = ReadOnlyBorrowedObject::new(weak_ptr);
 
             // #[cfg(feature = "sync")]
             // {
@@ -1295,16 +1331,16 @@ pub mod unsafe_erased_pointers {
         #[cfg(not(feature = "sync"))]
         inner: Shared<dyn ReferenceCustomType + 'a>,
         #[cfg(feature = "sync")]
-        inner: Shared<dyn ReferenceCustomType + 'a + Send + Sync>,
+        inner: StandardShared<dyn ReferenceCustomType + 'a + Send + Sync>,
     }
 
     impl OpaqueReference<'static> {
-        pub fn format(&self) -> std::result::Result<String, std::fmt::Error> {
+        pub(crate) fn format(&self) -> std::result::Result<String, std::fmt::Error> {
             self.display()
         }
 
-        pub fn drop_mut(&mut self, drop_handler: &mut IterativeDropHandler) {
-            if let Some(inner) = Shared::get_mut(&mut self.inner) {
+        pub(crate) fn drop_mut(&mut self, drop_handler: &mut IterativeDropHandler) {
+            if let Some(inner) = StandardShared::get_mut(&mut self.inner) {
                 inner.drop_mut(drop_handler);
             }
         }
@@ -1312,26 +1348,51 @@ pub mod unsafe_erased_pointers {
 
     impl CustomReference for OpaqueReference<'static> {}
 
-    // TODO: Combine this and the next into 1 trait
+    pub(crate) struct TemporaryMutableView<T> {
+        view: StandardSharedMut<*mut T>,
+    }
+
+    impl<T> TemporaryMutableView<T> {
+        pub(crate) fn as_mut(&mut self) -> MappedScopedWriteContainer<'_, T> {
+            ScopedWriteContainer::map(self.view.write(), |x| unsafe { &mut (**x) })
+        }
+    }
+
+    pub(crate) enum TemporaryReadonlyView<T> {
+        Standard(StandardSharedMut<*const T>),
+        Slim(StandardShared<T>),
+    }
+
+    impl<T> TemporaryReadonlyView<T> {
+        pub(crate) fn as_ro(&self) -> &T {
+            match self {
+                TemporaryReadonlyView::Standard(rw_lock) => unsafe { &(**rw_lock.read()) },
+                TemporaryReadonlyView::Slim(x) => x,
+            }
+        }
+    }
+
     impl<T: ReferenceCustomType + 'static> AsRefMutSteelValFromRef for T {
-        fn as_mut_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a mut T> {
+        fn as_mut_ref_from_ref(val: &SteelVal) -> crate::rvals::Result<TemporaryMutableView<T>> {
             if let SteelVal::Reference(v) = val {
                 let res = v.inner.as_any_ref();
 
                 if res.is::<BorrowedObject<T>>() {
                     let borrowed_object = res.downcast_ref::<BorrowedObject<T>>().unwrap();
 
-                    if borrowed_object.borrow_count.get() > 0
-                        || borrowed_object.child_borrow_flag.get()
+                    if *borrowed_object.borrow_count.lock() > 0
+                        || borrowed_object
+                            .child_borrow_flag
+                            .load(std::sync::atomic::Ordering::SeqCst)
                     {
                         stop!(Generic => "Value is already borrowed!")
                     }
 
                     let guard = borrowed_object.ptr.upgrade().ok_or_else(
                         throw!(Generic => "opaque reference pointer dropped before use!"),
-                    );
+                    )?;
 
-                    return guard.map(|x| unsafe { &mut *(*x.write()) });
+                    Ok(TemporaryMutableView { view: guard })
                 } else {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
@@ -1353,7 +1414,7 @@ pub mod unsafe_erased_pointers {
     }
 
     impl<T: ReferenceCustomType + 'static> AsRefSteelValFromRef for T {
-        fn as_ref_from_ref<'a>(val: &'a SteelVal) -> crate::rvals::Result<&'a T> {
+        fn as_ref_from_ref(val: &SteelVal) -> crate::rvals::Result<TemporaryReadonlyView<T>> {
             if let SteelVal::Reference(v) = val {
                 let res = v.inner.as_any_ref();
 
@@ -1361,27 +1422,19 @@ pub mod unsafe_erased_pointers {
                 if res.is::<ReadOnlyBorrowedObject<T>>() {
                     let borrowed_object = res.downcast_ref::<ReadOnlyBorrowedObject<T>>().unwrap();
 
-                    // return Ok(borrowed_object.clone());
-
                     let guard = borrowed_object.ptr.upgrade().ok_or_else(
                         throw!(Generic => "opaque reference pointer dropped before use!"),
-                    );
+                    )?;
 
-                    return guard.map(|x| unsafe { &*(*x.read()) });
+                    Ok(TemporaryReadonlyView::Standard(guard))
                 } else if res.is::<ReadOnlyTemporary<T>>() {
                     let borrowed_object = res.downcast_ref::<ReadOnlyTemporary<T>>().unwrap();
 
-                    // return Ok(borrowed_object.clone());
-
                     let guard = borrowed_object.ptr.upgrade().ok_or_else(
                         throw!(Generic => "opaque reference pointer dropped before use!"),
-                    );
+                    )?;
 
-                    // TODO: @Matt -> We really do not want to have this here
-                    // The way to fix it is to have a separate trait, with a return type
-                    // more akin to a an owned borrow of some kind (like Ref from borrow() on refcell)
-                    // This is super suspect but we'll move on for now
-                    return guard.map(|x| unsafe { &*(Shared::as_ptr(&x)) });
+                    Ok(TemporaryReadonlyView::Slim(guard))
                 } else {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
@@ -1399,6 +1452,21 @@ pub mod unsafe_erased_pointers {
 
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
             }
+        }
+    }
+
+    pub fn is_reference_type<T: ReferenceCustomType + 'static>(value: &SteelVal) -> bool {
+        if let SteelVal::Reference(v) = value {
+            let res = v.inner.as_any_ref();
+            if res.is::<ReadOnlyBorrowedObject<T>>() {
+                true
+            } else if res.is::<ReadOnlyTemporary<T>>() {
+                true
+            } else {
+                false
+            }
+        } else {
+            false
         }
     }
 

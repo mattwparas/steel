@@ -14,25 +14,15 @@ use crate::{
 
 use super::*;
 
-// TODO: Do proper logging here for thread spawning
-// macro_rules! time {
-//     ($label:expr, $e:expr) => {{
-//         #[cfg(feature = "profiling")]
-//         let now = std::time::Instant::now();
-
-//         let e = $e;
-
-//         #[cfg(feature = "profiling")]
-//         log::debug!(target: "threads", "{}: {:?}", $label, now.elapsed());
-
-//         e
-//     }};
-// }
-
 pub struct ThreadHandle {
-    pub(crate) handle: Option<std::thread::JoinHandle<std::result::Result<SteelVal, String>>>,
+    pub(crate) handle:
+        Mutex<Option<std::thread::JoinHandle<std::result::Result<SteelVal, String>>>>,
+
+    pub(crate) thread: std::thread::Thread,
 
     pub(crate) thread_state_manager: ThreadStateController,
+
+    pub(crate) forked_thread_handle: Option<std::sync::Weak<Mutex<SteelThread>>>,
 }
 
 /// Check if the given thread is finished running.
@@ -41,6 +31,8 @@ pub fn thread_finished(handle: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(
         ThreadHandle::as_ref(handle)?
             .handle
+            .lock()
+            .unwrap()
             .as_ref()
             .map(|x| x.is_finished())
             .unwrap_or(true),
@@ -108,11 +100,11 @@ pub fn mutex_unlock(mutex: &SteelVal) -> Result<SteelVal> {
 /// Block until this thread finishes.
 #[steel_derive::function(name = "thread-join!")]
 pub fn thread_join(handle: &SteelVal) -> Result<SteelVal> {
-    ThreadHandle::as_mut_ref(handle).and_then(|mut x| thread_join_impl(&mut x))
+    ThreadHandle::as_ref(handle).and_then(|mut x| thread_join_impl(&mut x))
 }
 
-pub(crate) fn thread_join_impl(handle: &mut ThreadHandle) -> Result<SteelVal> {
-    if let Some(handle) = handle.handle.take() {
+pub(crate) fn thread_join_impl(handle: &ThreadHandle) -> Result<SteelVal> {
+    if let Some(handle) = handle.handle.lock().unwrap().take() {
         handle
             .join()
             .map_err(|_| SteelErr::new(ErrorKind::Generic, "thread panicked!".to_string()))?
@@ -137,11 +129,9 @@ pub(crate) fn thread_suspend(handle: &SteelVal) -> Result<SteelVal> {
 /// Resume a suspended thread. This does nothing if the thread is already joined.
 #[steel_derive::function(name = "thread-resume")]
 pub(crate) fn thread_resume(handle: &SteelVal) -> Result<SteelVal> {
-    let mut handle = ThreadHandle::as_mut_ref(handle)?;
+    let handle = ThreadHandle::as_mut_ref(handle)?;
     handle.thread_state_manager.resume();
-    if let Some(handle) = handle.handle.as_mut() {
-        handle.thread().unpark();
-    }
+    handle.thread.unpark();
     Ok(SteelVal::Void)
 }
 
@@ -186,7 +176,7 @@ pub fn closure_into_serializable(
             id: c.id,
 
             #[cfg(not(feature = "dynamic"))]
-            body_exp: c.body_exp.into_iter().cloned().collect(),
+            body_exp: c.body_exp.iter().cloned().collect(),
 
             #[cfg(feature = "dynamic")]
             body_exp: c.body_exp.borrow().iter().cloned().collect(),
@@ -319,7 +309,7 @@ fn serialize_thread_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
     //     }
     // };
 
-    let sources = ctx.thread.sources.clone();
+    let sources = ctx.thread.compiler.read().sources.clone();
 
     let builtin_modules = ctx.thread.compiler.read().builtin_modules.clone();
 
@@ -341,9 +331,7 @@ fn serialize_thread_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
         global_env: ctx
             .thread
             .global_env
-            .bindings_vec
-            .read()
-            .unwrap()
+            .roots()
             .iter()
             .cloned()
             .map(|x| into_serializable_value(x, &mut sctx).unwrap())
@@ -438,17 +426,13 @@ fn serialize_thread_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
     println!("Initialized constant map");
 
     #[cfg(feature = "sync")]
-    let global_env = Env {
-        bindings_vec: Arc::new(std::sync::RwLock::new(
-            thread
-                .global_env
-                .into_iter()
-                .map(|x| from_serializable_value(&mut serializer, x))
-                .collect(),
-        )),
-        // TODO:
-        thread_local_bindings: Vec::new(),
-    };
+    let global_env = Env::new(
+        &thread
+            .global_env
+            .into_iter()
+            .map(|x| from_serializable_value(&mut serializer, x))
+            .collect::<Vec<_>>(),
+    );
 
     #[cfg(not(feature = "sync"))]
     let global_env = Env {
@@ -673,11 +657,11 @@ pub fn channel_try_recv(receiver: &SteelVal) -> Result<SteelVal> {
 #[cfg(not(feature = "sync"))]
 thread_local! {
     static EMPTY_CHANNEL_OBJECT: once_cell::unsync::Lazy<(SteelVal, crate::values::structs::StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
-        crate::values::structs::make_struct_singleton("#%empty-channel".into())
+        crate::values::structs::make_struct_singleton("#%empty-channel")
     });
 
     static DISCONNECTED_CHANNEL_OBJECT: once_cell::unsync::Lazy<(SteelVal, crate::values::structs::StructTypeDescriptor)>= once_cell::unsync::Lazy::new(|| {
-        crate::values::structs::make_struct_singleton("#%disconnected-channel".into())
+        crate::values::structs::make_struct_singleton("#%disconnected-channel")
     });
 }
 
@@ -685,17 +669,15 @@ thread_local! {
 pub static EMPTY_CHANNEL_OBJECT: once_cell::sync::Lazy<(
     SteelVal,
     crate::values::structs::StructTypeDescriptor,
-)> = once_cell::sync::Lazy::new(|| {
-    crate::values::structs::make_struct_singleton("#%empty-channel".into())
-});
+)> =
+    once_cell::sync::Lazy::new(|| crate::values::structs::make_struct_singleton("#%empty-channel"));
 
 #[cfg(feature = "sync")]
 pub static DISCONNECTED_CHANNEL_OBJECT: once_cell::sync::Lazy<(
     SteelVal,
     crate::values::structs::StructTypeDescriptor,
-)> = once_cell::sync::Lazy::new(|| {
-    crate::values::structs::make_struct_singleton("#%empty-channel".into())
-});
+)> =
+    once_cell::sync::Lazy::new(|| crate::values::structs::make_struct_singleton("#%empty-channel"));
 
 /// Returns `#t` if the value is an empty-channel object.
 ///
@@ -768,7 +750,10 @@ pub fn engine_id(ctx: &mut VmCore, _args: &[SteelVal]) -> Option<Result<SteelVal
 
 #[cfg(not(feature = "sync"))]
 #[steel_derive::context(name = "spawn-native-thread", arity = "Exact(1)")]
-pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+pub(crate) fn spawn_native_thread(
+    _ctx: &mut VmCore,
+    _args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
     builtin_stop!(Generic => "the feature needed for spawn-native-thread is not enabled.")
 }
 
@@ -831,9 +816,13 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
             .map_err(|e| e.to_string())
     });
 
+    let thread = handle.thread().clone();
+
     let value = ThreadHandle {
-        handle: Some(handle),
+        handle: Mutex::new(Some(handle)),
+        thread,
         thread_state_manager: controller,
+        forked_thread_handle: None,
     }
     .into_steelval()
     .unwrap();

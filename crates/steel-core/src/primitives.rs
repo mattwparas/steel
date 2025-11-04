@@ -11,7 +11,7 @@ pub mod meta_ops;
 /// Implements numbers as defined in section 6.2 of the R7RS spec.
 pub mod numbers;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(target_family = "wasm"))]
 pub mod polling;
 
 pub mod ports;
@@ -192,6 +192,22 @@ impl IntoSteelVal for usize {
     #[inline]
     fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
         Ok(SteelVal::from(self))
+    }
+}
+
+impl IntoSteelVal for u128 {
+    fn into_steelval(self) -> crate::rvals::Result<SteelVal> {
+        Ok(SteelVal::from(self))
+    }
+}
+
+impl From<u128> for SteelVal {
+    fn from(value: u128) -> Self {
+        if value > isize::MAX as u128 {
+            SteelVal::BigNum(Gc::new(value.into()))
+        } else {
+            SteelVal::IntV(value as isize)
+        }
     }
 }
 

@@ -7,9 +7,11 @@ use steel::{
     parser::interner::InternedString,
     steel_vm::{engine::Engine, register_fn::RegisterFn},
 };
-use steel_language_server::backend::{lsp_home, Backend, ExternalModuleResolver, ENGINE};
+use steel_language_server::backend::{
+    lsp_home, Backend, Config, ExternalModuleResolver, FileState, ENGINE,
+};
 
-use tower_lsp::{LspService, Server};
+use tower_lsp::{lsp_types::Url, LspService, Server};
 
 #[tokio::main]
 async fn main() {
@@ -72,8 +74,64 @@ async fn main() {
         }
     }
 
+    let vfs = DashMap::new();
+
+    // Walk all of the files that end with .scm, and require them:
+    for result in ignore::Walk::new("./") {
+        match result {
+            Ok(entry) => {
+                entry.path();
+
+                let path = entry.path();
+
+                if path.extension().and_then(|x| x.to_str()) != Some("scm") {
+                    continue;
+                }
+
+                let url = std::fs::canonicalize(path)
+                    .map_err(|_| ())
+                    .and_then(|path| Url::from_file_path(path));
+
+                // Only show things that are actually present within the
+                // context of this file
+                if let Ok(url) = url {
+                    vfs.insert(url, FileState { opened: false });
+                }
+
+                let mut guard = ENGINE.write().unwrap();
+
+                eprintln!("Visiting: {:?}", path);
+
+                // guard.add_module(path.to_str().unwrap().to_string()).ok();
+
+                // Require the path to warm the compiler, but don't bring this into the global scope.
+                // We're going to fake this into a different file, by creating another module
+                // that will require this, and then require that explicitly.
+                // let _ = guard.emit_expanded_ast_without_optimizations(
+                //     &format!(r"(require {:?})", path),
+                //     None,
+                // );
+
+                // TODO: This is still causing issues.
+                // Somehow it seems there is something wrong with the modules as they get loaded,
+                // and the environments between ASTs is not correct
+                let _ = guard.emit_expanded_ast(&format!(r"(require {:?})", path), None);
+
+                eprintln!("Successfully loaded: {:?}", path);
+            }
+            _ => {}
+        }
+    }
+
+    eprintln!("Finished indexing workspace");
+
+    let root = std::env::current_dir().unwrap();
+
     let (service, socket) = LspService::build(|client| Backend {
+        config: Config::new(),
         client,
+        vfs,
+        root,
         ast_map: DashMap::new(),
         lowered_ast_map: DashMap::new(),
         document_map: DashMap::new(),

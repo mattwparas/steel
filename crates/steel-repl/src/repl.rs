@@ -23,7 +23,7 @@ use steel::{rvals::SteelVal, steel_vm::register_fn::RegisterFn};
 
 use steel::steel_vm::engine::Engine;
 
-use std::io::Read;
+use std::io::{Read, Write};
 
 use std::time::Instant;
 
@@ -87,7 +87,7 @@ fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
             }
             _ => {
                 print!("{} ", "=>".bright_blue().bold());
-                vm.call_function_by_name_with_args("displayln", vec![x])
+                vm.call_function_by_name_with_args("println", vec![x])
                     .unwrap();
             }
         }),
@@ -95,6 +95,8 @@ fn finish_load_or_interrupt(vm: &mut Engine, exprs: String, path: PathBuf) {
             vm.raise_error(e);
         }
     }
+
+    let _ = std::io::stdout().flush();
 }
 
 fn finish_or_interrupt(vm: &mut Engine, line: String) {
@@ -123,11 +125,13 @@ fn finish_or_interrupt(vm: &mut Engine, line: String) {
             }
             _ => {
                 print!("{} ", "=>".bright_blue().bold());
-                vm.call_function_by_name_with_args("displayln", vec![value])
+                vm.call_function_by_name_with_args("println", vec![value])
                     .unwrap();
             }
         }
     }
+
+    let _ = std::io::stdout().flush();
 }
 
 #[derive(Debug)]
@@ -165,10 +169,8 @@ pub fn readline_module(vm: &mut Engine) {
             rl.set_check_cursor_position(true);
 
             let history_path = get_default_repl_history_path();
-            if let Err(_) = rl.load_history(&history_path) {
-                if let Err(_) = File::create(&history_path) {
-                    eprintln!("Unable to create repl history file {:?}", history_path)
-                }
+            if rl.load_history(&history_path).is_err() && File::create(&history_path).is_err() {
+                eprintln!("Unable to create repl history file {:?}", history_path)
             };
             RustyLine(rl)
         })
@@ -264,10 +266,8 @@ impl<S: Display, P: AsRef<Path> + Debug> Repl<S, P> {
             .map(|p| Cow::Borrowed(p.as_ref()))
             .unwrap_or_else(|| Cow::Owned(get_default_repl_history_path()));
 
-        if let Err(_) = rl.load_history(&history_path) {
-            if let Err(_) = File::create(&history_path) {
-                eprintln!("Unable to create repl history file {:?}", history_path)
-            }
+        if rl.load_history(&history_path).is_err() && File::create(&history_path).is_err() {
+            eprintln!("Unable to create repl history file {:?}", history_path)
         };
 
         let current_dir = std::env::current_dir()?;

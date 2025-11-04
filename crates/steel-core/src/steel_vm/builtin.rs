@@ -1,8 +1,13 @@
 use std::{borrow::Cow, cell::RefCell, sync::Arc};
 
-use crate::gc::shared::{
-    MappedScopedReadContainer, MutContainer, ScopedReadContainer, ShareableMut,
-};
+use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadContainer};
+
+// #[cfg(not(feature = "triomphe"))]
+// use crate::gc::shared::ShareableMut;
+
+#[cfg(not(feature = "sync"))]
+use crate::gc::shared::ShareableMut;
+
 use crate::gc::{Shared, SharedMut};
 use crate::values::HashMap;
 use crate::{
@@ -47,13 +52,13 @@ use super::vm::BuiltInSignature;
 /// structs. This should be more properly documented.
 #[derive(Clone)]
 pub struct BuiltInModule {
-    module: SharedMut<BuiltInModuleRepr>,
+    pub(crate) module: SharedMut<BuiltInModuleRepr>,
 }
 
 #[derive(Clone)]
-struct BuiltInModuleRepr {
+pub(crate) struct BuiltInModuleRepr {
     pub(crate) name: Shared<str>,
-    values: std::collections::HashMap<Arc<str>, SteelVal, FxBuildHasher>,
+    pub(crate) values: std::collections::HashMap<Arc<str>, SteelVal, FxBuildHasher>,
     docs: Box<InternalDocumentation>,
     // Add the metadata separate from the pointer, keeps the pointer slim
     fn_ptr_table: std::collections::HashMap<BuiltInFunctionType, FunctionSignatureMetadata>,
@@ -65,7 +70,7 @@ struct BuiltInModuleRepr {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 // Probably need something more interesting than just an integer for the arity
 pub struct FunctionSignatureMetadata {
-    pub name: &'static str,
+    pub name: Cow<'static, str>,
     pub arity: Arity,
     pub is_const: bool,
     pub doc: Option<MarkdownDoc<'static>>,
@@ -79,7 +84,7 @@ impl FunctionSignatureMetadata {
         doc: Option<MarkdownDoc<'static>>,
     ) -> Self {
         Self {
-            name,
+            name: Cow::Borrowed(name),
             arity,
             is_const,
             doc,
@@ -177,6 +182,7 @@ pub fn get_function_metadata(function: BuiltInFunctionType) -> Option<FunctionSi
 }
 
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
+#[allow(unpredictable_function_pointer_comparisons)]
 pub enum BuiltInFunctionType {
     Reference(FunctionSignature),
     Mutable(MutFunctionSignature),
@@ -235,7 +241,6 @@ impl BuiltInModuleRepr {
                 self.fn_ptr_table
                     .insert(BuiltInFunctionType::Reference(value), data);
             }
-
             BuiltInFunctionType::Mutable(value) => {
                 #[cfg(feature = "sync")]
                 {
@@ -255,7 +260,6 @@ impl BuiltInModuleRepr {
                 self.fn_ptr_table
                     .insert(BuiltInFunctionType::Mutable(value), data);
             }
-
             BuiltInFunctionType::Context(value) => {
                 #[cfg(feature = "sync")]
                 {
@@ -386,7 +390,9 @@ impl BuiltInModuleRepr {
     }
 
     pub fn get_documentation(&self, definition: &str) -> Option<String> {
-        self.docs.get(definition).map(|x| x.to_string())
+        self.docs
+            .get(definition)
+            .and_then(|x| x.as_inner_str().map(|x| x.to_owned()))
     }
 
     pub(crate) fn unreadable_name(&self) -> String {
@@ -433,6 +439,14 @@ impl BuiltInModuleRepr {
 
     pub fn try_get(&self, name: String) -> Option<SteelVal> {
         self.values.get(name.as_str()).cloned()
+    }
+
+    pub fn try_get_ref(&self, name: &str) -> Option<SteelVal> {
+        self.values.get(name).cloned()
+    }
+
+    pub(crate) fn cached_expression(&self) -> SharedMut<Option<ExprKind>> {
+        self.generated_expression.clone()
     }
 
     /// This does the boot strapping for bundling modules
@@ -521,6 +535,10 @@ impl BuiltInModule {
         }
     }
 
+    pub(crate) fn cached_expression(&self) -> SharedMut<Option<ExprKind>> {
+        self.module.read().cached_expression()
+    }
+
     pub(crate) fn constant_funcs(
         &self,
     ) -> crate::values::HashMap<InternedString, SteelVal, FxBuildHasher> {
@@ -530,11 +548,11 @@ impl BuiltInModule {
             .iter()
             .filter_map(|(key, value)| match key {
                 BuiltInFunctionType::Reference(func) if value.is_const => Some((
-                    (CompactString::new("#%prim.") + value.name).into(),
+                    (CompactString::new("#%prim.") + value.name.as_ref()).into(),
                     SteelVal::FuncV(*func),
                 )),
                 BuiltInFunctionType::Mutable(func) if value.is_const => Some((
-                    (CompactString::new("#%prim.") + value.name).into(),
+                    (CompactString::new("#%prim.") + value.name.as_ref()).into(),
                     SteelVal::MutFunc(*func),
                 )),
                 _ => None,
@@ -614,7 +632,7 @@ impl BuiltInModule {
             BuiltInFunctionType::Context(value) => SteelVal::BuiltIn(value),
         };
 
-        let names = std::iter::once(definition.name).chain(definition.aliases.into_iter().cloned());
+        let names = std::iter::once(definition.name).chain(definition.aliases.iter().cloned());
 
         for name in names {
             self.register_value(name, steel_val.clone());
@@ -677,8 +695,6 @@ impl BuiltInModule {
         self
     }
 
-    // pub fn docs(&self) ->
-
     pub fn get_doc(&self, definition: String) {
         self.module.read().get_doc(definition);
     }
@@ -717,6 +733,10 @@ impl BuiltInModule {
 
     pub fn try_get(&self, name: String) -> Option<SteelVal> {
         self.module.read().try_get(name)
+    }
+
+    pub fn try_get_ref(&self, name: &str) -> Option<SteelVal> {
+        self.module.read().try_get_ref(name)
     }
 
     /// This does the boot strapping for bundling modules
@@ -839,6 +859,15 @@ impl<'a> std::fmt::Display for Documentation<'a> {
             Documentation::Module(d) => write!(f, "{d}"),
             Documentation::Value(d) => write!(f, "{d}"),
             Documentation::Markdown(d) => write!(f, "{d}"),
+        }
+    }
+}
+
+impl<'a> Documentation<'a> {
+    pub fn as_inner_str(&self) -> Option<&str> {
+        match self {
+            Documentation::Markdown(markdown_doc) => Some(markdown_doc.0.as_ref()),
+            _ => None,
         }
     }
 }

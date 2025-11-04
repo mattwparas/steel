@@ -6,7 +6,10 @@
                           MemoryInfo-buffers
                           MemoryInfo-cached
                           MemoryInfo-swap-total
-                          MemoryInfo-swap-free))
+                          MemoryInfo-swap-free
+                          register-logger
+                          test-logging
+                          spawn-logging))
 
 (define (current-memory-usage #:memory-info (memory-info (mem-info)))
   (- (MemoryInfo-total memory-info) (MemoryInfo-free memory-info) (MemoryInfo-cached memory-info)))

@@ -60,7 +60,7 @@ rustPlatform.buildRustPackage {
     ]
     ++ lib.optionals includeForge [
       "--package"
-      "forge"
+      "steel-forge"
     ];
 
   doCheck = false;
@@ -68,7 +68,7 @@ rustPlatform.buildRustPackage {
   postInstall = ''
     mkdir -p $out/lib/steel
 
-    substituteInPlace cogs/installer/download.scm \
+    substituteInPlace crates/forge/installer/download.scm \
       --replace-fail '"cargo-steel-lib"' '"$out/bin/cargo-steel-lib"'
 
     pushd cogs

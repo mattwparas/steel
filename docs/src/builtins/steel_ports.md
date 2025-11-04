@@ -2,11 +2,11 @@
 ### **close-input-port**
 Close an input port. If the port is a file, the file will be closed.
 
-(close-port input-port?) -> void
+(close-input-port input-port?) -> void
 ### **close-output-port**
 Close an output port. If the port is a file, the file will be closed.
 
-(close-port output-port?) -> void
+(close-output-port output-port?) -> void
 ### **close-port**
 Close a port. If the port is a file, the file will be closed.
 
@@ -46,13 +46,13 @@ if the file does not exist
 
 #### Examples
 ```scheme
-> (open-input-file "foo-bar.txt") ;; => #<port>
+> (open-input-file "foo-bar.txt") ;; => #<input-port:foo-bar.txt>
 > (open-input-file "file-does-not-exist.txt")
 error[E08]: Io
-┌─ :1:2
-│
+  ┌─ :1:2
+  │
 1 │ (open-input-file "foo-bar.txt")
-│  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
+  │  ^^^^^^^^^^^^^^^ No such file or directory (os error 2)
 ```
 ### **open-input-string**
 Creates an input port from a string, that will return the string contents.
@@ -81,7 +81,7 @@ Takes a filename `path` referring to a file to be created and returns an output 
 
 #### Examples
 ```scheme
-> (open-output-file "foo-bar.txt") ;; => #<port>
+> (open-output-file "foo-bar.txt") ;; => #<output-port:foo-bar.txt>
 ```
 ### **open-output-string**
 Creates an output port that accumulates what is written into a string.
@@ -116,6 +116,12 @@ Peeks the next byte from an input port.
 (peek-byte [port]) -> byte?
 
 * port : input-port? = (current-input-port)
+### **peek-char**
+Peeks the next character from an input port.
+
+(peek-char [port]) -> char?
+
+* port : input-port? = (current-input-port)
 ### **read-byte**
 Reads a single byte from an input port.
 
@@ -143,6 +149,19 @@ Reads the next character from an input port.
 (read-char [port]) -> char?
 
 * port : input-port? = (current-input-port)
+### **read-line**
+Reads a line from an input port.
+
+(read-line [port]) -> string?
+
+* port : input-port? = (current-input-port)
+### **read-line-from-port**
+Reads a line from the given port, including the '\n' at the end.
+
+Use of this procedure is discouraged in favor of the (read-line) procedure,
+which is included in the scheme spec and therefore more portable.
+
+(read-line-from-port port?) -> string?
 ### **read-port-to-string**
 Takes a port and reads the entire content into a string
 
@@ -157,7 +176,7 @@ Gets the port handle to stdin
 #### Examples
 
 ```scheme
-> (stdin) ;; => #<port>
+> (stdin) ;; => #<input-port:stdin>
 ```
 ### **would-block-object?**
 Returns `#t` if the value is an EOF object.
@@ -178,7 +197,6 @@ Writes the contents of a bytevector into an output port.
 * buf : bytes?
 * port : output-port? = (current-output-port)
 ### **flush-output-port**
-### **read-line-from-port**
 ### **stdout**
 ### **would-block**
 ### **write-line!**

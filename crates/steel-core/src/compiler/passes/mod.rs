@@ -2,6 +2,7 @@ pub mod analysis;
 pub mod begin;
 pub mod manager;
 pub mod mangle;
+pub mod opt;
 pub mod shadow;
 
 use std::ops::ControlFlow;
@@ -476,7 +477,10 @@ pub trait VisitorMutRefUnit {
 
     #[inline]
     fn visit_let(&mut self, l: &mut Let) {
-        l.bindings.iter_mut().for_each(|x| self.visit(&mut x.1));
+        l.bindings.iter_mut().for_each(|x| {
+            self.visit(&mut x.0);
+            self.visit(&mut x.1)
+        });
         self.visit(&mut l.body_expr);
     }
 

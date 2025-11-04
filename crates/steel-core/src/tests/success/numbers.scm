@@ -70,6 +70,14 @@
 (assert! (not (nan? 1)))
 (assert! (not (nan? -1)))
 
+;; min / max
+(assert-equal! 4 (max 0 4 3.9))
+(assert-equal! +inf.0 (max +inf.0 0 -inf.0))
+(assert-equal! -1 (max -1))
+(assert-equal! 0 (min 0 4 0.1))
+(assert-equal! -inf.0 (min +inf.0 0 -inf.0))
+(assert-equal! +inf.0 (min +inf.0))
+
 ;; Addition
 (assert-equal! 10 (+ 1 2 3 4))
 (assert-equal! 10.0 (+ 1 2 3.0 4))
@@ -85,6 +93,10 @@
 (assert-equal! 20000000000000000000000009/60000000000000 (+ 1000000000000/3 15/100000000000000))
 (assert-equal! 4+6i (+ 1+2i 3+4i))
 (assert-equal! 4.0+6.0i (+ 1.0+2.0i 3+4i))
+;; Rational edge cases
+(assert-equal! 10000000000000000000000001/3 (+ 10000000000000000000000000/3 1/3))
+(assert-equal! 4294967295/2 (+ 2147483647 1/2))
+(assert-equal! 200000000000000000001/2 (+ 100000000000000000000 1/2))
 
 ;; Subtraction
 (assert-equal! -10 (- 10))
@@ -176,16 +188,101 @@
 
 (assert-equal! 10.0 (ceiling 9.1))
 (assert-equal! 9.0 (floor 9.1))
+(assert-equal! 9.0 (truncate 9.1))
 (assert-equal! 10.0 (ceiling 10.0))
 (assert-equal! 10.0 (floor 10.0))
+(assert-equal! 10.0 (truncate 10.0))
 (assert-equal! 10 (ceiling 10))
 (assert-equal! 10 (floor 10))
+(assert-equal! 10 (truncate 10))
 (assert-equal! -9.0 (ceiling -9.1))
 (assert-equal! -10.0 (floor -9.1))
+(assert-equal! -9.0 (truncate -9.1))
 (assert-equal! 1 (ceiling 1/2))
 (assert-equal! 0 (floor 1/2))
+(assert-equal! 0 (truncate 1/2))
 (assert-equal! 0 (ceiling -1/2))
 (assert-equal! -1 (floor -1/2))
+(assert-equal! 0 (truncate -1/2))
+
+;; division and remainder tests
+
+(define (assert-integer-division! <operator>/ <operator>-quotient <operator>-remainder n1 n2 nq nr)
+  (assert! (equal? nq (<operator>-quotient n1 n2)))
+  (assert! (equal? nr (<operator>-remainder n1 n2)))
+  (assert! (= n1 (+ (* n2 nq) nr)))
+  (define-values (nqv nrv) (<operator>/ n1 n2))
+  (assert! (equal? nqv nq))
+  (assert! (equal? nrv nr)))
+
+;; (<operator>/ isize isize)
+(assert-integer-division! floor/ floor-quotient floor-remainder 5 2 2 1)
+(assert-integer-division! floor/ floor-quotient floor-remainder -5 2 -3 1)
+(assert-integer-division! floor/ floor-quotient floor-remainder 5 -2 -3 -1)
+(assert-integer-division! floor/ floor-quotient floor-remainder -5 -2 2 -1)
+(assert-integer-division! truncate/ truncate-quotient truncate-remainder 5 2 2 1)
+(assert-integer-division! truncate/ truncate-quotient truncate-remainder -5 2 -2 -1)
+(assert-integer-division! truncate/ truncate-quotient truncate-remainder 5 -2 -2 1)
+(assert-integer-division! truncate/ truncate-quotient truncate-remainder -5 -2 2 -1)
+(assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder 5 2 2 1)
+(assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder -5 2 -3 1)
+(assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder 5 -2 -2 1)
+(assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder -5 -2 3 1)
+
+;; (<operator>/ bigint isize)
+;; (<operator>/ isize bigint)
+(let ([n1 18446744073709551616] ; 2^64
+      [n2 1000]
+      [nq 18446744073709551]
+      [nr 616])
+  (assert-integer-division! floor/ floor-quotient floor-remainder n1 n2 nq nr)
+  (assert-integer-division! truncate/ truncate-quotient truncate-remainder n1 n2 nq nr)
+  (assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder n1 n2 nq nr))
+
+;; (<operator>/ f64 isize)
+;; (<operator>/ isize f64)
+(assert-integer-division! floor/ floor-quotient floor-remainder 5.0 2 2.0 1.0)
+(assert-integer-division! floor/ floor-quotient floor-remainder -5 2.0 -3.0 1.0)
+(assert-integer-division! floor/ floor-quotient floor-remainder 5 -2.0 -3.0 -1.0)
+(assert-integer-division! floor/ floor-quotient floor-remainder -5.0 -2 2.0 -1.0)
+(assert-integer-division! truncate/ truncate-quotient truncate-remainder 5.0 2 2.0 1.0)
+(assert-integer-division! truncate/ truncate-quotient truncate-remainder -5 2.0 -2.0 -1.0)
+(assert-integer-division! truncate/ truncate-quotient truncate-remainder 5 -2.0 -2.0 1.0)
+(assert-integer-division! truncate/ truncate-quotient truncate-remainder -5.0 -2 2.0 -1.0)
+(assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder 5.0 2 2.0 1.0)
+(assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder -5 2.0 -3.0 1.0)
+(assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder 5 -2.0 -2.0 1.0)
+(assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder -5.0 -2 3.0 1.0)
+
+;; (<operator>/ f64 f64)
+(assert-integer-division! floor/ floor-quotient floor-remainder 5.0 2.0 2.0 1.0)
+(assert-integer-division! floor/ floor-quotient floor-remainder -5.0 2.0 -3.0 1.0)
+(assert-integer-division! floor/ floor-quotient floor-remainder 5.0 -2.0 -3.0 -1.0)
+(assert-integer-division! floor/ floor-quotient floor-remainder -5.0 -2.0 2.0 -1.0)
+(assert-integer-division! truncate/ truncate-quotient truncate-remainder 5.0 2.0 2.0 1.0)
+(assert-integer-division! truncate/ truncate-quotient truncate-remainder -5.0 2.0 -2.0 -1.0)
+(assert-integer-division! truncate/ truncate-quotient truncate-remainder 5.0 -2.0 -2.0 1.0)
+(assert-integer-division! truncate/ truncate-quotient truncate-remainder -5.0 -2.0 2.0 -1.0)
+(assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder 5.0 2.0 2.0 1.0)
+(assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder -5.0 2.0 -3.0 1.0)
+(assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder 5.0 -2.0 -2.0 1.0)
+(assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder -5.0 -2.0 3.0 1.0)
+
+(let ([n1 (- (expt 2 63))] ; isize::MIN on 64-bit
+      [n2 -1]
+      [nq (expt 2 63)] ; one larger than isize::MAX on 64-bit
+      [nr 0])
+  (assert-integer-division! floor/ floor-quotient floor-remainder n1 n2 nq nr)
+  (assert-integer-division! truncate/ truncate-quotient truncate-remainder n1 n2 nq nr)
+  (assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder n1 n2 nq nr))
+
+(let ([n1 (- (expt 2 31))] ; isize::MIN on 32-bit
+      [n2 -1]
+      [nq (expt 2 31)] ; one larger than isize::MAX on 32-bit
+      [nr 0])
+  (assert-integer-division! floor/ floor-quotient floor-remainder n1 n2 nq nr)
+  (assert-integer-division! truncate/ truncate-quotient truncate-remainder n1 n2 nq nr)
+  (assert-integer-division! euclidean/ euclidean-quotient euclidean-remainder n1 n2 nq nr))
 
 (assert-equal! 3 (numerator 3))
 (assert-equal! 3 (numerator 3/2))
@@ -207,6 +304,14 @@
 (assert-equal! 2.0 (round 2.1))
 (assert-equal! 3.0 (round 2.6))
 (assert-equal! 9223372036854775808 (round 9223372036854775808))
+
+;; round-ties-even
+(assert-equal! -2.0 (round -1.5))
+(assert-equal! 2.0 (round 2.5))
+(assert-equal! 4.0 (round 3.5))
+(assert-equal! 2 (round 5/2))
+(assert-equal! 4 (round (+ 4 1/2)))
+(assert-equal! 4 (round 7/2))
 
 (assert-equal! 4 (square 2))
 (assert-equal! 2 (sqrt 4))
@@ -249,6 +354,8 @@
      (assert-equal! num (string->number str radix))
      (assert-equal! str (number->string num radix))]))
 
+(assert-number-roundtrip! 1.0 "1.0")
+(assert-number-roundtrip! -1.0 "-1.0")
 (assert-number-roundtrip! 255 "ff" 16)
 (assert-number-roundtrip! 1+2i "1+10i" 2)
 (assert-number-roundtrip! -16 "-20" 8)

@@ -1,5 +1,5 @@
 use crate::gc::Gc;
-use crate::rvals::as_underlying_type;
+use crate::rvals::{as_underlying_type, IntoSteelVal};
 use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::MarkdownDoc};
 use chrono::{Datelike, Local, NaiveDate, NaiveDateTime};
@@ -178,6 +178,27 @@ fn current_inexact_milliseconds() -> f64 {
     }
 }
 
+/// Returns the current `SystemTime`.
+///
+/// (system-time/now) -> SystemTime?
+#[function(name = "system-time/now")]
+fn system_time_now() -> SystemTime {
+    SystemTime::now()
+}
+
+/// Gets the duration between two system times.
+///
+/// (system-time-duration-since time earlier)
+#[function(name = "system-time-duration-since")]
+fn system_time_duration_since(
+    left: SystemTime,
+    right: SystemTime,
+) -> crate::rvals::Result<SteelVal> {
+    left.duration_since(right)
+        .map(|x| x.into_steelval().unwrap())
+        .map_err(|x| crate::throw!(Generic => format!("{:?}", x))())
+}
+
 pub fn time_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/time".to_string());
 
@@ -188,6 +209,11 @@ pub fn time_module() -> BuiltInModule {
         .register_fn("instant/elapsed", Instant::elapsed)
         .register_fn("duration-since", Instant::duration_since)
         .register_fn("duration->seconds", Duration::as_secs)
+        .register_fn("duration->millis", Duration::as_millis)
+        .register_fn("duration->micros", Duration::as_micros)
+        .register_fn("duration->nanos", Duration::as_nanos)
+        .register_native_fn_definition(SYSTEM_TIME_DURATION_SINCE_DEFINITION)
+        .register_native_fn_definition(SYSTEM_TIME_NOW_DEFINITION)
         .register_native_fn_definition(SYSTEM_TIME_GTE_DEFINITION)
         .register_native_fn_definition(SYSTEM_TIME_GT_DEFINITION)
         .register_native_fn_definition(SYSTEM_TIME_LTE_DEFINITION)

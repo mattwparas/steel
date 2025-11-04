@@ -5,6 +5,6 @@
 ;; Version resolution... for now just assume everything is compatible with everything without versions
 ;; Storing versions in a manifest would be nice - a project has an associated manifest that pins versions.
 
-(require "installer/package.scm")
+(require "../crates/forge/installer/package.scm")
 
 (package-installer-main)
