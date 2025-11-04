@@ -17,12 +17,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use steel::{
     compiler::{
-        modules::{MANGLER_PREFIX, MODULE_PREFIX, steel_home},
+        modules::{steel_home, MANGLER_PREFIX, MODULE_PREFIX},
         passes::analysis::{
             query_top_level_define, query_top_level_define_on_condition,
             require_defitinion_to_original_symbol, Analysis, IdentifierStatus,
             RequiredIdentifierInformation, SemanticAnalysis, SemanticInformation,
-            SemanticInformationType
+            SemanticInformationType,
         },
     },
     parser::{
@@ -260,7 +260,10 @@ impl LanguageServer for Backend {
         Ok(self.hover_impl(params).await)
     }
 
-    async fn document_symbol(&self, params: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
         let symbols = async {
             let uri = params.text_document.uri;
             let mut ast = self.ast_map.get_mut(uri.as_str())?;
@@ -271,37 +274,41 @@ impl LanguageServer for Backend {
             let top_level_defs: Vec<SymbolInformation> = {
                 let definitions = analysis.find_top_level_definitions();
 
-                definitions.iter()
+                definitions
+                    .iter()
                     .filter(|(name, kind, span)| span.source_id == uri_to_source_id(&uri))
                     .map(|(name, kind, span)| {
                         let container_name = span.source_id.and_then(|source_id| {
-                            let contexts = analysis.find_contexts_with_offset(span.start() as usize, source_id);
+                            let contexts = analysis
+                                .find_contexts_with_offset(span.start() as usize, source_id);
 
                             if contexts.is_empty() {
-                                return None
+                                return None;
                             }
 
                             match &contexts.first().unwrap() {
-                                SemanticInformationType::Variable(v) => Some("variable".to_string()),
-                                SemanticInformationType::Function(f) => {
-                                    match f.aliases_to {
-                                        Some(function_name_id) => {
-                                            match kind {
-                                                ExprKind::LambdaFunction(symbol) => None, // if symbol.syntax_object_id == function_name_id.0 => None,
-                                                _ => {
-                                                    let mut id_to_str = HashMap::new();
-                                                    id_to_str.insert(function_name_id, None);
-                                                    analysis.syntax_object_ids_to_identifiers(&mut id_to_str);
+                                SemanticInformationType::Variable(v) => {
+                                    Some("variable".to_string())
+                                }
+                                SemanticInformationType::Function(f) => match f.aliases_to {
+                                    Some(function_name_id) => {
+                                        match kind {
+                                            ExprKind::LambdaFunction(symbol) => None, // if symbol.syntax_object_id == function_name_id.0 => None,
+                                            _ => {
+                                                let mut id_to_str = HashMap::new();
+                                                id_to_str.insert(function_name_id, None);
+                                                analysis.syntax_object_ids_to_identifiers(
+                                                    &mut id_to_str,
+                                                );
 
-                                                    match id_to_str.get(&function_name_id) {
-                                                        Some(Some(name)) => Some(name.to_string()),
-                                                        _ => Some("lambda function".to_string())
-                                                    }
+                                                match id_to_str.get(&function_name_id) {
+                                                    Some(Some(name)) => Some(name.to_string()),
+                                                    _ => Some("lambda function".to_string()),
                                                 }
                                             }
-                                        },
-                                        _ => Some("lambda function".to_string())
+                                        }
                                     }
+                                    _ => Some("lambda function".to_string()),
                                 },
                                 SemanticInformationType::CallSite(c) => Some("call".to_string()),
                                 SemanticInformationType::Let(l) => Some("let".to_string()),
@@ -316,7 +323,10 @@ impl LanguageServer for Backend {
                             },
                             tags: None,
                             deprecated: None,
-                            location: Location { uri: uri.clone(), range: self.config.span_to_range(span, &rope).unwrap() },
+                            location: Location {
+                                uri: uri.clone(),
+                                range: self.config.span_to_range(span, &rope).unwrap(),
+                            },
                             container_name,
                         }
                     })
@@ -326,32 +336,34 @@ impl LanguageServer for Backend {
             let let_bindings: Vec<SymbolInformation> = {
                 let definitions = analysis.find_let_bindings();
 
-                definitions.iter()
+                definitions
+                    .iter()
                     .filter(|(name, span)| span.source_id == uri_to_source_id(&uri))
                     .map(|(name, span)| {
                         let container_name = span.source_id.and_then(|source_id| {
-                            let contexts = analysis.find_contexts_with_offset(span.start() as usize, source_id);
+                            let contexts = analysis
+                                .find_contexts_with_offset(span.start() as usize, source_id);
 
                             if contexts.is_empty() {
-                                return None
+                                return None;
                             }
 
                             match &contexts.first().unwrap() {
-                                SemanticInformationType::Variable(v) => Some("variable".to_string()),
-                                SemanticInformationType::Function(f) => {
-                                    match f.aliases_to {
-                                        Some(function_name_id) => {
-                                            let mut id_to_str = HashMap::new();
-                                            id_to_str.insert(function_name_id, None);
-                                            analysis.syntax_object_ids_to_identifiers(&mut id_to_str);
+                                SemanticInformationType::Variable(v) => {
+                                    Some("variable".to_string())
+                                }
+                                SemanticInformationType::Function(f) => match f.aliases_to {
+                                    Some(function_name_id) => {
+                                        let mut id_to_str = HashMap::new();
+                                        id_to_str.insert(function_name_id, None);
+                                        analysis.syntax_object_ids_to_identifiers(&mut id_to_str);
 
-                                            match id_to_str.get(&function_name_id) {
-                                                Some(Some(name)) => Some(name.to_string()),
-                                                _ => Some("function".to_string())
-                                            }
-                                        },
-                                        _ => Some("function".to_string())
+                                        match id_to_str.get(&function_name_id) {
+                                            Some(Some(name)) => Some(name.to_string()),
+                                            _ => Some("function".to_string()),
+                                        }
                                     }
+                                    _ => Some("function".to_string()),
                                 },
                                 SemanticInformationType::CallSite(c) => Some("call".to_string()),
                                 SemanticInformationType::Let(l) => Some("let".to_string()),
@@ -363,19 +375,24 @@ impl LanguageServer for Backend {
                             kind: SymbolKind::VARIABLE,
                             tags: None,
                             deprecated: None,
-                            location: Location { uri: uri.clone(), range: self.config.span_to_range(span, &rope).unwrap() },
+                            location: Location {
+                                uri: uri.clone(),
+                                range: self.config.span_to_range(span, &rope).unwrap(),
+                            },
                             container_name,
                         }
                     })
                     .collect()
             };
 
-            let result = top_level_defs.into_iter()
+            let result = top_level_defs
+                .into_iter()
                 .chain(let_bindings.into_iter())
                 .collect::<Vec<_>>();
 
             Some(DocumentSymbolResponse::Flat(result))
-        }.await;
+        }
+        .await;
 
         Ok(symbols)
     }

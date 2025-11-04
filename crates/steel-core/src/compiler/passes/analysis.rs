@@ -2890,7 +2890,11 @@ impl<'a> VisitorMutUnitRef<'a> for FindContextsWithOffset<'a> {
 
             span.start = define.location.span.start;
 
-            log::debug!("Defined function span: {:?} - offset: {}", span, self.offset);
+            log::debug!(
+                "Defined function span: {:?} - offset: {}",
+                span,
+                self.offset
+            );
 
             if span.range().contains(&(self.offset as u32)) {
                 if let Some(info) = self.analysis.get_function_info(lambda_function) {
@@ -2996,9 +3000,10 @@ impl<'a> VisitorMutUnitRef<'a> for TopLevelDefinitionFinder<'a> {
                 self.definitions.push((name, kind.clone(), info.span));
             } else {
                 let kind = &expr.body;
-                let name= *a.ident().unwrap_or(&InternedString::from_str("unknown"));
+                let name = *a.ident().unwrap_or(&InternedString::from_str("unknown"));
 
-                self.definitions.push((name, kind.clone(), expr.location.span));
+                self.definitions
+                    .push((name, kind.clone(), expr.location.span));
             }
         }
     }
