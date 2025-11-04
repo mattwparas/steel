@@ -1116,7 +1116,7 @@ impl Backend {
                         // needing a file watcher (for now). Compilation should check
                         // time stamps and update accordingly.
                         // TODO: Lift this up to where we actually index the files instead
-                        if self.vfs.get(&url).is_none() || !path.starts_with(&self.root) {
+                        if self.vfs.get(&url).is_none() && !path.starts_with(&self.root) {
                             continue;
                         }
 
