@@ -822,3 +822,4 @@ Get the length of the string in UTF-8 bytes.
 > (utf8-length "αβγ") ;; => 6
 > (utf8-length "✅") ;; => 3
 ```
+### **string-push**

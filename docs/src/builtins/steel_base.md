@@ -3960,6 +3960,7 @@ Create a zipping iterator
 ### **stream-car**
 ### **stream-cons**
 ### **stream-empty?**
+### **string-push**
 ### **struct->list**
 ### **struct?**
 ### **syntax->datum**

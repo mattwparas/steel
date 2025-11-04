@@ -11,6 +11,19 @@ returns #t.
 ```scheme
 (filter even? (range 0 5)) ;; '(0 2 4)
 ```
+### **map**
+Applies `func` to the elements of the `lsts` from the first
+elements to the last. The `func` argument must accept the same
+number of arguments as the number of supplied `lsts`, and all
+`lsts` must have the same number of elements. The result is a list
+containing each result of `func` in order.
+
+(map func lst . lsts) -> list?
+
+#### Examples
+```scheme
+(map add1 (range 0 5)) ;; '(1 2 3 4 5)
+```
 ### **\*abort**
 ### **\*meta-continuation\***
 ### **\*reset**
@@ -57,7 +70,6 @@ returns #t.
 ### **foldr**
 ### **force**
 ### **id**
-### **map**
 ### **max**
 ### **mem-helper**
 ### **min**
