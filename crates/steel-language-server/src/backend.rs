@@ -1133,6 +1133,8 @@ impl Backend {
                         if let Some(range) = self.config.span_to_range(&span, &rope) {
                             locations.push(Location::new(url, range));
                         }
+                    } else {
+                        eprintln!("Unable to convert path to url: {:?}", path);
                     }
                 }
             }
