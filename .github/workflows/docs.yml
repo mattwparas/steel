@@ -16,7 +16,8 @@ jobs:
         fetch-depth: 0
     - name: Install latest mdbook
       run: |
-        tag=$(curl 'https://api.github.com/repos/rust-lang/mdbook/releases/latest' | jq -r '.tag_name')
+        # tag=$(curl 'https://api.github.com/repos/rust-lang/mdbook/releases/latest' | jq -r '.tag_name')
+        tag="v0.4.52"
         url="https://github.com/rust-lang/mdbook/releases/download/${tag}/mdbook-${tag}-x86_64-unknown-linux-gnu.tar.gz"
         pagetoc_tag=$(curl 'https://api.github.com/repos/slowsage/mdbook-pagetoc/releases/latest' | jq -r '.tag_name')
         pagetoc_url="https://github.com/slowsage/mdbook-pagetoc/releases/download/${pagetoc_tag}/mdbook-pagetoc-${pagetoc_tag}-x86_64-unknown-linux-gnu.tar.gz"
