@@ -123,6 +123,8 @@ async fn main() {
         }
     }
 
+    eprintln!("Finished indexing workspace");
+
     let root = std::env::current_dir().unwrap();
 
     let (service, socket) = LspService::build(|client| Backend {
