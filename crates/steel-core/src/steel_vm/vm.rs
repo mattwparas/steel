@@ -1,4 +1,3 @@
-use crate::alloc::string::ToString;
 use crate::compiler::compiler::Compiler;
 use crate::core::instructions::u24;
 #[cfg(feature = "sync")]
@@ -48,7 +47,7 @@ use crate::{
 };
 use alloc::boxed::Box;
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 #[cfg(not(feature = "std"))]
 use alloc::vec;
 use alloc::vec::Vec;

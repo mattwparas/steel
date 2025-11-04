@@ -5,7 +5,7 @@ pub use std::ffi::{OsStr, OsString};
 
 #[cfg(not(feature = "std"))]
 mod no_std {
-    use alloc::borrow::Borrow;
+    use alloc::borrow::{Borrow, ToOwned};
     use alloc::string::String;
     use core::ops::Deref;
 

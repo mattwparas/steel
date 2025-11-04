@@ -6,7 +6,7 @@ use crate::{
 };
 use crate::{stop, throw};
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 
 use crate::values::lists::List;
 

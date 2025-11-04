@@ -1,4 +1,6 @@
 use crate::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use crate::collections::HashMapExt;
 use crate::rvals::SteelHashMap;
 use crate::stop;
 use crate::{core::utils::declare_const_ref_functions, gc::Gc};
@@ -7,6 +9,7 @@ use crate::{
     steel_vm::builtin::BuiltInModule,
 };
 use alloc::format;
+use alloc::string::ToString;
 #[cfg(test)]
 use alloc::vec::Vec;
 
@@ -61,7 +64,7 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
 /// ```
 #[steel_derive::native(name = "hash", arity = "AtLeast(0)")]
 pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
-    let mut hm = HashMap::new();
+    let mut hm: HashMap<SteelVal, SteelVal> = HashMap::default();
 
     let mut arg_iter = args.iter().cloned();
 
@@ -85,7 +88,7 @@ pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
-    let mut hm = HashMap::new();
+    let mut hm: HashMap<SteelVal, SteelVal> = HashMap::default();
 
     let mut arg_iter = args.iter().cloned();
 
@@ -358,7 +361,7 @@ pub fn clear(hashmap: &mut SteelVal) -> Result<SteelVal> {
                 m.clear();
                 Ok(core::mem::replace(hashmap, SteelVal::Void))
             }
-            None => Ok(SteelVal::HashMapV(Gc::new(HashMap::new()).into())),
+            None => Ok(SteelVal::HashMapV(Gc::new(HashMap::<SteelVal, SteelVal>::default()).into())),
         }
     } else {
         stop!(TypeMismatch => "hash-clear expected a hashmap, found: {:?}", hashmap);

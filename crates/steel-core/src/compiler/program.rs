@@ -22,7 +22,7 @@ use crate::{
     rvals::IntoSteelVal,
 };
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
@@ -923,7 +923,7 @@ impl SerializableProgram {
         Program {
             constant_map,
             instructions: self.instructions,
-            ast: HashMap::new(),
+            ast: HashMap::default(),
         }
     }
 }

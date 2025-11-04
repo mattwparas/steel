@@ -1,4 +1,9 @@
-use alloc::{borrow::Cow, rc::Rc};
+use alloc::borrow::{Cow, ToOwned};
+use alloc::rc::Rc;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
+use alloc::format;
 use core::{
     result,
     sync::atomic::{AtomicUsize, Ordering},
@@ -7,7 +12,7 @@ use core::{
 use std::path::PathBuf;
 
 #[cfg(not(feature = "std"))]
-type PathBuf = alloc::string::String;
+type PathBuf = String;
 
 #[cfg(feature = "std")]
 use std::error::Error;

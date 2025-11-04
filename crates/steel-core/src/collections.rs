@@ -1,10 +1,11 @@
 #![cfg_attr(not(feature = "std"), allow(unused_imports))]
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-
 use fxhash::FxBuildHasher;
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+#[cfg(not(feature = "std"))]
+use core::hash::{BuildHasher, Hash};
 #[cfg(not(feature = "std"))]
 mod imp {
     use super::FxBuildHasher;
@@ -64,10 +65,121 @@ pub use imp::{
     HashMap, HashMapConsumingIter, HashSet, HashSetConsumingIter, Vector, VectorConsumingIter,
 };
 
+#[cfg(not(feature = "std"))]
+pub trait HashMapExt<K, V> {
+    fn update(&self, key: K, value: V) -> Self;
+    fn union(&self, other: &Self) -> Self;
+}
+
+#[cfg(not(feature = "std"))]
+impl<K, V, S> HashMapExt<K, V> for hashbrown::HashMap<K, V, S>
+where
+    K: Eq + Hash + Clone,
+    V: Clone,
+    S: BuildHasher + Clone + Default,
+{
+    fn update(&self, key: K, value: V) -> Self {
+        let mut new_map = self.clone();
+        new_map.insert(key, value);
+        new_map
+    }
+
+    fn union(&self, other: &Self) -> Self {
+        if other.is_empty() {
+            return self.clone();
+        }
+
+        if self.is_empty() {
+            return other.clone();
+        }
+
+        let mut new_map = self.clone();
+        for (key, value) in other.iter() {
+            new_map.insert(key.clone(), value.clone());
+        }
+        new_map
+    }
+}
+
 pub type MutableHashMap<K, V> = hashbrown::HashMap<K, V, FxBuildHasher>;
 pub type MutableHashSet<T> = hashbrown::HashSet<T, FxBuildHasher>;
 
 pub type DrainHashSet<T> = hashbrown::HashSet<T, FxBuildHasher>;
+
+#[cfg(not(feature = "std"))]
+pub trait HashSetExt<T> {
+    fn update(&self, value: T) -> Self;
+    fn union(&self, other: &Self) -> Self;
+    fn intersection(&self, other: &Self) -> Self;
+    fn difference(&self, other: &Self) -> Self;
+}
+
+#[cfg(not(feature = "std"))]
+impl<T, S> HashSetExt<T> for hashbrown::HashSet<T, S>
+where
+    T: Eq + Hash + Clone,
+    S: BuildHasher + Clone + Default,
+{
+    fn update(&self, value: T) -> Self {
+        let mut new_set = self.clone();
+        new_set.insert(value);
+        new_set
+    }
+
+    fn union(&self, other: &Self) -> Self {
+        if other.is_empty() {
+            return self.clone();
+        }
+
+        if self.is_empty() {
+            return other.clone();
+        }
+
+        let mut new_set = self.clone();
+        for value in other.iter() {
+            new_set.insert(value.clone());
+        }
+        new_set
+    }
+
+    fn intersection(&self, other: &Self) -> Self {
+        if self.is_empty() || other.is_empty() {
+            return Self::default();
+        }
+
+        let (smaller, larger) = if self.len() <= other.len() {
+            (self, other)
+        } else {
+            (other, self)
+        };
+
+        let mut new_set = Self::default();
+        for value in smaller.iter() {
+            if larger.contains(value) {
+                new_set.insert(value.clone());
+            }
+        }
+        new_set
+    }
+
+    fn difference(&self, other: &Self) -> Self {
+        if self.is_empty() {
+            return Self::default();
+        }
+
+        if other.is_empty() {
+            return self.clone();
+        }
+
+        let mut new_set = Self::default();
+        for value in self.iter() {
+            if !other.contains(value) {
+                new_set.insert(value.clone());
+            }
+        }
+        new_set
+    }
+}
 
 #[cfg(not(feature = "std"))]
 pub use hashbrown::hash_map;

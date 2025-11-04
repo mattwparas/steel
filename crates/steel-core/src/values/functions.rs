@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use crate::alloc::string::{String, ToString};
+use alloc::string::{String, ToString};
 use crate::collections::MutableHashMap as HashMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;

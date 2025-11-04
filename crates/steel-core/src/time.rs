@@ -16,7 +16,6 @@ mod imp {
 
     type NowFn = fn() -> u128;
 
-    #[derive(Default)]
     struct ProviderCell {
         func: UnsafeCell<NowFn>,
         is_custom: AtomicBool,
@@ -28,10 +27,16 @@ mod imp {
         0
     }
 
-    static TIME_PROVIDER: ProviderCell = ProviderCell {
-        func: UnsafeCell::new(default_now),
-        is_custom: AtomicBool::new(false),
-    };
+    impl ProviderCell {
+        const fn new() -> Self {
+            Self {
+                func: UnsafeCell::new(default_now),
+                is_custom: AtomicBool::new(false),
+            }
+        }
+    }
+
+    static TIME_PROVIDER: ProviderCell = ProviderCell::new();
 
     fn now_fn() -> NowFn {
         unsafe { *TIME_PROVIDER.func.get() }

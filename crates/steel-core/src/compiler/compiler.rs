@@ -26,10 +26,12 @@ use crate::{
     core::{instructions::Instruction, opcode::OpCode},
     parser::parser::Sources,
 };
-use alloc::borrow::Cow;
-use alloc::format;
-use alloc::string::String;
-use alloc::vec::Vec;
+use alloc::{
+    borrow::{Cow, ToOwned},
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 
 use crate::collections::{
     HashMap as ImmutableHashMap, MutableHashMap as HashMap, MutableHashSet as HashSet,
@@ -710,7 +712,7 @@ impl Compiler {
         // Could fail here
         let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
-            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.to_path_buf(), Some(id)))
+            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.to_parser_path().into(), Some(id)))
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
@@ -741,7 +743,7 @@ impl Compiler {
         // Could fail here
         let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
-            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone().into(), Some(id)))
+            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.to_parser_path().into(), Some(id)))
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))

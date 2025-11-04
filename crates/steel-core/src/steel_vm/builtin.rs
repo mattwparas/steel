@@ -1,6 +1,13 @@
-use crate::alloc::string::ToString;
 use alloc::borrow::ToOwned;
-use alloc::{borrow::Cow, boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
+use alloc::{
+    borrow::Cow,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    sync::Arc,
+    vec,
+    vec::Vec,
+};
 use core::cell::RefCell;
 
 use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadContainer};

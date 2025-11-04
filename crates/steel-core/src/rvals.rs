@@ -2193,7 +2193,7 @@ impl SteelVal {
     // }
 
     pub fn empty_hashmap() -> SteelVal {
-        SteelVal::HashMapV(Gc::new(HashMap::new()).into())
+        SteelVal::HashMapV(Gc::new(HashMap::<SteelVal, SteelVal>::default()).into())
     }
 }
 

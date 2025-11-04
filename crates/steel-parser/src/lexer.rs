@@ -2,7 +2,7 @@ use super::parser::SourceId;
 use crate::interner::InternedString;
 use crate::tokens::{IntLiteral, Token, TokenLike, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
-use alloc::borrow::Cow;
+use alloc::{borrow::Cow, string::String};
 use alloc::sync::Arc;
 use core::char;
 use core::iter::Iterator;

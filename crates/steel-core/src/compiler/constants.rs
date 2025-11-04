@@ -1,6 +1,6 @@
 use crate::gc::shared::MutContainer;
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 // #[cfg(not(feature = "triomphe"))]
@@ -61,7 +61,7 @@ impl ConstantMap {
     pub fn new() -> ConstantMap {
         ConstantMap {
             values: Shared::new(MutContainer::new(Vec::new())),
-            map: Shared::new(MutContainer::new(HashMap::new())),
+            map: Shared::new(MutContainer::new(HashMap::default())),
             // Does this help at all?
             reified_values: Arc::new(ArcSwap::from_pointee(Vec::new())),
             local_values: Vec::new(),

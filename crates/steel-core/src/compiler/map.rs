@@ -101,7 +101,7 @@ impl SymbolMap {
     pub fn new() -> Self {
         SymbolMap {
             values: Vec::new(),
-            map: HashMap::new(),
+            map: HashMap::default(),
             free_list: FreeList {
                 threshold: 100,
                 multiplier: 2,

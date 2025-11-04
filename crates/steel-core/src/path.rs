@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
 use alloc::borrow::Cow;
+#[cfg(not(feature = "std"))]
+use alloc::borrow::ToOwned;
 use alloc::string::String;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -19,6 +21,16 @@ pub struct PathBuf(String);
 
 #[cfg(feature = "std")]
 impl PathBuf {
+    #[inline]
+    pub fn into_parser_path(self) -> StdPathBuf {
+        self.into()
+    }
+
+    #[inline]
+    pub fn to_parser_path(&self) -> StdPathBuf {
+        self.clone().into()
+    }
+
     #[inline]
     pub fn new() -> Self {
         Self(StdPathBuf::new())
@@ -205,6 +217,16 @@ impl<'de> Deserialize<'de> for PathBuf {
 #[cfg(not(feature = "std"))]
 impl PathBuf {
     #[inline]
+    pub fn into_parser_path(self) -> String {
+        self.0
+    }
+
+    #[inline]
+    pub fn to_parser_path(&self) -> String {
+        self.0.clone()
+    }
+
+    #[inline]
     pub fn new() -> Self {
         Self(String::new())
     }
@@ -280,7 +302,7 @@ impl PathBuf {
         }
 
         let (prefix, file) = match self.0.rsplit_once('/') {
-            Some((prefix, file)) => (Some(prefix), file),
+            Some((prefix, file)) => (Some(prefix.to_owned()), file),
             None => (None, self.0.as_str()),
         };
 
@@ -304,7 +326,7 @@ impl PathBuf {
         self.0.clear();
         if let Some(prefix) = prefix {
             if !prefix.is_empty() {
-                self.0.push_str(prefix);
+                self.0.push_str(&prefix);
                 if !self.0.ends_with('/') {
                     self.0.push('/');
                 }
@@ -328,6 +350,11 @@ impl PathBuf {
     #[inline]
     pub fn to_str(&self) -> Option<&str> {
         Some(&self.0)
+    }
+
+    #[inline]
+    pub fn to_path_buf(&self) -> Self {
+        self.clone()
     }
 }
 
@@ -384,6 +411,20 @@ impl<'de> Deserialize<'de> for PathBuf {
     {
         let value = String::deserialize(deserializer)?;
         Ok(Self(value))
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl From<PathBuf> for String {
+    fn from(value: PathBuf) -> Self {
+        value.0
+    }
+}
+
+#[cfg(not(feature = "std"))]
+impl From<&PathBuf> for String {
+    fn from(value: &PathBuf) -> Self {
+        value.0.clone()
     }
 }
 

@@ -1,3 +1,4 @@
+use alloc::string::ToString;
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
 use crate::{steelerr, stop, throw};
 use alloc::format;

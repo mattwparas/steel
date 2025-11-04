@@ -1,5 +1,5 @@
 use crate::collections::{hash_map, MutableHashMap as HashMap, MutableHashSet as HashSet};
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 use alloc::{boxed::Box, format};

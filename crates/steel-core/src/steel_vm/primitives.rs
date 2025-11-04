@@ -13,7 +13,6 @@ use super::{
     builtin::{Arity, BuiltInModule, MarkdownDoc},
     cache::WeakMemoizationTable,
 };
-use crate::alloc::string::ToString;
 #[cfg(feature = "std")]
 use crate::compiler::modules::steel_home;
 use crate::gc::{shared::ShareableMut, GcMut};
@@ -87,7 +86,7 @@ use crate::{
     },
 };
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 #[allow(unused_imports)]

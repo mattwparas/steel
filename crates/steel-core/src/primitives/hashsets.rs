@@ -1,4 +1,6 @@
 use crate::collections::HashSet;
+#[cfg(not(feature = "std"))]
+use crate::collections::HashSetExt;
 use crate::rvals::SteelHashSet;
 use crate::rvals::{Result, SteelVal};
 use crate::steel_vm::vm::VmCore;

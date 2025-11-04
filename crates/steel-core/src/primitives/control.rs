@@ -1,6 +1,6 @@
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 
 pub struct ControlOperations {}
 impl ControlOperations {

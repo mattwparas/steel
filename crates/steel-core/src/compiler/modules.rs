@@ -20,7 +20,15 @@ use crate::{
     },
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
-use alloc::{borrow::Cow, boxed::Box, format, string::String, sync::Arc, vec, vec::Vec};
+use alloc::{
+    borrow::{Cow, ToOwned},
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    sync::Arc,
+    vec,
+    vec::Vec,
+};
 
 use crate::collections::{MutableHashMap as HashMap, MutableHashSet as HashSet};
 use compact_str::CompactString;
@@ -245,7 +253,7 @@ impl ModuleManager {
             file_metadata,
             visited: FxHashSet::default(),
             custom_builtins: HashMap::default(),
-            rollback_metadata: crate::HashMap::new(),
+            rollback_metadata: crate::collections::HashMap::new(),
             module_resolvers: Vec::new(),
         }
     }
@@ -3070,7 +3078,7 @@ impl<'a> ModuleBuilder<'a> {
             .sources
             .add_source(input.clone(), Some(self.name.clone()));
 
-        let parsed = Parser::new_from_source(&input, self.name.clone().to_path_buf(), Some(id))
+        let parsed = Parser::new_from_source(&input, self.name.to_parser_path().into(), Some(id))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect::<core::result::Result<Vec<_>, ParseError>>()?;
@@ -3117,10 +3125,10 @@ impl<'a> ModuleBuilder<'a> {
             let exprs = guard.get(id).unwrap();
 
             let mut parsed =
-                Parser::new_from_source(exprs, self.name.clone().to_path_buf(), Some(id))
-                    .without_lowering()
-                    .map(|x| x.and_then(lower_macro_and_require_definitions))
-                    .collect::<core::result::Result<Vec<_>, ParseError>>()?;
+                Parser::new_from_source(exprs, self.name.to_parser_path().into(), Some(id))
+                .without_lowering()
+                .map(|x| x.and_then(lower_macro_and_require_definitions))
+                .collect::<core::result::Result<Vec<_>, ParseError>>()?;
 
             expressions.append(&mut parsed);
 

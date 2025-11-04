@@ -1,6 +1,6 @@
 use crate::core::opcode::OpCode;
 use alloc::format;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 

@@ -2,7 +2,7 @@
 
 // pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;`
 
-use alloc::{borrow::Cow, format, rc::Rc, string::String, vec::Vec};
+use alloc::{borrow::Cow, format, rc::Rc, string::{String, ToString}, vec::Vec};
 use core::{cell::RefCell, convert::TryFrom};
 #[cfg(feature = "std")]
 use std::io::Write;
@@ -14,8 +14,6 @@ use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;
 // use im_lists::list::List;
 use crate::values::lists::List;
 
-#[cfg(not(feature = "std"))]
-use crate::alloc::string::ToString;
 #[cfg(not(feature = "std"))]
 use crate::rvals::Result;
 #[cfg(feature = "std")]

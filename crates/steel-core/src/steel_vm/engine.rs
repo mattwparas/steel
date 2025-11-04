@@ -1,5 +1,4 @@
 #![allow(unused)]
-
 #[cfg(feature = "std")]
 use super::vm::threads::ThreadHandle;
 use super::{
@@ -7,7 +6,6 @@ use super::{
     primitives::{register_builtin_modules, CONSTANTS},
     vm::{SteelThread, Synchronizer, ThreadStateController},
 };
-use crate::alloc::string::ToString;
 use alloc::borrow::{Cow, ToOwned};
 use alloc::boxed::Box;
 use alloc::format;
