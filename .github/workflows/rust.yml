@@ -142,7 +142,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
       - name: Build x86_64-unknown-redox
         run: |
           sudo apt-get update -y && sudo apt-get install fuse3 libfuse3-dev pkg-config -y
