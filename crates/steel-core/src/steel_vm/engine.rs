@@ -23,7 +23,7 @@ use super::{ffi::FFIModule, ffi::FFIWrappedModule};
 use super::dylib::DylibContainers;
 
 use crate::sync::Mutex;
-use crate::time::Instant;
+use crate::time::{self, Instant};
 use crate::{
     compiler::{
         compiler::{Compiler, SerializableCompiler},
@@ -60,6 +60,7 @@ use crate::{
         AsRefMutSteelVal, AsRefSteelVal as _, FromSteelVal, IntoSteelVal, MaybeSendSyncStatic,
         Result, SteelString, SteelVal,
     },
+    path::PathBuf,
     steel_vm::register_fn::RegisterFn,
     stop, throw,
     values::{
@@ -2243,13 +2244,22 @@ impl Engine {
         RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| x.modules())
     }
 
-    pub fn module_metadata(&self) -> crate::HashMap<PathBuf, std::time::SystemTime> {
-        self.virtual_machine
-            .compiler
-            .read()
-            .module_manager
-            .file_metadata
-            .clone()
+    pub fn module_metadata(&self) -> crate::HashMap<PathBuf, time::SystemTime> {
+        #[cfg(feature = "std")]
+        {
+            return self
+                .virtual_machine
+                .compiler
+                .read()
+                .module_manager
+                .file_metadata
+                .clone();
+        }
+
+        #[cfg(not(feature = "std"))]
+        {
+            crate::collections::HashMap::default()
+        }
     }
 
     pub fn global_exists(&self, ident: &str) -> bool {

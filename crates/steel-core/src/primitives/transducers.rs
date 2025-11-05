@@ -7,8 +7,7 @@ use crate::steel_vm::{
 };
 use crate::values::transducers::{Transducer, Transducers};
 use crate::{builtin_stop, stop, SteelErr};
-use alloc::format;
-use alloc::vec::Vec;
+use alloc::{format, vec, vec::Vec};
 
 pub fn transducer_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/transducers");
