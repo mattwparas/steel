@@ -561,7 +561,7 @@ pub fn close_port(port: &SteelPort) -> SteelVal {
 
 /// Close an output port. If the port is a file, the file will be closed.
 ///
-/// (close-port output-port?) -> void
+/// (close-output-port output-port?) -> void
 #[function(name = "close-output-port")]
 pub fn close_output_port(port: &SteelPort) -> Result<SteelVal> {
     port.close_output_port().map(|_| SteelVal::Void)
@@ -569,7 +569,7 @@ pub fn close_output_port(port: &SteelPort) -> Result<SteelVal> {
 
 /// Close an input port. If the port is a file, the file will be closed.
 ///
-/// (close-port input-port?) -> void
+/// (close-input-port input-port?) -> void
 #[function(name = "close-input-port")]
 pub fn close_input_port(port: &SteelPort) -> Result<SteelVal> {
     port.close_input_port().map(|_| SteelVal::Void)

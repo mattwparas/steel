@@ -1,12 +1,12 @@
 use alloc::borrow::{Cow, ToOwned};
+use alloc::format;
 use alloc::rc::Rc;
 use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
-use alloc::format;
 use core::{
     result,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
 };
 #[cfg(feature = "std")]
 use std::path::PathBuf;
@@ -33,6 +33,8 @@ use crate::{
     tokens::{Paren, ParenMod, Token, TokenLike, TokenType},
 };
 
+static SOURCE_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
+
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, Debug, Ord, PartialOrd,
 )]
@@ -42,6 +44,10 @@ pub struct SourceId(pub u32);
 impl SourceId {
     pub const fn none() -> Option<Self> {
         None
+    }
+
+    pub fn fresh() -> Self {
+        SourceId(SOURCE_ID_COUNTER.fetch_add(1, Ordering::Relaxed))
     }
 }
 
@@ -249,18 +255,14 @@ impl core::fmt::Display for ParseError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ParseError::MismatchedParen(paren, _, _) => {
-                write!(
-                    f,
-                    "Parse: Mismatched parenthesis, expected \"{}\"",
-                    paren.close()
-                )
+                write!(f, "Mismatched parenthesis, expected \"{}\"", paren.close())
             }
-            ParseError::UnexpectedEOF(..) => write!(f, "Parse: Unexpected EOF"),
+            ParseError::UnexpectedEOF(..) => write!(f, "Unexpected EOF"),
             ParseError::UnexpectedChar(l, _, _) => {
-                write!(f, "Parse: Unexpected character: {:?}", l)
+                write!(f, "Unexpected character: {:?}", l)
             }
-            ParseError::SyntaxError(l, _, _) => write!(f, "Parse: Syntax Error: {}", l),
-            ParseError::ArityMismatch(l, _, _) => write!(f, "Parse: Arity mismatch: {}", l),
+            ParseError::SyntaxError(l, _, _) => write!(f, "Syntax Error: {}", l),
+            ParseError::ArityMismatch(l, _, _) => write!(f, "Arity mismatch: {}", l),
         }
     }
 }

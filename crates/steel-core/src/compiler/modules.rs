@@ -38,9 +38,9 @@ use once_cell::sync::Lazy;
 // use smallvec::SmallVec;
 #[cfg(feature = "std")]
 use std::{fs, io::Read};
-use steel_parser::{ast::PROTO_HASH_GET, expr_list, span::Span};
 #[cfg(feature = "std")]
 use steel_parser::parser::SourceId;
+use steel_parser::{ast::PROTO_HASH_GET, expr_list, span::Span};
 
 use crate::parser::expander::SteelMacro;
 use crate::stop;
@@ -232,7 +232,7 @@ pub fn steel_home() -> Option<String> {
 #[derive(Clone)]
 pub(crate) struct ModuleManager {
     pub(crate) compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
-    file_metadata: crate::HashMap<PathBuf, ModuleTimestamp>,
+    pub(crate) file_metadata: crate::HashMap<PathBuf, ModuleTimestamp>,
     visited: FxHashSet<PathBuf>,
     custom_builtins: HashMap<String, String>,
     rollback_metadata: crate::HashMap<PathBuf, ModuleTimestamp>,
@@ -1152,8 +1152,16 @@ impl CompiledModule {
         &self.ast
     }
 
+    pub fn name(&self) -> &PathBuf {
+        &self.name
+    }
+
     pub fn get_provides(&self) -> &[ExprKind] {
         &self.provides
+    }
+
+    pub fn get_requires(&self) -> &[RequireObject] {
+        &self.require_objects
     }
 
     // pub fn get_requires(&self) -> &[PathBuf] {
@@ -1738,18 +1746,18 @@ impl CompiledModule {
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-enum MaybeRenamed {
+pub enum MaybeRenamed {
     Normal(ExprKind),
     Renamed(ExprKind, ExprKind),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RequireObject {
-    path: PathOrBuiltIn,
-    for_syntax: bool,
-    idents_to_import: Vec<MaybeRenamed>,
-    prefix: Option<String>,
-    span: Span,
+    pub path: PathOrBuiltIn,
+    pub for_syntax: bool,
+    pub idents_to_import: Vec<MaybeRenamed>,
+    pub prefix: Option<String>,
+    pub span: Span,
 }
 
 impl RequireObject {
@@ -1770,7 +1778,7 @@ impl RequireObject {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-enum PathOrBuiltIn {
+pub enum PathOrBuiltIn {
     BuiltIn(Cow<'static, str>),
     Path(PathBuf),
 }
@@ -2402,6 +2410,16 @@ impl<'a> ModuleBuilder<'a> {
         for expr in &mut ast {
             lower_entire_ast(expr)?;
             FlattenBegin::flatten(expr);
+        }
+
+        // And then finally, expand the keyword arguments:
+        for expr in &mut ast {
+            expand_kernel_in_env(
+                expr,
+                self.kernel.as_mut(),
+                self.builtin_modules.clone(),
+                self.name.to_str().unwrap(),
+            )?;
         }
 
         // TODO: @Matt - fix this hack
@@ -3128,9 +3146,9 @@ impl<'a> ModuleBuilder<'a> {
 
             let mut parsed =
                 Parser::new_from_source(exprs, self.name.to_parser_path().into(), Some(id))
-                .without_lowering()
-                .map(|x| x.and_then(lower_macro_and_require_definitions))
-                .collect::<core::result::Result<Vec<_>, ParseError>>()?;
+                    .without_lowering()
+                    .map(|x| x.and_then(lower_macro_and_require_definitions))
+                    .collect::<core::result::Result<Vec<_>, ParseError>>()?;
 
             expressions.append(&mut parsed);
 

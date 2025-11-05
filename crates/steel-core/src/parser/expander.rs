@@ -32,9 +32,9 @@ use steel_parser::tokens::IntLiteral;
 use steel_parser::tokens::NumberLiteral;
 
 use super::macro_template::MacroTemplate;
-use super::{ast::Quote, interner::InternedString};
 #[cfg(feature = "std")]
 use super::parser::Parser;
+use super::{ast::Quote, interner::InternedString};
 
 // Given path, update the extension
 #[cfg(feature = "std")]

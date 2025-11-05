@@ -776,6 +776,9 @@ pub fn expand_kernel_in_env_with_change(
         define_context: None,
     };
 
+    // TODO: Set the environment during loading here
+    //
+
     expander.visit(expr)?;
 
     Ok(expander.changed)

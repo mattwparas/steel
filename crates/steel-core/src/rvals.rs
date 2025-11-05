@@ -1,4 +1,7 @@
-#![cfg_attr(not(feature = "std"), allow(dead_code, unused_imports, unused_variables))]
+#![cfg_attr(
+    not(feature = "std"),
+    allow(dead_code, unused_imports, unused_variables)
+)]
 
 pub mod cycles;
 
@@ -29,12 +32,16 @@ use crate::{
         closed::{Heap, HeapRef, MarkAndSweepContext},
         functions::{BoxedDynFunction, ByteCodeLambda},
         lazy_stream::LazyStream,
+        lists::Pair,
         structs::{SerializableUserDefinedStruct, UserDefinedStruct},
         transducers::{Reducer, Transducer},
     },
 };
-use alloc::{borrow::ToOwned, boxed::Box, format, rc::Rc, string::String, sync::Arc, vec, vec::IntoIter, vec::Vec};
 use alloc::string::ToString;
+use alloc::{
+    borrow::ToOwned, boxed::Box, format, rc::Rc, string::String, sync::Arc, vec, vec::IntoIter,
+    vec::Vec,
+};
 use core::{
     any::{Any, TypeId},
     cell::RefCell,
@@ -235,6 +242,11 @@ pub trait Custom: private::Sealed {
         false
     }
 
+    #[cfg(feature = "custom-hash")]
+    fn try_as_dyn_hash(&self) -> Option<&dyn DynHash> {
+        None
+    }
+
     #[doc(hidden)]
     fn into_error(self) -> core::result::Result<SteelErr, Self>
     where
@@ -255,6 +267,19 @@ pub trait MaybeSendSyncStatic: Send + Sync + 'static {}
 
 #[cfg(feature = "sync")]
 impl<T: Send + Sync + 'static> MaybeSendSyncStatic for T {}
+
+/// Dyn compatible version of [Hash]
+#[cfg(feature = "custom-hash")]
+pub trait DynHash {
+    fn dyn_hash(&self, h: &mut dyn ::std::hash::Hasher);
+}
+
+#[cfg(feature = "custom-hash")]
+impl<T: ::std::hash::Hash> DynHash for T {
+    fn dyn_hash(&self, h: &mut dyn ::std::hash::Hasher) {
+        self.hash(&mut Box::new(h))
+    }
+}
 
 #[cfg(feature = "sync")]
 pub trait CustomType: MaybeSendSyncStatic {
@@ -280,6 +305,11 @@ pub trait CustomType: MaybeSendSyncStatic {
     }
     fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
         false
+    }
+
+    #[cfg(feature = "custom-hash")]
+    fn try_as_dyn_hash(&self) -> Option<&dyn DynHash> {
+        None
     }
 
     #[doc(hidden)]
@@ -314,6 +344,12 @@ pub trait CustomType {
     fn check_equality_hint_general(&self, _other: &SteelVal) -> bool {
         false
     }
+
+    #[cfg(feature = "custom-hash")]
+    fn try_as_dyn_hash(&self) -> Option<&dyn DynHash> {
+        None
+    }
+
     #[doc(hidden)]
     fn into_error_(self) -> core::result::Result<SteelErr, Self>
     where
@@ -371,6 +407,11 @@ impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
         Self: Sized,
     {
         self.into_error()
+    }
+
+    #[cfg(feature = "custom-hash")]
+    fn try_as_dyn_hash(&self) -> Option<&dyn DynHash> {
+        Custom::try_as_dyn_hash(self)
     }
 }
 
@@ -2013,7 +2054,9 @@ impl Iterator for BuiltInDataStructureIterator {
             Self::Vector(v) => v.next(),
             Self::String(s) => s.remaining.next().map(SteelVal::CharV),
             Self::Set(s) => s.next(),
-            Self::Map(s) => s.next().map(|x| SteelVal::ListV(vec![x.0, x.1].into())),
+            Self::Map(s) => s
+                .next()
+                .map(|x| SteelVal::Pair(Gc::new(Pair::cons(x.0, x.1)))),
             Self::Opaque(s) => s.next(),
         }
     }
@@ -2029,6 +2072,7 @@ pub fn value_into_iterator(val: SteelVal) -> Option<SteelVal> {
         SteelVal::StringV(s) => Some(BuiltInDataStructureIterator::String(Chunks::new(s))),
         SteelVal::HashSetV(s) => Some(BuiltInDataStructureIterator::Set((*s).clone().into_iter())),
         SteelVal::HashMapV(m) => Some(BuiltInDataStructureIterator::Map((*m).clone().into_iter())),
+        // TODO: Add byte vectors here
         _ => None,
     }
     .map(|iterator| BuiltInDataStructureIterator::into_boxed_iterator(iterator, root))
@@ -2231,6 +2275,14 @@ impl Hash for SteelVal {
                 state.write_u8(21);
                 (*v).hash(state)
             }
+            #[cfg(feature = "custom-hash")]
+            Custom(v) => match v.read().try_as_dyn_hash() {
+                Some(x) => {
+                    state.write_u8(22);
+                    x.dyn_hash(state);
+                }
+                _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
+            },
             _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
         }
     }
@@ -2251,21 +2303,13 @@ impl SteelVal {
     }
 
     pub fn is_hashable(&self) -> bool {
-        matches!(
-            self,
-            BoolV(_)
-                | IntV(_)
-                | CharV(_)
-                // | Pair(_)
-                | VectorV(_)
-                | StringV(_)
-                | SymbolV(_)
-                | HashMapV(_)
-                | Closure(_)
-                | ListV(_)
-                | FuncV(_)
-                | CustomStruct(_)
-        )
+        match self {
+            BoolV(_) | IntV(_) | CharV(_) | VectorV(_) | StringV(_) | SymbolV(_) | HashMapV(_)
+            | Closure(_) | ListV(_) | FuncV(_) | CustomStruct(_) => true,
+            #[cfg(feature = "custom-hash")]
+            Custom(v) => v.read().try_as_dyn_hash().is_some(),
+            _ => false,
+        }
     }
 
     pub fn is_function(&self) -> bool {

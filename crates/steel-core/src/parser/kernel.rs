@@ -355,9 +355,9 @@ impl Kernel {
             }
         }
 
-        if def_macro_expr_indices.is_empty() {
-            return Ok(());
-        }
+        // if def_macro_expr_indices.is_empty() {
+        //     return Ok(());
+        // }
 
         // Fill up the define macro expressions with the correct ones
         // Lets do some debug logging to make sure this even makes sense
@@ -366,9 +366,12 @@ impl Kernel {
 
         def_macro_exprs.push(ExprKind::ident("#%syntax-transformer-module"));
         def_macro_exprs.push(ExprKind::ident(&environment));
-        def_macro_exprs.push(ExprKind::List(steel_parser::ast::List::new(
-            provide_definitions,
-        )));
+
+        if !def_macro_expr_indices.is_empty() {
+            def_macro_exprs.push(ExprKind::List(steel_parser::ast::List::new(
+                provide_definitions,
+            )));
+        }
 
         let mut exprs_buffer = Vec::with_capacity(def_macro_expr_indices.len());
 
@@ -399,7 +402,11 @@ impl Kernel {
 
         self.engine.run(format!(
             "(set! #%loading-current-module \"{}\")",
-            environment
+            if cfg!(windows) {
+                environment.replace("\\", "/")
+            } else {
+                environment
+            }
         ))?;
 
         // TODO: Load this as a module instead, so that way we have some real

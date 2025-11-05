@@ -160,12 +160,12 @@ fn if_test() {
     );
     test_line(
         "(if (= 1 1))",
-        &["Error: Parse: Parse: Syntax Error: if expects a then condition, found none"],
+        &["Error: Parse: Syntax Error: if expects a then condition, found none"],
         &mut evaluator,
     );
     test_line(
         "(if 1 2 3 4)",
-        &["Error: Parse: Parse: Syntax Error: if takes only 3 expressions"],
+        &["Error: Parse: Syntax Error: if takes only 3 expressions"],
         &mut evaluator,
     );
 }
@@ -182,12 +182,12 @@ fn define_test() {
     );
     test_line(
         "(define a (lambda (x) (+ x 1)) wat)",
-        &["Error: Parse: Parse: Syntax Error: Define expected only one expression after the identifier"],
+        &["Error: Parse: Syntax Error: Define expected only one expression after the identifier"],
         e,
     );
     test_line(
         "(define a)",
-        &["Error: Parse: Parse: Syntax Error: define statement expected a body, found none"],
+        &["Error: Parse: Syntax Error: define statement expected a body, found none"],
         e,
     );
     test_line("(define a (lambda (x) (+ x 1)))", &["#<void>"], e);
@@ -212,7 +212,7 @@ fn lambda_test() {
     test_line("(lambda (x) 1 2)", &["#<bytecode-closure>"], e);
     // test_line(
     //     "(lambda x 1)",
-    //     &["Error: Parse: Parse: Syntax Error: lambda function expected a list of identifiers"],
+    //     &["Error: Parse: Syntax Error: lambda function expected a list of identifiers"],
     //     e,
     // );
     test_line("(lambda () 1)", &["#<bytecode-closure>"], e);
@@ -241,12 +241,12 @@ fn set_test() {
     );
     test_line(
         "(set! x)",
-        &["Error: Parse: Parse: Arity mismatch: set! expects an identifier and an expression"],
+        &["Error: Parse: Arity mismatch: set! expects an identifier and an expression"],
         e,
     );
     test_line(
         "(set! x 1 2)",
-        &["Error: Parse: Parse: Arity mismatch: set! expects an identifier and an expression"],
+        &["Error: Parse: Arity mismatch: set! expects an identifier and an expression"],
         e,
     );
     test_line(
@@ -276,17 +276,17 @@ fn let_test() {
     test_line("(let () 1)", &["1"], e);
     test_line(
         "(let ((1)) x)",
-        &["Error: Parse: Parse: Syntax Error: let expected a list of variable binding pairs, found a pair with length 1"],
+        &["Error: Parse: Syntax Error: let expected a list of variable binding pairs, found a pair with length 1"],
         e,
     );
     test_line(
         "(let ((x 1) (1)) x)",
-        &["Error: Parse: Parse: Syntax Error: let expected a list of variable binding pairs, found a pair with length 1"],
+        &["Error: Parse: Syntax Error: let expected a list of variable binding pairs, found a pair with length 1"],
         e,
     );
     test_line(
         "(let ((x 1)))",
-        &["Error: Parse: Parse: Syntax Error: let expects an expression, found none"],
+        &["Error: Parse: Syntax Error: let expects an expression, found none"],
         e,
     );
     test_line("(let ((x 1)) 1 2 3 4)", &["4"], e);

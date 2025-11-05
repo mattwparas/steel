@@ -3,9 +3,9 @@ use crate::{
     tokens::{NumberLiteral, ParenMod, RealLiteral, TokenType},
 };
 
-use alloc::{format, vec, vec::Vec};
 use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::{format, vec, vec::Vec};
 use core::{convert::TryFrom, fmt::Write};
 
 use crate::tokens::IntLiteral;

@@ -1407,6 +1407,12 @@ fn error_objectp(value: &SteelVal) -> bool {
     as_underlying_type::<SteelErr>(val.read().as_ref()).is_some()
 }
 
+#[steel_derive::function(name = "#%function-pointer?")]
+fn is_function_pointer(value: &SteelVal) -> bool {
+    matches!(value, |SteelVal::FuncV(_)| SteelVal::BoxedFunction(_)
+        | SteelVal::MutFunc(_))
+}
+
 /// Returns true if the value is a function or callable.
 ///
 /// (function? value) -> boolean?
@@ -1456,7 +1462,6 @@ fn procedurep(value: &SteelVal) -> bool {
 }
 fn identity_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/identity");
-
     module.register_native_fn_definition(NOT_DEFINITION);
     module.register_native_fn_definition(numbers::COMPLEXP_DEFINITION);
     module.register_native_fn_definition(numbers::EXACT_INTEGERP_DEFINITION);
@@ -1491,12 +1496,12 @@ fn identity_module() -> BuiltInModule {
     module.register_value("char?", gen_pred!(CharV));
     module.register_value("future?", gen_pred!(FutureV));
     module.register_native_fn_definition(FUNCTIONP_DEFINITION);
+    module.register_native_fn_definition(IS_FUNCTION_POINTER_DEFINITION);
     module.register_native_fn_definition(PROCEDUREP_DEFINITION);
     module.register_value(
         "atom?",
         gen_pred!(NumV, IntV, StringV, SymbolV, BoolV, CharV),
     );
-
     module
 }
 
@@ -1563,9 +1568,18 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::REAL_PART_DEFINITION)
         .register_native_fn_definition(numbers::IMAG_PART_DEFINITION)
         .register_native_fn_definition(numbers::NUMERATOR_DEFINITION)
+        .register_native_fn_definition(numbers::TRUNCATE_SLASH_DEFINITION)
+        .register_native_fn_definition(numbers::TRUNCATE_QUOTIENT_DEFINITION)
+        .register_native_fn_definition(numbers::TRUNCATE_REMAINDER_DEFINITION)
+        .register_native_fn_definition(numbers::FLOOR_SLASH_DEFINITION)
+        .register_native_fn_definition(numbers::FLOOR_QUOTIENT_DEFINITION)
+        .register_native_fn_definition(numbers::FLOOR_REMAINDER_DEFINITION)
+        .register_native_fn_definition(numbers::EUCLIDEAN_SLASH_DEFINITION)
+        .register_native_fn_definition(numbers::EUCLIDEAN_QUOTIENT_DEFINITION)
+        .register_native_fn_definition(numbers::EUCLIDEAN_REMAINDER_DEFINITION)
         .register_native_fn_definition(numbers::QUOTIENT_DEFINITION)
-        .register_native_fn_definition(numbers::MODULO_DEFINITION)
         .register_native_fn_definition(numbers::REMAINDER_DEFINITION)
+        .register_native_fn_definition(numbers::MODULO_DEFINITION)
         .register_native_fn_definition(numbers::ROUND_DEFINITION)
         .register_native_fn_definition(numbers::SQUARE_DEFINITION)
         .register_native_fn_definition(numbers::SQRT_DEFINITION)
@@ -2512,9 +2526,19 @@ fn syntax_to_module_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
 
         if let Some(source) = source {
             let path = ctx.thread.compiler.read().sources.get_path(&source);
-            return path
-                .map(|x| String::from(x.to_str().unwrap()))
-                .into_steelval();
+            #[cfg(windows)]
+            {
+                return path
+                    .map(|x| x.to_string_lossy().replace('\\', "/"))
+                    .into_steelval();
+            }
+
+            #[cfg(not(windows))]
+            {
+                return path
+                    .map(|x| x.to_string_lossy().into_owned())
+                    .into_steelval();
+            }
         }
     }
 

@@ -6,12 +6,29 @@ as UTF-8 encoded bytes.
 Returns the Unicode codepoint of a given character.
 
 (char->integer char?) -> integer?
+
+#### Examples
+
+```scheme
+> (char->integer #\a) ;; => 97
+> (char->integer #\λ) ;; => 955
+```
 ### **char->number**
-Attemps to convert the character into a decimal digit,
+Attemps to convert the character into an ascii decimal digit,
 and returns `#f` on failure.
+
+(char->number char?) -> (or/c number? bool?)
+
+#### Examples
+
+```scheme
+> (char->number #\4) ;; => 4
+> (char->number #\a) ;; => #f
+> (char->number #\٣) ;; => #f
+```
 ### **char-ci<=?**
-Compares characters according to their codepoints (as in "less-than-or-equal")
-in a case-insensitive fashion.
+Returns `#t` if the characters are monotonically non-decreasing according to their codepoints,
+in a case-insensitive fashion (as if char-foldcase was applied to the arguments).
 
 (char-ci<=? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -25,8 +42,8 @@ in a case-insensitive fashion.
  > (char-ci<=? #\a #\B #\b) ;; => #t
  ```
 ### **char-ci<?**
-Compares characters according to their codepoints (as in "less-than")
-in a case-insensitive fashion.
+Returns `#t` if the characters are monotonically increasing according to their codepoints,
+in a case-insensitive fashion (as if char-foldcase was applied to the arguments).
 
 (char-ci<? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -40,7 +57,8 @@ in a case-insensitive fashion.
  > (char-ci<? #\a #\B #\b) ;; => #f
  ```
 ### **char-ci=?**
-Checks if all characters are equal, in a case-insensitive fashion.
+Checks if all characters are equal, in a case-insensitive fashion
+(i.e. as if char-foldcase was applied to the arguments).
 
 Requires that all inputs are characters, and will otherwise raise an error.
 
@@ -57,8 +75,8 @@ Requires that all inputs are characters, and will otherwise raise an error.
 > (char-ci=? #\σ #\Σ #\ς) ;; => #t
 ```
 ### **char-ci>=?**
-Compares characters according to their codepoints (as in "greater-than-or-equal")
-in a case-insensitive fashion.
+Returns `#t` if the characters are monotonically non-increasing according to their codepoints,
+in a case-insensitive fashion (as if char-foldcase was applied to the arguments).
 
 (char-ci>=? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -72,8 +90,8 @@ in a case-insensitive fashion.
  > (char-ci>? #\c #\B #\b) ;; => #t
  ```
 ### **char-ci>?**
-Compares characters according to their codepoints (as in "greater-than")
-in a case-insensitive fashion.
+Returns `#t` if the characters are monotonically decreasing according to their codepoints,
+in a case-insensitive fashion (as if char-foldcase was applied to the arguments).
 
 (char-ci>? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -87,7 +105,18 @@ in a case-insensitive fashion.
  > (char-ci>? #\c #\B #\b) ;; => #f
  ```
 ### **char-digit?**
-Returns `#t` if the character is a decimal digit.
+Returns `#t` if the character is an ascii decimal digit.
+
+(char-digit? char?) -> bool?
+
+#### Examples
+
+```scheme
+> (char-digit? #\4) ;; => #t
+> (char-digit? #\a) ;; => #f
+> (char-digit? #\٣) ;; => #f
+> (char-digit? #\①) ;; => #f
+```
 ### **char-downcase**
 Returns the lower case version of a character, if defined by Unicode,
 or the same character otherwise.
@@ -103,6 +132,16 @@ or the same character otherwise.
 ```
 ### **char-foldcase**
 Apply simple unicode case-folding to a char
+
+(char-foldcase char?) -> char?
+
+#### Examples
+
+```scheme
+> (char-foldcase #\A) ;; => #\a
+> (char-foldcase #\c) ;; => #\c
+> (char-foldcase #\ς) ;; => #\σ
+```
 ### **char-upcase**
 Returns the upper case version of a character, if defined by Unicode,
 or the same character otherwise.
@@ -118,8 +157,18 @@ or the same character otherwise.
 ```
 ### **char-whitespace?**
 Returns `#t` if the character is a whitespace character.
+
+#### Example
+
+```scheme
+> (char-whitespace? #\space) ;; => #t
+> (char-whitespace? #\newline) ;; => #t
+; nbsp character
+> (char-whitespace? #\xA0) ;; => #t
+> (char-whitespace? #\越) ;; => #f
+```
 ### **char<=?**
-Compares characters according to their codepoints, in a "less-than-or-equal" fashion.
+Returns `#t` if the characters are monotonically non-decreasing according to their codepoints.
 
 (char<=? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -133,7 +182,7 @@ Compares characters according to their codepoints, in a "less-than-or-equal" fas
  > (char<=? #\a #\b #\b) ;; => #t
  ```
 ### **char<?**
-Compares characters according to their codepoints, in a "less-than" fashion.
+Returns `#t` if the characters are monotonically increasing according to their codepoints.
 
 (char<? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -163,7 +212,7 @@ Requires that all inputs are characters, and will otherwise raise an error.
 > (char=? #\a #\A) ;; => #f
 ```
 ### **char>=?**
-Compares characters according to their codepoints, in a "greater-than-or-equal" fashion.
+Returns `#t` if the characters are monotonically non-increasing according to their codepoints.
 
 (char>=? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -176,7 +225,7 @@ Compares characters according to their codepoints, in a "greater-than-or-equal" 
  > (char>=? #\c #\b #\b) ;; => #t
  ```
 ### **char>?**
-Compares characters according to their codepoints, in a "greater-than" fashion.
+Returns `#t` if the characters are monotonically decreasing according to their codepoints.
 
 (char>? char1 char2 ... ) -> bool?
 * char1 : char?
@@ -205,6 +254,9 @@ Checks if the input string ends with a given suffix
 ### **int->string**
 Converts an integer into a string.
 
+Use of this procedure is discouraged in favor of the more powerful and more
+portable `(number->string)` procedure.
+
 (int->string int?) -> string?
 
 #### Examples
@@ -216,6 +268,13 @@ Converts an integer into a string.
 Returns the character corresponding to a given Unicode codepoint.
 
 (integer->char integer?) -> char?
+
+#### Examples
+
+```scheme
+> (integer->char #x61) ;; => #\a
+> (integer->char 955) ;; => #\λ
+```
 ### **make-string**
 Creates a string of a given length, filled with an optional character
 (which defaults to `#\0`).
@@ -224,8 +283,30 @@ Creates a string of a given length, filled with an optional character
 
 * len : int?
 * char : char? = #\0
+
+#### Examples
+
+```scheme
+> (make-string 5 #\a) ;; => "aaaaa"
+> (make-string 5) ;; => "\0\0\0\0\0"
+```
 ### **number->string**
-Converts the given number to a string.
+Converts the given number to a string, with an optional radix.
+
+Returns an error, if the value given is not a number.
+
+(number->string number? [radix]) -> string?
+
+* radix: number?
+
+```scheme
+> (number->string 10) ;; => "10"
+> (number->string 1.0) ;; => "1.0"
+> (number->string 1/2) ;; => "1.0"
+> (number->string 1+2i) ;; => "1+2i"
+> (number->string 255 16) ;; => "ff"
+> (number->string 1/2 2) ;; => "1/10"
+```
 ### **split-many**
 Splits a string given a separator pattern into a list of strings.
 
@@ -264,6 +345,7 @@ Returns a list of strings from the original string split on the whitespace
 
 ```scheme
 (split-whitespace "apples bananas fruits veggies") ;; '("apples" "bananas" "fruits" "veggies")
+(split-whitespace "one\t \ttwo\nthree") ;; '("one" "two" "three")
 ```
 ### **starts-with?**
 Checks if the input string starts with a prefix
@@ -281,17 +363,37 @@ Checks if the input string starts with a prefix
 ```
 ### **string**
 Constructs a string from the given characters
+
+(string . char?) -> string?
+
+#### Examples
+
+```scheme
+> (string #\h #\e #\l #\l #\o) ;; => "hello"
+> (string #\λ) ;; => "λ"
+> (string) ;; => ""
+```
 ### **string->bytes**
 Encodes a string as UTF-8 into a bytevector.
 
-(string->bytes string?) -> bytes?
+(string->bytes str [start] [end]) -> bytes?
+
+* str : string?
+* start : int? = 0
+* end : int? = (string-length str)
 
 #### Examples
+
 ```scheme
-(string->bytes "Apple") ;; => (bytes 65 112 112 108 101)
+(string->bytes "Apple") ;; => #u8(#x41 #x70 #x70 #x6C #x65)
+(string->bytes "αβγ") ;; => #u8(#xCE #xB1 #xCE #xB2 #xCE #xB3)
+(string->bytes "one two three" 4 7) ;; => #u8(#x74 #x77 #x6F)
 ```
 ### **string->int**
 Converts a string into an int. Raises an error if the string cannot be converted to an integer.
+
+Use of this procedure is discouraged in favor of the more powerful and more
+portable `(string->number)` procedure.
 
 (string->int string?) -> int?
 
@@ -304,16 +406,17 @@ Converts a string into an int. Raises an error if the string cannot be converted
 ### **string->list**
 Converts a string into a list of characters.
 
-(string->list s [start] [end]) -> (listof char?)
+(string->list str [start] [end]) -> (listof char?)
 
-* s : string?
+* str : string?
 * start : int? = 0
-* end : int?
+* end : int? = (string-length str)
 
 #### Examples
 
 ```scheme
 > (string->list "hello") ;; => '(#\h #\e #\l #\l #\o)
+> (string->list "one two three" 4 7) ;; => '(#\t #\w #\o)
 ```
 ### **string->lower**
 Alias of `string-downcase`.
@@ -325,6 +428,19 @@ On failure, it returns `#f`
 
 * digits : string?
 * radix : number?
+
+#### Examples
+
+```scheme
+> (string->number "10") ;; => 10
+> (string->number "1.0") ;; => 1.0
+> (string->number "1/2") ;; => 1/2
+> (string->number "1+2i") ;; => 1+2i
+> (string->number "ff") ;; => #f
+> (string->number "ff" 16) ;; => 255
+> (string->number "1/10" 2) ;; => 1/2
+> (string->number "not-a-number") ;; => #f
+```
 ### **string->symbol**
 Returns an interned symbol from the given string.
 
@@ -354,11 +470,17 @@ Alias of `string->bytes`.
 ### **string->vector**
 Returns a vector containing the characters of a given string
 
-(string->vector string?) -> vector?
+(string->vector s [start] [end]) -> vector?
+
+* str : string?
+* start : int? = 0
+* end : int? = (string-length str)
 
 #### Examples
+
 ```scheme
 (string->vector "hello") ;; => '#(#\h #\e #\l #\l #\o)
+(string->vector "one two three" 4 7) ;; => '#(#\t #\w #\o)
 ```
 ### **string-append**
 Concatenates all of the given strings into one
@@ -379,6 +501,15 @@ in a case insensitive fashion.
 (string-ci<=? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string-ci<=? "a" "b") ;; => #t
+ > (string-ci<=? "a" "B") ;; => #t
+ > (string-ci<=? "a" "B" "c") ;; => #t
+ > (string-ci<=? "a" "B" "b") ;; => #t
+ > (string-ci<=? "Straßburg" "STRASSE" "straßenbahn") ;; => #t
+ ```
 ### **string-ci<?**
 Compares strings lexicographically (as in"less-than"),
 in a case insensitive fashion.
@@ -386,6 +517,15 @@ in a case insensitive fashion.
 (string-ci<? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string-ci<? "a" "b") ;; => #t
+ > (string-ci<? "a" "B") ;; => #t
+ > (string-ci<? "a" "B" "c") ;; => #t
+ > (string-ci<? "a" "B" "b") ;; => #f
+ > (string-ci<? "Straßburg" "STRASSE" "straßenbahn") ;; => #t
+ ```
 ### **string-ci=?**
 Compares strings for equality, in a case insensitive fashion.
 
@@ -405,6 +545,15 @@ in a case insensitive fashion.
 (string-ci>=? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string-ci>=? "b" "a") ;; => #t
+ > (string-ci>=? "B" "a") ;; => #t
+ > (string-ci>=? "c" "B" "a") ;; => #t
+ > (string-ci>=? "c" "B" "b") ;; => #f
+ > (string-ci>=? "straßenbahn" "STRASSE" "Straßburg") ;; => #t
+ ```
 ### **string-ci>?**
 Compares strings lexicographically (as in"greater-than"),
 in a case insensitive fashion.
@@ -412,6 +561,15 @@ in a case insensitive fashion.
 (string-ci>? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string-ci>? "b" "a") ;; => #t
+ > (string-ci>? "B" "a") ;; => #t
+ > (string-ci>? "c" "B" "a") ;; => #t
+ > (string-ci>? "c" "B" "b") ;; => #f
+ > (string-ci>? "straßenbahn" "STRASSE" "Straßburg") ;; => #t
+ ```
 ### **string-contains?**
 Searches a string to check if it contains the second argument.
 
@@ -470,12 +628,17 @@ Get the number of characters in the string.
 > (string-length "✅") ;; => 1
 ```
 ### **string-ref**
-Extracts the nth character out of a given string.
+Extracts the nth character out of a given string, starting at 0.
 
 (string-ref str n) -> char?
 
 * str : string?
 * n : int?
+
+```scheme
+(string-ref "one" 1) ;; => #\n
+(string-ref "αβγ" 1) ;; => #\β
+```
 ### **string-replace**
 Replaces all occurrences of a pattern into the given string
 
@@ -506,12 +669,26 @@ Compares strings lexicographically (as in"less-than-equal-to").
 (string<=? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string<=? "a" "b") ;; => #t
+ > (string<=? "a" "b" "c") ;; => #t
+ > (string<=? "a" "b" "b") ;; => #t
+ ```
 ### **string<?**
 Compares strings lexicographically (as in"less-than").
 
 (string<? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string<? "a" "b") ;; => #t
+ > (string<? "a" "b" "c") ;; => #t
+ > (string<? "a" "b" "b") ;; => #f
+ ```
 ### **string=?**
 Compares strings for equality.
 
@@ -532,12 +709,26 @@ Compares strings lexicographically (as in"greater-than-or-equal").
 (string>=? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string>=? "b" "a") ;; => #t
+ > (string>=? "c" "b" "a") ;; => #t
+ > (string>=? "c" "b" "b") ;; => #t
+ ```
 ### **string>?**
 Compares strings lexicographically (as in"greater-than").
 
 (string>? s1 s2 ... ) -> bool?
 * s1 : string?
 * s2 : string?
+ # Examples
+
+ ```scheme
+ > (string>? "b" "a") ;; => #t
+ > (string>? "c" "b" "a") ;; => #t
+ > (string>? "c" "b" "b") ;; => #f
+ ```
 ### **substring**
 Creates a substring slicing the characters between two indices.
 
@@ -631,3 +822,4 @@ Get the length of the string in UTF-8 bytes.
 > (utf8-length "αβγ") ;; => 6
 > (utf8-length "✅") ;; => 3
 ```
+### **string-push**

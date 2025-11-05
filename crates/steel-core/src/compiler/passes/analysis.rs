@@ -62,9 +62,9 @@ pub enum IdentifierStatus {
 pub struct SemanticInformation {
     pub kind: IdentifierStatus,
     pub set_bang: bool,
-    pub depth: usize,
+    pub depth: u32,
     pub shadows: Option<SyntaxObjectId>,
-    pub usage_count: usize,
+    pub usage_count: u32,
     pub span: Span,
     // Referring to a local var definition
     pub refers_to: Option<SyntaxObjectId>,
@@ -92,7 +92,7 @@ fn check_size_of_info() {
 }
 
 impl SemanticInformation {
-    pub fn new(kind: IdentifierStatus, depth: usize, span: Span) -> Self {
+    pub fn new(kind: IdentifierStatus, depth: u32, span: Span) -> Self {
         Self {
             kind,
             set_bang: false,
@@ -123,7 +123,7 @@ impl SemanticInformation {
     }
 
     #[inline(always)]
-    pub fn with_usage_count(mut self, count: usize) -> Self {
+    pub fn with_usage_count(mut self, count: u32) -> Self {
         self.usage_count = count;
         self
     }
@@ -345,6 +345,20 @@ impl Analysis {
         &self.info
     }
 
+    pub fn syntax_object_ids_to_identifiers<'a>(
+        &self,
+        exprs: &'a [ExprKind],
+        ids: &'a mut HashMap<SyntaxObjectId, Option<InternedString>>,
+    ) -> &'a mut HashMap<SyntaxObjectId, Option<InternedString>> {
+        let mut identifier_finder = IdentifierFinder { ids };
+
+        for expr in exprs.iter() {
+            identifier_finder.visit(expr);
+        }
+
+        identifier_finder.ids
+    }
+
     pub fn fresh_from_exprs(&mut self, exprs: &[ExprKind]) {
         self.clear();
 
@@ -524,9 +538,10 @@ impl Analysis {
     }
 
     // TODO: This needs to just take an iterator?
-    pub fn run(&mut self, exprs: &[ExprKind]) {
-        // let mut scope: ScopeMap<InternedString, ScopeInfo> = ScopeMap::new();
-        self.scope.clear_all();
+    pub fn run_with_scope(&mut self, exprs: &[ExprKind], clear_scope: bool) {
+        if clear_scope {
+            self.scope.clear_all();
+        }
 
         // TODO: Functions should be globally resolvable but top level identifiers cannot be used before they are defined
         // The way this is implemented right now doesn't respect that
@@ -591,6 +606,10 @@ impl Analysis {
                 }
             }
         }
+    }
+
+    pub fn run(&mut self, exprs: &[ExprKind]) {
+        self.run_with_scope(exprs, true)
     }
 
     pub fn get_function_info(&self, function: &LambdaFunction) -> Option<&FunctionInformation> {
@@ -868,7 +887,7 @@ impl<'a> AnalysisPass<'a> {
             } else {
                 identifier_status_if_local
             },
-            depth,
+            depth as _,
             atom_syntax_object.span,
         );
 
@@ -947,7 +966,7 @@ impl<'a> AnalysisPass<'a> {
                     arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::HeapAllocated,
-                        depth,
+                        depth as _,
                         arg.atom_syntax_object().unwrap().span,
                     ),
                 );
@@ -965,7 +984,7 @@ impl<'a> AnalysisPass<'a> {
                     arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::Local,
-                        depth,
+                        depth as _,
                         arg.atom_syntax_object().unwrap().span,
                     ),
                 );
@@ -1029,7 +1048,7 @@ impl<'a> AnalysisPass<'a> {
             };
 
             let mut semantic_info =
-                SemanticInformation::new(kind, depth, var.atom_syntax_object().unwrap().span);
+                SemanticInformation::new(kind, depth as _, var.atom_syntax_object().unwrap().span);
 
             // Update the usage count to collect how many times the variable was referenced
             // Inside of the scope in which the variable existed
@@ -1045,7 +1064,7 @@ impl<'a> AnalysisPass<'a> {
             // log::debug!("Found unused argument: {:?}", ident);
             // }
 
-            semantic_info = semantic_info.with_usage_count(count);
+            semantic_info = semantic_info.with_usage_count(count as _);
 
             // If this variable name is already in scope, we should mark that this variable
             // shadows the previous id
@@ -1344,7 +1363,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     arg.atom_syntax_object().unwrap(),
                     SemanticInformation::new(
                         IdentifierStatus::HeapAllocated,
-                        self.info.scope.depth(),
+                        self.info.scope.depth() as _,
                         arg.atom_syntax_object().unwrap().span,
                     ),
                 );
@@ -1365,7 +1384,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     arg.atom_syntax_object().unwrap().syntax_object_id,
                     SemanticInformation::new(
                         IdentifierStatus::LetVar,
-                        self.info.scope.depth(),
+                        self.info.scope.depth() as _,
                         arg.atom_syntax_object().unwrap().span,
                     ),
                 );
@@ -1565,14 +1584,24 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // We're entering a new scope since we've entered a lambda function
         self.info.scope.push_layer();
 
-        // let let_level_bindings = lambda_function.arguments().unwrap();
-
-        let let_level_bindings: smallvec::SmallVec<[_; 8]> = lambda_function
+        // TODO: @matt
+        // This seems to cause a crash in the LSP
+        // We should just filter out non args for now?
+        let let_level_bindings: Option<smallvec::SmallVec<[_; 8]>> = lambda_function
             .args
             .iter()
             .map(|x| x.atom_identifier())
-            .collect::<Option<_>>()
-            .unwrap();
+            .collect::<Option<_>>();
+
+        let let_level_bindings = if let Some(b) = let_level_bindings {
+            b
+        } else {
+            eprintln!("unknown arg found: {}", lambda_function);
+            for arg in &lambda_function.args {
+                eprintln!("{} - {}", arg.atom_identifier().is_some(), arg);
+            }
+            panic!()
+        };
 
         let depth = self.info.scope.depth();
 
@@ -1770,7 +1799,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     self.info.get_mut(&global_var_id).unwrap().usage_count += 1;
 
                     let mut semantic_information =
-                        SemanticInformation::new(IdentifierStatus::Global, depth, a.syn.span)
+                        SemanticInformation::new(IdentifierStatus::Global, depth as _, a.syn.span)
                             .with_usage_count(1)
                             .refers_to(global_var_id);
 
@@ -1827,11 +1856,11 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
                 // In the event there is a local define, we want to count the usage here
                 if let Some(local_define) = self.info.get_mut(&mut_ref_id) {
-                    local_define.usage_count = mut_ref_usage_count;
+                    local_define.usage_count = mut_ref_usage_count as _;
                 }
 
                 let mut semantic_info =
-                    SemanticInformation::new(IdentifierStatus::Local, depth, a.syn.span)
+                    SemanticInformation::new(IdentifierStatus::Local, depth as _, a.syn.span)
                         .with_usage_count(1)
                         .refers_to(mut_ref_id);
 
@@ -1891,7 +1920,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 }
 
                 if let Some(local_define) = self.info.get_mut(&captured.id) {
-                    local_define.usage_count = captured.usage_count;
+                    local_define.usage_count = captured.usage_count as _;
 
                     // If this _is_ in fact a locally defined function, we don't want to capture it
                     // This is something that is going to get lifted to the top environment anyway
@@ -1902,7 +1931,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 }
 
                 let mut semantic_info =
-                    SemanticInformation::new(identifier_status, depth, a.syn.span)
+                    SemanticInformation::new(identifier_status, depth as _, a.syn.span)
                         .with_usage_count(1)
                         .refers_to(captured.id);
 
@@ -1967,7 +1996,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 let mut identifier_status = IdentifierStatus::Captured;
 
                 if let Some(local_define) = self.info.get_mut(&is_captured_id) {
-                    local_define.usage_count = is_captured_usage_count;
+                    local_define.usage_count = is_captured_usage_count as _;
 
                     // If this _is_ in fact a locally defined function, we don't want to capture it
                     // This is something that is going to get lifted to the top environment anyway
@@ -1978,7 +2007,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 }
 
                 let mut semantic_info =
-                    SemanticInformation::new(identifier_status, depth, a.syn.span)
+                    SemanticInformation::new(identifier_status, depth as _, a.syn.span)
                         .with_usage_count(1)
                         .refers_to(is_captured_id);
                 // .with_offset(
@@ -2006,7 +2035,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 analysis.usage_count += 1;
             } else {
                 let mut semantic_info =
-                    SemanticInformation::new(IdentifierStatus::Free, depth, a.syn.span);
+                    SemanticInformation::new(IdentifierStatus::Free, depth as _, a.syn.span);
 
                 // TODO: We _really_ should be providing the built-ins in a better way thats not
                 // passing around a thread local
@@ -2669,7 +2698,7 @@ pub(crate) fn is_a_builtin_definition(def: &Define) -> bool {
 }
 
 #[inline(always)]
-pub(crate) fn is_a_require_definition(def: &Define) -> bool {
+pub fn is_a_require_definition(def: &Define) -> bool {
     if let ExprKind::List(l) = &def.body {
         match l.first_ident() {
             Some(func) if *func == *PROTO_HASH_GET => {
@@ -2683,7 +2712,7 @@ pub(crate) fn is_a_require_definition(def: &Define) -> bool {
 }
 
 #[inline(always)]
-pub(crate) fn require_defitinion_to_original_symbol(def: &Define) -> Option<InternedString> {
+pub fn require_defitinion_to_original_symbol(def: &Define) -> Option<InternedString> {
     if let ExprKind::List(l) = &def.body {
         match l.first_ident() {
             Some(func) if *func == *PROTO_HASH_GET => {
@@ -2867,6 +2896,35 @@ struct FindContextsWithOffset<'a> {
 }
 
 impl<'a> VisitorMutUnitRef<'a> for FindContextsWithOffset<'a> {
+    fn visit_define(&mut self, define: &'a Define) {
+        if let ExprKind::LambdaFunction(lambda_function) = &define.body {
+            let mut span = get_span(&lambda_function.body);
+
+            span.start = define.location.span.start;
+
+            log::debug!(
+                "Defined function span: {:?} - offset: {}",
+                span,
+                self.offset
+            );
+
+            if span.range().contains(&(self.offset as u32)) {
+                if let Some(info) = self.analysis.get_function_info(lambda_function) {
+                    if define.location.span.source_id == Some(self.source_id) {
+                        let mut new_info = info.clone();
+
+                        new_info.aliases_to = define.name_id();
+
+                        self.contexts
+                            .push(SemanticInformationType::Function(new_info));
+                    }
+                }
+            }
+
+            self.visit(&lambda_function.body);
+        }
+    }
+
     fn visit_lambda_function(&mut self, lambda_function: &'a LambdaFunction) {
         if lambda_function.location.span.end as usize >= self.offset {
             return;
@@ -2927,6 +2985,69 @@ impl<'a> VisitorMutUnitRef<'a> for GlobalDefinitionFinder<'a> {
                 self.globals.push((*a.ident().unwrap(), info.span));
             }
         }
+    }
+}
+
+struct TopLevelDefinitionFinder<'a> {
+    analysis: &'a Analysis,
+    definitions: Vec<(InternedString, ExprKind, Span)>,
+}
+
+impl<'a> TopLevelDefinitionFinder<'a> {
+    pub fn new(analysis: &'a Analysis) -> Self {
+        Self {
+            analysis,
+            definitions: Vec::new(),
+        }
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for TopLevelDefinitionFinder<'a> {
+    fn visit_define(&mut self, expr: &Define) {
+        if let ExprKind::Atom(a) = &expr.name {
+            if let Some(info) = self.analysis.get(&a.syn) {
+                let kind = &expr.body;
+                let name = *a.ident().unwrap_or(&InternedString::from_static("unnamed"));
+
+                self.definitions.push((name, kind.clone(), info.span));
+            } else {
+                let kind = &expr.body;
+                let name = *a.ident().unwrap_or(&InternedString::from_str("unknown"));
+
+                self.definitions
+                    .push((name, kind.clone(), expr.location.span));
+            }
+        }
+    }
+}
+
+struct LetBindingsFinder<'a> {
+    analysis: &'a Analysis,
+    definitions: Vec<(InternedString, Span)>,
+}
+
+impl<'a> LetBindingsFinder<'a> {
+    pub fn new(analysis: &'a Analysis) -> Self {
+        Self {
+            analysis,
+            definitions: Vec::new(),
+        }
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for LetBindingsFinder<'a> {
+    fn visit_let(&mut self, expr: &'a Let) {
+        for (k, _v) in expr.bindings.iter() {
+            if let ExprKind::Atom(a) = k {
+                if let Some(info) = self.analysis.get(&a.syn) {
+                    let name = *a.ident().unwrap_or(&InternedString::from_static("unnamed"));
+
+                    self.definitions.push((name, info.span));
+                }
+            }
+        }
+
+        self.visit(&expr.body_expr);
     }
 }
 
@@ -5005,6 +5126,26 @@ impl<'a> SemanticAnalysis<'a> {
             .info
             .values()
             .filter(|x| x.kind == IdentifierStatus::Global)
+    }
+
+    pub fn find_top_level_definitions(&self) -> Vec<(InternedString, ExprKind, Span)> {
+        let mut visitor = TopLevelDefinitionFinder::new(&self.analysis);
+
+        for expr in self.exprs.iter() {
+            visitor.visit(expr);
+        }
+
+        visitor.definitions
+    }
+
+    pub fn find_let_bindings(&self) -> Vec<(InternedString, Span)> {
+        let mut visitor = LetBindingsFinder::new(&self.analysis);
+
+        for expr in self.exprs.iter() {
+            visitor.visit(expr);
+        }
+
+        visitor.definitions
     }
 
     pub fn find_global_defs(&self) -> Vec<(InternedString, Span)> {

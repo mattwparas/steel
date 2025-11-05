@@ -1,7 +1,7 @@
 use crate::steel_vm::vm::DehydratedCallContext;
 use crate::{parser::parser::ParseError, rvals::Custom, steel_vm::vm::DehydratedStackTrace};
-use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 use alloc::string::ToString;
+use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
 use core::{convert::Infallible, fmt::Formatter};
 #[cfg(feature = "std")]
 #[cfg(feature = "std")]

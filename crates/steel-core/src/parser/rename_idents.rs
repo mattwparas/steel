@@ -428,8 +428,8 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
 #[cfg(test)]
 mod rename_visitor_tests {
 
-    use alloc::vec;
     use alloc::boxed::Box;
+    use alloc::vec;
     use steel_parser::tokens::IntLiteral;
 
     use super::TokenType::*;

@@ -137,7 +137,7 @@ impl BlockingRequest {
     }
 
     fn call_with_json(&mut self, json: String) -> Result<SteelResponse, BlockingError> {
-        Request::send_json(self.0.clone().unwrap(), json)
+        Request::send_string(self.0.clone().unwrap(), &json)
             .map(|x| x.into())
             .map_err(BlockingError::Ureq)
     }

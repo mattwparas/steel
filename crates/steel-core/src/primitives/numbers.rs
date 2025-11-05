@@ -7,7 +7,7 @@ use core::ops::Neg;
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::{BigRational, Ratio, Rational32};
-use num_traits::{pow::Pow, CheckedAdd, CheckedMul, One, Signed, ToPrimitive, Zero};
+use num_traits::{pow::Pow, CheckedAdd, CheckedMul, Euclid, One, Signed, ToPrimitive, Zero};
 
 /// Checks if the given value is a number
 ///
@@ -289,7 +289,7 @@ fn negativep(value: &SteelVal) -> Result<SteelVal> {
 pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("-", args)?;
     match args {
-        [] => steelerr!(TypeMismatch => "- requires at least one argument"),
+        [] => steelerr!(ArityMismatch => "- requires at least one argument"),
         [x] => negate(x),
         [x, ys @ ..] => {
             let y = negate(&add_primitive_no_check(ys)?)?;
@@ -361,55 +361,548 @@ pub fn multiply_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     multiply_primitive_impl(args)
 }
 
-/// Returns quotient of dividing numerator by denomintator.
+/// Simultaneously returns the quotient and the arithmetic remainder of a truncated
+/// integer division of a given numerator *n* by a given denominator *m*.
 ///
-/// (quotient numerator denominator) -> integer?
+/// Equivalent to `(values (truncate-quotient n m) (truncate-remainder n m))`,
+/// but may be computed more efficiently.
 ///
-/// * numerator : integer? - The numerator.
-/// * denominator : integer? - The denominator.
-///
-/// # Examples
-/// ```scheme
-/// > (quotient 11 2) ;; => 5
-/// > (quotient 10 2) ;; => 5
-/// > (quotient -10 2) ;; => -5
-/// ```
-#[steel_derive::native(name = "quotient", constant = true, arity = "Exact(2)")]
-pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
-    match (&args[0], &args[1]) {
-        (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r).into_steelval(),
-        (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() / r).into_steelval(),
-        (SteelVal::IntV(l), SteelVal::BigNum(r)) => (l / r.as_ref()).into_steelval(),
-        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => (l.as_ref() / r.as_ref()).into_steelval(),
-        _ => steelerr!(TypeMismatch => "quotient only supports integers"),
-    }
-}
-
-/// Returns the euclidean remainder of the division of the first number by the second
-/// This differs from the remainder operator when using negative numbers.
-///
-/// (modulo n m) -> integer?
+/// (truncate/ n m) -> (integer? integer?)
 ///
 /// * n : integer?
 /// * m : integer?
 ///
 /// # Examples
+///
 /// ```scheme
-/// > (modulo 10 3) ;; => 1
-/// > (modulo -10 3) ;; => 2
-/// > (modulo 10 -3) ;; => -2
-/// > (module -10 -3) ;; => -1
+/// > (truncate/ 5 2) ;; => (2 1)
+/// > (truncate/ -5 2) ;; => (-2 -1)
+/// > (truncate/ 5 -2) ;; => (-2 1)
+/// > (truncate/ -5 -2) ;; => (2 -1)
 /// ```
-#[steel_derive::native(name = "modulo", constant = true, arity = "Exact(2)")]
-pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
+#[steel_derive::native(name = "truncate/", constant = true, arity = "Exact(2)")]
+pub fn truncate_slash(args: &[SteelVal]) -> Result<SteelVal> {
     match (&args[0], &args[1]) {
-        (SteelVal::IntV(l), SteelVal::IntV(r)) => ((l % r + r) % r).into_steelval(),
-        _ => steelerr!(TypeMismatch => "modulo only supports integers"),
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "truncate/: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
+            steelerr!(Generic => "truncate/: division by zero")
+        }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => {
+            let l = BigInt::from(*l);
+            (&l / r, l % r).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r, l % r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => {
+            (l.as_ref() / r, l.as_ref() % r).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => {
+            (l / r.as_ref(), l % r.as_ref()).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => {
+            l.as_ref().div_rem(r.as_ref()).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            ((l / r).trunc(), l % r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            ((l / *r as f64).trunc(), l % *r as f64).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            ((*l as f64 / r).trunc(), *l as f64 % r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            let r = r.to_f64().unwrap();
+            ((l / r).trunc(), l % r).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            let l = l.to_f64().unwrap();
+            ((l / r).trunc(), l % r).into_steelval()
+        }
+        _ => steelerr!(TypeMismatch => "truncate/ only supports integers"),
     }
 }
 
-/// Returns the arithmetic remainder of the division of the first number by the second.
-/// This differs from the modulo operator when using negative numbers.
+/// Returns the quotient of a truncated integer division of a given numerator *n*
+/// by a given denominator *m*.
+///
+/// (truncate-quotient n m) -> integer?
+///
+/// * n : integer? - The numerator.
+/// * m : integer? - The denominator.
+///
+/// # Examples
+///
+/// ```scheme
+/// > (truncate-quotient 5 2) ;; => 2
+/// > (truncate-quotient -5 2) ;; => -2
+/// > (truncate-quotient 5 -2) ;; => -2
+/// > (truncate-quotient -5 -2) ;; => 2
+/// ```
+#[steel_derive::native(name = "truncate-quotient", constant = true, arity = "Exact(2)")]
+pub fn truncate_quotient(args: &[SteelVal]) -> Result<SteelVal> {
+    match (&args[0], &args[1]) {
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "truncate-quotient: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
+            steelerr!(Generic => "truncate-quotient: division by zero")
+        }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => {
+            (BigInt::from(*l) / r).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => (l / r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() / r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => (l / r.as_ref()).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => (l.as_ref() / r.as_ref()).into_steelval(),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            (l / r).trunc().into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            (l / *r as f64).trunc().into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (*l as f64 / r).trunc().into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            (l / r.to_f64().unwrap()).trunc().into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (l.to_f64().unwrap() / r).trunc().into_steelval()
+        }
+        _ => steelerr!(TypeMismatch => "truncate-quotient only supports integers"),
+    }
+}
+
+/// Returns the arithmetic remainder of a truncated integer division of a given
+/// numerator *n* by a given denominator *m*.
+///
+/// The return value of this procedure has the same sign as the numerator.
+///
+/// (truncate-remainder n m) -> integer?
+///
+/// * n : integer? - The numerator.
+/// * m : integer? - The denominator.
+///
+/// # Examples
+///
+/// ```scheme
+/// > (truncate-remainder 5 2) ;; => 1
+/// > (truncate-remainder -5 2) ;; => -1
+/// > (truncate-remainder 5 -2) ;; => 1
+/// > (truncate-remainder -5 -2) ;; => -1
+/// ```
+#[steel_derive::native(name = "truncate-remainder", constant = true, arity = "Exact(2)")]
+pub fn truncate_remainder(args: &[SteelVal]) -> Result<SteelVal> {
+    match (&args[0], &args[1]) {
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "truncate-remainder: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
+            steelerr!(Generic => "truncate-remainder: division by zero")
+        }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => {
+            (BigInt::from(*l) % r).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => (l % r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => (l % r.as_ref()).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => (l.as_ref() % r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => (l.as_ref() % r.as_ref()).into_steelval(),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            (l % r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            (l % *r as f64).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (*l as f64 % r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            (l % r.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (l.to_f64().unwrap() % r).into_steelval()
+        }
+        _ => steelerr!(TypeMismatch => "truncate-remainder only supports integers"),
+    }
+}
+
+/// Simultaneously returns the quotient and the arithmetic remainder of a floored
+/// integer division of a given numerator *n* by a given denominator *m*.
+///
+/// (floor/ n m) -> (integer? integer?)
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (floor/ 5 2) ;; => (2 1)
+/// > (floor/ -5 2) ;; => (-3 1)
+/// > (floor/ 5 -2) ;; => (-3 -1)
+/// > (floor/ -5 -2) ;; => (2 -1)
+/// ```
+#[steel_derive::native(name = "floor/", constant = true, arity = "Exact(2)")]
+pub fn floor_slash(args: &[SteelVal]) -> Result<SteelVal> {
+    match (&args[0], &args[1]) {
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "floor/: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
+            steelerr!(Generic => "floor/: division by zero")
+        }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => BigInt::from(*l)
+            .div_mod_floor(&BigInt::from(*r))
+            .into_steelval(),
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => l.div_mod_floor(r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => {
+            BigInt::from(*l).div_mod_floor(r).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => {
+            l.div_mod_floor(&BigInt::from(*r)).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.div_mod_floor(r).into_steelval(),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            ((l / r).floor(), float_rem_floor(*l, *r)).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            ((l / *r as f64).floor(), float_rem_floor(*l, *r as f64)).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            ((*l as f64 / r).floor(), float_rem_floor(*l as f64, *r)).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            let r = r.to_f64().unwrap();
+            ((l / r).floor(), float_rem_floor(*l, r)).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            let l = l.to_f64().unwrap();
+            ((l / r).floor(), float_rem_floor(l, *r)).into_steelval()
+        }
+        _ => steelerr!(TypeMismatch => "floor/ only supports integers"),
+    }
+}
+
+/// Returns the quotient of a floored integer division of a given numerator *n*
+/// by a given denominator *m*.
+///
+/// Equivalent to `(values (floor-quotient n m) (floor-remainder n m))`, but
+/// may be computed more efficiently.
+///
+/// (floor-quotient n m) -> integer?
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (floor-quotient 5 2) ;; => 2
+/// > (floor-quotient -5 2) ;; => -3
+/// > (floor-quotient 5 -2) ;; => -3
+/// > (floor-quotient -5 -2) ;; => 2
+/// ```
+#[steel_derive::native(name = "floor-quotient", constant = true, arity = "Exact(2)")]
+pub fn floor_quotient(args: &[SteelVal]) -> Result<SteelVal> {
+    match (&args[0], &args[1]) {
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "floor-quotient: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
+            steelerr!(Generic => "floor-quotient: division by zero")
+        }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => BigInt::from(*l)
+            .div_floor(&BigInt::from(*r))
+            .into_steelval(),
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => l.div_floor(r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).div_floor(r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.div_floor(&BigInt::from(*r)).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.div_floor(r).into_steelval(),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            (l / r).floor().into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            (l / *r as f64).floor().into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (*l as f64 / r).floor().into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            (l / r.to_f64().unwrap()).floor().into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (l.to_f64().unwrap() / r).floor().into_steelval()
+        }
+        _ => steelerr!(TypeMismatch => "floor-quotient only supports integers"),
+    }
+}
+
+fn float_rem_floor(lhs: f64, rhs: f64) -> f64 {
+    // Algorithm taken from num-integer, which itself takes it from
+    // https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/divmodnote-letter.pdf
+    let r = lhs % rhs;
+    if (r > 0.0 && rhs < 0.0) || (r < 0.0 && rhs > 0.0) {
+        r + rhs
+    } else {
+        r
+    }
+}
+
+/// Returns the arithmetic remainder of a floored integer division of a given
+/// numerator *n* by a given denominator *m*.
+///
+/// The return value of this procedure has the same sign as the denominator.
+///
+/// (floor-remainder n m) -> integer?
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (floor-remainder 5 2) ;; => 1
+/// > (floor-remainder -5 2) ;; => 1
+/// > (floor-remainder 5 -2) ;; => -1
+/// > (floor-remainder -5 -2) ;; => -1
+/// ```
+#[steel_derive::native(name = "floor-remainder", constant = true, arity = "Exact(2)")]
+pub fn floor_remainder(args: &[SteelVal]) -> Result<SteelVal> {
+    match (&args[0], &args[1]) {
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "floor-remainder: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
+            steelerr!(Generic => "floor-remainder: division by zero")
+        }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => BigInt::from(*l)
+            .mod_floor(&BigInt::from(*r))
+            .into_steelval(),
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => l.mod_floor(r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).mod_floor(r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.mod_floor(&BigInt::from(*r)).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.mod_floor(r).into_steelval(),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            float_rem_floor(*l, *r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            float_rem_floor(*l, *r as f64).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            float_rem_floor(*l as f64, *r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            float_rem_floor(*l, r.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            float_rem_floor(l.to_f64().unwrap(), *r).into_steelval()
+        }
+        _ => steelerr!(TypeMismatch => "floor-remainder only supports integers"),
+    }
+}
+
+/// Simultaneously returns the quotient and the arithmetic remainder of a euclidean
+/// integer division of a given numerator *n* by a given denominator *m*.
+///
+/// Equivalent to `(values (euclidean-quotient n m) (euclidean-remainder n m))`,
+/// but may be computed more efficiently.
+///
+/// (euclidean/ n m) -> (integer? integer?)
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (euclidean/ 5 2) ;; => (2 1)
+/// > (euclidean/ -5 2) ;; => (-3 1)
+/// > (euclidean/ 5 -2) ;; => (-2 1)
+/// > (euclidean/ -5 -2) ;; => (3 1)
+/// ```
+#[steel_derive::native(name = "euclidean/", constant = true, arity = "Exact(2)")]
+pub fn euclidean_slash(args: &[SteelVal]) -> Result<SteelVal> {
+    match (&args[0], &args[1]) {
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "euclidean/: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
+            steelerr!(Generic => "euclidean/: division by zero")
+        }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => BigInt::from(*l)
+            .div_rem_euclid(&BigInt::from(*r))
+            .into_steelval(),
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => l.div_rem_euclid(r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => {
+            BigInt::from(*l).div_rem_euclid(r).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => {
+            l.div_rem_euclid(&BigInt::from(*r)).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.div_rem_euclid(r).into_steelval(),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            l.div_rem_euclid(r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            l.div_rem_euclid(&(*r as f64)).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (*l as f64).div_rem_euclid(r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            l.div_rem_euclid(&r.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            l.to_f64().unwrap().div_rem_euclid(r).into_steelval()
+        }
+        _ => steelerr!(TypeMismatch => "euclidean/ only supports integers"),
+    }
+}
+
+/// Returns the quotient of a euclidean integer division of a given numerator *n*
+/// by a given denominator *m*.
+///
+/// (euclidean-quotient n m) -> integer?
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (euclidean-quotient 5 2) ;; => 2
+/// > (euclidean-quotient -5 2) ;; => -3
+/// > (euclidean-quotient 5 -2) ;; => -2
+/// > (euclidean-quotient -5 -2) ;; => 3
+/// ```
+#[steel_derive::native(name = "euclidean-quotient", constant = true, arity = "Exact(2)")]
+pub fn euclidean_quotient(args: &[SteelVal]) -> Result<SteelVal> {
+    match (&args[0], &args[1]) {
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "euclidean-quotient: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
+            steelerr!(Generic => "euclidean-quotient: division by zero")
+        }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => BigInt::from(*l)
+            .div_euclid(&BigInt::from(*r))
+            .into_steelval(),
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => l.div_euclid(r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).div_euclid(r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.div_euclid(&BigInt::from(*r)).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.div_euclid(r).into_steelval(),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            l.div_euclid(r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            (*l).div_euclid(*r as f64).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (*l as f64).div_euclid(*r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            (*l).div_euclid(r.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            l.to_f64().unwrap().div_euclid(*r).into_steelval()
+        }
+        _ => steelerr!(TypeMismatch => "euclidean-quotient only supports integers"),
+    }
+}
+
+/// Returns the arithmetic remainder of a euclidean integer division of a given
+/// numerator *n* by a given denominator *m*.
+///
+/// The return value of this procedure is always positive.
+///
+/// (euclidean-remainder n m) -> integer?
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (euclidean-remainder 5 2) ;; => 1
+/// > (euclidean-remainder -5 2) ;; => 1
+/// > (euclidean-remainder 5 -2) ;; => 1
+/// > (euclidean-remainder -5 -2) ;; => 1
+/// ```
+#[steel_derive::native(name = "euclidean-remainder", constant = true, arity = "Exact(2)")]
+pub fn euclidean_remainder(args: &[SteelVal]) -> Result<SteelVal> {
+    match (&args[0], &args[1]) {
+        (SteelVal::NumV(l), SteelVal::IntV(0) | SteelVal::NumV(0.0)) if l.fract() == 0.0 => {
+            steelerr!(Generic => "euclidean-remainder: division by zero")
+        }
+        (SteelVal::IntV(_) | SteelVal::BigNum(_), SteelVal::IntV(0) | SteelVal::NumV(0.0)) => {
+            steelerr!(Generic => "euclidean-remainder: division by zero")
+        }
+        // prevent panic due to overflow
+        (SteelVal::IntV(l @ isize::MIN), SteelVal::IntV(r @ -1)) => BigInt::from(*l)
+            .rem_euclid(&BigInt::from(*r))
+            .into_steelval(),
+        (SteelVal::IntV(l), SteelVal::IntV(r)) => l.rem_euclid(r).into_steelval(),
+        (SteelVal::IntV(l), SteelVal::BigNum(r)) => BigInt::from(*l).rem_euclid(r).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::IntV(r)) => l.rem_euclid(&BigInt::from(*r)).into_steelval(),
+        (SteelVal::BigNum(l), SteelVal::BigNum(r)) => l.rem_euclid(r).into_steelval(),
+        (SteelVal::NumV(l), SteelVal::NumV(r)) if l.fract() == 0.0 && r.fract() == 0.0 => {
+            l.rem_euclid(r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::IntV(r)) if l.fract() == 0.0 => {
+            (*l).rem_euclid(*r as f64).into_steelval()
+        }
+        (SteelVal::IntV(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            (*l as f64).rem_euclid(*r).into_steelval()
+        }
+        (SteelVal::NumV(l), SteelVal::BigNum(r)) if l.fract() == 0.0 => {
+            (*l).rem_euclid(r.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::BigNum(l), SteelVal::NumV(r)) if r.fract() == 0.0 => {
+            l.to_f64().unwrap().rem_euclid(*r).into_steelval()
+        }
+        _ => steelerr!(TypeMismatch => "euclidean-remainder only supports integers"),
+    }
+}
+
+/// Returns the quotient of a truncated integer division of a given numerator *n*
+/// by a given denominator *m*.
+///
+/// This procedure is an alias of `truncate-quotient`.
+///
+/// (quotient n m) -> integer?
+///
+/// * n : integer? - The numerator.
+/// * m : integer? - The denominator.
+///
+/// # Examples
+///
+/// ```scheme
+/// > (quotient 5 2) ;; => 2
+/// > (quotient -5 2) ;; => -2
+/// > (quotient 5 -2) ;; => -2
+/// > (quotient -5 -2) ;; => 2
+/// ```
+#[steel_derive::native(name = "quotient", constant = true, arity = "Exact(2)")]
+pub fn quotient(args: &[SteelVal]) -> Result<SteelVal> {
+    truncate_quotient(args)
+}
+
+/// Returns the arithmetic remainder of a truncated integer division of a given
+/// numerator *n* by a given denominator *m*.
+///
+/// The return value of this procedure has the same sign as the numerator.
+///
+/// This procedure is an alias of `truncate-remainder`.
 ///
 /// (remainder n m) -> integer?
 ///
@@ -417,18 +910,41 @@ pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
 /// * m : integer?
 ///
 /// # Examples
+///
 /// ```scheme
-/// > (remainder 10 3) ;; => 1
-/// > (remainder -10 3) ;; => -1
-/// > (remainder 10 -3) ;; => 1
-/// > (remainder -10 -3) ;; => -1
+/// > (remainder 5 2) ;; => 1
+/// > (remainder -5 2) ;; => -1
+/// > (remainder 5 -2) ;; => 1
+/// > (remainder -5 -2) ;; => -1
 /// ```
 #[steel_derive::native(name = "remainder", constant = true, arity = "Exact(2)")]
 pub fn remainder(args: &[SteelVal]) -> Result<SteelVal> {
-    match (&args[0], &args[1]) {
-        (SteelVal::IntV(l), SteelVal::IntV(r)) => (l % r).into_steelval(),
-        _ => steelerr!(TypeMismatch => "remainder only supports integers"),
-    }
+    truncate_remainder(args)
+}
+
+/// Returns the arithmetic remainder of a floored integer division of a given
+/// numerator *n* by a given denominator *m*.
+///
+/// The return value of this procedure has the same sign as the denominator.
+///
+/// This procedure is an alias of `floor-remainder`.
+///
+/// (modulo n m) -> integer?
+///
+/// * n : integer?
+/// * m : integer?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (modulo 5 2) ;; => 1
+/// > (modulo -5 2) ;; => 1
+/// > (modulo 5 -2) ;; => -1
+/// > (modulo -5 -2) ;; => -1
+/// ```
+#[steel_derive::native(name = "modulo", constant = true, arity = "Exact(2)")]
+pub fn modulo(args: &[SteelVal]) -> Result<SteelVal> {
+    floor_remainder(args)
 }
 
 /// Returns the sine value of the input angle, measured in radians.
@@ -1375,7 +1891,7 @@ pub fn real_part(value: &SteelVal) -> Result<SteelVal> {
         | val @ SteelVal::BigRational(_)
         | val @ SteelVal::NumV(_) => Ok(val.clone()),
         SteelVal::Complex(complex) => Ok(complex.re.clone()),
-        _ => steelerr!(TypeMismatch => "real-part expected number"),
+        _ => steelerr!(TypeMismatch => "real-part expects a number, found {}", value),
     }
 }
 
@@ -1397,7 +1913,7 @@ pub fn imag_part(value: &SteelVal) -> Result<SteelVal> {
         | SteelVal::BigRational(_)
         | SteelVal::NumV(_) => Ok(SteelVal::IntV(0)),
         SteelVal::Complex(complex) => Ok(complex.im.clone()),
-        _ => steelerr!(TypeMismatch => "imag-part expected number"),
+        _ => steelerr!(TypeMismatch => "imag-part expects a number, found {}", value),
     }
 }
 
@@ -1425,7 +1941,7 @@ fn magnitude(number: &SteelVal) -> Result<SteelVal> {
             let c_squared = add_two(&square(&x.re)?, &square(&x.im)?)?;
             sqrt(&c_squared)
         }
-        _ => steelerr!(TypeMismatch => "magnitude expects a number, found {number}"),
+        _ => steelerr!(TypeMismatch => "magnitude expects a number, found {}", number),
     }
 }
 
@@ -1442,7 +1958,7 @@ pub fn angle(number: &SteelVal) -> Result<SteelVal> {
         | re @ SteelVal::Rational(_)
         | re @ SteelVal::BigNum(_) => (re, &SteelVal::IntV(0)),
         SteelVal::Complex(complex) => (&complex.re, &complex.im),
-        _ => stop!(TypeMismatch => "angle expects a number, found {number}"),
+        _ => stop!(TypeMismatch => "angle expects a number, found {}", number),
     };
 
     atan2(im, re)
@@ -1455,7 +1971,7 @@ fn atan2(y: &SteelVal, x: &SteelVal) -> Result<SteelVal> {
         SteelVal::IntV(arg) => Ok(*arg as f64),
         SteelVal::Rational(arg) => Ok(*arg.numer() as f64 / *arg.denom() as f64),
         SteelVal::BigNum(arg) => Ok(arg.to_f64().unwrap()),
-        _ => steelerr!(TypeMismatch => "atan2 expects a number, found {arg}"),
+        _ => steelerr!(TypeMismatch => "atan2 expects a number, found {}", arg),
     };
 
     let y = as_f64(y)?;
@@ -1526,7 +2042,7 @@ fn exact_integer_sqrt(number: &SteelVal) -> Result<SteelVal> {
             (ans.into_steelval()?, rem.into_steelval()?).into_steelval()
         }
         _ => {
-            steelerr!(TypeMismatch => "exact-integer-sqrt expects a non-negative integer but found {number}")
+            steelerr!(TypeMismatch => "exact-integer-sqrt expects a non-negative integer but found {}", number)
         }
     }
 }
@@ -1921,8 +2437,8 @@ fn add_complex(x: &SteelComplex, y: &SteelComplex) -> Result<SteelVal> {
 mod num_op_tests {
     use super::*;
     use crate::{gc::Gc, rvals::SteelVal::*};
-    use core::str::FromStr;
     use alloc::string::ToString;
+    use core::str::FromStr;
 
     #[test]
     fn division_test() {

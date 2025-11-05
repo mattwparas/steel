@@ -1,7 +1,7 @@
 #[cfg(feature = "std")]
-use alloc::borrow::Cow;
-#[cfg(feature = "std")]
 use crate::steel_vm::engine::Engine;
+#[cfg(feature = "std")]
+use alloc::borrow::Cow;
 
 #[cfg(feature = "std")]
 fn generate_asserting_machine() -> Engine {

@@ -562,10 +562,7 @@ mod no_std_sync {
         }
 
         pub fn try_with<R>(&self, f: impl FnOnce(&T) -> R) -> Result<R, AccessError> {
-            let mut guard = self
-                .storage
-                .lock()
-                .map_err(|_| AccessError)?;
+            let mut guard = self.storage.lock().map_err(|_| AccessError)?;
 
             let value = guard.get_or_insert_with(self.init);
             let value_ptr: *const T = value as *const T;

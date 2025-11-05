@@ -386,12 +386,12 @@ pub fn create_directory(directory: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::Void)
 }
 
-/// Recursively copies the contents of the source directory to the destination
+/// Recursively copies the contents of the source directory to the destination.
 ///
 /// (copy-directory-recursively! source destination) -> void?
 ///
-/// * source : (string?) - The directory to copy.
-/// * destination : (string?) - The destination directory into which to copy.
+/// * source : string? - The directory to copy.
+/// * destination : string? - The destination directory into which to copy.
 ///
 /// # Examples
 /// ```scheme
@@ -407,7 +407,7 @@ pub fn copy_directory_recursively(
     Ok(SteelVal::Void)
 }
 
-/// Checks if a path exists
+/// Checks if a path exists.
 ///
 /// (path-exists? path) -> bool?
 ///
@@ -423,11 +423,11 @@ pub fn path_exists(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(StdPath::new(path.as_ref()).exists()))
 }
 
-/// Checks if a path is a file
+/// Checks if a path is a file.
 ///
 /// (is-file? path) -> bool?
 ///
-/// * path : (string?) - The path to check
+/// * path : string? - The path to check.
 ///
 /// # Examples
 /// ```scheme
@@ -439,11 +439,11 @@ pub fn is_file(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(StdPath::new(path.as_ref()).is_file()))
 }
 
-/// Checks if a path is a directory
+/// Checks if a path is a directory.
 ///
 /// (is-dir? path) -> bool?
 ///
-/// * path : (string?) - The path to check
+/// * path : string? - The path to check.
 ///
 /// # Examples
 /// ```scheme
@@ -455,11 +455,11 @@ pub fn is_dir(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(StdPath::new(path.as_ref()).is_dir()))
 }
 
-/// Gets the extension from a path
+/// Gets the extension from a path.
 ///
 /// (path->extension path) -> (or/c string? void?)
 ///
-/// * path : (string?) - The path to check
+/// * path : string? - The path from which to get the extension.
 ///
 /// # Examples
 /// ```scheme
@@ -475,11 +475,11 @@ pub fn get_extension(path: &SteelString) -> Result<SteelVal> {
     }
 }
 
-/// Gets the filename for a given path
+/// Gets the filename for a given path.
 ///
 /// (file-name path) -> string?
 ///
-/// * path : (string?) - The path to check
+/// * path : string? - The path from which to get the file name.
 ///
 /// # Examples
 /// ```scheme
@@ -497,11 +497,11 @@ pub fn file_name(path: &SteelString) -> Result<SteelVal> {
     ))
 }
 
-/// Gets the parent directory name for a given path
+/// Gets the parent directory name for a given path.
 ///
 /// (parent-name path) -> string?
 ///
-/// * path : (string?) - The path to check
+/// * path : string? - The path from which to get the parent.
 ///
 /// # Examples
 /// ```scheme
@@ -519,11 +519,11 @@ pub fn parent_name(path: &SteelString) -> Result<SteelVal> {
     ))
 }
 
-/// Returns canonical path with all components normalized
+/// Returns canonical path with all components normalized.
 ///
 /// (canonicalize-path path) -> string?
 ///
-/// * path : (string?) - The path to canonicalize
+/// * path : string? - The path to canonicalize.
 ///
 /// # Examples
 /// ```scheme
@@ -559,7 +559,7 @@ pub fn canonicalize_path(path: &SteelString) -> Result<SteelVal> {
 ///
 /// (read-dir path) -> list?
 ///
-/// * path : (string?) - The path to check
+/// * path : string? - The path to the directory.
 ///
 /// # Examples
 /// ```scheme

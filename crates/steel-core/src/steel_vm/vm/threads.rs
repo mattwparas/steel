@@ -9,8 +9,8 @@ use steel_derive::function;
 
 use crate::{
     rvals::{
-        AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer, SerializableSteelVal,
-        into_serializable_value,
+        into_serializable_value, AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer,
+        SerializableSteelVal,
     },
     steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn},
     values::functions::{SerializedLambda, SerializedLambdaPrototype},

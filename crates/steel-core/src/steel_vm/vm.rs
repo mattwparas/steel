@@ -1,4 +1,7 @@
-#![cfg_attr(not(feature = "std"), allow(dead_code, unused_imports, unused_variables))]
+#![cfg_attr(
+    not(feature = "std"),
+    allow(dead_code, unused_imports, unused_variables)
+)]
 
 use crate::compiler::compiler::Compiler;
 use crate::core::instructions::u24;

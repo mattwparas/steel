@@ -1,6 +1,12 @@
 #![allow(unused)]
 
-use alloc::{boxed::Box, format, rc::Rc, string::{String, ToString}, sync::Arc};
+use alloc::{
+    boxed::Box,
+    format,
+    rc::Rc,
+    string::{String, ToString},
+    sync::Arc,
+};
 use core::{cell::RefCell, future::Future, marker::PhantomData, ops::DerefMut};
 
 use super::{

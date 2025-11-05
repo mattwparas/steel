@@ -1,6 +1,6 @@
+extern crate alloc;
 extern crate proc_macro;
 extern crate proc_macro2;
-extern crate alloc;
 #[macro_use]
 extern crate syn;
 extern crate quote;
@@ -146,6 +146,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
     let should_impl_getters = should_derive_param(&input, "getters");
     let should_impl_constructor =
         should_derive_param(&input, "constructor") || should_derive_param(&input, "constructors");
+    let should_impl_hash = should_derive_param(&input, "hash");
 
     match &input.data {
         Data::Struct(s) => {
@@ -447,9 +448,21 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                 quote! {}
             };
 
+            let hash_impl = if should_impl_hash {
+                quote! {
+                    fn try_as_dyn_hash(&self) -> Option<&dyn #prefix::rvals::DynHash> {
+                        Some(self)
+                    }
+                }
+            } else {
+                quote! {}
+            };
+
             let gen = quote! {
                 impl #prefix::rvals::Custom for #name {
                     #equality_impl
+
+                    #hash_impl
                 }
 
                 impl #name {

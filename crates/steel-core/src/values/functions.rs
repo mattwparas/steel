@@ -1,7 +1,7 @@
 #![allow(unused)]
 
-use alloc::string::{String, ToString};
 use crate::collections::MutableHashMap as HashMap;
+use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};

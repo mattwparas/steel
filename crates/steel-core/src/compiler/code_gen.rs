@@ -741,9 +741,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                 super::passes::analysis::CallKind::NoArityNormal => OpCode::FUNCNOARITY,
                 super::passes::analysis::CallKind::NoArityTailCall => OpCode::TAILCALLNOARITY,
                 super::passes::analysis::CallKind::NoAritySelfTailCall(_) => {
-                    // panic!();
                     self.instructions.pop();
-                    // OpCode::SELFTAILCALLNOARITY
                     OpCode::SELFTAILCALLNOARITY
                 }
                 // Elide the arity checks, if we can
@@ -752,7 +750,6 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
                     // tail call
                     self.instructions.pop();
                     OpCode::TCOJMP
-                    // OpCode::TAILCALL
                 }
             };
 

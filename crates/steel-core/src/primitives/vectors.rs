@@ -609,9 +609,10 @@ fn immutable_vector_take(vector: &mut SteelVal, count: usize) -> Result<SteelVal
                 v.truncate(count);
                 Ok(core::mem::replace(vector, SteelVal::Void))
             }
-            None => Ok(SteelVal::VectorV(SteelVector(Gc::new(
-                vector_take_clone(v.as_ref(), count),
-            )))),
+            None => Ok(SteelVal::VectorV(SteelVector(Gc::new(vector_take_clone(
+                v.as_ref(),
+                count,
+            ))))),
         },
 
         _ => {
@@ -663,9 +664,10 @@ fn immutable_vector_drop(vector: &mut SteelVal, count: usize) -> Result<SteelVal
                 // v.truncate(count);
                 Ok(core::mem::replace(vector, SteelVal::Void))
             }
-            None => Ok(SteelVal::VectorV(SteelVector(Gc::new(
-                vector_drop_clone(v.as_ref(), count),
-            )))),
+            None => Ok(SteelVal::VectorV(SteelVector(Gc::new(vector_drop_clone(
+                v.as_ref(),
+                count,
+            ))))),
         },
 
         _ => {

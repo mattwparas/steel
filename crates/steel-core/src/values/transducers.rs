@@ -49,6 +49,10 @@ pub enum Transducers {
     Enumerating,            // turns (a b c) into ((0 a) (1 b) (2 c))
     Zipping(SteelVal),      // Combine with another iterator, either a Collection or a Transducer
     Interleaving(SteelVal), // Interleave with another interator, either a Collection or a Transducer
+
+    // Optimized versions:
+    // Map pair will automatically expand the list into a pair.
+    MapPair(SteelVal),
 }
 
 // This should just describe how a sequence of values can be reduced

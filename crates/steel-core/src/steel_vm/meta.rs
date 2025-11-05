@@ -2,7 +2,13 @@
 
 // pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;`
 
-use alloc::{borrow::Cow, format, rc::Rc, string::{String, ToString}, vec::Vec};
+use alloc::{
+    borrow::Cow,
+    format,
+    rc::Rc,
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::{cell::RefCell, convert::TryFrom};
 #[cfg(feature = "std")]
 use std::io::Write;

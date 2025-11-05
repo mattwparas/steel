@@ -4,9 +4,9 @@ use crate::stop;
 #[cfg_attr(not(feature = "sync"), allow(unused_imports))]
 use crate::sync::RwLock;
 #[allow(unused_imports)]
-use alloc::{boxed::Box, format, string::String, vec::Vec};
-#[allow(unused_imports)]
 use alloc::string::ToString;
+#[allow(unused_imports)]
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 
 #[cfg(not(feature = "sync"))]
 use core::cell::RefCell;

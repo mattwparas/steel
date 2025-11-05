@@ -400,7 +400,7 @@ impl ExpressionType {
                     let name = d
                         .name
                         .atom_identifier_or_else(|| {})
-                        .expect("Define without a legal name");
+                        .expect(&format!("Define without a legal name: {}", d.name));
 
                     defined_idents.insert(*name);
 

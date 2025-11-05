@@ -2,11 +2,11 @@
 Filesystem functions, mostly just thin wrappers around the `std::fs` functions in
 the Rust std library.
 ### **canonicalize-path**
-Returns canonical path with all components normalized
+Returns canonical path with all components normalized.
 
 (canonicalize-path path) -> string?
 
-* path : (string?) - The path to canonicalize
+* path : string? - The path to canonicalize.
 
 #### Examples
 ```scheme
@@ -26,12 +26,12 @@ Change the current working directory
 > (change-current-directory! "..") ;;
 ```
 ### **copy-directory-recursively!**
-Recursively copies the contents of the source directory to the destination
+Recursively copies the contents of the source directory to the destination.
 
 (copy-directory-recursively! source destination) -> void?
 
-* source : (string?) - The directory to copy.
-* destination : (string?) - The destination directory into which to copy.
+* source : string? - The directory to copy.
+* destination : string? - The destination directory into which to copy.
 
 #### Examples
 ```scheme
@@ -82,11 +82,11 @@ Deletes the file
 ### **file-metadata**
 Access the file metadata for a given path
 ### **file-name**
-Gets the filename for a given path
+Gets the filename for a given path.
 
 (file-name path) -> string?
 
-* path : (string?) - The path to check
+* path : string? - The path from which to get the file name.
 
 #### Examples
 ```scheme
@@ -110,11 +110,11 @@ Get the last modified time from the file metadata
 ### **fs-metadata?**
 Checks if this value is a #<Metadata>
 ### **is-dir?**
-Checks if a path is a directory
+Checks if a path is a directory.
 
 (is-dir? path) -> bool?
 
-* path : (string?) - The path to check
+* path : string? - The path to check.
 
 #### Examples
 ```scheme
@@ -122,11 +122,11 @@ Checks if a path is a directory
 > (is-dir? "logs/today.json") ;; => #false
 ```
 ### **is-file?**
-Checks if a path is a file
+Checks if a path is a file.
 
 (is-file? path) -> bool?
 
-* path : (string?) - The path to check
+* path : string? - The path to check.
 
 #### Examples
 ```scheme
@@ -134,11 +134,11 @@ Checks if a path is a file
 > (is-file? "logs/today.json") ;; => #true
 ```
 ### **parent-name**
-Gets the parent directory name for a given path
+Gets the parent directory name for a given path.
 
 (parent-name path) -> string?
 
-* path : (string?) - The path to check
+* path : string? - The path from which to get the parent.
 
 #### Examples
 ```scheme
@@ -146,11 +146,11 @@ Gets the parent directory name for a given path
 > (parent-name "logs/today.json") ;; => "logs"
 ```
 ### **path->extension**
-Gets the extension from a path
+Gets the extension from a path.
 
 (path->extension path) -> (or/c string? void?)
 
-* path : (string?) - The path to check
+* path : string? - The path from which to get the extension.
 
 #### Examples
 ```scheme
@@ -158,7 +158,7 @@ Gets the extension from a path
 > (path->extension "logs/today.json") ;; => ".json"
 ```
 ### **path-exists?**
-Checks if a path exists
+Checks if a path exists.
 
 (path-exists? path) -> bool?
 
@@ -174,7 +174,7 @@ Returns the contents of the directory as a list
 
 (read-dir path) -> list?
 
-* path : (string?) - The path to check
+* path : string? - The path to the directory.
 
 #### Examples
 ```scheme

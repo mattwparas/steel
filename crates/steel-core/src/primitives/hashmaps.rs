@@ -360,7 +360,9 @@ pub fn clear(hashmap: &mut SteelVal) -> Result<SteelVal> {
                 m.clear();
                 Ok(core::mem::replace(hashmap, SteelVal::Void))
             }
-            None => Ok(SteelVal::HashMapV(Gc::new(HashMap::<SteelVal, SteelVal>::default()).into())),
+            None => Ok(SteelVal::HashMapV(
+                Gc::new(HashMap::<SteelVal, SteelVal>::default()).into(),
+            )),
         }
     } else {
         stop!(TypeMismatch => "hash-clear expected a hashmap, found: {:?}", hashmap);
