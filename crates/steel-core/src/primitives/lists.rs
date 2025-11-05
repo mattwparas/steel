@@ -958,6 +958,7 @@ mod list_operation_tests {
 
     use super::*;
     use crate::rerrs::ErrorKind;
+    use alloc::vec;
 
     #[test]
     fn cons_test_normal_input() {

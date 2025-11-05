@@ -2118,6 +2118,7 @@ pub struct HeapAllocated<T: Clone + core::fmt::Debug + PartialEq + Eq> {
     pub(crate) value: T,
 }
 
+#[cfg(all(test, feature = "std"))]
 #[test]
 fn check_size_of_heap_allocated_value() {
     println!("{:?}", core::mem::size_of::<HeapAllocated<SteelVal>>());

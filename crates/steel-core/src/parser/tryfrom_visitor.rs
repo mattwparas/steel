@@ -850,7 +850,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use crate::parser::{ast::Quote, parser::SyntaxObject, tokens::TokenType};
 

@@ -3,7 +3,7 @@ use super::tokens::TokenType;
 use super::{ast::*, interner::InternedString};
 use crate::parser::parser::Parser;
 use crate::parser::span::Span;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 // use super::
 use alloc::sync::Arc;
 use core::convert::TryFrom;

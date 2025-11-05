@@ -58,7 +58,7 @@ impl<'global, 'a> Iterator for LazyStreamIter<'global, 'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod stream_tests {
     use crate::steel_vm::test_util::assert_script;
 

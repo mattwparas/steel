@@ -2768,13 +2768,13 @@ mod or_else_tests {
 
     use super::*;
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
+    #[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
     use im::vector;
 
-    #[cfg(all(feature = "sync", feature = "imbl"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
     use imbl::vector;
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(feature = "std", not(feature = "sync")))]
     use im_rc::vector;
 
     #[test]

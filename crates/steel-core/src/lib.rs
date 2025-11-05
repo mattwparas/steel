@@ -6,6 +6,40 @@ pub extern crate alloc; // Required for heap-backed types when std is disabled
 #[allow(unused_imports)]
 use alloc::string::ToString;
 
+#[cfg(all(test, not(feature = "std")))]
+macro_rules! vector {
+    ($($elem:expr),* $(,)?) => {{
+        let mut temp = crate::collections::Vector::new();
+        $(temp.push($elem);)*
+        temp
+    }};
+}
+
+#[cfg(all(test, not(feature = "std")))]
+macro_rules! hashmap {
+    () => {{
+        crate::collections::HashMap::default()
+    }};
+    ($($key:expr => $value:expr),+ $(,)?) => {{
+        let mut map = crate::collections::HashMap::default();
+        $(map.insert($key, $value);)*
+        map
+    }};
+}
+
+#[cfg(all(test, not(feature = "std")))]
+#[allow(unused_macros)]
+macro_rules! hashset {
+    () => {{
+        crate::collections::HashSet::default()
+    }};
+    ($($value:expr),+ $(,)?) => {{
+        let mut set = crate::collections::HashSet::default();
+        $(set.insert($value);)*
+        set
+    }};
+}
+
 #[cfg(not(feature = "std"))]
 mod std {
     #![allow(unused_imports)]

@@ -85,6 +85,7 @@ pub struct SemanticInformation {
     pub is_required_identifier: bool,
 }
 
+#[cfg(all(test, feature = "std"))]
 #[test]
 fn check_size_of_info() {
     println!("{}", core::mem::size_of::<SemanticInformation>());
@@ -5324,7 +5325,7 @@ impl<'a> SemanticAnalysis<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod analysis_pass_tests {
 
     use crate::{

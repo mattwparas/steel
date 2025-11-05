@@ -1481,6 +1481,7 @@ pub mod unsafe_erased_pointers {
         }
     }
 
+    #[cfg(all(test, feature = "std"))]
     #[test]
     fn test() {
         #[derive(Debug)]

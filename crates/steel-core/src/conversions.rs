@@ -1,8 +1,5 @@
 use crate::values::lists::List;
-#[cfg(test)]
-use alloc::string::String;
-use alloc::{borrow::Cow, boxed::Box, format, vec, vec::Vec};
-use alloc::string::ToString;
+use alloc::{borrow::Cow, boxed::Box, format, string::ToString, vec, vec::Vec};
 
 use crate::collections::{
     HashMap as ImmutableHashMap, HashSet as ImmutableHashSet, MutableHashMap, MutableHashSet,
@@ -384,35 +381,36 @@ impl<K: FromSteelVal + Eq + core::hash::Hash> FromSteelVal for MutableHashSet<K>
 mod conversion_tests {
 
     use super::*;
+    use alloc::vec;
 
     #[cfg(feature = "std")]
     use std::collections::{HashMap, HashSet};
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(feature = "std", not(feature = "sync")))]
     use im_rc::vector;
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(feature = "std", not(feature = "sync")))]
     use im_rc::hashmap;
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(feature = "std", not(feature = "sync")))]
     use im_rc::hashset;
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
+    #[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
     use im::vector;
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
+    #[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
     use im::hashmap;
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
+    #[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
     use im::hashset;
 
-    #[cfg(all(feature = "sync", feature = "imbl"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
     use imbl::vector;
 
-    #[cfg(all(feature = "sync", feature = "imbl"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
     use imbl::hashmap;
 
-    #[cfg(all(feature = "sync", feature = "imbl"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
     use imbl::hashset;
 
     #[test]

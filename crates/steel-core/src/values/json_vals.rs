@@ -198,13 +198,13 @@ mod json_tests {
 
     use crate::rvals::SteelVal::*;
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(feature = "std", not(feature = "sync")))]
     use im_rc::hashmap;
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
+    #[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
     use im::hashmap;
 
-    #[cfg(all(feature = "sync", feature = "imbl"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
     use imbl::hashmap;
 
     #[test]

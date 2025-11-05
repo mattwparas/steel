@@ -943,7 +943,7 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod code_gen_tests {
     use super::*;
 

@@ -1922,6 +1922,7 @@ mod num_op_tests {
     use super::*;
     use crate::{gc::Gc, rvals::SteelVal::*};
     use core::str::FromStr;
+    use alloc::string::ToString;
 
     #[test]
     fn division_test() {

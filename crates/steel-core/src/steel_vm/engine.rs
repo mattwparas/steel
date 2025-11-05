@@ -1180,10 +1180,12 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new_raw();
     /// assert!(vm.run("(+ 1 2 3").is_err()); // + is a free identifier
+    /// # }
     /// ```
     pub fn new_raw() -> Self {
         let sources = Sources::new();
@@ -1226,11 +1228,13 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new_base();
     /// // map is found in the prelude, so this will fail
     /// assert!(vm.run(r#"(map (lambda (x) 10) (list 1 2 3 4 5))"#).is_err());
+    /// # }
     /// ```
     #[inline]
     pub fn new_base() -> Self {
@@ -1470,10 +1474,12 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new();
     /// vm.run(r#"(+ 1 2 3)"#).unwrap();
+    /// # }
     /// ```
     pub fn new() -> Self {
         let mut engine = fresh_kernel_image(false);
@@ -1522,10 +1528,12 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new_base().with_prelude().unwrap();
     /// vm.run("(+ 1 2 3)").unwrap();
+    /// # }
     /// ```
     pub fn with_prelude(mut self) -> Result<Self> {
         let core_libraries = &[crate::stdlib::PRELUDE];
@@ -1543,11 +1551,13 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new_base();
     /// vm.register_prelude().unwrap();
     /// vm.run("(+ 1 2 3)").unwrap();
+    /// # }
     /// ```
     pub fn register_prelude(&mut self) -> Result<&mut Self> {
         let core_libraries = &[crate::stdlib::PRELUDE];
@@ -2063,12 +2073,14 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new();
     /// let external_value = String::from("hello-world");
     /// vm.register_external_value("hello-world", external_value).unwrap();
     /// vm.run("hello-world").unwrap(); // Will return the string
+    /// # }
     /// ```
     pub fn register_external_value<T: FromSteelVal + IntoSteelVal>(
         &mut self,
@@ -2083,6 +2095,7 @@ impl Engine {
     ///
     /// # Examples
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// use steel::rvals::SteelVal;
@@ -2091,6 +2104,7 @@ impl Engine {
     /// let external_value = SteelVal::StringV("hello-world".into());
     /// vm.register_value("hello-world", external_value);
     /// vm.run("hello-world").unwrap(); // Will return the string
+    /// # }
     /// ```
     pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
         self.register_value_inner(name, value)
@@ -2121,6 +2135,7 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// use steel::steel_vm::register_fn::RegisterFn;
@@ -2132,6 +2147,7 @@ impl Engine {
     /// vm.register_fn("foo", foo);
     ///
     /// vm.run(r#"(foo)"#).unwrap(); // Returns vec![10]
+    /// # }
     /// ```
     pub fn register_type<T: FromSteelVal + IntoSteelVal>(
         &mut self,
@@ -2167,12 +2183,14 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// use steel::rvals::SteelVal;
     /// let mut vm = Engine::new();
     /// vm.run("(define a 10)").unwrap();
     /// assert_eq!(vm.extract_value("a").unwrap(), SteelVal::IntV(10));
+    /// # }
     /// ```
     pub fn extract_value(&self, name: &str) -> Result<SteelVal> {
         let idx = self.virtual_machine.compiler.read().get_idx(name).ok_or_else(throw!(
@@ -2192,11 +2210,13 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new();
     /// vm.run("(define a 10)").unwrap();
     /// assert_eq!(vm.extract::<usize>("a").unwrap(), 10);
+    /// # }
     /// ```
     pub fn extract<T: FromSteelVal>(&self, name: &str) -> Result<T> {
         T::from_steelval(&self.extract_value(name)?)
@@ -2468,7 +2488,7 @@ impl EngineBuilder {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod engine_api_tests {
     use crate::custom_reference;
 
@@ -2567,7 +2587,7 @@ mod engine_api_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod engine_sandbox_tests {
     use super::*;
 
@@ -2581,7 +2601,7 @@ mod engine_sandbox_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod derive_macro_tests {
     use super::*;
 
@@ -2655,6 +2675,7 @@ mod derive_macro_tests {
     }
 }
 
+#[cfg(all(test, feature = "std"))]
 #[test]
 fn test_steel_quote_macro() {
     let foobarbaz = ExprKind::atom("foo");

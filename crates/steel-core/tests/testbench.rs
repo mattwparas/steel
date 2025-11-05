@@ -1,7 +1,10 @@
+#![cfg(feature = "std")]
+
 mod helpers;
 extern crate steel;
 
-use std::{io::Read, path::PathBuf};
+use std::io::Read;
+use steel::path::PathBuf;
 
 use helpers::*;
 use steel::steel_vm::engine::Engine;

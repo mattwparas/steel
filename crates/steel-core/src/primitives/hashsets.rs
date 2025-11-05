@@ -8,7 +8,7 @@ use crate::values::lists::List;
 use crate::{gc::Gc, steel_vm::builtin::BuiltInModule};
 use crate::{stop, Vector};
 use alloc::format;
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 use alloc::vec::Vec;
 
 pub(crate) fn hashset_module() -> BuiltInModule {
@@ -273,19 +273,20 @@ pub fn list_to_hashset(l: &List<SteelVal>) -> SteelVal {
     SteelVal::HashSetV(Gc::new(l.iter().cloned().collect::<HashSet<_>>()).into())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod hashset_tests {
     use crate::rvals::SteelString;
 
     use super::*;
+    use alloc::vec;
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(feature = "std", not(feature = "sync")))]
     use im_rc::vector;
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
+    #[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
     use im::vector;
 
-    #[cfg(all(feature = "sync", feature = "imbl"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
     use imbl::vector;
 
     #[test]

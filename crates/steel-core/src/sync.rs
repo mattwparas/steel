@@ -552,11 +552,26 @@ mod no_std_sync {
             };
 
             let value = guard.get_or_insert_with(self.init);
-            f(value)
+            // SAFETY: `value` lives for the entire lifetime of `self` and we never
+            // mutate or move it while the returned reference is in use. We drop the
+            // guard before invoking the user provided closure so that re-entrant
+            // calls to this thread local do not trip the `RefCell` borrow checker.
+            let value_ptr: *const T = value as *const T;
+            drop(guard);
+            unsafe { f(&*value_ptr) }
         }
 
         pub fn try_with<R>(&self, f: impl FnOnce(&T) -> R) -> Result<R, AccessError> {
-            Ok(self.with(f))
+            let mut guard = self
+                .storage
+                .lock()
+                .map_err(|_| AccessError)?;
+
+            let value = guard.get_or_insert_with(self.init);
+            let value_ptr: *const T = value as *const T;
+            drop(guard);
+            // SAFETY: same reasoning as `with`.
+            Ok(unsafe { f(&*value_ptr) })
         }
     }
 

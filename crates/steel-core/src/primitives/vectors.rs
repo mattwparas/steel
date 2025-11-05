@@ -1549,14 +1549,15 @@ fn bounds(
 #[cfg(test)]
 mod vector_prim_tests {
     use super::*;
+    use alloc::vec;
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(feature = "std", not(feature = "sync")))]
     use im_rc::vector;
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
+    #[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
     use im::vector;
 
-    #[cfg(all(feature = "sync", feature = "imbl"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
     use imbl::vector;
 
     #[test]
