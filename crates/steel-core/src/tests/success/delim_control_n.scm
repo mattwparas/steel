@@ -33,15 +33,6 @@
 ;
 ; $Id: delim-control-n.scm 815 2005-09-05 23:02:12Z oleg $
 
-(define (for-each func lst)
-  (if (null? lst)
-      void
-      (begin
-        (func (car lst))
-        (when (null? lst)
-          (return! void))
-        (for-each func (cdr lst)))))
-
 ; Two parameterizing boolean flags. We can change them at run-time
 ; and so mutate shift into control at run-time! The regression test code below
 ; does exactly that, so it can test all four *F* operators.
@@ -144,7 +135,9 @@
 ; ==> '(a)
 
 (define (p x)
-  (if (eq? x p) '(p p) `(p ,x)))
+  (if (eq? x p)
+      '(p p)
+      `(p ,x)))
 (define (shift* p)
   (shift f (p f)))
 (reset (display (let ([x 'abcde]) (eq? x ((shift* shift*) x)))))

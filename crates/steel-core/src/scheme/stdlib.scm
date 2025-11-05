@@ -37,10 +37,11 @@
          max
          min
          mem-helper
-         ; member
+         memv
          contains?
-         assq
          assoc
+         assq
+         assv
          filter
          even-rec?
          odd-rec?
@@ -51,6 +52,7 @@
          drop
          slice
          flatten
+         for-each
          *meta-continuation*
          *abort
          *reset
@@ -210,7 +212,9 @@
 
     ;; Internal, we don't do anything special
     [(quasisyntax #%internal-crunch x)
-     (if (empty? 'x) (#%syntax/raw '() '() (#%syntax-span x)) (#%syntax/raw 'x 'x (#%syntax-span x)))]
+     (if (empty? 'x)
+         (#%syntax/raw '() '() (#%syntax-span x))
+         (#%syntax/raw 'x 'x (#%syntax-span x)))]
 
     [(quasisyntax (x xs ...))
      (syntax (#%syntax/raw (quote (x xs ...))
@@ -579,9 +583,6 @@
 (define curry (lambda (func arg1) (lambda (arg) (func arg1 arg))))
 (define curry2 (lambda (func arg1) (lambda (arg2 arg3) (func arg1 arg2 arg3))))
 
-(define (foldl func accum lst)
-  (if (null? lst) accum (foldl func (func (car lst) accum) (cdr lst))))
-
 ;;@doc
 ;; Applies `func` to the elements of the `lsts` from the first
 ;; elements to the last. The `func` argument must accept the same
@@ -600,7 +601,9 @@
     (and (pair? list) (or (function (car list)) (some? function (cdr list)))))
 
   (define (map1 func accum lst)
-    (if (null? lst) (reverse accum) (map1 func (cons (func (car lst)) accum) (cdr lst))))
+    (if (null? lst)
+        (reverse accum)
+        (map1 func (cons (func (car lst)) accum) (cdr lst))))
 
   (define (map-many func accum lsts)
     (if (some? null? lsts)
@@ -610,17 +613,27 @@
   (if (null? more-lists)
       (map1 function '() list1)
       (let ([lists (cons list1 more-lists)])
-        (if (some? null? lists) '() (map-many function '() lists)))))
+        (if (some? null? lists)
+            '()
+            (map-many function '() lists)))))
 
-(define foldr
-  (lambda (func accum lst) (if (null? lst) accum (func (car lst) (foldr func accum (cdr lst))))))
+(define (foldl func accum lst)
+  (if (null? lst)
+      accum
+      (foldl func (func (car lst) accum) (cdr lst))))
 
-(define unfold
-  (lambda (func init pred)
-    (if (pred init) (cons init '()) (cons init (unfold func (func init) pred)))))
+(define (foldr func accum lst)
+  (if (null? lst)
+      accum
+      (func (car lst) (foldr func accum (cdr lst)))))
 
-(define fold (lambda (f a l) (foldl f a l)))
-(define reduce (lambda (f a l) (fold f a l)))
+(define (unfold func init stop?)
+  (if (stop? init)
+      (cons init '())
+      (cons init (unfold func (func init) stop?))))
+
+(define fold foldl)
+(define reduce fold)
 
 (define (max x . rest)
   (fold (lambda (y z) (if (> y z) y z)) x rest))
@@ -631,12 +644,26 @@
 (define mem-helper
   (lambda (pred op) (lambda (acc next) (if (and (not acc) (pred (op next))) next acc))))
 
-(define memv
-  (lambda (x los)
-    (cond
-      [(null? los) #f]
-      [(eqv? x (car los)) los]
-      [else (memv x (cdr los))])))
+;;@doc
+;; Return the first tail of the list, where the car is `eqv?` to the given obj.
+;; Returns `#f`, if no element is found.
+;;
+;; This procedure is equivalent to `member`, but using `eqv?` instead of `equal?`.
+;;
+;; (memv obj lst) -> (or/c list? #f)
+;;
+;; * obj : any/c
+;; * lst : list?
+;;
+;; ```scheme
+;; (memv #\c '(#\a #\b #\c #\d #\e)) ;; => '(#\c #\d #\e)
+;; (memv 5 '(0 1 2 3 4)) ;; => #f
+;; ```
+(define (memv obj lst)
+  (cond
+    [(null? lst) #f]
+    [(eqv? obj (car lst)) lst]
+    [else (memv obj (cdr lst))]))
 
 (define (contains? pred? lst)
   (cond
@@ -644,14 +671,81 @@
     [(pred? (car lst)) #t]
     [else (contains? pred? (cdr lst))]))
 
-(define (assoc thing alist)
-  (if (null? alist) #f (if (equal? (car (car alist)) thing) (car alist) (assoc thing (cdr alist)))))
+;;@doc
+;; Returns the first pair in the given list, where the car element is `equal?`
+;; to the given obj, returning `#f` if nothing was found.
+;;
+;; It is an error if the given list is not a list of pairs.
+;;
+;; (assoc obj lst) -> (or/c pair? #f)
+;;
+;; * obj : any/c
+;; * lst : (listof pair?)
+;;
+;; # Examples
+;;
+;; ```scheme
+;; (assoc 2 '((1 1) (2 4) (3 9))) ;; => '(2 4)
+;; (assoc 'b '((a 1) (b 2) (c 3))) ;; => '(b 2)
+;; (assoc #\B '((#\a 1) (#\b 2) (#\c 3))) ;; => #f
+;; ```
+(define (assoc obj lst)
+  (cond
+    [(null? lst) #f]
+    [(equal? (car (car lst)) obj) (car lst)]
+    [else (assoc obj (cdr lst))]))
 
-(define (assq thing alist)
-  (if (null? alist) #f (if (eq? (car (car alist)) thing) (car alist) (assq thing (cdr alist)))))
+;;@doc
+;; Returns the first pair in the given list, where the car element is `eq?`
+;; to the given obj, returning `#f` if nothing was found.
+;;
+;; This procedure is equivalent to `assoc`, but using `eq?` instead of `equal?`.
+;;
+;; It is an error if the given list is not a list of pairs.
+;;
+;; (assq obj lst) -> (or/c pair? #f)
+;;
+;; * obj : any/c
+;; * lst : (listof pair?)
+;;
+;; # Examples
+;;
+;; ```scheme
+;; (assq 2 '((1 1) (2 4) (3 9))) ;; => '(2 4)
+;; (assq 'b '((a 1) (b 2) (c 3))) ;; => '(b 2)
+;; (assq #\B '((#\a 1) (#\b 2) (#\c 3))) ;; => #f
+;; ```
+(define (assq obj lst)
+  (cond
+    [(null? lst) #f]
+    [(eq? (car (car lst)) obj) (car lst)]
+    [else (assq obj (cdr lst))]))
 
-(define (assv thing alist)
-  (if (null? alist) #f (if (eq? (car (car alist)) thing) (car alist) (assv thing (cdr alist)))))
+;;@doc
+;; Returns the first pair in the given list, where the car element is `eqv?`
+;; to the given obj, returning `#f` if nothing was found.
+;;
+;; This procedure is equivalent to `assoc`, but using `eqv?` instead of `equal?`.
+;;
+;; It is an error if the given list is not a list of pairs.
+;;
+;; (assv obj lst) -> (or/c pair? #f)
+;;
+;; * obj : any/c
+;; * lst : (listof pair?)
+;;
+;; # Examples
+;;
+;; ```scheme
+;; (assv 2 '((1 1) (2 4) (3 9))) ;; => '(2 4)
+;; (assv 'b '((a 1) (b 2) (c 3))) ;; => '(b 2)
+;; (assv #\B '((#\a 1) (#\b 2) (#\c 3))) ;; => #f
+;; ```
+(define (assv obj lst)
+  (cond
+    [(null? lst) #f]
+    [(eqv? (car (car lst)) obj) (car lst)]
+    [else (assv obj (cdr lst))]))
 
 ;;@doc
 ;; Returns new list, keeping elements from `lst` which applying `pred` to the element
@@ -674,10 +768,19 @@
 
   (filter-inner function '() lst))
 
-(define even-rec? (lambda (x) (if (= x 0) #t (odd-rec? (- x 1)))))
-(define odd-rec? (lambda (x) (if (= x 0) #f (even-rec? (- x 1)))))
+(define even-rec?
+  (lambda (x)
+    (if (= x 0)
+        #t
+        (odd-rec? (- x 1)))))
+(define odd-rec?
+  (lambda (x)
+    (if (= x 0)
+        #f
+        (even-rec? (- x 1)))))
 
 (define sum (lambda (x) (reduce + 0 x)))
+
 (define (add1 n)
   (+ 1 n))
 (define (sub1 n)
@@ -685,18 +788,47 @@
 (define (zero? n)
   (= n 0))
 
+;;@doc
+;; Returns the list l after the first n elements.
+;;
+;; (drop l n) -> list?
+;;
+;; * l : list?
+;; * n : (and/c positive? int?)
+;;
+;; # Examples
+;;
+;; ```scheme
+;; > (drop '(1 2 3 4) 2) ;; => '(3 4)
+;; > (drop (range 0 10) 6) ;; => '(6 7 8 9)
+;; ```
 (define (drop lst n)
-  (define (loop x l)
-    (if (zero? x) l (loop (sub1 x) (cdr l))))
-  (loop n lst))
+  (define (loop lst n)
+    (if (zero? n)
+        lst
+        (loop (cdr lst) (sub1 n))))
+  (if (< n 0)
+      (error 'drop "expects a positive number")
+      (loop lst n)))
 
 (define (slice l offset n)
   (take (drop l offset) n))
 
+;;@doc
+;; Recursively flatten an arbitray structure of pairs into a single list.
+;;
+;; (flatten any/c) -> list?
+;;
+;; # Examples
+;;
+;; ```scheme
+;; (flatten '(a (b (c . d)) e ())) ;; => '(a b c d e)
+;; (flatten 'a) => '(a)
+;; ```
 (define (flatten lst)
   (cond
     [(null? lst) '()]
-    [(list? lst) (append (flatten (car lst)) (flatten (cdr lst)))]
+    [(pair? lst) (append (flatten (car lst)) (flatten (cdr lst)))]
     [else (list lst)]))
 
 (define (gcd a b)
@@ -705,16 +837,27 @@
     [else (gcd b (modulo a b))]))
 
 (define (lcm a b)
-  (if (or (zero? a) (zero? b)) 0 (abs (* b (floor (/ a (gcd a b)))))))
+  (if (or (zero? a) (zero? b))
+      0
+      (abs (* b (floor (/ a (gcd a b)))))))
 
+;;@doc
+;; Applies a procedure to all elements of a list
+;;
+;; (for-each procedure? list?) ;; => void?
+;;
+;; # Examples
+;;
+;; ```scheme
+;; > (for-each (λ (x) (println x)) '(a b c))
+;; 'a
+;; 'b
+;; 'c
+;; ```
 (define (for-each func lst)
-  (if (null? lst)
-      void
-      (begin
-        (func (car lst))
-        (when (null? lst)
-          (return! void))
-        (for-each func (cdr lst)))))
+  (unless (null? lst)
+    (func (car lst))
+    (for-each func (cdr lst))))
 
 ;; TODO: Just make this a built in!
 (define (vector->list v . remaining)
@@ -936,7 +1079,9 @@
 ;; syntax
 (define-syntax delay
   (syntax-rules ()
-    [(delay expr) (lambda () expr)]))
+    [(delay
+       expr)
+     (lambda () expr)]))
 
 (define values list)
 
@@ -947,7 +1092,9 @@
     ;; Does this work?
     [else
      (define res (apply consumer result))
-     (if (and (list? res) (= (length res) 1)) (car res) res)]))
+     (if (and (list? res) (= (length res) 1))
+         (car res)
+         res)]))
 
 (define-syntax @doc
   (syntax-rules (struct define/contract)
