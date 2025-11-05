@@ -135,24 +135,24 @@ jobs:
           cd cogs/
           cargo run -- install.scm ../contrib/slack
 
-  redox-build:
-    name: redox build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-      - name: Build x86_64-unknown-redox
-        run: |
-          sudo apt-get update -y && sudo apt-get install fuse3 libfuse3-dev pkg-config -y
-          cargo install redoxer --locked
-          redoxer build
-  
+  # redox-build:
+  #   name: redox build
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v2
+  #     - name: Install Rust toolchain
+  #       uses: actions-rs/toolchain@v1
+  #       with:
+  #         toolchain: stable
+  #         profile: minimal
+  #         override: true
+  #     - name: Build x86_64-unknown-redox
+  #       run: |
+  #         sudo apt-get update -y && sudo apt-get install fuse3 libfuse3-dev pkg-config -y
+  #         cargo install redoxer --locked
+  #         redoxer build
+
   wasm-build:
     name: Wasm32 build
     runs-on: ubuntu-latest
