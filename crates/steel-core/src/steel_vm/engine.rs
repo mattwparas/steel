@@ -55,12 +55,12 @@ use crate::{
         parser::{ParseError, Parser, Sources, SYNTAX_OBJECT_ID},
     },
     path::PathBuf as SteelPath,
+    path::PathBuf,
     rerrs::{back_trace, back_trace_to_string},
     rvals::{
         AsRefMutSteelVal, AsRefSteelVal as _, FromSteelVal, IntoSteelVal, MaybeSendSyncStatic,
         Result, SteelString, SteelVal,
     },
-    path::PathBuf,
     steel_vm::register_fn::RegisterFn,
     stop, throw,
     values::{

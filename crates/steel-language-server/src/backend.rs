@@ -741,10 +741,7 @@ impl LanguageServer for Backend {
             // at least attempt to build a reverse index for find references.
             if let Some(module_path) = module_path {
                 let mut external_module_refs =
-                    self.find_references_external_module(
-                        identifier,
-                        module_path.to_path_buf(),
-                    );
+                    self.find_references_external_module(identifier, module_path.to_path_buf());
                 found_locations.append(&mut external_module_refs);
             } else {
                 let module_path = params
@@ -1169,7 +1166,7 @@ impl Backend {
             let require_objects = module.get_requires();
 
             for req in require_objects {
-            if req.path.get_path().as_path() == module_path.as_path() {
+                if req.path.get_path().as_path() == module_path.as_path() {
                     // Note: Once the logging is fixed we can remove the clone here
                     should_index.push((module, req));
                 }

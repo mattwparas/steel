@@ -1,4 +1,5 @@
 use crate::compiler::passes::VisitorMutUnitRef;
+use crate::path::PathBuf;
 use crate::primitives::numbers::make_polar;
 use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::HashSet;
@@ -8,14 +9,13 @@ use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
 use num_rational::{BigRational, Rational32};
-use crate::path::PathBuf;
 
+#[cfg(feature = "std")]
+use crate::sync::Mutex;
 #[cfg(feature = "std")]
 use fxhash::FxHashMap;
 #[cfg(feature = "std")]
 use once_cell::sync::Lazy;
-#[cfg(feature = "std")]
-use crate::sync::Mutex;
 
 use steel_parser::interner::InternedString;
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral, TokenType};

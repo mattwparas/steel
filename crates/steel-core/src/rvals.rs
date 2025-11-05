@@ -39,8 +39,7 @@ use crate::{
 };
 use alloc::string::ToString;
 use alloc::{
-    borrow::ToOwned, boxed::Box, format, rc::Rc, string::String, sync::Arc, vec::IntoIter,
-    vec::Vec,
+    borrow::ToOwned, boxed::Box, format, rc::Rc, string::String, sync::Arc, vec::IntoIter, vec::Vec,
 };
 use core::{
     any::{Any, TypeId},
