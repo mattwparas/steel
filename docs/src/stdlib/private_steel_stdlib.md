@@ -1,6 +1,78 @@
 # #%private/steel/stdlib
 **this module is in the prelude and therefore automatically available when running steel.**
 
+### **assoc**
+Returns the first pair in the given list, where the car element is `equal?`
+to the given obj, returning `#f` if nothing was found.
+
+It is an error if the given list is not a list of pairs.
+
+(assoc obj lst) -> (or/c pair? #f)
+
+* obj : any/c
+* lst : (listof pair?)
+
+#### Examples
+
+```scheme
+(assoc 2 '((1 1) (2 4) (3 9))) ;; => '(2 4)
+(assoc 'b '((a 1) (b 2) (c 3))) ;; => '(b 2)
+(assoc #\B '((#\a 1) (#\b 2) (#\c 3))) ;; => #f
+```
+### **assq**
+Returns the first pair in the given list, where the car element is `eq?`
+to the given obj, returning `#f` if nothing was found.
+
+This procedure is equivalent to `assoc`, but using `eq?` instead of `equal?`.
+
+It is an error if the given list is not a list of pairs.
+
+(assq obj lst) -> (or/c pair? #f)
+
+* obj : any/c
+* lst : (listof pair?)
+
+#### Examples
+
+```scheme
+(assq 2 '((1 1) (2 4) (3 9))) ;; => '(2 4)
+(assq 'b '((a 1) (b 2) (c 3))) ;; => '(b 2)
+(assq #\B '((#\a 1) (#\b 2) (#\c 3))) ;; => #f
+```
+### **assv**
+Returns the first pair in the given list, where the car element is `eqv?`
+to the given obj, returning `#f` if nothing was found.
+
+This procedure is equivalent to `assoc`, but using `eqv?` instead of `equal?`.
+
+It is an error if the given list is not a list of pairs.
+
+(assv obj lst) -> (or/c pair? #f)
+
+* obj : any/c
+* lst : (listof pair?)
+
+#### Examples
+
+```scheme
+(assv 2 '((1 1) (2 4) (3 9))) ;; => '(2 4)
+(assv 'b '((a 1) (b 2) (c 3))) ;; => '(b 2)
+(assv #\B '((#\a 1) (#\b 2) (#\c 3))) ;; => #f
+```
+### **drop**
+Returns the list l after the first n elements.
+
+(drop l n) -> list?
+
+* l : list?
+* n : (and/c positive? int?)
+
+#### Examples
+
+```scheme
+> (drop '(1 2 3 4) 2) ;; => '(3 4)
+> (drop (range 0 10) 6) ;; => '(6 7 8 9)
+```
 ### **filter**
 Returns new list, keeping elements from `lst` which applying `pred` to the element
 returns #t.
@@ -10,6 +82,30 @@ returns #t.
 
 ```scheme
 (filter even? (range 0 5)) ;; '(0 2 4)
+```
+### **flatten**
+Recursively flatten an arbitray structure of pairs into a single list.
+
+(flatten any/c) -> list?
+
+#### Examples
+
+```scheme
+(flatten '(a (b (c . d)) e ())) ;; => '(a b c d e)
+(flatten 'a) => '(a)
+```
+### **for-each**
+Applies a procedure to all elements of a list
+
+(for-each procedure? list?) ;; => void?
+
+#### Examples
+
+```scheme
+> (for-each (λ (x) (println x)) '(a b c))
+'a
+'b
+'c
 ```
 ### **map**
 Applies `func` to the elements of the `lsts` from the first
@@ -24,13 +120,26 @@ containing each result of `func` in order.
 ```scheme
 (map add1 (range 0 5)) ;; '(1 2 3 4 5)
 ```
+### **memv**
+Return the first tail of the list, where the car is `eqv?` to the given obj.
+Returns `#f`, if no element is found.
+
+This procedure is equivalent to `member`, but using `eqv?` instead of `equal?`.
+
+(memv obj lst) -> (or/c list? #f)
+
+* obj : any/c
+* lst : list?
+
+```scheme
+(memv #\c '(#\a #\b #\c #\d #\e)) ;; => '(#\c #\d #\e)
+(memv 5 '(0 1 2 3 4)) ;; => #f
+```
 ### **\*abort**
 ### **\*meta-continuation\***
 ### **\*reset**
 ### **\*shift**
 ### **add1**
-### **assoc**
-### **assq**
 ### **caaaar**
 ### **caaar**
 ### **caadar**
@@ -61,9 +170,7 @@ containing each result of `func` in order.
 ### **contains?**
 ### **curry**
 ### **curry2**
-### **drop**
 ### **even-rec?**
-### **flatten**
 ### **flip**
 ### **fold**
 ### **foldl**

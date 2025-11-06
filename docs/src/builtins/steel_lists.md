@@ -214,6 +214,34 @@ error[E11]: Generic
   │  ^^^^^^^^^ list-tail expects at least 3
                     elements in the list, found: 0
 ```
+### **member**
+Return the first tail of the list, where the car is `equal?` to the given obj.
+Returns `#f`, if no element is found.
+
+(member obj lst) -> (or/c list? #f)
+
+* obj : any/c
+* lst : list?
+
+```scheme
+(member #\c '(#\a #\b #\c #\d #\e)) ;; => '(#\c #\d #\e)
+(member 5 '(0 1 2 3 4)) ;; => #f
+```
+### **memq**
+Return the first tail of the list, where the car is `eq?` to the given obj.
+Returns `#f`, if no element is found.
+
+This procedure is equivalent to `member`, but using `eq?` instead of `equal?`.
+
+(memq obj lst) -> (or/c list? #f)
+
+* obj : any/c
+* lst : list?
+
+```scheme
+(memq #\c '(#\a #\b #\c #\d #\e)) ;; => '(#\c #\d #\e)
+(memq 5 '(0 1 2 3 4)) ;; => #f
+```
 ### **pair?**
 Checks if the given value can be treated as a pair.
 
@@ -321,8 +349,6 @@ error[E11]: Generic
 ### **list->vector**
 ### **list-chunks**
 ### **list-contains**
-### **member**
-### **memq**
 ### **plist-get**
 ### **plist-get-kwarg**
 ### **plist-get-positional-arg**

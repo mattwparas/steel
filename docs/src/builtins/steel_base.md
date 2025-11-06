@@ -1990,6 +1990,34 @@ Create a mapping iterator
 ```scheme
 (transduce (list 1 2 3) (mapping (λ (x) (+ x 1))) (into-list)) ;; => '(2 3 4)
 ```
+### **member**
+Return the first tail of the list, where the car is `equal?` to the given obj.
+Returns `#f`, if no element is found.
+
+(member obj lst) -> (or/c list? #f)
+
+* obj : any/c
+* lst : list?
+
+```scheme
+(member #\c '(#\a #\b #\c #\d #\e)) ;; => '(#\c #\d #\e)
+(member 5 '(0 1 2 3 4)) ;; => #f
+```
+### **memq**
+Return the first tail of the list, where the car is `eq?` to the given obj.
+Returns `#f`, if no element is found.
+
+This procedure is equivalent to `member`, but using `eq?` instead of `equal?`.
+
+(memq obj lst) -> (or/c list? #f)
+
+* obj : any/c
+* lst : list?
+
+```scheme
+(memq #\c '(#\a #\b #\c #\d #\e)) ;; => '(#\c #\d #\e)
+(memq 5 '(0 1 2 3 4)) ;; => #f
+```
 ### **modulo**
 Returns the arithmetic remainder of a floored integer division of a given
 numerator *n* by a given denominator *m*.
@@ -3915,9 +3943,7 @@ Create a zipping iterator
 ### **make-struct-type**
 ### **make-will-executor**
 ### **maybe-get-env-var**
-### **member**
 ### **memory-address**
-### **memq**
 ### **multi-arity?**
 ### **mutable-vector?**
 ### **naive-current-date-local**

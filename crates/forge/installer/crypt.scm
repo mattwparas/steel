@@ -45,15 +45,6 @@
                        (merge-sort (even-numbers l) #:comparator comparator)
                        comparator))))
 
-(define (for-each func lst)
-  (if (null? lst)
-      void
-      (begin
-        (func (car lst))
-        (when (null? lst)
-          (return! void))
-        (for-each func (cdr lst)))))
-
 (define (walk-files-sorted path func #:ignore [ignore-dirs #f])
   (cond
     [(is-file? path) (func path)]
