@@ -1132,6 +1132,10 @@ impl CompiledModule {
         self.cached_prefix.clone()
     }
 
+    pub fn get_macros(&self) -> Arc<FxHashMap<InternedString, SteelMacro>> {
+        self.macro_map.clone()
+    }
+
     pub fn get_ast(&self) -> &[ExprKind] {
         &self.ast
     }

@@ -175,6 +175,10 @@ impl SteelMacro {
         &self.name
     }
 
+    pub fn span(&self) -> Span {
+        self.location
+    }
+
     pub fn exprs_mut(&mut self) -> impl Iterator<Item = &mut ExprKind> {
         self.cases.iter_mut().map(|x| &mut x.body)
     }

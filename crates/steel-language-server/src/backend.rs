@@ -17,11 +17,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use steel::{
     compiler::{
-        modules::{steel_home, MANGLER_PREFIX, MODULE_PREFIX},
+        modules::{steel_home, MaybeRenamed, MANGLER_PREFIX, MODULE_PREFIX},
         passes::analysis::{
-            query_top_level_define, query_top_level_define_on_condition,
-            require_defitinion_to_original_symbol, Analysis, IdentifierStatus,
-            RequiredIdentifierInformation, SemanticAnalysis, SemanticInformation,
+            find_identifier_at_position, query_top_level_define,
+            query_top_level_define_on_condition, require_defitinion_to_original_symbol, Analysis,
+            IdentifierStatus, RequiredIdentifierInformation, SemanticAnalysis, SemanticInformation,
             SemanticInformationType,
         },
     },
@@ -404,17 +404,20 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
+        let mut found_offset = None;
+        let uri = params.text_document_position_params.text_document.uri;
         // TODO: In order for this to work, we'll have to both
         // expose a span -> URI function, as well as figure out how to
         // decide if a definition refers to an import. I think deciding
         // if something is a module import should be like:
         let definition = async {
-            let uri = params.text_document_position_params.text_document.uri;
             let mut ast = self.ast_map.get_mut(uri.as_str())?;
             let mut rope = self.document_map.get(uri.as_str())?.clone();
 
             let position = params.text_document_position_params.position;
             let offset = self.config.position_to_offset(position, &rope)?;
+
+            found_offset = Some(offset);
 
             let analysis = SemanticAnalysis::new(&mut ast);
 
@@ -529,6 +532,149 @@ impl LanguageServer for Backend {
             )))
         }
         .await;
+
+        // Attempt a fallback with the new goto definition stuff!
+        if definition.is_none() {
+            let raw_ast = self.raw_ast_map.get(uri.as_str());
+            if let Some(rope) = self
+                .document_map
+                .get(uri.as_str())
+                .map(|x| x.value().clone())
+            {
+                if let Some(raw_ast) = raw_ast {
+                    if let Some(offset) = found_offset {
+                        let ident = find_identifier_at_position(&raw_ast, offset as _);
+                        if let Some(ident) = ident {
+                            eprintln!("Unable to find a definition for: {}", ident.resolve());
+                            // Check if this is a macro invocation:
+                            let path = PathBuf::from(uri.path());
+                            {
+                                // Re run the analysis
+                                if let Err(e) = ENGINE
+                                    .write()
+                                    .unwrap()
+                                    .emit_expanded_ast(&format!("(require: {:?})", path), None)
+                                {
+                                    eprintln!("Unable to load module: {:?}", e);
+                                }
+                            }
+
+                            // Look at the macros that are in scope, just see what matches,
+                            // grab the span for it.
+
+                            let modules = { ENGINE.read().unwrap().modules().clone() };
+
+                            if let Some(found_mod) = modules.get(&path) {
+                                let macros = found_mod.get_macros();
+
+                                let found = macros.get(&ident);
+
+                                if let Some(found) = found {
+                                    let location = found.span();
+
+                                    if let Some(range) = self.config.span_to_range(&location, &rope)
+                                    {
+                                        return Ok(Some(GotoDefinitionResponse::Scalar(
+                                            Location::new(uri, range),
+                                        )));
+                                    }
+                                } else {
+                                    for req in found_mod.get_requires() {
+                                        let path = req.path.get_path();
+
+                                        if !path.exists() {
+                                            continue;
+                                        }
+
+                                        let mut found_ident = Some(ident);
+
+                                        if !req.idents_to_import.is_empty() {
+                                            let mut found = false;
+                                            for idents_to_import in &req.idents_to_import {
+                                                match idents_to_import {
+                                                    MaybeRenamed::Normal(expr_kind) => {
+                                                        if expr_kind.atom_identifier().copied()
+                                                            == Some(ident)
+                                                        {
+                                                            found = true;
+
+                                                            break;
+                                                        }
+                                                    }
+                                                    MaybeRenamed::Renamed(
+                                                        expr_kind,
+                                                        expr_kind1,
+                                                    ) => {
+                                                        if expr_kind.atom_identifier().copied()
+                                                            == Some(ident)
+                                                        {
+                                                            found = true;
+                                                            found_ident = expr_kind1
+                                                                .atom_identifier()
+                                                                .copied();
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            if !found {
+                                                continue;
+                                            } else {
+                                                // Use the found ident
+                                                let found_mod = modules.get(path.as_ref()).unwrap();
+                                                let macros = found_mod.get_macros();
+                                                if let Some(found) =
+                                                    macros.get(&found_ident.unwrap())
+                                                {
+                                                    let location = found.span();
+
+                                                    let mut locations = vec![];
+
+                                                    self.spans_to_locations(
+                                                        &ENGINE.read().unwrap(),
+                                                        vec![location],
+                                                        &mut locations,
+                                                    );
+
+                                                    return Ok(locations
+                                                        .into_iter()
+                                                        .next()
+                                                        .map(GotoDefinitionResponse::Scalar));
+                                                }
+                                            }
+                                        } else {
+                                            // Just check the macros anyway
+                                            let found_mod = modules.get(path.as_ref()).unwrap();
+                                            let macros = found_mod.get_macros();
+                                            if let Some(found) = macros.get(&ident) {
+                                                let location = found.span();
+
+                                                let mut locations = vec![];
+
+                                                self.spans_to_locations(
+                                                    &ENGINE.read().unwrap(),
+                                                    vec![location],
+                                                    &mut locations,
+                                                );
+
+                                                return Ok(locations
+                                                    .into_iter()
+                                                    .next()
+                                                    .map(GotoDefinitionResponse::Scalar));
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                eprintln!("Unable to find module: {:?}", path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(definition)
     }
 
@@ -1183,13 +1329,13 @@ impl Backend {
                 let mut found = false;
                 for idents_to_import in &req.idents_to_import {
                     match idents_to_import {
-                        steel::compiler::modules::MaybeRenamed::Normal(expr_kind) => {
+                        MaybeRenamed::Normal(expr_kind) => {
                             if expr_kind.atom_identifier().copied() == Some(identifier) {
                                 found = true;
                                 break;
                             }
                         }
-                        steel::compiler::modules::MaybeRenamed::Renamed(expr_kind, expr_kind1) => {
+                        MaybeRenamed::Renamed(expr_kind, expr_kind1) => {
                             if expr_kind.atom_identifier().copied() == Some(identifier) {
                                 found = true;
                                 identifier = *expr_kind1.atom_identifier().unwrap();
