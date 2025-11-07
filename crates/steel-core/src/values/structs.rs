@@ -124,6 +124,7 @@ impl StructTypeDescriptor {
     }
 }
 
+#[derive(Debug)]
 pub struct SerializableUserDefinedStruct {
     pub(crate) fields: Vec<SerializableSteelVal>,
 

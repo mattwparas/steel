@@ -179,6 +179,14 @@ pub trait Custom: private::Sealed {
         None
     }
 
+    fn from_serializable_steelval(
+        &mut self,
+        ctx: &mut HeapSerializer,
+        spec: SerializedNativeStructSpec,
+    ) -> Option<SerializableSteelVal> {
+        None
+    }
+
     fn as_iterator(&self) -> Option<Box<dyn Iterator<Item = SteelVal>>> {
         None
     }
@@ -911,15 +919,13 @@ impl From<Syntax> for SteelVal {
     }
 }
 
-// TODO:
-// This needs to be a method on the runtime: in order to properly support
-// threads
-// Tracking issue here: https://github.com/mattwparas/steel/issues/98
+pub struct SerializedNativeStructSpec {}
 
 // Values which can be sent to another thread.
 // If it cannot be sent to another thread, then we'll error out on conversion.
 // TODO: Add boxed dyn functions to this.
 // #[derive(PartialEq)]
+
 pub enum SerializableSteelVal {
     Closure(crate::values::functions::SerializedLambda),
     BoolV(bool),
@@ -949,6 +955,40 @@ pub enum SerializableSteelVal {
     NativeRef(NativeRefSpec),
 }
 
+impl std::fmt::Debug for SerializableSteelVal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Custom(c) => write!(f, "#<CustomType>"),
+            SerializableSteelVal::Closure(serialized_lambda) => {
+                write!(f, "{:?}", serialized_lambda)
+            }
+            SerializableSteelVal::BoolV(x) => write!(f, "{}", x),
+            SerializableSteelVal::NumV(x) => write!(f, "{}", x),
+            SerializableSteelVal::IntV(x) => write!(f, "{}", x),
+            SerializableSteelVal::CharV(x) => write!(f, "{}", x),
+            SerializableSteelVal::Void => write!(f, "SteelVal::Void"),
+            SerializableSteelVal::StringV(x) => write!(f, "{}", x),
+            SerializableSteelVal::FuncV(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::MutFunc(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::HashMapV(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::HashSet(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::ListV(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::Pair(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::VectorV(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::ByteVectorV(items) => write!(f, "{:?}", items),
+            SerializableSteelVal::BoxedDynFunction(x) => write!(f, "#<func>"),
+            SerializableSteelVal::BuiltIn(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::SymbolV(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::CustomStruct(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::HeapAllocated(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::Port(x) => write!(f, "#<port>"),
+            SerializableSteelVal::Rational(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::Stream(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::NativeRef(x) => write!(f, "{:?}", x),
+        }
+    }
+}
+
 /*
 Serialize via known modules. If the value is a native one, then it should get replaced with a
 value that is something like SerializableSteelVal::NativeRef(NativeRefSpec) where NativeRefSpec is like:
@@ -961,6 +1001,7 @@ struct NativeRefSpec {
 And then deserializing is just grabbing that back from the root.
 */
 
+#[derive(Debug)]
 pub struct NativeRefSpec {
     pub module: String,
     pub key: String,
@@ -980,6 +1021,8 @@ pub struct HeapSerializer<'a> {
 
     // Cache the functions that get built
     pub built_functions: &'a mut std::collections::HashMap<u32, Gc<ByteCodeLambda>>,
+
+    pub modules: ModuleContainer,
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
@@ -1077,23 +1120,35 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             if let Some(mut guard) = ctx.fake_heap.get_mut(&v) {
                 match &mut guard {
                     SerializedHeapRef::Serialized(value) => {
+                        println!("Visiting: {} -> {:?}", v, value);
+
                         let value = std::mem::take(value);
 
                         if let Some(value) = value {
-                            let _ = from_serializable_value(ctx, value);
+                            let value = from_serializable_value(ctx, value);
 
-                            todo!()
-                            // let allocation = ctx.heap.allocate_without_collection(value);
+                            let allocation = ctx.heap.allocate_without_collection(value);
 
-                            // ctx.fake_heap
-                            //     .insert(v, SerializedHeapRef::Closed(allocation.clone()));
+                            ctx.fake_heap
+                                .insert(v, SerializedHeapRef::Closed(allocation.clone()));
 
-                            // SteelVal::HeapAllocated(allocation)
+                            println!("patching: {}", v);
+
+                            SteelVal::HeapAllocated(allocation)
                         } else {
                             // println!("If we're getting here - it means the value from the heap has already
                             // been converting. if so, we should do something...");
 
-                            todo!()
+                            // todo!()
+
+                            match ctx.fake_heap.get(&v).unwrap() {
+                                SerializedHeapRef::Serialized(serializable_steel_val) => {
+                                    panic!("Found a cycle: {}", v);
+                                }
+                                SerializedHeapRef::Closed(heap_ref) => {
+                                    SteelVal::HeapAllocated(heap_ref.clone())
+                                }
+                            }
 
                             // let fake_allocation =
                             //     ctx.heap.allocate_without_collection(SteelVal::Void);
@@ -1138,8 +1193,14 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             empty_stream: value.empty_stream,
         })),
 
-        SerializableSteelVal::NativeRef(_) => {
-            todo!("Implement native ref spec deserialization!")
+        SerializableSteelVal::NativeRef(s) => {
+            let module_map = ctx.modules.inner();
+
+            if let Some(m) = module_map.get(s.module.as_str()) {
+                return m.get(s.key);
+            }
+
+            panic!("Unable to find value in module map: {:#?}", s);
         }
     }
 }
@@ -1172,8 +1233,7 @@ pub fn into_serializable_value(
         SteelVal::CharV(c) => Ok(SerializableSteelVal::CharV(c)),
         SteelVal::Void => Ok(SerializableSteelVal::Void),
         SteelVal::StringV(s) => Ok(SerializableSteelVal::StringV(s.to_string())),
-        // SteelVal::FuncV(f) => Ok(SerializableSteelVal::FuncV(f)),
-        SteelVal::FuncV(f) => Ok(SerializableSteelVal::NativeRef(
+        SteelVal::FuncV(_) => Ok(SerializableSteelVal::NativeRef(
             // TODO: Native ref spec for anything that is native
             // and truly can't be serialized between runtimes, such as native
             // functions.

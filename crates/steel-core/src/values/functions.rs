@@ -158,6 +158,7 @@ impl std::hash::Hash for ByteCodeLambda {
 
 // Can this be moved across threads? What does it cost to execute a closure in another thread?
 // Engine instances be deep cloned?
+#[derive(Debug)]
 pub struct SerializedLambda {
     pub id: u32,
     pub body_exp: Vec<DenseInstruction>,

@@ -7,6 +7,7 @@ pub struct LazyStream {
     pub empty_stream: bool,
 }
 
+#[derive(Debug)]
 pub struct SerializableStream {
     pub initial_value: SerializableSteelVal,
     pub stream_thunk: SerializableSteelVal,

@@ -210,7 +210,7 @@ struct MovableThread {
     constants: Vec<SerializableSteelVal>,
     global_env: Vec<SerializableSteelVal>,
     function_interner: MovableFunctionInterner,
-    runtime_options: RunTimeOptions,
+    _runtime_options: RunTimeOptions,
 }
 
 struct MovableFunctionInterner {
@@ -258,7 +258,7 @@ pub(crate) fn create_native_ref(ctx: &ModuleContainer, v: SteelVal) -> Option<Na
 // While this does work, it does result in a fairly hefty deep clone of the environment. It does _not_ smartly attempt
 // to keep track of what values this function could touch - rather it assumes every value is possible to be touched
 // by the child thread.
-fn serialize_thread_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
     // use crate::rvals::SerializableSteelVal;
 
     #[cfg(feature = "profiling")]
@@ -309,7 +309,7 @@ fn serialize_thread_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
     //     }
     // };
 
-    let sources = ctx.thread.compiler.read().sources.clone();
+    let _sources = ctx.thread.compiler.read().sources.clone();
 
     let builtin_modules = ctx.thread.compiler.read().builtin_modules.clone();
 
@@ -381,7 +381,7 @@ fn serialize_thread_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
                 .collect(),
         },
 
-        runtime_options: ctx.thread.runtime_options.clone(),
+        _runtime_options: ctx.thread.runtime_options.clone(),
     };
 
     let sendable_vtable_entries = VTable::sendable_entries(&mut sctx)?;
@@ -406,6 +406,7 @@ fn serialize_thread_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
         fake_heap: &mut mapping,
         values_to_fill_in: &mut patcher,
         built_functions: &mut built_functions,
+        modules: ctx.thread.compiler.read().builtin_modules.clone(),
     };
 
     // Moved over the thread. We now have
@@ -415,7 +416,7 @@ fn serialize_thread_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
 
     println!("Initialized vtable.");
 
-    let constant_map = ConstantMap::from_vec(
+    let _constant_map = ConstantMap::from_vec(
         thread
             .constants
             .into_iter()
@@ -426,7 +427,7 @@ fn serialize_thread_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
     println!("Initialized constant map");
 
     #[cfg(feature = "sync")]
-    let global_env = Env::new(
+    let _global_env = Env::new(
         &thread
             .global_env
             .into_iter()
@@ -445,7 +446,7 @@ fn serialize_thread_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
 
     println!("Initialized global env");
 
-    let function_interner = FunctionInterner {
+    let _function_interner = FunctionInterner {
         closure_interner: thread
             .function_interner
             .closure_interner
@@ -972,8 +973,8 @@ pub fn threading_module() -> BuiltInModule {
         })
         .register_fn(
             "channel->send",
-            |channel: &std::sync::mpsc::Sender<SerializableSteelVal>,
-             val: SteelVal|
+            |_channel: &std::sync::mpsc::Sender<SerializableSteelVal>,
+             _val: SteelVal|
              -> Result<()> {
                 // let mut map = HashMap::new();
                 // let mut visited = HashSet::new();
@@ -994,62 +995,55 @@ pub fn threading_module() -> BuiltInModule {
             },
         )
         // TODO: These need to be fucntions that take the context
-        .register_fn("channel->recv", |channel: &SReceiver| -> Result<SteelVal> {
-            let receiver = channel
-                .receiver
-                .as_ref()
-                .expect("Channel should not be dropped here!");
-
-            let value = receiver
-                .recv()
-                .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))?;
-
-            let mut heap = Heap::new_empty();
-            let mut fake_heap = HashMap::new();
-            let mut patcher = HashMap::new();
-            let mut built_functions = HashMap::new();
-            let mut serializer = HeapSerializer {
-                heap: &mut heap,
-                fake_heap: &mut fake_heap,
-                values_to_fill_in: &mut patcher,
-                built_functions: &mut built_functions,
-            };
-
-            let value = crate::rvals::from_serializable_value(&mut serializer, value);
-
-            Ok(value)
-        })
-        .register_fn(
-            "channel->try-recv",
-            |channel: &SReceiver| -> Result<Option<SteelVal>> {
-                let receiver = channel
-                    .receiver
-                    .as_ref()
-                    .expect("Channel should not be dropped here!");
-
-                let value = receiver.try_recv();
-
-                let mut heap = Heap::new_empty();
-                let mut fake_heap = HashMap::new();
-                let mut patcher = HashMap::new();
-                let mut built_functions = HashMap::new();
-                let mut serializer = HeapSerializer {
-                    heap: &mut heap,
-                    fake_heap: &mut fake_heap,
-                    values_to_fill_in: &mut patcher,
-                    built_functions: &mut built_functions,
-                };
-
-                match value {
-                    Ok(v) => Ok(Some(crate::rvals::from_serializable_value(
-                        &mut serializer,
-                        v,
-                    ))),
-                    Err(std::sync::mpsc::TryRecvError::Empty) => Ok(None),
-                    Err(e) => Err(SteelErr::new(ErrorKind::Generic, e.to_string())),
-                }
-            },
-        )
+        // .register_fn("channel->recv", |channel: &SReceiver| -> Result<SteelVal> {
+        //     let receiver = channel
+        //         .receiver
+        //         .as_ref()
+        //         .expect("Channel should not be dropped here!");
+        //     let value = receiver
+        //         .recv()
+        //         .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))?;
+        //     let mut heap = Heap::new_empty();
+        //     let mut fake_heap = HashMap::new();
+        //     let mut patcher = HashMap::new();
+        //     let mut built_functions = HashMap::new();
+        //     let mut serializer = HeapSerializer {
+        //         heap: &mut heap,
+        //         fake_heap: &mut fake_heap,
+        //         values_to_fill_in: &mut patcher,
+        //         built_functions: &mut built_functions,
+        //     };
+        //     let value = crate::rvals::from_serializable_value(&mut serializer, value);
+        //     Ok(value)
+        // })
+        // .register_fn(
+        //     "channel->try-recv",
+        //     |channel: &SReceiver| -> Result<Option<SteelVal>> {
+        //         let receiver = channel
+        //             .receiver
+        //             .as_ref()
+        //             .expect("Channel should not be dropped here!");
+        //         let value = receiver.try_recv();
+        //         let mut heap = Heap::new_empty();
+        //         let mut fake_heap = HashMap::new();
+        //         let mut patcher = HashMap::new();
+        //         let mut built_functions = HashMap::new();
+        //         let mut serializer = HeapSerializer {
+        //             heap: &mut heap,
+        //             fake_heap: &mut fake_heap,
+        //             values_to_fill_in: &mut patcher,
+        //             built_functions: &mut built_functions,
+        //         };
+        //         match value {
+        //             Ok(v) => Ok(Some(crate::rvals::from_serializable_value(
+        //                 &mut serializer,
+        //                 v,
+        //             ))),
+        //             Err(std::sync::mpsc::TryRecvError::Empty) => Ok(None),
+        //             Err(e) => Err(SteelErr::new(ErrorKind::Generic, e.to_string())),
+        //         }
+        //     },
+        // )
         .register_fn("thread::current/id", || std::thread::current().id())
         .register_fn("thread/available-parallelism", || {
             std::thread::available_parallelism().map(|x| x.get()).ok()
