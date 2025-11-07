@@ -1525,10 +1525,6 @@ impl Backend {
                 for req in found_mod.get_requires() {
                     let path = req.path.get_path();
 
-                    if !path.exists() {
-                        continue;
-                    }
-
                     let mut found_ident = ident;
 
                     if let Some(prefix) = &req.prefix {
