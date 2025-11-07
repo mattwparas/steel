@@ -37,6 +37,33 @@
  By default, structs are immutable, which means setter functions will not
  be generated. Also by default, structs are not transparent, which means
  printing them will result in an opaque struct that does not list the fields
+
+ # Examples
+
+```scheme
+(struct apple (size color))
+
+(apple 'small 'red) ;; => (apple)
+(define my-apple (apple 'small 'red))
+
+(apple-size my-apple) ;; => 'small
+(apple-color my-apple) ;; => 'red
+
+(apple? my-apple) ;; => #true
+
+;; With extra options
+
+(struct apple (size color) #:transparent #:mutable)
+
+(apple 'small 'green) => (apple 'small 'green)
+
+(define my-apple (apple 'small 'green))
+
+(set-apple-color! my-apple 'red)
+
+(apple-color my-apple) ;; => 'red
+```
+
   ")
 
 ;; Bootstrapped parameters
