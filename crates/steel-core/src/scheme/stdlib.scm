@@ -1079,9 +1079,7 @@
 ;; syntax
 (define-syntax delay
   (syntax-rules ()
-    [(delay
-       expr)
-     (lambda () expr)]))
+    [(delay expr) (lambda () expr)]))
 
 (define values list)
 
@@ -1097,7 +1095,11 @@
          res)]))
 
 (define-syntax @doc
-  (syntax-rules (struct define/contract)
+  (syntax-rules (#%macro struct define/contract)
+
+    [(_ documentation #%macro name)
+     (define (datum->syntax name __doc__)
+       documentation)]
 
     [(_ documentation
         (define (name . args)

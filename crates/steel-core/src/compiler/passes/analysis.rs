@@ -2861,6 +2861,36 @@ impl<'a> VisitorMutUnitRef<'a> for FreeIdentifierVisitor<'a> {
     }
 }
 
+struct IdentifierAtPosition {
+    position: u32,
+    found: Option<InternedString>,
+}
+
+impl<'a> VisitorMutUnitRef<'a> for IdentifierAtPosition {
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if a.syn.span.range().contains(&self.position) {
+            self.found = a.syn.ty.identifier().cloned();
+        }
+    }
+}
+
+pub fn find_identifier_at_position(exprs: &[ExprKind], position: u32) -> Option<InternedString> {
+    for expr in exprs {
+        let mut finder = IdentifierAtPosition {
+            position,
+            found: None,
+        };
+
+        finder.visit(expr);
+
+        if finder.found.is_some() {
+            return finder.found;
+        }
+    }
+
+    None
+}
+
 // TODO: Don't need the analysis at all
 struct IdentifierFinder<'a> {
     ids: &'a mut HashMap<SyntaxObjectId, Option<InternedString>>,

@@ -953,6 +953,12 @@ impl ModuleManager {
                 match maybe {
                     MaybeRenamed::Normal(n) => {
                         if let Some(ident) = n.atom_identifier() {
+                            // If the macro is not provided, we should
+                            // not bring it in
+                            if !in_scope_macros.contains_key(ident) {
+                                continue;
+                            }
+
                             if let Some(mut m) = module.macro_map.get(ident).cloned() {
                                 for expr in m.exprs_mut() {
                                     name_mangler.visit(expr);
@@ -961,6 +967,8 @@ impl ModuleManager {
                                 if let Some(prefix) = &require_object.prefix {
                                     in_scope_macros
                                         .insert((prefix.to_string() + ident.resolve()).into(), m);
+
+                                    in_scope_macros.remove(ident);
                                 } else {
                                     in_scope_macros.insert(*ident, m);
                                 }
@@ -975,6 +983,12 @@ impl ModuleManager {
                                 }
                                 // TODO: Remove this unwrap
                                 // in_scope_macros.insert(*to.atom_identifier().unwrap(), m);
+
+                                if let Some(ident) = from.atom_identifier() {
+                                    if in_scope_macros.remove(ident).is_none() {
+                                        continue;
+                                    }
+                                }
 
                                 if let Some(prefix) = &require_object.prefix {
                                     in_scope_macros.insert(
@@ -997,12 +1011,8 @@ impl ModuleManager {
             for provide_expr in &module.provides {
                 if let Some(provide_expr) = provide_expr.list() {
                     for ident in provide_expr.args.split_first().unwrap().1 {
-                        // println!("Looking for {}", ident);
-
                         if let Some(ident) = ident.atom_identifier() {
                             if let Some(mut m) = module.macro_map.get(ident).cloned() {
-                                // println!("Pulling in macro: {}", ident);
-
                                 for expr in m.exprs_mut() {
                                     name_mangler.visit(expr);
                                 }
@@ -1010,6 +1020,8 @@ impl ModuleManager {
                                 if let Some(prefix) = &require_object.prefix {
                                     in_scope_macros
                                         .insert((prefix.to_string() + ident.resolve()).into(), m);
+
+                                    in_scope_macros.remove(ident);
                                 } else {
                                     in_scope_macros.insert(*ident, m);
                                 }
@@ -1130,6 +1142,10 @@ impl CompiledModule {
     // TODO: Should cache this
     pub fn prefix(&self) -> CompactString {
         self.cached_prefix.clone()
+    }
+
+    pub fn get_macros(&self) -> Arc<FxHashMap<InternedString, SteelMacro>> {
+        self.macro_map.clone()
     }
 
     pub fn get_ast(&self) -> &[ExprKind] {

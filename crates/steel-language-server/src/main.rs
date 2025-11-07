@@ -1,10 +1,14 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use dashmap::{DashMap, DashSet};
 
 use steel::{
     compiler::modules::MANGLER_PREFIX,
-    parser::interner::InternedString,
+    parser::{expander::SteelMacro, interner::InternedString},
     steel_vm::{engine::Engine, register_fn::RegisterFn},
 };
 use steel_language_server::backend::{
@@ -107,15 +111,27 @@ async fn main() {
                 // Require the path to warm the compiler, but don't bring this into the global scope.
                 // We're going to fake this into a different file, by creating another module
                 // that will require this, and then require that explicitly.
-                // let _ = guard.emit_expanded_ast_without_optimizations(
-                //     &format!(r"(require {:?})", path),
-                //     None,
-                // );
+
+                let macro_env_before: HashSet<InternedString> =
+                    guard.in_scope_macros().keys().copied().collect();
+
+                // TODO: Add span to the macro definition!
+                let mut introduced_macros: HashMap<InternedString, SteelMacro> = HashMap::new();
 
                 // TODO: This is still causing issues.
                 // Somehow it seems there is something wrong with the modules as they get loaded,
                 // and the environments between ASTs is not correct
                 let _ = guard.emit_expanded_ast(&format!(r"(require {:?})", path), None);
+
+                guard.in_scope_macros_mut().retain(|key, value| {
+                    if macro_env_before.contains(key) {
+                        return true;
+                    } else {
+                        // FIXME: Try to avoid this clone!
+                        introduced_macros.insert(*key, value.clone());
+                        false
+                    }
+                });
 
                 eprintln!("Successfully loaded: {:?}", path);
             }
