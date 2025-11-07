@@ -474,7 +474,7 @@
          (case key
            clause
            clauses ...))]))
-;; @doc
+;;@doc
 ;; Syntax:
 ;;
 ;; ```scheme

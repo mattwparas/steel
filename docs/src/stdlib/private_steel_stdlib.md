@@ -251,6 +251,20 @@ last `body` is in tail position with respect to the `when` form.
      10
      20) ;; => 20
 ```
+### **while**
+Syntax:
+
+```scheme
+(while test body ...)
+```
+
+A while loop. Each iteration of the loop evaluates the test
+expression, and if it evaluates to a true value, the
+body expressions are evaluates sequentially.
+
+```scheme
+(while #t (displayln "hello world"))
+```
 ### **~>**
 Syntax:
 
@@ -331,6 +345,5 @@ nesting.
 ### **sum**
 ### **unfold**
 ### **values**
-### **while**
 ### **with-finalizer**
 ### **zero?**
