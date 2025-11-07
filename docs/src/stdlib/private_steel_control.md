@@ -12,6 +12,7 @@
 ### **newline**
 ### **simple-display**
 ### **simple-displayln**
+### **struct**
 ### **write**
 ### **write-char**
 ### **write-string**

@@ -100,7 +100,7 @@ fn main() {
             writeln!(file).unwrap();
         }
 
-        let docs = docs_for_scheme_module(module);
+        let docs = docs_for_scheme_module(name, module);
         for (item, doc) in docs {
             let escaped = item.replace("*", "\\*");
             if let Some(doc) = doc {
@@ -113,18 +113,25 @@ fn main() {
     }
 }
 
-fn docs_for_scheme_module(module: &str) -> Vec<(String, Option<Arc<String>>)> {
+fn docs_for_scheme_module(name: &str, module: &str) -> Vec<(String, Option<Arc<String>>)> {
     let parser = Parser::doc_comment_parser(module, None);
     let exprs = parser.filter_map(|x| x.ok()).collect::<Vec<_>>();
 
-    // Include the macros here:
-    let mut provides: Vec<_> = vec![
-        "and", "or", "when", "unless", "while", "letrec", "letrec*", "~>", "~>>", "->", "->>",
-        "let*",
-    ]
-    .into_iter()
-    .map(|x| x.to_owned())
-    .collect();
+    let mut provides = Vec::new();
+
+    if name == "#%private/steel/stdlib" {
+        provides = vec![
+            "and", "or", "when", "unless", "while", "letrec", "letrec*", "~>", "~>>", "->", "->>",
+            "let*",
+        ]
+        .into_iter()
+        .map(|x| x.to_owned())
+        .collect();
+    }
+
+    if name == "#%private/steel/control" {
+        provides = vec!["struct".to_owned()];
+    }
 
     let mut docs = HashMap::new();
 
