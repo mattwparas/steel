@@ -258,7 +258,13 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        Ok(self.hover_impl(params).await)
+        let function_or_ident_result = self.hover_impl(&params).await;
+
+        if let Some(res) = function_or_ident_result {
+            return Ok(Some(res));
+        }
+
+        Ok(self.hover_macro_impl(params))
     }
 
     async fn document_symbol(
@@ -549,14 +555,30 @@ impl LanguageServer for Backend {
                             // Check if this is a macro invocation:
                             let path = PathBuf::from(uri.path());
                             {
+                                let mut guard = ENGINE.write().unwrap();
+                                let macro_env_before: HashSet<InternedString> =
+                                    guard.in_scope_macros().keys().copied().collect();
+
+                                // TODO: Add span to the macro definition!
+                                let mut introduced_macros: HashMap<InternedString, SteelMacro> =
+                                    HashMap::new();
+
                                 // Re run the analysis
-                                if let Err(e) = ENGINE
-                                    .write()
-                                    .unwrap()
-                                    .emit_expanded_ast(&format!("(require: {:?})", path), None)
+                                if let Err(e) =
+                                    guard.emit_expanded_ast(&format!("(require: {:?})", path), None)
                                 {
                                     eprintln!("Unable to load module: {:?}", e);
                                 }
+
+                                guard.in_scope_macros_mut().retain(|key, value| {
+                                    if macro_env_before.contains(key) {
+                                        return true;
+                                    } else {
+                                        // FIXME: Try to avoid this clone!
+                                        introduced_macros.insert(*key, value.clone());
+                                        false
+                                    }
+                                });
                             }
 
                             // Look at the macros that are in scope, just see what matches,
@@ -586,15 +608,24 @@ impl LanguageServer for Backend {
                                             continue;
                                         }
 
-                                        let mut found_ident = Some(ident);
+                                        let mut found_ident = ident;
+
+                                        if let Some(prefix) = &req.prefix {
+                                            if let Some(stripped) =
+                                                found_ident.resolve().strip_prefix(prefix)
+                                            {
+                                                found_ident = stripped.into();
+                                            }
+                                        }
 
                                         if !req.idents_to_import.is_empty() {
                                             let mut found = false;
+                                            // TODO: Handle prefix!
                                             for idents_to_import in &req.idents_to_import {
                                                 match idents_to_import {
                                                     MaybeRenamed::Normal(expr_kind) => {
                                                         if expr_kind.atom_identifier().copied()
-                                                            == Some(ident)
+                                                            == Some(found_ident)
                                                         {
                                                             found = true;
                                                             break;
@@ -604,13 +635,10 @@ impl LanguageServer for Backend {
                                                         expr_kind,
                                                         expr_kind1,
                                                     ) => {
-                                                        if expr_kind.atom_identifier().copied()
-                                                            == Some(ident)
+                                                        if expr_kind1.atom_identifier().copied()
+                                                            == Some(found_ident)
                                                         {
                                                             found = true;
-                                                            found_ident = expr_kind1
-                                                                .atom_identifier()
-                                                                .copied();
                                                             break;
                                                         }
                                                     }
@@ -623,9 +651,7 @@ impl LanguageServer for Backend {
                                                 // Use the found ident
                                                 let found_mod = modules.get(path.as_ref()).unwrap();
                                                 let macros = found_mod.get_macros();
-                                                if let Some(found) =
-                                                    macros.get(&found_ident.unwrap())
-                                                {
+                                                if let Some(found) = macros.get(&found_ident) {
                                                     let location = found.span();
 
                                                     let mut locations = vec![];
@@ -646,7 +672,7 @@ impl LanguageServer for Backend {
                                             // Just check the macros anyway
                                             let found_mod = modules.get(path.as_ref()).unwrap();
                                             let macros = found_mod.get_macros();
-                                            if let Some(found) = macros.get(&ident) {
+                                            if let Some(found) = macros.get(&found_ident) {
                                                 let location = found.span();
 
                                                 let mut locations = vec![];
@@ -1451,8 +1477,146 @@ fn fetch_stdlib_doc(ident: &str) -> Option<SteelString> {
 }
 
 impl Backend {
-    async fn hover_impl(&self, params: HoverParams) -> Option<Hover> {
+    fn hover_macro_impl(&self, params: HoverParams) -> Option<Hover> {
         let uri = params.text_document_position_params.text_document.uri;
+
+        let raw_ast = self.raw_ast_map.get(uri.as_str())?;
+        let ast = self.ast_map.get(uri.as_str())?;
+        let rope = self.document_map.get(uri.as_str())?;
+
+        let position = params.text_document_position_params.position;
+        let offset = self.config.position_to_offset(position, &rope)?;
+
+        // Just check if this is a top level identifier, and if so, grab the definition
+        // for it.
+        let ident = find_identifier_at_position(&raw_ast, offset as _)?;
+
+        let doc_suffix = ident.resolve().to_string() + "__doc__";
+
+        let define = query_top_level_define(&ast, doc_suffix);
+
+        if let Some(define) = define {
+            if let Some(doc) = define.body.to_string_literal() {
+                return Some(Hover {
+                    contents: HoverContents::Scalar(MarkedString::String(doc.to_owned())),
+                    range: None,
+                });
+            }
+        } else {
+            // This originated from another module, go to that modules ast and try to discover it:
+            // let modules =  { ENGINE.read().unwrap().modules().clone() };
+            // let mut ident = ident;
+
+            let path = PathBuf::from(uri.path());
+            {
+                // Re run the analysis
+                if let Err(e) = ENGINE
+                    .write()
+                    .unwrap()
+                    .emit_expanded_ast(&format!("(require: {:?})", path), None)
+                {
+                    eprintln!("Unable to load module: {:?}", e);
+                }
+            }
+
+            let modules = { ENGINE.read().unwrap().modules().clone() };
+
+            if let Some(found_mod) = modules.get(&path) {
+                for req in found_mod.get_requires() {
+                    let path = req.path.get_path();
+
+                    if !path.exists() {
+                        continue;
+                    }
+
+                    let mut found_ident = ident;
+
+                    if let Some(prefix) = &req.prefix {
+                        if let Some(stripped) = found_ident.resolve().strip_prefix(prefix) {
+                            found_ident = stripped.into();
+                        }
+                    }
+
+                    if !req.idents_to_import.is_empty() {
+                        let mut found = false;
+                        for idents_to_import in &req.idents_to_import {
+                            match idents_to_import {
+                                MaybeRenamed::Normal(expr_kind) => {
+                                    if expr_kind.atom_identifier().copied() == Some(found_ident) {
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                MaybeRenamed::Renamed(expr_kind, expr_kind1) => {
+                                    if expr_kind.atom_identifier().copied() == Some(found_ident) {
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if !found {
+                            continue;
+                        } else {
+                            // Use the found ident
+                            let found_mod = modules.get(path.as_ref()).unwrap();
+
+                            let ast = found_mod.get_ast();
+
+                            let doc_suffix = found_ident.resolve().to_string() + "__doc__";
+
+                            let define = query_top_level_define(&ast, doc_suffix);
+
+                            if let Some(define) = define {
+                                if let Some(doc) = define.body.to_string_literal() {
+                                    return Some(Hover {
+                                        contents: HoverContents::Scalar(MarkedString::String(
+                                            doc.to_owned(),
+                                        )),
+                                        range: None,
+                                    });
+                                }
+                            }
+
+                            // todo!()
+
+                            // check if from == to?
+                        }
+                    } else {
+                        // Just check the macros anyway
+                        let found_mod = modules.get(path.as_ref()).unwrap();
+
+                        let ast = found_mod.get_ast();
+
+                        let doc_suffix = found_ident.resolve().to_string() + "__doc__";
+
+                        let define = query_top_level_define(&ast, doc_suffix);
+
+                        if let Some(define) = define {
+                            if let Some(doc) = define.body.to_string_literal() {
+                                return Some(Hover {
+                                    contents: HoverContents::Scalar(MarkedString::String(
+                                        doc.to_owned(),
+                                    )),
+                                    range: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    async fn hover_impl(&self, params: &HoverParams) -> Option<Hover> {
+        let uri = params
+            .text_document_position_params
+            .text_document
+            .uri
+            .clone();
 
         let mut ast = self.ast_map.get_mut(uri.as_str())?;
         let rope = self.document_map.get(uri.as_str())?;
