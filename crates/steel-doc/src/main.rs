@@ -5,7 +5,7 @@ use std::{
 };
 use steel::{
     compiler::modules::{BUILT_INS, PRELUDE_MODULES},
-    parser::{ast::ExprKind, parser::Parser, tokens::TokenType},
+    parser::{ast::ExprKind, interner::InternedString, parser::Parser, tokens::TokenType},
     steel_vm::engine::Engine,
 };
 
@@ -100,7 +100,7 @@ fn main() {
             writeln!(file).unwrap();
         }
 
-        let docs = docs_for_scheme_module(module);
+        let docs = docs_for_scheme_module(name, module);
         for (item, doc) in docs {
             let escaped = item.replace("*", "\\*");
             if let Some(doc) = doc {
@@ -113,12 +113,29 @@ fn main() {
     }
 }
 
-fn docs_for_scheme_module(module: &str) -> Vec<(String, Option<Arc<String>>)> {
+fn docs_for_scheme_module(name: &str, module: &str) -> Vec<(String, Option<Arc<String>>)> {
     let parser = Parser::doc_comment_parser(module, None);
     let exprs = parser.filter_map(|x| x.ok()).collect::<Vec<_>>();
 
     let mut provides = Vec::new();
+
+    if name == "#%private/steel/stdlib" {
+        provides = vec![
+            "and", "or", "when", "unless", "while", "letrec", "letrec*", "~>", "~>>", "->", "->>",
+            "let*",
+        ]
+        .into_iter()
+        .map(|x| x.to_owned())
+        .collect();
+    }
+
+    if name == "#%private/steel/control" {
+        provides = vec!["struct".to_owned()];
+    }
+
     let mut docs = HashMap::new();
+
+    let macro_kw: InternedString = "#%macro".into();
 
     for expr in exprs {
         let ExprKind::List(expr) = expr else { continue };
@@ -141,25 +158,41 @@ fn docs_for_scheme_module(module: &str) -> Vec<(String, Option<Arc<String>>)> {
                 continue;
             };
 
-            let Some(ExprKind::Define(define)) = args.next() else {
-                continue;
+            match args.next() {
+                Some(ExprKind::Define(define)) => {
+                    let ExprKind::Atom(define) = &define.name else {
+                        continue;
+                    };
+
+                    let TokenType::Identifier(define) = define.syn.ty else {
+                        continue;
+                    };
+
+                    let define = define.resolve();
+
+                    if define.starts_with("#%") {
+                        continue;
+                    }
+
+                    docs.insert(define.to_owned(), doc.clone());
+                }
+
+                Some(ExprKind::Atom(atom)) if atom.ident() == Some(&macro_kw) => {
+                    let Some(define) = args.next().and_then(|x| x.atom_identifier()) else {
+                        continue;
+                    };
+
+                    let define = define.resolve();
+
+                    if define.starts_with("#%") {
+                        continue;
+                    }
+
+                    docs.insert(define.to_owned(), doc.clone());
+                }
+
+                _ => continue,
             };
-
-            let ExprKind::Atom(define) = &define.name else {
-                continue;
-            };
-
-            let TokenType::Identifier(define) = define.syn.ty else {
-                continue;
-            };
-
-            let define = define.resolve();
-
-            if define.starts_with("#%") {
-                continue;
-            }
-
-            docs.insert(define.to_owned(), doc.clone());
         } else if ident.resolve() == "provide" {
             for ident in args {
                 let ExprKind::Atom(arg) = ident else {

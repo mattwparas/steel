@@ -51,7 +51,9 @@
 
 (define (combine-local-and-parent-fields local-fields list-of-class-objects)
   (let ([appended (append local-fields (collect-fields list-of-class-objects))])
-    (if (contains-duplicates? appended) (error! "Class field is unresolvable") appended)))
+    (if (contains-duplicates? appended)
+        (error! "Class field is unresolvable")
+        appended)))
 
 ;; -----------------------------------------------------------------------------------------------------
 
@@ -94,15 +96,9 @@
   (define list-length (length lst))
   (define (loop lst idx)
     (cond
-      [(= idx list-length)
-       =>
-       (error! "Value not a member of the list")]
-      [(equal? value (list-ref lst idx))
-       =>
-       idx]
-      [else
-       =>
-       (loop lst (+ idx 1))]))
+      [(= idx list-length) (error! "Value not a member of the list")]
+      [(equal? value (list-ref lst idx)) idx]
+      [else (loop lst (+ idx 1))]))
   (loop lst 0))
 
 ;; Map the given field name to an index in the class' slot

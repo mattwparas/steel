@@ -227,6 +227,26 @@
          (#%syntax/raw '() '() (#%syntax-span x))
          (syntax (#%syntax/raw 'x 'x (#%syntax-span x))))]))
 
+;;@doc
+;; Syntax:
+;; If no exprs are provided, then the result is `#false`
+;;
+;; If a single expr is provided, then it is in tail position, so the results
+;; of the `or` expressions are the results of the `expr`.
+;;
+;; Otherwise, the first `expr` is evaluated. If it produces a value other
+;; than `#f`, that result is the result of the `or` expression. Otherwise,
+;; the result is the same as an `or` expression witih
+;; the remaining `expr`s in tail position with respect to the original
+;; `or` form.
+;;
+;; # Examples
+;; ```scheme
+;; (or) ;; => #f
+;; (or 1) ;; => `
+;; (or 5 (error "should not get here")) ;; => 5
+;; (or #f 5) ;; => 5
+;; ```
 (define-syntax or
   (syntax-rules ()
     [(or) #f]
@@ -234,6 +254,25 @@
     [(or x y) (let ([z x]) (if z z y))]
     [(or x y ...) (or x (or y ...))]))
 
+;;@doc
+;; Syntax:
+;; If no `expr`s are provided, the the result is #t.
+;;
+;; If a single `expr` is provided, then it is in tail position, so the results of
+;; the `and` expression are the results of the `expr`.
+;;
+;; Otherwise, the first `expr` is evaluated. If it produces `#f`, the result
+;; of the `and` expression is `#f`. Otherwise, the result is the same as an
+;; `and` expression with the remaining `expr`s in tail position with
+;; respect to the original `and` form.
+;;
+;; # Examples
+;; ```scheme
+;; (and) ;; => #t
+;; (and 1) ;; => 1
+;; (and #f (error "should not get here")) ;; => #f
+;; (and #t 5) ;; => 5
+;; ```
 (define-syntax and
   (syntax-rules ()
     [(and) #t]
@@ -241,6 +280,26 @@
     [(and x y) (if x y #f)]
     [(and x y ...) (and x (and y ...))]))
 
+;;@doc
+;; Syntax:
+;;
+;; ```scheme
+;; (when test-expr body ...)
+;; ```
+;;
+;; Evaluates `test-expr`. If the result is `#f`, then the result of the `when`
+;; expression is `#<void>`. Otherwise, the `body`s are evaluated, and the
+;; last `body` is in tail position with respect to the `when` form.
+;;
+;; # Examples
+;; ```scheme
+;; (when (positive? -f)
+;;     "found positive") ;; => #<void>
+;;
+;; (when (positive? 5)
+;;      10
+;;      20) ;; => 20
+;; ```
 (define-syntax when
   (syntax-rules ()
     [(when a
@@ -250,6 +309,13 @@
            b ...)
          void)]))
 
+;;@doc
+;; Syntax:
+;;
+;; Equivalent to:
+;; ```scheme
+;; (when (not test-expr) body ...)
+;; ```
 (define-syntax unless
   (syntax-rules ()
     [(unless a
@@ -297,6 +363,38 @@
          (cond
            c1 ...))]))
 
+;;@doc
+;; Syntax:
+;;
+;; ```scheme
+;; (case val-expr case-clause ...)
+;;
+;;   case-clause = [(datum ...) then-body ...]
+;;               | [else then-body ...]
+;; ```
+;;
+;; Evaluates `val-expr` and uses the result to select a `case-clause`. The selected
+;; clause is the first one with a `datum` whose `quote`d form is `equal?` to the
+;; result of `val-expr`. If no such `datum` is present, the `else` case-clause is
+;; selected. If no `else` case-clause is present, then the result of the `case`
+;; form is `#<void>`.
+;;
+;; For the selected `case-clause`, the results of the last `then-body`, which is
+;; in tail position with respect to the `case` form, are the results for the whole
+;; `case` form.
+;;
+;; A `case-clause` that starts with `else` must be the last case-clause.
+;;
+;; # Examples
+;; ```scheme
+;; (case (+ 7 5)
+;;    [(1 2 3) 'small]
+;;    [(10 11 12) 'big]) ;; => 'big
+;;
+;; (case (- 7 5)
+;;    [(1 2 3) 'small]
+;;    [(10 11 12) 'big]) ;; => 'small
+;; ```
 (define-syntax case
   (syntax-rules (else)
     [(case (key ...)
@@ -364,7 +462,20 @@
          (case key
            clause
            clauses ...))]))
-
+;;@doc
+;; Syntax:
+;;
+;; ```scheme
+;; (while test body ...)
+;; ```
+;;
+;; A while loop. Each iteration of the loop evaluates the test
+;; expression, and if it evaluates to a true value, the
+;; body expressions are evaluates sequentially.
+;;
+;; ```scheme
+;; (while #t (displayln "hello world"))
+;; ```
 (define-syntax while
   (syntax-rules (do)
     [(while cond do body ...)
@@ -382,12 +493,14 @@
            (loop)))
        (loop))]))
 
-;; TODO add the single argument case
 (define-syntax f>
   (syntax-rules ()
     [(f> fun) fun]
     [(f> fun args* ...) (lambda (x) (fun x args* ...))]))
 
+;;@doc
+;; Syntax:
+;; Alias for `~>`. Prefer to use `~>` over `->`.
 (define-syntax ->
   (syntax-rules ()
     [(-> a) a]
@@ -396,6 +509,20 @@
     [(~> a b) ((f> b) a)]
     [(-> a b c ...) (-> (-> a b) c ...)]))
 
+;;@doc
+;; Syntax:
+;;
+;; This can be read as "thread-first". It is used to pipe expressions
+;; through to the first argument of the next expression in order to avoid
+;; nesting.
+;;
+;; # Examples
+;; ```scheme
+;; (~> 10) ;; => 10
+;; (~> 10 list) ;; equivalent to (list 10)
+;; (~> 10 list car) ;; equivalent to (car (list 10))
+;; (~> 10 list ((lambda (m) (map add1 m)))) ;; => '(11)
+;; ```
 (define-syntax ~>
   (syntax-rules ()
     [(~> a) a]
@@ -409,6 +536,20 @@
     [(l> fun) fun]
     [(l> fun args* ...) (lambda (x) (fun args* ... x))]))
 
+;;@doc
+;; Syntax:
+;;
+;; This can be read as "thread-last". It is used to pipe expressions
+;; through to the last argument of the next expression in order to avoid
+;; nesting.
+;;
+;; # Examples
+;; ```scheme
+;; (~>> 10) ;; => 10
+;; (~>> 10 list) ;; equivalent to (list 10)
+;; (~>> 10 list car) ;; equivalent to (car (list 10))
+;; (~>> 10 list (map add1)) ;; => '(11)
+;; ```
 (define-syntax ~>>
   (syntax-rules ()
     [(~>> a) a]
@@ -417,6 +558,9 @@
     [(~>> a b) ((l> b) a)]
     [(~>> a b c ...) (~>> (~>> a b) c ...)]))
 
+;;@doc
+;; Syntax:
+;; Alias for `~>>`. Prefer to use `~>>` over `->>`.
 (define-syntax ->>
   (syntax-rules ()
     [(->> a) a]
@@ -425,6 +569,18 @@
     [(~>> a b) ((l> b) a)]
     [(->> a b c ...) (->> (->> a b) c ...)]))
 
+;;@doc
+;; Syntax:
+;;
+;; Swap the values for the given identifiers
+;;
+;; ```scheme
+;; (define a 10)
+;; (define b 20)
+;; (swap a b)
+;; a ;; => 20
+;; b ;; => 10
+;; ```
 (define-syntax swap
   (syntax-rules ()
     [(swap a b)
@@ -433,6 +589,24 @@
          (set! b a)
          (set! a tmp)))]))
 
+;;@doc
+;; Syntax:
+;;
+;; ```scheme
+;; (let* ([id val-expr] ...) body ...)
+;; ```
+;;
+;; Like `let`, but evaluates the `val-expr`s one by one.
+;; Each id is bound in the remaining `val-expr` as well
+;; as the `body`s. The `id`s do not need to be distinct;
+;; later bindings will shadow earlier bindings.
+;;
+;; # Examples
+;; ```scheme
+;; (let* ([x 1]
+;;        [y (+ x 1)])
+;;     (list y x)) ;; => '(2 1)
+;; ```
 (define-syntax let*
   (syntax-rules ()
     [(let* ()
@@ -447,25 +621,51 @@
           body ...))
       val)]))
 
-(define-syntax letrec*-helper
+(define-syntax #%letrec*-helper
   (syntax-rules ()
-    [(letrec*-helper () body ...)
+    [(#%letrec*-helper () body ...)
      (begin
        body ...)]
-    [(letrec*-helper ((var val) rest ...) body ...)
+    [(#%letrec*-helper ((var val) rest ...) body ...)
      (begin
        (define var val)
-       (letrec*-helper (rest ...) body ...))]))
+       (#%letrec*-helper (rest ...) body ...))]))
 
+;;@doc
+;;
+;; Syntax:
+;;
+;; Alias for `letrec`.
 (define-syntax letrec*
   (syntax-rules ()
-    [(letrec* bindings body ...) ((lambda () (letrec*-helper bindings body ...)))]))
+    [(letrec* bindings body ...) ((lambda () (#%letrec*-helper bindings body ...)))]))
 
+;;@doc
+;; Syntax:
+;;
+;; ```scheme
+;; (letrec ([id val-expr] ...) body ...)
+;; ```
+;;
+;; Let `let`, but the identifiers are created first, meaning
+;; `id`s within `val-expr`s can reference later `id`s in the
+;; letrec.
+;;
+;; # Examples
+;; ```scheme
+;; (letrec ([is-even? (lambda (n)
+;;                       (or (zero? n)
+;;                           (is-odd? (sub1 n))))]
+;;           [is-odd? (lambda (n)
+;;                      (and (not (zero? n))
+;;                           (is-even? (sub1 n))))])
+;;    (is-odd? 11)) ;; => #t
+;; ```
 (define-syntax letrec
   (syntax-rules ()
     [(letrec bindings
        body ...)
-     ((lambda () (letrec*-helper bindings body ...)))]))
+     ((lambda () (#%letrec*-helper bindings body ...)))]))
 
 (define-syntax module
   (syntax-rules (provide gen-defines
