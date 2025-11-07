@@ -997,12 +997,8 @@ impl ModuleManager {
             for provide_expr in &module.provides {
                 if let Some(provide_expr) = provide_expr.list() {
                     for ident in provide_expr.args.split_first().unwrap().1 {
-                        // println!("Looking for {}", ident);
-
                         if let Some(ident) = ident.atom_identifier() {
                             if let Some(mut m) = module.macro_map.get(ident).cloned() {
-                                // println!("Pulling in macro: {}", ident);
-
                                 for expr in m.exprs_mut() {
                                     name_mangler.visit(expr);
                                 }

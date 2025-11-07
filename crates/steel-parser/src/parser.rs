@@ -301,6 +301,8 @@ pub struct Parser<'a> {
     comment_buffer: Vec<&'a str>,
     collecting_comments: bool,
     keep_lists: bool,
+
+    queued: Option<ExprKind>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -354,6 +356,7 @@ impl<'a> Parser<'a> {
             comment_buffer: Vec::new(),
             collecting_comments: false,
             keep_lists: false,
+            queued: None,
         }
     }
 
@@ -374,6 +377,7 @@ impl<'a> Parser<'a> {
             comment_buffer: Vec::new(),
             collecting_comments: false,
             keep_lists: true,
+            queued: None,
         }
     }
 
@@ -393,6 +397,7 @@ impl<'a> Parser<'a> {
             comment_buffer: Vec::new(),
             collecting_comments: false,
             keep_lists: false,
+            queued: None,
         }
     }
 
@@ -409,6 +414,7 @@ impl<'a> Parser<'a> {
             comment_buffer: Vec::new(),
             collecting_comments: false,
             keep_lists: false,
+            queued: None,
         }
     }
 
@@ -1124,14 +1130,43 @@ impl<'a> Parser<'a> {
     }
 }
 
-fn wrap_in_doc_function(expr: ExprKind, comment: String) -> ExprKind {
-    // println!("Found comment : {} for expr {}", comment, expr);
+enum DocResult {
+    Single(ExprKind),
+    Double(ExprKind, ExprKind),
+}
 
-    ExprKind::List(List::new(vec![
+// TODO: Hack in the doc comment extraction for macros too since
+// those can be special cased
+fn wrap_in_doc_function(expr: ExprKind, comment: String) -> DocResult {
+    if let ExprKind::List(l) = &expr {
+        if let Some(ExprKind::Atom(Atom {
+            syn:
+                RawSyntaxObject {
+                    ty: TokenType::DefineSyntax,
+                    ..
+                },
+        })) = l.first()
+        {
+            // Just emit a single @doc line for the define-syntax,
+            // and we'll handle the macro itself separately.
+            if let Some(ident) = l.second_ident() {
+                let doc = ExprKind::List(List::new(vec![
+                    ExprKind::ident("@doc"),
+                    ExprKind::string_lit(comment),
+                    ExprKind::ident("#%macro"),
+                    ExprKind::ident(ident.resolve()),
+                ]));
+
+                return DocResult::Double(doc, expr);
+            }
+        }
+    }
+
+    DocResult::Single(ExprKind::List(List::new(vec![
         ExprKind::ident("@doc"),
         ExprKind::string_lit(comment),
         expr,
-    ]))
+    ])))
 }
 
 impl<'a> Parser<'a> {
@@ -1426,6 +1461,10 @@ impl<'a> Iterator for Parser<'a> {
 
     // TODO -> put the
     fn next(&mut self) -> Option<Self::Item> {
+        if let Some(next) = self.queued.take() {
+            return Some(Ok(next));
+        }
+
         if self.quote_stack.is_empty()
             && self.shorthand_quote_stack.is_empty()
             && self.context.is_empty()
@@ -1441,13 +1480,18 @@ impl<'a> Iterator for Parser<'a> {
                 // Reset the comment collection until next @doc statement
                 self.collecting_comments = false;
                 res.map(|x| {
-                    // println!("Wrapping in doc: {}", x);
                     let result = wrap_in_doc_function(
                         x,
                         self.comment_buffer.drain(..).collect::<Vec<_>>().join("\n"),
                     );
 
-                    result
+                    match result {
+                        DocResult::Single(expr_kind) => expr_kind,
+                        DocResult::Double(expr_kind, expr_kind1) => {
+                            self.queued = Some(expr_kind1);
+                            expr_kind
+                        }
+                    }
                 })
             }
         })

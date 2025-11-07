@@ -597,7 +597,6 @@ impl LanguageServer for Backend {
                                                             == Some(ident)
                                                         {
                                                             found = true;
-
                                                             break;
                                                         }
                                                     }
