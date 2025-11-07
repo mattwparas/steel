@@ -117,7 +117,15 @@ fn docs_for_scheme_module(module: &str) -> Vec<(String, Option<Arc<String>>)> {
     let parser = Parser::doc_comment_parser(module, None);
     let exprs = parser.filter_map(|x| x.ok()).collect::<Vec<_>>();
 
-    let mut provides = Vec::new();
+    // Include the macros here:
+    let mut provides: Vec<_> = vec![
+        "and", "or", "when", "unless", "while", "letrec", "letrec*", "~>", "~>>", "->", "->>",
+        "let*",
+    ]
+    .into_iter()
+    .map(|x| x.to_owned())
+    .collect();
+
     let mut docs = HashMap::new();
 
     let macro_kw: InternedString = "#%macro".into();

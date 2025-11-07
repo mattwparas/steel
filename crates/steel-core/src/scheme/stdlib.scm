@@ -62,19 +62,7 @@
          call-with-values
          #%register-struct-finalizer
          #%start-will-executor
-         with-finalizer
-         and
-         or
-         when
-         unless
-         while
-         letrec
-         letrec*
-         ~>
-         ~>>
-         ->
-         ->>
-         let*)
+         with-finalizer)
 
 ; (define-syntax steel/base
 ;   (syntax-rules ()
@@ -87,6 +75,33 @@
 ;     ((_ (unquote x))                 x)
 ;     ((_ (x  . xs))                   (cons (quasiquote x) (quasiquote xs)))
 ;     ((_ x)                           (quote x))))
+
+(define struct__doc
+  "
+ Syntax:
+
+ Macro for creating a new struct, in the form of:
+ `(struct <struct-name> (fields ...) options ...)`
+ The options can consist of the following:
+
+ Single variable options (those which their presence indicates #true)
+ - #:mutable
+ - #:transparent
+
+ Other options must be presented as key value pairs, and will get stored
+ in the struct instance. They will also be bound to the variable
+ ___<struct-name>-options___ in the same lexical environment where the
+ struct was defined. For example:
+
+ (Applesauce (a b c) #:mutable #:transparent #:unrecognized-option 1234)
+
+ Will result in the value `___Applesauce-options___` like so:
+ (hash #:mutable #true #:transparent #true #:unrecognized-option 1234)
+
+ By default, structs are immutable, which means setter functions will not
+ be generated. Also by default, structs are not transparent, which means
+ printing them will result in an opaque struct that does not list the fields
+  ")
 
 (define (#%syntax-bindings)
   (hash))

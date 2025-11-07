@@ -1491,6 +1491,8 @@ impl Backend {
         // for it.
         let ident = find_identifier_at_position(&raw_ast, offset as _)?;
 
+        eprintln!("Found identifier: {}", ident);
+
         let doc_suffix = ident.resolve().to_string() + "__doc__";
 
         let define = query_top_level_define(&ast, doc_suffix);
