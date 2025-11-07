@@ -1,6 +1,12 @@
 # #%private/steel/stdlib
 **this module is in the prelude and therefore automatically available when running steel.**
 
+### **->**
+Syntax:
+Alias for `~>`. Prefer to use `~>` over `->`.
+### **->>**
+Syntax:
+Alias for `~>>`. Prefer to use `~>>` over `->>`.
 ### **and**
 Syntax:
 If no `expr`s are provided, the the result is #t.
@@ -126,6 +132,50 @@ Applies a procedure to all elements of a list
 'b
 'c
 ```
+### **let\***
+Syntax:
+
+```scheme
+(let* ([id val-expr] ...) body ...)
+```
+
+Like `let`, but evaluates the `val-expr`s one by one.
+Each id is bound in the remaining `val-expr` as well
+as the `body`s. The `id`s do not need to be distinct;
+later bindings will shadow earlier bindings.
+
+#### Examples
+```scheme
+(let* ([x 1]
+       [y (+ x 1)])
+    (list y x)) ;; => '(2 1)
+```
+### **letrec**
+Syntax:
+
+```scheme
+(letrec ([id val-expr] ...) body ...)
+```
+
+Let `let`, but the identifiers are created first, meaning
+`id`s within `val-expr`s can reference later `id`s in the
+letrec.
+
+#### Examples
+```scheme
+(letrec ([is-even? (lambda (n)
+                      (or (zero? n)
+                          (is-odd? (sub1 n))))]
+          [is-odd? (lambda (n)
+                     (and (not (zero? n))
+                          (is-even? (sub1 n))))])
+   (is-odd? 11)) ;; => #t
+```
+### **letrec\***
+
+Syntax:
+
+Alias for `letrec`.
 ### **map**
 Applies `func` to the elements of the `lsts` from the first
 elements to the last. The `func` argument must accept the same
@@ -174,7 +224,15 @@ the remaining `expr`s in tail position with respect to the original
 (or 5 (error "should not get here")) ;; => 5
 (or #f 5) ;; => 5
 ```
+### **unless**
+Syntax:
+
+Equivalent to:
+```scheme
+(when (not test-expr) body ...)
+```
 ### **when**
+Syntax:
 
 ```scheme
 (when test-expr body ...)
@@ -192,6 +250,34 @@ last `body` is in tail position with respect to the `when` form.
 (when (positive? 5)
      10
      20) ;; => 20
+```
+### **~>**
+Syntax:
+
+This can be read as "thread-first". It is used to pipe expressions
+through to the first argument of the next expression in order to avoid
+nesting.
+
+#### Examples
+```scheme
+(~> 10) ;; => 10
+(~> 10 list) ;; equivalent to (list 10)
+(~> 10 list car) ;; equivalent to (car (list 10))
+(~> 10 list ((lambda (m) (map add1 m)))) ;; => '(11)
+```
+### **~>>**
+Syntax:
+
+This can be read as "thread-last". It is used to pipe expressions
+through to the last argument of the next expression in order to avoid
+nesting.
+
+#### Examples
+```scheme
+(~>> 10) ;; => 10
+(~>> 10 list) ;; equivalent to (list 10)
+(~>> 10 list car) ;; equivalent to (car (list 10))
+(~>> 10 list (map add1)) ;; => '(11)
 ```
 ### **\*abort**
 ### **\*meta-continuation\***
@@ -245,5 +331,6 @@ last `body` is in tail position with respect to the `when` form.
 ### **sum**
 ### **unfold**
 ### **values**
+### **while**
 ### **with-finalizer**
 ### **zero?**

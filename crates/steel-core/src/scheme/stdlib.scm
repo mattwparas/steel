@@ -67,7 +67,14 @@
          or
          when
          unless
-         while)
+         while
+         letrec
+         letrec*
+         ~>
+         ~>>
+         ->
+         ->>
+         let*)
 
 ; (define-syntax steel/base
 ;   (syntax-rules ()
