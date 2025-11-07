@@ -89,6 +89,7 @@ pub struct Backend {
 
     pub client: Client,
     pub ast_map: DashMap<String, Vec<ExprKind>>,
+    pub raw_ast_map: DashMap<String, Vec<ExprKind>>,
     pub lowered_ast_map: DashMap<String, Vec<ExprKind>>,
     pub document_map: DashMap<String, Rope>,
     pub vfs: DashMap<Url, FileState>,
@@ -266,7 +267,7 @@ impl LanguageServer for Backend {
     ) -> Result<Option<DocumentSymbolResponse>> {
         let symbols = async {
             let uri = params.text_document.uri;
-            let mut ast = self.ast_map.get_mut(uri.as_str())?;
+            let mut ast = self.raw_ast_map.get_mut(uri.as_str())?;
             let mut rope = self.document_map.get(uri.as_str())?.clone();
 
             let analysis = SemanticAnalysis::new(&mut ast);
@@ -276,7 +277,6 @@ impl LanguageServer for Backend {
 
                 definitions
                     .iter()
-                    .filter(|(name, kind, span)| span.source_id == uri_to_source_id(&uri))
                     .map(|(name, kind, span)| {
                         let container_name = span.source_id.and_then(|source_id| {
                             let contexts = analysis
@@ -338,7 +338,6 @@ impl LanguageServer for Backend {
 
                 definitions
                     .iter()
-                    .filter(|(name, span)| span.source_id == uri_to_source_id(&uri))
                     .map(|(name, span)| {
                         let container_name = span.source_id.and_then(|source_id| {
                             let contexts = analysis
@@ -371,7 +370,7 @@ impl LanguageServer for Backend {
                         });
 
                         SymbolInformation {
-                            name: rope.slice(span.usize_range()).to_string(),
+                            name: name.to_string(),
                             kind: SymbolKind::VARIABLE,
                             tags: None,
                             deprecated: None,
@@ -1527,6 +1526,8 @@ impl Backend {
         let expression = params.text;
 
         let diagnostics = {
+            let raw_program = Engine::emit_ast(&expression);
+
             let program = {
                 let mut guard = ENGINE.write().unwrap();
 
@@ -1633,6 +1634,10 @@ impl Backend {
             };
 
             self.ast_map.insert(params.uri.to_string(), ast);
+
+            if let Ok(raw_ast) = raw_program {
+                self.raw_ast_map.insert(params.uri.to_string(), raw_ast);
+            }
 
             // the ast that is parsed for the `ast_map` is parsed with the `.without_lowering`
             // argument to the `Parser`. but for things like `rename` (and `prepare_rename`),

@@ -133,6 +133,7 @@ async fn main() {
         vfs,
         root,
         ast_map: DashMap::new(),
+        raw_ast_map: DashMap::new(),
         lowered_ast_map: DashMap::new(),
         document_map: DashMap::new(),
         _macro_map: DashMap::new(),

@@ -3009,33 +3009,43 @@ impl<'a> VisitorMutUnitRef<'a> for TopLevelDefinitionFinder<'a> {
     }
 }
 
-struct LetBindingsFinder<'a> {
-    analysis: &'a Analysis,
+struct LetBindingsRawAstFinder {
     definitions: Vec<(InternedString, Span)>,
 }
 
-impl<'a> LetBindingsFinder<'a> {
-    pub fn new(analysis: &'a Analysis) -> Self {
+impl<'a> LetBindingsRawAstFinder {
+    pub fn new() -> Self {
         Self {
-            analysis,
             definitions: Vec::new(),
         }
     }
 }
 
-impl<'a> VisitorMutUnitRef<'a> for LetBindingsFinder<'a> {
-    fn visit_let(&mut self, expr: &'a Let) {
-        for (k, _v) in expr.bindings.iter() {
-            if let ExprKind::Atom(a) = k {
-                if let Some(info) = self.analysis.get(&a.syn) {
-                    let name = *a.ident().unwrap_or(&InternedString::from_static("unnamed"));
+impl<'a> VisitorMutUnitRef<'a> for LetBindingsRawAstFinder {
+    fn visit_list(&mut self, l: &'a List) {
+        if let Some(ExprKind::Atom(a)) = l.args.first() {
+            if let Some(first_element) = a.ident() {
+                if first_element.to_string() == "let*" {
+                    if let Some(ExprKind::List(defs_tuples_list)) = l.args.get(1) {
+                        for def_tuple in &defs_tuples_list.args {
+                            if let ExprKind::List(def_l) = def_tuple {
+                                if let Some(ExprKind::Atom(name_a)) = def_l.args.first() {
+                                    let name = *name_a
+                                        .ident()
+                                        .unwrap_or(&InternedString::from_static("unnamed"));
 
-                    self.definitions.push((name, info.span));
+                                    self.definitions.push((name, def_l.location));
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(ExprKind::List(_)) = l.args.get(2) {
+                        self.visit(l.args.get(2).unwrap());
+                    }
                 }
             }
         }
-
-        self.visit(&expr.body_expr);
     }
 }
 
@@ -5125,7 +5135,9 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     pub fn find_let_bindings(&self) -> Vec<(InternedString, Span)> {
-        let mut visitor = LetBindingsFinder::new(&self.analysis);
+        // this traverses the raw AST to find the let* bindings
+        // raw AST does not expand the let* macro, resulting in correct results
+        let mut visitor = LetBindingsRawAstFinder::new();
 
         for expr in self.exprs.iter() {
             visitor.visit(expr);
