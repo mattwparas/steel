@@ -77,7 +77,6 @@
 
     ;; The reader is not empty!
     [else
-     =>
      (let ([next (reader.reader-read-one *reader*)])
 
        ; (displayln "GETTING HERE")

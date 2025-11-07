@@ -27,7 +27,10 @@
          get-ws-url)
 
 (define (env-var! var)
-  (let ([e (maybe-get-env-var var)]) (if (Err? e) "TODO" (unwrap-ok e))))
+  (let ([e (maybe-get-env-var var)])
+    (if (Err? e)
+        "TODO"
+        (unwrap-ok e))))
 
 (define client (client/new))
 
@@ -74,32 +77,24 @@
   ;; If its a ping, respond with a pong
   (cond
     [(ws/message-ping? message)
-     =>
      (ws/write-message! socket (ws/message-ping->pong message))
      (loop url socket message-thunk)]
     ;; If its a text message, check if its a hello message - otherwise, continue
     ;; And process the message
     [(ws/message-text? message)
-     =>
      (define body (string->jsexpr (ws/message->text-payload message)))
      (cond
-       [(equal? "hello" (hash-try-get body 'type))
-        =>
-        (loop url socket message-thunk)]
+       [(equal? "hello" (hash-try-get body 'type)) (loop url socket message-thunk)]
 
        [(equal? "disconnect" (hash-try-get body 'type))
-        =>
         (log/info! "Refreshing the connection, sleeping for 500 ms")
         (time/sleep-ms 500)
         (loop url (connect-to-slack-socket (get-ws-url)) message-thunk)]
 
        [else
-        =>
         (send-acknowledgement socket body)
         (message-thunk body)
         (loop url socket message-thunk)])]
-    [else
-     =>
-     (loop url socket message-thunk)]))
+    [else (loop url socket message-thunk)]))
 
 (define event-loop loop)

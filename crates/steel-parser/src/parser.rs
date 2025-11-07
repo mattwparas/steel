@@ -1162,6 +1162,21 @@ fn wrap_in_doc_function(expr: ExprKind, comment: String) -> DocResult {
         }
     }
 
+    if let ExprKind::Macro(m) = &expr {
+        // Just emit a single @doc line for the define-syntax,
+        // and we'll handle the macro itself separately.
+        if let Some(ident) = m.name.atom_identifier().copied() {
+            let doc = ExprKind::List(List::new(vec![
+                ExprKind::ident("@doc"),
+                ExprKind::string_lit(comment),
+                ExprKind::ident("#%macro"),
+                ExprKind::ident(ident.resolve()),
+            ]));
+
+            return DocResult::Double(doc, expr);
+        }
+    }
+
     DocResult::Single(ExprKind::List(List::new(vec![
         ExprKind::ident("@doc"),
         ExprKind::string_lit(comment),

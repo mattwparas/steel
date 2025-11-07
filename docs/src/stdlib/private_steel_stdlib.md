@@ -1,6 +1,25 @@
 # #%private/steel/stdlib
 **this module is in the prelude and therefore automatically available when running steel.**
 
+### **and**
+Syntax:
+If no `expr`s are provided, the the result is #t.
+
+If a single `expr` is provided, then it is in tail position, so the results of
+the `and` expression are the results of the `expr`.
+
+Otherwise, the first `expr` is evaluated. If it produces `#f`, the result
+of the `and` expression is `#f`. Otherwise, the result is the same as an
+`and` expression with the remaining `expr`s in tail position with
+respect to the original `and` form.
+
+#### Examples
+```scheme
+(and) ;; => #t
+(and 1) ;; => 1
+(and #f (error "should not get here")) ;; => #f
+(and #t 5) ;; => 5
+```
 ### **assoc**
 Returns the first pair in the given list, where the car element is `equal?`
 to the given obj, returning `#f` if nothing was found.
@@ -134,6 +153,45 @@ This procedure is equivalent to `member`, but using `eqv?` instead of `equal?`.
 ```scheme
 (memv #\c '(#\a #\b #\c #\d #\e)) ;; => '(#\c #\d #\e)
 (memv 5 '(0 1 2 3 4)) ;; => #f
+```
+### **or**
+Syntax:
+If no exprs are provided, then the result is `#false`
+
+If a single expr is provided, then it is in tail position, so the results
+of the `or` expressions are the results of the `expr`.
+
+Otherwise, the first `expr` is evaluated. If it produces a value other
+than `#f`, that result is the result of the `or` expression. Otherwise,
+the result is the same as an `or` expression witih
+the remaining `expr`s in tail position with respect to the original
+`or` form.
+
+#### Examples
+```scheme
+(or) ;; => #f
+(or 1) ;; => `
+(or 5 (error "should not get here")) ;; => 5
+(or #f 5) ;; => 5
+```
+### **when**
+
+```scheme
+(when test-expr body ...)
+```
+
+Evaluates `test-expr`. If the result is `#f`, then the result of the `when`
+expression is `#<void>`. Otherwise, the `body`s are evaluated, and the
+last `body` is in tail position with respect to the `when` form.
+
+#### Examples
+```scheme
+(when (positive? -f)
+    "found positive") ;; => #<void>
+
+(when (positive? 5)
+     10
+     20) ;; => 20
 ```
 ### **\*abort**
 ### **\*meta-continuation\***

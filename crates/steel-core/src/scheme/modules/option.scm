@@ -33,12 +33,14 @@
   (cond
     [(Some? option) (Some (func (Some->value option)))]
     [(None? option) (None)]
-    [else
-     =>
-     (error! "map-option with unknown input")]))
+    [else (error! "map-option with unknown input")]))
 
 (define (flatten-option option)
-  (if (Some? option) (if (Some? (Some->value option)) (Some->value option) (None)) (None)))
+  (if (Some? option)
+      (if (Some? (Some->value option))
+          (Some->value option)
+          (None))
+      (None)))
 
 ;; Get the inner value of the option - contract checking along the way
 ;; Figure out how to turn off contracts on OptLevel3 regardless -
@@ -46,11 +48,17 @@
 (define unwrap-some Some->value)
 
 (define (unwrap option #:default [other #f])
-  (if (Some? option) (Some->value option) other))
+  (if (Some? option)
+      (Some->value option)
+      other))
 
 ;; Unwraps the given option or returns the given other value
 (define (unwrap-or option other)
-  (if (Some? option) (Some->value option) other))
+  (if (Some? option)
+      (Some->value option)
+      other))
 
 (define (unwrap-or-else option thunk)
-  (if (Some? option) (Some->value option) (thunk)))
+  (if (Some? option)
+      (Some->value option)
+      (thunk)))

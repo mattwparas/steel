@@ -74,16 +74,10 @@
   (define type (request-type req))
   ; (displayln "Path: " (request-path req))
   (cond
-    [(= GET type)
-     =>
-     ((hash-get *routes* (request-path req)))]
+    [(= GET type) ((hash-get *routes* (request-path req)))]
 
-    [(= POST type)
-     =>
-     ((hash-get *post-routes* (request-path req)) (request-body req))]
-    [else
-     =>
-     (displayln "Unknown request type!: " type)]))
+    [(= POST type) ((hash-get *post-routes* (request-path req)) (request-body req))]
+    [else (displayln "Unknown request type!: " type)]))
 
 (struct WorkerThread (sender thread-handle))
 

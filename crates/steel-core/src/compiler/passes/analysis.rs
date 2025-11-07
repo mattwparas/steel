@@ -2869,7 +2869,9 @@ struct IdentifierAtPosition {
 impl<'a> VisitorMutUnitRef<'a> for IdentifierAtPosition {
     fn visit_atom(&mut self, a: &'a Atom) {
         if a.syn.span.range().contains(&self.position) {
-            self.found = a.syn.ty.identifier().cloned();
+            if self.found.is_none() {
+                self.found = a.syn.ty.identifier().cloned();
+            }
         }
     }
 }

@@ -5,7 +5,7 @@ use std::{
 };
 use steel::{
     compiler::modules::{BUILT_INS, PRELUDE_MODULES},
-    parser::{ast::ExprKind, parser::Parser, tokens::TokenType},
+    parser::{ast::ExprKind, interner::InternedString, parser::Parser, tokens::TokenType},
     steel_vm::engine::Engine,
 };
 
@@ -120,6 +120,8 @@ fn docs_for_scheme_module(module: &str) -> Vec<(String, Option<Arc<String>>)> {
     let mut provides = Vec::new();
     let mut docs = HashMap::new();
 
+    let macro_kw: InternedString = "#%macro".into();
+
     for expr in exprs {
         let ExprKind::List(expr) = expr else { continue };
         let mut args = expr.args.iter();
@@ -141,25 +143,41 @@ fn docs_for_scheme_module(module: &str) -> Vec<(String, Option<Arc<String>>)> {
                 continue;
             };
 
-            let Some(ExprKind::Define(define)) = args.next() else {
-                continue;
+            match args.next() {
+                Some(ExprKind::Define(define)) => {
+                    let ExprKind::Atom(define) = &define.name else {
+                        continue;
+                    };
+
+                    let TokenType::Identifier(define) = define.syn.ty else {
+                        continue;
+                    };
+
+                    let define = define.resolve();
+
+                    if define.starts_with("#%") {
+                        continue;
+                    }
+
+                    docs.insert(define.to_owned(), doc.clone());
+                }
+
+                Some(ExprKind::Atom(atom)) if atom.ident() == Some(&macro_kw) => {
+                    let Some(define) = args.next().and_then(|x| x.atom_identifier()) else {
+                        continue;
+                    };
+
+                    let define = define.resolve();
+
+                    if define.starts_with("#%") {
+                        continue;
+                    }
+
+                    docs.insert(define.to_owned(), doc.clone());
+                }
+
+                _ => continue,
             };
-
-            let ExprKind::Atom(define) = &define.name else {
-                continue;
-            };
-
-            let TokenType::Identifier(define) = define.syn.ty else {
-                continue;
-            };
-
-            let define = define.resolve();
-
-            if define.starts_with("#%") {
-                continue;
-            }
-
-            docs.insert(define.to_owned(), doc.clone());
         } else if ident.resolve() == "provide" {
             for ident in args {
                 let ExprKind::Atom(arg) = ident else {
