@@ -348,11 +348,13 @@
         =>
         e2 ...]
        c1 ...)
-     (if e1
-         (begin
-           e2 ...)
-         (cond
-           c1 ...))]
+     (let ([res e1]
+           [function (begin
+                       e2 ...)])
+       (if res
+           (function res)
+           (cond
+             c1 ...)))]
     [(cond
        [e1
         e2 ...]
