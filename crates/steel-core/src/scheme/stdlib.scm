@@ -38,10 +38,13 @@
          min
          mem-helper
          memv
+         memf
          contains?
          assoc
          assq
          assv
+         assf
+         findf
          filter
          even-rec?
          odd-rec?
@@ -867,6 +870,31 @@
     [(eqv? obj (car lst)) lst]
     [else (memv obj (cdr lst))]))
 
+;;@doc
+;; Return the first tail of the list, where the given proc returns a true value,
+;; when applied to the car. Returns `#f`, if no element is found.
+;;
+;; This procedure is equivalent to `member`, but using the given procedure
+;; instead of `equal?`.
+;;
+;; (memf proc lst) -> (or/c list? #f)
+;;
+;; * proc : procedure?
+;; * lst : list?
+;;
+;; # Examples
+;;
+;; ```scheme
+;; (memf odd? '(0 2 1 3 4)) ;; => '(1 3 4)
+;; (memf (λ (x) (char-ci=? #\D x)) '(#\a #\b #\c #\d #\e)) ;; => '(#\d #\e)
+;; (memf (λ (x) (> x 5)) '(0 2 1 3 4)) ;; => #f
+;; ```
+(define (memf proc lst)
+  (cond
+    [(null? lst) #f]
+    [(proc (car lst)) lst]
+    [else (memf proc (cdr lst))]))
+
 (define (contains? pred? lst)
   (cond
     [(empty? lst) #f]
@@ -948,6 +976,59 @@
     [(null? lst) #f]
     [(eqv? (car (car lst)) obj) (car lst)]
     [else (assv obj (cdr lst))]))
+
+;;@doc
+;; Returns the first pair in the given list, where the given proc returns a true
+;; value, when applied to the car element. returning `#f`, if no element is found.
+;;
+;; This procedure is equivalent to `assoc`, but using using the given procedure
+;; instead of `equal?`.
+;;
+;; It is an error if the given list is not a list of pairs.
+;;
+;; (assf proc lst) -> (or/c pair? #f)
+;;
+;; * proc : procedure?
+;; * lst : (listof pair?)
+;;
+;; # Examples
+;;
+;; ```scheme
+;; (assf odd? '((0 a) (2 b) (1 c))) ;; => '(1 c)
+;; (assf (λ (x) (char-ci=? #\B x)) '((#\a 1) (#\b 2) (#\c 3))) ;; => '(#\b 2)
+;; (assf (λ (x) (> x 5)) '((1 1) (2 4) (3 9))) ;; => #f
+;; ```
+(define (assf proc lst)
+  (cond
+    [(null? lst) #f]
+    [(proc (car (car lst))) (car lst)]
+    [else (assf proc (cdr lst))]))
+
+;;@doc
+;; Returns the first element of the list, where the given proc returns a true
+;; value, when applied to it. Returns `#f`, if no element is found.
+;;
+;; If `#f` is an element of *lst*, a return value of `#f` is ambiguous: it
+;; might indicate that no element satisfies *proc* or it may indicate, that
+;; `#f` satisfies *proc*.
+;;
+;; (findf proc lst) -> (or/c any/c #f)
+;;
+;; - proc : procedure?
+;; - lst: list?
+;;
+;; # Examples
+;;
+;; ```scheme
+;; (findf odd? '(0 2 1 3 4)) ;; => 1
+;; (findf (λ (x) (char-ci=? #\D x)) '(#\a #\b #\c #\d #\e)) ;; => #\d
+;; (findf (λ (x) (> x 5)) '(0 2 1 3 4)) ;; => #f
+;; ```
+(define (findf proc lst)
+  (cond
+    [(null? lst) #f]
+    [(proc (car lst)) (car lst)]
+    [else (findf proc (cdr lst))]))
 
 ;;@doc
 ;; Returns new list, keeping elements from `lst` which applying `pred` to the element
