@@ -1,3 +1,8 @@
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
 use fxhash::FxHashMap;
 use smallvec::SmallVec;
 
@@ -17,7 +22,7 @@ use super::expander::BindingKind;
 use super::visitors::VisitorMutRef;
 use super::{ast::Atom, interner::InternedString};
 
-use std::ops::ControlFlow;
+use core::ops::ControlFlow;
 
 // const DATUM_TO_SYNTAX: &str = "datum->syntax";
 // const SYNTAX_CONST_IF: &str = "syntax-const-if";
@@ -139,8 +144,9 @@ impl<'a> VisitorMutControlFlow for EllipsesExpanderVisitor<'a> {
                 if let Some(previously_seen_length) = self.found_length {
                     // Check that the length is the same
                     if previously_seen_length != found_list.len() {
-                        self.error =
-                            Some("Mismatched lengths found in ellipses expansion".to_owned());
+                        self.error = Some(String::from(
+                            "Mismatched lengths found in ellipses expansion",
+                        ));
                         return ControlFlow::Break(());
                     }
 
@@ -273,7 +279,7 @@ impl<'a> ReplaceExpressions<'a> {
                         .flat_map(|x| self.bindings.get(x).map(|value| (*x, value.clone())))
                         .collect();
 
-                    std::mem::swap(self.fallback_bindings, &mut original_bindings);
+                    core::mem::swap(self.fallback_bindings, &mut original_bindings);
 
                     let mut expanded_expressions = SmallVec::<[ExprKind; 6]>::with_capacity(width);
 
@@ -297,7 +303,7 @@ impl<'a> ReplaceExpressions<'a> {
                         expanded_expressions.push(template);
                     }
 
-                    std::mem::swap(self.fallback_bindings, &mut original_bindings);
+                    core::mem::swap(self.fallback_bindings, &mut original_bindings);
 
                     // Move the original bindings back in
                     for (key, value) in original_bindings {
@@ -404,18 +410,16 @@ impl<'a> ReplaceExpressions<'a> {
                         // TODO
                         if resolved.starts_with("##") {
                             if let Some(body) = self.bindings.get(transformer) {
-                                buffer.push_str(body.to_string().as_str());
+                                buffer.push_str(format!("{body}").as_str());
                             } else {
                                 let (_, cdr) = resolved.split_at(2);
                                 buffer.push_str(cdr);
                             }
                         } else {
                             // Try to get the prepended variable
-                            if let Some(body) =
-                                self.bindings.get(&("##".to_string() + resolved).into())
-                            {
+                            if let Some(body) = self.bindings.get(&format!("##{resolved}").into()) {
                                 // println!("Found datum: {}", transformer);
-                                buffer.push_str(body.to_string().as_str());
+                                buffer.push_str(format!("{body}").as_str());
                             } else {
                                 // println!("Unable to find datum: {}", transformer);
                                 buffer.push_str(resolved);

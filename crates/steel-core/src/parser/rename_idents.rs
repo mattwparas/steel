@@ -1,3 +1,4 @@
+use alloc::format;
 use steel_parser::ast::{Atom, LAMBDA, LAMBDA_FN, PLAIN_LET};
 
 use crate::compiler::program::{DATUM_SYNTAX, LAMBDA_SYMBOL};
@@ -6,12 +7,12 @@ use crate::parser::parser::SyntaxObject;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::VisitorMutRef;
 
-use std::collections::HashSet;
+use crate::collections::MutableHashSet;
 
 use super::interner::InternedString;
 
 pub struct RenameIdentifiersVisitor<'a> {
-    introduced_identifiers: HashSet<InternedString>,
+    introduced_identifiers: MutableHashSet<InternedString>,
     pattern_variables: &'a [InternedString],
     syntax: &'a [InternedString],
 }
@@ -19,7 +20,7 @@ pub struct RenameIdentifiersVisitor<'a> {
 impl<'a> RenameIdentifiersVisitor<'a> {
     pub fn new(pattern_variables: &'a [InternedString], syntax: &'a [InternedString]) -> Self {
         RenameIdentifiersVisitor {
-            introduced_identifiers: HashSet::new(),
+            introduced_identifiers: MutableHashSet::default(),
             pattern_variables,
             syntax,
         }
@@ -57,11 +58,11 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                 // If this is a special pattern variable, don't do any mangling of the variable
                 if !self.pattern_variables.contains(s) {
                     self.add(*s);
-                    // a.syn = SyntaxObject::default(TokenType::Identifier("##".to_string() + s));
+                    // a.syn = SyntaxObject::default(TokenType::Identifierformat!("##{}", s));
                 }
 
                 a.syn = SyntaxObject::default(TokenType::Identifier(
-                    ("##".to_string() + s.resolve()).into(),
+                    format!("##{}", s.resolve()).into(),
                 ));
                 a.syn.introduced_via_macro = true;
             }
@@ -86,7 +87,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                     }
 
                     a.syn = SyntaxObject::default(TokenType::Identifier(
-                        ("##".to_string() + s.resolve()).into(),
+                        format!("##{}", s.resolve()).into(),
                     ));
                     a.syn.introduced_via_macro = true;
                 }
@@ -122,7 +123,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
             }
 
             if self.is_gensym(&s) {
-                a.syn.ty = TokenType::Identifier(("##".to_string() + s.resolve()).into());
+                a.syn.ty = TokenType::Identifier(format!("##{}", s.resolve()).into());
             } else {
                 a.syn.unresolved = true;
             }
@@ -157,7 +158,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                             }
 
                             a.syn = SyntaxObject::default(TokenType::Identifier(
-                                ("##".to_string() + s.resolve()).into(),
+                                format!("##{}", s.resolve()).into(),
                             ));
                             a.syn.introduced_via_macro = true;
 
@@ -194,7 +195,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                                         }
 
                                         a.syn = SyntaxObject::default(TokenType::Identifier(
-                                            ("##".to_string() + s.resolve()).into(),
+                                            format!("##{}", s.resolve()).into(),
                                         ));
                                         a.syn.introduced_via_macro = true;
                                         // a.syn.previous_name = Some(s);
@@ -236,7 +237,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                                 }
 
                                 a.syn = SyntaxObject::default(TokenType::Identifier(
-                                    ("##".to_string() + s.resolve()).into(),
+                                    format!("##{}", s.resolve()).into(),
                                 ));
                                 a.syn.introduced_via_macro = true;
                                 // a.syn.previous_name = Some(s);
@@ -256,7 +257,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                         }
 
                         a.syn = SyntaxObject::default(TokenType::Identifier(
-                            ("##".to_string() + s.resolve()).into(),
+                            format!("##{}", s.resolve()).into(),
                         ));
                         a.syn.introduced_via_macro = true;
                         // a.syn.previous_name = Some(s);
@@ -288,7 +289,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                                         }
 
                                         a.syn = SyntaxObject::default(TokenType::Identifier(
-                                            ("##".to_string() + s.resolve()).into(),
+                                            format!("##{}", s.resolve()).into(),
                                         ));
                                         a.syn.introduced_via_macro = true;
                                         // a.syn.previous_name = Some(s);
@@ -314,7 +315,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                             }
 
                             a.syn = SyntaxObject::default(TokenType::Identifier(
-                                ("##".to_string() + s.resolve()).into(),
+                                format!("##{}", s.resolve()).into(),
                             ));
                             a.syn.introduced_via_macro = true;
                             // a.syn.previous_name = Some(s);
@@ -335,7 +336,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                                             }
 
                                             a.syn = SyntaxObject::default(TokenType::Identifier(
-                                                ("##".to_string() + s.resolve()).into(),
+                                                format!("##{}", s.resolve()).into(),
                                             ));
                                             a.syn.introduced_via_macro = true;
                                             // a.syn.previous_name = Some(s);
@@ -401,7 +402,7 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
                     }
 
                     a.syn = SyntaxObject::default(TokenType::Identifier(
-                        ("##".to_string() + s.resolve()).into(),
+                        format!("##{}", s.resolve()).into(),
                     ));
                     a.syn.introduced_via_macro = true;
                 }
@@ -427,6 +428,8 @@ impl<'a> VisitorMutRef for RenameIdentifiersVisitor<'a> {
 #[cfg(test)]
 mod rename_visitor_tests {
 
+    use alloc::boxed::Box;
+    use alloc::vec;
     use steel_parser::tokens::IntLiteral;
 
     use super::TokenType::*;

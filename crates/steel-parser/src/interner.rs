@@ -1,10 +1,11 @@
+use alloc::sync::Arc;
 use compact_str::CompactString;
+use core::fmt;
 use fxhash::FxBuildHasher;
 use lasso::Key;
 use lasso::Spur;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
-use std::{fmt, sync::Arc};
 
 // TODO: Serialize and Deserialize should resolve() -> Otherwise we're in for deep trouble
 // trying to serialize and deserialize this

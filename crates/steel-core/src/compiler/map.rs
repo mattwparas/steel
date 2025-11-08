@@ -1,7 +1,9 @@
+use crate::collections::{HashMap, HashSet};
 use crate::throw;
 use crate::{parser::interner::InternedString, rvals::Result};
+use alloc::format;
+use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
 
 /// At the REPL or within an application, a script might be repeatedly
 /// loaded. In this situation, the behavior that Steel picks is that
@@ -99,7 +101,7 @@ impl SymbolMap {
     pub fn new() -> Self {
         SymbolMap {
             values: Vec::new(),
-            map: HashMap::new(),
+            map: HashMap::default(),
             free_list: FreeList {
                 threshold: 100,
                 multiplier: 2,

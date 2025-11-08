@@ -133,7 +133,7 @@ mod register_fn_tests {
         if let Some(inner) = arg1 {
             Ok(inner)
         } else {
-            Err("Got a none".to_string())
+            Err(String::from("Got a none"))
         }
     }
 
@@ -190,10 +190,10 @@ mod register_fn_tests {
 
         // Can also extract a value by specifying the type on the variable
         let bar: String = vm.extract("bar").unwrap();
-        assert_eq!("applesauce".to_string(), bar);
+        assert_eq!("applesauce", bar);
 
         let baz: String = vm.extract("baz").unwrap();
-        assert_eq!("bananas".to_string(), baz);
+        assert_eq!("bananas", baz);
 
         let res: usize = vm.extract("res").unwrap();
         assert_eq!(10, res);
@@ -246,7 +246,7 @@ mod register_type_tests {
         vm.register_fn("method-by-value", ExternalStruct::method_by_value)
             .register_fn("set-foo", ExternalStruct::set_foo);
 
-        let external_struct = ExternalStruct::new(1, "foo".to_string(), 12.4);
+        let external_struct = ExternalStruct::new(1, "foo".into(), 12.4);
 
         // Registering an external value is fallible if the conversion fails for some reason
         // For instance, registering an Err(T) is fallible. However, most implementation outside of manual
@@ -267,7 +267,7 @@ mod register_type_tests {
 
         let new_external_struct = vm.extract::<ExternalStruct>("new-external-struct").unwrap();
         assert_eq!(
-            ExternalStruct::new(100, "foo".to_string(), 12.4),
+            ExternalStruct::new(100, "foo".into(), 12.4),
             new_external_struct
         );
 
@@ -278,7 +278,7 @@ mod register_type_tests {
         let second_new_external_struct: ExternalStruct =
             vm.extract("second-new-external-struct").unwrap();
         assert_eq!(
-            ExternalStruct::new(50, "bananas".to_string(), 72.6),
+            ExternalStruct::new(50, "bananas".into(), 72.6),
             second_new_external_struct
         );
     }

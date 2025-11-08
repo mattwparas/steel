@@ -15,12 +15,13 @@ pub mod primitives;
 mod profiling;
 
 pub mod register_fn;
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod test_util;
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests;
 pub(crate) mod transducers;
 pub(crate) mod vm;
 
 pub use vm::ThreadStateController;
+#[cfg(feature = "sync")]
 pub use vm::{mutex_lock, mutex_unlock};

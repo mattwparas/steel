@@ -1,18 +1,15 @@
 use crate::values::lists::List;
+use alloc::{borrow::Cow, boxed::Box, format, string::ToString, vec, vec::Vec};
 
+use crate::collections::{
+    HashMap as ImmutableHashMap, HashSet as ImmutableHashSet, MutableHashMap, MutableHashSet,
+};
 use crate::{
     gc::Gc,
     rerrs::ErrorKind,
     rvals::{AsRefSteelValFromUnsized, FromSteelVal, IntoSteelVal, Result},
     SteelErr, SteelVal,
 };
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-};
-
-use crate::values::HashMap as ImmutableHashMap;
-use crate::values::HashSet as ImmutableHashSet;
 
 #[cfg(feature = "anyhow")]
 mod anyhow_conversion {
@@ -123,7 +120,7 @@ impl<T: IntoSteelVal> IntoSteelVal for Vec<T> {
             Ok(l) => Ok(SteelVal::ListV(l.into())),
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Could not convert vector of values to SteelVal list".to_string(),
+                "Could not convert vector of values to SteelVal list".into(),
             )),
         }
     }
@@ -142,7 +139,7 @@ impl<T: FromSteelVal> FromSteelVal for Vec<T> {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::new(
                         ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
+                        "Could not convert SteelVal list to Vector of values".into(),
                     )),
                 }
             }
@@ -156,7 +153,7 @@ impl<T: FromSteelVal> FromSteelVal for Vec<T> {
             //         Ok(x) => Ok(x),
             //         _ => Err(SteelErr::new(
             //             ErrorKind::ConversionError,
-            //             "Could not convert SteelVal list to Vector of values".to_string(),
+            //             "Could not convert SteelVal list to Vector of values".into(),
             //         )),
             //     }
             // }
@@ -167,13 +164,13 @@ impl<T: FromSteelVal> FromSteelVal for Vec<T> {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::new(
                         ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
+                        "Could not convert SteelVal list to Vector of values".into(),
                     )),
                 }
             } // TODO
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Could not convert SteelVal list to Vector of values".to_string(),
+                "Could not convert SteelVal list to Vector of values".into(),
             )),
         }
     }
@@ -192,7 +189,7 @@ impl<T: FromSteelVal> FromSteelVal for Box<[T]> {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::new(
                         ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
+                        "Could not convert SteelVal list to Vector of values".into(),
                     )),
                 }
             }
@@ -203,13 +200,13 @@ impl<T: FromSteelVal> FromSteelVal for Box<[T]> {
                     Ok(x) => Ok(x),
                     _ => Err(SteelErr::new(
                         ErrorKind::ConversionError,
-                        "Could not convert SteelVal list to Vector of values".to_string(),
+                        "Could not convert SteelVal list to Vector of values".into(),
                     )),
                 }
             } // TODO
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Could not convert SteelVal list to Vector of values".to_string(),
+                "Could not convert SteelVal list to Vector of values".into(),
             )),
         }
     }
@@ -226,21 +223,23 @@ impl FromSteelVal for Box<str> {
 }
 
 // HashMap
-impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for HashMap<K, V> {
-    fn into_steelval(mut self) -> Result<SteelVal> {
-        let mut hm = ImmutableHashMap::new();
-        for (key, val) in self.drain() {
+impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for MutableHashMap<K, V> {
+    fn into_steelval(self) -> Result<SteelVal> {
+        let mut hm = ImmutableHashMap::default();
+        for (key, val) in self.into_iter() {
             hm.insert(key.into_steelval()?, val.into_steelval()?);
         }
         Ok(SteelVal::HashMapV(Gc::new(hm).into()))
     }
 }
 
-impl<K: FromSteelVal + Eq + std::hash::Hash, V: FromSteelVal> FromSteelVal for HashMap<K, V> {
+impl<K: FromSteelVal + Eq + core::hash::Hash, V: FromSteelVal> FromSteelVal
+    for MutableHashMap<K, V>
+{
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         // todo!()
         if let SteelVal::HashMapV(hm) = val {
-            let mut h = HashMap::new();
+            let mut h = MutableHashMap::default();
             for (key, value) in hm.0.unwrap().into_iter() {
                 h.insert(K::from_steelval(&key)?, V::from_steelval(&value)?);
             }
@@ -248,7 +247,7 @@ impl<K: FromSteelVal + Eq + std::hash::Hash, V: FromSteelVal> FromSteelVal for H
         } else {
             Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Could not convert SteelVal to HashMap".to_string(),
+                "Could not convert SteelVal to HashMap".into(),
             ))
         }
     }
@@ -291,21 +290,67 @@ impl<A: FromSteelVal, B: FromSteelVal> FromSteelVal for (A, B) {
     }
 }
 
+#[cfg(feature = "std")]
+impl<K, V> IntoSteelVal for std::collections::HashMap<K, V>
+where
+    K: IntoSteelVal + std::hash::Hash + Eq,
+    V: IntoSteelVal,
+{
+    fn into_steelval(self) -> Result<SteelVal> {
+        let mutable: MutableHashMap<K, V> = self.into_iter().collect();
+        mutable.into_steelval()
+    }
+}
+
+#[cfg(feature = "std")]
+impl<K, V> FromSteelVal for std::collections::HashMap<K, V>
+where
+    K: FromSteelVal + Eq + std::hash::Hash,
+    V: FromSteelVal,
+{
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
+        let map: MutableHashMap<K, V> = <MutableHashMap<K, V> as FromSteelVal>::from_steelval(val)?;
+        Ok(map.into_iter().collect())
+    }
+}
+
 // HashSet
-impl<K: IntoSteelVal> IntoSteelVal for HashSet<K> {
-    fn into_steelval(mut self) -> Result<SteelVal> {
-        let mut hs = ImmutableHashSet::new();
-        for value in self.drain() {
+impl<K: IntoSteelVal> IntoSteelVal for MutableHashSet<K> {
+    fn into_steelval(self) -> Result<SteelVal> {
+        let mut hs = ImmutableHashSet::default();
+        for value in self.into_iter() {
             hs.insert(value.into_steelval()?);
         }
         Ok(SteelVal::HashSetV(Gc::new(hs).into()))
     }
 }
 
-impl<K: FromSteelVal + Eq + std::hash::Hash> FromSteelVal for HashSet<K> {
+#[cfg(feature = "std")]
+impl<K> IntoSteelVal for std::collections::HashSet<K>
+where
+    K: IntoSteelVal + std::hash::Hash + Eq,
+{
+    fn into_steelval(self) -> Result<SteelVal> {
+        let mutable: MutableHashSet<K> = self.into_iter().collect();
+        mutable.into_steelval()
+    }
+}
+
+#[cfg(feature = "std")]
+impl<K> FromSteelVal for std::collections::HashSet<K>
+where
+    K: FromSteelVal + Eq + std::hash::Hash,
+{
+    fn from_steelval(val: &SteelVal) -> Result<Self> {
+        let set: MutableHashSet<K> = <MutableHashSet<K> as FromSteelVal>::from_steelval(val)?;
+        Ok(set.into_iter().collect())
+    }
+}
+
+impl<K: FromSteelVal + Eq + core::hash::Hash> FromSteelVal for MutableHashSet<K> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::HashSetV(hs) = val {
-            let mut h = HashSet::new();
+            let mut h = MutableHashSet::default();
             for k in hs.0.unwrap().into_iter() {
                 h.insert(K::from_steelval(&k)?);
             }
@@ -313,7 +358,7 @@ impl<K: FromSteelVal + Eq + std::hash::Hash> FromSteelVal for HashSet<K> {
         } else {
             Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Could not convert SteelVal to HashSet".to_string(),
+                "Could not convert SteelVal to HashSet".into(),
             ))
         }
     }
@@ -336,32 +381,36 @@ impl<K: FromSteelVal + Eq + std::hash::Hash> FromSteelVal for HashSet<K> {
 mod conversion_tests {
 
     use super::*;
+    use alloc::vec;
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(feature = "std")]
+    use std::collections::{HashMap, HashSet};
+
+    #[cfg(all(feature = "std", not(feature = "sync")))]
     use im_rc::vector;
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(feature = "std", not(feature = "sync")))]
     use im_rc::hashmap;
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(feature = "std", not(feature = "sync")))]
     use im_rc::hashset;
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
+    #[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
     use im::vector;
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
+    #[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
     use im::hashmap;
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
+    #[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
     use im::hashset;
 
-    #[cfg(all(feature = "sync", feature = "imbl"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
     use imbl::vector;
 
-    #[cfg(all(feature = "sync", feature = "imbl"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
     use imbl::hashmap;
 
-    #[cfg(all(feature = "sync", feature = "imbl"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
     use imbl::hashset;
 
     #[test]
@@ -402,11 +451,12 @@ mod conversion_tests {
         assert!(<Vec<i32>>::from_steelval(&input).is_err());
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn hashmap_into_steelval() {
-        let mut input = HashMap::new();
-        input.insert("foo".to_string(), "bar".to_string());
-        input.insert("foo2".to_string(), "bar2".to_string());
+        let mut input: HashMap<String, String> = HashMap::new();
+        input.insert(String::from("foo"), String::from("bar"));
+        input.insert(String::from("foo2"), String::from("bar2"));
 
         let expected = SteelVal::HashMapV(
             Gc::new(hashmap! {
@@ -419,6 +469,7 @@ mod conversion_tests {
         assert_eq!(input.into_steelval().unwrap(), expected);
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn hashmap_from_steelval_hashmap() {
         let input = SteelVal::HashMapV(
@@ -429,9 +480,9 @@ mod conversion_tests {
             .into(),
         );
 
-        let mut expected = HashMap::new();
-        expected.insert("foo".to_string(), "bar".to_string());
-        expected.insert("foo2".to_string(), "bar2".to_string());
+        let mut expected: HashMap<String, String> = HashMap::new();
+        expected.insert(String::from("foo"), String::from("bar"));
+        expected.insert(String::from("foo2"), String::from("bar2"));
 
         assert_eq!(
             <HashMap<String, String>>::from_steelval(&input).unwrap(),
@@ -439,11 +490,12 @@ mod conversion_tests {
         );
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn hashset_into_steelval() {
-        let mut input = HashSet::new();
-        input.insert("foo".to_string());
-        input.insert("bar".to_string());
+        let mut input: HashSet<String> = HashSet::new();
+        input.insert(String::from("foo"));
+        input.insert(String::from("bar"));
 
         let expected = SteelVal::HashSetV(
             Gc::new(hashset! {
@@ -456,6 +508,7 @@ mod conversion_tests {
         assert_eq!(input.into_steelval().unwrap(), expected);
     }
 
+    #[cfg(feature = "std")]
     #[test]
     fn hashset_from_steelval_hashset() {
         let input = SteelVal::HashSetV(
@@ -466,9 +519,9 @@ mod conversion_tests {
             .into(),
         );
 
-        let mut expected = HashSet::new();
-        expected.insert("foo".to_string());
-        expected.insert("bar".to_string());
+        let mut expected: HashSet<String> = HashSet::new();
+        expected.insert(String::from("foo"));
+        expected.insert(String::from("bar"));
 
         assert_eq!(<HashSet<String>>::from_steelval(&input).unwrap(), expected);
     }

@@ -1,6 +1,6 @@
 # steel/time
 
-Contains direct wrappers around the Rust `std::time::Instant` and `std::time::Duration` modules. 
+Contains direct wrappers around the `steel::time::Instant` and `steel::time::Duration` modules. 
 For example, to measure the time something takes:
 
 ```scheme

@@ -1,3 +1,5 @@
+use alloc::string::String;
+use alloc::vec::Vec;
 use std::fs::OpenOptions;
 
 use crate::gc::shared::ShareableMut;

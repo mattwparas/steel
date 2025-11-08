@@ -17,4 +17,5 @@ pub mod visitors;
 
 mod macro_template;
 #[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod prop;

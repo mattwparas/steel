@@ -1,9 +1,11 @@
+use crate::collections::HashMap;
 use crate::core::instructions::u24;
 use crate::core::labels::Expr;
 use crate::gc::shared::StandardShared;
 use crate::gc::Shared;
 use crate::parser::span_visitor::get_span;
 use crate::rvals::Result;
+use crate::time::SystemTime;
 use crate::{
     compiler::constants::ConstantMap,
     core::{instructions::Instruction, opcode::OpCode},
@@ -19,11 +21,14 @@ use crate::{
     },
     rvals::IntoSteelVal,
 };
+#[cfg_attr(not(feature = "std"), allow(unused_imports))]
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, time::SystemTime};
 
 #[cfg(feature = "profiling")]
-use std::time::Instant;
+use crate::time::Instant;
 
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
@@ -887,6 +892,7 @@ pub struct SerializableProgram {
 }
 
 impl SerializableProgram {
+    #[cfg(feature = "std")]
     pub fn write_to_file(&self, filename: &str) -> Result<()> {
         use std::io::prelude::*;
 
@@ -898,6 +904,7 @@ impl SerializableProgram {
         Ok(())
     }
 
+    #[cfg(feature = "std")]
     pub fn read_from_file(filename: &str) -> Result<Self> {
         use std::io::prelude::*;
 
@@ -917,7 +924,7 @@ impl SerializableProgram {
         Program {
             constant_map,
             instructions: self.instructions,
-            ast: HashMap::new(),
+            ast: HashMap::default(),
         }
     }
 }
@@ -969,6 +976,7 @@ pub struct SerializableRawProgramWithSymbols {
 }
 
 impl SerializableRawProgramWithSymbols {
+    #[cfg(feature = "std")]
     pub fn write_to_file(&self, filename: &str) -> Result<()> {
         use std::io::prelude::*;
 
@@ -980,6 +988,7 @@ impl SerializableRawProgramWithSymbols {
         Ok(())
     }
 
+    #[cfg(feature = "std")]
     pub fn read_from_file(filename: &str) -> Result<Self> {
         use std::io::prelude::*;
 
@@ -1002,12 +1011,16 @@ impl SerializableRawProgramWithSymbols {
     }
 }
 
+#[cfg(feature = "std")]
 use std::fs::File;
+#[cfg(feature = "std")]
 use std::io::{self, BufRead};
+#[cfg(feature = "std")]
 use std::path::Path;
 
 // The output is wrapped in a Result to allow matching on errors
 // Returns an Iterator to the Reader of the lines of the file.
+#[cfg(feature = "std")]
 fn _read_lines<P>(filename: P) -> io::Result<io::Lines<io::BufReader<File>>>
 where
     P: AsRef<Path>,
@@ -1045,7 +1058,7 @@ impl RawProgramWithSymbols {
             .flat_map(|x| x.iter())
             .filter(|x| !matches!(x.op_code, OpCode::PASS));
 
-        let mut occurrences = HashMap::new();
+        let mut occurrences: HashMap<OpCode, usize> = HashMap::default();
         for instr in iter {
             *occurrences.entry(instr.op_code).or_default() += 1;
         }
@@ -1059,7 +1072,15 @@ impl RawProgramWithSymbols {
 
         counts.sort_by(|x, y| y.1.partial_cmp(&x.1).unwrap());
 
-        println!("{counts:#?}");
+        #[cfg(feature = "std")]
+        {
+            println!("{counts:#?}");
+        }
+
+        #[cfg(not(feature = "std"))]
+        {
+            let _ = counts;
+        }
     }
 
     // Definitely can be improved
@@ -1092,7 +1113,7 @@ impl RawProgramWithSymbols {
     //             .split(',')
     //             .map(|x| {
     //                 // Parse the input
-    //                 let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+    //                 let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
     //                     Parser::new(&x, &mut intern).collect();
     //                 let parsed = parsed?;
 
@@ -1134,7 +1155,7 @@ impl RawProgramWithSymbols {
     //             continue;
     //         }
 
-    //         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+    //         let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
     //             Parser::new(&instruction_string, &mut intern).collect();
     //         let parsed = parsed?;
 
@@ -1167,7 +1188,7 @@ impl RawProgramWithSymbols {
     //     Ok(Self::new(
     //         instruction_set,
     //         constant_map,
-    //         "0.0.1".to_string(),
+    //         "0.0.1".into(),
     //     ))
     // }
 
@@ -1180,9 +1201,12 @@ impl RawProgramWithSymbols {
     }
 
     pub fn debug_print(&self) {
-        self.instructions
-            .iter()
-            .for_each(|i| println!("{}\n\n", crate::core::instructions::disassemble(i)))
+        #[cfg(feature = "std")]
+        {
+            self.instructions
+                .iter()
+                .for_each(|i| println!("{}\n\n", crate::core::instructions::disassemble(i)))
+        }
     }
 
     pub fn debug_print_log(&self) {
@@ -1286,6 +1310,7 @@ impl RawProgramWithSymbols {
         // struct_instructions.append(&mut self.instructions);
         // self.instructions = struct_instructions;
 
+        #[cfg(feature = "std")]
         self.instructions
             .iter()
             .for_each(|i| println!("{}\n\n", crate::core::instructions::disassemble(i)));

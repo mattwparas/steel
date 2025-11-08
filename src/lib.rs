@@ -4,7 +4,7 @@ extern crate steel_repl;
 
 use clap::{Args, Command, CommandFactory, Parser, ValueEnum, ValueHint};
 use clap_complete::{generate, Generator, Shell};
-use steel::steel_vm::engine::Engine;
+use steel::{path::OwnedPath, steel_vm::engine::Engine};
 use steel_doc::walk_dir;
 use steel_repl::{register_readline_module, run_repl};
 
@@ -266,9 +266,12 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
             let pretty = pretty.unwrap_or(true);
 
             let res = match (expanded, pretty) {
-                (true, true) => vm.emit_fully_expanded_ast_to_string(&contents, Some(path.clone())),
+                (true, true) => vm.emit_fully_expanded_ast_to_string(
+                    &contents,
+                    Some(OwnedPath::from(path.clone())),
+                ),
                 (true, false) => vm
-                    .emit_fully_expanded_ast(&contents, Some(path.clone()))
+                    .emit_fully_expanded_ast(&contents, Some(OwnedPath::from(path.clone())))
                     .map(|ast| format!("{:#?}", ast)),
                 (false, true) => Engine::emit_ast_to_string(&contents),
                 (false, false) => Engine::emit_ast(&contents).map(|ast| format!("{:#?}", ast)),

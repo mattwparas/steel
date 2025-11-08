@@ -4,11 +4,12 @@ use crate::values::structs::SteelResult;
 use crate::SteelVal;
 use crate::{rvals::Custom, steel_vm::builtin::BuiltInModule};
 use crate::{steel_vm::register_fn::RegisterFn, SteelErr};
+use alloc::string::String;
 use std::io::{BufReader, BufWriter};
 use std::process::{Child, Command, Stdio};
 
 pub fn process_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/process".to_string());
+    let mut module = BuiltInModule::new("steel/process");
 
     module
         .register_fn("command", CommandBuilder::new)
@@ -37,14 +38,16 @@ struct ChildProcess {
     child: Option<Child>,
 }
 
+#[cfg(not(any(target_family = "wasm", target_env = "newlib")))]
 fn binary_exists_on_path(binary: String) -> Option<String> {
-    #[cfg(not(any(target_family = "wasm", target_env = "newlib")))]
     match which::which(binary) {
         Ok(v) => Some(v.into_os_string().into_string().unwrap()),
         Err(_) => None,
     }
+}
 
-    #[cfg(any(target_family = "wasm", target_env = "newlib"))]
+#[cfg(any(target_family = "wasm", target_env = "newlib"))]
+fn binary_exists_on_path(_binary: String) -> Option<String> {
     None
 }
 

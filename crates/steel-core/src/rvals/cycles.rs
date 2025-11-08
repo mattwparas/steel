@@ -1,8 +1,11 @@
 use crate::gc::shared::{MutableContainer, ShareableMut};
 use crate::steel_vm::{builtin::get_function_name, vm::Continuation, vm::ContinuationMark};
 use crate::values::lists::Pair;
+#[cfg(feature = "std")]
+use crate::values::port::SteelPort;
+use alloc::{boxed::Box, collections::VecDeque, format, vec::Vec};
+use core::cell::Cell;
 use num_bigint::BigInt;
-use std::{cell::Cell, collections::VecDeque};
 
 use super::*;
 
@@ -58,7 +61,7 @@ impl CycleDetector {
     }
 
     fn start_format(mut self, val: &SteelVal, f: &mut fmt::Formatter) -> fmt::Result {
-        for node in std::mem::take(&mut self.values) {
+        for node in core::mem::take(&mut self.values) {
             let id = match &node {
                 SteelVal::CustomStruct(c) => {
                     let ptr_addr = c.as_ptr() as usize;
@@ -278,6 +281,8 @@ impl CycleDetector {
                     }
                 }
             },
+            #[cfg(feature = "std")]
+            #[cfg(feature = "std")]
             PortV(port) => write!(f, "{}", port),
             Closure(_) => write!(f, "#<bytecode-closure>"),
             HashMapV(hm) => write!(f, "#<hashmap {:#?}>", hm.as_ref()),
@@ -401,12 +406,12 @@ impl CycleDetector {
 }
 
 fn replace_with_void(value: &mut SteelVal) -> SteelVal {
-    std::mem::replace(value, SteelVal::Void)
+    core::mem::replace(value, SteelVal::Void)
 }
 
 impl SteelVal {
     fn make_void(&mut self) -> SteelVal {
-        std::mem::replace(self, SteelVal::Void)
+        core::mem::replace(self, SteelVal::Void)
     }
 }
 
@@ -536,15 +541,10 @@ impl<'a> CycleCollector<'a> {
         }
 
         if self.visited.contains(&val) {
-            let id = self.cycles.len();
-
-            // If we've already seen this, its fine, we can just move on
-            if let std::collections::hash_map::Entry::Vacant(e) = self.cycles.entry(val) {
-                e.insert(id);
-                // Keep track of the actual values that are being captured
+            if !self.cycles.contains_key(&val) {
+                let id = self.cycles.len();
+                self.cycles.insert(val, id);
                 self.values.push(steelval.clone());
-            } else {
-                return true;
             }
 
             return true;
@@ -633,6 +633,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
         }
     }
 
+    #[cfg(feature = "std")]
+    #[cfg(feature = "std")]
     fn visit_port(&mut self, _port: SteelPort) -> Self::Output {}
     fn visit_transducer(&mut self, _transducer: Gc<Transducer>) -> Self::Output {}
     fn visit_reducer(&mut self, _reducer: Gc<Reducer>) -> Self::Output {}
@@ -714,7 +716,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for CycleCollector<'a> {
     }
 }
 
-#[cfg(not(feature = "without-drop-protection"))]
+#[cfg(all(not(feature = "without-drop-protection"), feature = "std"))]
 pub(crate) mod drop_impls {
     // use crate::values::recycler::{Recyclable, Recycle};
 
@@ -735,7 +737,7 @@ pub(crate) mod drop_impls {
                 DROP_BUFFER
                     .try_with(|drop_buffer| {
                         if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                            for value in std::mem::take(inner) {
+                            for value in core::mem::take(inner) {
                                 drop_buffer.push_back(value);
                             }
 
@@ -757,7 +759,7 @@ pub(crate) mod drop_impls {
                 DROP_BUFFER
                     .try_with(|drop_buffer| {
                         if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                            for (key, value) in std::mem::take(inner) {
+                            for (key, value) in core::mem::take(inner) {
                                 drop_buffer.push_back(key);
                                 drop_buffer.push_back(value);
                             }
@@ -779,16 +781,16 @@ pub(crate) mod drop_impls {
             if DROP_BUFFER
                 .try_with(|drop_buffer| {
                     if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                        // for value in std::mem::take(&mut self.fields) {
+                        // for value in core::mem::take(&mut self.fields) {
                         //     drop_buffer.push_back(value);
                         // }
 
                         drop_buffer.extend(
                             self.fields.drain(..),
-                            // std::mem::replace(&mut self.fields, Recycle::noop()).into_iter(),
+                            // core::mem::replace(&mut self.fields, Recycle::noop()).into_iter(),
                         );
 
-                        // std::mem::replace(&mut self, self.fields.put();
+                        // core::mem::replace(&mut self, self.fields.put();
 
                         IterativeDropHandler::bfs(&mut drop_buffer);
                     }
@@ -830,7 +832,7 @@ pub(crate) mod drop_impls {
     //         DROP_BUFFER
     //             .try_with(|drop_buffer| {
     //                 if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-    //                     for value in std::mem::take(&mut self.captures) {
+    //                     for value in core::mem::take(&mut self.captures) {
     //                         drop_buffer.push_back(value);
     //                     }
 
@@ -902,6 +904,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
     fn visit_string(&mut self, _string: SteelString) {}
     fn visit_function_pointer(&mut self, _ptr: FunctionSignature) {}
     fn visit_symbol(&mut self, _symbol: SteelString) {}
+    #[cfg(feature = "std")]
+    #[cfg(feature = "std")]
     fn visit_port(&mut self, _port: SteelPort) {}
     fn visit_future(&mut self, _future: Gc<FutureResult>) {}
     fn visit_mutable_function(&mut self, _function: MutFunctionSignature) {}
@@ -913,7 +917,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) {
         if let Ok(mut inner) = closure.try_unwrap() {
-            for value in std::mem::take(&mut inner.captures) {
+            for value in core::mem::take(&mut inner.captures) {
                 self.push_back(value);
             }
         }
@@ -921,7 +925,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     fn visit_immutable_vector(&mut self, mut vector: SteelVector) {
         if let Some(inner) = vector.0.get_mut() {
-            for value in std::mem::take(inner) {
+            for value in core::mem::take(inner) {
                 self.push_back(value);
             }
         }
@@ -938,7 +942,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     fn visit_hash_map(&mut self, mut hashmap: SteelHashMap) {
         if let Some(inner) = hashmap.0.get_mut() {
-            for (key, value) in std::mem::take(inner) {
+            for (key, value) in core::mem::take(inner) {
                 self.push_back(key);
                 self.push_back(value);
             }
@@ -947,7 +951,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
     fn visit_hash_set(&mut self, mut hashset: SteelHashSet) {
         if let Some(inner) = hashset.0.get_mut() {
-            for key in std::mem::take(inner) {
+            for key in core::mem::take(inner) {
                 self.push_back(key);
             }
         }
@@ -1012,19 +1016,19 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         {
             match inner {
                 ContinuationMark::Closed(mut inner) => {
-                    for value in std::mem::take(&mut inner.stack) {
+                    for value in core::mem::take(&mut inner.stack) {
                         self.push_back(value);
                     }
 
                     if let Some(inner) = inner.current_frame.function.get_mut() {
-                        for value in std::mem::take(&mut inner.captures) {
+                        for value in core::mem::take(&mut inner.captures) {
                             self.push_back(value);
                         }
                     }
 
-                    for mut frame in std::mem::take(&mut inner.stack_frames) {
+                    for mut frame in core::mem::take(&mut inner.stack_frames) {
                         if let Some(inner) = frame.function.get_mut() {
-                            for value in std::mem::take(&mut inner.captures) {
+                            for value in core::mem::take(&mut inner.captures) {
                                 self.push_back(value);
                             }
                         }
@@ -1037,7 +1041,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                     }
 
                     if let Some(inner) = inner.current_frame.function.get_mut() {
-                        for value in std::mem::take(&mut inner.captures) {
+                        for value in core::mem::take(&mut inner.captures) {
                             self.push_back(value);
                         }
                     }
@@ -1125,6 +1129,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 HashMapV(h) => self.visit_hash_map(h),
                 HashSetV(s) => self.visit_hash_set(s),
                 CustomStruct(c) => self.visit_steel_struct(c),
+                #[cfg(feature = "std")]
                 PortV(p) => self.visit_port(p),
                 IterV(t) => self.visit_transducer(t),
                 ReducerV(r) => self.visit_reducer(r),
@@ -1163,7 +1168,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
 
                     std::thread::spawn(move || {
                         while let Ok(mut value) = receiver.recv() {
-                            // let now = std::time::Instant::now();
+                            // let now = crate::time::Instant::now();
                             value.visit();
                             // println!("Dropping: {:?}", now.elapsed());
                         }
@@ -1173,7 +1178,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
                 }
 
                 // let buffer = VecDeque::new();
-                let original_buffer = std::mem::replace(self.drop_buffer, VecDeque::new());
+                let original_buffer = core::mem::replace(self.drop_buffer, VecDeque::new());
 
                 // println!("Moving to another thread");
 
@@ -1257,6 +1262,8 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
     fn visit_string(&mut self, _string: SteelString) {}
     fn visit_function_pointer(&mut self, _ptr: FunctionSignature) {}
     fn visit_symbol(&mut self, _symbol: SteelString) {}
+    #[cfg(feature = "std")]
+    #[cfg(feature = "std")]
     fn visit_port(&mut self, _port: SteelPort) {}
     fn visit_future(&mut self, _future: Gc<FutureResult>) {}
     fn visit_mutable_function(&mut self, _function: MutFunctionSignature) {}
@@ -1268,7 +1275,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
 
     fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) {
         if let Ok(mut inner) = closure.try_unwrap() {
-            for value in std::mem::take(&mut inner.captures) {
+            for value in core::mem::take(&mut inner.captures) {
                 self.push_back(value);
             }
         }
@@ -1276,7 +1283,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
 
     fn visit_immutable_vector(&mut self, mut vector: SteelVector) {
         if let Some(inner) = vector.0.get_mut() {
-            for value in std::mem::take(inner) {
+            for value in core::mem::take(inner) {
                 self.push_back(value);
             }
         }
@@ -1296,7 +1303,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
 
     fn visit_hash_map(&mut self, mut hashmap: SteelHashMap) {
         if let Some(inner) = hashmap.0.get_mut() {
-            for (key, value) in std::mem::take(inner) {
+            for (key, value) in core::mem::take(inner) {
                 self.push_back(key);
                 self.push_back(value);
             }
@@ -1305,7 +1312,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
 
     fn visit_hash_set(&mut self, mut hashset: SteelHashSet) {
         if let Some(inner) = hashset.0.get_mut() {
-            for key in std::mem::take(inner) {
+            for key in core::mem::take(inner) {
                 self.push_back(key);
             }
         }
@@ -1367,19 +1374,19 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
         if let Ok(inner) = crate::gc::Shared::try_unwrap(continuation.inner).map(|x| x.consume()) {
             match inner {
                 ContinuationMark::Closed(mut inner) => {
-                    for value in std::mem::take(&mut inner.stack) {
+                    for value in core::mem::take(&mut inner.stack) {
                         self.push_back(value);
                     }
 
                     if let Some(inner) = inner.current_frame.function.get_mut() {
-                        for value in std::mem::take(&mut inner.captures) {
+                        for value in core::mem::take(&mut inner.captures) {
                             self.push_back(value);
                         }
                     }
 
-                    for mut frame in std::mem::take(&mut inner.stack_frames) {
+                    for mut frame in core::mem::take(&mut inner.stack_frames) {
                         if let Some(inner) = frame.function.get_mut() {
-                            for value in std::mem::take(&mut inner.captures) {
+                            for value in core::mem::take(&mut inner.captures) {
                                 self.push_back(value);
                             }
                         }
@@ -1392,7 +1399,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
                     }
 
                     if let Some(inner) = inner.current_frame.function.get_mut() {
-                        for value in std::mem::take(&mut inner.captures) {
+                        for value in core::mem::take(&mut inner.captures) {
                             self.push_back(value);
                         }
                     }
@@ -1481,6 +1488,7 @@ impl BreadthFirstSearchSteelValVisitor for OwnedIterativeDropHandler {
                 HashMapV(h) => self.visit_hash_map(h),
                 HashSetV(s) => self.visit_hash_set(s),
                 CustomStruct(c) => self.visit_steel_struct(c),
+                #[cfg(feature = "std")]
                 PortV(p) => self.visit_port(p),
                 IterV(t) => self.visit_transducer(t),
                 ReducerV(r) => self.visit_reducer(r),
@@ -1546,6 +1554,7 @@ pub trait BreadthFirstSearchSteelValVisitor {
                 HashMapV(h) => self.visit_hash_map(h),
                 HashSetV(s) => self.visit_hash_set(s),
                 CustomStruct(c) => self.visit_steel_struct(c),
+                #[cfg(feature = "std")]
                 PortV(p) => self.visit_port(p),
                 IterV(t) => self.visit_transducer(t),
                 ReducerV(r) => self.visit_reducer(r),
@@ -1589,6 +1598,8 @@ pub trait BreadthFirstSearchSteelValVisitor {
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output;
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output;
+    #[cfg(feature = "std")]
+    #[cfg(feature = "std")]
     fn visit_port(&mut self, port: SteelPort) -> Self::Output;
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output;
     fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output;
@@ -1642,6 +1653,7 @@ pub trait BreadthFirstSearchSteelValVisitor2 {
                 HashMapV(h) => self.visit_hash_map(h),
                 HashSetV(s) => self.visit_hash_set(s),
                 CustomStruct(c) => self.visit_steel_struct(c),
+                #[cfg(feature = "std")]
                 PortV(p) => self.visit_port(p),
                 IterV(t) => self.visit_transducer(t),
                 ReducerV(r) => self.visit_reducer(r),
@@ -1685,6 +1697,8 @@ pub trait BreadthFirstSearchSteelValVisitor2 {
     fn visit_hash_map(&mut self, hashmap: SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: SteelHashSet) -> Self::Output;
     fn visit_steel_struct(&mut self, steel_struct: Gc<UserDefinedStruct>) -> Self::Output;
+    #[cfg(feature = "std")]
+    #[cfg(feature = "std")]
     fn visit_port(&mut self, port: SteelPort) -> Self::Output;
     fn visit_transducer(&mut self, transducer: Gc<Transducer>) -> Self::Output;
     fn visit_reducer(&mut self, reducer: Gc<Reducer>) -> Self::Output;
@@ -1738,6 +1752,7 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
                 HashMapV(h) => self.visit_hash_map(h),
                 HashSetV(s) => self.visit_hash_set(s),
                 CustomStruct(c) => self.visit_steel_struct(c),
+                #[cfg(feature = "std")]
                 PortV(p) => self.visit_port(p),
                 IterV(t) => self.visit_transducer(t),
                 ReducerV(r) => self.visit_reducer(r),
@@ -1782,6 +1797,8 @@ pub trait BreadthFirstSearchSteelValReferenceVisitor<'a> {
     fn visit_hash_map(&mut self, hashmap: &'a SteelHashMap) -> Self::Output;
     fn visit_hash_set(&mut self, hashset: &'a SteelHashSet) -> Self::Output;
     fn visit_steel_struct(&mut self, steel_struct: &'a Gc<UserDefinedStruct>) -> Self::Output;
+    #[cfg(feature = "std")]
+    #[cfg(feature = "std")]
     fn visit_port(&mut self, port: &'a SteelPort) -> Self::Output;
     fn visit_transducer(&mut self, transducer: &'a Gc<Transducer>) -> Self::Output;
     fn visit_reducer(&mut self, reducer: &'a Gc<Reducer>) -> Self::Output;
@@ -1868,7 +1885,7 @@ thread_local! {
     static LEFT_QUEUE: RefCell<Vec<SteelVal>> = RefCell::new(Vec::with_capacity(128));
     static RIGHT_QUEUE: RefCell<Vec<SteelVal>> = RefCell::new(Vec::with_capacity(128));
     static VISITED_SET: RefCell<fxhash::FxHashSet<(usize, usize)>> = RefCell::new(fxhash::FxHashSet::default());
-    static EQ_DEPTH: Cell<usize> = const { Cell::new(0) };
+    static EQ_DEPTH: Cell<usize> = Cell::new(0);
 }
 
 fn increment_eq_depth() {
@@ -2119,6 +2136,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                             HashMapV(r) => self.right.visit_hash_map(r),
                             HashSetV(r) => self.right.visit_hash_set(r),
                             CustomStruct(r) => self.right.visit_steel_struct(r),
+                            #[cfg(feature = "std")]
                             PortV(r) => self.right.visit_port(r),
                             IterV(r) => self.right.visit_transducer(r),
                             ReducerV(r) => self.right.visit_reducer(r),
@@ -2148,6 +2166,7 @@ impl<'a> RecursiveEqualityHandler<'a> {
                             HashMapV(r) => self.left.visit_hash_map(r),
                             HashSetV(r) => self.left.visit_hash_set(r),
                             CustomStruct(r) => self.left.visit_steel_struct(r),
+                            #[cfg(feature = "std")]
                             PortV(r) => self.left.visit_port(r),
                             IterV(r) => self.left.visit_transducer(r),
                             ReducerV(r) => self.left.visit_reducer(r),
@@ -2405,6 +2424,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for EqualityVisitor<'a> {
     fn visit_string(&mut self, _string: SteelString) -> Self::Output {}
     fn visit_function_pointer(&mut self, _ptr: FunctionSignature) -> Self::Output {}
     fn visit_symbol(&mut self, _symbol: SteelString) -> Self::Output {}
+    #[cfg(feature = "std")]
+    #[cfg(feature = "std")]
     fn visit_port(&mut self, _port: SteelPort) -> Self::Output {}
     fn visit_boxed_function(&mut self, _function: Gc<BoxedDynFunction>) -> Self::Output {}
     fn visit_mutable_function(&mut self, _function: MutFunctionSignature) -> Self::Output {}

@@ -1,10 +1,21 @@
-use std::{
-    borrow::Cow,
-    path::PathBuf,
-    rc::Rc,
+use alloc::borrow::{Cow, ToOwned};
+use alloc::format;
+use alloc::rc::Rc;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
+use core::{
     result,
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},
 };
+#[cfg(feature = "std")]
+use std::path::PathBuf;
+
+#[cfg(not(feature = "std"))]
+type PathBuf = String;
+
+#[cfg(feature = "std")]
+use std::error::Error;
 
 use serde::{Deserialize, Serialize};
 
@@ -71,8 +82,8 @@ impl From<SyntaxObjectId> for u32 {
     }
 }
 
-impl std::fmt::Display for SyntaxObjectId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for SyntaxObjectId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{self:?}")
     }
 }
@@ -147,8 +158,8 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
     }
 }
 
-impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: core::fmt::Debug> core::fmt::Debug for RawSyntaxObject<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("RawSyntaxObject")
             .field("ty", &self.ty)
             .field("span", &self.span)
@@ -158,8 +169,8 @@ impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
 
 // Implementing hash here just on the token type - we dont want the span included
 // For determining the hash here
-impl<T: std::hash::Hash> std::hash::Hash for RawSyntaxObject<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl<T: core::hash::Hash> core::hash::Hash for RawSyntaxObject<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.ty.hash(state);
         self.span.hash(state);
     }
@@ -240,8 +251,8 @@ impl From<TokenLike<'_, TokenError>> for ParseError {
     }
 }
 
-impl std::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ParseError::MismatchedParen(paren, _, _) => {
                 write!(f, "Mismatched parenthesis, expected \"{}\"", paren.close())
@@ -256,7 +267,8 @@ impl std::fmt::Display for ParseError {
     }
 }
 
-impl std::error::Error for ParseError {}
+#[cfg(feature = "std")]
+impl Error for ParseError {}
 
 impl ParseError {
     pub fn span(&self) -> Span {
@@ -1669,7 +1681,7 @@ impl ASTLowerPass {
                             match &a.syn.ty {
                                 TokenType::Quote => {
                                     *expr = parse_single_argument(
-                                        std::mem::take(&mut value.args).into_iter(),
+                                        core::mem::take(&mut value.args).into_iter(),
                                         a.syn.clone(),
                                         "quote",
                                         |expr, syn| ast::Quote::new(expr, syn).into(),
@@ -1681,7 +1693,7 @@ impl ASTLowerPass {
                             }
                         }
                         ExprKind::Atom(a) if self.quote_depth == 0 => {
-                            let value = std::mem::replace(value, List::new(vec![]));
+                            let value = core::mem::replace(value, List::new(vec![]));
 
                             *expr = match &a.syn.ty {
                                 TokenType::If => {
@@ -3143,9 +3155,9 @@ mod parser_tests {
     }
 }
 
-use std::cell::RefCell;
-use std::default::Default;
-use std::ops::{Deref, DerefMut};
+use core::cell::RefCell;
+use core::default::Default;
+use core::ops::{Deref, DerefMut};
 
 pub trait Recyclable {
     fn put(self);
@@ -3177,7 +3189,7 @@ impl<T: Recyclable + Default> Recycle<T> {
 
 impl<T: Recyclable + Default> Drop for Recycle<T> {
     fn drop(&mut self) {
-        T::put(std::mem::take(&mut self.t))
+        T::put(core::mem::take(&mut self.t))
     }
 }
 
@@ -3201,14 +3213,14 @@ impl<T: Recyclable + Clone + Default> Clone for Recycle<T> {
     }
 }
 
-impl<T: Recyclable + std::fmt::Debug + Default> std::fmt::Debug for Recycle<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: Recyclable + core::fmt::Debug + Default> core::fmt::Debug for Recycle<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Recycle").field("t", &self.t).finish()
     }
 }
 
-impl<T: Recyclable + std::hash::Hash + Default> std::hash::Hash for Recycle<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl<T: Recyclable + core::hash::Hash + Default> core::hash::Hash for Recycle<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.t.hash(state);
     }
 }

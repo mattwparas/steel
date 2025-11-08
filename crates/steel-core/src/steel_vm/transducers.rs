@@ -1,10 +1,15 @@
-// use im_lists::list::List;
-use crate::values::{lists::List, HashSet};
+use crate::values::lists::List;
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
 // use itertools::Itertools;
 
 // use super::{evaluation_progress::EvaluationProgress, stack::StackFrame, vm::VmCore};
 use super::{lazy_stream::LazyStreamIter, vm::VmCore};
 use crate::{
+    collections::{HashMap, HashSet},
     gc::Gc,
     parser::span::Span,
     primitives::vectors::vec_construct_iter,
@@ -13,10 +18,8 @@ use crate::{
     stop,
     values::transducers::{Reducer, Transducers},
 };
-
-use crate::values::HashMap;
-use std::{cell::RefCell, convert::TryInto};
-use std::{iter::Fuse, rc::Rc};
+use alloc::rc::Rc;
+use core::{cell::RefCell, convert::TryInto, iter::Fuse};
 
 /// An iterator adaptor that alternates elements from two iterators until both
 /// run out.
@@ -92,7 +95,7 @@ pub fn add(a: SizeHint, b: SizeHint) -> SizeHint {
     (min, max)
 }
 
-impl<I, J> std::iter::FusedIterator for Interleave<I, J>
+impl<I, J> core::iter::FusedIterator for Interleave<I, J>
 where
     I: Iterator,
     J: Iterator<Item = I::Item>,
@@ -290,15 +293,15 @@ impl<'global, 'a> VmCore<'a> {
                                                 els => {
                                                     let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {els}")).with_span(*cur_inst_span);
 
-                                                    Box::new(std::iter::once(Err(err)))
+                                                    Box::new(core::iter::once(Err(err)))
                                                 }
                                             }
                                         }
-                                        err => Box::new(std::iter::once(err)),
+                                        err => Box::new(core::iter::once(err)),
                                     }
                                 }
 
-                                err => Box::new(std::iter::once(err)),
+                                err => Box::new(core::iter::once(err)),
                             }
                         };
 
@@ -328,11 +331,11 @@ impl<'global, 'a> VmCore<'a> {
                                         els => {
                                             let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {els}")).with_span(*cur_inst_span);
 
-                                            Box::new(std::iter::once(Err(err)))
+                                            Box::new(core::iter::once(Err(err)))
                                         }
                                     }
                                 }
-                                err => Box::new(std::iter::once(err)),
+                                err => Box::new(core::iter::once(err)),
                             }
                         };
 
@@ -369,7 +372,7 @@ impl<'global, 'a> VmCore<'a> {
                                 )
                                 .with_span(*cur_inst_span);
 
-                                Box::new(std::iter::once(Err(err)))
+                                Box::new(core::iter::once(Err(err)))
                             }
                         };
 
@@ -405,7 +408,7 @@ impl<'global, 'a> VmCore<'a> {
                                 )
                                 .with_span(*cur_inst_span);
 
-                                Box::new(std::iter::once(Err(err)))
+                                Box::new(core::iter::once(Err(err)))
                             }
                         };
                     Box::new(
@@ -433,7 +436,7 @@ impl<'global, 'a> VmCore<'a> {
                             )
                             .with_span(*cur_inst_span);
 
-                            Box::new(std::iter::once(Err(err)))
+                            Box::new(core::iter::once(Err(err)))
                         }
                     };
                     Box::new(interleave(iter, other))

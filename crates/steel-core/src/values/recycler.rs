@@ -1,7 +1,10 @@
-use std::cell::RefCell;
-use std::default::Default;
-use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicUsize, Ordering};
+#![cfg_attr(not(feature = "std"), allow(dead_code, unused_imports))]
+
+use alloc::vec::Vec;
+use core::cell::RefCell;
+use core::default::Default;
+use core::ops::{Deref, DerefMut};
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use smallvec::SmallVec;
 
@@ -31,7 +34,7 @@ impl<T: Recyclable + Default> Recycle<T> {
 
 impl<T: Recyclable + Default> Drop for Recycle<T> {
     fn drop(&mut self) {
-        T::put(std::mem::take(&mut self.t))
+        T::put(core::mem::take(&mut self.t))
     }
 }
 
@@ -55,14 +58,14 @@ impl<T: Recyclable + Clone + Default> Clone for Recycle<T> {
     }
 }
 
-impl<T: Recyclable + std::fmt::Debug + Default> std::fmt::Debug for Recycle<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: Recyclable + core::fmt::Debug + Default> core::fmt::Debug for Recycle<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Recycle").field("t", &self.t).finish()
     }
 }
 
-impl<T: Recyclable + std::hash::Hash + Default> std::hash::Hash for Recycle<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl<T: Recyclable + core::hash::Hash + Default> core::hash::Hash for Recycle<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.t.hash(state);
     }
 }
@@ -80,7 +83,7 @@ macro_rules! impl_recyclable {
     };
     ($tl:ident, $t:ty, $constructor:expr, $constructor_capacity:expr) => {
         thread_local! {
-            static $tl: RefCell<Vec<$t>> = RefCell::new(Vec::new())
+            static $tl: RefCell<Vec<$t>> = RefCell::new(Vec::new());
         }
 
         impl Recyclable for $t {

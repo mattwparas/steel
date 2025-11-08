@@ -1,4 +1,62 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[allow(unused_extern_crates)]
+pub extern crate alloc; // Required for heap-backed types when std is disabled
+
+#[allow(unused_imports)]
+use alloc::string::ToString;
+
+#[cfg(all(test, not(feature = "std")))]
+macro_rules! vector {
+    ($($elem:expr),* $(,)?) => {{
+        let mut temp = crate::collections::Vector::new();
+        $(temp.push($elem);)*
+        temp
+    }};
+}
+
+#[cfg(all(test, not(feature = "std")))]
+macro_rules! hashmap {
+    () => {{
+        crate::collections::HashMap::default()
+    }};
+    ($($key:expr => $value:expr),+ $(,)?) => {{
+        let mut map = crate::collections::HashMap::default();
+        $(map.insert($key, $value);)*
+        map
+    }};
+}
+
+#[cfg(all(test, not(feature = "std")))]
+#[allow(unused_macros)]
+macro_rules! hashset {
+    () => {{
+        crate::collections::HashSet::default()
+    }};
+    ($($value:expr),+ $(,)?) => {{
+        let mut set = crate::collections::HashSet::default();
+        $(set.insert($value);)*
+        set
+    }};
+}
+
+#[cfg(not(feature = "std"))]
+mod std {
+    #![allow(unused_imports)]
+
+    pub mod result {
+        pub use core::result::Result;
+    }
+}
+
 extern crate im_rc;
+pub mod collections;
+pub mod os_strings;
+pub mod path;
+pub mod rand;
+#[macro_use]
+pub mod sync;
+pub mod time;
 #[macro_use]
 mod env;
 #[macro_use]
@@ -24,7 +82,7 @@ mod tests;
 pub(crate) mod values;
 
 pub use self::{rerrs::SteelErr, rvals::SteelVal, stdlib::PRELUDE};
-pub use crate::values::{HashMap, HashSet, Vector};
+pub use crate::collections::{HashMap, HashSet, Vector};
 pub use im_lists::list::List;
 pub use primitives::UnRecoverableResult;
 pub use steel_derive::steel_quote;

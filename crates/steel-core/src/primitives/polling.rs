@@ -15,7 +15,7 @@ static KEY_ID: AtomicUsize = AtomicUsize::new(0);
 #[steel_derive::function(name = "fresh-event-id")]
 fn fresh_key() -> Result<SteelVal> {
     KEY_ID
-        .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        .fetch_add(1, core::sync::atomic::Ordering::Relaxed)
         .into_steelval()
 }
 
@@ -100,7 +100,7 @@ pub fn delete_interest(poller: &SteelVal, socket: &SteelVal) -> Result<SteelVal>
 }
 
 pub fn polling_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/polling".to_string());
+    let mut module = BuiltInModule::new("steel/polling");
 
     module
         .register_native_fn_definition(FRESH_KEY_DEFINITION)
@@ -120,7 +120,7 @@ pub fn polling_module() -> BuiltInModule {
     module
 }
 
-// unsafe fn test() -> std::result::Result<(), Box<dyn Error>> {
+// unsafe fn test() -> core::result::Result<(), Box<dyn Error>> {
 //     // Create a TCP listener.
 //     let socket = TcpListener::bind("127.0.0.1:8000")?;
 //     socket.set_nonblocking(true)?;

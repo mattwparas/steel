@@ -13,31 +13,45 @@ use crate::{
         },
         tokens::TokenType,
     },
+    path::PathBuf,
     steel_vm::{
         engine::{default_prelude_macros, ModuleContainer},
         transducers::interleave,
     },
 };
 use crate::{parser::expand_visitor::Expander, rvals::Result};
+use alloc::{
+    borrow::Cow,
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    sync::Arc,
+    vec,
+    vec::Vec,
+};
 
+use crate::collections::{MutableHashMap as HashMap, MutableHashSet as HashSet};
 use compact_str::CompactString;
 use fxhash::{FxHashMap, FxHashSet};
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
 use once_cell::sync::Lazy;
 // use smallvec::SmallVec;
-use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
-
-use std::{
-    borrow::Cow,
-    collections::{HashMap, HashSet},
-    io::Read,
-    path::PathBuf,
-    sync::Arc,
-};
+#[cfg(feature = "std")]
+use std::{fs, io::Read};
+#[cfg(feature = "std")]
+use steel_parser::parser::SourceId;
+use steel_parser::{ast::PROTO_HASH_GET, expr_list, span::Span};
 
 use crate::parser::expander::SteelMacro;
 use crate::stop;
 
-use std::time::SystemTime;
+#[cfg(feature = "std")]
+use crate::time::SystemTime;
+
+#[cfg(feature = "std")]
+type ModuleTimestamp = SystemTime;
+#[cfg(not(feature = "std"))]
+type ModuleTimestamp = ();
 
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
@@ -54,7 +68,7 @@ use super::{
 macro_rules! time {
     ($label:expr, $e:expr) => {{
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
 
         let e = $e;
 
@@ -133,29 +147,35 @@ create_prelude!(
     for_syntax "#%private/steel/contract"
 );
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
 pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
-    std::env::var("STEEL_SEARCH_PATHS")
-        .ok()
-        .map(|x| std::env::split_paths(x.as_str()).collect::<Vec<_>>())
+    std::env::var("STEEL_SEARCH_PATHS").ok().map(|x| {
+        std::env::split_paths(x.as_str())
+            .map(PathBuf::from)
+            .collect::<Vec<_>>()
+    })
 });
 
 pub fn steel_search_dirs() -> Vec<PathBuf> {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(feature = "std", not(target_family = "wasm")))]
     return STEEL_SEARCH_PATHS.clone().unwrap_or_default();
 
-    #[cfg(target_family = "wasm")]
+    #[cfg(any(not(feature = "std"), target_family = "wasm"))]
     return Vec::new();
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
 pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
     std::env::var("STEEL_HOME").ok().or_else(|| {
-        let home = env_home::env_home_dir().map(|x| x.join(".steel"));
+        let home = env_home::env_home_dir().map(|x| {
+            let mut owned = PathBuf::from(x);
+            owned.push(".steel");
+            owned
+        });
 
         if let Some(home) = home {
             if home.exists() {
-                return Some(home.into_os_string().into_string().unwrap());
+                return Some(home.to_string_lossy().into_owned());
             }
 
             #[cfg(target_os = "windows")]
@@ -164,16 +184,16 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
                     eprintln!("Unable to create steel home directory {:?}: {}", home, e)
                 }
 
-                return Some(home.into_os_string().into_string().unwrap());
+                return Some(home.to_string_lossy().into_owned());
             }
         }
 
         #[cfg(not(target_os = "windows"))]
         {
             let bd = xdg::BaseDirectories::new();
-            let home = bd.data_home;
+            let home = bd.data_home.map(PathBuf::from);
 
-            home.map(|mut x: PathBuf| {
+            home.map(|mut x| {
                 x.push("steel");
 
                 // Just go ahead and initialize the directory, even though
@@ -186,7 +206,7 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
                     }
                 }
 
-                x.into_os_string().into_string().unwrap()
+                x.to_string_lossy().into_owned()
             })
         }
 
@@ -195,11 +215,14 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
     })
 });
 
-#[cfg(target_family = "wasm")]
-pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| None);
-
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
 pub fn steel_home() -> Option<String> {
     STEEL_HOME.clone()
+}
+
+#[cfg(any(not(feature = "std"), target_family = "wasm"))]
+pub fn steel_home() -> Option<String> {
+    None
 }
 
 /// Manages the modules
@@ -209,10 +232,10 @@ pub fn steel_home() -> Option<String> {
 #[derive(Clone)]
 pub(crate) struct ModuleManager {
     pub(crate) compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
-    pub(crate) file_metadata: crate::HashMap<PathBuf, SystemTime>,
+    pub(crate) file_metadata: crate::HashMap<PathBuf, ModuleTimestamp>,
     visited: FxHashSet<PathBuf>,
     custom_builtins: HashMap<String, String>,
-    rollback_metadata: crate::HashMap<PathBuf, SystemTime>,
+    rollback_metadata: crate::HashMap<PathBuf, ModuleTimestamp>,
     // #[serde(skip_serializing, skip_deserializing)]
     module_resolvers: Vec<Arc<dyn SourceModuleResolver>>,
 }
@@ -225,14 +248,14 @@ pub trait SourceModuleResolver: Send + Sync {
 impl ModuleManager {
     pub(crate) fn new(
         compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
-        file_metadata: crate::HashMap<PathBuf, SystemTime>,
+        file_metadata: crate::HashMap<PathBuf, ModuleTimestamp>,
     ) -> Self {
         ModuleManager {
             compiled_modules,
             file_metadata,
             visited: FxHashSet::default(),
-            custom_builtins: HashMap::new(),
-            rollback_metadata: crate::HashMap::new(),
+            custom_builtins: HashMap::default(),
+            rollback_metadata: crate::collections::HashMap::default(),
             module_resolvers: Vec::new(),
         }
     }
@@ -348,7 +371,7 @@ impl ModuleManager {
 
         let mut require_defines = Vec::new();
 
-        let mut explicit_requires = HashMap::new();
+        let mut explicit_requires = HashMap::default();
 
         for require_object in &module_builder.require_objects {
             let path = require_object.path.get_path();
@@ -372,7 +395,7 @@ impl ModuleManager {
             }
 
             // println!("{:?}", path);
-            let module = if let Some(module) = module_builder.compiled_modules.get(path.as_ref()) {
+            let module = if let Some(module) = module_builder.compiled_modules.get(&path) {
                 module
             } else {
                 // log::debug!(target: "modules", "No provides found for module, skipping: {:?}", path);
@@ -543,15 +566,12 @@ impl ModuleManager {
 
         // TODO: Move this to the lower level as well
         // It seems we're only doing this expansion at the top level, but we _should_ do this at the lower level as well
-        for require_object in module_builder.require_objects.iter()
-        // .filter(|x| x.for_syntax)
-        // .map(|x| x.path.get_path())
-        {
+        for require_object in module_builder.require_objects.iter() {
             let require_for_syntax = require_object.path.get_path();
 
             let (module, in_scope_macros, mut name_mangler) = Self::find_in_scope_macros(
                 &mut self.compiled_modules,
-                require_for_syntax.as_ref(),
+                &require_for_syntax,
                 require_object,
                 &mut mangled_asts,
             );
@@ -563,7 +583,7 @@ impl ModuleManager {
 
             // dbg!(&kernel_macros_in_scope);
 
-            let module_name = module.name.to_str().unwrap().to_string();
+            let module_name = module.name.to_string_lossy().into_owned();
 
             if let Some(kernel) = kernel.as_mut() {
                 if kernel.exported_defmacros(&module_name).is_some() {
@@ -592,7 +612,7 @@ impl ModuleManager {
             //     );
             // }
 
-            // let module_name = Cow::from(module.name.to_str().unwrap().to_string());
+            // let module_name = Cow::from(module.name.to_str().unwrap().into());
 
             for expr in ast.iter_mut() {
                 // @matt 12/8/2023
@@ -621,7 +641,7 @@ impl ModuleManager {
                 //     kernel.as_mut(),
                 //     // We don't need to expand those here
                 //     ModuleContainer::default(),
-                //     module.name.to_str().unwrap().to_string(),
+                //     module.name.to_str().unwrap().into(),
                 //     &kernel_macros_in_scope,
                 // )?;
 
@@ -636,7 +656,7 @@ impl ModuleManager {
                 //     first_round_expanded,
                 //     kernel.as_mut(),
                 //     ModuleContainer::default(),
-                //     module.name.to_str().unwrap().to_string(),
+                //     module.name.to_str().unwrap().into(),
                 // )?;
 
                 // This is pretty suspect, and needs to be revisited - only the output of the
@@ -717,7 +737,7 @@ impl ModuleManager {
             //         //     kernel.as_mut(),
             //         //     // We don't need to expand those here
             //         //     ModuleContainer::default(),
-            //         //     module.name.to_str().unwrap().to_string(),
+            //         //     module.name.to_str().unwrap().into(),
             //         //     &kernel_macros_in_scope,
             //         // )?;
 
@@ -732,7 +752,7 @@ impl ModuleManager {
             //         //     first_round_expanded,
             //         //     kernel.as_mut(),
             //         //     ModuleContainer::default(),
-            //         //     module.name.to_str().unwrap().to_string(),
+            //         //     module.name.to_str().unwrap().into(),
             //         // )?;
 
             //         // This is pretty suspect, and needs to be revisited - only the output of the
@@ -754,7 +774,7 @@ impl ModuleManager {
             //                 // source_id,
             //             )?;
 
-            //             let module_name = module.name.to_str().unwrap().to_string();
+            //             let module_name = module.name.to_str().unwrap().into();
 
             //             // Expanding the kernel with only these macros...
             //             let changed = expand_kernel_in_env_with_change(
@@ -856,7 +876,7 @@ impl ModuleManager {
             .iter()
             .filter_map(|x| {
                 if x.idents_to_import.is_empty() {
-                    Some(x.path.get_path().into_owned())
+                    Some(x.path.get_path())
                 } else {
                     None
                 }
@@ -1065,12 +1085,10 @@ pub static MANGLED_MODULE_PREFIX: &str = "__module-##mm";
 pub fn path_to_module_name(name: PathBuf) -> String {
     let mut base = CompactString::new(MANGLED_MODULE_PREFIX);
 
-    if let Some(steel_home) = STEEL_HOME.as_ref() {
+    if let Some(steel_home) = steel_home() {
         // Intern this?
-        let name = name
-            .to_str()
-            .unwrap()
-            .trim_start_matches(steel_home.as_str());
+        let name_lossy = name.to_string_lossy();
+        let name = name_lossy.trim_start_matches(steel_home.as_str());
 
         let interned = InternedString::from_str(name);
         let id = interned.get().into_inner();
@@ -1078,14 +1096,14 @@ pub fn path_to_module_name(name: PathBuf) -> String {
         base.push_str(&id.to_string());
         base.push_str(MANGLER_SEPARATOR);
     } else {
-        let interned = InternedString::from_str(name.to_str().unwrap());
+        let interned = InternedString::from_str(name.to_string_lossy().as_ref());
         let id = interned.get().into_inner();
 
         base.push_str(&id.to_string());
         base.push_str(MANGLER_SEPARATOR);
     }
 
-    base.into_string()
+    base.to_string()
 }
 
 // TODO: @Matt 6/12/23 - This _should_ be serializable. If possible, we can try to store intermediate objects down to some file.
@@ -1101,12 +1119,10 @@ impl CompiledModule {
     ) -> Self {
         let mut base = CompactString::new(MANGLER_PREFIX);
 
-        if let Some(steel_home) = STEEL_HOME.as_ref() {
+        if let Some(steel_home) = steel_home() {
             // Intern this?
-            let name = name
-                .to_str()
-                .unwrap()
-                .trim_start_matches(steel_home.as_str());
+            let name_lossy = name.to_string_lossy();
+            let name = name_lossy.trim_start_matches(steel_home.as_str());
 
             let interned = InternedString::from_str(name);
             let id = interned.get().into_inner();
@@ -1118,10 +1134,10 @@ impl CompiledModule {
             // println!("{}", base);
             // println!("Byte length: {}", base.len());
         } else {
-            let interned = InternedString::from_str(name.to_str().unwrap());
+            let interned = InternedString::from_str(name.to_string_lossy().as_ref());
             let id = interned.get().into_inner();
 
-            // base.push_str(self.name.to_str().unwrap());
+            // base.push_str(self.name.to_string_lossy().as_ref());
             base.push_str(&id.to_string());
             base.push_str(MANGLER_SEPARATOR);
         }
@@ -1197,7 +1213,7 @@ impl CompiledModule {
         // ;; Refresh the module definition in this namespace
         // (define a-module.rkt-b (hash-get 'b b-module.rkt-b))
 
-        let mut explicit_requires = HashMap::new();
+        let mut explicit_requires = HashMap::default();
 
         // TODO: This is the same as the top level, they should be merged
         for require_object in &self.require_objects {
@@ -1221,7 +1237,7 @@ impl CompiledModule {
 
             // println!("{:?}", path);
             // println!("{:?}", modules.keys().collect::<Vec<_>>());
-            let module = modules.get(path.as_ref()).unwrap();
+            let module = modules.get(&path).unwrap();
 
             let other_module_prefix = module.prefix();
 
@@ -1354,7 +1370,7 @@ impl CompiledModule {
                                     //     let hash_get = expr_list![
                                     //         ExprKind::atom(*PROTO_HASH_GET),
                                     //         ExprKind::atom(
-                                    //             "__module-".to_string() + &other_module_prefix
+                                    //             "__module-".into() + &other_module_prefix
                                     //         ),
                                     //         ExprKind::Quote(Box::new(Quote::new(
                                     //             name.clone(),
@@ -1646,7 +1662,7 @@ impl CompiledModule {
         exprs.retain_mut(|expr| {
             if let ExprKind::Define(d) = expr {
                 if is_a_builtin_definition(d) {
-                    builtin_definitions.push(std::mem::take(expr));
+                    builtin_definitions.push(core::mem::take(expr));
                     false
                 } else {
                     true
@@ -1711,7 +1727,7 @@ impl CompiledModule {
                 "module".into(),
             )))),
             ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
-                ("___".to_string() + self.name.to_str().unwrap()).into(),
+                format!("___{}", self.name.to_string_lossy()).into(),
             )))),
         ];
 
@@ -1725,7 +1741,7 @@ impl CompiledModule {
         // Reconsider how to address this expansion.
         // We really don't want to pollute the module space - perhaps disallow shadowed built-ins so we don't need this?
         // That would probably be annoying
-        // let steel_base = ExprKind::List(List::new(vec![ExprKind::atom("steel/base".to_string())]));
+        // let steel_base = ExprKind::List(List::new(vec![ExprKind::atom("steel/base")]));
 
         // self.ast.pretty_print();
 
@@ -1784,10 +1800,10 @@ pub enum PathOrBuiltIn {
 }
 
 impl PathOrBuiltIn {
-    pub fn get_path(&self) -> Cow<'_, PathBuf> {
+    pub fn get_path(&self) -> PathBuf {
         match self {
-            Self::Path(p) => Cow::Borrowed(p),
-            Self::BuiltIn(p) => Cow::Owned(PathBuf::from(p.to_string())),
+            Self::Path(p) => p.clone(),
+            Self::BuiltIn(p) => PathBuf::from(p.as_ref()),
         }
     }
 }
@@ -1818,8 +1834,14 @@ impl RequireObjectBuilder {
     }
 }
 
+#[cfg(feature = "std")]
 fn try_canonicalize(path: PathBuf) -> PathBuf {
-    std::fs::canonicalize(&path).unwrap_or_else(|_| path)
+    fs::canonicalize(&path).map(PathBuf::from).unwrap_or(path)
+}
+
+#[cfg(not(feature = "std"))]
+fn try_canonicalize(path: PathBuf) -> PathBuf {
+    path
 }
 
 /*
@@ -1850,16 +1872,19 @@ impl DependencyGraph {
     pub fn check_downstream_changes(
         &self,
         root: &PathBuf,
-        updated_at: &crate::HashMap<PathBuf, SystemTime>,
-    ) -> std::io::Result<bool> {
+        updated_at: &crate::HashMap<PathBuf, ModuleTimestamp>,
+    ) -> core::result::Result<bool, ()> {
         let mut stack = vec![root];
 
         while let Some(next) = stack.pop() {
-            let meta = std::fs::metadata(next)?;
+            #[cfg(feature = "std")]
+            {
+                let meta = fs::metadata(next).map_err(|_| ())?;
 
-            if let Some(prev) = updated_at.get(next) {
-                if *prev != meta.modified()? {
-                    return Ok(true);
+                if let Some(prev) = updated_at.get(next) {
+                    if *prev != meta.modified().map_err(|_| ())? {
+                        return Ok(true);
+                    }
                 }
             }
 
@@ -1872,6 +1897,7 @@ impl DependencyGraph {
 
         Ok(false)
     }
+
 }
 */
 
@@ -1888,7 +1914,7 @@ struct ModuleBuilder<'a> {
     provides_for_syntax: Vec<ExprKind>,
     compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
     visited: &'a mut FxHashSet<PathBuf>,
-    file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+    file_metadata: &'a mut crate::HashMap<PathBuf, ModuleTimestamp>,
     sources: &'a mut Sources,
     kernel: &'a mut Option<Kernel>,
     builtin_modules: ModuleContainer,
@@ -1914,7 +1940,7 @@ impl<'a> ModuleBuilder<'a> {
         source_ast: Vec<ExprKind>,
         compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, ModuleTimestamp>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -1927,12 +1953,15 @@ impl<'a> ModuleBuilder<'a> {
         // change the path to not always be required
         // if its not required we know its not coming in
 
-        #[cfg(not(target_family = "wasm"))]
+        #[cfg(all(feature = "std", not(target_family = "wasm")))]
         let name = if let Some(p) = name {
-            std::fs::canonicalize(p)?
+            PathBuf::from(fs::canonicalize(&p)?)
         } else {
-            std::env::current_dir()?
+            PathBuf::from(std::env::current_dir()?)
         };
+
+        #[cfg(all(not(feature = "std"), not(target_family = "wasm")))]
+        let name = name.unwrap_or_else(PathBuf::new);
 
         #[cfg(target_family = "wasm")]
         let name = PathBuf::new();
@@ -2006,7 +2035,7 @@ impl<'a> ModuleBuilder<'a> {
         self.visited.insert(self.name.clone());
 
         if self.main {
-            let exprs = std::mem::take(&mut self.source_ast);
+            let exprs = core::mem::take(&mut self.source_ast);
             self.source_ast = exprs
                 .into_iter()
                 .filter(|x| {
@@ -2038,7 +2067,7 @@ impl<'a> ModuleBuilder<'a> {
                 // Check to see if its in the cache first
                 // Otherwise go ahead and compile
                 // If we already have compiled this module, get it from the cache
-                if let Some(_m) = self.compiled_modules.get(module.as_ref()) {
+                if let Some(_m) = self.compiled_modules.get(&module) {
                     // debug!("Getting {:?} from the module cache", module);
                     // println!("Already found in the cache: {:?}", module);
                     // new_exprs.push(m.to_module_ast_node());
@@ -2047,32 +2076,36 @@ impl<'a> ModuleBuilder<'a> {
                 }
 
                 // TODO this is some bad crap here don't do this
-                let input = BUILT_INS
-                    .iter()
-                    .find(|x| x.0 == module.to_str().unwrap())
-                    .map(|x| Cow::Borrowed(x.1))
-                    .or_else(|| {
-                        self.custom_builtins
-                            .get(module.to_str().unwrap())
-                            .map(|x| Cow::Owned(x.to_string()))
-                    })
-                    .or_else(|| {
-                        self.module_resolvers
-                            .iter()
-                            .find_map(|x| x.resolve(module.to_str().unwrap()))
-                            // Insert the prelude
-                            .map(|mut x| {
-                                x.insert_str(0, PRELUDE_STRING);
-                                x
-                            })
-                            .map(Cow::Owned)
-                    })
-                    .ok_or_else(
-                        crate::throw!(Generic => "Unable to find builtin module: {:?}", module),
-                    )?;
+                let input = {
+                    let module_str = module.to_string_lossy();
+
+                    BUILT_INS
+                        .iter()
+                        .find(|x| x.0 == module_str.as_ref())
+                        .map(|x| Cow::Borrowed(x.1))
+                        .or_else(|| {
+                            self.custom_builtins
+                                .get(module_str.as_ref())
+                                .map(|x| Cow::Owned(x.to_string()))
+                        })
+                        .or_else(|| {
+                            self.module_resolvers
+                                .iter()
+                                .find_map(|x| x.resolve(module_str.as_ref()))
+                                // Insert the prelude
+                                .map(|mut x| {
+                                    x.insert_str(0, PRELUDE_STRING);
+                                    x
+                                })
+                                .map(Cow::Owned)
+                        })
+                        .ok_or_else(crate::throw!(Generic =>
+                            "Unable to find builtin module: {:?}", module
+                        ))?
+                };
 
                 let mut new_module = ModuleBuilder::new_built_in(
-                    module.into_owned(),
+                    module.clone(),
                     input,
                     self.compiled_modules,
                     self.visited,
@@ -2101,6 +2134,7 @@ impl<'a> ModuleBuilder<'a> {
 
             // At this point, requires should be fully qualified (absolute) paths
 
+            #[cfg(feature = "std")]
             for (module, require_statement_span) in self
                 .require_objects
                 .iter()
@@ -2111,7 +2145,7 @@ impl<'a> ModuleBuilder<'a> {
                     stop!(Generic => "requiring modules is not supported for wasm");
                 }
 
-                let last_modified = std::fs::metadata(module.as_ref())
+                let last_modified = fs::metadata(&module)
                     .map_err(|err| {
                         let mut err = crate::SteelErr::from(err);
                         err.prepend_message(&format!(
@@ -2125,7 +2159,7 @@ impl<'a> ModuleBuilder<'a> {
                 // Check if we should compile based on the last time modified
                 // If we're unable to get information, we want to compile
                 let should_recompile =
-                    if let Some(cached_modified) = self.file_metadata.get(module.as_ref()) {
+                    if let Some(cached_modified) = self.file_metadata.get(&module) {
                         last_modified != *cached_modified
                     } else {
                         true
@@ -2138,7 +2172,7 @@ impl<'a> ModuleBuilder<'a> {
                 // Otherwise go ahead and compile
                 if !should_recompile {
                     // If we already have compiled this module, get it from the cache
-                    if let Some(m) = self.compiled_modules.get(module.as_ref()) {
+                    if let Some(m) = self.compiled_modules.get(&module) {
                         // debug!("Getting {:?} from the module cache", module);
                         // println!("Already found in the cache: {:?}", module);
                         // new_exprs.push(m.to_module_ast_node());
@@ -2149,14 +2183,14 @@ impl<'a> ModuleBuilder<'a> {
                         let mut stack = m.downstream.clone();
 
                         while let Some(next) = stack.pop() {
-                            let meta = std::fs::metadata(&next)?;
+                            let meta = fs::metadata(&next)?;
 
                             if let Some(prev) = self.file_metadata.get(&next) {
                                 if *prev != meta.modified()? {
                                     // println!(
                                     //     "Detected change in {:?}, recompiling root starting from {:?}",
                                     //     next,
-                                    //     module.as_ref()
+                                    //     &module
                                     // );
                                     downstream_validated = false;
                                     break;
@@ -2177,7 +2211,7 @@ impl<'a> ModuleBuilder<'a> {
                 }
 
                 let mut new_module = ModuleBuilder::new_from_path(
-                    module.into_owned(),
+                    module,
                     self.compiled_modules,
                     self.visited,
                     self.file_metadata,
@@ -2207,7 +2241,7 @@ impl<'a> ModuleBuilder<'a> {
 
                 // TODO evaluate this
 
-                // let mut ast = std::mem::replace(&mut new_module.source_ast, Vec::new());
+                // let mut ast = core::mem::replace(&mut new_module.source_ast, Vec::new());
                 // ast.append(&mut module_exprs);
                 // new_module.source_ast = ast;
 
@@ -2242,8 +2276,8 @@ impl<'a> ModuleBuilder<'a> {
 
     // TODO: This should run again on itself, probably
     fn compile_module(&mut self) -> Result<ExprKind> {
-        let mut ast = std::mem::take(&mut self.source_ast);
-        let mut provides = std::mem::take(&mut self.provides);
+        let mut ast = core::mem::take(&mut self.source_ast);
+        let mut provides = core::mem::take(&mut self.provides);
         // Clone the requires... I suppose
         let requires = self.require_objects.clone();
 
@@ -2255,7 +2289,7 @@ impl<'a> ModuleBuilder<'a> {
 
         // Attempt extracting the syntax transformers from this module
         if let Some(kernel) = self.kernel.as_mut() {
-            kernel.load_syntax_transformers(&mut ast, self.name.to_str().unwrap().to_string())?
+            kernel.load_syntax_transformers(&mut ast, self.name.to_string_lossy().into_owned())?
         };
 
         // This needs to be overlayed with imported macros. So the idea being that this
@@ -2273,7 +2307,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.kernel.as_mut(),
                     self.builtin_modules.clone(),
                     // Expanding macros in the environment?
-                    self.name.to_str().unwrap(),
+                    self.name.to_string_lossy().as_ref(),
                 )?;
 
                 expand(expr, &self.macro_map)?;
@@ -2290,7 +2324,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 // Expanding macros in the environment?
-                self.name.to_str().unwrap(),
+                self.name.to_string_lossy().as_ref(),
             )?;
             // })
         }
@@ -2304,23 +2338,23 @@ impl<'a> ModuleBuilder<'a> {
             let require_for_syntax = require_object.path.get_path();
 
             if let PathOrBuiltIn::Path(_) = &require_object.path {
-                downstream.push(require_for_syntax.clone().into_owned());
+                downstream.push(require_for_syntax.clone());
             }
 
             // Stash this?
             let (module, in_scope_macros, name_mangler) = ModuleManager::find_in_scope_macros(
                 self.compiled_modules,
-                require_for_syntax.as_ref(),
+                &require_for_syntax,
                 require_object,
                 &mut mangled_asts,
             );
 
             required_macros.push(RequiredModuleMacros {
-                module_key: require_for_syntax.clone().into_owned(),
+                module_key: require_for_syntax.clone(),
                 module_macros: module.macro_map.clone(),
                 in_scope_macros,
                 name_mangler,
-                module_name: module.name.to_str().unwrap().to_owned(),
+                module_name: module.name.to_string_lossy().into_owned(),
             });
         }
 
@@ -2342,7 +2376,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 // Expanding macros in the environment?
-                self.name.to_str().unwrap(),
+                self.name.to_string_lossy().as_ref(),
             )?;
 
             expand(expr, &self.macro_map)?;
@@ -2411,8 +2445,8 @@ impl<'a> ModuleBuilder<'a> {
 
             self.collect_provides()?;
 
-            provides = std::mem::take(&mut self.provides);
-            ast = std::mem::take(&mut self.source_ast);
+            provides = core::mem::take(&mut self.provides);
+            ast = core::mem::take(&mut self.source_ast);
         }
 
         // Put the mangled asts at the top
@@ -2437,7 +2471,7 @@ impl<'a> ModuleBuilder<'a> {
                 .iter()
                 .map(|x| *x.atom_identifier().unwrap())
                 .collect(),
-            // std::mem::take(&mut self.macro_map),
+            // core::mem::take(&mut self.macro_map),
             self.macro_map.clone(),
             mangled_asts,
             downstream,
@@ -2456,7 +2490,7 @@ impl<'a> ModuleBuilder<'a> {
         // Probably don't have more than 128 macros in a module, but who knows?
         // let mut macro_indices = SmallVec::<[usize; 128]>::new();
 
-        // let exprs = std::mem::take(&mut self.source_ast);
+        // let exprs = core::mem::take(&mut self.source_ast);
 
         let mut error = None;
 
@@ -2469,7 +2503,7 @@ impl<'a> ModuleBuilder<'a> {
                     SyntaxObject::default(TokenType::Begin),
                 )));
 
-                std::mem::swap(expr, &mut taken_expr);
+                core::mem::swap(expr, &mut taken_expr);
 
                 if let ExprKind::Macro(m) = taken_expr {
                     match SteelMacro::parse_from_ast_macro(m) {
@@ -2554,10 +2588,10 @@ impl<'a> ModuleBuilder<'a> {
     // I think these will already be collected for the macro, however I think for syntax should be found earlier
     // Otherwise the macro expansion will not be able to understand it
     fn collect_provides(&mut self) -> Result<()> {
-        // let now = std::time::Instant::now();
+        // let now = crate::time::Instant::now();
 
         let mut non_provides = Vec::with_capacity(self.source_ast.len());
-        let exprs = std::mem::take(&mut self.source_ast);
+        let exprs = core::mem::take(&mut self.source_ast);
 
         fn walk(
             module_builder: &mut ModuleBuilder,
@@ -2574,7 +2608,7 @@ impl<'a> ModuleBuilder<'a> {
                                 }
 
                                 // Swap out the value inside the list
-                                let args = std::mem::take(&mut l.args);
+                                let args = core::mem::take(&mut l.args);
 
                                 let filtered =
                                     module_builder.filter_out_for_syntax_provides(args)?;
@@ -2588,7 +2622,7 @@ impl<'a> ModuleBuilder<'a> {
                         }
                     }
                     ExprKind::Begin(b) => {
-                        let exprs = std::mem::take(&mut b.exprs);
+                        let exprs = core::mem::take(&mut b.exprs);
 
                         // Reserve capacity for these to be moved to the top level
                         non_provides.reserve(exprs.len());
@@ -2652,7 +2686,7 @@ impl<'a> ModuleBuilder<'a> {
 
                 // Try this?
                 if let Some(lib) = BUILT_INS.iter().cloned().find(|x| x.0 == s.as_str()) {
-                    // self.built_ins.push(PathBuf::from(lib.0));
+                    // self.built_ins.push(Path::from(lib.0));
 
                     require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
 
@@ -2687,13 +2721,13 @@ impl<'a> ModuleBuilder<'a> {
                 if current.is_file() {
                     current.pop();
                 }
-                current.push(PathBuf::from(s.as_str()));
+                current.push(s.as_str());
 
                 // // If the path exists on its own, we can continue
                 // // But theres the case where we're searching for a module on the STEEL_HOME
                 if !current.exists() {
                     if let Some(mut home) = home.clone() {
-                        home.push(PathBuf::from(s.as_str()));
+                        home.push(s.as_str());
                         current = home;
 
                         log::info!("Searching STEEL_HOME for {:?}", current);
@@ -2797,7 +2831,7 @@ impl<'a> ModuleBuilder<'a> {
                                     existing_prefix.push_str(prefix.resolve());
                                 }
                                 None => {
-                                    require_object.prefix = Some(prefix.resolve().to_string());
+                                    require_object.prefix = Some(prefix.resolve().into());
                                 }
                             }
 
@@ -2816,7 +2850,7 @@ impl<'a> ModuleBuilder<'a> {
                         let mod_name = &l.args[1];
                         if let Some(path) = mod_name.string_literal() {
                             if let Some(lib) = BUILT_INS.iter().find(|x| x.0 == path) {
-                                // self.built_ins.push(PathBuf::from(lib.0));
+                                // self.built_ins.push(Path::from(lib.0));
 
                                 require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
                                 require_object.for_syntax = true;
@@ -2843,11 +2877,11 @@ impl<'a> ModuleBuilder<'a> {
                                 if current.is_file() {
                                     current.pop();
                                 }
-                                current.push(PathBuf::from(path));
+                                current.push(path);
 
                                 if !current.exists() {
                                     if let Some(mut home) = home.clone() {
-                                        home.push(PathBuf::from(path));
+                                        home.push(path);
                                         current = home;
 
                                         if !current.exists() {
@@ -2904,10 +2938,9 @@ impl<'a> ModuleBuilder<'a> {
         // unimplemented!()
 
         let mut exprs_without_requires = Vec::new();
-        let exprs = std::mem::take(&mut self.source_ast);
+        let exprs = core::mem::take(&mut self.source_ast);
 
-        let home = STEEL_HOME
-            .clone()
+        let home = steel_home()
             .map(|x| {
                 // TODO: Fix this - try to hack in a root drive
                 // for windows if a unix path is provided
@@ -2973,7 +3006,7 @@ impl<'a> ModuleBuilder<'a> {
         input: Cow<'static, str>,
         compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, ModuleTimestamp>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -3002,7 +3035,7 @@ impl<'a> ModuleBuilder<'a> {
         name: PathBuf,
         compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, ModuleTimestamp>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -3032,7 +3065,7 @@ impl<'a> ModuleBuilder<'a> {
         name: PathBuf,
         compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
         visited: &'a mut FxHashSet<PathBuf>,
-        file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
+        file_metadata: &'a mut crate::HashMap<PathBuf, ModuleTimestamp>,
         sources: &'a mut Sources,
         kernel: &'a mut Option<Kernel>,
         builtin_modules: ModuleContainer,
@@ -3075,16 +3108,16 @@ impl<'a> ModuleBuilder<'a> {
 
     fn parse_builtin(mut self, input: Cow<'static, str>) -> Result<Self> {
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
 
         let id = self
             .sources
             .add_source(input.clone(), Some(self.name.clone()));
 
-        let parsed = Parser::new_from_source(&input, self.name.clone(), Some(id))
+        let parsed = Parser::new_from_source(&input, self.name.to_parser_path().into(), Some(id))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
-            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+            .collect::<core::result::Result<Vec<_>, ParseError>>()?;
 
         self.source_ast = parsed;
 
@@ -3096,13 +3129,14 @@ impl<'a> ModuleBuilder<'a> {
         Ok(self)
     }
 
+    #[cfg(feature = "std")]
     fn parse_from_path(mut self) -> Result<Self> {
         log::info!("Opening: {:?}", self.name);
         let mut exprs = String::new();
 
         // If we were unable to resolve it via any of the built in module resolvers,
         // then we check the file system.
-        let mut file = std::fs::File::open(&self.name).map_err(|err| {
+        let mut file = fs::File::open(&self.name).map_err(|err| {
             let mut err = crate::SteelErr::from(err);
             err.prepend_message(&format!("Attempting to load module from: {:?}", self.name));
             err
@@ -3115,7 +3149,7 @@ impl<'a> ModuleBuilder<'a> {
         let mut expressions = Parser::new(PRELUDE_STRING, SourceId::none())
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
-            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+            .collect::<core::result::Result<Vec<_>, ParseError>>()?;
 
         let id = self.sources.add_source(exprs, Some(self.name.clone()));
 
@@ -3126,10 +3160,11 @@ impl<'a> ModuleBuilder<'a> {
 
             let exprs = guard.get(id).unwrap();
 
-            let mut parsed = Parser::new_from_source(exprs, self.name.clone(), Some(id))
-                .without_lowering()
-                .map(|x| x.and_then(lower_macro_and_require_definitions))
-                .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+            let mut parsed =
+                Parser::new_from_source(exprs, self.name.to_parser_path().into(), Some(id))
+                    .without_lowering()
+                    .map(|x| x.and_then(lower_macro_and_require_definitions))
+                    .collect::<core::result::Result<Vec<_>, ParseError>>()?;
 
             expressions.append(&mut parsed);
 
@@ -3137,5 +3172,10 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         Ok(self)
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn parse_from_path(self) -> Result<Self> {
+        stop!(Generic => "loading modules from files is unavailable without the `std` feature");
     }
 }

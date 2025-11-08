@@ -4,6 +4,7 @@ use crate::{
     gc::{get_object_count, Gc},
     rvals::FutureResult,
 };
+use alloc::{boxed::Box, format, vec::Vec};
 
 use futures_util::future::join_all;
 
@@ -82,6 +83,7 @@ impl MetaOperations {
                 SteelVal::CustomStruct(gc) => {
                     Ok(SteelVal::StringV(format!("{:p}", gc.clone()).into()))
                 }
+                #[cfg(feature = "std")]
                 SteelVal::PortV(steel_port) => {
                     Ok(SteelVal::StringV(format!("{:p}", steel_port.port).into()))
                 }
@@ -245,7 +247,7 @@ impl MetaOperations {
 
             let futures = join_all(joined_futures).map(|x| {
                 x.into_iter()
-                    .collect::<Result<crate::values::Vector<_>>>()
+                    .collect::<Result<crate::collections::Vector<_>>>()
                     .map(|x| SteelVal::VectorV(Gc::new(x).into()))
             });
 

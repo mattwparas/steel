@@ -1,11 +1,13 @@
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
 use crate::{steelerr, stop, throw};
+use alloc::format;
+use core::cmp::Ordering;
+use core::f64::consts;
+use core::ops::Neg;
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::{BigRational, Ratio, Rational32};
 use num_traits::{pow::Pow, CheckedAdd, CheckedMul, Euclid, One, Signed, ToPrimitive, Zero};
-use std::cmp::Ordering;
-use std::ops::Neg;
 
 /// Checks if the given value is a number
 ///
@@ -1538,10 +1540,10 @@ fn exp(left: &SteelVal) -> Result<SteelVal> {
     match left {
         SteelVal::IntV(0) => Ok(SteelVal::IntV(1)),
         SteelVal::IntV(l) if *l < i32::MAX as isize => {
-            Ok(SteelVal::NumV(std::f64::consts::E.powi(*l as i32)))
+            Ok(SteelVal::NumV(consts::E.powi(*l as i32)))
         }
         maybe_number => match number_to_float(maybe_number) {
-            Ok(n) => Ok(SteelVal::NumV(std::f64::consts::E.powf(n))),
+            Ok(n) => Ok(SteelVal::NumV(consts::E.powf(n))),
             Err(_) => steelerr!(Generic => "exp expected a real number"),
         },
     }
@@ -1999,10 +2001,7 @@ fn atan2(y: &SteelVal, x: &SteelVal) -> Result<SteelVal> {
 #[steel_derive::native(name = "log", arity = "Range(1,2)")]
 fn log(args: &[SteelVal]) -> Result<SteelVal> {
     let first = &args[0];
-    let base = args
-        .get(1)
-        .cloned()
-        .unwrap_or(SteelVal::NumV(std::f64::consts::E));
+    let base = args.get(1).cloned().unwrap_or(SteelVal::NumV(consts::E));
 
     match (first, &base) {
         (SteelVal::IntV(1), _) => Ok(SteelVal::IntV(0)),
@@ -2051,8 +2050,8 @@ fn exact_integer_sqrt(number: &SteelVal) -> Result<SteelVal> {
 fn exact_integer_impl<'a, N>(target: &'a N) -> (N, N)
 where
     N: num_integer::Roots + Clone,
-    &'a N: std::ops::Mul<&'a N, Output = N>,
-    N: std::ops::Sub<N, Output = N>,
+    &'a N: core::ops::Mul<&'a N, Output = N>,
+    N: core::ops::Sub<N, Output = N>,
 {
     let x = target.sqrt();
     let x_sq = x.clone() * x.clone();
@@ -2438,7 +2437,8 @@ fn add_complex(x: &SteelComplex, y: &SteelComplex) -> Result<SteelVal> {
 mod num_op_tests {
     use super::*;
     use crate::{gc::Gc, rvals::SteelVal::*};
-    use std::str::FromStr;
+    use alloc::string::ToString;
+    use core::str::FromStr;
 
     #[test]
     fn division_test() {

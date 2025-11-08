@@ -1,4 +1,8 @@
-use std::collections::HashMap;
+use crate::collections::MutableHashMap;
+use alloc::format;
+#[cfg(not(feature = "sync"))]
+use alloc::rc::Weak;
+use alloc::vec::Vec;
 
 use crate::values::lists::List;
 use weak_table::WeakKeyHashMap;
@@ -14,13 +18,13 @@ struct FunctionArgs {
 #[derive(Clone, Debug)]
 // For now this has... no capacity, and no eviction strategy
 pub struct MemoizationTable {
-    table: HashMap<FunctionArgs, SteelVal>,
+    table: MutableHashMap<FunctionArgs, SteelVal>,
 }
 
 impl MemoizationTable {
     pub fn new() -> Self {
         Self {
-            table: HashMap::default(),
+            table: MutableHashMap::default(),
         }
     }
 
@@ -46,10 +50,11 @@ impl MemoizationTable {
 
 pub struct WeakMemoizationTable {
     #[cfg(not(feature = "sync"))]
-    table: WeakKeyHashMap<std::rc::Weak<ByteCodeLambda>, HashMap<List<SteelVal>, SteelVal>>,
+    table: WeakKeyHashMap<Weak<ByteCodeLambda>, MutableHashMap<List<SteelVal>, SteelVal>>,
 
     #[cfg(feature = "sync")]
-    table: WeakKeyHashMap<std::sync::Weak<ByteCodeLambda>, HashMap<List<SteelVal>, SteelVal>>,
+    table:
+        WeakKeyHashMap<alloc::sync::Weak<ByteCodeLambda>, MutableHashMap<List<SteelVal>, SteelVal>>,
 }
 
 impl WeakMemoizationTable {
@@ -71,7 +76,7 @@ impl WeakMemoizationTable {
             if let Some(map) = self.table.get_mut(&l) {
                 map.insert(arguments, value);
             } else {
-                let mut map = HashMap::new();
+                let mut map = MutableHashMap::default();
                 map.insert(arguments, value);
 
                 todo!()

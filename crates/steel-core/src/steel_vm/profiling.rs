@@ -1,16 +1,18 @@
-use std::{collections::HashMap, sync::Mutex};
+use crate::collections::MutableHashMap;
+use crate::sync::Mutex;
+use alloc::vec::Vec;
+use once_cell::sync::Lazy;
 
 use steel_gen::OpCode;
 
 use crate::core::instructions::DenseInstruction;
 
-static PROFILER: std::sync::LazyLock<Mutex<Profiler>> =
-    std::sync::LazyLock::new(|| Mutex::new(Profiler::default()));
+static PROFILER: Lazy<Mutex<Profiler>> = Lazy::new(|| Mutex::new(Profiler::default()));
 
 #[derive(Default)]
 struct Profiler {
-    occurrences: HashMap<OpCode, usize>,
-    pairs: HashMap<(OpCode, OpCode), usize>,
+    occurrences: MutableHashMap<OpCode, usize>,
+    pairs: MutableHashMap<(OpCode, OpCode), usize>,
     cur: Option<OpCode>,
 }
 

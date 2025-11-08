@@ -4,7 +4,7 @@
 use crate::steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn};
 
 pub fn git_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/git".to_string());
+    let mut module = BuiltInModule::new("steel/git");
 
     module
         .register_fn("git-clone", libgit::git_clone)

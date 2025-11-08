@@ -1,14 +1,22 @@
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
 use crate::stop;
+#[cfg_attr(not(feature = "sync"), allow(unused_imports))]
+use crate::sync::RwLock;
+#[allow(unused_imports)]
+use alloc::string::ToString;
+#[allow(unused_imports)]
+use alloc::{boxed::Box, format, string::String, vec::Vec};
 
 #[cfg(not(feature = "sync"))]
-use std::cell::RefCell;
+use core::cell::RefCell;
 
-use std::fmt::Pointer;
-use std::ops::Deref;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::{ffi::OsStr, fmt};
+#[cfg(feature = "std")]
+use crate::os_strings::OsStr;
+use core::fmt;
+use core::fmt::Pointer;
+use core::ops::Deref;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 pub static OBJECT_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
@@ -16,27 +24,20 @@ pub(crate) static MAXIMUM_OBJECTS: usize = 50000;
 pub use shared::{GcMut, MutContainer, ShareableMut, Shared, SharedMut};
 pub use unsafe_erased_pointers::is_reference_type;
 
-#[cfg(feature = "sync")]
-use parking_lot::RwLock;
-
 pub mod shared {
-    use std::cell::{BorrowError, BorrowMutError, Ref, RefCell, RefMut};
-    use std::ops::{Deref, DerefMut};
-    use std::rc::Rc;
+    #[cfg(not(feature = "sync"))]
+    use alloc::rc::Weak;
+    #[allow(unused_imports)]
+    use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
+    use core::cell::{BorrowError, BorrowMutError, Ref, RefCell, RefMut};
+    use core::ops::{Deref, DerefMut};
 
-    // TODO: Replace these with `parking_lot` primitives instead
-    use std::sync::{
-        Arc,
-        Mutex,
-        MutexGuard,
-        // RwLock, RwLockReadGuard, RwLockWriteGuard,
-        TryLockResult,
+    #[cfg_attr(not(feature = "sync"), allow(unused_imports))]
+    use crate::sync::{
+        MappedRwLockReadGuard, MappedRwLockWriteGuard, Mutex, MutexGuard, RwLock, RwLockReadGuard,
+        RwLockWriteGuard, TryLockResult,
     };
-
-    use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
-
-    #[cfg(feature = "sync")]
-    use parking_lot::{MappedRwLockReadGuard, MappedRwLockWriteGuard};
+    use alloc::sync::Arc;
 
     use super::Gc;
 
@@ -47,10 +48,10 @@ pub mod shared {
     pub type SharedMut<T> = Rc<RefCell<T>>;
 
     #[cfg(not(feature = "sync"))]
-    pub type WeakSharedMut<T> = std::rc::Weak<RefCell<T>>;
+    pub type WeakSharedMut<T> = Weak<RefCell<T>>;
 
     #[cfg(not(feature = "sync"))]
-    pub type WeakShared<T> = std::rc::Weak<T>;
+    pub type WeakShared<T> = Weak<T>;
 
     #[cfg(not(feature = "sync"))]
     pub type MutContainer<T> = RefCell<T>;
@@ -59,16 +60,16 @@ pub mod shared {
     pub type GcMut<T> = Gc<RefCell<T>>;
 
     #[cfg(feature = "sync")]
-    pub type StandardShared<T> = std::sync::Arc<T>;
+    pub type StandardShared<T> = alloc::sync::Arc<T>;
 
     #[cfg(feature = "sync")]
-    pub type StandardSharedMut<T> = std::sync::Arc<RwLock<T>>;
+    pub type StandardSharedMut<T> = alloc::sync::Arc<RwLock<T>>;
 
     #[cfg(not(feature = "sync"))]
-    pub type StandardShared<T> = std::rc::Rc<T>;
+    pub type StandardShared<T> = alloc::rc::Rc<T>;
 
     #[cfg(not(feature = "sync"))]
-    pub type StandardSharedMut<T> = std::rc::Rc<RefCell<T>>;
+    pub type StandardSharedMut<T> = alloc::rc::Rc<RefCell<T>>;
 
     #[cfg(all(feature = "sync", not(feature = "triomphe")))]
     pub type Shared<T> = Arc<T>;
@@ -84,10 +85,10 @@ pub mod shared {
     pub type GcMut<T> = Gc<RwLock<T>>;
 
     #[cfg(feature = "sync")]
-    pub type WeakSharedMut<T> = std::sync::Weak<RwLock<T>>;
+    pub type WeakSharedMut<T> = alloc::sync::Weak<RwLock<T>>;
 
     #[cfg(feature = "sync")]
-    pub type WeakShared<T> = std::sync::Weak<T>;
+    pub type WeakShared<T> = alloc::sync::Weak<T>;
 
     #[cfg(feature = "sync")]
     pub type MutContainer<T> = RwLock<T>;
@@ -105,6 +106,7 @@ pub mod shared {
     impl<T> MutableContainer<T> for RwLock<T> {
         fn consume(self) -> T {
             self.into_inner()
+                .expect("RwLock::into_inner should not fail in non-poisoning contexts")
         }
     }
 
@@ -259,15 +261,15 @@ pub mod shared {
 
         fn try_read<'a>(&'a self) -> Self::TryReadResult<'a> {
             match Arc::deref(self).try_read() {
-                Some(v) => Ok(v),
-                None => Err(()),
+                Ok(v) => Ok(v),
+                Err(_) => Err(()),
             }
         }
 
         fn try_write<'a>(&'a self) -> Self::TryWriteResult<'a> {
             match Arc::deref(self).try_write() {
-                Some(v) => Ok(v),
-                None => Err(()),
+                Ok(v) => Ok(v),
+                Err(_) => Err(()),
             }
         }
     }
@@ -306,15 +308,15 @@ pub mod shared {
 
         fn try_read<'a>(&'a self) -> Self::TryReadResult<'a> {
             match Gc::deref(self).try_read() {
-                Some(v) => Ok(v),
-                None => Err(()),
+                Ok(v) => Ok(v),
+                Err(_) => Err(()),
             }
         }
 
         fn try_write<'a>(&'a self) -> Self::TryWriteResult<'a> {
             match Gc::deref(self).try_write() {
-                Some(v) => Ok(v),
-                None => Err(()),
+                Ok(v) => Ok(v),
+                Err(_) => Err(()),
             }
         }
     }
@@ -539,6 +541,7 @@ impl<T: ?Sized> Clone for Gc<T> {
     }
 }
 
+#[cfg(feature = "std")]
 impl AsRef<OsStr> for Gc<String> {
     fn as_ref(&self) -> &OsStr {
         self.0.as_ref().as_ref()
@@ -573,7 +576,7 @@ impl AsRef<str> for Gc<String> {
 pub mod unsafe_roots {
 
     use super::Gc;
-    use std::ptr::NonNull;
+    use core::ptr::NonNull;
 
     #[derive(Clone)]
     pub enum MaybeRooted<T> {
@@ -581,8 +584,8 @@ pub mod unsafe_roots {
         Reference(Gc<T>),
     }
 
-    impl<T: std::fmt::Debug> std::fmt::Debug for MaybeRooted<T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl<T: core::fmt::Debug> core::fmt::Debug for MaybeRooted<T> {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             match self {
                 Self::Rooted(v) => write!(f, "{:?}", unsafe { v.value.as_ref() }),
                 Self::Reference(v) => write!(f, "{:?}", v),
@@ -605,7 +608,7 @@ pub mod unsafe_roots {
         }
     }
 
-    impl<T> std::ops::Deref for MaybeRooted<T> {
+    impl<T> core::ops::Deref for MaybeRooted<T> {
         type Target = T;
 
         fn deref(&self) -> &Self::Target {
@@ -662,20 +665,28 @@ pub mod unsafe_erased_pointers {
     can lead to undefined behavior.
     */
 
-    use std::cell::Cell;
-    use std::rc::{Rc, Weak};
-    use std::sync::atomic::AtomicBool;
-    use std::sync::Arc;
-    use std::{any::Any, cell::RefCell, marker::PhantomData};
+    use alloc::{
+        boxed::Box,
+        format,
+        rc::{Rc, Weak},
+        string::String,
+        sync::Arc,
+        vec::Vec,
+    };
+    use core::sync::atomic::AtomicBool;
+    use core::{
+        any::Any,
+        cell::{Cell, RefCell},
+        marker::PhantomData,
+    };
 
     use crate::gc::shared::{
         MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
         ScopedWriteContainer, StandardSharedMut,
     };
     use crate::steel_vm::engine::EngineId;
+    use crate::sync::Mutex;
     use once_cell::sync::Lazy;
-    use parking_lot::Mutex;
-    use std::collections::HashMap;
 
     use crate::rvals::cycles::IterativeDropHandler;
     use crate::rvals::{AsRefSteelValFromRef, MaybeSendSyncStatic};
@@ -799,12 +810,12 @@ pub mod unsafe_erased_pointers {
         type Static: ?Sized + 'static;
     }
 
-    pub fn type_id<'a, T>() -> std::any::TypeId
+    pub fn type_id<'a, T>() -> core::any::TypeId
     where
         T: ReferenceMarker<'a>,
         T::Static: Any,
     {
-        std::any::TypeId::of::<T::Static>()
+        core::any::TypeId::of::<T::Static>()
     }
 
     #[macro_export]
@@ -829,9 +840,9 @@ pub mod unsafe_erased_pointers {
         fn as_any_ref(&self) -> &dyn Any;
         fn as_any_ref_mut(&mut self) -> &mut dyn Any;
         fn name(&self) -> &str {
-            std::any::type_name::<Self>()
+            core::any::type_name::<Self>()
         }
-        fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+        fn display(&self) -> core::result::Result<String, core::fmt::Error> {
             Ok(format!("#<{}>", self.name()))
         }
         fn visit(&self) {}
@@ -845,7 +856,7 @@ pub mod unsafe_erased_pointers {
         fn as_any_ref_mut(&mut self) -> &mut dyn Any {
             self as &mut dyn Any
         }
-        fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+        fn display(&self) -> core::result::Result<String, core::fmt::Error> {
             Ok(format!("#<{}>", self.name()))
         }
         fn visit(&self) {
@@ -970,8 +981,8 @@ pub mod unsafe_erased_pointers {
 
     impl<T> Drop for ReadOnlyBorrowedObject<T> {
         fn drop(&mut self) {
-            let mut guard = self.parent_borrow_count.lock();
-            *guard = *guard - 1;
+            let mut guard = self.parent_borrow_count.lock().unwrap();
+            *guard -= 1;
         }
     }
 
@@ -1021,13 +1032,13 @@ pub mod unsafe_erased_pointers {
         fn drop(&mut self) {
             // We're not borrowing anymore, so we can do this
             self.parent_borrow_flag
-                .store(false, std::sync::atomic::Ordering::SeqCst);
+                .store(false, core::sync::atomic::Ordering::SeqCst);
         }
     }
 
     pub(crate) fn increment_borrow_flag(value: &Arc<Mutex<BorrowFlag>>) {
-        let mut guard = value.lock();
-        *guard = *guard + 1;
+        let mut guard = value.lock().unwrap();
+        *guard += 1;
     }
 
     impl<T> BorrowedObject<T> {
@@ -1062,7 +1073,7 @@ pub mod unsafe_erased_pointers {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                         self,
-                        std::any::type_name::<Self>()
+                        core::any::type_name::<Self>()
                     );
                     Err(SteelErr::new(ErrorKind::ConversionError, error_message))
                 }
@@ -1070,7 +1081,7 @@ pub mod unsafe_erased_pointers {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                     self,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
 
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -1091,7 +1102,7 @@ pub mod unsafe_erased_pointers {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                         self,
-                        std::any::type_name::<Self>()
+                        core::any::type_name::<Self>()
                     );
                     Err(SteelErr::new(ErrorKind::ConversionError, error_message))
                 }
@@ -1099,7 +1110,7 @@ pub mod unsafe_erased_pointers {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                     self,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
 
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -1206,7 +1217,7 @@ pub mod unsafe_erased_pointers {
         pub(crate) fn allocate_rw_object<'a, T: 'a, EXT: 'static>(obj: &mut T) {
             let erased = obj as *mut _;
 
-            let erased = unsafe { std::mem::transmute::<*mut T, *mut EXT>(erased) };
+            let erased = unsafe { core::mem::transmute::<*mut T, *mut EXT>(erased) };
 
             // Wrap the original mutable pointer in an object that respects borrowing
             // rules for runtime borrow checking
@@ -1243,7 +1254,7 @@ pub mod unsafe_erased_pointers {
         pub(crate) fn allocate_ro_object<'a, T: 'a, EXT: 'static>(obj: &T) {
             let erased = obj as *const _;
 
-            let erased = unsafe { std::mem::transmute::<*const T, *const EXT>(erased) };
+            let erased = unsafe { core::mem::transmute::<*const T, *const EXT>(erased) };
 
             // Wrap the original mutable pointer in an object that respects borrowing
             // rules for runtime borrow checking
@@ -1335,7 +1346,7 @@ pub mod unsafe_erased_pointers {
     }
 
     impl OpaqueReference<'static> {
-        pub(crate) fn format(&self) -> std::result::Result<String, std::fmt::Error> {
+        pub(crate) fn format(&self) -> core::result::Result<String, core::fmt::Error> {
             self.display()
         }
 
@@ -1380,10 +1391,10 @@ pub mod unsafe_erased_pointers {
                 if res.is::<BorrowedObject<T>>() {
                     let borrowed_object = res.downcast_ref::<BorrowedObject<T>>().unwrap();
 
-                    if *borrowed_object.borrow_count.lock() > 0
+                    if *borrowed_object.borrow_count.lock().unwrap() > 0
                         || borrowed_object
                             .child_borrow_flag
-                            .load(std::sync::atomic::Ordering::SeqCst)
+                            .load(core::sync::atomic::Ordering::SeqCst)
                     {
                         stop!(Generic => "Value is already borrowed!")
                     }
@@ -1397,7 +1408,7 @@ pub mod unsafe_erased_pointers {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                         val,
-                        std::any::type_name::<Self>()
+                        core::any::type_name::<Self>()
                     );
                     Err(SteelErr::new(ErrorKind::ConversionError, error_message))
                 }
@@ -1405,7 +1416,7 @@ pub mod unsafe_erased_pointers {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                     val,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
 
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -1439,7 +1450,7 @@ pub mod unsafe_erased_pointers {
                     let error_message = format!(
                         "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                         val,
-                        std::any::type_name::<Self>()
+                        core::any::type_name::<Self>()
                     );
                     Err(SteelErr::new(ErrorKind::ConversionError, error_message))
                 }
@@ -1447,7 +1458,7 @@ pub mod unsafe_erased_pointers {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                     val,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
 
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -1470,6 +1481,7 @@ pub mod unsafe_erased_pointers {
         }
     }
 
+    #[cfg(all(test, feature = "std"))]
     #[test]
     fn test() {
         #[derive(Debug)]
@@ -1489,7 +1501,7 @@ pub mod unsafe_erased_pointers {
         let mut nursery = MutableReferenceNursery::new();
 
         let mut object = FooBar {
-            baz: "hello world!".to_string(),
+            baz: "hello world!".into(),
         };
 
         let mut baz = Baz {

@@ -1,3 +1,4 @@
+extern crate alloc;
 extern crate proc_macro;
 extern crate proc_macro2;
 #[macro_use]
@@ -1256,8 +1257,9 @@ pub fn function(
 
             #definition_struct
 
-            pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+            pub fn #copied_function_name(args: &[SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
+                use alloc::string::ToString;
                 use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
                 if args.len() < #arity_number {
@@ -1313,8 +1315,9 @@ pub fn function(
 
                 #definition_struct
 
-                pub fn #copied_function_name(args: &mut [SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+                pub fn #copied_function_name(args: &mut [SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
+                    use alloc::string::ToString;
                     use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef, PrimitiveAsRefMut};
 
                     // if args.len() != #arity_number {
@@ -1374,8 +1377,9 @@ pub fn function(
 
         #definition_struct
 
-        pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+        pub fn #copied_function_name(args: &[SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
+            use alloc::string::ToString;
             use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
             if args.len() != #arity_number {
@@ -1628,8 +1632,9 @@ pub fn custom_function(
 
             #definition_struct
 
-            pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+            pub fn #copied_function_name(args: &[SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
+                use alloc::string::ToString;
                 use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
                 if args.len() < #arity_number {
@@ -1685,8 +1690,9 @@ pub fn custom_function(
 
                 #definition_struct
 
-                pub fn #copied_function_name(args: &mut [SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+                pub fn #copied_function_name(args: &mut [SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
+                    use alloc::string::ToString;
                     use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef, PrimitiveAsRefMut};
 
                     // if args.len() != #arity_number {
@@ -1746,8 +1752,9 @@ pub fn custom_function(
 
         #definition_struct
 
-        pub fn #copied_function_name(args: &[SteelVal]) -> std::result::Result<SteelVal, crate::rerrs::SteelErr> {
+        pub fn #copied_function_name(args: &[SteelVal]) -> core::result::Result<SteelVal, crate::rerrs::SteelErr> {
 
+            use alloc::string::ToString;
             use crate::rvals::{IntoSteelVal, FromSteelVal, PrimitiveAsRef};
 
             if args.len() != #arity_number {

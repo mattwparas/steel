@@ -17,6 +17,7 @@ use crate::{
         kernel::Kernel,
         parser::{lower_entire_ast, lower_macro_and_require_definitions, SourcesCollector},
     },
+    path::PathBuf,
     rvals::{AsRefSteelVal, SteelString},
     steel_vm::{cache::MemoizationTable, engine::ModuleContainer, primitives::constant_primitives},
     LambdaMetadataTable,
@@ -25,14 +26,16 @@ use crate::{
     core::{instructions::Instruction, opcode::OpCode},
     parser::parser::Sources,
 };
-
-use std::{borrow::Cow, iter::Iterator};
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
+use alloc::{
+    borrow::{Cow, ToOwned},
+    format,
+    string::{String, ToString},
+    vec::Vec,
 };
 
-// TODO: Replace the usages of hashmap with this directly
+use crate::collections::{
+    HashMap as ImmutableHashMap, MutableHashMap as HashMap, MutableHashSet as HashSet,
+};
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use steel_parser::{ast::PROVIDE, span::Span};
@@ -58,17 +61,16 @@ use super::{
     program::RawProgramWithSymbols,
 };
 
-use crate::values::HashMap as ImmutableHashMap;
-
 #[cfg(feature = "profiling")]
-use std::time::Instant;
+use crate::time::Instant;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum DefineKind {
     Flat,
     Closure,
 }
 
+#[derive(Clone)]
 struct FlatDefineLocation {
     kind: DefineKind,
     location: (usize, usize),
@@ -595,8 +597,8 @@ impl Compiler {
             kernel: None,
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashSet::default(),
-            lifted_kernel_environments: HashMap::new(),
-            lifted_macro_environments: HashSet::new(),
+            lifted_kernel_environments: HashMap::default(),
+            lifted_macro_environments: HashSet::default(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
             search_dirs,
@@ -625,8 +627,8 @@ impl Compiler {
             kernel: Some(kernel),
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashSet::default(),
-            lifted_kernel_environments: HashMap::new(),
-            lifted_macro_environments: HashSet::new(),
+            lifted_kernel_environments: HashMap::default(),
+            lifted_macro_environments: HashSet::default(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
             search_dirs,
@@ -684,8 +686,8 @@ impl Compiler {
         self.module_manager.register_module_resolver(resolver);
     }
 
-    pub fn add_search_directory(&mut self, dir: PathBuf) {
-        self.search_dirs.push(dir);
+    pub fn add_search_directory(&mut self, dir: impl Into<PathBuf>) {
+        self.search_dirs.push(dir.into());
     }
 
     pub fn compile_executable_from_expressions(
@@ -708,9 +710,11 @@ impl Compiler {
         let id = self.sources.add_source(expr_str.clone(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = path
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
-            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
+            .map(|p| {
+                Parser::new_from_source(expr_str.as_ref(), p.to_parser_path().into(), Some(id))
+            })
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
@@ -725,6 +729,7 @@ impl Compiler {
         self.compile_raw_program(parsed?, path)
     }
 
+    #[cfg(feature = "std")]
     pub fn fully_expand_to_file<E: AsRef<str> + Into<Cow<'static, str>>>(
         &mut self,
         expr_str: E,
@@ -738,9 +743,11 @@ impl Compiler {
         let id = self.sources.add_source(expr_str.clone(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = path
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
-            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
+            .map(|p| {
+                Parser::new_from_source(expr_str.as_ref(), p.to_parser_path().into(), Some(id))
+            })
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
@@ -764,7 +771,7 @@ impl Compiler {
         let id = self.sources.add_source(expr_str.to_string(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
             Parser::new(expr_str, Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
@@ -783,7 +790,7 @@ impl Compiler {
         let id = self.sources.add_source(expr_str.to_string(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
             Parser::new(expr_str, Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
@@ -844,7 +851,7 @@ impl Compiler {
         // let mut index_buffer = Vec::new();
 
         let analysis = {
-            let mut analysis = std::mem::take(&mut self.analysis);
+            let mut analysis = core::mem::take(&mut self.analysis);
 
             analysis.fresh_from_exprs(&expanded_statements);
             analysis.populate_captures_twice(&expanded_statements);
@@ -889,7 +896,7 @@ impl Compiler {
 
         if let Some(kernel) = self.kernel.as_mut() {
             // Label anything at the top as well - top level
-            kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
+            kernel.load_syntax_transformers(&mut expanded_statements, String::from("top-level"))?;
         }
 
         // for expr in expanded_statements.iter_mut() {
@@ -973,7 +980,7 @@ impl Compiler {
 
         let mut expanded_statements = filter_provides(expanded_statements);
 
-        let mut analysis = std::mem::take(&mut self.analysis);
+        let mut analysis = core::mem::take(&mut self.analysis);
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
 
@@ -1074,7 +1081,7 @@ impl Compiler {
 
         if let Some(kernel) = self.kernel.as_mut() {
             // Label anything at the top as well - top level
-            kernel.load_syntax_transformers(&mut expanded_statements, "top-level".to_string())?;
+            kernel.load_syntax_transformers(&mut expanded_statements, String::from("top-level"))?;
         }
 
         for expr in expanded_statements.iter_mut() {
@@ -1158,7 +1165,7 @@ impl Compiler {
         // let mut expanded_statements =
         //     self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
-        let mut analysis = std::mem::take(&mut self.analysis);
+        let mut analysis = core::mem::take(&mut self.analysis);
 
         // Pre populate the analysis here
         analysis.fresh_from_exprs(&expanded_statements);
@@ -1276,6 +1283,7 @@ impl Compiler {
 
         SingleExprOptimizer::run(&mut expanded_statements);
 
+        #[cfg(feature = "std")]
         if std::env::var("STEEL_DEBUG_AST").is_ok() {
             steel_parser::ast::AstTools::pretty_print(&expanded_statements);
         }
@@ -1292,6 +1300,7 @@ impl Compiler {
     // but its probably still faster than starting from scratch each time?
     //
     // Unknown.
+    #[cfg(feature = "std")]
     pub fn expand_to_file(&mut self, exprs: Vec<ExprKind>, path: Option<PathBuf>) -> Result<()> {
         let expanded_statements = self.lower_expressions_impl(exprs, path)?;
         let mut file = std::fs::File::create("fully-expanded.bin").unwrap();
@@ -1300,17 +1309,15 @@ impl Compiler {
         Ok(())
     }
 
+    #[cfg(feature = "std")]
     pub fn load_from_file(&mut self, path: &str) -> Result<RawProgramWithSymbols> {
         let contents = std::fs::read(path).unwrap();
         let expanded_statements = bincode::deserialize(&contents).unwrap();
 
         let instructions = self.generate_instructions_for_executable(expanded_statements)?;
 
-        let mut raw_program = RawProgramWithSymbols::new(
-            instructions,
-            self.constant_map.clone(),
-            "0.1.0".to_string(),
-        );
+        let mut raw_program =
+            RawProgramWithSymbols::new(instructions, self.constant_map.clone(), "0.1.0".into());
 
         // Make sure to apply the peephole optimizations
         raw_program.apply_optimizations();
@@ -1334,11 +1341,8 @@ impl Compiler {
 
         let instructions = self.generate_instructions_for_executable(expanded_statements)?;
 
-        let mut raw_program = RawProgramWithSymbols::new(
-            instructions,
-            self.constant_map.clone(),
-            "0.1.0".to_string(),
-        );
+        let mut raw_program =
+            RawProgramWithSymbols::new(instructions, self.constant_map.clone(), "0.1.0".into());
 
         // Make sure to apply the peephole optimizations
         raw_program.apply_optimizations();
@@ -1453,7 +1457,7 @@ fn filter_provides(expanded_statements: Vec<ExprKind>) -> Vec<ExprKind> {
         .into_iter()
         .filter_map(|expr| match expr {
             ExprKind::Begin(mut b) => {
-                let exprs = std::mem::take(&mut b.exprs);
+                let exprs = core::mem::take(&mut b.exprs);
                 b.exprs = exprs
                     .into_iter()
                     .filter_map(|e| match e {

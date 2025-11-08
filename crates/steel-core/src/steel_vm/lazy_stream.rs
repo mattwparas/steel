@@ -1,8 +1,10 @@
 use super::vm::VmCore;
 use crate::parser::span::Span;
 use crate::rvals::{Result, SteelVal};
-use std::cell::RefCell;
-use std::rc::Rc;
+use alloc::format;
+use alloc::rc::Rc;
+use alloc::vec::Vec;
+use core::cell::RefCell;
 
 use crate::values::lazy_stream::LazyStream;
 
@@ -56,7 +58,7 @@ impl<'global, 'a> Iterator for LazyStreamIter<'global, 'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod stream_tests {
     use crate::steel_vm::test_util::assert_script;
 

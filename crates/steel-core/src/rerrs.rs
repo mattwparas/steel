@@ -1,7 +1,11 @@
 use crate::steel_vm::vm::DehydratedCallContext;
 use crate::{parser::parser::ParseError, rvals::Custom, steel_vm::vm::DehydratedStackTrace};
+use alloc::string::ToString;
+use alloc::{boxed::Box, format, string::String, vec, vec::Vec};
+use core::{convert::Infallible, fmt::Formatter};
+#[cfg(feature = "std")]
+#[cfg(feature = "std")]
 use std::io::IsTerminal;
-use std::{convert::Infallible, fmt::Formatter};
 // use thiserror::Error;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
@@ -12,7 +16,7 @@ use steel_parser::parser::SourceId;
 
 use crate::parser::span::Span;
 
-use std::fmt;
+use core::fmt;
 
 #[derive(Clone, Debug, PartialEq)]
 #[repr(C)]
@@ -72,12 +76,14 @@ impl ErrorKind {
     }
 }
 
+#[cfg(feature = "std")]
 impl From<std::io::Error> for SteelErr {
     fn from(v: std::io::Error) -> Self {
         SteelErr::_new(v.into())
     }
 }
 
+#[cfg(feature = "std")]
 impl From<std::io::Error> for Repr {
     fn from(v: std::io::Error) -> Self {
         Repr {
@@ -145,6 +151,7 @@ pub struct SteelErr {
     repr: Box<Repr>,
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for SteelErr {}
 
 impl fmt::Display for SteelErr {
@@ -154,11 +161,11 @@ impl fmt::Display for SteelErr {
 }
 
 impl Custom for SteelErr {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         Some(Ok(format!("{}", self)))
     }
 
-    fn into_error(self) -> std::result::Result<SteelErr, Self> {
+    fn into_error(self) -> core::result::Result<SteelErr, Self> {
         Ok(self)
     }
 }
@@ -240,6 +247,7 @@ impl SteelErr {
         }
     }
 
+    #[cfg(feature = "std")]
     pub fn emit_result(&self, file_name: &str, file_content: &str) {
         // let opts = Opts::();
         // let config = codespan_reporting::term::Config::default();
@@ -263,6 +271,9 @@ impl SteelErr {
         // }
     }
 
+    #[cfg(not(feature = "std"))]
+    pub fn emit_result(&self, _file_name: &str, _file_content: &str) {}
+
     pub fn emit_result_to_string(&self, file_name: &str, file_content: &str) -> String {
         // let writer = StandardStream::from(String::new());
         // let mut writer = String::new();
@@ -274,7 +285,7 @@ impl SteelErr {
         let report = self.report();
         term::emit(&mut writer, &config, &file, &report).unwrap(); // TODO come back
         let output = writer.into_inner();
-        std::str::from_utf8(&output).unwrap().to_string()
+        core::str::from_utf8(&output).unwrap().to_string()
     }
 
     fn report(&self) -> Diagnostic<()> {
@@ -374,7 +385,7 @@ pub fn back_trace_to_string(file_name: &str, file_content: &str, span: Span) -> 
 
     let output = writer.into_inner();
 
-    std::str::from_utf8(&output).unwrap().to_string()
+    core::str::from_utf8(&output).unwrap().to_string()
 }
 
 #[macro_export]
@@ -386,13 +397,29 @@ macro_rules! steelerr {
         Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+)))
     };
     ($type:ident => $thing:expr) => {
-        Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()))
+        Err($crate::rerrs::SteelErr::new(
+            $crate::rerrs::ErrorKind::$type,
+            $crate::alloc::string::ToString::to_string(&($thing)),
+        ))
     };
     ($type:ident => $thing:expr; $span:expr) => {
-        Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))
+        Err(
+            $crate::rerrs::SteelErr::new(
+                $crate::rerrs::ErrorKind::$type,
+                $crate::alloc::string::ToString::to_string(&($thing)),
+            )
+            .with_span($span),
+        )
     };
     ($type:ident => $thing:expr; $span:expr; $source:expr) => {
-        Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span).with_source($source))
+        Err(
+            $crate::rerrs::SteelErr::new(
+                $crate::rerrs::ErrorKind::$type,
+                $crate::alloc::string::ToString::to_string(&($thing)),
+            )
+            .with_span($span)
+            .with_source($source),
+        )
     };
 }
 
@@ -408,13 +435,24 @@ macro_rules! stop {
         return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+)))
     };
     ($type:ident => $thing:expr) => {
-        return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()))
+        return Err($crate::rerrs::SteelErr::new(
+            $crate::rerrs::ErrorKind::$type,
+            $crate::alloc::string::ToString::to_string(&($thing)),
+        ))
     };
     ($type:ident => $thing:expr; $span:expr) => {
-        return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))
+        return Err($crate::rerrs::SteelErr::new(
+            $crate::rerrs::ErrorKind::$type,
+            $crate::alloc::string::ToString::to_string(&($thing)),
+        )
+        .with_span($span))
     };
     ($type:ident => $thing:expr; $span:expr; $source:expr) => {
-        return Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span))
+        return Err($crate::rerrs::SteelErr::new(
+            $crate::rerrs::ErrorKind::$type,
+            $crate::alloc::string::ToString::to_string(&($thing)),
+        )
+        .with_span($span))
 
         // .with_source($source))
     };
@@ -429,13 +467,29 @@ macro_rules! builtin_stop {
         return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+))))
     };
     ($type:ident => $thing:expr) => {
-        return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string())))
+        return Some(Err($crate::rerrs::SteelErr::new(
+            $crate::rerrs::ErrorKind::$type,
+            $crate::alloc::string::ToString::to_string(&($thing)),
+        )))
     };
     ($type:ident => $thing:expr; $span:expr) => {
-        return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span)))
+        return Some(Err(
+            $crate::rerrs::SteelErr::new(
+                $crate::rerrs::ErrorKind::$type,
+                $crate::alloc::string::ToString::to_string(&($thing)),
+            )
+            .with_span($span),
+        ))
     };
     ($type:ident => $thing:expr; $span:expr; $source:expr) => {
-        return Some(Err($crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span).with_source($source)))
+        return Some(Err(
+            $crate::rerrs::SteelErr::new(
+                $crate::rerrs::ErrorKind::$type,
+                $crate::alloc::string::ToString::to_string(&($thing)),
+            )
+            .with_span($span)
+            .with_source($source),
+        ))
     };
 }
 
@@ -448,9 +502,16 @@ macro_rules! throw {
         || $crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, format!($fmt, $($arg)+))
     };
     ($type:ident => $thing:expr) => {
-        || $crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string())
+        || $crate::rerrs::SteelErr::new(
+            $crate::rerrs::ErrorKind::$type,
+            $crate::alloc::string::ToString::to_string(&($thing)),
+        )
     };
     ($type:ident => $thing:expr; $span:expr) => {
-        || $crate::rerrs::SteelErr::new($crate::rerrs::ErrorKind::$type, ($thing).to_string()).with_span($span)
+        || $crate::rerrs::SteelErr::new(
+            $crate::rerrs::ErrorKind::$type,
+            $crate::alloc::string::ToString::to_string(&($thing)),
+        )
+        .with_span($span)
     };
 }

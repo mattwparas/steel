@@ -1,38 +1,52 @@
+#[cfg(feature = "std")]
 pub mod bytevectors;
 pub mod contracts;
 mod control;
+#[cfg(feature = "std")]
 mod fs;
 pub mod hashmaps;
 pub mod hashsets;
+#[cfg(feature = "std")]
 pub mod http;
+#[cfg(feature = "std")]
 mod io;
 pub mod lists;
 pub mod meta_ops;
 /// Implements numbers as defined in section 6.2 of the R7RS spec.
 pub mod numbers;
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
 pub mod polling;
 
+#[cfg(feature = "std")]
 pub mod ports;
+#[cfg(feature = "std")]
 pub mod process;
+#[cfg(feature = "std")]
 pub mod random;
 mod streams;
+#[cfg(feature = "std")]
 pub mod strings;
 mod symbols;
+#[cfg(feature = "std")]
 pub mod tcp;
+#[cfg(feature = "std")]
 pub mod time;
 pub mod transducers;
 mod utils;
 pub mod vectors;
 
+use alloc::string::ToString;
+
 // This is for boot strapping the package
 // manager with an embedded git implementation,
 // as to not require depending on the system git.
+#[cfg(feature = "std")]
 pub mod git;
 
 pub mod hashes;
 
+use crate::collections::Vector;
 use crate::gc::{Gc, GcMut};
 use crate::rvals::{FromSteelVal, IntoSteelVal, SteelByteVector};
 use crate::rvals::{
@@ -41,15 +55,23 @@ use crate::rvals::{
 };
 use crate::values::closed::HeapRef;
 use crate::values::lists::List;
+#[cfg(feature = "std")]
 use crate::values::port::SteelPort;
 use crate::values::structs::UserDefinedStruct;
-use crate::values::Vector;
 use crate::{
     rerrs::{ErrorKind, SteelErr},
     rvals::SteelString,
 };
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 pub use control::ControlOperations;
+use core::any;
+use core::convert::TryFrom;
+use core::result;
+#[cfg(feature = "std")]
 pub use fs::{fs_module, fs_module_sandbox};
+#[cfg(feature = "std")]
 pub use io::IoFunctions;
 pub use lists::UnRecoverableResult;
 pub use meta_ops::MetaOperations;
@@ -57,10 +79,10 @@ use num_bigint::BigInt;
 use num_rational::{BigRational, Rational32};
 use num_traits::ToPrimitive;
 pub use numbers::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
+#[cfg(feature = "std")]
 pub use ports::port_module;
-use std::convert::TryFrom;
-use std::result;
 pub use streams::StreamOperations;
+#[cfg(feature = "std")]
 pub use strings::string_module;
 pub use symbols::symbol_module;
 
@@ -262,7 +284,7 @@ impl FromSteelVal for char {
         } else {
             Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Expected character".to_string(),
+                "Expected character".into(),
             ))
         }
     }
@@ -381,7 +403,7 @@ impl TryFrom<SteelVal> for String {
             SteelVal::SymbolV(ref x) => Ok(x.to_string()),
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Expected string".to_string(),
+                "Expected string".into(),
             )),
         }
     }
@@ -423,7 +445,7 @@ impl TryFrom<&SteelVal> for String {
             SteelVal::SymbolV(x) => Ok(x.to_string()),
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
-                "Expected string".to_string(),
+                "Expected string".into(),
             )),
         }
     }
@@ -462,8 +484,8 @@ pub enum Either<L, R> {
 impl<'a, L: PrimitiveAsRef<'a>, R: PrimitiveAsRef<'a>> PrimitiveAsRef<'a> for Either<L, R> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
-        let left_type_name = std::any::type_name::<L>();
-        let right_type_name = std::any::type_name::<R>();
+        let left_type_name = any::type_name::<L>();
+        let right_type_name = any::type_name::<R>();
 
         let error_thunk = crate::throw!(ConversionError => format!("Cannot convert steel value to the specified type: {} or {}", left_type_name, right_type_name));
 
@@ -650,7 +672,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelVector {
     }
 }
 
-impl<'a> PrimitiveAsRef<'a> for &'a Gc<crate::values::HashSet<SteelVal>> {
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<crate::collections::HashSet<SteelVal>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::HashSetV(p) = val {
@@ -709,6 +731,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a HeapRef<Vec<SteelVal>> {
     }
 }
 
+#[cfg(feature = "std")]
 impl<'a> PrimitiveAsRef<'a> for &'a SteelPort {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
@@ -793,7 +816,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a SteelString {
     }
 }
 
-impl<'a> PrimitiveAsRef<'a> for &'a Gc<crate::values::HashMap<SteelVal, SteelVal>> {
+impl<'a> PrimitiveAsRef<'a> for &'a Gc<crate::collections::HashMap<SteelVal, SteelVal>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::HashMapV(hm) = val {
@@ -813,7 +836,7 @@ impl<'a> PrimitiveAsRef<'a> for &'a Gc<crate::values::HashMap<SteelVal, SteelVal
     }
 }
 
-impl<'a> PrimitiveAsRefMut<'a> for &'a mut Gc<crate::values::HashMap<SteelVal, SteelVal>> {
+impl<'a> PrimitiveAsRefMut<'a> for &'a mut Gc<crate::collections::HashMap<SteelVal, SteelVal>> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a mut SteelVal) -> crate::rvals::Result<Self> {
         if let SteelVal::HashMapV(hm) = val {
@@ -974,7 +997,7 @@ mod try_from_tests {
 
     #[test]
     fn try_from_steelval_string() {
-        let expected = "foo".to_string();
+        let expected = String::from("foo");
         let input = SteelVal::StringV("foo".into());
 
         let res = String::try_from(input);
@@ -983,7 +1006,7 @@ mod try_from_tests {
 
     #[test]
     fn try_from_steelval_ref_string() {
-        let expected = "foo".to_string();
+        let expected = String::from("foo");
         let input = SteelVal::StringV("foo".into());
 
         let res = String::try_from(&input);

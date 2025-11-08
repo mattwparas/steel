@@ -1,17 +1,21 @@
-use std::borrow::Cow;
-
+#[cfg(feature = "std")]
 use crate::steel_vm::engine::Engine;
+#[cfg(feature = "std")]
+use alloc::borrow::Cow;
 
+#[cfg(feature = "std")]
 fn generate_asserting_machine() -> Engine {
     let vm = Engine::new();
     vm
 }
 
+#[cfg(feature = "std")]
 pub(crate) fn assert_script<T: AsRef<str> + Into<Cow<'static, str>>>(script: T) {
     let mut vm = generate_asserting_machine();
     vm.compile_and_run_raw_program(script).unwrap();
 }
 
+#[cfg(feature = "std")]
 pub(crate) fn assert_script_error<T: AsRef<str> + Into<Cow<'static, str>>>(script: T) {
     let mut vm = generate_asserting_machine();
     assert!(vm.compile_and_run_raw_program(script).is_err());
@@ -19,7 +23,7 @@ pub(crate) fn assert_script_error<T: AsRef<str> + Into<Cow<'static, str>>>(scrip
 
 macro_rules! test_harness_success {
     ($($file_name:ident),* $(,)?) => {
-        #[cfg(test)]
+        #[cfg(all(test, feature = "std"))]
         mod integration_success {
             use super::*;
             $(
@@ -52,7 +56,7 @@ macro_rules! test_harness_success_sync {
 
 macro_rules! test_harness_failure {
     ($($file_name:ident),* $(,)?) => {
-        #[cfg(test)]
+        #[cfg(all(test, feature = "std"))]
         mod integration_failure {
             use super::*;
             $(
@@ -67,7 +71,8 @@ macro_rules! test_harness_failure {
 }
 
 test_harness_success_sync! {
-    native_threads
+    native_threads,
+    threads,
 }
 
 test_harness_success! {
@@ -145,7 +150,6 @@ test_harness_success! {
     symbols,
     // TODO: @Matt 11/11/2023
     syntax_case,
-    threads,
     transducer_over_streams,
     tree_traversal,
     trie_sort,

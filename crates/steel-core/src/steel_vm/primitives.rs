@@ -1,65 +1,83 @@
+#![cfg_attr(not(feature = "std"), allow(dead_code, unused_imports))]
+
+use super::engine::Engine;
+use super::register_fn::RegisterFn;
+use super::vm::list_modules;
+#[cfg(feature = "std")]
+use super::vm::{
+    get_test_mode, set_test_mode, VmCore, CALLSTACK_HYDRATE_NAMES_DEFINITION, CALL_CC_DEFINITION,
+    CALL_WITH_EXCEPTION_HANDLER_DEFINITION, DUMP_PROFILER_DEFINITION, EVAL_DEFINITION,
+    EVAL_FILE_DEFINITION, EVAL_STRING_DEFINITION, EXPAND_SYNTAX_CASE_DEFINITION,
+    EXPAND_SYNTAX_OBJECTS_DEFINITION, INSPECT_DEFINITION, MACRO_CASE_BINDINGS_DEFINITION,
+    MAKE_CALLSTACK_PROFILER_DEFINITION, MATCH_SYNTAX_CASE_DEFINITION, SAMPLE_STACKS_DEFINITION,
+};
 use super::{
     builtin::{Arity, BuiltInModule, MarkdownDoc},
     cache::WeakMemoizationTable,
-    engine::Engine,
-    register_fn::RegisterFn,
-    vm::{
-        get_test_mode, list_modules, set_test_mode, VmCore, CALLSTACK_HYDRATE_NAMES_DEFINITION,
-        CALL_CC_DEFINITION, CALL_WITH_EXCEPTION_HANDLER_DEFINITION, DUMP_PROFILER_DEFINITION,
-        EVAL_DEFINITION, EVAL_FILE_DEFINITION, EVAL_STRING_DEFINITION,
-        EXPAND_SYNTAX_CASE_DEFINITION, EXPAND_SYNTAX_OBJECTS_DEFINITION, INSPECT_DEFINITION,
-        MACRO_CASE_BINDINGS_DEFINITION, MAKE_CALLSTACK_PROFILER_DEFINITION,
-        MATCH_SYNTAX_CASE_DEFINITION, SAMPLE_STACKS_DEFINITION,
-    },
 };
+#[cfg(feature = "std")]
+use crate::compiler::modules::steel_home;
+use crate::gc::{shared::ShareableMut, GcMut};
+#[cfg(feature = "std")]
+use crate::parser::ast::TryFromSteelValVisitorForExprKind;
+use crate::parser::{
+    interner::InternedString, span::Span, tryfrom_visitor::TryFromExprKindForSteelVal,
+};
+#[cfg(feature = "std")]
+use crate::primitives::bytevectors::bytevector_module;
+#[cfg(feature = "std")]
+use crate::primitives::git::git_module;
+use crate::primitives::hashes::hashes_module;
+use crate::primitives::hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT};
+use crate::primitives::hashsets::hashset_module;
+#[cfg(feature = "std")]
+use crate::primitives::http::http_module;
+use crate::primitives::lists::{list_module, UnRecoverableResult};
+use crate::primitives::numbers::{self, realp};
+#[cfg(feature = "std")]
+use crate::primitives::ports::{
+    port_module, port_module_without_filesystem, EOF_OBJECTP_DEFINITION,
+};
+#[cfg(feature = "std")]
+use crate::primitives::process::process_module;
+#[cfg(feature = "std")]
+use crate::primitives::random::random_module;
+#[cfg(feature = "std")]
+use crate::primitives::strings::string_module;
+use crate::primitives::symbol_module;
+#[cfg(feature = "std")]
+use crate::primitives::tcp::tcp_module;
+#[cfg(feature = "std")]
+use crate::primitives::time::time_module;
+use crate::primitives::transducers::transducer_module;
+use crate::primitives::vectors::{
+    immutable_vectors_module, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION, LIST_VEC_NULL_DEFINITION,
+    MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION, MUTABLE_VECTOR_POP_DEFINITION,
+    MUTABLE_VECTOR_TO_STRING_DEFINITION, MUT_VECTOR_COPY_DEFINITION, MUT_VEC_APPEND_DEFINITION,
+    MUT_VEC_CONSTRUCT_DEFINITION, MUT_VEC_CONSTRUCT_VEC_DEFINITION, MUT_VEC_GET_DEFINITION,
+    MUT_VEC_LENGTH_DEFINITION, MUT_VEC_PUSH_DEFINITION, MUT_VEC_SET_DEFINITION,
+    MUT_VEC_SWAP_DEFINITION, MUT_VEC_TO_LIST_DEFINITION, VECTOR_FILL_DEFINITION,
+    VEC_APPEND_DEFINITION, VEC_CAR_DEFINITION, VEC_CDR_DEFINITION, VEC_CONS_DEFINITION,
+    VEC_LENGTH_DEFINITION, VEC_PUSH_DEFINITION, VEC_RANGE_DEFINITION, VEC_REF_DEFINITION,
+};
+#[cfg(feature = "std")]
+use crate::primitives::IoFunctions;
+#[cfg(feature = "std")]
+use crate::primitives::{fs_module, fs_module_sandbox};
+use crate::primitives::{ControlOperations, MetaOperations, StreamOperations};
+#[cfg(feature = "std")]
+use crate::rvals::ITERATOR_FINISHED;
+#[cfg(feature = "std")]
+#[cfg(feature = "std")]
+use crate::steel_vm::vm::threads::threading_module;
 use crate::{
-    compiler::modules::steel_home,
-    gc::{shared::ShareableMut, GcMut},
-    parser::{
-        ast::TryFromSteelValVisitorForExprKind, interner::InternedString, span::Span,
-        tryfrom_visitor::TryFromExprKindForSteelVal,
-    },
-    primitives::{
-        bytevectors::bytevector_module,
-        fs_module, fs_module_sandbox,
-        git::git_module,
-        hashes::hashes_module,
-        hashmaps::{hashmap_module, HM_CONSTRUCT, HM_GET, HM_INSERT},
-        hashsets::hashset_module,
-        http::http_module,
-        lists::{list_module, UnRecoverableResult},
-        numbers::{self, realp},
-        port_module,
-        ports::{port_module_without_filesystem, EOF_OBJECTP_DEFINITION},
-        process::process_module,
-        random::random_module,
-        string_module, symbol_module,
-        tcp::tcp_module,
-        time::time_module,
-        transducers::transducer_module,
-        vectors::{
-            immutable_vectors_module, IMMUTABLE_VECTOR_CONSTRUCT_DEFINITION,
-            LIST_VEC_NULL_DEFINITION, MAKE_VECTOR_DEFINITION, MUTABLE_VECTOR_CLEAR_DEFINITION,
-            MUTABLE_VECTOR_POP_DEFINITION, MUTABLE_VECTOR_TO_STRING_DEFINITION,
-            MUT_VECTOR_COPY_DEFINITION, MUT_VEC_APPEND_DEFINITION, MUT_VEC_CONSTRUCT_DEFINITION,
-            MUT_VEC_CONSTRUCT_VEC_DEFINITION, MUT_VEC_GET_DEFINITION, MUT_VEC_LENGTH_DEFINITION,
-            MUT_VEC_PUSH_DEFINITION, MUT_VEC_SET_DEFINITION, MUT_VEC_SWAP_DEFINITION,
-            MUT_VEC_TO_LIST_DEFINITION, VECTOR_FILL_DEFINITION, VEC_APPEND_DEFINITION,
-            VEC_CAR_DEFINITION, VEC_CDR_DEFINITION, VEC_CONS_DEFINITION, VEC_LENGTH_DEFINITION,
-            VEC_PUSH_DEFINITION, VEC_RANGE_DEFINITION, VEC_REF_DEFINITION,
-        },
-        ControlOperations, IoFunctions, MetaOperations, StreamOperations,
-    },
     rerrs::ErrorKind,
     rvals::{
         as_underlying_type,
         cycles::{BreadthFirstSearchSteelValVisitor, SteelCycleCollector},
-        CustomType, FromSteelVal, SteelString, ITERATOR_FINISHED, NUMBER_EQUALITY_DEFINITION,
+        CustomType, FromSteelVal, SteelString, NUMBER_EQUALITY_DEFINITION,
     },
-    steel_vm::{
-        builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
-        vm::threads::threading_module,
-    },
+    steel_vm::builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
     values::{
         closed::{HeapRef, MAKE_WEAK_BOX_DEFINITION, WEAK_BOX_VALUE_DEFINITION},
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
@@ -70,6 +88,12 @@ use crate::{
         },
     },
 };
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec;
+use alloc::vec::Vec;
+#[allow(unused_imports)]
+use core::any;
 
 use crate::values::closed::{
     MAKE_WILL_EXECUTOR_DEFINITION, WILL_EXECUTE_DEFINITION, WILL_REGISTER_DEFINITION,
@@ -83,18 +107,22 @@ use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
+use alloc::borrow::Cow;
 use compact_str::CompactString;
+use core::cmp::Ordering;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
+#[cfg(feature = "std")]
 use once_cell::sync::Lazy;
-use std::{borrow::Cow, cmp::Ordering};
-use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
+#[cfg(feature = "std")]
+use steel_parser::interner::interned_current_memory_usage;
+use steel_parser::{ast::ExprKind, parser::SourceId};
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(all(feature = "std", not(target_family = "wasm")))]
 use crate::primitives::polling::polling_module;
 
 #[cfg(target_family = "wasm")]
 fn polling_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/polling".to_string());
+    let module = BuiltInModule::new("steel/polling");
 
     module
 }
@@ -248,7 +276,7 @@ macro_rules! define_modules {
     };
 }
 
-#[cfg(feature = "sync")]
+#[cfg(all(feature = "sync", feature = "std"))]
 define_modules! {
     STEEL_MAP_MODULE => hashmap_module,
     STEEL_SET_MODULE => hashset_module,
@@ -293,11 +321,11 @@ define_modules! {
     STEEL_HASH_MODULE => hashes_module,
 }
 
-#[cfg(all(feature = "dylibs", feature = "sync"))]
+#[cfg(all(feature = "dylibs", feature = "sync", feature = "std"))]
 pub static STEEL_FFI_MODULE: once_cell::sync::Lazy<BuiltInModule> =
     once_cell::sync::Lazy::new(ffi_module);
 
-#[cfg(not(feature = "sync"))]
+#[cfg(all(not(feature = "sync"), feature = "std"))]
 thread_local! {
     pub static MAP_MODULE: BuiltInModule = hashmap_module();
     pub static SET_MODULE: BuiltInModule = hashset_module();
@@ -351,14 +379,40 @@ thread_local! {
     pub static HASHES_MODULE: BuiltInModule = hashes_module();
 }
 
-#[cfg(not(feature = "sync"))]
+#[cfg(all(not(feature = "sync"), feature = "std"))]
 thread_local! {
     pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = PRELUDE_MODULE.with(|x| x.names().into_iter().map(|x| x.into()).collect());
+}
+
+#[cfg(all(not(feature = "sync"), feature = "std"))]
+pub(crate) fn with_prelude_interned_strings<F, R>(f: F) -> R
+where
+    F: FnOnce(&FxHashSet<InternedString>) -> R,
+{
+    PRELUDE_INTERNED_STRINGS.with(|x| f(x))
+}
+
+#[cfg(all(not(feature = "sync"), not(feature = "std")))]
+pub(crate) fn with_prelude_interned_strings<F, R>(f: F) -> R
+where
+    F: FnOnce(&FxHashSet<InternedString>) -> R,
+{
+    let module = prelude();
+    let set: FxHashSet<InternedString> = module.names().into_iter().map(|x| x.into()).collect();
+    f(&set)
 }
 
 #[cfg(feature = "sync")]
 thread_local! {
     pub(crate) static PRELUDE_INTERNED_STRINGS: FxHashSet<InternedString> = STEEL_PRELUDE_MODULE.names().into_iter().map(|x| x.into()).collect();
+}
+
+#[cfg(feature = "sync")]
+pub(crate) fn with_prelude_interned_strings<F, R>(f: F) -> R
+where
+    F: FnOnce(&FxHashSet<InternedString>) -> R,
+{
+    PRELUDE_INTERNED_STRINGS.with(|x| f(x))
 }
 
 pub fn prelude() -> BuiltInModule {
@@ -393,7 +447,7 @@ pub fn prelude() -> BuiltInModule {
             .with_module(STEEL_BYTEVECTOR_MODULE.clone())
     }
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(not(feature = "sync"), feature = "std"))]
     {
         BuiltInModule::new("steel/base")
             .with_module(MAP_MODULE.with(|x| x.clone()))
@@ -422,6 +476,28 @@ pub fn prelude() -> BuiltInModule {
             .with_module(TIME_MODULE.with(|x| x.clone()))
             .with_module(THREADING_MODULE.with(|x| x.clone()))
             .with_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
+    }
+
+    #[cfg(all(not(feature = "sync"), not(feature = "std")))]
+    {
+        let mut module = BuiltInModule::new("steel/base");
+        module = module.with_module(hashmap_module());
+        module = module.with_module(hashset_module());
+        module = module.with_module(list_module());
+        module = module.with_module(vector_module());
+        module = module.with_module(stream_module());
+        module = module.with_module(identity_module());
+        module = module.with_module(number_module());
+        module = module.with_module(equality_module());
+        module = module.with_module(ord_module());
+        module = module.with_module(transducer_module());
+        module = module.with_module(symbol_module());
+        module = module.with_module(meta_module());
+        module = module.with_module(constants_module());
+        module = module.with_module(build_result_structs());
+        module = module.with_module(build_option_structs());
+        module = module.with_module(build_type_id_module());
+        module
     }
 }
 
@@ -456,7 +532,7 @@ pub fn sandboxed_prelude() -> BuiltInModule {
             .with_module(STEEL_BYTEVECTOR_MODULE.clone())
     }
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(not(feature = "sync"), feature = "std"))]
     {
         BuiltInModule::new("steel/base")
             .with_module(MAP_MODULE.with(|x| x.clone()))
@@ -485,8 +561,31 @@ pub fn sandboxed_prelude() -> BuiltInModule {
             .with_module(THREADING_MODULE.with(|x| x.clone()))
             .with_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
     }
+
+    #[cfg(all(not(feature = "sync"), not(feature = "std")))]
+    {
+        let mut module = BuiltInModule::new("steel/base");
+        module = module.with_module(hashmap_module());
+        module = module.with_module(hashset_module());
+        module = module.with_module(list_module());
+        module = module.with_module(vector_module());
+        module = module.with_module(stream_module());
+        module = module.with_module(identity_module());
+        module = module.with_module(number_module());
+        module = module.with_module(equality_module());
+        module = module.with_module(ord_module());
+        module = module.with_module(transducer_module());
+        module = module.with_module(symbol_module());
+        module = module.with_module(meta_module());
+        module = module.with_module(constants_module());
+        module = module.with_module(build_result_structs());
+        module = module.with_module(build_option_structs());
+        module = module.with_module(build_type_id_module());
+        module
+    }
 }
 
+#[cfg(feature = "std")]
 fn render_as_md(text: String) {
     #[cfg(feature = "markdown")]
     println!("{}", termimad::text(&text));
@@ -495,6 +594,10 @@ fn render_as_md(text: String) {
     println!("{}", text);
 }
 
+#[cfg(not(feature = "std"))]
+fn render_as_md(_text: String) {}
+
+#[cfg(feature = "std")]
 pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     engine.register_value("std::env::args", SteelVal::ListV(List::new()));
 
@@ -517,7 +620,7 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
         "#%module-add-doc",
         |module: &mut BuiltInModule, name: SteelString, value: String| {
             module.register_doc(
-                Cow::Owned(name.as_str().to_string()),
+                Cow::Owned(String::from(name.as_str())),
                 super::builtin::Documentation::Markdown(MarkdownDoc(value.into())),
             );
         },
@@ -547,7 +650,7 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     engine.register_fn("%memo-table-ref", WeakMemoizationTable::get);
     engine.register_fn("%memo-table-set!", WeakMemoizationTable::insert);
 
-    #[cfg(feature = "sync")]
+    #[cfg(all(feature = "sync", feature = "std"))]
     {
         engine
             .register_module(STEEL_MAP_MODULE.clone())
@@ -604,7 +707,7 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
         engine.register_module(STEEL_IMMUTABLE_VECTOR_MODULE.clone());
     }
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(not(feature = "sync"), feature = "std"))]
     {
         engine
             .register_module(MAP_MODULE.with(|x| x.clone()))
@@ -661,12 +764,116 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
 
         engine.register_module(IMMUTABLE_VECTOR_MODULE.with(|x| x.clone()));
     }
+
+    #[cfg(all(not(feature = "sync"), not(feature = "std")))]
+    {
+        engine
+            .register_module(hashmap_module())
+            .register_module(hashset_module())
+            .register_module(list_module())
+            .register_module(vector_module())
+            .register_module(stream_module())
+            .register_module(identity_module())
+            .register_module(number_module())
+            .register_module(equality_module())
+            .register_module(ord_module())
+            .register_module(transducer_module())
+            .register_module(symbol_module())
+            .register_module(meta_module())
+            .register_module(constants_module())
+            .register_module(build_result_structs())
+            .register_module(build_option_structs())
+            .register_module(build_type_id_module());
+
+        if sandbox {
+            engine.register_module(sandboxed_prelude());
+        } else {
+            engine.register_module(prelude());
+        }
+
+        engine.register_module(hashes_module());
+    }
 }
 
-pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::new(|| {
-    let mut set = fxhash::FxHashSet::default();
+#[cfg(not(feature = "std"))]
+pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
+    engine.register_value("std::env::args", SteelVal::ListV(List::new()));
 
-    // TODO: Consolidate the prefixes and module names into one spot
+    engine.register_fn("##__module-get", BuiltInModule::get);
+    engine.register_fn("%module-get%", BuiltInModule::get);
+    engine.register_fn("%#maybe-module-get", BuiltInModule::try_get);
+
+    engine.register_fn("load-from-module!", BuiltInModule::get);
+
+    engine.register_fn("#%module", BuiltInModule::new::<String>);
+    engine.register_fn(
+        "#%module-add",
+        |module: &mut BuiltInModule, name: SteelString, value: SteelVal| {
+            module.register_value(&name, value);
+        },
+    );
+
+    engine.register_fn(
+        "#%module-add-doc",
+        |module: &mut BuiltInModule, name: SteelString, value: String| {
+            module.register_doc(
+                Cow::Owned(String::from(name.as_str())),
+                super::builtin::Documentation::Markdown(MarkdownDoc(value.into())),
+            );
+        },
+    );
+
+    engine.register_fn("%doc?", BuiltInModule::get_doc);
+    engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
+    engine.register_fn("%module/lookup-function", BuiltInModule::search);
+    engine.register_fn("%string->render-markdown", render_as_md);
+    engine.register_fn(
+        "%module-bound-identifiers->list",
+        BuiltInModule::bound_identifiers,
+    );
+    engine.register_value("%proto-hash%", HM_CONSTRUCT);
+    engine.register_value("%proto-hash-insert%", HM_INSERT);
+    engine.register_value("%proto-hash-get%", HM_GET);
+    engine.register_value("error!", ControlOperations::error());
+    engine.register_value("error", ControlOperations::error());
+    engine.register_value("#%error", ControlOperations::error());
+
+    engine.register_value(
+        "%memo-table",
+        WeakMemoizationTable::new().into_steelval().unwrap(),
+    );
+    engine.register_fn("%memo-table-ref", WeakMemoizationTable::get);
+    engine.register_fn("%memo-table-set!", WeakMemoizationTable::insert);
+
+    engine
+        .register_module(hashmap_module())
+        .register_module(hashset_module())
+        .register_module(list_module())
+        .register_module(vector_module())
+        .register_module(stream_module())
+        .register_module(identity_module())
+        .register_module(number_module())
+        .register_module(equality_module())
+        .register_module(ord_module())
+        .register_module(transducer_module())
+        .register_module(symbol_module())
+        .register_module(meta_module())
+        .register_module(constants_module())
+        .register_module(build_result_structs())
+        .register_module(build_option_structs())
+        .register_module(build_type_id_module());
+
+    if sandbox {
+        engine.register_module(sandboxed_prelude());
+    } else {
+        engine.register_module(prelude());
+    }
+}
+
+#[cfg(feature = "std")]
+pub static MODULE_IDENTIFIERS: Lazy<FxHashSet<InternedString>> = Lazy::new(|| {
+    let mut set = FxHashSet::default();
+
     set.insert("%-builtin-module-steel/hash".into());
     set.insert("%-builtin-module-steel/sets".into());
     set.insert("%-builtin-module-steel/lists".into());
@@ -695,13 +902,64 @@ pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::n
     set
 });
 
+#[cfg(not(feature = "std"))]
+pub struct ModuleIdentifiers;
+
+#[cfg(not(feature = "std"))]
+const MODULE_IDENTIFIER_NAMES: &[&str] = &[
+    "%-builtin-module-steel/hash",
+    "%-builtin-module-steel/sets",
+    "%-builtin-module-steel/lists",
+    "%-builtin-module-steel/vectors",
+    "%-builtin-module-steel/streams",
+    "%-builtin-module-steel/identity",
+    "%-builtin-module-steel/numbers",
+    "%-builtin-module-steel/equality",
+    "%-builtin-module-steel/ord",
+    "%-builtin-module-steel/transducers",
+    "%-builtin-module-steel/symbols",
+    "%-builtin-module-steel/bytevectors",
+    "%-builtin-module-steel/meta",
+    "%-builtin-module-steel/constants",
+    "%-builtin-module-steel/syntax",
+    "%-builtin-module-steel/core/result",
+    "%-builtin-module-steel/core/option",
+    "%-builtin-module-steel/core/types",
+    "%-builtin-module-steel/hashes",
+    "%-builtin-module-steel/base",
+];
+
+#[cfg(not(feature = "std"))]
+pub static MODULE_IDENTIFIERS: ModuleIdentifiers = ModuleIdentifiers;
+
+#[cfg(not(feature = "std"))]
+impl ModuleIdentifiers {
+    pub fn contains(&self, value: &InternedString) -> bool {
+        let needle = value.resolve();
+        MODULE_IDENTIFIER_NAMES
+            .iter()
+            .any(|candidate| candidate == &needle)
+    }
+}
+
+#[cfg(feature = "std")]
+pub(crate) fn module_identifier_contains(value: &InternedString) -> bool {
+    MODULE_IDENTIFIERS.contains(value)
+}
+
+#[cfg(not(feature = "std"))]
+pub(crate) fn module_identifier_contains(value: &InternedString) -> bool {
+    MODULE_IDENTIFIERS.contains(value)
+}
+
+#[cfg(feature = "std")]
 pub(crate) static PRELUDE_TO_RESERVED_MAP: Lazy<FxHashMap<String, InternedString>> =
     Lazy::new(|| {
-        PRELUDE_INTERNED_STRINGS.with(|x| {
+        with_prelude_interned_strings(|x| {
             x.iter()
                 .map(|x| {
                     (
-                        x.resolve().to_string(),
+                        x.resolve().into(),
                         (CompactString::new("#%prim.") + x.resolve()).into(),
                     )
                 })
@@ -709,6 +967,7 @@ pub(crate) static PRELUDE_TO_RESERVED_MAP: Lazy<FxHashMap<String, InternedString
         })
     });
 
+#[cfg(feature = "std")]
 pub fn builtin_to_reserved(ident: &str) -> InternedString {
     if let Some(value) = PRELUDE_TO_RESERVED_MAP.get(ident) {
         *value
@@ -717,30 +976,52 @@ pub fn builtin_to_reserved(ident: &str) -> InternedString {
     }
 }
 
+#[cfg(not(feature = "std"))]
+pub fn builtin_to_reserved(ident: &str) -> InternedString {
+    (CompactString::new("#%prim.") + ident).into()
+}
+
 // TODO: Do the same for the single threaded version as well
 
 pub(crate) fn constant_primitives(
-) -> crate::values::HashMap<InternedString, SteelVal, FxBuildHasher> {
+) -> crate::collections::HashMap<InternedString, SteelVal, FxBuildHasher> {
     #[cfg(feature = "sync")]
     {
         CONSTANT_PRIMITIVES.clone()
     }
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(not(feature = "sync"), feature = "std"))]
     {
         CONSTANT_PRIMITIVES.with(|x| x.clone())
+    }
+
+    #[cfg(all(not(feature = "sync"), not(feature = "std")))]
+    {
+        prelude()
+            .constant_funcs()
+            .into_iter()
+            .collect::<crate::collections::HashMap<_, _, FxBuildHasher>>()
     }
 }
 
 #[cfg(feature = "sync")]
 pub static CONSTANT_PRIMITIVES: Lazy<
-    crate::values::HashMap<InternedString, SteelVal, FxBuildHasher>,
-> = Lazy::new(|| STEEL_PRELUDE_MODULE.constant_funcs());
+    crate::collections::HashMap<InternedString, SteelVal, FxBuildHasher>,
+> = Lazy::new(|| {
+    STEEL_PRELUDE_MODULE
+        .constant_funcs()
+        .into_iter()
+        .collect::<crate::collections::HashMap<_, _, FxBuildHasher>>()
+});
 
-#[cfg(not(feature = "sync"))]
+#[cfg(all(not(feature = "sync"), feature = "std"))]
 thread_local! {
-    pub static CONSTANT_PRIMITIVES: crate::values::HashMap<InternedString, SteelVal, FxBuildHasher> = {
-        PRELUDE_MODULE.with(|x| x.constant_funcs())
+    pub static CONSTANT_PRIMITIVES: crate::collections::HashMap<InternedString, SteelVal, FxBuildHasher> = {
+        PRELUDE_MODULE.with(|x| {
+            x.constant_funcs()
+                .into_iter()
+                .collect::<crate::collections::HashMap<_, _, FxBuildHasher>>()
+        })
     };
 
 }
@@ -1099,9 +1380,16 @@ fn structp(value: &SteelVal) -> bool {
     }
 }
 
+#[cfg(feature = "std")]
 #[steel_derive::function(name = "port?", constant = true)]
 fn portp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::PortV(..))
+}
+
+#[cfg(not(feature = "std"))]
+#[steel_derive::function(name = "port?", constant = true)]
+fn portp(_value: &SteelVal) -> bool {
+    false
 }
 
 #[steel_derive::function(name = "#%private-struct?", constant = true)]
@@ -1174,42 +1462,46 @@ fn procedurep(value: &SteelVal) -> bool {
 }
 fn identity_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/identity");
-    module
-        .register_native_fn_definition(NOT_DEFINITION)
-        .register_native_fn_definition(numbers::COMPLEXP_DEFINITION)
-        .register_native_fn_definition(numbers::EXACT_INTEGERP_DEFINITION)
-        .register_native_fn_definition(numbers::FLOATP_DEFINITION)
-        .register_native_fn_definition(numbers::INTEGERP_DEFINITION)
-        .register_native_fn_definition(numbers::INTP_DEFINITION)
-        .register_native_fn_definition(numbers::NUMBERP_DEFINITION)
-        .register_native_fn_definition(numbers::RATIONALP_DEFINITION)
-        .register_native_fn_definition(numbers::REALP_DEFINITION)
-        .register_native_fn_definition(STRINGP_DEFINITION)
-        .register_native_fn_definition(LISTP_DEFINITION)
-        .register_native_fn_definition(VECTORP_DEFINITION)
-        .register_native_fn_definition(SYMBOLP_DEFINITION)
-        .register_native_fn_definition(HASHP_DEFINITION)
-        .register_native_fn_definition(HASHSETP_DEFINITION)
-        .register_native_fn_definition(CONTINUATIONP_DEFINITION)
-        .register_native_fn_definition(BOOLEANP_DEFINITION)
-        .register_native_fn_definition(BOOLP_DEFINITION)
-        .register_native_fn_definition(VOIDP_DEFINITION)
-        .register_native_fn_definition(STRUCTP_DEFINITION)
-        .register_native_fn_definition(PORTP_DEFINITION)
-        .register_native_fn_definition(EOF_OBJECTP_DEFINITION)
-        .register_native_fn_definition(PRIVATE_STRUCTP_DEFINITION)
-        .register_native_fn_definition(ERROR_OBJECTP_DEFINITION)
-        .register_value("mutable-vector?", gen_pred!(MutableVector))
-        .register_value("immutable-vector?", gen_pred!(VectorV))
-        .register_value("char?", gen_pred!(CharV))
-        .register_value("future?", gen_pred!(FutureV))
-        .register_native_fn_definition(FUNCTIONP_DEFINITION)
-        .register_native_fn_definition(IS_FUNCTION_POINTER_DEFINITION)
-        .register_native_fn_definition(PROCEDUREP_DEFINITION)
-        .register_value(
-            "atom?",
-            gen_pred!(NumV, IntV, StringV, SymbolV, BoolV, CharV),
-        );
+    module.register_native_fn_definition(NOT_DEFINITION);
+    module.register_native_fn_definition(numbers::COMPLEXP_DEFINITION);
+    module.register_native_fn_definition(numbers::EXACT_INTEGERP_DEFINITION);
+    module.register_native_fn_definition(numbers::FLOATP_DEFINITION);
+    module.register_native_fn_definition(numbers::INTEGERP_DEFINITION);
+    module.register_native_fn_definition(numbers::INTP_DEFINITION);
+    module.register_native_fn_definition(numbers::NUMBERP_DEFINITION);
+    module.register_native_fn_definition(numbers::RATIONALP_DEFINITION);
+    module.register_native_fn_definition(numbers::REALP_DEFINITION);
+    module.register_native_fn_definition(STRINGP_DEFINITION);
+    module.register_native_fn_definition(LISTP_DEFINITION);
+    module.register_native_fn_definition(VECTORP_DEFINITION);
+    module.register_native_fn_definition(SYMBOLP_DEFINITION);
+    module.register_native_fn_definition(HASHP_DEFINITION);
+    module.register_native_fn_definition(HASHSETP_DEFINITION);
+    module.register_native_fn_definition(CONTINUATIONP_DEFINITION);
+    module.register_native_fn_definition(BOOLEANP_DEFINITION);
+    module.register_native_fn_definition(BOOLP_DEFINITION);
+    module.register_native_fn_definition(VOIDP_DEFINITION);
+    module.register_native_fn_definition(STRUCTP_DEFINITION);
+
+    #[cfg(feature = "std")]
+    {
+        module.register_native_fn_definition(PORTP_DEFINITION);
+        module.register_native_fn_definition(EOF_OBJECTP_DEFINITION);
+    }
+
+    module.register_native_fn_definition(PRIVATE_STRUCTP_DEFINITION);
+    module.register_native_fn_definition(ERROR_OBJECTP_DEFINITION);
+    module.register_value("mutable-vector?", gen_pred!(MutableVector));
+    module.register_value("immutable-vector?", gen_pred!(VectorV));
+    module.register_value("char?", gen_pred!(CharV));
+    module.register_value("future?", gen_pred!(FutureV));
+    module.register_native_fn_definition(FUNCTIONP_DEFINITION);
+    module.register_native_fn_definition(IS_FUNCTION_POINTER_DEFINITION);
+    module.register_native_fn_definition(PROCEDUREP_DEFINITION);
+    module.register_value(
+        "atom?",
+        gen_pred!(NumV, IntV, StringV, SymbolV, BoolV, CharV),
+    );
     module
 }
 
@@ -1492,6 +1784,7 @@ fn ord_module() -> BuiltInModule {
     module
 }
 
+#[cfg(feature = "std")]
 fn io_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/io");
     module
@@ -1499,6 +1792,11 @@ fn io_module() -> BuiltInModule {
         .register_value("read-to-string", IoFunctions::read_to_string());
 
     module
+}
+
+#[cfg(not(feature = "std"))]
+fn io_module() -> BuiltInModule {
+    BuiltInModule::new("steel/io")
 }
 
 pub const VOID_DOC: MarkdownDoc = MarkdownDoc::from_str(
@@ -1514,12 +1812,14 @@ fn constants_module() -> BuiltInModule {
     module
 }
 
+#[cfg(feature = "std")]
 fn get_environment_variable(var: String) -> Result<SteelVal> {
     std::env::var(var)
         .map(|x| x.into_steelval().unwrap())
         .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
 }
 
+#[cfg(feature = "std")]
 fn maybe_get_environment_variable(var: String) -> SteelResult<SteelVal, SteelErr> {
     get_environment_variable(var).into()
 }
@@ -1586,6 +1886,7 @@ pub fn lookup_function_name(value: SteelVal) -> Option<SteelVal> {
     }
 }
 
+#[cfg(feature = "std")]
 #[steel_derive::context(name = "#%lookup-doc", arity = "Exact(1)")]
 pub fn lookup_doc_ctx(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     // Attempt to find the docs for a given value.
@@ -1605,6 +1906,7 @@ pub fn lookup_doc_ctx(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Stee
     }
 }
 
+#[cfg(feature = "std")]
 fn lookup_doc(value: SteelVal) -> bool {
     match value {
         // SteelVal::BoxedFunction(f) => ,
@@ -1640,6 +1942,7 @@ fn lookup_doc(value: SteelVal) -> bool {
     }
 }
 
+#[cfg(feature = "std")]
 fn lookup_doc_value(value: SteelVal) -> Option<String> {
     match value {
         SteelVal::FuncV(f) => {
@@ -1709,7 +2012,7 @@ fn arity(value: SteelVal) -> UnRecoverableResult {
             .map(|x| SteelVal::IntV(x as isize))
             .ok_or(SteelErr::new(
                 ErrorKind::TypeMismatch,
-                "Unable to find the arity for the given function".to_string(),
+                "Unable to find the arity for the given function".into(),
             ))
             // .ok_or(steelerr!(TypeMismatch => "Unable to find the arity for the give function"))
             .into(),
@@ -1722,7 +2025,7 @@ fn arity(value: SteelVal) -> UnRecoverableResult {
                 .map(|x| x.arity)
                 .ok_or(SteelErr::new(
                     ErrorKind::TypeMismatch,
-                    "Unable to find the arity for the given function".to_string(),
+                    "Unable to find the arity for the given function".into(),
                 ))
                 .and_then(|x| x.into_steelval())
                 .into()
@@ -1877,7 +2180,15 @@ impl Reader {
             }
         } else {
             // TODO: This needs to get fixed
-            Ok(crate::primitives::ports::eof())
+            #[cfg(feature = "std")]
+            {
+                Ok(crate::primitives::ports::eof())
+            }
+
+            #[cfg(not(feature = "std"))]
+            {
+                Ok(SteelVal::Void)
+            }
         }
     }
 
@@ -1892,6 +2203,7 @@ impl Reader {
     }
 }
 
+#[cfg(feature = "std")]
 #[steel_derive::context(name = "#%intern", arity = "Exact(1)")]
 pub fn intern_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let mut guard = ctx.thread.compiler.write();
@@ -1908,16 +2220,19 @@ pub fn intern_symbol(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<Steel
 fn reader_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("#%private/steel/reader");
 
-    module
-        .register_fn("new-reader", Reader::create_reader)
-        .register_fn("reader-push-string", Reader::push_string)
-        .register_fn("reader-read-one", Reader::read_one)
-        .register_fn("reader-empty?", Reader::is_empty)
-        .register_fn(
-            "reader-read-one-syntax-object",
-            Reader::read_one_syntax_object,
-        )
-        .register_native_fn_definition(INTERN_SYMBOL_DEFINITION);
+    module.register_fn("new-reader", Reader::create_reader);
+    module.register_fn("reader-push-string", Reader::push_string);
+    module.register_fn("reader-read-one", Reader::read_one);
+    module.register_fn("reader-empty?", Reader::is_empty);
+    module.register_fn(
+        "reader-read-one-syntax-object",
+        Reader::read_one_syntax_object,
+    );
+
+    #[cfg(feature = "std")]
+    {
+        module.register_native_fn_definition(INTERN_SYMBOL_DEFINITION);
+    }
 
     module
 }
@@ -1959,6 +2274,7 @@ pub fn plain_set_box_mutable(value: &HeapRef<SteelVal>, update: SteelVal) -> Ste
     value.set_and_return(update)
 }
 
+#[cfg(feature = "std")]
 fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() != 0 {
         return Some(Err(
@@ -1971,6 +2287,7 @@ fn gc_collection(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
     Some(Ok(SteelVal::Void))
 }
 
+#[cfg(feature = "std")]
 fn make_mutable_box(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     if args.len() != 1 {
         return Some(Err(
@@ -2014,6 +2331,7 @@ pub fn struct_to_list(value: &UserDefinedStruct) -> Result<SteelVal> {
     }
 }
 
+#[cfg(feature = "std")]
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
@@ -2174,14 +2492,21 @@ fn meta_module() -> BuiltInModule {
     module
 }
 
+#[cfg(not(feature = "std"))]
+fn meta_module() -> BuiltInModule {
+    BuiltInModule::new("steel/meta")
+}
+
 /// Returns the command line passed to this process,
 /// including the command name as first argument.
+#[cfg(feature = "std")]
 #[steel_derive::function(name = "command-line")]
 fn command_line() -> SteelList<String> {
     std::env::args().collect()
 }
 
 /// De/serialization from/to JSON.
+#[cfg(feature = "std")]
 #[steel_derive::define_module(name = "steel/json")]
 fn json_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/json");
@@ -2193,6 +2518,7 @@ fn json_module() -> BuiltInModule {
     module
 }
 
+#[cfg(feature = "std")]
 fn syntax_to_module_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     if let SteelVal::SyntaxObject(s) = &args[0] {
         let span = s.syntax_loc();
@@ -2200,14 +2526,17 @@ fn syntax_to_module_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
 
         if let Some(source) = source {
             let path = ctx.thread.compiler.read().sources.get_path(&source);
-            // Check the OS:
-            if cfg!(windows) {
+            #[cfg(windows)]
+            {
                 return path
-                    .map(|x| x.to_str().unwrap().to_string().replace("\\", "/"))
+                    .map(|x| x.to_string_lossy().replace('\\', "/"))
                     .into_steelval();
-            } else {
+            }
+
+            #[cfg(not(windows))]
+            {
                 return path
-                    .map(|x| x.to_str().unwrap().to_string())
+                    .map(|x| x.to_string_lossy().into_owned())
                     .into_steelval();
             }
         }
@@ -2216,11 +2545,13 @@ fn syntax_to_module_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal
     Ok(SteelVal::BoolV(false))
 }
 
+#[cfg(feature = "std")]
 #[steel_derive::context(name = "syntax-originating-file", arity = "Exact(1)")]
 fn syntax_to_module(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(syntax_to_module_impl(ctx, args))
 }
 
+#[cfg(feature = "std")]
 fn syntax_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/syntax");
     module
@@ -2270,7 +2601,7 @@ pub fn error_with_src_loc() -> SteelVal {
 
         if let SteelVal::Void = &args[0] {
             for arg in &args[1..] {
-                let error_val = arg.to_string();
+                let error_val = format!("{arg}");
                 error_message.push(' ');
                 error_message.push_str(error_val.trim_matches('\"'));
             }
@@ -2282,7 +2613,7 @@ pub fn error_with_src_loc() -> SteelVal {
 
         if !args[1..].is_empty() {
             for arg in &args[1..] {
-                let error_val = arg.to_string();
+                let error_val = format!("{arg}");
                 error_message.push(' ');
                 error_message.push_str(error_val.trim_matches('\"'));
             }
@@ -2325,6 +2656,7 @@ pub fn raise_error_from_error() -> SteelVal {
 // Be able to introspect on the modules - probably just need to add a modules
 // field on the vm, or use a wrapped type with modules to find things
 // TODO: Add magic number for modules. - key to magic number, do pointer equality
+#[cfg(feature = "std")]
 fn _lookup_doc(_ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
     // for value in ctx.thread.global_env.bindings_vec.iter() {
     //     if let

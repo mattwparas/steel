@@ -1,9 +1,14 @@
 // TODO: Create stack to ssa representation of the op codes, via macros
+#![cfg_attr(not(feature = "std"), no_std)]
 #![allow(unused)]
+
+#[allow(unused_extern_crates)]
+extern crate alloc;
 
 pub mod opcode;
 pub mod permutations;
-use std::{borrow::Cow, fmt::Write};
+use alloc::borrow::Cow;
+use core::fmt::Write;
 
 pub use opcode::OpCode;
 
@@ -55,8 +60,8 @@ impl GenSym {
     }
 }
 
-impl std::fmt::Display for LocalVariable {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for LocalVariable {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "x{}", self.id)
     }
 }
@@ -77,8 +82,8 @@ pub enum Pattern {
     Double(OpCode, usize),
 }
 
-impl std::fmt::Display for Pattern {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for Pattern {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Pattern::Single(op) => write!(f, "{op:?}"),
             Pattern::Double(op, payload) => write!(f, "{op:?}{payload}"),
@@ -807,8 +812,8 @@ impl<'a> Call<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for Call<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Display for Call<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.name)?;
         write!(f, "(")?;
         for arg in &self.args {
@@ -888,7 +893,7 @@ impl Pattern {
 pub trait IteratorExtensions: Iterator {
     fn join(&mut self, sep: &str) -> String
     where
-        Self::Item: std::fmt::Display,
+        Self::Item: core::fmt::Display,
     {
         match self.next() {
             None => String::new(),

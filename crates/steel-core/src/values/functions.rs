@@ -1,12 +1,12 @@
 #![allow(unused)]
 
-use std::{
-    cell::{Cell, RefCell},
-    collections::HashMap,
-    convert::TryFrom,
-    hash::Hasher,
-    sync::Arc,
-};
+use crate::collections::MutableHashMap as HashMap;
+use alloc::string::{String, ToString};
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::cell::{Cell, RefCell};
+use core::convert::TryFrom;
+use core::hash::Hasher;
 
 use fxhash::FxHashSet;
 
@@ -55,7 +55,7 @@ impl Custom for LambdaMetadataTable {}
 impl LambdaMetadataTable {
     pub fn new() -> Self {
         Self {
-            fn_ptr_table: HashMap::new(),
+            fn_ptr_table: HashMap::default(),
         }
     }
 
@@ -73,9 +73,13 @@ impl LambdaMetadataTable {
 
     pub fn get(&self, function: SteelVal) -> Option<SteelString> {
         match function {
-            SteelVal::Closure(b) => self.fn_ptr_table.get(&(b.id as _)).cloned(),
+            SteelVal::Closure(b) => {
+                let key = b.id as usize;
+                self.fn_ptr_table.get(&key).cloned()
+            }
             SteelVal::BoxedFunction(b) => {
-                self.fn_ptr_table.get(&(Gc::as_ptr(&b) as usize)).cloned()
+                let key = Gc::as_ptr(&b) as usize;
+                self.fn_ptr_table.get(&key).cloned()
             }
             _ => None,
         }
@@ -83,7 +87,7 @@ impl LambdaMetadataTable {
 
     // TODO: This will need to get called in other places
     pub fn collect_garbage(&mut self, keep_set: impl Iterator<Item = usize>) {
-        let set = keep_set.collect::<std::collections::HashSet<_>>();
+        let set = keep_set.collect::<crate::collections::MutableHashSet<_>>();
 
         self.fn_ptr_table.retain(|k, _| set.contains(k));
     }
@@ -140,7 +144,7 @@ impl PartialEq for ByteCodeLambda {
 
 impl Eq for ByteCodeLambda {}
 
-impl std::hash::Hash for ByteCodeLambda {
+impl core::hash::Hash for ByteCodeLambda {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
         // self.body_exp.as_ptr().hash(state);
@@ -196,13 +200,13 @@ impl RootedInstructions {
     }
 }
 
-impl std::fmt::Debug for RootedInstructions {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for RootedInstructions {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{:?}", self.inner)
     }
 }
 
-impl std::ops::Deref for RootedInstructions {
+impl core::ops::Deref for RootedInstructions {
     type Target = [DenseInstruction];
 
     fn deref(&self) -> &Self::Target {

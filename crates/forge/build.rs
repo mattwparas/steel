@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use steel::steel_vm::engine::Engine;
+use steel::{path::OwnedPath, steel_vm::engine::Engine};
 
 fn main() {
     // Re run this if any of the files within the directory
@@ -20,7 +20,7 @@ fn main() {
 
     let non_interactive_program = Engine::create_non_interactive_program_image(
         entrypoint,
-        PathBuf::from("installer/forge.scm"),
+        OwnedPath::from(PathBuf::from("installer/forge.scm")),
     )
     .unwrap();
 

@@ -1,25 +1,38 @@
-use std::collections::HashSet;
+use crate::collections::{MutableHashMap, MutableHashSet};
+use alloc::format;
+use alloc::string::String;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 
 use fxhash::FxHashMap;
 use steel_derive::function;
 
 use crate::{
-    rvals::{AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer, SerializableSteelVal},
+    rvals::{
+        into_serializable_value, AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer,
+        SerializableSteelVal,
+    },
     steel_vm::{builtin::BuiltInModule, register_fn::RegisterFn},
-    values::functions::SerializedLambdaPrototype,
+    values::functions::{SerializedLambda, SerializedLambdaPrototype},
 };
 
+#[cfg(feature = "sync")]
+use crate::time::Instant;
+
 use super::*;
+use crate::sync::Mutex;
+#[cfg(feature = "std")]
+use std::cell::RefCell;
 
 pub struct ThreadHandle {
     pub(crate) handle:
-        Mutex<Option<std::thread::JoinHandle<std::result::Result<SteelVal, String>>>>,
+        Mutex<Option<std::thread::JoinHandle<core::result::Result<SteelVal, String>>>>,
 
     pub(crate) thread: std::thread::Thread,
 
     pub(crate) thread_state_manager: ThreadStateController,
 
-    pub(crate) forked_thread_handle: Option<std::sync::Weak<Mutex<SteelThread>>>,
+    pub(crate) forked_thread_handle: Option<alloc::sync::Weak<Mutex<SteelThread>>>,
 }
 
 /// Check if the given thread is finished running.
@@ -39,13 +52,13 @@ pub fn thread_finished(handle: &SteelVal) -> Result<SteelVal> {
 impl crate::rvals::Custom for ThreadHandle {}
 
 pub struct SteelMutex {
-    mutex: Arc<parking_lot::Mutex<()>>,
+    mutex: Arc<crate::sync::ArcMutex<()>>,
 }
 
 impl crate::rvals::Custom for SteelMutex {}
 
 pub struct MutexGuard {
-    guard: AtomicCell<Option<parking_lot::ArcMutexGuard<parking_lot::RawMutex, ()>>>,
+    guard: AtomicCell<Option<crate::sync::ArcMutexGuard<()>>>,
 }
 
 impl crate::rvals::Custom for MutexGuard {}
@@ -53,7 +66,7 @@ impl crate::rvals::Custom for MutexGuard {}
 impl SteelMutex {
     pub fn new() -> Self {
         Self {
-            mutex: Arc::new(parking_lot::Mutex::new(())),
+            mutex: Arc::new(crate::sync::ArcMutex::new(())),
         }
     }
 
@@ -104,7 +117,7 @@ pub(crate) fn thread_join_impl(handle: &ThreadHandle) -> Result<SteelVal> {
     if let Some(handle) = handle.handle.lock().unwrap().take() {
         handle
             .join()
-            .map_err(|_| SteelErr::new(ErrorKind::Generic, "thread panicked!".to_string()))?
+            .map_err(|_| SteelErr::new(ErrorKind::Generic, "thread panicked!".into()))?
             .map_err(|x| SteelErr::new(ErrorKind::Generic, x.to_string()))
     } else {
         stop!(ContractViolation => "thread handle has already been joined!");
@@ -149,8 +162,8 @@ thread_local! {
 
 pub fn closure_into_serializable(
     c: &ByteCodeLambda,
-    serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-    visited: &mut std::collections::HashSet<usize>,
+    serializer: &mut MutableHashMap<usize, SerializableSteelVal>,
+    visited: &mut MutableHashSet<usize>,
 ) -> Result<SerializedLambda> {
     if let Some(prototype) = CACHED_CLOSURES.with(|x| x.borrow().get(&c.id).cloned()) {
         let mut prototype = SerializedLambda {
@@ -226,7 +239,7 @@ pub fn closure_into_serializable(
 //     use crate::rvals::SerializableSteelVal;
 
 //     #[cfg(feature = "profiling")]
-//     let now = std::time::Instant::now();
+//     let now = Instant::now();
 
 //     // Need a new:
 //     // Stack
@@ -294,8 +307,7 @@ pub fn closure_into_serializable(
 //         // Void in this case, is a poisoned value. We need to trace the closure
 //         // (and all of its references) - to find any / all globals that _could_ be
 //         // referenced.
-//         #[cfg(feature = "sync")]
-//         global_env: time!(
+//         //         global_env: time!(
 //             "Global env serialization",
 //             ctx.thread
 //                 .global_env
@@ -405,8 +417,7 @@ pub fn closure_into_serializable(
 //             )
 //         );
 
-//         #[cfg(feature = "sync")]
-//         let global_env = time!(
+//         //         let global_env = time!(
 //             "Global env creation",
 //             Env {
 //                 bindings_vec: Arc::new(std::sync::RwLock::new(
@@ -660,71 +671,74 @@ pub static EMPTY_CHANNEL_OBJECT: once_cell::sync::Lazy<(
 pub static DISCONNECTED_CHANNEL_OBJECT: once_cell::sync::Lazy<(
     SteelVal,
     crate::values::structs::StructTypeDescriptor,
-)> =
-    once_cell::sync::Lazy::new(|| crate::values::structs::make_struct_singleton("#%empty-channel"));
+)> = once_cell::sync::Lazy::new(|| {
+    crate::values::structs::make_struct_singleton("#%disconnected-channel")
+});
 
 /// Returns `#t` if the value is an empty-channel object.
 ///
 /// (empty-channel-object? any/c) -> bool?
+#[cfg(feature = "sync")]
 #[function(name = "empty-channel-object?")]
 pub fn empty_channel_objectp(value: &SteelVal) -> bool {
     let SteelVal::CustomStruct(struct_) = value else {
         return false;
     };
 
-    #[cfg(feature = "sync")]
-    {
-        struct_.type_descriptor == EMPTY_CHANNEL_OBJECT.1
-    }
-
-    #[cfg(not(feature = "sync"))]
-    {
-        EMPTY_CHANNEL_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
-    }
+    struct_.type_descriptor == EMPTY_CHANNEL_OBJECT.1
 }
 
-pub fn empty_channel() -> SteelVal {
-    #[cfg(feature = "sync")]
-    {
-        EMPTY_CHANNEL_OBJECT.0.clone()
-    }
+#[cfg(not(feature = "sync"))]
+#[function(name = "empty-channel-object?")]
+pub fn empty_channel_objectp(value: &SteelVal) -> bool {
+    let SteelVal::CustomStruct(struct_) = value else {
+        return false;
+    };
 
-    #[cfg(not(feature = "sync"))]
-    {
-        EMPTY_CHANNEL_OBJECT.with(|eof| eof.0.clone())
-    }
+    EMPTY_CHANNEL_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+}
+
+#[cfg(feature = "sync")]
+pub fn empty_channel() -> SteelVal {
+    EMPTY_CHANNEL_OBJECT.0.clone()
+}
+
+#[cfg(not(feature = "sync"))]
+pub fn empty_channel() -> SteelVal {
+    EMPTY_CHANNEL_OBJECT.with(|eof| eof.0.clone())
 }
 
 /// Returns `#t` if the value is an disconnected-channel object.
 ///
 /// (eof-object? any/c) -> bool?
+#[cfg(feature = "sync")]
 #[function(name = "disconnected-channel-object?")]
 pub fn disconnected_channel_objectp(value: &SteelVal) -> bool {
     let SteelVal::CustomStruct(struct_) = value else {
         return false;
     };
 
-    #[cfg(feature = "sync")]
-    {
-        struct_.type_descriptor == DISCONNECTED_CHANNEL_OBJECT.1
-    }
-
-    #[cfg(not(feature = "sync"))]
-    {
-        DISCONNECTED_CHANNEL_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
-    }
+    struct_.type_descriptor == DISCONNECTED_CHANNEL_OBJECT.1
 }
 
-pub fn disconnected_channel() -> SteelVal {
-    #[cfg(feature = "sync")]
-    {
-        DISCONNECTED_CHANNEL_OBJECT.0.clone()
-    }
+#[cfg(not(feature = "sync"))]
+#[function(name = "disconnected-channel-object?")]
+pub fn disconnected_channel_objectp(value: &SteelVal) -> bool {
+    let SteelVal::CustomStruct(struct_) = value else {
+        return false;
+    };
 
-    #[cfg(not(feature = "sync"))]
-    {
-        DISCONNECTED_CHANNEL_OBJECT.with(|eof| eof.0.clone())
-    }
+    DISCONNECTED_CHANNEL_OBJECT.with(|eof| struct_.type_descriptor == eof.1)
+}
+
+#[cfg(feature = "sync")]
+pub fn disconnected_channel() -> SteelVal {
+    DISCONNECTED_CHANNEL_OBJECT.0.clone()
+}
+
+#[cfg(not(feature = "sync"))]
+pub fn disconnected_channel() -> SteelVal {
+    DISCONNECTED_CHANNEL_OBJECT.with(|eof| eof.0.clone())
 }
 
 #[steel_derive::context(name = "current-thread-id", arity = "Exact(0)")]
@@ -766,7 +780,7 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     // We are now in a world in which we have to support safe points
     ctx.thread.safepoints_enabled = true;
 
-    let thread_time = std::time::Instant::now();
+    let thread_time = Instant::now();
 
     // Do this here?
     let mut thread = ctx.thread.clone();
@@ -857,7 +871,7 @@ impl Custom for SReceiver {
 }
 
 impl Custom for std::thread::ThreadId {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         Some(Ok(format!("#<{:?}>", self)))
     }
 }
@@ -953,8 +967,8 @@ pub fn threading_module() -> BuiltInModule {
             |channel: &std::sync::mpsc::Sender<SerializableSteelVal>,
              val: SteelVal|
              -> Result<()> {
-                let mut map = HashMap::new();
-                let mut visited = HashSet::new();
+                let mut map = MutableHashMap::default();
+                let mut visited = MutableHashSet::default();
 
                 // TODO: Handle this here somehow, we don't want to use an empty map
                 let serializable =
@@ -981,9 +995,9 @@ pub fn threading_module() -> BuiltInModule {
                 .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))?;
 
             let mut heap = Heap::new_empty();
-            let mut fake_heap = HashMap::new();
-            let mut patcher = HashMap::new();
-            let mut built_functions = HashMap::new();
+            let mut fake_heap = MutableHashMap::default();
+            let mut patcher = MutableHashMap::default();
+            let mut built_functions = MutableHashMap::default();
             let mut serializer = HeapSerializer {
                 heap: &mut heap,
                 fake_heap: &mut fake_heap,
@@ -1006,9 +1020,9 @@ pub fn threading_module() -> BuiltInModule {
                 let value = receiver.try_recv();
 
                 let mut heap = Heap::new_empty();
-                let mut fake_heap = HashMap::new();
-                let mut patcher = HashMap::new();
-                let mut built_functions = HashMap::new();
+                let mut fake_heap = MutableHashMap::default();
+                let mut patcher = MutableHashMap::default();
+                let mut built_functions = MutableHashMap::default();
                 let mut serializer = HeapSerializer {
                     heap: &mut heap,
                     fake_heap: &mut fake_heap,

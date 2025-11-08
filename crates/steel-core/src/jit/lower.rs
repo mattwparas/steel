@@ -4,10 +4,13 @@ use crate::parser::ast::ExprKind;
 use crate::parser::tokens::TokenType;
 use crate::parser::visitors::VisitorMut;
 use crate::parser::{ast, interner::InternedString};
+use alloc::boxed::Box;
+use alloc::string::String;
+use alloc::vec::Vec;
 
-use std::collections::HashSet;
+use crate::collections::HashSet;
 
-use crate::values::HashMap;
+use crate::collections::HashMap;
 
 use super::ir::Expr;
 
@@ -146,9 +149,9 @@ impl<'a> VisitorMut for RenameShadowedVars<'a> {
         self.args = Some(args);
 
         // Badly attach the return value label
-        self.ret_val = Some("###__return-value__###".to_string());
+        self.ret_val = Some("###__return-value__###");
         let output = Some(Expr::Assign(
-            "###__return-value__###".to_string(),
+            "###__return-value__###".into(),
             Box::new(self.visit(&lambda_function.body)?),
         ));
 
@@ -203,7 +206,7 @@ impl<'a> VisitorMut for RenameShadowedVars<'a> {
                 if let Some(depth) = self.shadowed.get(s) {
                     // Create this busted shadowed nonsense
                     Some(Expr::Identifier(
-                        "###__depth__".to_string() + depth.to_string().as_str() + s.as_str(),
+                        "###__depth__".into() + depth.to_string().as_str() + s.as_str(),
                     ))
                 } else {
                     Some(Expr::Identifier(s.clone()))
@@ -245,7 +248,7 @@ impl<'a> VisitorMut for RenameShadowedVars<'a> {
                         Some(Expr::Assign(
                             {
                                 if self.in_scope.contains(&x.0) {
-                                    "###__depth__".to_string()
+                                    "###__depth__".into()
                                         + self.depth.to_string().as_str()
                                         + x.0.as_str()
                                 } else {

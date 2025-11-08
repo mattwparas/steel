@@ -1,10 +1,20 @@
 #![allow(unused)]
-
+#[cfg(feature = "std")]
+use super::vm::threads::ThreadHandle;
 use super::{
     builtin::{BuiltInModule, FunctionSignatureMetadata},
     primitives::{register_builtin_modules, CONSTANTS},
-    vm::{threads::ThreadHandle, SteelThread, Synchronizer, ThreadStateController},
+    vm::{SteelThread, Synchronizer, ThreadStateController},
 };
+use alloc::borrow::{Cow, ToOwned};
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::rc::Rc;
+use alloc::string::String;
+use alloc::sync::Arc;
+#[cfg(not(feature = "std"))]
+use alloc::vec;
+use alloc::vec::Vec;
 
 #[cfg(feature = "dylibs")]
 use super::{ffi::FFIModule, ffi::FFIWrappedModule};
@@ -12,6 +22,8 @@ use super::{ffi::FFIModule, ffi::FFIWrappedModule};
 #[cfg(feature = "dylibs")]
 use super::dylib::DylibContainers;
 
+use crate::sync::Mutex;
+use crate::time::{self, Instant};
 use crate::{
     compiler::{
         compiler::{Compiler, SerializableCompiler},
@@ -42,6 +54,8 @@ use crate::{
         kernel::{fresh_kernel_image, Kernel},
         parser::{ParseError, Parser, Sources, SYNTAX_OBJECT_ID},
     },
+    path::PathBuf as SteelPath,
+    path::PathBuf,
     rerrs::{back_trace, back_trace_to_string},
     rvals::{
         AsRefMutSteelVal, AsRefSteelVal as _, FromSteelVal, IntoSteelVal, MaybeSendSyncStatic,
@@ -55,25 +69,28 @@ use crate::{
     },
     SteelErr,
 };
-use std::{
-    borrow::Cow,
-    cell::{Cell, RefCell},
-    collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
-    rc::Rc,
-    sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc, Mutex,
-    },
-};
+use core::cell::{Cell, RefCell};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use crate::values::HashMap as ImmutableHashMap;
-use fxhash::{FxBuildHasher, FxHashMap};
-use lasso::ThreadedRodeo;
-use once_cell::sync::{Lazy, OnceCell};
-use parking_lot::{
+#[cfg(feature = "std")]
+use std::path::Path as StdPath;
+
+#[cfg(feature = "std")]
+use std::thread;
+
+#[cfg(not(feature = "std"))]
+use hashbrown::{HashMap, HashSet};
+#[cfg(feature = "std")]
+use std::collections::{HashMap, HashSet};
+
+use crate::collections::HashMap as ImmutableHashMap;
+use crate::sync::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
+use fxhash::{FxBuildHasher, FxHashMap};
+use lasso::ThreadedRodeo;
+#[cfg(feature = "std")]
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use steel_gen::OpCode;
 use steel_parser::{
@@ -84,8 +101,9 @@ use steel_parser::{
 
 use crate::parser::ast::IteratorExtensions;
 
+#[cfg(feature = "std")]
 thread_local! {
-    static KERNEL_BIN_FILE: Cell<Option<&'static [u8]>> = const { Cell::new(None) };
+    static KERNEL_BIN_FILE: Cell<Option<&'static [u8]>> = Cell::new(None);
 }
 
 // Install the binary file to be used during bootup
@@ -253,26 +271,29 @@ impl Clone for Engine {
         let weak_ctx = Arc::downgrade(&virtual_machine.synchronizer.ctx);
 
         // Get a handle to the current thread?
-        let handle = ThreadHandle {
-            handle: Mutex::new(None),
-            thread: std::thread::current(),
-            thread_state_manager: virtual_machine.synchronizer.state.clone(),
-            forked_thread_handle: None,
-        }
-        .into_steelval()
-        .unwrap();
+        #[cfg(feature = "std")]
+        {
+            let handle = ThreadHandle {
+                handle: Mutex::new(None),
+                thread: thread::current(),
+                thread_state_manager: virtual_machine.synchronizer.state.clone(),
+                forked_thread_handle: None,
+            }
+            .into_steelval()
+            .unwrap();
 
-        // TODO: Entering safepoint should happen often
-        // for the main thread?
-        virtual_machine
-            .synchronizer
-            .threads
-            .lock()
-            .unwrap()
-            .push(super::vm::ThreadContext {
-                ctx: weak_ctx,
-                handle,
-            });
+            // TODO: Entering safepoint should happen often
+            // for the main thread?
+            virtual_machine
+                .synchronizer
+                .threads
+                .lock()
+                .unwrap()
+                .push(super::vm::ThreadContext {
+                    ctx: weak_ctx,
+                    handle,
+                });
+        }
 
         let compiler = Arc::new(RwLock::new(self.virtual_machine.compiler.write().clone()));
 
@@ -329,7 +350,8 @@ pub struct NonInteractiveProgramImage {
 }
 
 impl NonInteractiveProgramImage {
-    pub fn write_bytes_to_file(&self, out: &Path) {
+    #[cfg(feature = "std")]
+    pub fn write_bytes_to_file(&self, out: impl AsRef<StdPath>) {
         let mut f = std::fs::File::create(out).unwrap();
         bincode::serialize_into(&mut f, self).unwrap();
     }
@@ -346,7 +368,7 @@ impl NonInteractiveProgramImage {
 }
 
 // fn steel_create_bootstrap() {
-//     Engine::create_bootstrap_from_programs("src/boot/bootstrap.bin".into());
+//     Engine::create_bootstrap_from_programs("src/boot/bootstrap.bin");
 // }
 
 pub struct LifetimeGuard<'a> {
@@ -370,7 +392,7 @@ impl<'a> LifetimeGuard<'a> {
     ) -> Self {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
-            std::any::TypeId::of::<EXT>()
+            core::any::TypeId::of::<EXT>()
         );
 
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
@@ -390,7 +412,7 @@ impl<'a> LifetimeGuard<'a> {
     ) -> Self {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
-            std::any::TypeId::of::<EXT>()
+            core::any::TypeId::of::<EXT>()
         );
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_rw_object::<T, EXT>(
             obj,
@@ -430,7 +452,7 @@ pub fn load_module_noop(target: &crate::rvals::SteelString) -> crate::rvals::Res
 macro_rules! time {
     ($target:expr, $label:expr, $e:expr) => {{
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = Instant::now();
 
         let e = $e;
 
@@ -441,12 +463,24 @@ macro_rules! time {
     }};
 }
 
+#[cfg(feature = "std")]
 static STATIC_DEFAULT_PRELUDE_MACROS: OnceCell<Arc<FxHashMap<InternedString, SteelMacro>>> =
     OnceCell::new();
 
+#[cfg(feature = "std")]
 static STATIC_DEFAULT_PRELUDE_MACROS_SANDBOX: OnceCell<Arc<FxHashMap<InternedString, SteelMacro>>> =
     OnceCell::new();
 
+#[cfg(not(feature = "std"))]
+static DEFAULT_PRELUDE_MACROS_STORAGE: Mutex<Option<Arc<FxHashMap<InternedString, SteelMacro>>>> =
+    Mutex::new(None);
+
+#[cfg(not(feature = "std"))]
+static DEFAULT_PRELUDE_MACROS_SANDBOX_STORAGE: Mutex<
+    Option<Arc<FxHashMap<InternedString, SteelMacro>>>,
+> = Mutex::new(None);
+
+#[cfg(feature = "std")]
 pub(crate) fn set_default_prelude_macros(
     prelude_macros: FxHashMap<InternedString, SteelMacro>,
     sandbox: bool,
@@ -469,6 +503,22 @@ pub(crate) fn set_default_prelude_macros(
     }
 }
 
+#[cfg(not(feature = "std"))]
+pub(crate) fn set_default_prelude_macros(
+    prelude_macros: FxHashMap<InternedString, SteelMacro>,
+    sandbox: bool,
+) {
+    let storage = if sandbox {
+        &DEFAULT_PRELUDE_MACROS_SANDBOX_STORAGE
+    } else {
+        &DEFAULT_PRELUDE_MACROS_STORAGE
+    };
+
+    let mut guard = storage.lock().expect("prelude macros mutex poisoned");
+    *guard = Some(Arc::new(prelude_macros));
+}
+
+#[cfg(feature = "std")]
 pub(crate) fn default_prelude_macros() -> Arc<FxHashMap<InternedString, SteelMacro>> {
     if cfg!(feature = "sync") {
         STATIC_DEFAULT_PRELUDE_MACROS.get().cloned().unwrap_or(
@@ -482,6 +532,21 @@ pub(crate) fn default_prelude_macros() -> Arc<FxHashMap<InternedString, SteelMac
     }
 }
 
+#[cfg(not(feature = "std"))]
+pub(crate) fn default_prelude_macros() -> Arc<FxHashMap<InternedString, SteelMacro>> {
+    fn load(
+        storage: &Mutex<Option<Arc<FxHashMap<InternedString, SteelMacro>>>>,
+    ) -> Option<Arc<FxHashMap<InternedString, SteelMacro>>> {
+        let guard = storage.lock().expect("prelude macros mutex poisoned");
+        guard.as_ref().cloned()
+    }
+
+    load(&DEFAULT_PRELUDE_MACROS_STORAGE)
+        .or_else(|| load(&DEFAULT_PRELUDE_MACROS_SANDBOX_STORAGE))
+        .unwrap_or_else(|| Arc::new(FxHashMap::default()))
+}
+
+#[cfg(feature = "std")]
 thread_local! {
     // TODO: Replace this with a once cell?
     pub(crate) static DEFAULT_PRELUDE_MACROS: RefCell<Arc<FxHashMap<InternedString, SteelMacro>>> = RefCell::new(Arc::new(HashMap::default()));
@@ -546,9 +611,9 @@ impl Engine {
     pub(crate) fn new_kernel(sandbox: bool) -> Self {
         log::debug!(target:"kernel", "Instantiating a new kernel");
         #[cfg(feature = "profiling")]
-        let mut total_time = std::time::Instant::now();
+        let mut total_time = Instant::now();
         #[cfg(feature = "profiling")]
-        let mut now = std::time::Instant::now();
+        let mut now = Instant::now();
         let sources = Sources::new();
         let modules = ModuleContainer::with_expected_capacity();
 
@@ -581,7 +646,7 @@ impl Engine {
         // log::debug!(target: "kernel", "Registered modules in the kernel!: {:?}", now.elapsed());
 
         #[cfg(feature = "profiling")]
-        let mut now = std::time::Instant::now();
+        let mut now = Instant::now();
 
         let core_libraries = [crate::stdlib::PRELUDE];
 
@@ -750,11 +815,11 @@ impl Engine {
     //     // Set the syntax object id to be AFTER the previous items have been parsed
     //     SYNTAX_OBJECT_ID.store(
     //         bootstrap.syntax_object_id,
-    //         std::sync::atomic::Ordering::Relaxed,
+    //         core::sync::atomic::Ordering::Relaxed,
     //     );
 
     //     crate::compiler::code_gen::FUNCTION_ID
-    //         .store(bootstrap.function_id, std::sync::atomic::Ordering::Relaxed);
+    //         .store(bootstrap.function_id, core::sync::atomic::Ordering::Relaxed);
 
     //     vm.sources = bootstrap.sources;
     //     // vm.compiler.macro_env = bootstrap.macros;
@@ -771,10 +836,14 @@ impl Engine {
     // }
 
     /// Creates a statically linked program ready to deserialize
-    pub fn create_non_interactive_program_image<E: AsRef<str> + Into<Cow<'static, str>>>(
+    pub fn create_non_interactive_program_image<E, P>(
         expr: E,
-        path: PathBuf,
-    ) -> Result<NonInteractiveProgramImage> {
+        path: P,
+    ) -> Result<NonInteractiveProgramImage>
+    where
+        E: AsRef<str> + Into<Cow<'static, str>>,
+        P: Into<SteelPath>,
+    {
         let mut engine = Engine::new();
 
         engine
@@ -813,7 +882,7 @@ impl Engine {
     }
 
     // Create kernel bootstrap
-    // pub fn create_kernel_bootstrap_from_programs(output_path: PathBuf) {
+    // pub fn create_kernel_bootstrap_from_programs(output_path: Path) {
     //     let sources = Sources::new();
 
     //     let mut vm = Engine {
@@ -843,9 +912,9 @@ impl Engine {
     //     }
 
     //     // Grab the last value of the offset
-    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(core::sync::atomic::Ordering::Relaxed);
     //     let function_id =
-    //         crate::compiler::code_gen::FUNCTION_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //         crate::compiler::code_gen::FUNCTION_ID.load(core::sync::atomic::Ordering::Relaxed);
 
     //     let bootstrap = StartupBootstrapImage {
     //         syntax_object_id,
@@ -867,7 +936,7 @@ impl Engine {
     //     bincode::serialize_into(&mut f, &bootstrap).unwrap();
     // }
 
-    // pub fn create_new_engine_from_bootstrap(output_path: PathBuf) {
+    // pub fn create_new_engine_from_bootstrap(output_path: Path) {
     //     let sources = Sources::new();
     //     let mut vm = Engine {
     //         virtual_machine: SteelThread::new(sources.clone()),
@@ -921,9 +990,9 @@ impl Engine {
     //     }
 
     //     // Grab the last value of the offset
-    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(core::sync::atomic::Ordering::Relaxed);
     //     let function_id =
-    //         crate::compiler::code_gen::FUNCTION_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //         crate::compiler::code_gen::FUNCTION_ID.load(core::sync::atomic::Ordering::Relaxed);
 
     //     let kernel_sources = top_level_engine
     //         .compiler
@@ -999,11 +1068,11 @@ impl Engine {
     //     // Set the syntax object id to be AFTER the previous items have been parsed
     //     SYNTAX_OBJECT_ID.store(
     //         bootstrap.syntax_object_id,
-    //         std::sync::atomic::Ordering::Relaxed,
+    //         core::sync::atomic::Ordering::Relaxed,
     //     );
 
     //     crate::compiler::code_gen::FUNCTION_ID
-    //         .store(bootstrap.function_id, std::sync::atomic::Ordering::Relaxed);
+    //         .store(bootstrap.function_id, core::sync::atomic::Ordering::Relaxed);
 
     //     let bootstrap_kernel = bootstrap.kernel.unwrap();
 
@@ -1084,7 +1153,7 @@ impl Engine {
 
     //         // Could fail here
     //         let parsed: Vec<ExprKind> = Parser::new(source, Some(id))
-    //             .collect::<std::result::Result<_, _>>()
+    //             .collect::<core::result::Result<_, _>>()
     //             .unwrap();
 
     //         asts.push(parsed.clone());
@@ -1093,7 +1162,7 @@ impl Engine {
     //     }
 
     //     // Grab the last value of the offset
-    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(std::sync::atomic::Ordering::Relaxed);
+    //     let syntax_object_id = SYNTAX_OBJECT_ID.load(core::sync::atomic::Ordering::Relaxed);
 
     //     let bootstrap = BootstrapImage {
     //         interner: take_interner(),
@@ -1112,10 +1181,12 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new_raw();
     /// assert!(vm.run("(+ 1 2 3").is_err()); // + is a free identifier
+    /// # }
     /// ```
     pub fn new_raw() -> Self {
         let sources = Sources::new();
@@ -1158,11 +1229,13 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new_base();
     /// // map is found in the prelude, so this will fail
     /// assert!(vm.run(r#"(map (lambda (x) 10) (list 1 2 3 4 5))"#).is_err());
+    /// # }
     /// ```
     #[inline]
     pub fn new_base() -> Self {
@@ -1189,7 +1262,7 @@ impl Engine {
         engine.virtual_machine.compiler.write().kernel = Some(Kernel::new());
 
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = Instant::now();
 
         if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
             raise_error(&engine.virtual_machine.compiler.read().sources, e);
@@ -1279,7 +1352,7 @@ impl Engine {
     ) -> LifetimeGuard<'a> {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
-            std::any::TypeId::of::<EXT>()
+            core::any::TypeId::of::<EXT>()
         );
 
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
@@ -1300,7 +1373,7 @@ impl Engine {
     ) -> LifetimeGuard<'a> {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
-            std::any::TypeId::of::<EXT>()
+            core::any::TypeId::of::<EXT>()
         );
 
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_rw_object::<T, EXT>(
@@ -1345,7 +1418,7 @@ impl Engine {
         obj: &'a mut T,
         bind_to: &'a str,
         script: &'a str,
-        path: PathBuf,
+        path: SteelPath,
     ) -> Result<SteelVal> {
         self.with_mut_reference(obj).consume(move |engine, args| {
             let mut args = args.into_iter();
@@ -1402,10 +1475,12 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new();
     /// vm.run(r#"(+ 1 2 3)"#).unwrap();
+    /// # }
     /// ```
     pub fn new() -> Self {
         let mut engine = fresh_kernel_image(false);
@@ -1415,7 +1490,7 @@ impl Engine {
         }
 
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = Instant::now();
 
         if let Err(e) = engine.run(PRELUDE_WITHOUT_BASE) {
             raise_error(&engine.virtual_machine.compiler.read().sources, e);
@@ -1433,7 +1508,7 @@ impl Engine {
     /// By default, the engine will search $STEEL_HOME/cogs for modules,
     /// but any additional path added this way will increase the module
     /// resolution search space.
-    pub fn add_search_directory(&mut self, dir: PathBuf) {
+    pub fn add_search_directory(&mut self, dir: impl Into<SteelPath>) {
         self.virtual_machine
             .compiler
             .write()
@@ -1454,10 +1529,12 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new_base().with_prelude().unwrap();
     /// vm.run("(+ 1 2 3)").unwrap();
+    /// # }
     /// ```
     pub fn with_prelude(mut self) -> Result<Self> {
         let core_libraries = &[crate::stdlib::PRELUDE];
@@ -1475,11 +1552,13 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new_base();
     /// vm.register_prelude().unwrap();
     /// vm.run("(+ 1 2 3)").unwrap();
+    /// # }
     /// ```
     pub fn register_prelude(&mut self) -> Result<&mut Self> {
         let core_libraries = &[crate::stdlib::PRELUDE];
@@ -1534,16 +1613,17 @@ impl Engine {
         })
     }
 
-    pub fn emit_raw_program<E: AsRef<str> + Into<Cow<'static, str>>>(
-        &mut self,
-        expr: E,
-        path: PathBuf,
-    ) -> Result<RawProgramWithSymbols> {
+    pub fn emit_raw_program<E, P>(&mut self, expr: E, path: P) -> Result<RawProgramWithSymbols>
+    where
+        E: AsRef<str> + Into<Cow<'static, str>>,
+        P: Into<SteelPath>,
+    {
+        let path = path.into();
         self.with_sources_guard(|| {
             self.virtual_machine
                 .compiler
                 .write()
-                .compile_executable(expr, Some(path))
+                .compile_executable(expr, Some(path.clone()))
         })
     }
 
@@ -1652,20 +1732,24 @@ impl Engine {
         }
     }
 
-    pub fn expand_to_file<E: AsRef<str> + Into<Cow<'static, str>>>(
-        &mut self,
-        exprs: E,
-        path: PathBuf,
-    ) {
+    #[cfg(feature = "std")]
+    pub fn expand_to_file<E, P>(&mut self, exprs: E, path: P)
+    where
+        E: AsRef<str> + Into<Cow<'static, str>>,
+        P: Into<SteelPath>,
+    {
+        let exprs = exprs.into();
+        let path = path.into();
         self.with_sources_guard(|| {
             self.virtual_machine
                 .compiler
                 .write()
-                .fully_expand_to_file(exprs, Some(path))
+                .fully_expand_to_file(exprs.clone(), Some(path.clone()))
                 .unwrap()
         });
     }
 
+    #[cfg(feature = "std")]
     pub fn load_from_expanded_file(&mut self, path: &str) {
         let program = self.with_sources_guard(|| {
             self.virtual_machine
@@ -1679,16 +1763,22 @@ impl Engine {
     }
 
     // TODO -> clean up this API a lot
-    pub fn compile_and_run_raw_program_with_path<E: AsRef<str> + Into<Cow<'static, str>>>(
+    pub fn compile_and_run_raw_program_with_path<E, P>(
         &mut self,
         exprs: E,
-        path: PathBuf,
-    ) -> Result<Vec<SteelVal>> {
+        path: P,
+    ) -> Result<Vec<SteelVal>>
+    where
+        E: AsRef<str> + Into<Cow<'static, str>>,
+        P: Into<SteelPath>,
+    {
+        let exprs = exprs.into();
+        let path = path.into();
         let program = self.with_sources_guard(|| {
             self.virtual_machine
                 .compiler
                 .write()
-                .compile_executable(exprs, Some(path))
+                .compile_executable(exprs.clone(), Some(path.clone()))
         })?;
 
         self.run_raw_program(program)
@@ -1727,7 +1817,7 @@ impl Engine {
         let symbol_map_offset = self.virtual_machine.compiler.read().symbol_map.len();
 
         let result = program.build(
-            "TestProgram".to_string(),
+            "TestProgram".into(),
             &mut self.virtual_machine.compiler.write().symbol_map,
         );
 
@@ -1895,13 +1985,14 @@ impl Engine {
     pub fn emit_expanded_ast(
         &mut self,
         expr: &str,
-        path: Option<PathBuf>,
+        path: impl Into<Option<SteelPath>>,
     ) -> Result<Vec<ExprKind>> {
+        let path: Option<SteelPath> = path.into();
         self.with_sources_guard(|| {
             self.virtual_machine
                 .compiler
                 .write()
-                .emit_expanded_ast(expr, path)
+                .emit_expanded_ast(expr, path.clone())
         })
     }
 
@@ -1919,13 +2010,14 @@ impl Engine {
     pub fn emit_expanded_ast_without_optimizations(
         &mut self,
         expr: &str,
-        path: Option<PathBuf>,
+        path: impl Into<Option<SteelPath>>,
     ) -> Result<Vec<ExprKind>> {
+        let path: Option<SteelPath> = path.into();
         self.with_sources_guard(|| {
             self.virtual_machine
                 .compiler
                 .write()
-                .emit_expanded_ast_without_optimizations(expr, path)
+                .emit_expanded_ast_without_optimizations(expr, path.clone())
         })
     }
 
@@ -1936,7 +2028,7 @@ impl Engine {
     }
 
     pub fn emit_ast(expr: &str) -> Result<Vec<ExprKind>> {
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
             Parser::new(expr, SourceId::none()).collect();
         Ok(parsed?)
     }
@@ -1945,14 +2037,15 @@ impl Engine {
     pub fn emit_fully_expanded_ast_to_string(
         &mut self,
         expr: &str,
-        path: Option<PathBuf>,
+        path: impl Into<Option<SteelPath>>,
     ) -> Result<String> {
+        let path: Option<SteelPath> = path.into();
         self.with_sources_guard(|| {
             Ok(self
                 .virtual_machine
                 .compiler
                 .write()
-                .emit_expanded_ast(expr, path)?
+                .emit_expanded_ast(expr, path.clone())?
                 .into_iter()
                 .map(|x| x.to_pretty(60))
                 .join("\n\n"))
@@ -1963,13 +2056,14 @@ impl Engine {
     pub fn emit_fully_expanded_ast(
         &mut self,
         expr: &str,
-        path: Option<PathBuf>,
+        path: impl Into<Option<SteelPath>>,
     ) -> Result<Vec<ExprKind>> {
+        let path: Option<SteelPath> = path.into();
         self.with_sources_guard(|| {
             self.virtual_machine
                 .compiler
                 .write()
-                .emit_expanded_ast(expr, path)
+                .emit_expanded_ast(expr, path.clone())
         })
     }
 
@@ -1980,12 +2074,14 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new();
-    /// let external_value = "hello-world".to_string();
+    /// let external_value = String::from("hello-world");
     /// vm.register_external_value("hello-world", external_value).unwrap();
     /// vm.run("hello-world").unwrap(); // Will return the string
+    /// # }
     /// ```
     pub fn register_external_value<T: FromSteelVal + IntoSteelVal>(
         &mut self,
@@ -2000,14 +2096,16 @@ impl Engine {
     ///
     /// # Examples
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// use steel::rvals::SteelVal;
     ///
     /// let mut vm = Engine::new();
-    /// let external_value = SteelVal::StringV("hello-world".to_string().into());
+    /// let external_value = SteelVal::StringV("hello-world".into());
     /// vm.register_value("hello-world", external_value);
     /// vm.run("hello-world").unwrap(); // Will return the string
+    /// # }
     /// ```
     pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
         self.register_value_inner(name, value)
@@ -2038,6 +2136,7 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// use steel::steel_vm::register_fn::RegisterFn;
@@ -2049,6 +2148,7 @@ impl Engine {
     /// vm.register_fn("foo", foo);
     ///
     /// vm.run(r#"(foo)"#).unwrap(); // Returns vec![10]
+    /// # }
     /// ```
     pub fn register_type<T: FromSteelVal + IntoSteelVal>(
         &mut self,
@@ -2084,12 +2184,14 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// use steel::rvals::SteelVal;
     /// let mut vm = Engine::new();
     /// vm.run("(define a 10)").unwrap();
     /// assert_eq!(vm.extract_value("a").unwrap(), SteelVal::IntV(10));
+    /// # }
     /// ```
     pub fn extract_value(&self, name: &str) -> Result<SteelVal> {
         let idx = self.virtual_machine.compiler.read().get_idx(name).ok_or_else(throw!(
@@ -2109,11 +2211,13 @@ impl Engine {
     /// # Examples
     ///
     /// ```
+    /// # #[cfg(feature = "std")] {
     /// # extern crate steel;
     /// # use steel::steel_vm::engine::Engine;
     /// let mut vm = Engine::new();
     /// vm.run("(define a 10)").unwrap();
     /// assert_eq!(vm.extract::<usize>("a").unwrap(), 10);
+    /// # }
     /// ```
     pub fn extract<T: FromSteelVal>(&self, name: &str) -> Result<T> {
         T::from_steelval(&self.extract_value(name)?)
@@ -2136,17 +2240,26 @@ impl Engine {
             .compile_module(path.into(), self.modules.clone())
     }
 
-    pub fn modules(&self) -> MappedRwLockReadGuard<'_, crate::HashMap<PathBuf, CompiledModule>> {
+    pub fn modules(&self) -> MappedRwLockReadGuard<'_, crate::HashMap<SteelPath, CompiledModule>> {
         RwLockReadGuard::map(self.virtual_machine.compiler.read(), |x| x.modules())
     }
 
-    pub fn module_metadata(&self) -> crate::HashMap<PathBuf, std::time::SystemTime> {
-        self.virtual_machine
-            .compiler
-            .read()
-            .module_manager
-            .file_metadata
-            .clone()
+    pub fn module_metadata(&self) -> crate::HashMap<PathBuf, time::SystemTime> {
+        #[cfg(feature = "std")]
+        {
+            return self
+                .virtual_machine
+                .compiler
+                .read()
+                .module_manager
+                .file_metadata
+                .clone();
+        }
+
+        #[cfg(not(feature = "std"))]
+        {
+            crate::collections::HashMap::default()
+        }
     }
 
     pub fn global_exists(&self, ident: &str) -> bool {
@@ -2181,20 +2294,24 @@ impl Engine {
     }
 
     // TODO: Re-implement the module path expansion
-    pub fn get_module(&self, path: PathBuf) -> Result<SteelVal> {
+    pub fn get_module(&self, path: SteelPath) -> Result<SteelVal> {
         let module_path = path_to_module_name(path);
         self.extract_value(&module_path)
     }
 
-    pub fn get_source_id(&self, path: &Path) -> Option<SourceId> {
+    pub fn get_source_id<T>(&self, path: T) -> Option<SourceId>
+    where
+        T: Into<SteelPath>,
+    {
+        let owned: SteelPath = path.into();
         self.virtual_machine
             .compiler
             .read()
             .sources
-            .get_source_id(path)
+            .get_source_id(owned)
     }
 
-    pub fn get_path_for_source_id(&self, source_id: &SourceId) -> Option<PathBuf> {
+    pub fn get_path_for_source_id(&self, source_id: &SourceId) -> Option<SteelPath> {
         self.virtual_machine
             .compiler
             .read()
@@ -2219,7 +2336,7 @@ impl Engine {
         match self.virtual_machine.compiler.read().get_doc(value)? {
             crate::compiler::compiler::StringOrSteelString::String(s) => Some(s),
             crate::compiler::compiler::StringOrSteelString::SteelString(steel_string) => {
-                Some(steel_string.as_str().to_string())
+                Some(steel_string.as_str().into())
             }
         }
     }
@@ -2228,8 +2345,8 @@ impl Engine {
 // #[cfg(test)]
 // mod on_progress_tests {
 //     use super::*;
-//     use std::cell::Cell;
-//     use std::rc::Rc;
+//     use core::cell::Cell;
+//     use alloc::rc::Rc;
 
 //     // TODO: At the moment the on progress business is turned off
 
@@ -2311,7 +2428,10 @@ fn raise_error(sources: &Sources, error: SteelErr) {
         }
     }
 
+    #[cfg(feature = "std")]
     println!("Unable to locate source and span information for this error: {error}");
+    #[cfg(not(feature = "std"))]
+    let _ = error;
 }
 
 // If we are to construct an error object, emit that
@@ -2387,7 +2507,7 @@ impl EngineBuilder {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod engine_api_tests {
     use crate::custom_reference;
 
@@ -2486,7 +2606,7 @@ mod engine_api_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod engine_sandbox_tests {
     use super::*;
 
@@ -2500,7 +2620,7 @@ mod engine_sandbox_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod derive_macro_tests {
     use super::*;
 
@@ -2574,6 +2694,7 @@ mod derive_macro_tests {
     }
 }
 
+#[cfg(all(test, feature = "std"))]
 #[test]
 fn test_steel_quote_macro() {
     let foobarbaz = ExprKind::atom("foo");

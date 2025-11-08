@@ -1,5 +1,16 @@
+#![cfg_attr(
+    not(feature = "std"),
+    allow(dead_code, unused_imports, unused_variables)
+)]
+
 pub mod cycles;
 
+#[cfg(not(feature = "std"))]
+use crate::values::functions::SerializedLambda;
+#[cfg(feature = "std")]
+use crate::values::port::{SendablePort, SteelPort};
+#[cfg(feature = "std")]
+use crate::values::SteelPortRepr;
 use crate::{
     gc::{
         shared::{
@@ -17,22 +28,20 @@ use crate::{
     },
     primitives::numbers::realp,
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::vm::{
-        threads::closure_into_serializable, BuiltInSignature, Continuation, ContinuationMark,
-    },
     values::{
         closed::{Heap, HeapRef, MarkAndSweepContext},
         functions::{BoxedDynFunction, ByteCodeLambda},
         lazy_stream::LazyStream,
         lists::Pair,
-        port::{SendablePort, SteelPort},
         structs::{SerializableUserDefinedStruct, UserDefinedStruct},
         transducers::{Reducer, Transducer},
-        HashMapConsumingIter, HashSetConsumingIter, SteelPortRepr, VectorConsumingIter,
     },
 };
-use std::vec::IntoIter;
-use std::{
+use alloc::string::ToString;
+use alloc::{
+    borrow::ToOwned, boxed::Box, format, rc::Rc, string::String, sync::Arc, vec::IntoIter, vec::Vec,
+};
+use core::{
     any::{Any, TypeId},
     cell::RefCell,
     cmp::Ordering,
@@ -40,14 +49,22 @@ use std::{
     fmt,
     future::Future,
     hash::{Hash, Hasher},
-    io::Write,
     ops::Deref,
     pin::Pin,
-    rc::Rc,
     result,
-    sync::{Arc, Mutex},
     task::Context,
 };
+#[cfg(feature = "std")]
+use std::io::Write;
+
+#[cfg(feature = "std")]
+use crate::sync::Mutex;
+
+#[cfg(feature = "sync")]
+use crate::steel_vm::vm::ContinuationMark;
+
+#[cfg(feature = "sync")]
+use crate::sync::RwLock;
 
 // TODO
 #[macro_export]
@@ -70,16 +87,22 @@ macro_rules! list {
 }
 
 use bigdecimal::BigDecimal;
-use parking_lot::RwLock;
 use smallvec::SmallVec;
 use SteelVal::*;
 
-use crate::values::{HashMap, HashSet, Vector};
+use crate::collections::{
+    HashMap, HashMapConsumingIter, HashSet, HashSetConsumingIter, MutableHashMap, MutableHashSet,
+    Vector, VectorConsumingIter,
+};
 
 use futures_task::noop_waker_ref;
 use futures_util::future::Shared;
 use futures_util::FutureExt;
 
+#[cfg(feature = "std")]
+use crate::steel_vm::vm::{threads::closure_into_serializable, BuiltInSignature, Continuation};
+#[cfg(not(feature = "std"))]
+use crate::steel_vm::vm::{BuiltInSignature, Continuation};
 use crate::values::lists::List;
 use num_bigint::{BigInt, ToBigInt};
 use num_rational::{BigRational, Rational32};
@@ -112,6 +135,30 @@ pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<SteelVal>>>>;
 
 #[cfg(feature = "sync")]
 pub type BoxedFutureResult = Pin<Box<dyn Future<Output = Result<SteelVal>> + Send + 'static>>;
+
+#[cfg(not(feature = "std"))]
+fn closure_into_serializable(
+    c: &ByteCodeLambda,
+    serializer: &mut MutableHashMap<usize, SerializableSteelVal>,
+    visited: &mut MutableHashSet<usize>,
+) -> Result<SerializedLambda> {
+    let captures = c
+        .captures
+        .iter()
+        .cloned()
+        .map(|x| into_serializable_value(x, serializer, visited))
+        .collect::<Result<Vec<_>>>()?;
+
+    let body_exp = c.body_exp().iter().cloned().collect();
+
+    Ok(SerializedLambda {
+        id: c.id,
+        body_exp,
+        arity: c.arity as usize,
+        is_multi_arity: c.is_multi_arity,
+        captures,
+    })
+}
 
 // TODO: Why can't I put sync here?
 // #[cfg(feature = "sync")]
@@ -148,8 +195,8 @@ pub(crate) fn poll_future(mut fut: Shared<BoxedFutureResult>) -> Option<Result<S
     let mut_fut = Pin::new(&mut fut);
 
     match Future::poll(mut_fut, context) {
-        std::task::Poll::Ready(r) => Some(r),
-        std::task::Poll::Pending => None,
+        core::task::Poll::Ready(r) => Some(r),
+        core::task::Poll::Pending => None,
     }
 }
 
@@ -163,7 +210,7 @@ pub fn as_underlying_type_mut<T: 'static>(value: &mut dyn CustomType) -> Option<
 }
 
 pub trait Custom: private::Sealed {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         None
     }
 
@@ -200,7 +247,7 @@ pub trait Custom: private::Sealed {
     }
 
     #[doc(hidden)]
-    fn into_error(self) -> std::result::Result<SteelErr, Self>
+    fn into_error(self) -> core::result::Result<SteelErr, Self>
     where
         Self: Sized,
     {
@@ -238,10 +285,10 @@ pub trait CustomType: MaybeSendSyncStatic {
     fn as_any_ref(&self) -> &dyn Any;
     fn as_any_ref_mut(&mut self) -> &mut dyn Any;
     fn name(&self) -> &str {
-        std::any::type_name::<Self>()
+        core::any::type_name::<Self>()
     }
     fn inner_type_id(&self) -> TypeId;
-    fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+    fn display(&self) -> core::result::Result<String, core::fmt::Error> {
         Ok(format!("#<{}>", self.name()))
     }
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
@@ -265,7 +312,7 @@ pub trait CustomType: MaybeSendSyncStatic {
     }
 
     #[doc(hidden)]
-    fn into_error_(self) -> std::result::Result<SteelErr, Self>
+    fn into_error_(self) -> core::result::Result<SteelErr, Self>
     where
         Self: Sized,
     {
@@ -278,10 +325,10 @@ pub trait CustomType {
     fn as_any_ref(&self) -> &dyn Any;
     fn as_any_ref_mut(&mut self) -> &mut dyn Any;
     fn name(&self) -> &str {
-        std::any::type_name::<Self>()
+        core::any::type_name::<Self>()
     }
     fn inner_type_id(&self) -> TypeId;
-    fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+    fn display(&self) -> core::result::Result<String, core::fmt::Error> {
         Ok(format!("#<{}>", self.name()))
     }
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
@@ -303,7 +350,7 @@ pub trait CustomType {
     }
 
     #[doc(hidden)]
-    fn into_error_(self) -> std::result::Result<SteelErr, Self>
+    fn into_error_(self) -> core::result::Result<SteelErr, Self>
     where
         Self: Sized,
     {
@@ -319,9 +366,9 @@ impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
         self as &mut dyn Any
     }
     fn inner_type_id(&self) -> TypeId {
-        std::any::TypeId::of::<Self>()
+        core::any::TypeId::of::<Self>()
     }
-    fn display(&self) -> std::result::Result<String, std::fmt::Error> {
+    fn display(&self) -> core::result::Result<String, core::fmt::Error> {
         if let Some(formatted) = self.fmt() {
             formatted
         } else {
@@ -354,7 +401,7 @@ impl<T: Custom + MaybeSendSyncStatic> CustomType for T {
         self.equality_hint_general(other)
     }
 
-    fn into_error_(self) -> std::result::Result<SteelErr, Self>
+    fn into_error_(self) -> core::result::Result<SteelErr, Self>
     where
         Self: Sized,
     {
@@ -372,7 +419,7 @@ impl<T: CustomType + 'static> IntoSteelVal for T {
         Ok(SteelVal::Custom(Gc::new_mut(Box::new(self))))
     }
 
-    fn as_error(self) -> std::result::Result<SteelErr, Self> {
+    fn as_error(self) -> core::result::Result<SteelErr, Self> {
         T::into_error_(self)
     }
 }
@@ -389,7 +436,7 @@ impl<T: CustomType + Clone + Send + Sync + 'static> IntoSerializableSteelVal for
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {:?}, did not match the given type: {}",
                     val,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
                 SteelErr::new(ErrorKind::ConversionError, error_message)
             });
@@ -399,7 +446,7 @@ impl<T: CustomType + Clone + Send + Sync + 'static> IntoSerializableSteelVal for
             let error_message = format!(
                 "Type Mismatch: Type of SteelVal: {:?} did not match the given type, expecting opaque struct: {}",
                 val,
-                std::any::type_name::<Self>()
+                core::any::type_name::<Self>()
             );
 
             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -420,7 +467,7 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {:?}, did not match the given type: {}",
                     val,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
                 SteelErr::new(ErrorKind::ConversionError, error_message)
             })
@@ -428,7 +475,7 @@ impl<T: CustomType + Clone + 'static> FromSteelVal for T {
             let error_message = format!(
                 "Type Mismatch: Type of SteelVal: {:?} did not match the given type, expecting opaque struct: {}",
                 val,
-                std::any::type_name::<Self>()
+                core::any::type_name::<Self>()
             );
 
             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -445,7 +492,7 @@ pub trait IntoSteelVal: Sized {
     fn into_steelval(self) -> Result<SteelVal>;
 
     #[doc(hidden)]
-    fn as_error(self) -> std::result::Result<SteelErr, Self> {
+    fn as_error(self) -> core::result::Result<SteelErr, Self> {
         Err(self)
     }
 }
@@ -470,12 +517,12 @@ pub trait PrimitiveAsRefMut<'a>: Sized {
 }
 
 pub struct RestArgsIter<'a, T>(
-    pub std::iter::Map<std::slice::Iter<'a, SteelVal>, fn(&'a SteelVal) -> Result<T>>,
+    pub core::iter::Map<core::slice::Iter<'a, SteelVal>, fn(&'a SteelVal) -> Result<T>>,
 );
 
 impl<'a, T: PrimitiveAsRef<'a> + 'a> RestArgsIter<'a, T> {
     pub fn new(
-        args: std::iter::Map<std::slice::Iter<'a, SteelVal>, fn(&'a SteelVal) -> Result<T>>,
+        args: core::iter::Map<core::slice::Iter<'a, SteelVal>, fn(&'a SteelVal) -> Result<T>>,
     ) -> Self {
         RestArgsIter(args)
     }
@@ -514,7 +561,7 @@ impl<T: FromSteelVal> RestArgs<T> {
     }
 }
 
-impl<T: FromSteelVal> std::ops::Deref for RestArgs<T> {
+impl<T: FromSteelVal> core::ops::Deref for RestArgs<T> {
     type Target = [T];
 
     fn deref(&self) -> &Self::Target {
@@ -524,7 +571,7 @@ impl<T: FromSteelVal> std::ops::Deref for RestArgs<T> {
 
 mod private {
 
-    use std::any::Any;
+    use core::any::Any;
 
     pub trait Sealed {}
 
@@ -601,7 +648,8 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefSteelVal for T {
 
     fn as_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<SRef<'b, Self>> {
         if let SteelVal::Custom(v) = val {
-            let res = ScopedReadContainer::map(v.read(), |x| x.as_any_ref());
+            let res: MappedScopedReadContainer<'_, dyn Any> =
+                ScopedReadContainer::map(v.read(), |x| x.as_any_ref());
 
             if res.is::<T>() {
                 Ok(SRef::Owned(MappedScopedReadContainer::map(res, |x| {
@@ -611,7 +659,7 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefSteelVal for T {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                     val,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
             }
@@ -620,7 +668,7 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefSteelVal for T {
             let error_message = format!(
                 "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                 val,
-                std::any::type_name::<Self>()
+                core::any::type_name::<Self>()
             );
 
             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -631,7 +679,8 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefSteelVal for T {
 impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
     fn as_mut_ref<'b, 'a: 'b>(val: &'a SteelVal) -> Result<MappedScopedWriteContainer<'b, Self>> {
         if let SteelVal::Custom(v) = val {
-            let res = ScopedWriteContainer::map(v.write(), |x| x.as_any_ref_mut());
+            let res: MappedScopedWriteContainer<'_, dyn Any> =
+                ScopedWriteContainer::map(v.write(), |x| x.as_any_ref_mut());
 
             if res.is::<T>() {
                 Ok(MappedScopedWriteContainer::map(res, |x| {
@@ -641,7 +690,7 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
                 let error_message = format!(
                     "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                     val,
-                    std::any::type_name::<Self>()
+                    core::any::type_name::<Self>()
                 );
                 Err(SteelErr::new(ErrorKind::ConversionError, error_message))
             }
@@ -650,7 +699,7 @@ impl<T: CustomType + MaybeSendSyncStatic> AsRefMutSteelVal for T {
             let error_message = format!(
                 "Type Mismatch: Type of SteelVal: {} did not match the given type: {}",
                 val,
-                std::any::type_name::<Self>()
+                core::any::type_name::<Self>()
             );
 
             Err(SteelErr::new(ErrorKind::ConversionError, error_message))
@@ -709,7 +758,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
                     match maybe_special_form {
                         Some(x) if x.as_str() == "quote" => {
                             if self.quoted {
-                                let items: std::result::Result<Vec<ExprKind>, _> =
+                                let items: core::result::Result<Vec<ExprKind>, _> =
                                     l.iter().map(|x| self.visit(x)).collect();
 
                                 return Ok(ExprKind::List(ast::List::new(items?)));
@@ -720,7 +769,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
                             let return_value = l
                                 .into_iter()
                                 .map(|x| self.visit(x))
-                                .collect::<std::result::Result<Vec<_>, _>>()?
+                                .collect::<core::result::Result<Vec<_>, _>>()?
                                 .try_into()?;
 
                             self.quoted = false;
@@ -738,7 +787,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
 
                 Ok(l.into_iter()
                     .map(|x| self.visit(x))
-                    .collect::<std::result::Result<Vec<_>, _>>()?
+                    .collect::<core::result::Result<Vec<_>, _>>()?
                     .try_into()?)
             }
 
@@ -939,6 +988,7 @@ pub enum SerializableSteelVal {
     CustomStruct(SerializableUserDefinedStruct),
     // Attempt to reuse the storage if possible
     HeapAllocated(usize),
+    #[cfg(feature = "std")]
     Port(SendablePort),
     Rational(Rational32),
 }
@@ -950,13 +1000,13 @@ pub enum SerializedHeapRef {
 
 pub struct HeapSerializer<'a> {
     pub heap: &'a mut Heap,
-    pub fake_heap: &'a mut std::collections::HashMap<usize, SerializedHeapRef>,
+    pub fake_heap: &'a mut MutableHashMap<usize, SerializedHeapRef>,
     // After the conversion, we go back through, and patch the values from the fake heap
     // in to each of the values listed here - otherwise, we'll miss cycles
-    pub values_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<SteelVal>>,
+    pub values_to_fill_in: &'a mut MutableHashMap<usize, HeapRef<SteelVal>>,
 
     // Cache the functions that get built
-    pub built_functions: &'a mut std::collections::HashMap<u32, Gc<ByteCodeLambda>>,
+    pub built_functions: &'a mut MutableHashMap<u32, Gc<ByteCodeLambda>>,
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
@@ -1039,6 +1089,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                 type_descriptor: s.type_descriptor,
             }))
         }
+        #[cfg(feature = "std")]
         SerializableSteelVal::Port(p) => SteelVal::PortV(SteelPort::from_sendable_port(p)),
         SerializableSteelVal::HeapAllocated(v) => {
             // todo!()
@@ -1046,7 +1097,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             if let Some(mut guard) = ctx.fake_heap.get_mut(&v) {
                 match &mut guard {
                     SerializedHeapRef::Serialized(value) => {
-                        let value = std::mem::take(value);
+                        let value = core::mem::take(value);
 
                         if let Some(value) = value {
                             let _ = from_serializable_value(ctx, value);
@@ -1109,8 +1160,8 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
 // TODO: Use the cycle detector instead
 pub fn into_serializable_value(
     val: SteelVal,
-    serialized_heap: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-    visited: &mut std::collections::HashSet<usize>,
+    serialized_heap: &mut MutableHashMap<usize, SerializableSteelVal>,
+    visited: &mut MutableHashSet<usize>,
 ) -> Result<SerializableSteelVal> {
     // dbg!(&serialized_heap);
 
@@ -1169,6 +1220,7 @@ pub fn into_serializable_value(
             },
         )),
 
+        #[cfg(feature = "std")]
         SteelVal::PortV(p) => SendablePort::from_port(p).map(SerializableSteelVal::Port),
 
         // If there is a cycle, this could cause problems?
@@ -1269,6 +1321,27 @@ impl Hash for SteelHashMap {
     }
 }
 
+#[cfg(not(feature = "imbl"))]
+impl Hash for SteelHashMap {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        let mut entry_hashes = Vec::with_capacity(self.len());
+        for (key, value) in self.iter() {
+            let mut entry_hasher = SimpleHasher::new();
+            key.hash(&mut entry_hasher);
+            value.hash(&mut entry_hasher);
+            entry_hashes.push(entry_hasher.finish());
+        }
+        entry_hashes.sort_unstable();
+        state.write_usize(entry_hashes.len());
+        for hash in entry_hashes {
+            state.write_u64(hash);
+        }
+    }
+}
+
 impl Deref for SteelHashMap {
     type Target = HashMap<SteelVal, SteelVal>;
 
@@ -1280,6 +1353,12 @@ impl Deref for SteelHashMap {
 impl From<Gc<HashMap<SteelVal, SteelVal>>> for SteelHashMap {
     fn from(value: Gc<HashMap<SteelVal, SteelVal>>) -> Self {
         SteelHashMap(value)
+    }
+}
+
+impl AsRef<HashMap<SteelVal, SteelVal>> for SteelHashMap {
+    fn as_ref(&self) -> &HashMap<SteelVal, SteelVal> {
+        self.0.as_ref()
     }
 }
 
@@ -1298,6 +1377,62 @@ impl Hash for SteelHashSet {
     }
 }
 
+#[cfg(not(feature = "imbl"))]
+#[derive(Clone, Copy)]
+struct SimpleHasher(u64);
+
+#[cfg(not(feature = "imbl"))]
+impl SimpleHasher {
+    #[inline]
+    fn new() -> Self {
+        Self(0xcbf29ce484222325)
+    }
+}
+
+#[cfg(not(feature = "imbl"))]
+impl Default for SimpleHasher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(not(feature = "imbl"))]
+impl Hasher for SimpleHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        const FNV_PRIME: u64 = 0x100000001b3;
+        for byte in bytes {
+            self.0 ^= u64::from(*byte);
+            self.0 = self.0.wrapping_mul(FNV_PRIME);
+        }
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+#[cfg(not(feature = "imbl"))]
+impl Hash for SteelHashSet {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        let mut entry_hashes = Vec::with_capacity(self.len());
+        for value in self.iter() {
+            let mut entry_hasher = SimpleHasher::new();
+            value.hash(&mut entry_hasher);
+            entry_hashes.push(entry_hasher.finish());
+        }
+        entry_hashes.sort_unstable();
+        state.write_usize(entry_hashes.len());
+        for hash in entry_hashes {
+            state.write_u64(hash);
+        }
+    }
+}
+
 impl Deref for SteelHashSet {
     type Target = HashSet<SteelVal>;
 
@@ -1309,6 +1444,12 @@ impl Deref for SteelHashSet {
 impl From<Gc<HashSet<SteelVal>>> for SteelHashSet {
     fn from(value: Gc<HashSet<SteelVal>>) -> Self {
         SteelHashSet(value)
+    }
+}
+
+impl AsRef<HashSet<SteelVal>> for SteelHashSet {
+    fn as_ref(&self) -> &HashSet<SteelVal> {
+        self.0.as_ref()
     }
 }
 
@@ -1362,6 +1503,7 @@ pub enum SteelVal {
     /// Represents a scheme-only struct
     CustomStruct(Gc<UserDefinedStruct>),
     /// Represents a port object
+    #[cfg(feature = "std")]
     PortV(SteelPort),
     /// Generic iterator wrapper
     IterV(Gc<Transducer>),
@@ -1578,6 +1720,7 @@ impl fmt::Display for SteelComplex {
 
 impl SteelVal {
     // TODO: Re-evaluate this - should this be buffered?
+    #[cfg(feature = "std")]
     pub fn new_dyn_writer_port(port: impl Write + Send + Sync + 'static) -> SteelVal {
         SteelVal::PortV(SteelPort {
             port: Gc::new_mut(SteelPortRepr::DynWriter(Arc::new(Mutex::new(port)))),
@@ -1585,7 +1728,7 @@ impl SteelVal {
     }
 
     pub fn anonymous_boxed_function(
-        function: std::sync::Arc<
+        function: Arc<
             dyn Fn(&[SteelVal]) -> crate::rvals::Result<SteelVal> + Send + Sync + 'static,
         >,
     ) -> SteelVal {
@@ -1647,9 +1790,9 @@ impl SteelVal {
     //     match self {
     //         Self::CustomStruct(inner) => {
     //             if let Some(inner) = inner.get_mut() {
-    //                 std::mem::take(&mut inner.borrow_mut().fields)
+    //                 core::mem::take(&mut inner.borrow_mut().fields)
     //             } else {
-    //                 std::iter::empty()
+    //                 core::iter::empty()
     //             }
     //         }
     //         _ => todo!(),
@@ -1759,7 +1902,7 @@ impl From<Arc<String>> for SteelString {
 }
 
 #[cfg(all(feature = "sync", feature = "triomphe"))]
-impl From<std::sync::Arc<String>> for SteelString {
+impl From<Arc<String>> for SteelString {
     fn from(value: Arc<String>) -> Self {
         SteelString(Gc(triomphe::Arc::new((*value).clone())))
     }
@@ -1819,24 +1962,24 @@ impl From<SteelString> for Gc<String> {
     }
 }
 
-impl std::fmt::Display for SteelString {
+impl core::fmt::Display for SteelString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0.as_str())
     }
 }
 
-impl std::fmt::Debug for SteelString {
+impl core::fmt::Debug for SteelString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self.0.as_str())
     }
 }
 
 // Check that steel values aren't growing without us knowing
-const _ASSERT_SMALL: () = assert!(std::mem::size_of::<SteelVal>() <= 16);
+const _ASSERT_SMALL: () = assert!(core::mem::size_of::<SteelVal>() <= 16);
 
 #[test]
 fn check_size_of_steelval() {
-    assert_eq!(std::mem::size_of::<SteelVal>(), 16);
+    assert_eq!(core::mem::size_of::<SteelVal>(), 16);
 }
 
 pub struct Chunks {
@@ -1857,7 +2000,7 @@ pub struct OpaqueIterator {
 }
 
 impl Custom for OpaqueIterator {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         Some(Ok("#<iterator>".to_owned()))
     }
 }
@@ -1968,6 +2111,7 @@ impl SteelVal {
             (SteelVal::Custom(l), SteelVal::Custom(r)) => Gc::ptr_eq(l, r),
             (HashMapV(l), HashMapV(r)) => Gc::ptr_eq(&l.0, &r.0),
             (HashSetV(l), HashSetV(r)) => Gc::ptr_eq(&l.0, &r.0),
+            #[cfg(feature = "std")]
             (PortV(l), PortV(r)) => Gc::ptr_eq(&l.port, &r.port),
             (Closure(l), Closure(r)) => Gc::ptr_eq(l, r),
             (IterV(l), IterV(r)) => Gc::ptr_eq(l, r),
@@ -2184,7 +2328,7 @@ impl SteelVal {
     // }
 
     pub fn empty_hashmap() -> SteelVal {
-        SteelVal::HashMapV(Gc::new(HashMap::new()).into())
+        SteelVal::HashMapV(Gc::new(HashMap::<SteelVal, SteelVal>::default()).into())
     }
 }
 
@@ -2194,7 +2338,7 @@ impl SteelVal {
     pub fn list_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<&List<SteelVal>, E> {
+    ) -> core::result::Result<&List<SteelVal>, E> {
         match self {
             Self::ListV(v) => Ok(v),
             _ => Err(err()),
@@ -2215,28 +2359,28 @@ impl SteelVal {
         }
     }
 
-    pub fn bool_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<bool, E> {
+    pub fn bool_or_else<E, F: FnOnce() -> E>(&self, err: F) -> core::result::Result<bool, E> {
         match self {
             Self::BoolV(v) => Ok(*v),
             _ => Err(err()),
         }
     }
 
-    pub fn int_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<isize, E> {
+    pub fn int_or_else<E, F: FnOnce() -> E>(&self, err: F) -> core::result::Result<isize, E> {
         match self {
             Self::IntV(v) => Ok(*v),
             _ => Err(err()),
         }
     }
 
-    pub fn num_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<f64, E> {
+    pub fn num_or_else<E, F: FnOnce() -> E>(&self, err: F) -> core::result::Result<f64, E> {
         match self {
             Self::NumV(v) => Ok(*v),
             _ => Err(err()),
         }
     }
 
-    pub fn char_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<char, E> {
+    pub fn char_or_else<E, F: FnOnce() -> E>(&self, err: F) -> core::result::Result<char, E> {
         match self {
             Self::CharV(v) => Ok(*v),
             _ => Err(err()),
@@ -2247,21 +2391,21 @@ impl SteelVal {
     pub fn vector_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<Vector<SteelVal>, E> {
+    ) -> core::result::Result<Vector<SteelVal>, E> {
         match self {
             Self::VectorV(v) => Ok(v.0.unwrap()),
             _ => Err(err()),
         }
     }
 
-    pub fn void_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<(), E> {
+    pub fn void_or_else<E, F: FnOnce() -> E>(&self, err: F) -> core::result::Result<(), E> {
         match self {
             Self::Void => Ok(()),
             _ => Err(err()),
         }
     }
 
-    pub fn string_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
+    pub fn string_or_else<E, F: FnOnce() -> E>(&self, err: F) -> core::result::Result<&str, E> {
         match self {
             Self::StringV(v) => Ok(v),
             _ => Err(err()),
@@ -2271,7 +2415,7 @@ impl SteelVal {
     pub fn func_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<&FunctionSignature, E> {
+    ) -> core::result::Result<&FunctionSignature, E> {
         match self {
             Self::FuncV(v) => Ok(v),
             _ => Err(err()),
@@ -2281,7 +2425,7 @@ impl SteelVal {
     pub fn boxed_func_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<&BoxedDynFunction, E> {
+    ) -> core::result::Result<&BoxedDynFunction, E> {
         match self {
             Self::BoxedFunction(v) => Ok(v),
             _ => Err(err()),
@@ -2291,7 +2435,7 @@ impl SteelVal {
     // pub fn contract_or_else<E, F: FnOnce() -> E>(
     //     &self,
     //     err: F,
-    // ) -> std::result::Result<Gc<ContractType>, E> {
+    // ) -> core::result::Result<Gc<ContractType>, E> {
     //     match self {
     //         Self::Contract(c) => Ok(c.clone()),
     //         _ => Err(err()),
@@ -2301,14 +2445,14 @@ impl SteelVal {
     pub fn closure_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<Gc<ByteCodeLambda>, E> {
+    ) -> core::result::Result<Gc<ByteCodeLambda>, E> {
         match self {
             Self::Closure(c) => Ok(c.clone()),
             _ => Err(err()),
         }
     }
 
-    pub fn symbol_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&str, E> {
+    pub fn symbol_or_else<E, F: FnOnce() -> E>(&self, err: F) -> core::result::Result<&str, E> {
         match self {
             Self::SymbolV(v) => Ok(v),
             _ => Err(err()),
@@ -2318,7 +2462,7 @@ impl SteelVal {
     pub fn clone_symbol_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<String, E> {
+    ) -> core::result::Result<String, E> {
         match self {
             Self::SymbolV(v) => Ok(v.to_string()),
             _ => Err(err()),
@@ -2375,7 +2519,7 @@ impl SteelVal {
     // pub fn custom_or_else<E, F: FnOnce() -> E>(
     //     &self,
     //     err: F,
-    // ) -> std::result::Result<&Box<dyn CustomType>, E> {
+    // ) -> core::result::Result<&Box<dyn CustomType>, E> {
     //     match self {
     //         Self::Custom(v) => Ok(&v),
     //         _ => Err(err()),
@@ -2385,7 +2529,7 @@ impl SteelVal {
     // pub fn struct_or_else<E, F: FnOnce() -> E>(
     //     &self,
     //     err: F,
-    // ) -> std::result::Result<&SteelStruct, E> {
+    // ) -> core::result::Result<&SteelStruct, E> {
     //     match self {
     //         Self::StructV(v) => Ok(v),
     //         _ => Err(err()),
@@ -2667,13 +2811,13 @@ mod or_else_tests {
 
     use super::*;
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
+    #[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
     use im::vector;
 
-    #[cfg(all(feature = "sync", feature = "imbl"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
     use imbl::vector;
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(feature = "std", not(feature = "sync")))]
     use im_rc::vector;
 
     #[test]
@@ -2742,9 +2886,10 @@ mod or_else_tests {
     #[test]
     fn string_or_else_test_good() {
         let input = SteelVal::StringV("foo".into());
+        let expected = "foo";
         assert_eq!(
             input.string_or_else(throw!(Generic => "test")).unwrap(),
-            "foo".to_string()
+            expected
         );
     }
 
@@ -2757,9 +2902,10 @@ mod or_else_tests {
     #[test]
     fn symbol_or_else_test_good() {
         let input = SteelVal::SymbolV("foo".into());
+        let expected = "foo";
         assert_eq!(
             input.symbol_or_else(throw!(Generic => "test")).unwrap(),
-            "foo".to_string()
+            expected
         );
     }
 

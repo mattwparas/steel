@@ -1,3 +1,7 @@
+use crate::sync::Mutex;
+use alloc::string::String;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
@@ -9,8 +13,6 @@ use std::net::TcpStream;
 use std::process::ChildStderr;
 use std::process::ChildStdin;
 use std::process::ChildStdout;
-use std::sync::Arc;
-use std::sync::Mutex;
 
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
@@ -32,8 +34,8 @@ pub struct SteelPort {
     pub(crate) port: GcMut<SteelPortRepr>,
 }
 
-impl std::fmt::Display for SteelPort {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for SteelPort {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.port.read())
     }
 }
@@ -106,11 +108,11 @@ impl<R: Read> Peekable<R> {
             return Ok(MaybeBlocking::Nonblocking(None));
         }
 
-        match std::str::from_utf8(&self.peek[0..self.idx]) {
+        match core::str::from_utf8(&self.peek[0..self.idx]) {
             Ok(str) => Ok(MaybeBlocking::Nonblocking(str.chars().next())),
             Err(err) => {
                 if err.valid_up_to() > 0 {
-                    let s = std::str::from_utf8(&self.peek[0..err.valid_up_to()]).unwrap();
+                    let s = core::str::from_utf8(&self.peek[0..err.valid_up_to()]).unwrap();
                     Ok(MaybeBlocking::Nonblocking(s.chars().next()))
                 } else if let Some(len) = err.error_len() {
                     self.idx -= len;
@@ -219,8 +221,8 @@ pub enum SteelPortRepr {
     Closed,
 }
 
-impl std::fmt::Debug for SteelPortRepr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for SteelPortRepr {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             SteelPortRepr::FileInput(name, w) => {
                 f.debug_tuple("FileInput").field(name).field(w).finish()
@@ -247,8 +249,8 @@ impl std::fmt::Debug for SteelPortRepr {
     }
 }
 
-impl std::fmt::Display for SteelPortRepr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for SteelPortRepr {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             SteelPortRepr::FileInput(file, _) => write!(f, "#<input-port:{file}>"),
             SteelPortRepr::FileOutput(file, _) => write!(f, "#<output-port:{file}>"),
@@ -382,7 +384,7 @@ impl SteelPortRepr {
 
             buf[i] = b;
 
-            match std::str::from_utf8(&buf[0..=i]) {
+            match core::str::from_utf8(&buf[0..=i]) {
                 Ok(s) => return Ok(MaybeBlocking::Nonblocking(s.chars().next())),
                 Err(err) if err.error_len().is_some() => {
                     return Ok(MaybeBlocking::Nonblocking(Some(

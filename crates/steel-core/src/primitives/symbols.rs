@@ -1,6 +1,8 @@
 use crate::rvals::{PrimitiveAsRef, RestArgsIter, Result, SteelString, SteelVal};
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::stop;
+use alloc::format;
+use alloc::string::String;
 
 pub fn symbol_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/symbols");
@@ -135,6 +137,7 @@ fn symbol_to_string(args: &[SteelVal]) -> Result<SteelVal> {
 mod symbol_tests {
     use super::*;
     use crate::rvals::SteelVal::*;
+    use alloc::vec;
 
     #[test]
     fn concat_symbols_normal() {

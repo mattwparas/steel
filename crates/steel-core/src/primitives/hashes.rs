@@ -1,3 +1,4 @@
+use alloc::format;
 use md5::{Digest, Md5};
 
 use crate::gc::ShareableMut;
@@ -51,7 +52,5 @@ pub fn md5_hasher_update(hasher: &SteelVal, value: &SteelVal) -> Result<SteelVal
 #[steel_derive::function(name = "md5-hasher->bytes")]
 pub fn md5_hasher_to_bytes(value: &SteelVal) -> Result<SteelVal> {
     let hash = Md5Hasher::as_mut_ref(value)?.0.finalize_reset();
-    Ok(SteelVal::ByteVector(SteelByteVector::new(
-        hash.as_slice().to_vec(),
-    )))
+    Ok(SteelVal::ByteVector(SteelByteVector::new(hash.to_vec())))
 }

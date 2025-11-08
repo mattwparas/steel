@@ -5,6 +5,8 @@ use crate::{
     values::lists::Pair,
 };
 use crate::{stop, throw};
+use alloc::format;
+use alloc::string::String;
 
 use crate::values::lists::List;
 
@@ -326,7 +328,7 @@ fn pair(list: &SteelVal) -> bool {
 /// ```
 #[steel_derive::function(name = "cons", arity = "Exact(2)")]
 pub fn cons(arg: &mut SteelVal, arg2: &mut SteelVal) -> Result<SteelVal> {
-    match (std::mem::replace(arg, SteelVal::Void), arg2) {
+    match (core::mem::replace(arg, SteelVal::Void), arg2) {
         (left, SteelVal::ListV(right)) => {
             right.cons_mut(left);
 
@@ -435,7 +437,7 @@ fn length(list: &List<SteelVal>) -> usize {
 /// ```
 #[steel_derive::function(name = "reverse", constant = true)]
 fn reverse(arg: &mut SteelVal) -> Result<SteelVal> {
-    if let SteelVal::ListV(l) = std::mem::replace(arg, SteelVal::Void) {
+    if let SteelVal::ListV(l) = core::mem::replace(arg, SteelVal::Void) {
         Ok(SteelVal::ListV(l.reverse()))
     } else {
         stop!(TypeMismatch => "reverse expects a list")
@@ -537,7 +539,7 @@ fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "cdr", constant = true)]
 pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
-    match std::mem::replace(arg, SteelVal::Void) {
+    match core::mem::replace(arg, SteelVal::Void) {
         SteelVal::ListV(mut l) => {
             if l.is_empty() {
                 stop!(Generic => "cdr expects a non empty list");
@@ -575,7 +577,7 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "rest", constant = true, arity = "Exact(1)")]
 fn rest(arg: &mut SteelVal) -> Result<SteelVal> {
-    if let SteelVal::ListV(mut l) = std::mem::replace(arg, SteelVal::Void) {
+    if let SteelVal::ListV(mut l) = core::mem::replace(arg, SteelVal::Void) {
         if l.is_empty() {
             stop!(Generic => "rest expects a non empty list");
         }
@@ -950,7 +952,7 @@ fn list_to_string(list: &List<SteelVal>) -> Result<SteelVal> {
 
 #[steel_derive::function(name = "list->vector")]
 fn list_to_vector(list: &List<SteelVal>) -> SteelVal {
-    let args: crate::values::Vector<_> = list.iter().cloned().collect();
+    let args: crate::collections::Vector<_> = list.iter().cloned().collect();
 
     SteelVal::VectorV(Gc::new(args).into())
 }
@@ -982,6 +984,7 @@ mod list_operation_tests {
 
     use super::*;
     use crate::rerrs::ErrorKind;
+    use alloc::vec;
 
     #[test]
     fn cons_test_normal_input() {

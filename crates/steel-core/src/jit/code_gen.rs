@@ -1,21 +1,23 @@
 #![allow(unused)]
 
+use crate::collections::Vector;
+use crate::collections::{HashMap, HashSet};
 use crate::gc::Gc;
 use crate::jit::ir::*;
 use crate::jit::value::{
     decode, to_encoded_double, to_encoded_double_from_const_ptr, to_encoded_double_raw,
 };
 use crate::parser::ast::ExprKind;
-use crate::values::Vector;
 use crate::SteelVal;
+use alloc::string::String;
+use alloc::vec::Vec;
 use cranelift::prelude::types::{F64, I64};
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
-use std::collections::{HashMap, HashSet};
 use std::slice;
 
-use std::cell::RefCell;
+use core::cell::RefCell;
 
 use super::lower::lower_function;
 use super::sig::{JitFunctionPointer, Sig};
@@ -51,9 +53,9 @@ pub struct JIT {
 unsafe extern "C" fn length_list(value: i128) {
     // Check that this value is actually an i128
 
-    let decoded = std::mem::transmute::<i128, SteelVal>(value);
+    let decoded = core::mem::transmute::<i128, SteelVal>(value);
 
-    let discriminant = std::mem::discriminant(&decoded);
+    let discriminant = core::mem::discriminant(&decoded);
 
     todo!()
 }
@@ -80,7 +82,7 @@ unsafe extern "C" fn empty_const() -> f64 {
 // function to compiled code with the name "print".
 // TODO audit the unsafe
 unsafe extern "C" fn car(value: f64) -> f64 {
-    // let lst: Box<SteelVal> = std::mem::transmute(value);
+    // let lst: Box<SteelVal> = core::mem::transmute(value);
 
     todo!()
 
@@ -299,7 +301,7 @@ impl JIT {
     //     sig: Sig,
     // ) -> Result, String> {
     //     let code_ptr = self.compile(input)?;
-    //     let code_fn = std::mem::transmute::<_, T>(code_ptr);
+    //     let code_fn = core::mem::transmute::<_, T>(code_ptr);
     //     Ok(code_fn)
     // }
 
@@ -309,15 +311,15 @@ impl JIT {
         // let mut legal_vars = HashSet::new();
 
         // Register the functions that are legal to reference inside the machine code
-        // legal_vars.insert("car".to_string());
-        // legal_vars.insert("cdr".to_string());
-        // legal_vars.insert("cons".to_string());
-        // legal_vars.insert("empty?".to_string());
-        // legal_vars.insert("null?".to_string());
+        // legal_vars.insert("car");
+        // legal_vars.insert("cdr");
+        // legal_vars.insert("cons");
+        // legal_vars.insert("empty?");
+        // legal_vars.insert("null?");
 
         // First, parse the string, producing AST nodes.
         let (name, params, the_return, stmts) = lower_function(input, &mut self.legal_vars)
-            .ok_or_else(|| "Unable to lower the input AST".to_string())?;
+            .ok_or_else(|| "Unable to lower the input AST")?;
         // type_check_please(&input).map_err(|e| e.to_string())?;
 
         // Get the arity from the number of parameters of the function we're compiling
@@ -490,7 +492,7 @@ impl<'a> FunctionTranslator<'a> {
     // This unboxes the value first by applying the bitwise and
     // then casting to an int
     fn decode_float_to_int(&mut self, value: Value) -> Value {
-        let bitmask: i64 = unsafe { std::mem::transmute(!super::value::INT32_TAG) };
+        let bitmask: i64 = unsafe { core::mem::transmute(!super::value::INT32_TAG) };
         let cast = self.builder.ins().bitcast(I64, value);
         self.builder.ins().band_imm(cast, bitmask)
     }
@@ -509,7 +511,7 @@ impl<'a> FunctionTranslator<'a> {
     // This takes in an int, then applies the bitwise and
     // then we cast this to a float when we're done
     fn encode_int_to_float(&mut self, value: Value) -> Value {
-        let bitmask: i64 = unsafe { std::mem::transmute(super::value::INT32_TAG) };
+        let bitmask: i64 = unsafe { core::mem::transmute(super::value::INT32_TAG) };
         let encoded_int = self.builder.ins().bor_imm(value, bitmask);
         self.builder.ins().bitcast(F64, encoded_int)
     }
@@ -591,7 +593,7 @@ impl<'a> FunctionTranslator<'a> {
 
             Expr::Le(lhs, rhs) => self.translate_icmp(IntCC::SignedLessThanOrEqual, *lhs, *rhs),
             // Expr::Le(lhs, rhs) => {
-            //     // self.translate_call("<=".to_string(), vec![*lhs, *rhs])
+            //     // self.translate_call("<=".into(), vec![*lhs, *rhs])
             //     self.translate_icmp(IntCC::SignedLessThanOrEqual, *lhs, *rhs)
             // }
             Expr::Gt(lhs, rhs) => self.translate_icmp(IntCC::SignedGreaterThan, *lhs, *rhs),

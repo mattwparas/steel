@@ -1,21 +1,27 @@
 use crate::compiler::passes::VisitorMutUnitRef;
+use crate::path::PathBuf;
 use crate::primitives::numbers::make_polar;
 use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::HashSet;
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
-
-use fxhash::FxHashMap;
+use alloc::borrow::Cow;
+use alloc::format;
+use alloc::string::String;
+use alloc::sync::Arc;
 use num_rational::{BigRational, Rational32};
+
+#[cfg(feature = "std")]
+use crate::sync::Mutex;
+#[cfg(feature = "std")]
+use fxhash::FxHashMap;
+#[cfg(feature = "std")]
 use once_cell::sync::Lazy;
-use parking_lot::Mutex;
-use std::borrow::Cow;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+
 use steel_parser::interner::InternedString;
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral, TokenType};
 
+use core::convert::TryFrom;
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 
 use crate::rerrs::{ErrorKind, SteelErr};
 use crate::rvals::SteelVal;
@@ -49,6 +55,7 @@ struct GcMetadata {
     threshold: usize,
 }
 
+#[cfg(feature = "std")]
 static GLOBAL_SOURCE_MAPPING: Lazy<Mutex<FxHashMap<SourceId, PathBuf>>> =
     Lazy::new(|| Mutex::new(FxHashMap::default()));
 
@@ -78,9 +85,9 @@ pub(crate) struct InterierSources {
 impl InterierSources {
     pub fn new() -> Self {
         InterierSources {
-            paths: crate::HashMap::new(),
-            reverse: crate::HashMap::new(),
-            sources: crate::HashMap::new(),
+            paths: crate::HashMap::default(),
+            reverse: crate::HashMap::default(),
+            sources: crate::HashMap::default(),
             gc_metadata: GcMetadata {
                 size_in_bytes: 0,
                 // Start with 8 Mb. Which will grow to 64 if there
@@ -95,7 +102,7 @@ impl InterierSources {
             .values()
             .map(|x| {
                 let x: &str = x;
-                std::mem::size_of_val(x)
+                core::mem::size_of_val(x)
             })
             .sum()
     }
@@ -129,9 +136,15 @@ impl InterierSources {
         self.sources.insert(id, Arc::new(expr));
 
         if let Some(path) = path {
-            self.paths.insert(id, path.clone());
-            GLOBAL_SOURCE_MAPPING.lock().insert(id, path.clone());
-            self.reverse.insert(path, id);
+            #[cfg(feature = "std")]
+            {
+                if let Ok(mut guard) = GLOBAL_SOURCE_MAPPING.lock() {
+                    guard.insert(id, path.clone());
+                }
+            }
+
+            self.reverse.insert(path.clone(), id);
+            self.paths.insert(id, path);
         }
 
         id
@@ -142,14 +155,31 @@ impl InterierSources {
     }
 
     pub fn get_path(&self, source_id: &SourceId) -> Option<PathBuf> {
-        self.paths
-            .get(source_id)
-            .cloned()
-            .or_else(|| GLOBAL_SOURCE_MAPPING.lock().get(source_id).cloned())
+        #[cfg(feature = "std")]
+        {
+            if let Some(path) = self.paths.get(source_id).cloned() {
+                return Some(path);
+            }
+
+            if let Ok(guard) = GLOBAL_SOURCE_MAPPING.lock() {
+                return guard.get(source_id).cloned();
+            }
+
+            None
+        }
+
+        #[cfg(not(feature = "std"))]
+        {
+            self.paths.get(source_id).cloned()
+        }
     }
 
-    pub fn get_id(&self, path: &Path) -> Option<SourceId> {
-        self.reverse.get(path).copied()
+    pub fn get_id<T>(&self, path: T) -> Option<SourceId>
+    where
+        T: Into<PathBuf>,
+    {
+        let owned_path: PathBuf = path.into();
+        self.reverse.get(&owned_path).copied()
     }
 
     pub fn should_gc(&self) -> bool {
@@ -226,7 +256,10 @@ impl Sources {
         self.sources.add_source(source, path)
     }
 
-    pub fn get_source_id(&self, path: &Path) -> Option<SourceId> {
+    pub fn get_source_id<T>(&self, path: T) -> Option<SourceId>
+    where
+        T: Into<PathBuf>,
+    {
         self.sources.get_id(path)
     }
 
@@ -305,11 +338,11 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
         match value {
             OpenParen(p, _) => Err(SteelErr::new(
                 ErrorKind::UnexpectedToken,
-                p.open().to_string(),
+                String::from(p.open()),
             )),
             CloseParen(p) => Err(SteelErr::new(
                 ErrorKind::UnexpectedToken,
-                p.close().to_string(),
+                String::from(p.close()),
             )),
             CharacterLiteral(x) => Ok(CharV(x)),
             BooleanLiteral(x) => Ok(BoolV(x)),
@@ -317,15 +350,18 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
             Number(x) => x.into_steelval(),
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
-            QuoteTick => Err(SteelErr::new(ErrorKind::UnexpectedToken, "'".to_string())),
-            Unquote => Err(SteelErr::new(ErrorKind::UnexpectedToken, ",".to_string())),
-            QuasiQuote => Err(SteelErr::new(ErrorKind::UnexpectedToken, "`".to_string())),
-            UnquoteSplice => Err(SteelErr::new(ErrorKind::UnexpectedToken, ",@".to_string())),
-            Comment => Err(SteelErr::new(
+            QuoteTick => Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("'"))),
+            Unquote => Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from(","))),
+            QuasiQuote => Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("`"))),
+            UnquoteSplice => Err(SteelErr::new(
                 ErrorKind::UnexpectedToken,
-                "comment".to_string(),
+                String::from(",@"),
             )),
-            DatumComment => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#;".to_string())),
+            Comment => Err(SteelErr::new(ErrorKind::UnexpectedToken, "comment".into())),
+            DatumComment => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                String::from("#;"),
+            )),
             If => Ok(SymbolV("if".into())),
             Define => Ok(SymbolV("define".into())),
             Let => Ok(SymbolV("let".into())),
@@ -339,13 +375,23 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
             Ellipses => Ok(SymbolV("...".into())),
             Set => Ok(SymbolV("set!".into())),
             Require => Ok(SymbolV("require".into())),
-            QuasiQuoteSyntax => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#`".to_string())),
-            UnquoteSyntax => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,".to_string())),
-            QuoteSyntax => Err(SteelErr::new(ErrorKind::UnexpectedToken, "#'".to_string())),
-            UnquoteSpliceSyntax => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,@".to_string()))
-            }
-            Dot => Err(SteelErr::new(ErrorKind::UnexpectedToken, ".".to_string())),
+            QuasiQuoteSyntax => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                String::from("#`"),
+            )),
+            UnquoteSyntax => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                String::from("#,"),
+            )),
+            QuoteSyntax => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                String::from("#'"),
+            )),
+            UnquoteSpliceSyntax => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                String::from("#,@"),
+            )),
+            Dot => Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("."))),
         }
     }
 }
@@ -353,15 +399,17 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
 impl TryFrom<SyntaxObject> for SteelVal {
     type Error = SteelErr;
 
-    fn try_from(e: SyntaxObject) -> std::result::Result<Self, Self::Error> {
+    fn try_from(e: SyntaxObject) -> core::result::Result<Self, Self::Error> {
         let span = e.span;
         match e.ty {
             OpenParen(..) => {
                 Err(SteelErr::new(ErrorKind::UnexpectedToken, format!("{}", e.ty)).with_span(span))
             }
-            CloseParen(p) => Err(
-                SteelErr::new(ErrorKind::UnexpectedToken, p.close().to_string()).with_span(span),
-            ),
+            CloseParen(p) => Err(SteelErr::new(
+                ErrorKind::UnexpectedToken,
+                String::from(p.close()),
+            )
+            .with_span(span)),
             CharacterLiteral(x) => Ok(CharV(x)),
             BooleanLiteral(x) => Ok(BoolV(x)),
             Identifier(x) => Ok(SymbolV(x.into())),
@@ -369,22 +417,22 @@ impl TryFrom<SyntaxObject> for SteelVal {
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "'".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("'")).with_span(span))
             }
             Unquote => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, ",".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from(",")).with_span(span))
             }
             QuasiQuote => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "`".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("`")).with_span(span))
             }
             UnquoteSplice => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, ",@".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from(",@")).with_span(span))
             }
             Comment => Err(
-                SteelErr::new(ErrorKind::UnexpectedToken, "comment".to_string()).with_span(span),
+                SteelErr::new(ErrorKind::UnexpectedToken, String::from("comment")).with_span(span),
             ),
             DatumComment => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#;".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("#;")).with_span(span))
             }
             If => Ok(SymbolV("if".into())),
             Define => Ok(SymbolV("define".into())),
@@ -400,18 +448,20 @@ impl TryFrom<SyntaxObject> for SteelVal {
             Set => Ok(SymbolV("set!".into())),
             Require => Ok(SymbolV("require".into())),
             QuasiQuoteSyntax => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#`".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("#`")).with_span(span))
             }
             UnquoteSyntax => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("#,")).with_span(span))
             }
             QuoteSyntax => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#'".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("#'")).with_span(span))
             }
             UnquoteSpliceSyntax => {
-                Err(SteelErr::new(ErrorKind::UnexpectedToken, "#,@".to_string()).with_span(span))
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from("#,@")).with_span(span))
             }
-            Dot => Err(SteelErr::new(ErrorKind::UnexpectedToken, ".".to_string()).with_span(span)),
+            Dot => {
+                Err(SteelErr::new(ErrorKind::UnexpectedToken, String::from(".")).with_span(span))
+            }
         }
     }
 }

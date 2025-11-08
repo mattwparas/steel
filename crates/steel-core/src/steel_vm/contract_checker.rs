@@ -1,6 +1,9 @@
 /*
 
 #![allow(unused)]
+use alloc::format;
+use alloc::vec::Vec;
+use alloc::string::String;
 use std::collections::{BTreeSet, HashMap};
 
 use quickscope::ScopeMap;
@@ -104,7 +107,7 @@ pub enum BuiltInFunctionContract {
 // Generate the bindings for the built in functions
 pub fn built_in_contract_map() -> HashMap<&'static str, TypeInfo> {
     use TypeInfo::*;
-    let mut map = HashMap::new();
+    let mut map = HashMap::default();
 
     map.insert(
         "+",
@@ -131,7 +134,7 @@ pub fn built_in_contract_map() -> HashMap<&'static str, TypeInfo> {
         DependentFunction(|args: Vec<TypeInfo>| {
             TypeInfo::UnionOf(
                 args.into_iter()
-                    .chain(std::iter::once(TypeInfo::Any))
+                    .chain(core::iter::once(TypeInfo::Any))
                     .collect(),
             )
         }),
@@ -320,8 +323,8 @@ pub struct ContractChecker<'a> {
     inferred_globals: HashMap<String, TypeInfo>,
 }
 
-impl<'a> std::fmt::Debug for ContractChecker<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Debug for ContractChecker<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("ContractChecker")
             .field("global_contract_info", &self.global_contract_info)
             .field(
@@ -392,8 +395,8 @@ pub enum TypeInfo {
     IntersectionOf(BTreeSet<TypeInfo>),
 }
 
-impl std::fmt::Debug for TypeInfo {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for TypeInfo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Unknown => write!(f, "Unknown"),
             Self::Any => write!(f, "Any"),
@@ -417,7 +420,7 @@ impl std::fmt::Debug for TypeInfo {
                 .finish(),
             Self::DependentFunction(_) => f
                 .debug_tuple("DependentFunction")
-                .field(&"<#function>".to_string())
+                .field(&"<#function>")
                 .finish(),
             Self::UnionOf(arg0) => f.debug_tuple("UnionOf").field(arg0).finish(),
             Self::IntersectionOf(arg0) => f.debug_tuple("IntersectionOf").field(arg0).finish(),

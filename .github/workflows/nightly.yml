@@ -12,14 +12,14 @@ jobs:
     outputs:
       should_run: ${{steps.should_run.outputs.should_run}}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: print latest_commit
         run: echo ${{github.sha}}
       - id: should_run
         continue-on-error: true
         name: check latest commit is less than a day
         if: ${{ github.event_name == 'schedule' }}
-        run: test -z $(git rev-list --after="24 hours" ${{github.sha}}) && echo "::set-output name=should_run::false"
+        run: test -z $(git rev-list --after="24 hours" ${{github.sha}}) && echo "should_run=false" >> $GITHUB_OUTPUT
 
   optimize:
     name: PGO Build
@@ -38,14 +38,11 @@ jobs:
         shell: bash
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
           components: llvm-tools-preview
 
       - name: Set the STEEL_HOME environment variable
@@ -104,5 +101,3 @@ jobs:
           name: pgo-nightly-build-${{ matrix.os.arch }}
           path: target\${{ matrix.os.arch }}\release\steel.exe
           retention-days: 30
-
-

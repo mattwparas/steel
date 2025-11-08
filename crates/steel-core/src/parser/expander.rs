@@ -4,19 +4,25 @@ use crate::parser::parser::SyntaxObject;
 use crate::parser::rename_idents::RenameIdentifiersVisitor;
 use crate::parser::replace_idents::replace_identifiers;
 use crate::parser::tokens::TokenType;
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::string::String;
+use alloc::vec;
+use alloc::vec::Vec;
 
-use crate::parser::span::Span;
+use crate::{parser::span::Span, path::PathBuf as SteelPath};
 
+use crate::collections::MutableHashMap as HashMap;
 use crate::rvals::{IntoSteelVal, Result};
-use std::cell::RefCell;
-use std::sync::Arc;
-use std::{
-    collections::HashMap,
-    fs::File,
-    io::{Read, Write},
-    iter::FromIterator,
-    path::{Path, PathBuf},
-};
+use alloc::sync::Arc;
+use core::cell::RefCell;
+use core::iter::FromIterator;
+#[cfg(feature = "std")]
+use std::fs::File;
+#[cfg(feature = "std")]
+use std::io::{Read, Write};
+#[cfg(feature = "std")]
+use std::path::Path as StdPath;
 
 use fxhash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
@@ -26,19 +32,23 @@ use steel_parser::tokens::IntLiteral;
 use steel_parser::tokens::NumberLiteral;
 
 use super::macro_template::MacroTemplate;
-use super::{ast::Quote, interner::InternedString, parser::Parser};
+#[cfg(feature = "std")]
+use super::parser::Parser;
+use super::{ast::Quote, interner::InternedString};
 
 // Given path, update the extension
-fn update_extension(mut path: PathBuf, extension: &str) -> PathBuf {
+#[cfg(feature = "std")]
+fn update_extension(mut path: SteelPath, extension: &str) -> SteelPath {
     path.set_extension(extension);
     path
 }
 
 // Prepend the given path with the working directory
-pub fn path_from_working_dir<P: AsRef<Path>>(path: P) -> std::io::Result<PathBuf> {
+#[cfg(feature = "std")]
+pub fn path_from_working_dir<P: AsRef<StdPath>>(path: P) -> std::io::Result<SteelPath> {
     let mut working_dir = std::env::current_dir()?;
     working_dir.push(path);
-    Ok(working_dir)
+    Ok(SteelPath::from(working_dir))
 }
 
 /// Manages macros for a single namespace
@@ -49,7 +59,8 @@ pub struct LocalMacroManager {
 
 impl LocalMacroManager {
     /// Look to see if it exists on disk, otherwise parse from the associated file
-    pub fn initialize_from_path(path: PathBuf, force_update: bool) -> Result<Self> {
+    #[cfg(feature = "std")]
+    pub fn initialize_from_path(path: SteelPath, force_update: bool) -> Result<Self> {
         let raw_path = update_extension(path.clone(), "rkt");
         let compiled_path = update_extension(path, "macro");
 
@@ -68,7 +79,8 @@ impl LocalMacroManager {
         }
     }
 
-    fn write_to_file(&self, path: PathBuf) -> Result<()> {
+    #[cfg(feature = "std")]
+    fn write_to_file(&self, path: SteelPath) -> Result<()> {
         let mut file = File::create(path)?;
 
         match bincode::serialize(self) {
@@ -90,7 +102,8 @@ impl LocalMacroManager {
     }
 
     /// Read in a file of expressions containing macros, parse then, and create the data struture
-    fn from_expression_file(path: PathBuf) -> Result<Self> {
+    #[cfg(feature = "std")]
+    fn from_expression_file(path: SteelPath) -> Result<Self> {
         let mut file = File::open(path)?;
         let mut raw_exprs = String::new();
         file.read_to_string(&mut raw_exprs)?;
@@ -99,7 +112,8 @@ impl LocalMacroManager {
     }
 
     /// After serializing the macro manager to a file and read from that file
-    fn from_file(path: PathBuf) -> Result<Self> {
+    #[cfg(feature = "std")]
+    fn from_file(path: SteelPath) -> Result<Self> {
         let mut file = File::open(path)?;
         let mut buffer = Vec::new();
         let _ = file.read_to_end(&mut buffer)?;
@@ -140,7 +154,7 @@ impl FromIterator<SteelMacro> for LocalMacroManager {
 
 // Global macro manager, manages macros across modules
 pub struct GlobalMacroManager {
-    _scopes: HashMap<PathBuf, HashMap<String, SteelMacro>>,
+    _scopes: HashMap<SteelPath, HashMap<String, SteelMacro>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -337,7 +351,7 @@ impl MacroCase {
                 MacroPattern::Single(s) | MacroPattern::Quote(s)
                     if *s != InternedString::from_static("_") =>
                 {
-                    idents.push(s.resolve().to_owned());
+                    idents.push(String::from(s.resolve()));
                 }
                 MacroPattern::Nested(n, _) => {
                     for p in &n.args {
@@ -507,8 +521,8 @@ pub enum MacroPattern {
     Keyword(InternedString),
 }
 
-impl std::fmt::Debug for MacroPattern {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for MacroPattern {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             MacroPattern::Single(s) => f.debug_tuple("Single").field(&s.resolve()).finish(),
             MacroPattern::Syntax(s) => f.debug_tuple("Syntax").field(&s.resolve()).finish(),
@@ -541,7 +555,7 @@ impl MacroPattern {
                 let special = special_forms.contains(s) || *s == InternedString::from_static("_");
 
                 if !special {
-                    *self = Single(("##".to_string() + s.resolve()).into())
+                    *self = Single(format!("##{}", s.resolve()).into())
                 }
             }
             Nested(v, _) => {
@@ -1170,8 +1184,8 @@ fn collect_bindings(
                 for _ in 0..expected_many_captures {
                     if let Some((_, expr)) = expr_iter.next() {
                         collect_bindings(
-                            std::slice::from_ref(pat),
-                            std::slice::from_ref(expr),
+                            core::slice::from_ref(pat),
+                            core::slice::from_ref(expr),
                             &mut nested_bindings,
                             binding_kind,
                             false,
@@ -1226,8 +1240,8 @@ fn collect_bindings(
                     _ => {
                         if let Some(pat) = non_list_match(&children.args) {
                             collect_bindings(
-                                std::slice::from_ref(pat),
-                                std::slice::from_ref(child),
+                                core::slice::from_ref(pat),
+                                core::slice::from_ref(child),
                                 bindings,
                                 binding_kind,
                                 false,

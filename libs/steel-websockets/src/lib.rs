@@ -68,6 +68,7 @@ impl WebSocketMessage {
     }
 }
 
+#[allow(dead_code)]
 struct WebSocketResponse(Response);
 impl Custom for WebSocketResponse {}
 

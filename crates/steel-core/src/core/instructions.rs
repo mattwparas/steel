@@ -1,4 +1,7 @@
 use crate::core::opcode::OpCode;
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
 use super::labels::Expr;
@@ -32,11 +35,19 @@ pub fn densify(instructions: Vec<Instruction>) -> Vec<DenseInstruction> {
 }
 
 pub fn pretty_print_dense_instructions(instrs: &[DenseInstruction]) {
-    for (i, instruction) in instrs.iter().enumerate() {
-        println!(
-            "{}    {:?} : {}",
-            i, instruction.op_code, instruction.payload_size
-        );
+    #[cfg(feature = "std")]
+    {
+        for (i, instruction) in instrs.iter().enumerate() {
+            println!(
+                "{}    {:?} : {}",
+                i, instruction.op_code, instruction.payload_size
+            );
+        }
+    }
+
+    #[cfg(not(feature = "std"))]
+    {
+        let _ = instrs;
     }
 }
 
@@ -106,7 +117,7 @@ pub struct DenseInstruction {
     pub payload_size: u24,
 }
 
-use std::ops::Add;
+use core::ops::Add;
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize, Debug)]
 #[allow(non_camel_case_types)]
@@ -153,8 +164,8 @@ impl u24 {
     }
 }
 
-impl std::fmt::Display for u24 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for u24 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.to_u32())
     }
 }

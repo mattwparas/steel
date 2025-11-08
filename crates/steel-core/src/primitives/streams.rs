@@ -1,6 +1,7 @@
 use crate::gc::Gc;
 use crate::rvals::{Result, SteelVal};
 use crate::stop;
+use alloc::format;
 
 use crate::values::lazy_stream::LazyStream;
 

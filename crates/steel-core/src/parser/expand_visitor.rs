@@ -1,3 +1,7 @@
+use alloc::boxed::Box;
+use alloc::format;
+use alloc::vec;
+use alloc::vec::Vec;
 use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use quickscope::ScopeSet;
 use smallvec::SmallVec;
@@ -53,7 +57,7 @@ pub fn extract_macro_defs(
                 SyntaxObject::default(TokenType::Begin),
             )));
 
-            std::mem::swap(expr, &mut taken_expr);
+            core::mem::swap(expr, &mut taken_expr);
 
             if let ExprKind::Macro(m) = taken_expr {
                 match SteelMacro::parse_from_ast_macro(m) {
@@ -262,7 +266,7 @@ impl<'a> VisitorMutRef for Expander<'a> {
                         },
                     )) => {
                         if let ExprKind::LambdaFunction(mut lambda) =
-                            parse_lambda(ident.clone(), std::mem::take(&mut l.args))?
+                            parse_lambda(ident.clone(), core::mem::take(&mut l.args))?
                         {
                             if l.improper {
                                 lambda.rest = true;
@@ -314,14 +318,17 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 || self.source_id == m.location.source_id()
                             {
                                 if s.resolve().ends_with("skip-compile") {
-                                    println!("Expanding skip compile: {}", l);
+                                    #[cfg(feature = "std")]
+                                    {
+                                        println!("Expanding skip compile: {}", l);
+                                    }
                                 }
 
                                 let span = *sp;
 
                                 let mut expanded = m.expand(
                                     List::new_maybe_improper(
-                                        std::mem::take(&mut l.args),
+                                        core::mem::take(&mut l.args),
                                         l.improper,
                                     ),
                                     span,
@@ -531,7 +538,7 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                         },
                     )) => {
                         if let ExprKind::LambdaFunction(mut lambda) =
-                            parse_lambda(ident.clone(), std::mem::take(&mut l.args))?
+                            parse_lambda(ident.clone(), core::mem::take(&mut l.args))?
                         {
                             if l.improper {
                                 lambda.rest = true;
@@ -579,14 +586,17 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                                 || self.source_id == m.location.source_id()
                             {
                                 if s.resolve().ends_with("skip-compile") {
-                                    println!("Expanding skip compile: {}", l);
+                                    #[cfg(feature = "std")]
+                                    {
+                                        println!("Expanding skip compile: {}", l);
+                                    }
                                 }
 
                                 let span = *sp;
 
                                 let mut expanded = m.expand(
                                     List::new_maybe_improper(
-                                        std::mem::take(&mut l.args),
+                                        core::mem::take(&mut l.args),
                                         l.improper,
                                     ),
                                     span,
@@ -1325,7 +1335,7 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                             {
                                 let mut expanded = map.expand_syntax_object(
                                     &s,
-                                    ExprKind::List(std::mem::replace(l, List::new(Vec::new()))),
+                                    ExprKind::List(core::mem::replace(l, List::new(Vec::new()))),
                                     self.environment
                                         .as_ref()
                                         .map(|x| x.as_ref())

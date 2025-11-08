@@ -5,6 +5,9 @@ use crate::{
     steel_vm::builtin::BuiltInModule,
     SteelErr, SteelVal,
 };
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 
 use crate::rvals::Result;
 
@@ -70,13 +73,14 @@ fn download_file(_url: &SteelString, _file: &SteelString) -> Result<SteelVal> {
     {
         Err(SteelErr::new(
             ErrorKind::BadSyntax,
-            "download-file! is not implemented".to_string(),
+            "download-file! is not implemented".into(),
         ))
     }
 
     #[cfg(feature = "ureq")]
     {
-        use std::{fs, path::PathBuf};
+        use crate::path::PathBuf;
+        use std::fs;
 
         let url = _url.as_str();
         let file = PathBuf::from(_file.as_str());
@@ -89,7 +93,7 @@ fn download_file(_url: &SteelString, _file: &SteelString) -> Result<SteelVal> {
             .read_to_vec()
             .map_err(|err| SteelErr::new(ErrorKind::Io, format!("http request failed: {err}")))?;
 
-        fs::write(file, contents)
+        fs::write(file.as_path(), contents)
             .map_err(|err| SteelErr::new(ErrorKind::Io, format!("failed to write: {err}")))?;
 
         Ok(().into())
@@ -116,7 +120,7 @@ pub fn headers(value: &SteelVal) -> Result<SteelVal> {
                     SteelVal::ByteVector(SteelByteVector::new(x.value.clone())),
                 )
             })
-            .collect::<crate::values::HashMap<_, _>>(),
+            .collect::<crate::collections::HashMap<_, _>>(),
     ))))
 }
 
@@ -133,7 +137,7 @@ pub fn resp_headers(value: &SteelVal) -> Result<SteelVal> {
                     SteelVal::ByteVector(SteelByteVector::new(x.value.clone())),
                 )
             })
-            .collect::<crate::values::HashMap<_, _>>(),
+            .collect::<crate::collections::HashMap<_, _>>(),
     ))))
 }
 
@@ -213,7 +217,7 @@ pub fn parse_http_response(vector: &SteelByteVector) -> Result<SteelVal> {
 }
 
 pub fn http_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/http".to_string());
+    let mut module = BuiltInModule::new("steel/http");
 
     module
         .register_native_fn_definition(PARSE_HTTP_REQUEST_DEFINITION)

@@ -3,6 +3,7 @@
 use std::{env::current_dir, error::Error, io::BufWriter, path::PathBuf};
 
 use steel::compiler::modules::MANGLER_PREFIX;
+use steel::path::OwnedPath;
 use steel::steel_vm::engine::Engine;
 
 use std::collections::HashSet;
@@ -147,7 +148,7 @@ pub fn walk_dir<W: Write>(
         //     .unwrap();
         // }
 
-        let ast = vm.emit_fully_expanded_ast(&contents, Some(path.clone()))?;
+        let ast = vm.emit_fully_expanded_ast(&contents, Some(OwnedPath::from(path.clone())))?;
 
         // println!("{:?}", vm.modules().keys().collect::<Vec<_>>());
 

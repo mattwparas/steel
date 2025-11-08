@@ -1,3 +1,6 @@
+use alloc::boxed::Box;
+use alloc::vec;
+use alloc::vec::Vec;
 use steel_parser::parser::SyntaxObject;
 
 use crate::gc::Gc;
@@ -11,7 +14,7 @@ use crate::rvals::{Result, SteelByteVector, SteelVal};
 use super::visitors::VisitorMut;
 use super::{ast::Atom, span::Span, visitors::ConsumingVisitor};
 
-use std::convert::TryFrom;
+use core::convert::TryFrom;
 
 pub struct TryFromExprKindForSteelVal {
     inside_quote: bool,
@@ -133,7 +136,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
 
     fn visit_list(&mut self, l: super::ast::List) -> Self::Output {
         if !l.improper {
-            let items: std::result::Result<List<_>, SteelErr> =
+            let items: core::result::Result<List<_>, SteelErr> =
                 l.args.into_iter().map(|x| self.visit(x)).collect();
 
             return Ok(items?.into());
@@ -145,7 +148,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
             stop!(Generic => "internal compiler error - unexpected malformed improper list");
         };
 
-        let items: std::result::Result<Vec<_>, SteelErr> =
+        let items: core::result::Result<Vec<_>, SteelErr> =
             l.args.into_iter().map(|x| self.visit(x)).collect();
 
         let pair = items?
@@ -250,7 +253,7 @@ impl ConsumingVisitor for TryFromExprKindForSteelVal {
 
             Ok(SteelVal::ByteVector(SteelByteVector::new(bytes)))
         } else {
-            let args: crate::values::Vector<_> = v
+            let args: crate::collections::Vector<_> = v
                 .args
                 .into_iter()
                 .map(|exp| self.visit(exp))
@@ -269,7 +272,7 @@ pub struct SyntaxObjectFromExprKind {
 
 impl SyntaxObjectFromExprKind {
     pub fn try_from_expr_kind(e: ExprKind) -> Result<SteelVal> {
-        // let now = std::time::Instant::now();
+        // let now = crate::time::Instant::now();
 
         SyntaxObjectFromExprKind {
             _inside_quote: false,
@@ -440,7 +443,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
     fn visit_list(&mut self, l: &steel_parser::ast::List) -> Self::Output {
         let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::List(l.clone()))?;
 
-        let items: std::result::Result<List<_>, SteelErr> =
+        let items: core::result::Result<List<_>, SteelErr> =
             l.args.iter().map(|x| self.visit(x)).collect();
 
         let items = items?;
@@ -521,7 +524,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
                     items_span,
                 ))))
             })
-            .collect::<std::result::Result<List<SteelVal>, SteelErr>>()?;
+            .collect::<core::result::Result<List<SteelVal>, SteelErr>>()?;
         // .into(),
 
         let span_vec = items
@@ -559,7 +562,7 @@ impl VisitorMut for SyntaxObjectFromExprKindRef {
             return Ok(Syntax::proto(raw, vector, span).into());
         }
 
-        let items: Result<crate::values::Vector<_>> =
+        let items: Result<crate::collections::Vector<_>> =
             v.args.iter().map(|x| self.visit(x)).collect();
 
         let items = items?;
@@ -714,7 +717,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     fn visit_list(&mut self, l: super::ast::List) -> Self::Output {
         let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::List(l.clone()))?;
 
-        let items: std::result::Result<List<_>, SteelErr> =
+        let items: core::result::Result<List<_>, SteelErr> =
             l.args.into_iter().map(|x| self.visit(x)).collect();
 
         let items = items?;
@@ -825,7 +828,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
             return Ok(Syntax::proto(raw, vector, span).into());
         }
 
-        let items: Result<crate::values::Vector<_>> =
+        let items: Result<crate::collections::Vector<_>> =
             v.args.into_iter().map(|x| self.visit(x)).collect();
 
         let items = items?;
@@ -847,7 +850,7 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod tests {
     use crate::parser::{ast::Quote, parser::SyntaxObject, tokens::TokenType};
 

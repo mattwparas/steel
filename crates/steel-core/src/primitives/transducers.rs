@@ -7,6 +7,7 @@ use crate::steel_vm::{
 };
 use crate::values::transducers::{Transducer, Transducers};
 use crate::{builtin_stop, stop, SteelErr};
+use alloc::{format, vec, vec::Vec};
 
 pub fn transducer_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/transducers");
@@ -195,7 +196,7 @@ pub fn compose(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 enum FlattenOk<'a> {
-    Ok(std::iter::Cloned<std::slice::Iter<'a, Transducers>>),
+    Ok(core::iter::Cloned<core::slice::Iter<'a, Transducers>>),
     Err(Option<SteelErr>),
 }
 

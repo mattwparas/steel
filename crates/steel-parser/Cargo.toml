@@ -21,5 +21,9 @@ serde = { version = "1.0.152", features = ["derive", "rc"] }
 smallvec = "1.13"
 compact_str = "0.8.0"
 
+[features]
+default = ["std"]
+std = []
+
 [dev-dependencies]
 pretty_assertions = "1.4" # Only used by unit tests.

@@ -1,11 +1,16 @@
+use crate::collections::HashMap;
+#[cfg(not(feature = "std"))]
+use crate::collections::HashMapExt;
 use crate::rvals::SteelHashMap;
 use crate::stop;
-use crate::values::HashMap;
 use crate::{core::utils::declare_const_ref_functions, gc::Gc};
 use crate::{
     rvals::{Result, SteelVal},
     steel_vm::builtin::BuiltInModule,
 };
+use alloc::format;
+#[cfg(test)]
+use alloc::vec::Vec;
 
 use crate::primitives::vectors::vec_construct_iter_normal;
 
@@ -20,7 +25,7 @@ declare_const_ref_functions!(
 pub const HM_INSERT: SteelVal = SteelVal::MutFunc(steel_hash_insert);
 
 pub(crate) fn hashmap_module() -> BuiltInModule {
-    let mut module = BuiltInModule::new("steel/hash".to_string());
+    let mut module = BuiltInModule::new("steel/hash");
     module
         .register_native_fn_definition(HM_CONSTRUCT_DEFINITION)
         .register_value("%keyword-hash", SteelVal::FuncV(hm_construct_keywords))
@@ -58,7 +63,7 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
 /// ```
 #[steel_derive::native(name = "hash", arity = "AtLeast(0)")]
 pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
-    let mut hm = HashMap::new();
+    let mut hm: HashMap<SteelVal, SteelVal> = HashMap::default();
 
     let mut arg_iter = args.iter().cloned();
 
@@ -82,7 +87,7 @@ pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
-    let mut hm = HashMap::new();
+    let mut hm: HashMap<SteelVal, SteelVal> = HashMap::default();
 
     let mut arg_iter = args.iter().cloned();
 
@@ -126,7 +131,7 @@ pub fn hash_remove(map: &mut SteelVal, key: SteelVal) -> Result<SteelVal> {
             match Gc::get_mut(m) {
                 Some(m) => {
                     m.remove(&key);
-                    Ok(std::mem::replace(map, SteelVal::Void))
+                    Ok(core::mem::replace(map, SteelVal::Void))
                 }
                 None => {
                     let mut m = m.unwrap();
@@ -165,13 +170,13 @@ pub fn hash_insert(
     value: &mut SteelVal,
 ) -> Result<SteelVal> {
     if key.is_hashable() {
-        let key = std::mem::take(key);
-        let value = std::mem::take(value);
+        let key = core::mem::take(key);
+        let value = core::mem::take(value);
         if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
             match Gc::get_mut(m) {
                 Some(m) => {
                     m.insert(key, value);
-                    Ok(std::mem::replace(map, SteelVal::Void))
+                    Ok(core::mem::replace(map, SteelVal::Void))
                 }
                 None => Ok(SteelVal::HashMapV(Gc::new(m.update(key, value)).into())),
             }
@@ -353,9 +358,11 @@ pub fn clear(hashmap: &mut SteelVal) -> Result<SteelVal> {
             Some(m) => {
                 // m.insert(key, value);
                 m.clear();
-                Ok(std::mem::replace(hashmap, SteelVal::Void))
+                Ok(core::mem::replace(hashmap, SteelVal::Void))
             }
-            None => Ok(SteelVal::HashMapV(Gc::new(HashMap::new()).into())),
+            None => Ok(SteelVal::HashMapV(
+                Gc::new(HashMap::<SteelVal, SteelVal>::default()).into(),
+            )),
         }
     } else {
         stop!(TypeMismatch => "hash-clear expected a hashmap, found: {:?}", hashmap);
@@ -397,31 +404,43 @@ pub fn hm_union(mut hml: &mut SteelVal, mut hmr: &mut SteelVal) -> Result<SteelV
             SteelVal::HashMapV(SteelHashMap(ref mut r)),
         ) => match (Gc::get_mut(l), Gc::get_mut(r)) {
             (None, None) => {
-                let hml = l.unwrap();
-                let hmr = r.unwrap();
-                Ok(SteelVal::HashMapV(Gc::new(hml.union(hmr)).into()))
+                let left = l.unwrap();
+                let right = r.unwrap();
+                #[cfg(feature = "std")]
+                let merged = left.union(right);
+                #[cfg(not(feature = "std"))]
+                let merged = left.union(&right);
+                Ok(SteelVal::HashMapV(Gc::new(merged).into()))
             }
             (None, Some(r_map)) => {
-                let right_side_value = std::mem::take(r_map);
-
-                *r_map = l.unwrap().union(right_side_value);
-
-                Ok(std::mem::replace(hmr, SteelVal::Void))
+                let left = l.unwrap();
+                let right = core::mem::take(r_map);
+                #[cfg(feature = "std")]
+                let merged = left.union(right);
+                #[cfg(not(feature = "std"))]
+                let merged = left.union(&right);
+                *r_map = merged;
+                Ok(core::mem::replace(hmr, SteelVal::Void))
             }
             (Some(l_map), None) => {
-                let left_side_value = std::mem::take(l_map);
-
-                *l_map = left_side_value.union(r.unwrap());
-
-                Ok(std::mem::replace(hml, SteelVal::Void))
+                let right = r.unwrap();
+                let left = core::mem::take(l_map);
+                #[cfg(feature = "std")]
+                let merged = left.union(right);
+                #[cfg(not(feature = "std"))]
+                let merged = left.union(&right);
+                *l_map = merged;
+                Ok(core::mem::replace(hml, SteelVal::Void))
             }
             (Some(l_map), Some(r_map)) => {
-                let left_side_value = std::mem::take(l_map);
-                let right_side_value = std::mem::take(r_map);
-
-                *l_map = left_side_value.union(right_side_value);
-
-                Ok(std::mem::replace(hml, SteelVal::Void))
+                let left = core::mem::take(l_map);
+                let right = core::mem::take(r_map);
+                #[cfg(feature = "std")]
+                let merged = left.union(right);
+                #[cfg(not(feature = "std"))]
+                let merged = left.union(&right);
+                *l_map = merged;
+                Ok(core::mem::replace(hml, SteelVal::Void))
             }
         },
 
@@ -434,23 +453,24 @@ pub fn hm_union(mut hml: &mut SteelVal, mut hmr: &mut SteelVal) -> Result<SteelV
 #[cfg(test)]
 mod hashmap_tests {
     use super::*;
+    use alloc::vec;
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(feature = "std", not(feature = "sync")))]
     use im_rc::hashmap;
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(feature = "std", not(feature = "sync")))]
     use im_rc::vector;
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
+    #[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
     use im::hashmap;
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
+    #[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
     use im::vector;
 
-    #[cfg(all(feature = "sync", feature = "imbl"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
     use imbl::hashmap;
 
-    #[cfg(all(feature = "sync", feature = "imbl"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
     use imbl::vector;
 
     use crate::rvals::{SteelString, SteelVal::*};

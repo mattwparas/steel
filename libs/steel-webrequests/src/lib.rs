@@ -2,6 +2,7 @@ use steel::rvals::Custom;
 use steel::{
     declare_module,
     steel_vm::ffi::{FFIModule, RegisterFFIFn},
+    time::Duration,
 };
 
 use ureq::{Request, Response};
@@ -43,7 +44,9 @@ fn create_module() -> FFIModule {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 struct BlockingRequest(Option<Request>);
+#[allow(dead_code)]
 struct BlockingResponse(Response);
 
 #[derive(Clone)]
@@ -51,7 +54,7 @@ struct Client(ureq::Agent);
 
 #[derive(Debug)]
 enum BlockingError {
-    Ureq(ureq::Error),
+    Ureq(#[allow(dead_code)] ureq::Error),
     ResponseAlreadyUsed,
 }
 
@@ -129,7 +132,7 @@ impl BlockingRequest {
             self.0
                 .take()
                 .unwrap()
-                .timeout(std::time::Duration::from_millis(time_in_ms as u64)),
+                .timeout(Duration::from_millis(time_in_ms as u64)),
         );
     }
 

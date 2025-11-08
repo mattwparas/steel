@@ -1,4 +1,7 @@
 use crate::gc::shared::MutContainer;
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 
 // #[cfg(not(feature = "triomphe"))]
 // use crate::gc::shared::ShareableMut;
@@ -15,8 +18,8 @@ use crate::parser::{
     parser::{ParseError, Parser},
 };
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use crate::collections::{HashMap, MutableHashMap, MutableHashSet};
+use alloc::sync::Arc;
 
 use arc_swap::ArcSwap;
 // TODO add the serializing and deserializing for constants
@@ -58,7 +61,7 @@ impl ConstantMap {
     pub fn new() -> ConstantMap {
         ConstantMap {
             values: Shared::new(MutContainer::new(Vec::new())),
-            map: Shared::new(MutContainer::new(HashMap::new())),
+            map: Shared::new(MutContainer::new(HashMap::default())),
             // Does this help at all?
             reified_values: Arc::new(ArcSwap::from_pointee(Vec::new())),
             local_values: Vec::new(),
@@ -97,8 +100,8 @@ impl ConstantMap {
 
     pub fn to_serializable_vec(
         &self,
-        serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-        visited: &mut std::collections::HashSet<usize>,
+        serializer: &mut MutableHashMap<usize, SerializableSteelVal>,
+        visited: &mut MutableHashSet<usize>,
     ) -> Vec<SerializableSteelVal> {
         self.values
             .read()
@@ -159,7 +162,7 @@ impl ConstantMap {
             .into_iter()
             .map(|x| {
                 // Parse the input
-                let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+                let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
                     Parser::new_flat(&x, SourceId::none()).collect();
                 let mut parsed = parsed?;
 

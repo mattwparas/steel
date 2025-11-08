@@ -1,10 +1,15 @@
+use crate::collections::HashSet;
+#[cfg(not(feature = "std"))]
+use crate::collections::HashSetExt;
 use crate::rvals::SteelHashSet;
 use crate::rvals::{Result, SteelVal};
 use crate::steel_vm::vm::VmCore;
 use crate::values::lists::List;
-use crate::values::HashSet;
 use crate::{gc::Gc, steel_vm::builtin::BuiltInModule};
 use crate::{stop, Vector};
+use alloc::format;
+#[cfg(all(test, feature = "std"))]
+use alloc::vec::Vec;
 
 pub(crate) fn hashset_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/sets");
@@ -33,7 +38,7 @@ pub(crate) fn hashset_module() -> BuiltInModule {
 /// ```
 #[steel_derive::native(name = "hashset", arity = "AtLeast(0)")]
 pub fn hs_construct(args: &[SteelVal]) -> Result<SteelVal> {
-    let mut hs = HashSet::new();
+    let mut hs = HashSet::default();
 
     for key in args {
         if key.is_hashable() {
@@ -73,7 +78,7 @@ pub fn hs_insert(hashset: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
             match Gc::get_mut(hs) {
                 Some(m) => {
                     m.insert(value);
-                    Ok(std::mem::replace(hashset, SteelVal::Void))
+                    Ok(core::mem::replace(hashset, SteelVal::Void))
                 }
 
                 None => Ok(SteelVal::HashSetV(SteelHashSet(Gc::new(hs.update(value))))),
@@ -134,7 +139,18 @@ pub fn hashset_to_list(hashset: &SteelHashSet) -> SteelVal {
 /// ```
 #[steel_derive::function(name = "hashset-union")]
 pub fn hashset_union(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
-    SteelVal::HashSetV(SteelHashSet(Gc::new(l.0.unwrap().union(r.0.unwrap()))))
+    #[cfg(feature = "std")]
+    {
+        return SteelVal::HashSetV(SteelHashSet(Gc::new(l.0.unwrap().union(r.0.unwrap()))));
+    }
+
+    #[cfg(not(feature = "std"))]
+    {
+        let left = l.0.unwrap();
+        let right = r.0.unwrap();
+        let merged = HashSetExt::union(&left, &right);
+        SteelVal::HashSetV(SteelHashSet(Gc::new(merged)))
+    }
 }
 
 /// Finds the intersection between the two hash sets.
@@ -145,9 +161,20 @@ pub fn hashset_union(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
 /// ```
 #[steel_derive::function(name = "hashset-intersection")]
 pub fn hashset_intersection(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
-    SteelVal::HashSetV(SteelHashSet(Gc::new(
-        l.0.unwrap().intersection(r.0.unwrap()),
-    )))
+    #[cfg(feature = "std")]
+    {
+        return SteelVal::HashSetV(SteelHashSet(Gc::new(
+            l.0.unwrap().intersection(r.0.unwrap()),
+        )));
+    }
+
+    #[cfg(not(feature = "std"))]
+    {
+        let left = l.0.unwrap();
+        let right = r.0.unwrap();
+        let intersected = HashSetExt::intersection(&left, &right);
+        SteelVal::HashSetV(SteelHashSet(Gc::new(intersected)))
+    }
 }
 
 /// Finds the difference between the two hash sets.
@@ -160,7 +187,20 @@ pub fn hashset_intersection(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
 pub fn hashset_difference(l: &SteelHashSet, r: &SteelHashSet) -> SteelVal {
     #[cfg(not(feature = "imbl"))]
     {
-        SteelVal::HashSetV(SteelHashSet(Gc::new(l.0.unwrap().difference(r.0.unwrap()))))
+        #[cfg(feature = "std")]
+        {
+            return SteelVal::HashSetV(SteelHashSet(Gc::new(
+                l.0.unwrap().difference(r.0.unwrap()),
+            )));
+        }
+
+        #[cfg(not(feature = "std"))]
+        {
+            let left = l.0.unwrap();
+            let right = r.0.unwrap();
+            let diff = HashSetExt::difference(&left, &right);
+            return SteelVal::HashSetV(SteelHashSet(Gc::new(diff)));
+        }
     }
     #[cfg(feature = "imbl")]
     SteelVal::HashSetV(SteelHashSet(Gc::new(
@@ -213,9 +253,9 @@ pub fn hashset_clear(hashset: &mut SteelVal) -> Result<SteelVal> {
         match Gc::get_mut(hs) {
             Some(m) => {
                 m.clear();
-                Ok(std::mem::replace(hashset, SteelVal::Void))
+                Ok(core::mem::replace(hashset, SteelVal::Void))
             }
-            None => Ok(SteelVal::HashSetV(Gc::new(HashSet::new()).into())),
+            None => Ok(SteelVal::HashSetV(Gc::new(HashSet::default()).into())),
         }
     } else {
         stop!(TypeMismatch => format!("hashset-clear takes a hashset, found: {}", hashset))
@@ -233,19 +273,20 @@ pub fn list_to_hashset(l: &List<SteelVal>) -> SteelVal {
     SteelVal::HashSetV(Gc::new(l.iter().cloned().collect::<HashSet<_>>()).into())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "std"))]
 mod hashset_tests {
     use crate::rvals::SteelString;
 
     use super::*;
+    use alloc::vec;
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(feature = "std", not(feature = "sync")))]
     use im_rc::vector;
 
-    #[cfg(all(feature = "sync", not(feature = "imbl")))]
+    #[cfg(all(feature = "std", feature = "sync", not(feature = "imbl")))]
     use im::vector;
 
-    #[cfg(all(feature = "sync", feature = "imbl"))]
+    #[cfg(all(feature = "std", feature = "sync", feature = "imbl"))]
     use imbl::vector;
 
     #[test]
@@ -307,7 +348,7 @@ mod hashset_tests {
     #[test]
     fn hs_insert_from_empty() {
         let mut args = [
-            SteelVal::HashSetV(Gc::new(HashSet::new()).into()),
+            SteelVal::HashSetV(Gc::new(HashSet::default()).into()),
             SteelVal::StringV("foo".into()),
         ];
         let res = steel_hs_insert(&mut args);

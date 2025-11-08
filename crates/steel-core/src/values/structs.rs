@@ -1,10 +1,15 @@
 #![allow(unused)]
 #![allow(clippy::type_complexity)]
 
+use crate::collections::{HashMap, MutableHashMap, MutableHashSet};
 use crate::steel_vm::primitives::{steel_unbox_mutable, unbox_mutable};
-use crate::values::HashMap;
+#[cfg(feature = "sync")]
+use crate::sync::RwLock;
+use alloc::{
+    boxed::Box, collections::VecDeque, format, rc::Rc, string::String, string::ToString, sync::Arc,
+    vec, vec::Vec,
+};
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
 use smallvec::SmallVec;
 
 use crate::compiler::map::SymbolMap;
@@ -26,14 +31,12 @@ use crate::{
     SteelErr,
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
-use std::collections::VecDeque;
-use std::hash::Hash;
-use std::ops::Deref;
-use std::sync::Arc;
-use std::{
+use core::{
     cell::{Ref, RefCell},
-    rc::Rc,
+    hash::Hash,
+    ops::Deref,
 };
+use fxhash::FxBuildHasher;
 
 use super::closed::Heap;
 use super::functions::BoxedDynFunction;
@@ -115,12 +118,24 @@ impl StructTypeDescriptor {
     // TODO: Use inline reference to avoid reference count when getting the fields
     #[cfg(not(feature = "sync"))]
     fn fields(&self) -> SteelVal {
-        FIELDS_KEY.with(|key| VTABLE.with(|x| x.borrow().entries[self.0].properties[&key].clone()))
+        FIELDS_KEY.with(|key| {
+            VTABLE.with(|x| {
+                x.borrow().entries[self.0]
+                    .properties
+                    .get(key)
+                    .cloned()
+                    .expect("#:fields entry missing on struct properties")
+            })
+        })
     }
 
     #[cfg(feature = "sync")]
     fn fields(&self) -> SteelVal {
-        STATIC_VTABLE.read().entries[self.0].properties[&STATIC_FIELDS_KEY].clone()
+        STATIC_VTABLE.read().entries[self.0]
+            .properties
+            .get(&STATIC_FIELDS_KEY)
+            .cloned()
+            .expect("#:fields entry missing on struct properties")
     }
 }
 
@@ -180,14 +195,14 @@ impl PartialEq for UserDefinedStruct {
 }
 
 impl Hash for UserDefinedStruct {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.type_descriptor.hash(state);
         self.fields.deref().hash(state);
     }
 }
 
-impl std::fmt::Display for UserDefinedStruct {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for UserDefinedStruct {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if self
             .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
             .is_some()
@@ -354,7 +369,7 @@ impl UserDefinedStruct {
 
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            Some(descriptor.name().resolve().to_string().into()),
+            Some(Arc::new(String::from(descriptor.name().resolve()))),
             Some(len as _),
         )))
     }
@@ -384,7 +399,7 @@ impl UserDefinedStruct {
 
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            Some(name.resolve().to_string().into()),
+            Some(Arc::new(String::from(name.resolve()))),
             Some(len as _),
         )))
     }
@@ -409,7 +424,7 @@ impl UserDefinedStruct {
 
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            Some(descriptor.name().resolve().to_string().into()),
+            Some(Arc::new(String::from(descriptor.name().resolve()))),
             Some(1),
         )))
     }
@@ -452,7 +467,7 @@ impl UserDefinedStruct {
 
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            Some(descriptor.name().resolve().to_string().into()),
+            Some(Arc::new(String::from(descriptor.name().resolve()))),
             Some(2),
         )))
     }
@@ -490,7 +505,7 @@ impl UserDefinedStruct {
 
         SteelVal::BoxedFunction(Gc::new(BoxedDynFunction::new_owned(
             Arc::new(f),
-            Some(descriptor.name().resolve().to_string().into()),
+            Some(Arc::new(String::from(descriptor.name().resolve()))),
             Some(1),
         )))
     }
@@ -517,17 +532,17 @@ pub fn struct_update_primitive(args: &mut [SteelVal]) -> Result<SteelVal> {
                 populate_fields_offsets(fields, struct_fields_list, &mut fields_to_update)?;
 
                 for (idx, value) in fields_to_update {
-                    std::mem::swap(&mut s.fields[idx], value);
+                    core::mem::swap(&mut s.fields[idx], value);
                 }
 
-                Ok(std::mem::replace(&mut args[0], SteelVal::Void))
+                Ok(core::mem::replace(&mut args[0], SteelVal::Void))
             }
 
             None => {
                 let mut s = s.unwrap();
                 populate_fields_offsets(fields, struct_fields_list, &mut fields_to_update)?;
                 for (idx, value) in fields_to_update {
-                    std::mem::swap(&mut s.fields[idx], value);
+                    core::mem::swap(&mut s.fields[idx], value);
                 }
 
                 Ok(SteelVal::CustomStruct(Gc::new(s)))
@@ -539,7 +554,7 @@ pub fn struct_update_primitive(args: &mut [SteelVal]) -> Result<SteelVal> {
 }
 
 fn populate_fields_offsets<'a>(
-    mut fields: std::slice::IterMut<'a, SteelVal>,
+    mut fields: core::slice::IterMut<'a, SteelVal>,
     struct_fields_list: &List<SteelVal>,
     fields_to_update: &mut smallvec::SmallVec<[(usize, &'a mut SteelVal); 5]>,
 ) -> Result<()> {
@@ -572,8 +587,26 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
 
     // Convert the string into an Arc'd string - this now makes the generated functions
     // thread safe.
-    let SteelVal::SymbolV(name) = &args[0] else {
-        stop!(TypeMismatch => format!("make-struct-type expected a symbol for the name, found: {}", &args[0]));
+    let name = match &args[0] {
+        SteelVal::SymbolV(name) => name.clone(),
+        SteelVal::ListV(list) => {
+            let mut iter = list.iter();
+            match (iter.next(), iter.next(), iter.next()) {
+                (Some(SteelVal::SymbolV(sym)), Some(SteelVal::SymbolV(name)), None)
+                    if sym.as_str() == "quote" =>
+                {
+                    name.clone()
+                }
+                _ => stop!(TypeMismatch => format!(
+                    "make-struct-type expected a symbol for the name, found: {}",
+                    &args[0]
+                )),
+            }
+        }
+        _ => stop!(TypeMismatch => format!(
+            "make-struct-type expected a symbol for the name, found: {}",
+            &args[0]
+        )),
     };
 
     let SteelVal::IntV(field_count) = &args[1] else {
@@ -675,8 +708,8 @@ impl VTable {
     }
 
     pub(crate) fn sendable_entries(
-        serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-        visited: &mut std::collections::HashSet<usize>,
+        serializer: &mut MutableHashMap<usize, SerializableSteelVal>,
+        visited: &mut MutableHashSet<usize>,
     ) -> Result<Vec<SendableVTableEntry>> {
         VTABLE.with(|x| {
             x.borrow()
@@ -815,8 +848,15 @@ pub static ERR_RESULT_LABEL: Lazy<InternedString> = Lazy::new(|| "Err".into());
 pub static NONE_OPTION_LABEL: Lazy<InternedString> = Lazy::new(|| "None".into());
 pub static TYPE_ID: Lazy<InternedString> = Lazy::new(|| "TypeId".into());
 
-pub static STRUCT_DEFINITIONS: Lazy<Arc<std::sync::RwLock<SymbolMap>>> =
-    Lazy::new(|| Arc::new(std::sync::RwLock::new(SymbolMap::default())));
+#[cfg(feature = "sync")]
+#[cfg(feature = "sync")]
+pub static STRUCT_DEFINITIONS: Lazy<Arc<RwLock<SymbolMap>>> =
+    Lazy::new(|| Arc::new(RwLock::new(SymbolMap::default())));
+
+#[cfg(not(feature = "sync"))]
+thread_local! {
+    pub static STRUCT_DEFINITIONS: RefCell<SymbolMap> = RefCell::new(SymbolMap::default());
+}
 
 #[cfg(feature = "sync")]
 pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {
@@ -888,10 +928,20 @@ thread_local! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
         });
 
-        #[cfg(not(feature = "sync"))]
+        #[cfg(all(not(feature = "sync"), feature = "std"))]
         let result_options = Gc::new(im_rc::hashmap! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
         });
+
+        #[cfg(all(not(feature = "sync"), not(feature = "std")))]
+        let result_options = {
+            let mut map = HashMap::<SteelVal, SteelVal>::default();
+            map.insert(
+                SteelVal::SymbolV("#:transparent".into()),
+                SteelVal::BoolV(true),
+            );
+            Gc::new(map)
+        };
 
         map.insert("Ok".into(), result_options.clone());
         map.insert("Err".into(), result_options.clone());
@@ -906,7 +956,8 @@ thread_local! {
         }))
     };
 
-    pub static DEFAULT_PROPERTIES: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(HashMap::new());
+    pub static DEFAULT_PROPERTIES: Gc<HashMap<SteelVal, SteelVal>> =
+        Gc::new(HashMap::<SteelVal, SteelVal>::default());
 
     #[cfg(all(feature = "sync", not(feature = "imbl")))]
     pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im::hashmap! {
@@ -919,10 +970,20 @@ thread_local! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(not(feature = "sync"), feature = "std"))]
     pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
+
+    #[cfg(all(not(feature = "sync"), not(feature = "std")))]
+    pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = {
+        let mut map = HashMap::<SteelVal, SteelVal>::default();
+        map.insert(
+            SteelVal::SymbolV("#:transparent".into()),
+            SteelVal::BoolV(true),
+        );
+        Gc::new(map)
+    };
 
     pub static OK_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*OK_RESULT_LABEL, None);
     pub static ERR_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*ERR_RESULT_LABEL, None);
@@ -944,10 +1005,20 @@ thread_local! {
         )))
     };
 
-    #[cfg(not(feature = "sync"))]
+    #[cfg(all(not(feature = "sync"), feature = "std"))]
     pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im_rc::hashmap! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
+
+    #[cfg(all(not(feature = "sync"), not(feature = "std")))]
+    pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = {
+        let mut map = HashMap::<SteelVal, SteelVal>::default();
+        map.insert(
+            SteelVal::SymbolV("#:transparent".into()),
+            SteelVal::BoolV(true),
+        );
+        Gc::new(map)
+    };
 
     #[cfg(all(feature = "sync", not(feature = "imbl")))]
     pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(im::hashmap! {
@@ -996,7 +1067,7 @@ pub(crate) fn build_type_id_module() -> BuiltInModule {
 
 pub(crate) fn build_result_structs() -> BuiltInModule {
     // Build module
-    let mut module = BuiltInModule::new("steel/core/result".to_string());
+    let mut module = BuiltInModule::new("steel/core/result");
 
     #[cfg(not(feature = "sync"))]
     {
@@ -1028,7 +1099,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
                         1,
                         OK_DESCRIPTOR.with(|x| *x),
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(1),
                 ))),
             )
@@ -1066,7 +1137,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
                         1,
                         *STATIC_OK_DESCRIPTOR,
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(1),
                 ))),
             )
@@ -1095,7 +1166,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
                         1,
                         ERR_DESCRIPTOR.with(|x| *x),
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(1),
                 ))),
             )
@@ -1124,7 +1195,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
                         1,
                         *STATIC_ERR_DESCRIPTOR,
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(1),
                 ))),
             )
@@ -1137,7 +1208,7 @@ pub(crate) fn build_result_structs() -> BuiltInModule {
 
 pub(crate) fn build_option_structs() -> BuiltInModule {
     // Build module
-    let mut module = BuiltInModule::new("steel/core/option".to_string());
+    let mut module = BuiltInModule::new("steel/core/option");
 
     if cfg!(feature = "sync") {
         VTable::set_entry(
@@ -1184,7 +1255,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
                         1,
                         SOME_DESCRIPTOR.with(|x| *x),
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(1),
                 ))),
             )
@@ -1211,7 +1282,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
                         1,
                         *STATIC_SOME_DESCRIPTOR,
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(1),
                 ))),
             )
@@ -1234,7 +1305,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
                         0,
                         NONE_DESCRIPTOR.with(|x| *x),
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(0),
                 ))),
             )
@@ -1256,7 +1327,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
                         0,
                         *STATIC_NONE_DESCRIPTOR,
                     )),
-                    Some(name.resolve().to_string().into()),
+                    Some(Arc::new(String::from(name.resolve()))),
                     Some(0),
                 ))),
             )
@@ -1266,7 +1337,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
     module
 }
 
-pub struct RecoverableResult<T, E>(std::result::Result<T, E>);
+pub struct RecoverableResult<T, E>(core::result::Result<T, E>);
 
 impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for RecoverableResult<T, E> {
     #[inline(always)]
@@ -1278,21 +1349,25 @@ impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for RecoverableResult<T, E> 
     }
 }
 
-impl<T: IntoSteelVal, E: IntoSteelVal> From<RecoverableResult<T, E>> for std::result::Result<T, E> {
+impl<T: IntoSteelVal, E: IntoSteelVal> From<RecoverableResult<T, E>>
+    for core::result::Result<T, E>
+{
     fn from(value: RecoverableResult<T, E>) -> Self {
         value.0
     }
 }
 
-impl<T: IntoSteelVal, E: IntoSteelVal> From<std::result::Result<T, E>> for RecoverableResult<T, E> {
-    fn from(value: std::result::Result<T, E>) -> Self {
+impl<T: IntoSteelVal, E: IntoSteelVal> From<core::result::Result<T, E>>
+    for RecoverableResult<T, E>
+{
+    fn from(value: core::result::Result<T, E>) -> Self {
         RecoverableResult(value)
     }
 }
 
 /// Result type that automatically maps into the equivalent Result type within Steel.
 /// For example, `Ok(10)` will map to `(Ok 10)`, and `Err(10)` will map to `(Err 10)`.
-pub struct SteelResult<T, E>(std::result::Result<T, E>);
+pub struct SteelResult<T, E>(core::result::Result<T, E>);
 impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for SteelResult<T, E> {
     #[inline(always)]
     fn into_steelval(self) -> Result<SteelVal> {
@@ -1303,14 +1378,14 @@ impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for SteelResult<T, E> {
     }
 }
 
-impl<T: IntoSteelVal, E: IntoSteelVal> From<SteelResult<T, E>> for std::result::Result<T, E> {
+impl<T: IntoSteelVal, E: IntoSteelVal> From<SteelResult<T, E>> for core::result::Result<T, E> {
     fn from(value: SteelResult<T, E>) -> Self {
         value.0
     }
 }
 
-impl<T: IntoSteelVal, E: IntoSteelVal> From<std::result::Result<T, E>> for SteelResult<T, E> {
-    fn from(value: std::result::Result<T, E>) -> Self {
+impl<T: IntoSteelVal, E: IntoSteelVal> From<core::result::Result<T, E>> for SteelResult<T, E> {
+    fn from(value: core::result::Result<T, E>) -> Self {
         SteelResult(value)
     }
 }
@@ -1318,7 +1393,7 @@ impl<T: IntoSteelVal, E: IntoSteelVal> From<std::result::Result<T, E>> for Steel
 // By default, the standard result type will automatically unwrap ok values, and raise errors
 // if they occur as genuine steel errors. If you'd like to catch these, you can set up an exception handler.
 // The runtime cost for this is relatively low.
-impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for std::result::Result<T, E> {
+impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for core::result::Result<T, E> {
     fn into_steelval(self) -> Result<SteelVal> {
         match self {
             Ok(s) => s.into_steelval(),
@@ -1333,7 +1408,7 @@ impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for std::result::Result<T, E
     }
 }
 
-impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for std::result::Result<T, E> {
+impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for core::result::Result<T, E> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::CustomStruct(s) = val {
             if s.is_ok() {

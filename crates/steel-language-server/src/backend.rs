@@ -2,7 +2,7 @@
 
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
+    collections::{HashMap as StdHashMap, HashSet},
     error::Error,
     path::PathBuf,
     sync::{Arc, Mutex, RwLock},
@@ -16,6 +16,7 @@ use ropey::Rope;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use steel::{
+    collections::MutableHashMap,
     compiler::{
         modules::{steel_home, MaybeRenamed, MANGLER_PREFIX, MODULE_PREFIX},
         passes::analysis::{
@@ -33,8 +34,10 @@ use steel::{
         span::Span,
         tryfrom_visitor::SyntaxObjectFromExprKindRef,
     },
+    path::OwnedPath,
     rvals::{AsRefSteelVal, FromSteelVal, SteelString},
     steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn},
+    time::Instant,
 };
 use steel_parser::{
     ast::{Define, ToDoc},
@@ -94,7 +97,7 @@ pub struct Backend {
     pub document_map: DashMap<String, Rope>,
     pub vfs: DashMap<Url, FileState>,
     // TODO: This needs to hold macros to help with resolving definitions
-    pub _macro_map: DashMap<String, HashMap<InternedString, SteelMacro>>,
+    pub _macro_map: DashMap<String, StdHashMap<InternedString, SteelMacro>>,
     pub ignore_set: Arc<DashSet<InternedString>>,
     pub globals_set: Arc<DashSet<InternedString>>,
     pub defined_globals: DashSet<String>,
@@ -301,7 +304,7 @@ impl LanguageServer for Backend {
                                         match kind {
                                             ExprKind::LambdaFunction(symbol) => None, // if symbol.syntax_object_id == function_name_id.0 => None,
                                             _ => {
-                                                let mut id_to_str = HashMap::new();
+                                                let mut id_to_str = MutableHashMap::default();
                                                 id_to_str.insert(function_name_id, None);
                                                 analysis.syntax_object_ids_to_identifiers(
                                                     &mut id_to_str,
@@ -321,6 +324,7 @@ impl LanguageServer for Backend {
                             }
                         });
 
+                        #[allow(deprecated)]
                         SymbolInformation {
                             name: name.resolve().into(),
                             kind: match kind {
@@ -359,7 +363,7 @@ impl LanguageServer for Backend {
                                 }
                                 SemanticInformationType::Function(f) => match f.aliases_to {
                                     Some(function_name_id) => {
-                                        let mut id_to_str = HashMap::new();
+                                        let mut id_to_str = MutableHashMap::default();
                                         id_to_str.insert(function_name_id, None);
                                         analysis.syntax_object_ids_to_identifiers(&mut id_to_str);
 
@@ -375,6 +379,7 @@ impl LanguageServer for Backend {
                             }
                         });
 
+                        #[allow(deprecated)]
                         SymbolInformation {
                             name: name.to_string(),
                             kind: SymbolKind::VARIABLE,
@@ -906,7 +911,7 @@ impl LanguageServer for Backend {
             // at least attempt to build a reverse index for find references.
             if let Some(module_path) = module_path {
                 let mut external_module_refs =
-                    self.find_references_external_module(identifier, module_path);
+                    self.find_references_external_module(identifier, module_path.to_path_buf());
                 found_locations.append(&mut external_module_refs);
             } else {
                 let module_path = params
@@ -988,7 +993,7 @@ impl LanguageServer for Backend {
             // Finds the scoped contexts that we're currently inside of by the span
             let contexts = analysis.find_contexts_with_offset(offset, uri_to_source_id(&uri)?);
 
-            let now = std::time::Instant::now();
+            let now = Instant::now();
 
             let mut completions: HashSet<String> =
                 HashSet::with_capacity(contexts.len() + self.defined_globals.len());
@@ -1167,7 +1172,7 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
-        let changes = HashMap::from_iter([(uri, changes)]);
+        let changes = StdHashMap::from_iter([(uri, changes)]);
         Ok(Some(WorkspaceEdit::new(changes)))
     }
 
@@ -1255,7 +1260,7 @@ impl Backend {
         syntax_object_id: SyntaxObjectId,
         info: &SemanticInformation,
     ) -> Option<Vec<Location>> {
-        let mut syntax_object_id_to_interned_string = HashMap::new();
+        let mut syntax_object_id_to_interned_string = MutableHashMap::default();
         syntax_object_id_to_interned_string.insert(syntax_object_id, None);
         analysis.syntax_object_ids_to_identifiers(&mut syntax_object_id_to_interned_string);
 
@@ -1324,14 +1329,14 @@ impl Backend {
         let mut should_index = Vec::new();
 
         for (p, module) in all_modules.iter() {
-            if &module_path == p {
+            if module_path == p.to_path_buf() {
                 continue;
             }
 
             let require_objects = module.get_requires();
 
             for req in require_objects {
-                if req.path.get_path().as_path() == module_path {
+                if req.path.get_path().as_path() == module_path.as_path() {
                     // Note: Once the logging is fixed we can remove the clone here
                     should_index.push((module, req));
                 }
@@ -1627,7 +1632,8 @@ impl Backend {
         let (syntax_object_id, information) =
             analysis.find_identifier_at_offset(offset, uri_to_source_id(&uri)?)?;
 
-        let mut syntax_object_id_to_interned_string = HashMap::new();
+        let mut syntax_object_id_to_interned_string: MutableHashMap<_, _> =
+            MutableHashMap::default();
         syntax_object_id_to_interned_string.insert(*syntax_object_id, None);
 
         // If this is a builtin, reference the engine's internal documentation
@@ -1820,7 +1826,7 @@ impl Backend {
 
     // Just do incremental?
     async fn on_change(&self, params: TextDocumentItem) {
-        let now = std::time::Instant::now();
+        let now = Instant::now();
 
         // Ensure this document is marked as open from the perspective of the LSP
         let rope = ropey::Rope::from_str(&params.text);
@@ -1843,12 +1849,13 @@ impl Backend {
                     guard.in_scope_macros().keys().copied().collect();
 
                 // TODO: Add span to the macro definition!
-                let mut introduced_macros: HashMap<InternedString, SteelMacro> = HashMap::new();
+                let mut introduced_macros: StdHashMap<InternedString, SteelMacro> =
+                    StdHashMap::new();
 
                 let now = std::time::Instant::now();
                 let expressions = guard.emit_expanded_ast_without_optimizations(
                     &expression,
-                    params.uri.to_file_path().ok(),
+                    params.uri.to_file_path().ok().map(OwnedPath::from),
                 );
                 eprintln!("on change time: {:?}", now.elapsed());
 
@@ -1921,7 +1928,7 @@ impl Backend {
 
                 free_identifiers_and_unused.append(&mut static_arity_checking);
 
-                let now = std::time::Instant::now();
+                let now = Instant::now();
 
                 // TODO: Enable this once the syntax object let conversion is implemented
                 let mut user_defined_lints =
@@ -2090,7 +2097,7 @@ fn source_id_to_uri(source_id: SourceId) -> Option<Url> {
 }
 
 pub struct ExternalModuleResolver {
-    modules: HashMap<String, BuiltInModule>,
+    modules: StdHashMap<String, BuiltInModule>,
 }
 
 impl ExternalModuleResolver {
@@ -2098,7 +2105,7 @@ impl ExternalModuleResolver {
         engine: &mut Engine,
         directory: PathBuf,
     ) -> std::result::Result<Self, Box<dyn Error>> {
-        let mut modules = HashMap::new();
+        let mut modules = StdHashMap::new();
 
         for file in std::fs::read_dir(&directory)? {
             let file = file?;

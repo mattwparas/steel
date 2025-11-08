@@ -1,10 +1,17 @@
 use crate::rvals::{Result, SteelVal};
+#[cfg(not(feature = "sync"))]
+use alloc::vec::Vec;
+
+#[cfg(feature = "sync")]
 use once_cell::sync::Lazy;
+#[cfg(feature = "sync")]
 use shared_vector::AtomicSharedVector;
 
+#[cfg(feature = "sync")]
 #[derive(Debug, Clone)]
 pub(crate) struct SharedVectorWrapper(pub AtomicSharedVector<SteelVal>);
 
+#[cfg(feature = "sync")]
 impl SharedVectorWrapper {
     pub fn set_idx(&mut self, idx: usize, val: SteelVal) -> SteelVal {
         let guard = self.0.get_mut(idx).unwrap();
@@ -19,13 +26,6 @@ impl SharedVectorWrapper {
             guard[idx] = val.clone();
         } else {
             if idx > guard.len() {
-                // if idx > self.thread_local_bindings.len() {
-                // TODO: This seems suspect. Try to understand
-                // what is happening here. This would be that values
-                // are getting interned to be at a global offset in the
-                // wrong order, which seems to be fine in general,
-                // assuming that the values then get actually updated
-                // to the correct values.
                 for _ in 0..(idx - guard.len()) {
                     guard.push(SteelVal::Void);
                 }
@@ -36,6 +36,7 @@ impl SharedVectorWrapper {
     }
 }
 
+#[cfg(feature = "sync")]
 unsafe impl Sync for SharedVectorWrapper {}
 
 #[allow(unused)]
@@ -67,6 +68,7 @@ impl Clone for Env {
 
 #[cfg(not(feature = "sync"))]
 impl Env {
+    #[allow(dead_code)]
     pub fn extract(&self, idx: usize) -> Option<SteelVal> {
         self.bindings_vec.get(idx).cloned()
     }
@@ -139,6 +141,7 @@ impl Env {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn add_root_value(&mut self, idx: usize, val: SteelVal) {
         // self.bindings_map.insert(idx, val);
         self.repl_define_idx(idx, val);

@@ -10,7 +10,7 @@ chain](https://www.rust-lang.org/tools/install).
 git clone https://github.com/mattwparas/steel.git &&
 cd steel &&
 cargo xtask install &&
-cargo test --all
+cargo test --workspace
 ```
 
 This will install:

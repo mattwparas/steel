@@ -26,6 +26,7 @@ use steel::{
         parser::{SourceId, SyntaxObjectId},
         span::Span,
     },
+    path::OwnedPath,
     steel_vm::{builtin::Arity, engine::Engine},
     stop, SteelVal,
 };
@@ -182,7 +183,7 @@ impl DiagnosticGenerator for StaticArityChecker {
 
                     let module_guard = context.engine.modules();
 
-                    let Some(module) = module_guard.get(&PathBuf::from(module_path_to_check))
+                    let Some(module) = module_guard.get(&OwnedPath::from(module_path_to_check))
                     else {
                         continue;
                     };

@@ -1,3 +1,6 @@
+use alloc::format;
+use alloc::vec;
+use alloc::vec::Vec;
 use steel_derive::function;
 
 use crate::{
@@ -366,7 +369,7 @@ pub fn bytes_to_string(
     let start = start as usize;
     let end = end as usize;
 
-    let Ok(s) = std::str::from_utf8(&(&*borrowed)[start..end]) else {
+    let Ok(s) = core::str::from_utf8(&(&*borrowed)[start..end]) else {
         stop!(ConversionError => "bytevector contains malformed UTF-8")
     };
 

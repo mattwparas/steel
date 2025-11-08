@@ -5,7 +5,8 @@ pub mod mangle;
 pub mod opt;
 pub mod shadow;
 
-use std::ops::ControlFlow;
+use alloc::{boxed::Box, vec::Vec};
+use core::ops::ControlFlow;
 
 use steel_parser::ast::Vector;
 

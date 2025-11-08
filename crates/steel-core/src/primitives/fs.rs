@@ -1,24 +1,30 @@
+use crate::path::PathBuf;
 use crate::rvals::{
     self, AsRefMutSteelVal, AsRefSteelVal, Custom, IntoSteelVal, RestArgsIter, Result, SteelString,
     SteelVal,
 };
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::{steelerr, throw};
+use alloc::format;
+use alloc::string::String;
 use std::env::{current_dir, set_current_dir};
-use std::path::{Path, PathBuf};
+use std::path::Path as StdPath;
 
 use std::fs::{self, DirEntry, Metadata, ReadDir};
 use std::io;
 
 fn get_extension_from_filename(filename: &str) -> Option<&str> {
-    Path::new(filename)
+    StdPath::new(filename)
         .extension()
         .and_then(std::ffi::OsStr::to_str)
 }
 
 /// Copy files from source to destination recursively.
 /// from https://nick.groenen.me/notes/recursively-copy-files-in-rust/
-pub fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> io::Result<()> {
+pub fn copy_recursively(
+    source: impl AsRef<StdPath>,
+    destination: impl AsRef<StdPath>,
+) -> io::Result<()> {
     fs::create_dir_all(&destination)?;
     for entry in fs::read_dir(source)? {
         let entry = entry?;
@@ -33,8 +39,8 @@ pub fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>)
 }
 
 impl Custom for PathBuf {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        Some(Ok(format!("#<Path:{:?}>", self)))
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
+        Some(Ok(format!("#<Path:{}>", self.to_string_lossy())))
     }
 }
 
@@ -64,7 +70,7 @@ pub fn glob(pattern: SteelString, mut rest: RestArgsIter<'_, &SteelVal>) -> Resu
 pub fn glob_paths_next(paths: &SteelVal) -> Result<SteelVal> {
     let mut paths = glob::Paths::as_mut_ref(paths)?;
     match paths.next() {
-        Some(Ok(v)) => v.into_steelval(),
+        Some(Ok(v)) => PathBuf::from(v).into_steelval(),
         Some(Err(e)) => crate::stop!(Generic => "glob-iter-next!: {:?}", e),
         None => Ok(SteelVal::BoolV(false)),
     }
@@ -72,10 +78,21 @@ pub fn glob_paths_next(paths: &SteelVal) -> Result<SteelVal> {
 
 #[steel_derive::function(name = "path->string")]
 pub fn path_to_string(path: &SteelVal) -> Result<SteelVal> {
-    <PathBuf as rvals::AsRefSteelVal>::as_ref(path)?
-        .to_str()
-        .map(|x| SteelVal::StringV(x.to_string().into()))
-        .into_steelval()
+    let path = <PathBuf as rvals::AsRefSteelVal>::as_ref(path)?;
+
+    #[cfg(feature = "std")]
+    {
+        return path
+            .as_path()
+            .to_str()
+            .map(|x| SteelVal::StringV(x.to_string().into()))
+            .into_steelval();
+    }
+
+    #[cfg(not(feature = "std"))]
+    {
+        Ok(SteelVal::StringV(path.as_str().into()))
+    }
 }
 
 /// Filesystem functions, mostly just thin wrappers around the `std::fs` functions in
@@ -148,7 +165,7 @@ impl Custom for Metadata {}
 /// ```
 #[steel_derive::function(name = "read-dir-iter")]
 pub fn read_dir_iter(directory: &SteelString) -> Result<SteelVal> {
-    let p = Path::new(directory.as_ref());
+    let p = StdPath::new(directory.as_ref());
     p.read_dir()?.into_steelval()
 }
 
@@ -403,7 +420,7 @@ pub fn copy_directory_recursively(
 /// ```
 #[steel_derive::function(name = "path-exists?")]
 pub fn path_exists(path: &SteelString) -> Result<SteelVal> {
-    Ok(SteelVal::BoolV(Path::new(path.as_ref()).exists()))
+    Ok(SteelVal::BoolV(StdPath::new(path.as_ref()).exists()))
 }
 
 /// Checks if a path is a file.
@@ -419,7 +436,7 @@ pub fn path_exists(path: &SteelString) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "is-file?")]
 pub fn is_file(path: &SteelString) -> Result<SteelVal> {
-    Ok(SteelVal::BoolV(Path::new(path.as_ref()).is_file()))
+    Ok(SteelVal::BoolV(StdPath::new(path.as_ref()).is_file()))
 }
 
 /// Checks if a path is a directory.
@@ -435,7 +452,7 @@ pub fn is_file(path: &SteelString) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "is-dir?")]
 pub fn is_dir(path: &SteelString) -> Result<SteelVal> {
-    Ok(SteelVal::BoolV(Path::new(path.as_ref()).is_dir()))
+    Ok(SteelVal::BoolV(StdPath::new(path.as_ref()).is_dir()))
 }
 
 /// Gets the extension from a path.
@@ -472,7 +489,7 @@ pub fn get_extension(path: &SteelString) -> Result<SteelVal> {
 #[steel_derive::function(name = "file-name")]
 pub fn file_name(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::StringV(
-        Path::new(path.as_str())
+        StdPath::new(path.as_str())
             .file_name()
             .and_then(|x| x.to_str())
             .unwrap_or("")
@@ -494,7 +511,7 @@ pub fn file_name(path: &SteelString) -> Result<SteelVal> {
 #[steel_derive::function(name = "parent-name")]
 pub fn parent_name(path: &SteelString) -> Result<SteelVal> {
     Ok(SteelVal::StringV(
-        Path::new(path.as_str())
+        StdPath::new(path.as_str())
             .parent()
             .and_then(|x| x.to_str())
             .unwrap_or("")
@@ -551,7 +568,7 @@ pub fn canonicalize_path(path: &SteelString) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "read-dir")]
 pub fn read_dir(path: &SteelString) -> Result<SteelVal> {
-    let p = Path::new(path.as_ref());
+    let p = StdPath::new(path.as_ref());
     let iter = p.read_dir()?;
     Ok(SteelVal::ListV(
         iter.into_iter()
@@ -590,7 +607,7 @@ pub fn current_directory() -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "change-current-directory!")]
 pub fn change_current_directory(path: &SteelString) -> Result<SteelVal> {
-    let path = Path::new(path.as_ref());
+    let path = StdPath::new(path.as_ref());
 
     set_current_dir(path)?;
     Ok(SteelVal::Void)

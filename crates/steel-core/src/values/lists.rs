@@ -1,4 +1,7 @@
-use std::cell::Cell;
+#![cfg_attr(not(feature = "std"), allow(dead_code, unused_imports))]
+
+use alloc::format;
+use core::cell::Cell;
 
 use im_lists::{
     handler::{DefaultDropHandler, DropHandler},
@@ -47,19 +50,19 @@ impl From<Pair> for SteelVal {
     }
 }
 
-impl std::fmt::Debug for Pair {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for Pair {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "({} . {})", &self.car, &self.cdr)
     }
 }
 
-#[cfg(feature = "without-drop-protection")]
+#[cfg(any(feature = "without-drop-protection", not(feature = "std")))]
 type DropHandlerChoice = im_lists::handler::DefaultDropHandler;
-#[cfg(not(feature = "without-drop-protection"))]
+#[cfg(all(feature = "std", not(feature = "without-drop-protection")))]
 type DropHandlerChoice = list_drop_handler::ListDropHandler;
 
 thread_local! {
-    pub static DEPTH: Cell<usize> = const { Cell::new(0) };
+    pub static DEPTH: Cell<usize> = Cell::new(0);
 }
 
 pub struct GcPointerType;
@@ -108,10 +111,10 @@ impl PointerFamily for GcPointerType {
     }
 }
 
-#[cfg(not(feature = "without-drop-protection"))]
+#[cfg(all(feature = "std", not(feature = "without-drop-protection")))]
 mod list_drop_handler {
 
-    use std::collections::VecDeque;
+    use alloc::collections::VecDeque;
 
     use super::*;
 
@@ -132,7 +135,7 @@ mod list_drop_handler {
                 if DROP_BUFFER
                     .try_with(|drop_buffer| {
                         if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                            let taken = std::mem::take(obj);
+                            let taken = core::mem::take(obj);
 
                             for value in taken.draining_iterator() {
                                 match &value {
@@ -169,7 +172,7 @@ mod list_drop_handler {
                         } else {
                             let mut drop_buffer = VecDeque::new();
 
-                            for value in std::mem::take(obj).draining_iterator() {
+                            for value in core::mem::take(obj).draining_iterator() {
                                 match &value {
                                     SteelVal::BoolV(_)
                                     | SteelVal::NumV(_)
@@ -205,7 +208,7 @@ mod list_drop_handler {
                     .is_err()
                 {
                     let mut drop_buffer = VecDeque::new();
-                    for value in std::mem::take(obj).draining_iterator() {
+                    for value in core::mem::take(obj).draining_iterator() {
                         match &value {
                             SteelVal::BoolV(_)
                             | SteelVal::NumV(_)
@@ -246,6 +249,7 @@ pub type SteelList<T> = im_lists::list::GenericList<T, PointerType, 4, 2, Defaul
 
 pub type List<T> = im_lists::list::GenericList<T, PointerType, 4, 2, DropHandlerChoice>;
 
+#[cfg_attr(not(feature = "sync"), allow(dead_code))]
 pub(crate) type CellPointer<T> = im_lists::list::RawCell<T, PointerType, 4, 2, DropHandlerChoice>;
 
 pub type ConsumingIterator<T> =
