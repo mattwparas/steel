@@ -2006,11 +2006,11 @@ impl CompiledModuleCache {
         key: &PathBuf,
         sources: &mut Sources,
     ) -> Option<&mut CompiledModule> {
-        if !self.compiled_modules.contains_key(key) {
-            return self.get_cached_mut(key, sources);
-        }
+        // if !self.compiled_modules.contains_key(key) {
+        self.get_cached_mut(key, sources)
+        // }
 
-        self.compiled_modules.get_mut(key)
+        // self.compiled_modules.get_mut(key)
     }
 }
 
@@ -2409,6 +2409,8 @@ impl<'a> ModuleBuilder<'a> {
             let modules = self.compiled_modules.compiled_modules.clone();
             if let Some(module) = self.compiled_modules.cached_mut(&self.name, self.sources) {
                 log::info!("Using cached module: {:?}", self.name);
+
+                module.set_emitted(true);
 
                 // module.set_emitted(true);
                 return module.to_top_level_module(&modules, self.global_macro_map);
