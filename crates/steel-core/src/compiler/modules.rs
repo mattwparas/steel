@@ -208,7 +208,7 @@ pub fn steel_home() -> Option<String> {
 /// if it needs to be recompiled
 #[derive(Clone)]
 pub(crate) struct ModuleManager {
-    pub(crate) compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
+    pub(crate) compiled_modules: CompiledModuleCache,
     pub(crate) file_metadata: crate::HashMap<PathBuf, SystemTime>,
     visited: FxHashSet<PathBuf>,
     custom_builtins: HashMap<String, String>,
@@ -228,7 +228,7 @@ impl ModuleManager {
         file_metadata: crate::HashMap<PathBuf, SystemTime>,
     ) -> Self {
         ModuleManager {
-            compiled_modules,
+            compiled_modules: CompiledModuleCache::new(compiled_modules),
             file_metadata,
             visited: FxHashSet::default(),
             custom_builtins: HashMap::new(),
@@ -246,11 +246,11 @@ impl ModuleManager {
     }
 
     pub fn modules(&self) -> &crate::HashMap<PathBuf, CompiledModule> {
-        &self.compiled_modules
+        &self.compiled_modules.compiled_modules
     }
 
     pub fn modules_mut(&mut self) -> &mut crate::HashMap<PathBuf, CompiledModule> {
-        &mut self.compiled_modules
+        &mut self.compiled_modules.compiled_modules
     }
 
     pub(crate) fn default() -> Self {
@@ -344,7 +344,7 @@ impl ModuleManager {
 
         module_builder.collect_provides()?;
 
-        let mut ast = module_builder.source_ast;
+        let mut ast = std::mem::take(&mut module_builder.source_ast);
 
         let mut require_defines = Vec::new();
 
@@ -372,7 +372,10 @@ impl ModuleManager {
             }
 
             // println!("{:?}", path);
-            let module = if let Some(module) = module_builder.compiled_modules.get(path.as_ref()) {
+            let module = if let Some(module) = module_builder
+                .compiled_modules
+                .get(path.as_ref(), module_builder.sources)
+            {
                 module
             } else {
                 // log::debug!(target: "modules", "No provides found for module, skipping: {:?}", path);
@@ -541,9 +544,12 @@ impl ModuleManager {
 
         let mut mangled_asts = Vec::with_capacity(ast.len());
 
+        let require_objects = std::mem::take(&mut module_builder.require_objects);
+        drop(module_builder);
+
         // TODO: Move this to the lower level as well
         // It seems we're only doing this expansion at the top level, but we _should_ do this at the lower level as well
-        for require_object in module_builder.require_objects.iter()
+        for require_object in require_objects.iter()
         // .filter(|x| x.for_syntax)
         // .map(|x| x.path.get_path())
         {
@@ -554,6 +560,7 @@ impl ModuleManager {
                 require_for_syntax.as_ref(),
                 require_object,
                 &mut mangled_asts,
+                sources,
             );
 
             // let kernel_macros_in_scope: HashSet<_> =
@@ -823,16 +830,18 @@ impl ModuleManager {
     }
 
     fn find_in_scope_macros<'a>(
-        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
+        compiled_modules: &'a mut CompiledModuleCache,
         require_for_syntax: &'a PathBuf,
         require_object: &'a RequireObject,
         mangled_asts: &'a mut Vec<ExprKind>,
+        sources: &mut Sources,
     ) -> (
         &'a CompiledModule,
         FxHashMap<InternedString, SteelMacro>,
         NameMangler,
     ) {
         let module = compiled_modules
+            .compiled_modules
             .get_mut(require_for_syntax)
             .unwrap_or_else(|| panic!("Module missing!: {:?}", require_for_syntax));
 
@@ -866,7 +875,10 @@ impl ModuleManager {
         // drop(module);
 
         for importing_module in modules_to_check {
-            let other_module = compiled_modules.get_mut(&importing_module).unwrap();
+            let other_module = compiled_modules
+                .compiled_modules
+                .get_mut(&importing_module)
+                .unwrap();
 
             for provide_expr in &other_module.provides {
                 // TODO: Handle provide spec stuff!
@@ -883,6 +895,7 @@ impl ModuleManager {
         }
 
         let module = compiled_modules
+            .compiled_modules
             .get_mut(require_for_syntax)
             .unwrap_or_else(|| panic!("Module missing!: {:?}", require_for_syntax));
 
@@ -1875,6 +1888,146 @@ impl DependencyGraph {
 }
 */
 
+#[derive(Clone)]
+pub(crate) struct CompiledModuleCache {
+    cache_dir: Arc<PathBuf>,
+    compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
+}
+
+// impl Drop for ModuleManager {
+// fn drop(&mut self) {
+// self.compiled_modules.cache_modules();
+// }
+// }
+
+impl CompiledModuleCache {
+    // Write the modules to the cache on drop.
+    // pub fn cache_modules(&mut self) {
+    //     // let now = std::time::Instant::now();
+    //     for (key, module) in self.compiled_modules.iter_mut() {
+    //         self.cache_module(key, module);
+    //     }
+    // }
+
+    fn cache_module(&mut self, key: &PathBuf, module: &CompiledModule) {
+        let encoded = bincode::serialize(&module).unwrap();
+        let key = Self::create_key(&self.cache_dir, key);
+        log::info!("Writing to key: {:?}", key);
+        let parent = key.parent().unwrap();
+        if !parent.exists() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        if !key.exists() {
+            std::fs::write(key, encoded).unwrap();
+        }
+    }
+
+    pub fn create_key(cache_dir: &PathBuf, key: &PathBuf) -> PathBuf {
+        if key.exists() {
+            let parts: PathBuf = key.components().skip(1).collect();
+            cache_dir.join(parts)
+        } else {
+            cache_dir.join(key)
+        }
+    }
+
+    pub fn get_cached(&mut self, path: &PathBuf, sources: &mut Sources) -> Option<&CompiledModule> {
+        self.read_cached_module(path, sources)?;
+        self.compiled_modules.get(path)
+    }
+
+    pub fn get_cached_mut(
+        &mut self,
+        path: &PathBuf,
+        sources: &mut Sources,
+    ) -> Option<&mut CompiledModule> {
+        self.read_cached_module(path, sources)?;
+        self.compiled_modules.get_mut(path)
+    }
+
+    // Note: Some modules simply cannot be cached.
+    // If there are modules where we need the side effects of compilation, i.e.
+    // anything to do with the kernel, we should designate that some side
+    // effect too place and make sure to not include those in the cache.
+    fn read_cached_module(&mut self, path: &PathBuf, sources: &mut Sources) -> Option<()> {
+        let key = Self::create_key(&self.cache_dir, path);
+        let contents = std::fs::read(&key).ok()?;
+        let mut value: CompiledModule = bincode::deserialize(&contents).unwrap();
+
+        value.emitted = false;
+
+        // if let Some((_, contents)) = BUILT_INS.iter().find(|x| x.0 == path) {
+        //     if path == "#%private/steel/match" {
+        //         return None;
+        //     }
+
+        //     sources.add_source(*contents, Some(path.to_path_buf()));
+        // } else {
+        //     let contents = std::fs::read_to_string(path).ok()?;
+        //     sources.add_source(contents, Some(path.to_path_buf()));
+        // }
+
+        // dbg!(&value.emitted);
+
+        value.cached_prefix = path_to_module_name(value.name.to_path_buf()).into();
+
+        self.compiled_modules.insert(path.to_owned(), value);
+
+        println!("Successfully read cached module: {:?}", path);
+
+        Some(())
+    }
+
+    pub fn new(compiled_modules: crate::HashMap<PathBuf, CompiledModule>) -> Self {
+        let home = PathBuf::from(steel_home().unwrap());
+
+        let cache_dir = Arc::new(home.join("cached-modules"));
+
+        if !cache_dir.exists() {
+            std::fs::create_dir(cache_dir.as_path()).ok();
+        }
+
+        Self {
+            cache_dir,
+            compiled_modules,
+        }
+    }
+
+    pub fn get(&mut self, key: &PathBuf, sources: &mut Sources) -> Option<&CompiledModule> {
+        // if !self.compiled_modules.contains_key(key) {
+        //     return self.get_cached(key, sources);
+        // }
+
+        self.compiled_modules.get(key)
+    }
+
+    pub fn cached_mut(
+        &mut self,
+        key: &PathBuf,
+        sources: &mut Sources,
+    ) -> Option<&mut CompiledModule> {
+        if !self.compiled_modules.contains_key(key) {
+            return self.get_cached_mut(key, sources);
+        }
+
+        self.compiled_modules.get_mut(key)
+    }
+}
+
+// impl std::ops::Deref for CompiledModuleCache {
+//     type Target = crate::HashMap<PathBuf, CompiledModule>;
+
+//     fn deref(&self) -> &Self::Target {
+//         &self.compiled_modules
+//     }
+// }
+
+// impl std::ops::DerefMut for CompiledModuleCache {
+//     fn deref_mut(&mut self) -> &mut Self::Target {
+//         &mut self.compiled_modules
+//     }
+// }
+
 struct ModuleBuilder<'a> {
     name: PathBuf,
     main: bool,
@@ -1886,7 +2039,7 @@ struct ModuleBuilder<'a> {
 
     provides: Vec<ExprKind>,
     provides_for_syntax: Vec<ExprKind>,
-    compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
+    compiled_modules: &'a mut CompiledModuleCache,
     visited: &'a mut FxHashSet<PathBuf>,
     file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
     sources: &'a mut Sources,
@@ -1912,7 +2065,7 @@ impl<'a> ModuleBuilder<'a> {
     fn main(
         name: Option<PathBuf>,
         source_ast: Vec<ExprKind>,
-        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
+        compiled_modules: &'a mut CompiledModuleCache,
         visited: &'a mut FxHashSet<PathBuf>,
         file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
@@ -1960,6 +2113,8 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     fn compile(&mut self) -> Result<Vec<ExprKind>> {
+        // println!("Compiling: {:?}", self.name);
+
         // debug!(target: "requires", "Visiting: {:?}", self.name);
 
         // @Matt - 10/3/23
@@ -2038,8 +2193,8 @@ impl<'a> ModuleBuilder<'a> {
                 // Check to see if its in the cache first
                 // Otherwise go ahead and compile
                 // If we already have compiled this module, get it from the cache
-                if let Some(_m) = self.compiled_modules.get(module.as_ref()) {
-                    // debug!("Getting {:?} from the module cache", module);
+                if let Some(_m) = self.compiled_modules.compiled_modules.get(module.as_ref()) {
+                    // dbg!("Getting {:?} from the module cache", module);
                     // println!("Already found in the cache: {:?}", module);
                     // new_exprs.push(m.to_module_ast_node());
                     // No need to do anything
@@ -2138,7 +2293,7 @@ impl<'a> ModuleBuilder<'a> {
                 // Otherwise go ahead and compile
                 if !should_recompile {
                     // If we already have compiled this module, get it from the cache
-                    if let Some(m) = self.compiled_modules.get(module.as_ref()) {
+                    if let Some(m) = self.compiled_modules.get(module.as_ref(), self.sources) {
                         // debug!("Getting {:?} from the module cache", module);
                         // println!("Already found in the cache: {:?}", module);
                         // new_exprs.push(m.to_module_ast_node());
@@ -2163,7 +2318,7 @@ impl<'a> ModuleBuilder<'a> {
                                 }
                             }
 
-                            if let Some(module) = self.compiled_modules.get(&next) {
+                            if let Some(module) = self.compiled_modules.get(&next, self.sources) {
                                 for child in &module.downstream {
                                     stack.push(child.to_owned());
                                 }
@@ -2218,7 +2373,11 @@ impl<'a> ModuleBuilder<'a> {
                 if !new_module.provides.is_empty() {
                     new_exprs.push(new_module.compile_module()?);
                 // If the module hasn't yet been compiled, compile it anyway
-                } else if !new_module.compiled_modules.contains_key(&new_module.name) {
+                } else if !new_module
+                    .compiled_modules
+                    .compiled_modules
+                    .contains_key(&new_module.name)
+                {
                     // else if !new_module.compiled_modules.contains_key(&new_module.name) {
                     new_exprs.push(new_module.compile_module()?);
                 } else if !downstream_validated {
@@ -2242,6 +2401,22 @@ impl<'a> ModuleBuilder<'a> {
 
     // TODO: This should run again on itself, probably
     fn compile_module(&mut self) -> Result<ExprKind> {
+        // This might be worth it?
+        // println!("Compiling module: {:?}", self.name);
+        let now = std::time::Instant::now();
+
+        if self.kernel.is_some() {
+            let modules = self.compiled_modules.compiled_modules.clone();
+            if let Some(module) = self.compiled_modules.cached_mut(&self.name, self.sources) {
+                log::info!("Using cached module: {:?}", self.name);
+
+                // module.set_emitted(true);
+                return module.to_top_level_module(&modules, self.global_macro_map);
+            } else {
+                log::info!("Module not found in the cache: {:?}", self.name);
+            }
+        }
+
         let mut ast = std::mem::take(&mut self.source_ast);
         let mut provides = std::mem::take(&mut self.provides);
         // Clone the requires... I suppose
@@ -2309,10 +2484,11 @@ impl<'a> ModuleBuilder<'a> {
 
             // Stash this?
             let (module, in_scope_macros, name_mangler) = ModuleManager::find_in_scope_macros(
-                self.compiled_modules,
+                &mut self.compiled_modules,
                 require_for_syntax.as_ref(),
                 require_object,
                 &mut mangled_asts,
+                &mut self.sources,
             );
 
             required_macros.push(RequiredModuleMacros {
@@ -2445,9 +2621,21 @@ impl<'a> ModuleBuilder<'a> {
 
         module.set_emitted(true);
 
-        let result = module.to_top_level_module(self.compiled_modules, self.global_macro_map)?;
+        // Cache it
+        {
+            self.compiled_modules.cache_module(&module.name, &module);
+        }
 
-        self.compiled_modules.insert(self.name.clone(), module);
+        let result = module.to_top_level_module(
+            &self.compiled_modules.compiled_modules,
+            self.global_macro_map,
+        )?;
+
+        self.compiled_modules
+            .compiled_modules
+            .insert(self.name.clone(), module);
+
+        log::info!("Time taken: {:?} -> {:?}", self.name, now.elapsed());
 
         Ok(result)
     }
@@ -2971,7 +3159,7 @@ impl<'a> ModuleBuilder<'a> {
     fn new_built_in(
         name: PathBuf,
         input: Cow<'static, str>,
-        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
+        compiled_modules: &'a mut CompiledModuleCache,
         visited: &'a mut FxHashSet<PathBuf>,
         file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
@@ -3000,7 +3188,7 @@ impl<'a> ModuleBuilder<'a> {
 
     fn new_from_path(
         name: PathBuf,
-        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
+        compiled_modules: &'a mut CompiledModuleCache,
         visited: &'a mut FxHashSet<PathBuf>,
         file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,
@@ -3030,7 +3218,7 @@ impl<'a> ModuleBuilder<'a> {
 
     fn raw(
         name: PathBuf,
-        compiled_modules: &'a mut crate::HashMap<PathBuf, CompiledModule>,
+        compiled_modules: &'a mut CompiledModuleCache,
         visited: &'a mut FxHashSet<PathBuf>,
         file_metadata: &'a mut crate::HashMap<PathBuf, SystemTime>,
         sources: &'a mut Sources,

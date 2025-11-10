@@ -1176,6 +1176,15 @@ impl Engine {
         vm
     }
 
+    // pub fn cache_modules(&mut self) {
+    //     self.virtual_machine
+    //         .compiler
+    //         .write()
+    //         .module_manager
+    //         .compiled_modules
+    //         .cache_modules();
+    // }
+
     /// Turn contracts on in the VM
     pub fn with_contracts(&mut self, contracts: bool) -> &mut Self {
         self.virtual_machine.with_contracts(contracts);
