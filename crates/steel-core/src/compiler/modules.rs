@@ -1075,6 +1075,32 @@ pub static MANGLER_PREFIX: &str = "##mm";
 pub static MODULE_PREFIX: &str = "__module-";
 pub static MANGLED_MODULE_PREFIX: &str = "__module-##mm";
 
+pub fn path_to_prefix_name(name: PathBuf) -> String {
+    let mut base = CompactString::new(MANGLER_PREFIX);
+
+    if let Some(steel_home) = STEEL_HOME.as_ref() {
+        // Intern this?
+        let name = name
+            .to_str()
+            .unwrap()
+            .trim_start_matches(steel_home.as_str());
+
+        let interned = InternedString::from_str(name);
+        let id = interned.get().into_inner();
+
+        base.push_str(&id.to_string());
+        base.push_str(MANGLER_SEPARATOR);
+    } else {
+        let interned = InternedString::from_str(name.to_str().unwrap());
+        let id = interned.get().into_inner();
+
+        base.push_str(&id.to_string());
+        base.push_str(MANGLER_SEPARATOR);
+    }
+
+    base.into_string()
+}
+
 pub fn path_to_module_name(name: PathBuf) -> String {
     let mut base = CompactString::new(MANGLED_MODULE_PREFIX);
 
@@ -1892,6 +1918,7 @@ impl DependencyGraph {
 pub(crate) struct CompiledModuleCache {
     cache_dir: Arc<PathBuf>,
     compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
+    cached_compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
 }
 
 // impl Drop for ModuleManager {
@@ -1910,8 +1937,13 @@ impl CompiledModuleCache {
     // }
 
     fn cache_module(&mut self, key: &PathBuf, module: &CompiledModule) {
-        let encoded = bincode::serialize(&module).unwrap();
         let key = Self::create_key(&self.cache_dir, key);
+
+        if key.exists() {
+            return;
+        }
+
+        let encoded = bincode::serialize(&module).unwrap();
         log::info!("Writing to key: {:?}", key);
         let parent = key.parent().unwrap();
         if !parent.exists() {
@@ -1950,6 +1982,7 @@ impl CompiledModuleCache {
     // anything to do with the kernel, we should designate that some side
     // effect too place and make sure to not include those in the cache.
     fn read_cached_module(&mut self, path: &PathBuf, sources: &mut Sources) -> Option<()> {
+        let now = std::time::Instant::now();
         let key = Self::create_key(&self.cache_dir, path);
         let contents = std::fs::read(&key).ok()?;
         let mut value: CompiledModule = bincode::deserialize(&contents).unwrap();
@@ -1969,11 +2002,15 @@ impl CompiledModuleCache {
 
         // dbg!(&value.emitted);
 
-        value.cached_prefix = path_to_module_name(value.name.to_path_buf()).into();
+        value.cached_prefix = path_to_prefix_name(value.name.to_path_buf()).into();
 
         self.compiled_modules.insert(path.to_owned(), value);
 
-        println!("Successfully read cached module: {:?}", path);
+        log::info!(
+            "Successfully read cached module: {:?} - {:?}",
+            path,
+            now.elapsed()
+        );
 
         Some(())
     }
@@ -1990,6 +2027,7 @@ impl CompiledModuleCache {
         Self {
             cache_dir,
             compiled_modules,
+            cached_compiled_modules: Default::default(),
         }
     }
 
@@ -2006,11 +2044,11 @@ impl CompiledModuleCache {
         key: &PathBuf,
         sources: &mut Sources,
     ) -> Option<&mut CompiledModule> {
-        // if !self.compiled_modules.contains_key(key) {
-        self.get_cached_mut(key, sources)
-        // }
+        if !self.compiled_modules.contains_key(key) {
+            return self.get_cached_mut(key, sources);
+        }
 
-        // self.compiled_modules.get_mut(key)
+        self.compiled_modules.get_mut(key)
     }
 }
 
@@ -2049,6 +2087,7 @@ struct ModuleBuilder<'a> {
     custom_builtins: &'a HashMap<String, String>,
     search_dirs: &'a [PathBuf],
     module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
+    contains_macros: bool,
 }
 
 pub struct RequiredModuleMacros {
@@ -2109,6 +2148,7 @@ impl<'a> ModuleBuilder<'a> {
             custom_builtins,
             search_dirs,
             module_resolvers,
+            contains_macros: false,
         })
     }
 
@@ -2405,20 +2445,6 @@ impl<'a> ModuleBuilder<'a> {
         // println!("Compiling module: {:?}", self.name);
         let now = std::time::Instant::now();
 
-        if self.kernel.is_some() {
-            let modules = self.compiled_modules.compiled_modules.clone();
-            if let Some(module) = self.compiled_modules.cached_mut(&self.name, self.sources) {
-                log::info!("Using cached module: {:?}", self.name);
-
-                module.set_emitted(true);
-
-                // module.set_emitted(true);
-                return module.to_top_level_module(&modules, self.global_macro_map);
-            } else {
-                log::info!("Module not found in the cache: {:?}", self.name);
-            }
-        }
-
         let mut ast = std::mem::take(&mut self.source_ast);
         let mut provides = std::mem::take(&mut self.provides);
         // Clone the requires... I suppose
@@ -2430,10 +2456,31 @@ impl<'a> ModuleBuilder<'a> {
         //     self.provides_for_syntax
         // );
 
+        let prev_length = ast.len();
+
         // Attempt extracting the syntax transformers from this module
         if let Some(kernel) = self.kernel.as_mut() {
             kernel.load_syntax_transformers(&mut ast, self.name.to_str().unwrap().to_string())?
         };
+
+        let loaded_syntax_transformers = prev_length != ast.len();
+
+        if self.kernel.is_some() && !loaded_syntax_transformers {
+            let modules = self.compiled_modules.compiled_modules.clone();
+            if let Some(module) = self.compiled_modules.cached_mut(&self.name, self.sources) {
+                log::info!("Using cached module: {:?}", self.name);
+
+                module.set_emitted(true);
+
+                let res = module.to_top_level_module(&modules, self.global_macro_map);
+
+                log::info!("Using cached module took: {:?}", now.elapsed());
+
+                return res;
+            } else {
+                log::info!("Module not found in the cache: {:?}", self.name);
+            }
+        }
 
         // This needs to be overlayed with imported macros. So the idea being that this
         // expansion _also_ interweaves with the other requires... seems to make sense.
@@ -2624,7 +2671,7 @@ impl<'a> ModuleBuilder<'a> {
         module.set_emitted(true);
 
         // Cache it
-        {
+        if !loaded_syntax_transformers && !self.contains_macros {
             self.compiled_modules.cache_module(&module.name, &module);
         }
 
@@ -2649,6 +2696,8 @@ impl<'a> ModuleBuilder<'a> {
         // let exprs = std::mem::take(&mut self.source_ast);
 
         let mut error = None;
+
+        let before = self.source_ast.len();
 
         self.source_ast.retain_mut(|expr| {
             if let ExprKind::Macro(_) = expr {
@@ -2687,6 +2736,8 @@ impl<'a> ModuleBuilder<'a> {
 
             true
         });
+
+        self.contains_macros = self.source_ast.len() != before;
 
         if let Some(e) = error {
             return Err(e);
@@ -3260,6 +3311,7 @@ impl<'a> ModuleBuilder<'a> {
             custom_builtins,
             search_dirs,
             module_resolvers,
+            contains_macros: false,
         }
     }
 
