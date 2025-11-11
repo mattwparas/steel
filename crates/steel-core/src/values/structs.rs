@@ -658,9 +658,10 @@ struct SteelTraitImplementation {}
 // name as a key, and use that to grab the properties. Under any circumstance that I am aware of,
 // the entry in the vtable should be alive for as long as the struct is legally allowed to be accessed.
 pub struct VTable {
-    map: fxhash::FxHashMap<InternedString, Gc<HashMap<SteelVal, SteelVal>>>,
+    map: rustc_hash::FxHashMap<InternedString, Gc<HashMap<SteelVal, SteelVal>>>,
 
-    traits: fxhash::FxHashMap<InternedString, fxhash::FxHashMap<InternedString, Vec<SteelVal>>>,
+    traits:
+        rustc_hash::FxHashMap<InternedString, rustc_hash::FxHashMap<InternedString, Vec<SteelVal>>>,
 
     entries: Vec<VTableEntry>,
 }
@@ -820,7 +821,7 @@ pub static STRUCT_DEFINITIONS: Lazy<Arc<std::sync::RwLock<SymbolMap>>> =
 
 #[cfg(feature = "sync")]
 pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {
-    let mut map = fxhash::FxHashMap::default();
+    let mut map = rustc_hash::FxHashMap::default();
 
     #[cfg(feature = "imbl")]
     let result_options = Gc::new(imbl::hashmap! {
@@ -840,7 +841,7 @@ pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {
 
     RwLock::new(VTable {
         map,
-        traits: fxhash::FxHashMap::default(),
+        traits: rustc_hash::FxHashMap::default(),
         entries: Vec::new(),
     })
 });
@@ -876,7 +877,7 @@ thread_local! {
     // The value inside should explicitly be a thread safe value.
     pub static VTABLE: Rc<RefCell<VTable>> = {
 
-        let mut map = fxhash::FxHashMap::default();
+        let mut map = rustc_hash::FxHashMap::default();
 
         #[cfg(all(feature = "sync", not(feature = "imbl")))]
         let result_options = Gc::new(im::hashmap! {
@@ -901,7 +902,7 @@ thread_local! {
 
         Rc::new(RefCell::new(VTable {
             map,
-            traits: fxhash::FxHashMap::default(),
+            traits: rustc_hash::FxHashMap::default(),
             entries: Vec::new(),
         }))
     };

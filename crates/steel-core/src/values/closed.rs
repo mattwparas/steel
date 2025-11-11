@@ -469,7 +469,7 @@ static GLOBAL_ROOTS: Lazy<Mutex<Roots>> = Lazy::new(|| Mutex::new(Roots::default
 pub struct Roots {
     generation: usize,
     offset: usize,
-    roots: fxhash::FxHashMap<(usize, usize), SteelVal>,
+    roots: rustc_hash::FxHashMap<(usize, usize), SteelVal>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]

@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 #[cfg(feature = "sync")]
 use once_cell::sync::Lazy;
@@ -351,14 +351,26 @@ impl Kernel {
         // Create the generated module
         let generated_module = ExprKind::List(steel_parser::ast::List::new(def_macro_exprs));
 
-        self.engine.run(format!(
-            "(set! #%loading-current-module \"{}\")",
-            if cfg!(windows) {
-                environment.replace("\\", "/")
-            } else {
-                environment
-            }
-        ))?;
+        // self.engine.run(format!(
+        //     "(set! #%loading-current-module \"{}\")",
+        //     if cfg!(windows) {
+        //         environment.replace("\\", "/")
+        //     } else {
+        //         environment
+        //     }
+        // ))?;
+
+        self.engine.call_function_by_name_with_args_from_mut_slice(
+            "#%set-module",
+            &mut [SteelVal::StringV(
+                if cfg!(windows) {
+                    environment.replace("\\", "/")
+                } else {
+                    environment
+                }
+                .into(),
+            )],
+        )?;
 
         // TODO: Load this as a module instead, so that way we have some real
         // separation from each other.
@@ -378,8 +390,13 @@ impl Kernel {
         self.engine
             .run_raw_program_from_exprs(vec![generated_module])?;
 
-        self.engine
-            .run("(set! #%loading-current-module \"default\")".to_owned())?;
+        // self.engine
+        //     .run("(set! #%loading-current-module \"default\")".to_owned())?;
+
+        self.engine.call_function_by_name_with_args_from_mut_slice(
+            "#%set-module",
+            &mut [SteelVal::StringV("default".into())],
+        )?;
 
         Ok(())
     }

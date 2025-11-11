@@ -21,8 +21,8 @@ use crate::{
     values::functions::BoxedDynFunction,
 };
 use compact_str::CompactString;
-use fxhash::FxBuildHasher;
 use once_cell::sync::Lazy;
+use rustc_hash::FxBuildHasher;
 
 #[cfg(feature = "sync")]
 use parking_lot::RwLock;

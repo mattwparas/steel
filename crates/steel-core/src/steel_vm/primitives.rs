@@ -84,8 +84,8 @@ use crate::{
     SteelErr,
 };
 use compact_str::CompactString;
-use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use std::{borrow::Cow, cmp::Ordering};
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
 
@@ -663,8 +663,8 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     }
 }
 
-pub static MODULE_IDENTIFIERS: Lazy<fxhash::FxHashSet<InternedString>> = Lazy::new(|| {
-    let mut set = fxhash::FxHashSet::default();
+pub static MODULE_IDENTIFIERS: Lazy<rustc_hash::FxHashSet<InternedString>> = Lazy::new(|| {
+    let mut set = rustc_hash::FxHashSet::default();
 
     // TODO: Consolidate the prefixes and module names into one spot
     set.insert("%-builtin-module-steel/hash".into());

@@ -1,6 +1,6 @@
 use compact_str::CompactString;
-use fxhash::{FxBuildHasher, FxHashMap};
 use quickscope::{ScopeMap, ScopeSet};
+use rustc_hash::{FxBuildHasher, FxHashMap};
 
 use crate::parser::{
     ast::{Atom, ExprKind},

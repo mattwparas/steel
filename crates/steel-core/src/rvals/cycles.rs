@@ -4,13 +4,15 @@ use crate::values::lists::Pair;
 use num_bigint::BigInt;
 use std::{cell::Cell, collections::VecDeque};
 
+use rustc_hash::{FxHashMap, FxHashSet};
+
 use super::*;
 
 #[derive(Default)]
 // Keep track of any reference counted values that are visited, in a pointer
 pub(super) struct CycleDetector {
     // Recording things that have already been seen
-    cycles: fxhash::FxHashMap<(usize, usize), usize>,
+    cycles: FxHashMap<(usize, usize), usize>,
 
     // Values captured in cycles
     values: Vec<SteelVal>,
@@ -37,8 +39,8 @@ impl CycleDetector {
         let mut queue = Vec::new();
 
         let mut bfs_detector = CycleCollector {
-            visited: fxhash::FxHashSet::default(),
-            cycles: fxhash::FxHashMap::default(),
+            visited: FxHashSet::default(),
+            cycles: FxHashMap::default(),
             values: Vec::new(),
             queue: &mut queue,
             found_mutable: false,
@@ -411,7 +413,7 @@ impl SteelVal {
 }
 
 pub(crate) struct SteelCycleCollector {
-    cycles: fxhash::FxHashMap<(usize, usize), usize>,
+    cycles: FxHashMap<(usize, usize), usize>,
     values: List<SteelVal>,
 }
 
@@ -422,8 +424,8 @@ impl SteelCycleCollector {
         let mut queue = Vec::new();
 
         let mut collector = CycleCollector {
-            visited: fxhash::FxHashSet::default(),
-            cycles: fxhash::FxHashMap::default(),
+            visited: FxHashSet::default(),
+            cycles: FxHashMap::default(),
             values: Vec::new(),
             queue: &mut queue,
             found_mutable: false,
@@ -440,7 +442,7 @@ impl SteelCycleCollector {
             }
         } else {
             SteelCycleCollector {
-                cycles: fxhash::FxHashMap::default(),
+                cycles: FxHashMap::default(),
                 values: List::new(),
             }
         }
@@ -513,10 +515,10 @@ impl SteelCycleCollector {
 
 struct CycleCollector<'a> {
     // Keep a mapping of the pointer -> gensym
-    visited: fxhash::FxHashSet<(usize, usize)>,
+    visited: FxHashSet<(usize, usize)>,
 
     // Recording things that have already been seen
-    cycles: fxhash::FxHashMap<(usize, usize), usize>,
+    cycles: FxHashMap<(usize, usize), usize>,
 
     // Values captured in cycles
     values: Vec<SteelVal>,
@@ -1867,7 +1869,7 @@ pub(crate) trait BreadthFirstSearchSteelValReferenceVisitor2<'a> {
 thread_local! {
     static LEFT_QUEUE: RefCell<Vec<SteelVal>> = RefCell::new(Vec::with_capacity(128));
     static RIGHT_QUEUE: RefCell<Vec<SteelVal>> = RefCell::new(Vec::with_capacity(128));
-    static VISITED_SET: RefCell<fxhash::FxHashSet<(usize, usize)>> = RefCell::new(fxhash::FxHashSet::default());
+    static VISITED_SET: RefCell<FxHashSet<(usize, usize)>> = RefCell::new(FxHashSet::default());
     static EQ_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
@@ -1897,7 +1899,7 @@ fn eq_depth() -> usize {
 struct RecursiveEqualityHandler<'a> {
     left: EqualityVisitor<'a>,
     right: EqualityVisitor<'a>,
-    visited: &'a mut fxhash::FxHashSet<(usize, usize)>,
+    visited: &'a mut FxHashSet<(usize, usize)>,
 }
 
 impl<'a> RecursiveEqualityHandler<'a> {
@@ -2588,7 +2590,7 @@ impl PartialEq for SteelVal {
                                     let mut left_queue = Vec::new();
                                     let mut right_queue = Vec::new();
 
-                                    let mut visited_set = fxhash::FxHashSet::default();
+                                    let mut visited_set = FxHashSet::default();
 
                                     increment_eq_depth();
 

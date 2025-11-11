@@ -1,6 +1,6 @@
 use std::ops::ControlFlow;
 
-use fxhash::FxHashMap;
+use rustc_hash::FxHashMap;
 use steel_parser::{
     ast::{Atom, Begin, ExprKind, List, Vector},
     interner::InternedString,

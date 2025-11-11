@@ -1,5 +1,8 @@
 use crate::{
-    compiler::{passes::VisitorMutRefUnit, program::PROVIDE},
+    compiler::{
+        passes::{analysis::SemanticAnalysis, VisitorMutRefUnit},
+        program::PROVIDE,
+    },
     parser::{
         ast::{Atom, Begin, Define, ExprKind, List, Quote},
         expand_visitor::{
@@ -21,8 +24,8 @@ use crate::{
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
 use compact_str::CompactString;
-use fxhash::{FxHashMap, FxHashSet};
 use once_cell::sync::Lazy;
+use rustc_hash::{FxHashMap, FxHashSet};
 // use smallvec::SmallVec;
 use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
 
@@ -1918,7 +1921,6 @@ impl DependencyGraph {
 pub(crate) struct CompiledModuleCache {
     cache_dir: Arc<PathBuf>,
     compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
-    cached_compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
 }
 
 // impl Drop for ModuleManager {
@@ -1987,20 +1989,12 @@ impl CompiledModuleCache {
         let contents = std::fs::read(&key).ok()?;
         let mut value: CompiledModule = bincode::deserialize(&contents).unwrap();
 
+        // Arc::get_mut(&mut value.macro_map)
+        //     .unwrap()
+        //     .values_mut()
+        //     .for_each(|x| x.mark_unmangled());
+
         value.emitted = false;
-
-        // if let Some((_, contents)) = BUILT_INS.iter().find(|x| x.0 == path) {
-        //     if path == "#%private/steel/match" {
-        //         return None;
-        //     }
-
-        //     sources.add_source(*contents, Some(path.to_path_buf()));
-        // } else {
-        //     let contents = std::fs::read_to_string(path).ok()?;
-        //     sources.add_source(contents, Some(path.to_path_buf()));
-        // }
-
-        // dbg!(&value.emitted);
 
         value.cached_prefix = path_to_prefix_name(value.name.to_path_buf()).into();
 
@@ -2027,7 +2021,6 @@ impl CompiledModuleCache {
         Self {
             cache_dir,
             compiled_modules,
-            cached_compiled_modules: Default::default(),
         }
     }
 
@@ -2087,7 +2080,6 @@ struct ModuleBuilder<'a> {
     custom_builtins: &'a HashMap<String, String>,
     search_dirs: &'a [PathBuf],
     module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
-    contains_macros: bool,
 }
 
 pub struct RequiredModuleMacros {
@@ -2148,7 +2140,6 @@ impl<'a> ModuleBuilder<'a> {
             custom_builtins,
             search_dirs,
             module_resolvers,
-            contains_macros: false,
         })
     }
 
@@ -2371,6 +2362,10 @@ impl<'a> ModuleBuilder<'a> {
                     }
                 }
 
+                // TODO: Parallelize this?
+                // There is quite the opportunity to parallelize a chunk
+                // of the compilation.
+
                 let mut new_module = ModuleBuilder::new_from_path(
                     module.into_owned(),
                     self.compiled_modules,
@@ -2389,25 +2384,7 @@ impl<'a> ModuleBuilder<'a> {
                 // This will eventually put the module in the cache
                 let mut module_exprs = new_module.compile()?;
 
-                // debug!("Inside {:?} - append {:?}", self.name, module);
-                // if log_enabled!(log::Level::Debug) {
-                //     debug!(
-                //         target: "modules",
-                //         "appending with {:?}",
-                //         module_exprs.iter().map(|x| x.to_string()).join(" SEP ")
-                //     );
-                // }
-
                 new_exprs.append(&mut module_exprs);
-
-                // TODO evaluate this
-
-                // let mut ast = std::mem::replace(&mut new_module.source_ast, Vec::new());
-                // ast.append(&mut module_exprs);
-                // new_module.source_ast = ast;
-
-                // dbg!(&new_module.name);
-                // dbg!(&new_module.compiled_modules.contains_key(&new_module.name));
 
                 // If we need to, revisit because there are new provides
                 if !new_module.provides.is_empty() {
@@ -2422,15 +2399,7 @@ impl<'a> ModuleBuilder<'a> {
                     new_exprs.push(new_module.compile_module()?);
                 } else if !downstream_validated {
                     new_exprs.push(new_module.compile_module()?);
-
-                    // log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
-                    // log::debug!(target: "requires", "Module already in the cache: {}", new_module.compiled_modules.contains_key(&new_module.name));
-                    // log::debug!(target: "requires", "Compiled modules: {:?}", new_module.compiled_modules.keys().collect::<Vec<_>>());
                 }
-
-                // else {
-                //     log::debug!(target: "requires", "Found no provides, skipping compilation of module: {:?}", new_module.name);
-                // }
             }
         }
 
@@ -2472,7 +2441,11 @@ impl<'a> ModuleBuilder<'a> {
 
                 module.set_emitted(true);
 
+                let top_level_time = std::time::Instant::now();
+
                 let res = module.to_top_level_module(&modules, self.global_macro_map);
+
+                log::info!("Cached top level time: {:?}", top_level_time.elapsed());
 
                 log::info!("Using cached module took: {:?}", now.elapsed());
 
@@ -2670,15 +2643,73 @@ impl<'a> ModuleBuilder<'a> {
 
         module.set_emitted(true);
 
+        // for provide in module.get_provides() {
+        //     log::info!("{}", provide.to_pretty(60));
+        // }
+
         // Cache it
-        if !loaded_syntax_transformers && !self.contains_macros {
+        if !loaded_syntax_transformers
+            && module.provides_for_syntax.is_empty()
+            && module.get_provides().iter().all(|x| {
+                // if let Some(ident) = x.list().and_then(|x| x.first_ident()) {
+                //     // If this is an exported macro, then do not
+                //     // use the cached module.
+                //     return self.local_macros.contains(ident);
+                // }
+
+                if let ExprKind::List(l) = x {
+                    let mut iter = l.args.iter();
+                    iter.next();
+
+                    for provide in iter {
+                        if let Some(ident) = provide.atom_identifier() {
+                            if self.local_macros.contains(ident) {
+                                log::info!(
+                                    "Skipping caching of this module because: {} is provided",
+                                    ident
+                                );
+                                return false;
+                            }
+                        } else {
+                            return false;
+                        }
+                    }
+
+                    return true;
+                }
+
+                true
+            })
+        {
+            // Remove the unused defines?
+            {
+                let mut sem = SemanticAnalysis::new(&mut module.ast);
+                sem.remove_unused_define_imports();
+            }
+
             self.compiled_modules.cache_module(&module.name, &module);
+        } else {
+            log::info!(
+                "Skipping caching module: {} - {:#?}",
+                loaded_syntax_transformers,
+                self.local_macros
+                    .iter()
+                    .map(|x| x.resolve())
+                    .collect::<Vec<_>>()
+            );
         }
+
+        let top_level_module_time = std::time::Instant::now();
 
         let result = module.to_top_level_module(
             &self.compiled_modules.compiled_modules,
             self.global_macro_map,
         )?;
+
+        log::info!(
+            "Top level module time: {:?}",
+            top_level_module_time.elapsed()
+        );
 
         self.compiled_modules
             .compiled_modules
@@ -2696,8 +2727,6 @@ impl<'a> ModuleBuilder<'a> {
         // let exprs = std::mem::take(&mut self.source_ast);
 
         let mut error = None;
-
-        let before = self.source_ast.len();
 
         self.source_ast.retain_mut(|expr| {
             if let ExprKind::Macro(_) = expr {
@@ -2736,8 +2765,6 @@ impl<'a> ModuleBuilder<'a> {
 
             true
         });
-
-        self.contains_macros = self.source_ast.len() != before;
 
         if let Some(e) = error {
             return Err(e);
@@ -3311,7 +3338,6 @@ impl<'a> ModuleBuilder<'a> {
             custom_builtins,
             search_dirs,
             module_resolvers,
-            contains_macros: false,
         }
     }
 

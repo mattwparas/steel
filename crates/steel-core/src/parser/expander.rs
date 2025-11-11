@@ -18,7 +18,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use fxhash::{FxHashMap, FxHashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 #[cfg(test)]

@@ -11,7 +11,7 @@ use crate::{
 use quickscope::ScopeMap;
 use smallvec::SmallVec;
 use steel_parser::{
-    ast::PROTO_HASH_GET,
+    ast::{Begin, PROTO_HASH_GET},
     parser::SourceId,
     tokens::{IntLiteral, NumberLiteral, RealLiteral},
 };
@@ -39,7 +39,7 @@ use crate::{
 
 use super::{VisitorMutControlFlow, VisitorMutRefUnit, VisitorMutUnitRef};
 
-use fxhash::{FxBuildHasher, FxHashMap, FxHashSet, FxHasher};
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet, FxHasher};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IdentifierStatus {
@@ -557,6 +557,8 @@ impl Analysis {
             }
         }
 
+        // log::info!("Analysis Count: {}", expr_count);
+
         for expr in exprs {
             let mut pass = AnalysisPass::new(self);
 
@@ -685,6 +687,7 @@ pub struct ScopeInfo {
     pub read_heap_offset: Option<u16>,
     pub parent_heap_offset: Option<u16>,
     pub local_heap_offset: Option<u16>,
+    pub depth: Option<u16>,
 }
 
 impl ScopeInfo {
@@ -704,10 +707,31 @@ impl ScopeInfo {
             read_heap_offset: None,
             parent_heap_offset: None,
             local_heap_offset: None,
+            depth: None,
         }
     }
 
-    pub fn new_local(id: SyntaxObjectId, offset: usize) -> Self {
+    pub fn new_top_level(id: SyntaxObjectId) -> Self {
+        Self {
+            id,
+            captured: false,
+            usage_count: 0,
+            last_used: None,
+            stack_offset: None,
+            escapes: false,
+            capture_offset: None,
+            captured_from_enclosing: false,
+            mutated: false,
+            heap_offset: None,
+            read_capture_offset: None,
+            read_heap_offset: None,
+            parent_heap_offset: None,
+            local_heap_offset: None,
+            depth: Some(1),
+        }
+    }
+
+    pub fn new_local(id: SyntaxObjectId, offset: usize, depth: u16) -> Self {
         Self {
             id,
             captured: false,
@@ -723,6 +747,7 @@ impl ScopeInfo {
             read_heap_offset: None,
             parent_heap_offset: None,
             local_heap_offset: None,
+            depth: Some(depth),
         }
     }
 
@@ -730,6 +755,7 @@ impl ScopeInfo {
         id: SyntaxObjectId,
         stack_offset: usize,
         heap_offset: usize,
+        depth: u16,
     ) -> Self {
         Self {
             id,
@@ -746,6 +772,7 @@ impl ScopeInfo {
             read_heap_offset: Some(heap_offset as _),
             parent_heap_offset: None,
             local_heap_offset: None,
+            depth: Some(depth),
         }
     }
 }
@@ -773,9 +800,10 @@ fn define_var(
     scope: &mut ScopeMap<InternedString, ScopeInfo, FxBuildHasher>,
     define: &crate::parser::ast::Define,
 ) {
+    let id = define.name.atom_syntax_object().unwrap();
     scope.define(
-        *define.name.atom_identifier().unwrap(),
-        ScopeInfo::new(define.name.atom_syntax_object().unwrap().syntax_object_id),
+        *id.ty.identifier().unwrap(),
+        ScopeInfo::new_top_level(id.syntax_object_id),
     );
 }
 
@@ -800,27 +828,19 @@ impl<'a> AnalysisPass<'a> {
 }
 
 impl<'a> AnalysisPass<'a> {
-    // TODO: This needs to be fixed with interning
-    fn _get_possible_captures(
-        &self,
-        let_level_bindings: &[&InternedString],
-    ) -> HashSet<InternedString> {
-        self.info
-            .scope
-            .iter()
-            .filter(|x| !x.1.captured)
-            .filter(|x| !let_level_bindings.contains(&x.0))
-            .map(|x| x.0.clone())
-            .collect()
-    }
-
     fn get_captured_vars(
         &self,
         let_level_bindings: &[&InternedString],
     ) -> SmallVec<[(InternedString, ScopeInfo); 4]> {
+        // log::info!("{}", self.info.scope.iter_without_bottom().count());
+        // log::info!("{}", self.info.scope.iter_top().count());
+
+        // TODO: Build an index against captured variables, so that
+        // we don't have to iterate over everything in order to find
+        // the captured variables.
         self.info
             .scope
-            .iter()
+            .iter_without_bottom()
             .filter(|x| x.1.captured)
             .filter(|x| !let_level_bindings.contains(&x.0))
             .map(|x| (x.0.clone(), x.1.clone()))
@@ -950,6 +970,7 @@ impl<'a> AnalysisPass<'a> {
                         id,
                         index,
                         mut_var_offset + alloc_capture_count.unwrap(),
+                        self.info.scope.depth() as _,
                     ),
                 );
 
@@ -967,9 +988,10 @@ impl<'a> AnalysisPass<'a> {
 
                 mut_var_offset += 1;
             } else {
-                self.info
-                    .scope
-                    .define(*name, ScopeInfo::new_local(id, index));
+                self.info.scope.define(
+                    *name,
+                    ScopeInfo::new_local(id, index, self.info.scope.depth() as _),
+                );
 
                 // Throw in a dummy info so that no matter what, we have something to refer to
                 // in the event of a set!
@@ -988,32 +1010,20 @@ impl<'a> AnalysisPass<'a> {
 
     // fn pop_top_layer(&mut self) -> FxHashMap<InternedString, ScopeInfo> {
     fn pop_top_layer(&mut self) -> SmallVec<[(InternedString, ScopeInfo); 4]> {
+        /*
         let arguments = self
             .info
             .scope
             .iter_top()
             .map(|x| (x.0.clone(), x.1.clone()))
-            // .collect::<FxHashMap<_, _>>();
             .collect();
 
         self.info.scope.pop_layer();
 
-        // let temporary_args = self
-        //     .scope
-        //     .iter_top()
-        //     .map(|x| *x.0)
-        //     .collect::<SmallVec<[InternedString; 6]>>();
-
-        // let mut arguments =
-        //     FxHashMap::with_capacity_and_hasher(temporary_args.len(), FxBuildHasher::default());
-
-        // for key in temporary_args {
-        //     arguments.insert(key, self.scope.remove(&key).unwrap());
-        // }
-
-        // self.scope.pop_layer();
-
         arguments
+        */
+
+        self.info.scope.drain_layer()
     }
 
     fn find_and_mark_captured_arguments(
@@ -1347,6 +1357,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                         // todo!("Need to include the stack offset here!"),
                         index,
                         mutable_var_offset + alloc_capture_count.unwrap(),
+                        self.info.scope.depth() as _,
                     ),
                 );
 
@@ -1370,9 +1381,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // println!("{}", l);
                 // println!("Top Level: {}", is_top_level);
 
-                self.info
-                    .scope
-                    .define(*name, ScopeInfo::new_local(id, stack_offset));
+                self.info.scope.define(
+                    *name,
+                    ScopeInfo::new_local(id, stack_offset, self.info.scope.depth() as _),
+                );
 
                 self.info.info.insert(
                     arg.atom_syntax_object().unwrap().syntax_object_id,
@@ -1390,10 +1402,8 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         self.visit(&l.body_expr);
 
         // This is a little silly but I'm not sure why I can't call the default method on the FxHashMap directly
-        let mut arguments = FxHashMap::with_capacity_and_hasher(
-            l.bindings.len(),
-            BuildHasherDefault::<FxHasher>::default(),
-        );
+        let mut arguments =
+            FxHashMap::with_capacity_and_hasher(l.bindings.len(), FxBuildHasher::default());
 
         for arg in l.local_bindings() {
             let name = arg.atom_identifier().unwrap();
@@ -1632,6 +1642,16 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         // Perhaps take the diff of the vars before visiting this, and after? Then reset the state after visiting this tree?
         let mut captured_vars = self.get_captured_vars(&let_level_bindings);
 
+        // if !captured_vars.is_empty() {
+        //     log::info!(
+        //         "Original: {:#?}",
+        //         captured_vars
+        //             .iter()
+        //             .map(|x| x.0.resolve())
+        //             .collect::<Vec<_>>()
+        //     );
+        // }
+
         for (var, value) in self.captures.iter() {
             if let Some((_, scope_info)) = captured_vars.iter_mut().find(|x| x.0 == *var) {
                 scope_info.captured_from_enclosing = value.captured_from_enclosing;
@@ -1671,8 +1691,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             .get_mut(&lambda_function.syntax_object_id)
         {
             let mut slated_for_removal = SmallVec::<[InternedString; 5]>::new();
-
-            // println!("slated for removal length: {}", slated_for_removal.len());
 
             if lambda_bottoms_out {
                 captured_vars.retain(|(x, _)| self.vars_used.contains(x));
@@ -1773,20 +1791,19 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // Mark that we've seen this one
             self.vars_used.push(*ident);
 
-            // if ident.resolve().ends_with("website.scm__%#__parser") {
-            //     println!("Visiting {}", ident);
-            // }
+            let current_depth = self.info.scope.depth();
+            let root_info = self.info.scope.get_mut(ident);
 
             // Check if its a global var - otherwise, we want to check if its a free
             // identifier
-            if let Some(depth) = self.info.scope.height_of(ident) {
-                if depth == 0 {
+            if let Some(depth) = root_info.as_ref().and_then(|x| x.depth) {
+                if depth == 1 {
                     // Mark the parent as used
-                    let global_var = self.info.scope.get_mut(ident).unwrap();
+                    let global_var = root_info.unwrap();
+
                     global_var.usage_count += 1;
 
                     let global_var_id = global_var.id;
-
                     self.info.get_mut(&global_var_id).unwrap().usage_count += 1;
 
                     let mut semantic_information =
@@ -1794,84 +1811,116 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                             .with_usage_count(1)
                             .refers_to(global_var_id);
 
-                    // if self.info.info.get(&global_var.id).unwrap().builtin {
-                    //     println!("FOUND USAGE OF BUILTIN: {}", ident);
-                    // }
-
-                    // TODO: We _really_ should be providing the built-ins in a better way thats not
-                    // passing around a thread local
-
                     if crate::steel_vm::primitives::PRELUDE_INTERNED_STRINGS
                         .with(|x| x.contains(ident))
                     {
                         semantic_information.mark_builtin()
                     }
 
-                    // if crate::steel_vm::primitives::PRELUDE_MODULE
-                    //     .with(|x| x.contains(ident.resolve()))
-                    // {
-                    //     semantic_information.mark_builtin()
-                    // }
-
                     self.info.insert(&a.syn, semantic_information);
+
+                    return;
+                } else if depth as usize == current_depth {
+                    // Set it to not be captured if its contained at the top level
+                    // self.scope.get_mut(ident).unwrap().captured = false;
+
+                    // let mut_ref = self.info.scope.get_mut(ident).unwrap();
+                    let mut_ref = root_info.unwrap();
+
+                    // log::info!("moved up Key at top, depth: {:?}", mut_ref.depth);
+                    // Not sure if this is going to be a problem...
+                    // Because if its captured at this stage, I think we want it to be marked as captured
+                    // TODO:
+                    // mut_ref.captured = false;
+                    mut_ref.usage_count += 1;
+
+                    // Mark this as last touched by this identifier
+                    mut_ref.last_used = Some(current_id);
+
+                    let mut_ref_id = mut_ref.id;
+                    let mut_ref_heap_offset = mut_ref.heap_offset;
+                    let mut_ref_read_heap_offset = mut_ref.read_heap_offset;
+                    let mut_ref_usage_count = mut_ref.usage_count;
+                    let mut_ref_captured = mut_ref.captured;
+                    let mut_ref_mutated = mut_ref.mutated;
+                    let mut_ref_stack_offset = mut_ref.stack_offset;
+
+                    // In the event there is a local define, we want to count the usage here
+                    if let Some(local_define) = self.info.get_mut(&mut_ref_id) {
+                        local_define.usage_count = mut_ref_usage_count as _;
+                    }
+
+                    let mut semantic_info =
+                        SemanticInformation::new(IdentifierStatus::Local, depth as _, a.syn.span)
+                            .with_usage_count(1)
+                            .refers_to(mut_ref_id);
+
+                    if let Some(stack_offset) = mut_ref_stack_offset {
+                        semantic_info = semantic_info.with_offset(stack_offset as _);
+                    }
+
+                    if mut_ref_captured && mut_ref_mutated {
+                        semantic_info.kind = IdentifierStatus::HeapAllocated;
+                        semantic_info.heap_offset = mut_ref_heap_offset.map(|x| x as _);
+                        semantic_info.read_heap_offset = mut_ref_read_heap_offset.map(|x| x as _);
+                    }
+
+                    self.info.insert(&a.syn, semantic_info);
 
                     return;
                 }
             }
 
             // If this contains a key at the top, then it shouldn't be marked as captured by this scope
-            if self.info.scope.contains_key_at_top(ident) {
-                // Set it to not be captured if its contained at the top level
-                // self.scope.get_mut(ident).unwrap().captured = false;
+            // if self.info.scope.contains_key_at_top(ident) {
+            //     // Set it to not be captured if its contained at the top level
+            //     // self.scope.get_mut(ident).unwrap().captured = false;
 
-                let mut_ref = self.info.scope.get_mut(ident).unwrap();
+            //     let mut_ref = self.info.scope.get_mut(ident).unwrap();
+            //     // let mut_ref = root_info.unwrap();
 
-                // Not sure if this is going to be a problem...
-                // Because if its captured at this stage, I think we want it to be marked as captured
-                // TODO:
-                // mut_ref.captured = false;
-                mut_ref.usage_count += 1;
+            //     log::info!("Key at top, depth: {:?}", mut_ref.depth);
+            //     // Not sure if this is going to be a problem...
+            //     // Because if its captured at this stage, I think we want it to be marked as captured
+            //     // TODO:
+            //     // mut_ref.captured = false;
+            //     mut_ref.usage_count += 1;
 
-                // Mark this as last touched by this identifier
-                mut_ref.last_used = Some(current_id);
+            //     // Mark this as last touched by this identifier
+            //     mut_ref.last_used = Some(current_id);
 
-                let mut_ref_id = mut_ref.id;
-                let mut_ref_heap_offset = mut_ref.heap_offset;
-                let mut_ref_read_heap_offset = mut_ref.read_heap_offset;
-                let mut_ref_usage_count = mut_ref.usage_count;
-                let mut_ref_captured = mut_ref.captured;
-                let mut_ref_mutated = mut_ref.mutated;
-                let mut_ref_stack_offset = mut_ref.stack_offset;
+            //     let mut_ref_id = mut_ref.id;
+            //     let mut_ref_heap_offset = mut_ref.heap_offset;
+            //     let mut_ref_read_heap_offset = mut_ref.read_heap_offset;
+            //     let mut_ref_usage_count = mut_ref.usage_count;
+            //     let mut_ref_captured = mut_ref.captured;
+            //     let mut_ref_mutated = mut_ref.mutated;
+            //     let mut_ref_stack_offset = mut_ref.stack_offset;
 
-                // drop(mut_ref);
+            //     // In the event there is a local define, we want to count the usage here
+            //     if let Some(local_define) = self.info.get_mut(&mut_ref_id) {
+            //         local_define.usage_count = mut_ref_usage_count as _;
+            //     }
 
-                // In the event there is a local define, we want to count the usage here
-                if let Some(local_define) = self.info.get_mut(&mut_ref_id) {
-                    local_define.usage_count = mut_ref_usage_count as _;
-                }
+            //     let mut semantic_info =
+            //         SemanticInformation::new(IdentifierStatus::Local, depth as _, a.syn.span)
+            //             .with_usage_count(1)
+            //             .refers_to(mut_ref_id);
 
-                let mut semantic_info =
-                    SemanticInformation::new(IdentifierStatus::Local, depth as _, a.syn.span)
-                        .with_usage_count(1)
-                        .refers_to(mut_ref_id);
+            //     if let Some(stack_offset) = mut_ref_stack_offset {
+            //         semantic_info = semantic_info.with_offset(stack_offset as _);
+            //     }
 
-                if let Some(stack_offset) = mut_ref_stack_offset {
-                    semantic_info = semantic_info.with_offset(stack_offset as _);
-                }
-                // else {
-                // log::debug!("Stack offset missing from local define")
-                // }
+            //     if mut_ref_captured && mut_ref_mutated {
+            //         semantic_info.kind = IdentifierStatus::HeapAllocated;
+            //         semantic_info.heap_offset = mut_ref_heap_offset.map(|x| x as _);
+            //         semantic_info.read_heap_offset = mut_ref_read_heap_offset.map(|x| x as _);
+            //     }
 
-                if mut_ref_captured && mut_ref_mutated {
-                    semantic_info.kind = IdentifierStatus::HeapAllocated;
-                    semantic_info.heap_offset = mut_ref_heap_offset.map(|x| x as _);
-                    semantic_info.read_heap_offset = mut_ref_read_heap_offset.map(|x| x as _);
-                }
+            //     self.info.insert(&a.syn, semantic_info);
 
-                self.info.insert(&a.syn, semantic_info);
-
-                return;
-            }
+            //     return;
+            // }
 
             // This is the result of some fancy fancy stuff
             // We are going to do two of these passes to resolve captures, where the first pass does a holistic
@@ -1879,9 +1928,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // which populates the closures with their capture positions, and then when we do analysis the
             // second time, we'll have closure references populated.
             if let Some(captured) = self.captures.get_mut(ident) {
-                // TODO: Fill in this information here - when the vars are captured in the immediate enclosing,
-                // we want to do stuff....
-
                 captured.captured = true;
                 captured.usage_count += 1;
 
@@ -1904,10 +1950,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 if let Some(in_scope) = self.info.scope.get_mut(ident) {
                     in_scope.last_used = Some(current_id);
                     in_scope.captured = true;
-
-                    // if identifier_status == IdentifierStatus::HeapAllocated {
-                    //     in_scope.read_heap_offset = captured.read_heap_offset;
-                    // }
                 }
 
                 if let Some(local_define) = self.info.get_mut(&captured.id) {
@@ -1917,6 +1959,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     // This is something that is going to get lifted to the top environment anyway
                     if local_define.kind == IdentifierStatus::LocallyDefinedFunction {
                         captured.captured = false;
+
                         identifier_status = IdentifierStatus::LocallyDefinedFunction;
                     }
                 }
@@ -1938,26 +1981,12 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 }
 
                 if let Some(heap_offset) = captured.read_heap_offset {
-                    // semantic_info = semantic_info.with_heap_offset(heap_offset);
                     semantic_info = semantic_info.with_read_heap_offset(heap_offset as _);
-                } else {
-                    // log::debug!("Stack offset missing from local define")
                 }
 
                 if let Some(heap_offset) = captured.heap_offset {
-                    // semantic_info = semantic_info.with_heap_offset(heap_offset);
                     semantic_info = semantic_info.with_heap_offset(heap_offset as _);
-                } else {
-                    // log::debug!("Stack offset missing from local define")
                 }
-
-                // if semantic_info.kind == IdentifierStatus::HeapAllocated
-                //     && semantic_info.read_heap_offset.is_none()
-                // {
-                //     panic!("Missing read heap offset here");
-                // }
-
-                // println!("Variable {} refers to {}", ident, is_captured.id);
 
                 self.info.insert(&a.syn, semantic_info);
 
@@ -1969,7 +1998,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // variables exists in the local scope - i.e, the var has been patched in via a closure,
             // we could 1. do closure conversion on it via rewriting, or could 2. automatically
             // patch those vars in
-            if let Some(is_captured) = self.info.scope.get_mut(ident) {
+            if let Some(is_captured) = root_info {
                 is_captured.captured = true;
                 is_captured.usage_count += 1;
 
@@ -1992,7 +2021,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     // If this _is_ in fact a locally defined function, we don't want to capture it
                     // This is something that is going to get lifted to the top environment anyway
                     if local_define.kind == IdentifierStatus::LocallyDefinedFunction {
-                        // is_captured.captured = false;
                         identifier_status = IdentifierStatus::LocallyDefinedFunction;
                     }
                 }
@@ -2001,19 +2029,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     SemanticInformation::new(identifier_status, depth as _, a.syn.span)
                         .with_usage_count(1)
                         .refers_to(is_captured_id);
-                // .with_offset(
-                //     is_captured
-                //         .stack_offset
-                //         .expect("Local variables should have an offset"),
-                // );
 
                 if let Some(stack_offset) = is_captured_stack_offset {
                     semantic_info = semantic_info.with_offset(stack_offset as _);
-                } else {
-                    // log::debug!("Stack offset missing from local define")
                 }
-
-                // println!("Variable {} refers to {}", ident, is_captured.id);
 
                 self.info.insert(&a.syn, semantic_info);
 
@@ -2041,22 +2060,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 // TODO: WE don't need to do this?
                 self.info.info.insert(a.syn.syntax_object_id, semantic_info);
             }
-
-            // let mut semantic_info =
-            //     SemanticInformation::new(IdentifierStatus::Free, depth, a.syn.span);
-
-            // // TODO: We _really_ should be providing the built-ins in a better way thats not
-            // // passing around a thread local
-            // if crate::steel_vm::primitives::PRELUDE_MODULE.with(|x| x.contains(ident.resolve())) {
-            //     semantic_info.mark_builtin();
-            //     semantic_info.kind = IdentifierStatus::Global
-            // }
-
-            // // Otherwise, we've hit a free variable at this point
-            // // TODO: WE don't need to do this?
-            // self.info.insert(&a.syn, semantic_info);
-
-            // println!("Free identifier: {}", a);
         }
     }
 
@@ -2727,9 +2730,40 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
         self.depth -= 1;
     }
 
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => {
+                if is_a_builtin_definition(d) {
+                    if let Some(analysis) = self.analysis.get(d.name.atom_syntax_object().unwrap())
+                    {
+                        if analysis.usage_count == 0 {
+                            *expr = ExprKind::Begin(Box::new(Begin::new(
+                                vec![],
+                                RawSyntaxObject::default(TokenType::Begin),
+                            )));
+                        }
+                    }
+                }
+            }
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
+    }
+
     fn visit_begin(&mut self, begin: &mut crate::parser::ast::Begin) {
         // Only remove internal definitions here
-        if self.depth > 0 {
+        if self.depth == 0 {
             let mut exprs_to_drop = Vec::new();
 
             for (idx, expr) in begin.exprs.iter().enumerate() {
@@ -2747,7 +2781,6 @@ impl<'a> VisitorMutRefUnit for RemoveUnusedDefineImports<'a> {
             }
 
             for idx in exprs_to_drop.iter().rev() {
-                // println!("Removing: {:?}", begin.exprs.get(*idx));
                 begin.exprs.remove(*idx);
             }
 
@@ -3598,7 +3631,7 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
 }
 
 struct CollectReferences {
-    idents: fxhash::FxHashSet<InternedString>,
+    idents: rustc_hash::FxHashSet<InternedString>,
 }
 
 impl<'a> VisitorMutUnitRef<'a> for CollectReferences {
@@ -4610,7 +4643,7 @@ impl<'a> SemanticAnalysis<'a> {
         let void: InternedString = "void".into();
 
         let mut collected = CollectReferences {
-            idents: fxhash::FxHashSet::default(),
+            idents: rustc_hash::FxHashSet::default(),
         };
 
         let mut found = false;

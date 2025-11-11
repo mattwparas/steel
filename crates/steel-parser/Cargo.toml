@@ -10,7 +10,7 @@ description = "Parser for use within steel"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-fxhash = "0.2.1"
+rustc-hash = "2.1.1"
 lasso = { version = "0.7.3", features = ["multi-threaded", "ahash", "serialize", "inline-more"] }
 num-rational = "0.4.2"
 num-traits = "0.2.19"
@@ -20,6 +20,7 @@ pretty = "0.12.1"
 serde = { version = "1.0.152", features = ["derive", "rc"] }
 smallvec = "1.13"
 compact_str = "0.8.0"
+log = "0.4.17"
 
 [dev-dependencies]
 pretty_assertions = "1.4" # Only used by unit tests.
