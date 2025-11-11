@@ -5527,6 +5527,14 @@ impl<'a> SemanticAnalysis<'a> {
         for expr in self.exprs.iter_mut() {
             unused.visit(expr);
         }
+
+        self.exprs.retain(|x| {
+            if let ExprKind::Begin(b) = x {
+                !b.exprs.is_empty()
+            } else {
+                true
+            }
+        });
     }
 }
 

@@ -923,6 +923,11 @@ impl ModuleManager {
             }
 
             if should_mangle {
+                log::info!(
+                    "Mangling module: {:?} with {:?}",
+                    module.name,
+                    module.prefix()
+                );
                 for (_, smacro) in Arc::make_mut(&mut module.macro_map).iter_mut() {
                     if !smacro.special_mangled && !smacro.is_mangled() {
                         for expr in smacro.exprs_mut() {
@@ -2434,26 +2439,26 @@ impl<'a> ModuleBuilder<'a> {
 
         let loaded_syntax_transformers = prev_length != ast.len();
 
-        if self.kernel.is_some() && !loaded_syntax_transformers {
-            let modules = self.compiled_modules.compiled_modules.clone();
-            if let Some(module) = self.compiled_modules.cached_mut(&self.name, self.sources) {
-                log::info!("Using cached module: {:?}", self.name);
+        // if false && self.kernel.is_some() && !loaded_syntax_transformers {
+        //     let modules = self.compiled_modules.compiled_modules.clone();
+        //     if let Some(module) = self.compiled_modules.cached_mut(&self.name, self.sources) {
+        //         log::info!("Using cached module: {:?}", self.name);
 
-                module.set_emitted(true);
+        //         module.set_emitted(true);
 
-                let top_level_time = std::time::Instant::now();
+        //         let top_level_time = std::time::Instant::now();
 
-                let res = module.to_top_level_module(&modules, self.global_macro_map);
+        //         let res = module.to_top_level_module(&modules, self.global_macro_map);
 
-                log::info!("Cached top level time: {:?}", top_level_time.elapsed());
+        //         log::info!("Cached top level time: {:?}", top_level_time.elapsed());
 
-                log::info!("Using cached module took: {:?}", now.elapsed());
+        //         log::info!("Using cached module took: {:?}", now.elapsed());
 
-                return res;
-            } else {
-                log::info!("Module not found in the cache: {:?}", self.name);
-            }
-        }
+        //         return res;
+        //     } else {
+        //         log::info!("Module not found in the cache: {:?}", self.name);
+        //     }
+        // }
 
         // This needs to be overlayed with imported macros. So the idea being that this
         // expansion _also_ interweaves with the other requires... seems to make sense.
@@ -2650,6 +2655,7 @@ impl<'a> ModuleBuilder<'a> {
         // Cache it
         if !loaded_syntax_transformers
             && module.provides_for_syntax.is_empty()
+            // && self.local_macros.is_empty()
             && module.get_provides().iter().all(|x| {
                 // if let Some(ident) = x.list().and_then(|x| x.first_ident()) {
                 //     // If this is an exported macro, then do not
@@ -2687,16 +2693,20 @@ impl<'a> ModuleBuilder<'a> {
                 sem.remove_unused_define_imports();
             }
 
-            self.compiled_modules.cache_module(&module.name, &module);
+            // for expr in module.get_ast() {
+            //     log::info!("{}", expr.to_pretty(60));
+            // }
+
+            // self.compiled_modules.cache_module(&module.name, &module);
         } else {
-            log::info!(
-                "Skipping caching module: {} - {:#?}",
-                loaded_syntax_transformers,
-                self.local_macros
-                    .iter()
-                    .map(|x| x.resolve())
-                    .collect::<Vec<_>>()
-            );
+            // log::info!(
+            //     "Skipping caching module: {} - {:#?}",
+            //     loaded_syntax_transformers,
+            //     self.local_macros
+            //         .iter()
+            //         .map(|x| x.resolve())
+            //         .collect::<Vec<_>>()
+            // );
         }
 
         let top_level_module_time = std::time::Instant::now();
