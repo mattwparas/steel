@@ -14,7 +14,7 @@ use crate::parser::{interner::InternedString, tokens::TokenType};
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
-use super::{Folder, VisitorMutRefUnit, VisitorMutUnit};
+use super::{VisitorMutRefUnit, VisitorMutUnit};
 
 pub(crate) struct CheckDefinesAreInLegalPositions {
     depth: usize,
@@ -269,20 +269,6 @@ impl VisitorMutUnit for DefinedVars {
     }
 }
 
-struct ConvertDefinesToLets {
-    depth: usize,
-}
-
-impl ConvertDefinesToLets {
-    fn new() -> Self {
-        Self { depth: 0 }
-    }
-
-    fn convert_defines(expr: ExprKind) -> ExprKind {
-        ConvertDefinesToLets::new().visit(expr)
-    }
-}
-
 struct ConvertDefinesToLetsMut {
     depth: usize,
 }
@@ -355,69 +341,6 @@ impl VisitorMutRefUnit for ConvertDefinesToLetsMut {
             for expr in &mut begin.exprs {
                 self.visit(expr);
             }
-        }
-    }
-}
-
-// TODO: Replace this with mutation!
-impl Folder for ConvertDefinesToLets {
-    #[inline]
-    fn visit_lambda_function(&mut self, mut lambda_function: Box<LambdaFunction>) -> ExprKind {
-        self.depth += 1;
-        lambda_function.body = self.visit(lambda_function.body);
-        self.depth -= 1;
-        ExprKind::LambdaFunction(lambda_function)
-    }
-
-    #[inline]
-    fn visit_let(&mut self, mut l: Box<steel_parser::ast::Let>) -> ExprKind {
-        let mut visited_bindings = Vec::new();
-
-        self.depth += 1;
-
-        for (binding, expr) in l.bindings {
-            visited_bindings.push((self.visit(binding), self.visit(expr)));
-        }
-
-        l.bindings = visited_bindings;
-        l.body_expr = self.visit(l.body_expr);
-
-        self.depth -= 1;
-
-        ExprKind::Let(l)
-    }
-
-    // TODO
-    #[inline]
-    fn visit_begin(&mut self, mut begin: Box<Begin>) -> ExprKind {
-        if self.depth > 0 {
-            match convert_exprs_to_let(begin) {
-                ExprKind::Begin(mut b) => {
-                    b.exprs = b.exprs.into_iter().map(|e| self.visit(e)).collect();
-                    ExprKind::Begin(b)
-                }
-                ExprKind::List(mut l) => {
-                    l.args = l.args.into_iter().map(|x| self.visit(x)).collect();
-                    ExprKind::List(l)
-                }
-                ExprKind::Let(mut l) => {
-                    let mut visited_bindings = Vec::new();
-
-                    for (binding, expr) in l.bindings {
-                        visited_bindings.push((self.visit(binding), self.visit(expr)));
-                    }
-
-                    l.bindings = visited_bindings;
-                    l.body_expr = self.visit(l.body_expr);
-
-                    ExprKind::Let(l)
-                }
-                other => panic!("Something went wrong in define conversion, found: {other:?}"),
-            }
-        } else {
-            // println!("Ignoring begin");
-            begin.exprs = begin.exprs.into_iter().map(|e| self.visit(e)).collect();
-            ExprKind::Begin(begin)
         }
     }
 }

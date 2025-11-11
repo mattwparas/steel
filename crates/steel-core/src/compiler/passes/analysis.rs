@@ -1,7 +1,4 @@
-use std::{
-    collections::{hash_map, HashMap, HashSet},
-    hash::BuildHasherDefault,
-};
+use std::collections::{hash_map, HashMap, HashSet};
 
 use crate::{
     compiler::modules::{MANGLER_PREFIX, MODULE_PREFIX},
@@ -39,7 +36,7 @@ use crate::{
 
 use super::{VisitorMutControlFlow, VisitorMutRefUnit, VisitorMutUnitRef};
 
-use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet, FxHasher};
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IdentifierStatus {
