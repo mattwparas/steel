@@ -1,0 +1,16 @@
+[package]
+name = "steel-quickscope"
+description = "Fork of quickscope for use in steel"
+categories = ["algorithms", "data-structures"]
+keywords = ["scoping", "variable", "hashmap", "hashset", "scope"]
+repository = "https://github.com/mattwparas/steel"
+license = "MIT"
+version = "0.2.0"
+edition = "2021"
+
+[lib]
+name = "quickscope"
+
+[dependencies]
+smallvec = "1.6.1"
+indexmap = "2.12.0"

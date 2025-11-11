@@ -215,32 +215,26 @@ impl VisitorMutRefUnit for FlattenBegin {
 }
 
 pub fn flatten_begins_and_expand_defines(
-    exprs: Vec<ExprKind>,
+    mut exprs: Vec<ExprKind>,
 ) -> crate::rvals::Result<Vec<ExprKind>> {
-    #[cfg(feature = "profiling")]
-    let flatten_begins_and_expand_defines_time = Instant::now();
+    // #[cfg(feature = "profiling")]
+    // let flatten_begins_and_expand_defines_time = std::time::Instant::now();
 
-    let res = exprs
-        .into_iter()
-        .map(|mut x| {
-            FlattenBegin::flatten(&mut x);
-            x
-        })
-        .map(ConvertDefinesToLets::convert_defines)
-        .map(|mut x| {
-            let mut checker = CheckDefinesAreInLegalPositions { depth: 0 };
-            checker.visit(&mut x)?;
-            Ok(x)
-        })
-        .collect();
+    for expr in exprs.iter_mut() {
+        FlattenBegin::flatten(expr);
+        ConvertDefinesToLetsMut::convert_defines_mut(expr);
+        let mut checker = CheckDefinesAreInLegalPositions { depth: 0 };
+        checker.visit(expr)?;
+    }
 
-    #[cfg(feature = "profiling")]
-    log::debug!(
-        target: "pipeline_time",
-        "Flatten begins and expand defines time: {:?}",
-        flatten_begins_and_expand_defines_time.elapsed()
-    );
-    res
+    // #[cfg(feature = "profiling")]
+    // log::info!(
+    //     target: "pipeline_time",
+    //     "Flatten begins and expand defines time: {:?}",
+    //     flatten_begins_and_expand_defines_time.elapsed()
+    // );
+
+    Ok(exprs)
 }
 
 struct DefinedVars {
@@ -286,6 +280,82 @@ impl ConvertDefinesToLets {
 
     fn convert_defines(expr: ExprKind) -> ExprKind {
         ConvertDefinesToLets::new().visit(expr)
+    }
+}
+
+struct ConvertDefinesToLetsMut {
+    depth: usize,
+}
+
+impl ConvertDefinesToLetsMut {
+    fn new() -> Self {
+        Self { depth: 0 }
+    }
+    fn convert_defines_mut(expr: &mut ExprKind) {
+        ConvertDefinesToLetsMut::new().visit(expr)
+    }
+}
+
+impl VisitorMutRefUnit for ConvertDefinesToLetsMut {
+    fn visit_lambda_function(&mut self, lambda_function: &mut LambdaFunction) {
+        self.depth += 1;
+        self.visit(&mut lambda_function.body);
+        self.depth -= 1;
+    }
+
+    #[inline]
+    fn visit_let(&mut self, l: &mut steel_parser::ast::Let) {
+        self.depth += 1;
+
+        for (binding, expr) in &mut l.bindings {
+            self.visit(binding);
+            self.visit(expr);
+        }
+
+        self.visit(&mut l.body_expr);
+
+        self.depth -= 1;
+    }
+
+    fn visit_begin(&mut self, begin: &mut Begin) {
+        // Check the expression types first
+
+        if self.depth > 0 {
+            let contains_defines = begin.exprs.iter().any(|x| matches!(x, ExprKind::Define(_)));
+            if contains_defines {
+                let mut fake_begin = Begin::new(Vec::new(), begin.location.clone());
+                std::mem::swap(&mut fake_begin, begin);
+                let boxed = Box::new(fake_begin);
+
+                let mut converted = convert_exprs_to_let(boxed);
+
+                match converted {
+                    ExprKind::Begin(mut b) => {
+                        self.visit_begin(&mut b);
+
+                        *begin = *b;
+                    }
+                    ExprKind::List(ref mut l) => {
+                        self.visit_list(l);
+
+                        begin.exprs.push(converted);
+                    }
+                    ExprKind::Let(ref mut l) => {
+                        self.visit_let(l);
+                        begin.exprs.push(converted);
+                    }
+                    other => panic!("Something went wrong in define conversion, found: {other:?}"),
+                }
+            } else {
+                for expr in &mut begin.exprs {
+                    self.visit(expr);
+                }
+            }
+        } else {
+            for expr in &mut begin.exprs {
+                self.visit(expr);
+            }
+        }
     }
 }
 
@@ -441,31 +511,19 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
     let expression_types = ExpressionType::generate_expression_types(&begin.exprs);
 
     // Go ahead and quit if there are only expressions here
-    if expression_types.iter().all(|x| x.is_expression()) {
-        return ExprKind::Begin(begin);
-    }
+    // if expression_types.iter().all(|x| x.is_expression()) {
+    //     return ExprKind::Begin(begin);
+    // }
 
     if !expression_types
         .iter()
         .any(|x| matches!(x, ExpressionType::DefineFunction(_)))
     {
-        // let starting_iter = ExprKind::atom("void".to_string())
-
-        // TODO: last expression needs to be something, otherwise this doesn't work
-        // if let Some(last) = expression_types.last() {
-        //     if !last.is_expression() {}
-        // }
-
-        // println!("IN HERE");
-        // println!("Expression_types")
-
         return begin
             .exprs
             .into_iter()
             .rev()
             .reduce(|accum, expr| {
-                // println!("Accum: {:?}, Expr: {:?}", accum, expr);
-
                 match expr {
                     ExprKind::Define(d) => {
                         // let constructed_function =
@@ -492,7 +550,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
         // return todo!();
     }
 
-    let mut exprs = begin.exprs.clone();
+    let mut exprs = begin.exprs;
 
     // let mut last_expression = expression_types.len();
 

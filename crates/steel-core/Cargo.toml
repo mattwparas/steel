@@ -28,8 +28,7 @@ bincode = "1.3.3"
 im-lists = "0.11.0"
 
 strsim = "0.11.0"
-# quickscope = "0.2.0"
-quickscope = { path = "../quickscope" }
+steel-quickscope = { path = "../quickscope" }
 
 lasso = { version = "0.7.3", features = [
     "multi-threaded",

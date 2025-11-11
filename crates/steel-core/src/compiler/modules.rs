@@ -24,7 +24,9 @@ use crate::{
 use crate::{parser::expand_visitor::Expander, rvals::Result};
 
 use compact_str::CompactString;
+use crossbeam_channel::Sender;
 use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use rustc_hash::{FxHashMap, FxHashSet};
 // use smallvec::SmallVec;
 use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
@@ -563,7 +565,6 @@ impl ModuleManager {
                 require_for_syntax.as_ref(),
                 require_object,
                 &mut mangled_asts,
-                sources,
             );
 
             // let kernel_macros_in_scope: HashSet<_> =
@@ -837,7 +838,6 @@ impl ModuleManager {
         require_for_syntax: &'a PathBuf,
         require_object: &'a RequireObject,
         mangled_asts: &'a mut Vec<ExprKind>,
-        sources: &mut Sources,
     ) -> (
         &'a CompiledModule,
         FxHashMap<InternedString, SteelMacro>,
@@ -1077,6 +1077,7 @@ pub struct CompiledModule {
     emitted: bool,
     cached_prefix: CompactString,
     downstream: Vec<PathBuf>,
+    downstream_builtins: Vec<PathBuf>,
 }
 
 pub static MANGLER_PREFIX: &str = "##mm";
@@ -1145,6 +1146,7 @@ impl CompiledModule {
         macro_map: Arc<FxHashMap<InternedString, SteelMacro>>,
         ast: Vec<ExprKind>,
         downstream: Vec<PathBuf>,
+        downstream_builtins: Vec<PathBuf>,
     ) -> Self {
         let mut base = CompactString::new(MANGLER_PREFIX);
 
@@ -1183,6 +1185,7 @@ impl CompiledModule {
             emitted: false,
             cached_prefix: base,
             downstream,
+            downstream_builtins,
         }
     }
 
@@ -1923,6 +1926,7 @@ impl DependencyGraph {
 */
 
 #[derive(Clone)]
+#[allow(unused)]
 pub(crate) struct CompiledModuleCache {
     cache_dir: Arc<PathBuf>,
     compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
@@ -1934,15 +1938,8 @@ pub(crate) struct CompiledModuleCache {
 // }
 // }
 
+#[allow(unused)]
 impl CompiledModuleCache {
-    // Write the modules to the cache on drop.
-    // pub fn cache_modules(&mut self) {
-    //     // let now = std::time::Instant::now();
-    //     for (key, module) in self.compiled_modules.iter_mut() {
-    //         self.cache_module(key, module);
-    //     }
-    // }
-
     fn cache_module(&mut self, key: &PathBuf, module: &CompiledModule) {
         let key = Self::create_key(&self.cache_dir, key);
 
@@ -1989,19 +1986,88 @@ impl CompiledModuleCache {
     // anything to do with the kernel, we should designate that some side
     // effect too place and make sure to not include those in the cache.
     fn read_cached_module(&mut self, path: &PathBuf, sources: &mut Sources) -> Option<()> {
+        // Load the module in the background from the cache
+        static BACKGROUND_DESERIALIZING: Lazy<(
+            Mutex<HashMap<PathBuf, Option<CompiledModule>>>,
+            Sender<PathBuf>,
+        )> = Lazy::new(|| {
+            let (sender, receiver) = crossbeam_channel::unbounded();
+
+            std::thread::spawn(move || {
+                for key in receiver {
+                    log::info!("Background thread received: {:?}", key);
+                    let guard = BACKGROUND_DESERIALIZING.0.lock();
+                    if !guard.contains_key(&key) {
+                        drop(guard);
+                        if let Ok(contents) = std::fs::read(&key) {
+                            let value: bincode::Result<CompiledModule> =
+                                bincode::deserialize(&contents);
+                            match value {
+                                Ok(mut value) => {
+                                    value.emitted = false;
+                                    value.cached_prefix =
+                                        path_to_prefix_name(value.name.to_path_buf()).into();
+
+                                    log::info!(
+                                        "Successfully read cached module in background -> {:?}",
+                                        key
+                                    );
+
+                                    BACKGROUND_DESERIALIZING.0.lock().insert(key, Some(value));
+                                }
+                                Err(e) => {
+                                    log::info!("Error: {:?}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                log::info!("Thread finished");
+            });
+
+            (Mutex::new(HashMap::new()), sender)
+        });
+
+        fn drain_module(key: &PathBuf) -> Option<CompiledModule> {
+            BACKGROUND_DESERIALIZING
+                .0
+                .lock()
+                .get_mut(key)
+                .and_then(|x| x.take())
+        }
+
+        fn enqueue_module(key: PathBuf) {
+            BACKGROUND_DESERIALIZING.1.send(key).unwrap();
+        }
+
         let now = std::time::Instant::now();
         let key = Self::create_key(&self.cache_dir, path);
+
+        if let Some(value) = drain_module(&key) {
+            self.compiled_modules.insert(path.to_owned(), value);
+            return Some(());
+        }
+
+        // Check the cache first, otherwise
+        // kick off loading the background values:
+
         let contents = std::fs::read(&key).ok()?;
         let mut value: CompiledModule = bincode::deserialize(&contents).unwrap();
 
-        // Arc::get_mut(&mut value.macro_map)
-        //     .unwrap()
-        //     .values_mut()
-        //     .for_each(|x| x.mark_unmangled());
-
         value.emitted = false;
-
         value.cached_prefix = path_to_prefix_name(value.name.to_path_buf()).into();
+
+        for downstream in value
+            .downstream
+            .iter()
+            .chain(value.downstream_builtins.iter())
+        {
+            enqueue_module(Self::create_key(&self.cache_dir, downstream));
+        }
+
+        log::info!("Downstream: {:?}", value.downstream);
+        log::info!("Downstream builtins: {:?}", value.downstream_builtins);
 
         self.compiled_modules.insert(path.to_owned(), value);
 
@@ -2408,6 +2474,7 @@ impl<'a> ModuleBuilder<'a> {
             }
         }
 
+        // log::info!("Compiling module: {:?} took {:?}", self.name, now.elapsed());
         // new_exprs.pretty_print();
 
         Ok(new_exprs)
@@ -2415,10 +2482,6 @@ impl<'a> ModuleBuilder<'a> {
 
     // TODO: This should run again on itself, probably
     fn compile_module(&mut self) -> Result<ExprKind> {
-        // This might be worth it?
-        // println!("Compiling module: {:?}", self.name);
-        let now = std::time::Instant::now();
-
         let mut ast = std::mem::take(&mut self.source_ast);
         let mut provides = std::mem::take(&mut self.provides);
         // Clone the requires... I suppose
@@ -2439,7 +2502,8 @@ impl<'a> ModuleBuilder<'a> {
 
         let loaded_syntax_transformers = prev_length != ast.len();
 
-        // if false && self.kernel.is_some() && !loaded_syntax_transformers {
+        // TODO: Revisit if caching is something we want here
+        // if self.kernel.is_some() && !loaded_syntax_transformers {
         //     let modules = self.compiled_modules.compiled_modules.clone();
         //     if let Some(module) = self.compiled_modules.cached_mut(&self.name, self.sources) {
         //         log::info!("Using cached module: {:?}", self.name);
@@ -2499,6 +2563,7 @@ impl<'a> ModuleBuilder<'a> {
 
         let mut mangled_asts = Vec::with_capacity(ast.len() + 16);
         let mut downstream = Vec::new();
+        let mut downstream_builtins = Vec::new();
 
         let mut required_macros = Vec::new();
 
@@ -2509,13 +2574,16 @@ impl<'a> ModuleBuilder<'a> {
                 downstream.push(require_for_syntax.clone().into_owned());
             }
 
+            if let PathOrBuiltIn::BuiltIn(_) = &require_object.path {
+                downstream_builtins.push(require_for_syntax.clone().into_owned());
+            }
+
             // Stash this?
             let (module, in_scope_macros, name_mangler) = ModuleManager::find_in_scope_macros(
                 &mut self.compiled_modules,
                 require_for_syntax.as_ref(),
                 require_object,
                 &mut mangled_asts,
-                &mut self.sources,
             );
 
             required_macros.push(RequiredModuleMacros {
@@ -2644,25 +2712,16 @@ impl<'a> ModuleBuilder<'a> {
             self.macro_map.clone(),
             mangled_asts,
             downstream,
+            downstream_builtins,
         );
 
         module.set_emitted(true);
 
-        // for provide in module.get_provides() {
-        //     log::info!("{}", provide.to_pretty(60));
-        // }
-
         // Cache it
         if !loaded_syntax_transformers
             && module.provides_for_syntax.is_empty()
-            // && self.local_macros.is_empty()
+            && self.local_macros.is_empty()
             && module.get_provides().iter().all(|x| {
-                // if let Some(ident) = x.list().and_then(|x| x.first_ident()) {
-                //     // If this is an exported macro, then do not
-                //     // use the cached module.
-                //     return self.local_macros.contains(ident);
-                // }
-
                 if let ExprKind::List(l) = x {
                     let mut iter = l.args.iter();
                     iter.next();
@@ -2670,10 +2729,6 @@ impl<'a> ModuleBuilder<'a> {
                     for provide in iter {
                         if let Some(ident) = provide.atom_identifier() {
                             if self.local_macros.contains(ident) {
-                                log::info!(
-                                    "Skipping caching of this module because: {} is provided",
-                                    ident
-                                );
                                 return false;
                             }
                         } else {
@@ -2687,45 +2742,25 @@ impl<'a> ModuleBuilder<'a> {
                 true
             })
         {
-            // Remove the unused defines?
+            // Remove the unused defines since this module
+            // won't need to reference these later from any macros
             {
                 let mut sem = SemanticAnalysis::new(&mut module.ast);
                 sem.remove_unused_define_imports();
             }
 
-            // for expr in module.get_ast() {
-            //     log::info!("{}", expr.to_pretty(60));
-            // }
-
+            // TODO: Revisit with some caching later
             // self.compiled_modules.cache_module(&module.name, &module);
-        } else {
-            // log::info!(
-            //     "Skipping caching module: {} - {:#?}",
-            //     loaded_syntax_transformers,
-            //     self.local_macros
-            //         .iter()
-            //         .map(|x| x.resolve())
-            //         .collect::<Vec<_>>()
-            // );
         }
-
-        let top_level_module_time = std::time::Instant::now();
 
         let result = module.to_top_level_module(
             &self.compiled_modules.compiled_modules,
             self.global_macro_map,
         )?;
 
-        log::info!(
-            "Top level module time: {:?}",
-            top_level_module_time.elapsed()
-        );
-
         self.compiled_modules
             .compiled_modules
             .insert(self.name.clone(), module);
-
-        log::info!("Time taken: {:?} -> {:?}", self.name, now.elapsed());
 
         Ok(result)
     }
