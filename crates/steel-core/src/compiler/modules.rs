@@ -923,11 +923,6 @@ impl ModuleManager {
             }
 
             if should_mangle {
-                log::info!(
-                    "Mangling module: {:?} with {:?}",
-                    module.name,
-                    module.prefix()
-                );
                 for (_, smacro) in Arc::make_mut(&mut module.macro_map).iter_mut() {
                     if !smacro.special_mangled && !smacro.is_mangled() {
                         for expr in smacro.exprs_mut() {
