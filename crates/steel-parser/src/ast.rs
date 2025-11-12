@@ -1720,6 +1720,10 @@ where
             let mut args_stack = Vec::new();
 
             while let ExprKind::List(l) = name_ref {
+                if l.first_ident() == Some(&DATUM_SYNTAX) {
+                    break;
+                }
+
                 if let Some(name) = l.args.first() {
                     name_ref = name;
                 }
@@ -1732,10 +1736,6 @@ where
                     let mut lst = List::new_maybe_improper(Vec::new(), l.improper);
                     lst.location = l.location;
                     args_stack.push(lst);
-                }
-
-                if let Some(name) = l.args.first() {
-                    name_ref = name;
                 }
             }
 
