@@ -1675,7 +1675,7 @@ where
         // TODO maybe add implicit begin here
         // maybe do it later, not sure
         ExprKind::List(l) => {
-            let name_ref = l.args.first().ok_or_else(|| {
+            let mut name_ref = l.args.first().ok_or_else(|| {
                 ParseError::SyntaxError(
                     "define expected a function name, found none".to_string(),
                     syn.span,
@@ -1717,6 +1717,30 @@ where
                 }
             }
 
+            let mut args_stack = Vec::new();
+
+            while let ExprKind::List(l) = name_ref {
+                if let Some(name) = l.args.first() {
+                    name_ref = name;
+                }
+
+                if let Some(rest) = l.args.get(1..) {
+                    let mut lst = List::new_maybe_improper(rest.to_vec(), l.improper);
+                    lst.location = l.location;
+                    args_stack.push(lst);
+                } else {
+                    let mut lst = List::new_maybe_improper(Vec::new(), l.improper);
+                    lst.location = l.location;
+                    args_stack.push(lst);
+                }
+
+                if let Some(name) = l.args.first() {
+                    name_ref = name;
+                }
+            }
+
+            let found_inner_name = Some(name_ref.clone());
+
             let mut args = l.args.into_iter();
 
             let name = args.next().ok_or_else(|| {
@@ -1748,15 +1772,47 @@ where
                 )))
             };
 
-            let rest = l.improper;
-            let lambda = ExprKind::LambdaFunction(Box::new(LambdaFunction::new_maybe_rest(
-                args,
-                body,
-                SyntaxObject::new(TokenType::Lambda, syn.span),
-                rest,
-            )));
+            if args_stack.is_empty() {
+                let rest = l.improper;
+                let lambda = ExprKind::LambdaFunction(Box::new(LambdaFunction::new_maybe_rest(
+                    args,
+                    body,
+                    SyntaxObject::new(TokenType::Lambda, syn.span),
+                    rest,
+                )));
 
-            Ok(ExprKind::Define(Box::new(Define::new(name, lambda, syn))))
+                Ok(ExprKind::Define(Box::new(Define::new(name, lambda, syn))))
+            } else {
+                args_stack.insert(0, List::new_maybe_improper(args, l.improper));
+
+                let first = args_stack.pop().unwrap();
+                let mut lambda =
+                    ExprKind::LambdaFunction(Box::new(LambdaFunction::new_maybe_rest(
+                        first.args,
+                        body,
+                        SyntaxObject::new(TokenType::Lambda, syn.span),
+                        first.improper,
+                    )));
+
+                while let Some(next) = args_stack.pop() {
+                    lambda = ExprKind::LambdaFunction(Box::new(LambdaFunction::new_maybe_rest(
+                        next.args,
+                        lambda,
+                        SyntaxObject::new(TokenType::Lambda, next.location),
+                        next.improper,
+                    )));
+                }
+
+                let res = ExprKind::Define(Box::new(Define::new(
+                    found_inner_name.unwrap().clone(),
+                    lambda,
+                    syn,
+                )));
+
+                println!("{}", res);
+
+                Ok(res)
+            }
         }
         ExprKind::Atom(a) => Ok(ExprKind::Define(Box::new(Define::new(
             ExprKind::Atom(a),
