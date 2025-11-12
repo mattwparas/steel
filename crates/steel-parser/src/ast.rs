@@ -64,11 +64,15 @@ define_symbols! {
 
 pub trait AstTools {
     fn pretty_print(&self);
+    fn pretty_print_log(&self);
 }
 
 impl AstTools for Vec<ExprKind> {
     fn pretty_print(&self) {
         println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
+    }
+    fn pretty_print_log(&self) {
+        log::info!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
 }
 
@@ -76,11 +80,17 @@ impl AstTools for Vec<&ExprKind> {
     fn pretty_print(&self) {
         println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
+    fn pretty_print_log(&self) {
+        log::info!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
+    }
 }
 
 impl AstTools for &mut Vec<ExprKind> {
     fn pretty_print(&self) {
         println!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
+    }
+    fn pretty_print_log(&self) {
+        log::info!("{}", self.iter().map(|x| x.to_pretty(60)).join("\n\n"))
     }
 }
 

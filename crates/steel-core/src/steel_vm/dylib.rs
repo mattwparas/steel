@@ -203,6 +203,7 @@ impl DylibContainers {
                         }
 
                         log::info!(target: "dylibs", "Loading dylib: {:?}", path);
+                        let now = std::time::Instant::now();
 
                         // Load the module in
                         let (container, max_enum) =
@@ -233,7 +234,7 @@ impl DylibContainers {
                             });
                         }
 
-                        log::info!(target: "dylibs", "Registering dylib: {} - {}", path_name, target);
+                        log::info!(target: "dylibs", "Registering dylib: {} - {} - {:?}", path_name, target, now.elapsed());
 
                         return Some(external_module);
                     }

@@ -32,8 +32,7 @@ use std::{
     path::PathBuf,
 };
 
-// TODO: Replace the usages of hashmap with this directly
-use fxhash::{FxBuildHasher, FxHashMap, FxHashSet};
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use steel_parser::{ast::PROVIDE, span::Span};
 
@@ -1277,7 +1276,7 @@ impl Compiler {
         SingleExprOptimizer::run(&mut expanded_statements);
 
         if std::env::var("STEEL_DEBUG_AST").is_ok() {
-            steel_parser::ast::AstTools::pretty_print(&expanded_statements);
+            steel_parser::ast::AstTools::pretty_print_log(&expanded_statements);
         }
 
         Ok(expanded_statements)

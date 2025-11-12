@@ -1,5 +1,5 @@
 use compact_str::CompactString;
-use fxhash::{FxHashMap, FxHashSet};
+use rustc_hash::{FxHashMap, FxHashSet};
 use steel_parser::ast::{List, DEFINE};
 
 use crate::{

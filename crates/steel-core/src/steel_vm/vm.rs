@@ -423,8 +423,8 @@ impl RunTimeOptions {
 // TODO: This object probably needs to be shared as well
 #[derive(Default, Clone)]
 pub struct FunctionInterner {
-    closure_interner: fxhash::FxHashMap<u32, ByteCodeLambda>,
-    pub(crate) pure_function_interner: fxhash::FxHashMap<u32, Gc<ByteCodeLambda>>,
+    closure_interner: rustc_hash::FxHashMap<u32, ByteCodeLambda>,
+    pub(crate) pure_function_interner: rustc_hash::FxHashMap<u32, Gc<ByteCodeLambda>>,
     // Functions will store a reference to a slot here, rather than any other way
     // getting the span can be super late bound then, and we don't need to worry about
     // cache misses nearly as much
@@ -435,7 +435,7 @@ pub struct FunctionInterner {
     // actually any references to this still in existence. Functions should probably hold a direct
     // reference to the existing thread in which it was created, and if passed in externally by
     // another run time, we can nuke it?
-    pub(crate) spans: fxhash::FxHashMap<u32, Shared<[Span]>>,
+    pub(crate) spans: rustc_hash::FxHashMap<u32, Shared<[Span]>>,
 }
 
 #[derive(Clone, Default)]
@@ -1897,7 +1897,7 @@ impl<'a> VmCore<'a> {
         // That way we can in relatively quick amount of time scan for the continuations and delay
         // copying everything over.
 
-        let mut marks_still_open = fxhash::FxHashSet::default();
+        let mut marks_still_open = rustc_hash::FxHashSet::default();
 
         for frame in &continuation.stack_frames {
             // if let Some(cont_mark) = frame
@@ -5757,7 +5757,7 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, _args: &[SteelVal]) -> Option
 // back and forth will probably hamper performance significantly. That being said,
 // it is entirely at compile time, so probably _okay_
 pub(crate) fn expand_syntax_case_impl(_ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    let mut bindings: fxhash::FxHashMap<_, _> = if let SteelVal::HashMapV(h) = &args[1] {
+    let mut bindings: rustc_hash::FxHashMap<_, _> = if let SteelVal::HashMapV(h) = &args[1] {
         h.iter()
             .map(|(k, v)| match (k, v) {
                 (SteelVal::SymbolV(k), _e) => Ok((
@@ -5771,7 +5771,7 @@ pub(crate) fn expand_syntax_case_impl(_ctx: &mut VmCore, args: &[SteelVal]) -> R
         stop!(TypeMismatch => "#%expand-template expected a map of bindings")
     };
 
-    let mut binding_kind: fxhash::FxHashMap<_, _> = if let SteelVal::HashMapV(h) = &args[2] {
+    let mut binding_kind: rustc_hash::FxHashMap<_, _> = if let SteelVal::HashMapV(h) = &args[2] {
         h.iter()
             .map(|(k, v)| match (k, v) {
                 (SteelVal::SymbolV(k), e) => Ok((

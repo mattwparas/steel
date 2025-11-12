@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use fxhash::FxHashMap;
+use rustc_hash::FxHashMap;
 use steel_derive::function;
 
 use crate::{

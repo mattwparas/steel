@@ -1,8 +1,8 @@
 use compact_str::CompactString;
-use fxhash::FxBuildHasher;
 use lasso::Key;
 use lasso::Spur;
 use once_cell::sync::OnceCell;
+use rustc_hash::FxBuildHasher;
 use serde::{Deserialize, Serialize};
 use std::{fmt, sync::Arc};
 
@@ -11,6 +11,25 @@ use std::{fmt, sync::Arc};
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct InternedString(Spur);
+
+// impl Encode for InternedString {
+//     fn encode<E: bincode::enc::Encoder>(
+//         &self,
+//         encoder: &mut E,
+//     ) -> Result<(), bincode::error::EncodeError> {
+//         bincode::Encode::encode(self.resolve(), encoder)
+//     }
+// }
+
+// impl<Context> Decode<Context> for InternedString {
+//     fn decode<D: bincode::de::Decoder<Context = Context>>(
+//         decoder: &mut D,
+//     ) -> Result<Self, bincode::error::DecodeError> {
+//         let string: String = bincode::Decode::decode(decoder)?;
+
+//         Ok(string.into())
+//     }
+// }
 
 impl Serialize for InternedString {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -127,23 +146,23 @@ impl fmt::Display for InternedString {
 
 use lasso::ThreadedRodeo;
 
-static INTERNER: OnceCell<Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>> = OnceCell::new();
+static INTERNER: OnceCell<Arc<ThreadedRodeo<Spur, rustc_hash::FxBuildHasher>>> = OnceCell::new();
 
 pub fn interned_current_memory_usage() -> usize {
     INTERNER.get().unwrap().current_memory_usage()
 }
 
-pub fn take_interner() -> Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>> {
+pub fn take_interner() -> Arc<ThreadedRodeo<Spur, rustc_hash::FxBuildHasher>> {
     Arc::clone(INTERNER.get().unwrap())
 }
 
 pub fn initialize_with(
-    interner: Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>,
-) -> Result<(), Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>> {
+    interner: Arc<ThreadedRodeo<Spur, rustc_hash::FxBuildHasher>>,
+) -> Result<(), Arc<ThreadedRodeo<Spur, rustc_hash::FxBuildHasher>>> {
     INTERNER.set(interner)
 }
 
-pub fn get_interner() -> Option<&'static Arc<ThreadedRodeo<Spur, fxhash::FxBuildHasher>>> {
+pub fn get_interner() -> Option<&'static Arc<ThreadedRodeo<Spur, rustc_hash::FxBuildHasher>>> {
     INTERNER.get()
 }
 

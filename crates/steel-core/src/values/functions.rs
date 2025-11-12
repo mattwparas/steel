@@ -8,7 +8,7 @@ use std::{
     sync::Arc,
 };
 
-use fxhash::FxHashSet;
+use rustc_hash::FxHashSet;
 
 use crate::{
     core::{instructions::DenseInstruction, opcode::OpCode},

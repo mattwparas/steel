@@ -4,10 +4,10 @@ use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::HashSet;
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
-use fxhash::FxHashMap;
 use num_rational::{BigRational, Rational32};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
+use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

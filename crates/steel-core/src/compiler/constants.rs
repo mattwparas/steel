@@ -15,10 +15,10 @@ use crate::parser::{
     parser::{ParseError, Parser},
 };
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use rustc_hash::FxHashMap;
 // TODO add the serializing and deserializing for constants
 use serde::{Deserialize, Serialize};
 use steel_parser::parser::{lower_entire_ast, SourceId};
@@ -27,11 +27,10 @@ use steel_parser::parser::{lower_entire_ast, SourceId};
 // underlying representation.
 #[derive(Debug)]
 pub struct ConstantMap {
-    map: SharedMut<HashMap<SteelVal, usize>>,
+    map: SharedMut<FxHashMap<SteelVal, usize>>,
     values: SharedMut<Vec<SteelVal>>,
     // TODO: Flush to these values after a compilation. - maybe have two of them to
     reified_values: Arc<ArcSwap<Vec<SteelVal>>>,
-    local_values: Vec<SteelVal>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -49,7 +48,6 @@ impl Clone for ConstantMap {
             values: Shared::clone(&self.values),
             map: Shared::clone(&self.map),
             reified_values: Arc::clone(&self.reified_values),
-            local_values: Vec::new(),
         }
     }
 }
@@ -58,10 +56,9 @@ impl ConstantMap {
     pub fn new() -> ConstantMap {
         ConstantMap {
             values: Shared::new(MutContainer::new(Vec::new())),
-            map: Shared::new(MutContainer::new(HashMap::new())),
+            map: Shared::new(MutContainer::new(FxHashMap::default())),
             // Does this help at all?
             reified_values: Arc::new(ArcSwap::from_pointee(Vec::new())),
-            local_values: Vec::new(),
         }
     }
 
@@ -87,7 +84,6 @@ impl ConstantMap {
             reified_values: Arc::new(ArcSwap::from_pointee(
                 self.values.read().iter().cloned().collect(),
             )),
-            local_values: self.local_values.clone(),
         }
     }
 
@@ -120,7 +116,6 @@ impl ConstantMap {
             )),
             values: Shared::new(MutContainer::new(vec.clone())),
             reified_values: Arc::new(ArcSwap::from_pointee(vec)),
-            local_values: Vec::new(),
         }
     }
 

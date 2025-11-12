@@ -68,12 +68,12 @@ use std::{
 };
 
 use crate::values::HashMap as ImmutableHashMap;
-use fxhash::{FxBuildHasher, FxHashMap};
 use lasso::ThreadedRodeo;
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use serde::{Deserialize, Serialize};
 use steel_gen::OpCode;
 use steel_parser::{
@@ -1175,6 +1175,15 @@ impl Engine {
 
         vm
     }
+
+    // pub fn cache_modules(&mut self) {
+    //     self.virtual_machine
+    //         .compiler
+    //         .write()
+    //         .module_manager
+    //         .compiled_modules
+    //         .cache_modules();
+    // }
 
     /// Turn contracts on in the VM
     pub fn with_contracts(&mut self, contracts: bool) -> &mut Self {

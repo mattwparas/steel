@@ -27,7 +27,7 @@ use std::{
 };
 
 use crate::values::HashMap;
-use fxhash::{FxBuildHasher, FxHashSet};
+use rustc_hash::{FxBuildHasher, FxHashSet};
 
 use steel_parser::span::Span;
 use steel_parser::tokens::{IntLiteral, RealLiteral};
