@@ -1331,6 +1331,32 @@ pub fn lte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     })))
 }
 
+#[inline(always)]
+pub fn lt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "expected at least one argument");
+    }
+
+    Ok(SteelVal::BoolV(args.windows(2).all(|x| {
+        x[0].partial_cmp(&x[1])
+            .map(|x| x == Ordering::Less)
+            .unwrap_or(false)
+    })))
+}
+
+#[inline(always)]
+pub fn gt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "expected at least one argument");
+    }
+
+    Ok(SteelVal::BoolV(args.windows(2).all(|x| {
+        x[0].partial_cmp(&x[1])
+            .map(|x| x == Ordering::Greater)
+            .unwrap_or(false)
+    })))
+}
+
 fn equality_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/equality");
     module
@@ -2170,6 +2196,9 @@ fn meta_module() -> BuiltInModule {
     // TODO: Remove
     #[cfg(feature = "dylibs")]
     module.register_native_fn_definition(crate::steel_vm::dylib::LOAD_MODULE_DEFINITION);
+
+    #[cfg(feature = "jit2")]
+    module.register_native_fn_definition(super::vm::jit::JIT_COMPILE_DEFINITION);
 
     module
 }

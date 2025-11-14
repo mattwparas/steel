@@ -8,17 +8,13 @@
       1
       (+ (fib (- n 1)) (fib (- n 2)))))
 
-; (fib 41)
-
-(define (fib2 n)
+(define (jit-fib n)
+  ;; Loop unrolling would do so much, assuming we can do that easily
   (if (<= n 2)
       1
-      (+ (if (<= n 3)
-             1
-             (+ (fib2 (- n 2)) (fib2 (- n 3))))
-         (if (<= n 4)
-             1
-             (+ (fib2 (- n 3)) (fib2 (- n 4)))))))
+      (+ (jit-fib (- n 1)) (jit-fib (- n 2)))))
+
+(set! jit-fib (#%jit-compile jit-fib))
 
 ;; Take a callsite, and unroll it multiple times?
 ;; How that would be done; given a function definition,
@@ -30,4 +26,4 @@
 ;;
 ;; What that looks like -> Inlining a function call?
 
-(fib 35)
+; (fib 35)

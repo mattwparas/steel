@@ -76,6 +76,9 @@ use crate::rvals::{into_serializable_value, IntoSteelVal};
 
 pub(crate) mod threads;
 
+#[cfg(feature = "jit2")]
+pub mod jit;
+
 pub use threads::{mutex_lock, mutex_unlock};
 
 #[inline]
@@ -402,7 +405,9 @@ pub struct SteelThread {
     pub(crate) id: EngineId,
 
     pub(crate) safepoints_enabled: bool,
-    // pub(crate) delayed_dropper: DelayedDropper,
+
+    #[cfg(feature = "jit2")]
+    pub(crate) jit: Arc<Mutex<crate::jit2::gen::JIT>>,
 }
 
 #[derive(Clone)]
@@ -436,6 +441,9 @@ pub struct FunctionInterner {
     // reference to the existing thread in which it was created, and if passed in externally by
     // another run time, we can nuke it?
     pub(crate) spans: rustc_hash::FxHashMap<u32, Shared<[Span]>>,
+
+    #[cfg(feature = "jit2")]
+    jit_funcs: rustc_hash::FxHashMap<u32, Gc<ByteCodeLambda>>,
 }
 
 #[derive(Clone, Default)]
@@ -784,6 +792,9 @@ impl SteelThread {
             // Only incur the cost of the actual safepoint behavior
             // if multiple threads are enabled
             safepoints_enabled: false,
+
+            #[cfg(feature = "jit2")]
+            jit: Arc::new(Mutex::new(crate::jit2::gen::JIT::default())),
             // delayed_dropper: DelayedDropper::new(),
         }
     }
@@ -1590,6 +1601,11 @@ pub struct VmCore<'a> {
     pub(crate) depth: usize,
     pub(crate) thread: &'a mut SteelThread,
     pub(crate) root_spans: &'a [Span],
+
+    pub(crate) return_value: Option<SteelVal>,
+    // TODO: This means we've entered the native section of the code
+    pub(crate) is_native: bool,
+    pub(crate) result: Option<Result<SteelVal>>,
 }
 
 // TODO: Delete this entirely, and just have the run function live on top of the SteelThread.
@@ -1610,6 +1626,9 @@ impl<'a> VmCore<'a> {
             depth: 0,
             thread,
             root_spans,
+            return_value: None,
+            is_native: false,
+            result: None,
         }
     }
 
@@ -1632,6 +1651,9 @@ impl<'a> VmCore<'a> {
             depth: 0,
             thread,
             root_spans,
+            return_value: None,
+            is_native: false,
+            result: None,
         })
     }
 
@@ -2494,6 +2516,33 @@ impl<'a> VmCore<'a> {
             // dbg!(&instr);
 
             match instr {
+                #[cfg(feature = "jit2")]
+                DenseInstruction {
+                    op_code: OpCode::DynSuperInstruction,
+                    ..
+                } => {
+                    // Entering the context of the native code.
+                    // If at any point we deopt, we should check this flag on the
+                    // runtime, which tells the function to just return and let
+                    // the runtime do the thing now.
+                    self.is_native = true;
+
+                    self.thread
+                        .stack_frames
+                        .last()
+                        .unwrap()
+                        .function
+                        .super_instructions
+                        .get(self.ip)
+                        .unwrap()(self);
+
+                    self.is_native = false;
+
+                    if let Some(res) = self.result.take() {
+                        return res;
+                    }
+                }
+
                 // DenseInstruction {
                 //     op_code: OpCode::DynSuperInstruction,
                 //     payload_size,
@@ -2977,6 +3026,33 @@ impl<'a> VmCore<'a> {
                 } => {
                     lte_handler_payload(self, payload_size.to_usize())?;
                     // inline_primitive!(lte_primitive, payload_size);
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::LT,
+                    payload_size,
+                    ..
+                } => {
+                    #[cfg(feature = "jit2")]
+                    jit::lt_handler_payload(self, payload_size.to_usize())?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::GT,
+                    payload_size,
+                    ..
+                } => {
+                    #[cfg(feature = "jit2")]
+                    jit::gt_handler_payload(self, payload_size.to_usize())?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::GTE,
+                    payload_size,
+                    ..
+                } => {
+                    #[cfg(feature = "jit2")]
+                    jit::gte_handler_payload(self, payload_size.to_usize())?;
                 }
 
                 DenseInstruction {

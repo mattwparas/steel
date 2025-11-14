@@ -4,29 +4,29 @@ use cranelift_module::{DataDescription, Linkage, Module};
 use std::collections::HashMap;
 use std::slice;
 // use steel_gen::opcode::OPCODES_ARRAY;
-use steel_gen::OpCode;
+use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
     compiler::constants::ConstantMap,
     core::instructions::{u24, DenseInstruction},
-    steel_vm::vm::{
-        // call_global_function_deopt_0, call_global_function_deopt_0_func,
-        // call_global_function_deopt_1, call_global_function_deopt_1_func,
-        // call_global_function_deopt_2, call_global_function_deopt_2_func,
-        // call_global_function_deopt_3, call_global_function_deopt_3_func,
-        // call_global_function_tail_deopt_0, call_global_function_tail_deopt_1,
-        // call_global_function_tail_deopt_2, call_global_function_tail_deopt_3,
-        // callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
-        // callglobal_tail_handler_deopt_3_test, check_callable, extern_c_add_two, extern_c_div_two,
-        // extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two, extern_c_mult_two,
-        // extern_c_sub_two, extern_handle_pop, if_handler_raw_value, if_handler_value,
-        // let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
-        // move_read_local_2_value_c, move_read_local_3_value_c, not_handler_raw_value,
-        // num_equal_value, num_equal_value_unboxed, push_const_value_c, push_global, push_int_0,
-        // push_int_1, push_int_2, push_to_vm_stack, read_local_0_value_c, read_local_1_value_c,
-        // read_local_2_value_c, read_local_3_value_c, set_ctx_ip, should_continue,
-        VmCore,
+    steel_vm::vm::jit::{
+        call_global_function_deopt_0, call_global_function_deopt_0_func,
+        call_global_function_deopt_1, call_global_function_deopt_1_func,
+        call_global_function_deopt_2, call_global_function_deopt_2_func,
+        call_global_function_deopt_3, call_global_function_deopt_3_func,
+        call_global_function_tail_deopt_0, call_global_function_tail_deopt_1,
+        call_global_function_tail_deopt_2, call_global_function_tail_deopt_3,
+        callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
+        callglobal_tail_handler_deopt_3_test, check_callable, extern_c_add_two, extern_c_div_two,
+        extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two, extern_c_mult_two,
+        extern_c_sub_two, extern_handle_pop, if_handler_raw_value, if_handler_value,
+        let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
+        move_read_local_2_value_c, move_read_local_3_value_c, not_handler_raw_value,
+        num_equal_value, num_equal_value_unboxed, push_const_value_c, push_global, push_int_0,
+        push_int_1, push_int_2, push_to_vm_stack, read_local_0_value_c, read_local_1_value_c,
+        read_local_2_value_c, read_local_3_value_c, set_ctx_ip, should_continue,
     },
+    steel_vm::vm::VmCore,
     SteelVal,
 };
 
@@ -256,69 +256,69 @@ impl Default for JIT {
             .unwrap();
         let mut builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
 
-        // for op_code in OPCODES_ARRAY {
-        //     builder.symbol(
-        //         format!("{:?}", op_code),
-        //         crate::steel_vm::vm::C_HANDLERS[op_code as usize] as *const u8,
-        //     );
-        // }
+        for op_code in OPCODES_ARRAY {
+            builder.symbol(
+                format!("{:?}", op_code),
+                crate::steel_vm::vm::jit::C_HANDLERS[op_code as usize] as *const u8,
+            );
+        }
 
         // How to take the if branch - this will return a boolean. 1 = true, 0 = false
-        // builder.symbol("if-branch", if_handler_value as *const u8);
+        builder.symbol("if-branch", if_handler_value as *const u8);
 
-        // builder.symbol("if-branch-value", if_handler_raw_value as *const u8);
+        builder.symbol("if-branch-value", if_handler_raw_value as *const u8);
 
-        // builder.symbol("not-value", not_handler_raw_value as *const u8);
+        builder.symbol("not-value", not_handler_raw_value as *const u8);
 
-        // builder.symbol("call-global", callglobal_handler_deopt_c as *const u8);
+        builder.symbol("call-global", callglobal_handler_deopt_c as *const u8);
 
         // Specialize the constant: Just look up the value itself:
         // This should be used for constants like #f, 1, 2, 3, etc.
         // Simply inline the value directly onto the stack, rather than
         // calling a function
-        // builder.symbol("push-int-0", push_int_0 as *const u8);
-        // builder.symbol("push-int-1", push_int_1 as *const u8);
-        // builder.symbol("push-int-2", push_int_2 as *const u8);
+        builder.symbol("push-int-0", push_int_0 as *const u8);
+        builder.symbol("push-int-1", push_int_1 as *const u8);
+        builder.symbol("push-int-2", push_int_2 as *const u8);
 
-        // builder.symbol(
-        //     "call-global-tail-3",
-        //     callglobal_tail_handler_deopt_3 as *const u8,
-        // );
+        builder.symbol(
+            "call-global-tail-3",
+            callglobal_tail_handler_deopt_3 as *const u8,
+        );
 
-        // builder.symbol(
-        //     "call-global-tail-3-test",
-        //     callglobal_tail_handler_deopt_3_test as *const u8,
-        // );
+        builder.symbol(
+            "call-global-tail-3-test",
+            callglobal_tail_handler_deopt_3_test as *const u8,
+        );
 
-        // // Value functions:
-        // builder.symbol("num-equal-value", num_equal_value as *const u8);
-        // builder.symbol(
-        //     "num-equal-value-unboxed",
-        //     num_equal_value_unboxed as *const u8,
-        // );
+        // Value functions:
+        builder.symbol("num-equal-value", num_equal_value as *const u8);
+        builder.symbol(
+            "num-equal-value-unboxed",
+            num_equal_value_unboxed as *const u8,
+        );
 
-        // builder.symbol(
-        //     "call-global-function-deopt-0-func",
-        //     call_global_function_deopt_0_func as *const u8,
-        // );
+        builder.symbol(
+            "call-global-function-deopt-0-func",
+            call_global_function_deopt_0_func as *const u8,
+        );
 
-        // builder.symbol(
-        //     "call-global-function-deopt-1-func",
-        //     call_global_function_deopt_1_func as *const u8,
-        // );
+        builder.symbol(
+            "call-global-function-deopt-1-func",
+            call_global_function_deopt_1_func as *const u8,
+        );
 
-        // builder.symbol(
-        //     "call-global-function-deopt-2-func",
-        //     call_global_function_deopt_2_func as *const u8,
-        // );
+        builder.symbol(
+            "call-global-function-deopt-2-func",
+            call_global_function_deopt_2_func as *const u8,
+        );
 
-        // builder.symbol(
-        //     "call-global-function-deopt-3-func",
-        //     call_global_function_deopt_3_func as *const u8,
-        // );
+        builder.symbol(
+            "call-global-function-deopt-3-func",
+            call_global_function_deopt_3_func as *const u8,
+        );
 
-        // builder.symbol("let-end-scope-c", let_end_scope_c as *const u8);
-        // builder.symbol("set-ctx-ip!", set_ctx_ip as *const u8);
+        builder.symbol("let-end-scope-c", let_end_scope_c as *const u8);
+        builder.symbol("set-ctx-ip!", set_ctx_ip as *const u8);
 
         let mut map = FunctionMap {
             map: HashMap::new(),
@@ -326,56 +326,56 @@ impl Default for JIT {
             return_type_hints: HashMap::new(),
         };
 
-        // map.add_func(
-        //     "handle-pop!",
-        //     extern_handle_pop as extern "C" fn(*mut VmCore, SteelVal),
-        // );
+        map.add_func(
+            "handle-pop!",
+            extern_handle_pop as extern "C" fn(*mut VmCore, SteelVal),
+        );
 
-        // map.add_func(
-        //     "call-global-function-deopt-0",
-        //     call_global_function_deopt_0 as extern "C" fn(*mut VmCore, usize, usize) -> SteelVal,
-        // );
+        map.add_func(
+            "call-global-function-deopt-0",
+            call_global_function_deopt_0 as extern "C" fn(*mut VmCore, usize, usize) -> SteelVal,
+        );
 
-        // map.add_func(
-        //     "call-global-function-deopt-1",
-        //     call_global_function_deopt_1
-        //         as extern "C" fn(*mut VmCore, usize, usize, SteelVal) -> SteelVal,
-        // );
+        map.add_func(
+            "call-global-function-deopt-1",
+            call_global_function_deopt_1
+                as extern "C" fn(*mut VmCore, usize, usize, SteelVal) -> SteelVal,
+        );
 
-        // map.add_func(
-        //     "call-global-function-deopt-2",
-        //     call_global_function_deopt_2
-        //         as extern "C" fn(*mut VmCore, usize, usize, SteelVal, SteelVal) -> SteelVal,
-        // );
+        map.add_func(
+            "call-global-function-deopt-2",
+            call_global_function_deopt_2
+                as extern "C" fn(*mut VmCore, usize, usize, SteelVal, SteelVal) -> SteelVal,
+        );
 
-        // map.add_func(
-        //     "call-global-function-deopt-3",
-        //     call_global_function_deopt_3
-        //         as extern "C" fn(
-        //             *mut VmCore,
-        //             usize,
-        //             usize,
-        //             SteelVal,
-        //             SteelVal,
-        //             SteelVal,
-        //         ) -> SteelVal,
-        // );
+        map.add_func(
+            "call-global-function-deopt-3",
+            call_global_function_deopt_3
+                as extern "C" fn(
+                    *mut VmCore,
+                    usize,
+                    usize,
+                    SteelVal,
+                    SteelVal,
+                    SteelVal,
+                ) -> SteelVal,
+        );
 
-        // map.add_func(
-        //     "push-global-value",
-        //     push_global as extern "C" fn(ctx: *mut VmCore, index: usize) -> SteelVal,
-        // );
+        map.add_func(
+            "push-global-value",
+            push_global as extern "C" fn(ctx: *mut VmCore, index: usize) -> SteelVal,
+        );
 
         // Check if the function at the global location is in fact the right one.
-        // map.add_func(
-        //     "check-callable",
-        //     check_callable as extern "C" fn(ctx: *mut VmCore, index: usize) -> bool,
-        // );
+        map.add_func(
+            "check-callable",
+            check_callable as extern "C" fn(ctx: *mut VmCore, index: usize) -> bool,
+        );
 
-        // map.add_func(
-        //     "push-to-vm-stack",
-        //     push_to_vm_stack as extern "C" fn(ctx: *mut VmCore, value: SteelVal),
-        // );
+        map.add_func(
+            "push-to-vm-stack",
+            push_to_vm_stack as extern "C" fn(ctx: *mut VmCore, value: SteelVal),
+        );
 
         #[allow(improper_ctypes_definitions)]
         type Vm01 = extern "C" fn(*mut VmCore) -> SteelVal;
@@ -386,86 +386,86 @@ impl Default for JIT {
         #[allow(improper_ctypes_definitions)]
         type VmBinOp = extern "C" fn(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal;
 
-        // map.add_func("push-const", push_const_value_c as Vm01);
+        map.add_func("push-const", push_const_value_c as Vm01);
 
-        // map.add_func_hint(
-        //     "add-binop",
-        //     extern_c_add_two as VmBinOp,
-        //     InferredType::Number,
-        // );
-        // map.add_func_hint(
-        //     "sub-binop",
-        //     extern_c_sub_two as VmBinOp,
-        //     InferredType::Number,
-        // );
-        // map.add_func_hint("lt-binop", extern_c_lt_two as VmBinOp, InferredType::Bool);
-        // map.add_func_hint("lte-binop", extern_c_lte_two as VmBinOp, InferredType::Bool);
-        // map.add_func_hint("gt-binop", extern_c_gt_two as VmBinOp, InferredType::Bool);
-        // map.add_func_hint("gte-binop", extern_c_gte_two as VmBinOp, InferredType::Bool);
-        // map.add_func_hint(
-        //     "mult-two",
-        //     extern_c_mult_two as VmBinOp,
-        //     InferredType::Number,
-        // );
-        // map.add_func_hint("div-two", extern_c_div_two as VmBinOp, InferredType::Number);
+        map.add_func_hint(
+            "add-binop",
+            extern_c_add_two as VmBinOp,
+            InferredType::Number,
+        );
+        map.add_func_hint(
+            "sub-binop",
+            extern_c_sub_two as VmBinOp,
+            InferredType::Number,
+        );
+        map.add_func_hint("lt-binop", extern_c_lt_two as VmBinOp, InferredType::Bool);
+        map.add_func_hint("lte-binop", extern_c_lte_two as VmBinOp, InferredType::Bool);
+        map.add_func_hint("gt-binop", extern_c_gt_two as VmBinOp, InferredType::Bool);
+        map.add_func_hint("gte-binop", extern_c_gte_two as VmBinOp, InferredType::Bool);
+        map.add_func_hint(
+            "mult-two",
+            extern_c_mult_two as VmBinOp,
+            InferredType::Number,
+        );
+        map.add_func_hint("div-two", extern_c_div_two as VmBinOp, InferredType::Number);
 
-        // map.add_func(
-        //     "call-global-function-tail-deopt-0",
-        //     call_global_function_tail_deopt_0
-        //         as extern "C" fn(
-        //             ctx: *mut VmCore,
-        //             lookup_index: usize,
-        //             fallback_ip: usize,
-        //         ) -> SteelVal,
-        // );
+        map.add_func(
+            "call-global-function-tail-deopt-0",
+            call_global_function_tail_deopt_0
+                as extern "C" fn(
+                    ctx: *mut VmCore,
+                    lookup_index: usize,
+                    fallback_ip: usize,
+                ) -> SteelVal,
+        );
 
-        // map.add_func(
-        //     "call-global-function-tail-deopt-1",
-        //     call_global_function_tail_deopt_1
-        //         as extern "C" fn(
-        //             ctx: *mut VmCore,
-        //             lookup_index: usize,
-        //             fallback_ip: usize,
-        //             arg0: SteelVal,
-        //         ) -> SteelVal,
-        // );
+        map.add_func(
+            "call-global-function-tail-deopt-1",
+            call_global_function_tail_deopt_1
+                as extern "C" fn(
+                    ctx: *mut VmCore,
+                    lookup_index: usize,
+                    fallback_ip: usize,
+                    arg0: SteelVal,
+                ) -> SteelVal,
+        );
 
-        // map.add_func(
-        //     "call-global-function-tail-deopt-2",
-        //     call_global_function_tail_deopt_2
-        //         as extern "C" fn(
-        //             ctx: *mut VmCore,
-        //             lookup_index: usize,
-        //             fallback_ip: usize,
-        //             arg0: SteelVal,
-        //             arg1: SteelVal,
-        //         ) -> SteelVal,
-        // );
+        map.add_func(
+            "call-global-function-tail-deopt-2",
+            call_global_function_tail_deopt_2
+                as extern "C" fn(
+                    ctx: *mut VmCore,
+                    lookup_index: usize,
+                    fallback_ip: usize,
+                    arg0: SteelVal,
+                    arg1: SteelVal,
+                ) -> SteelVal,
+        );
 
-        // map.add_func(
-        //     "call-global-function0-tail-deopt-3",
-        //     call_global_function_tail_deopt_3
-        //         as extern "C" fn(
-        //             ctx: *mut VmCore,
-        //             lookup_index: usize,
-        //             fallback_ip: usize,
-        //             arg0: SteelVal,
-        //             arg1: SteelVal,
-        //             arg2: SteelVal,
-        //         ) -> SteelVal,
-        // );
+        map.add_func(
+            "call-global-function0-tail-deopt-3",
+            call_global_function_tail_deopt_3
+                as extern "C" fn(
+                    ctx: *mut VmCore,
+                    lookup_index: usize,
+                    fallback_ip: usize,
+                    arg0: SteelVal,
+                    arg1: SteelVal,
+                    arg2: SteelVal,
+                ) -> SteelVal,
+        );
 
         // TODO: Pick up from here!
-        // map.add_func("read-local-0", read_local_0_value_c as Vm01);
-        // map.add_func("read-local-1", read_local_1_value_c as Vm01);
-        // map.add_func("read-local-2", read_local_2_value_c as Vm01);
-        // map.add_func("read-local-3", read_local_3_value_c as Vm01);
-        // map.add_func("move-read-local-0", move_read_local_0_value_c as Vm01);
-        // map.add_func("move-read-local-1", move_read_local_1_value_c as Vm01);
-        // map.add_func("move-read-local-2", move_read_local_2_value_c as Vm01);
-        // map.add_func("move-read-local-3", move_read_local_3_value_c as Vm01);
+        map.add_func("read-local-0", read_local_0_value_c as Vm01);
+        map.add_func("read-local-1", read_local_1_value_c as Vm01);
+        map.add_func("read-local-2", read_local_2_value_c as Vm01);
+        map.add_func("read-local-3", read_local_3_value_c as Vm01);
+        map.add_func("move-read-local-0", move_read_local_0_value_c as Vm01);
+        map.add_func("move-read-local-1", move_read_local_1_value_c as Vm01);
+        map.add_func("move-read-local-2", move_read_local_2_value_c as Vm01);
+        map.add_func("move-read-local-3", move_read_local_3_value_c as Vm01);
 
-        // map.add_func("vm-should-continue?", should_continue as Vm0b);
+        map.add_func("vm-should-continue?", should_continue as Vm0b);
 
         let function_map = OwnedFunctionMap {
             map: map.map,

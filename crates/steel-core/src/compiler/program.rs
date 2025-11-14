@@ -599,6 +599,9 @@ define_primitive_symbols! {
     (PRIM_EQUAL, EQUAL) => "equal?",
     (PRIM_NUM_EQUAL, NUM_EQUAL) => "=",
     (PRIM_LTE, LTE) => "<=",
+    (PRIM_GTE, GTE) => ">=",
+    (PRIM_LT, LT) => "<",
+    (PRIM_GT, GT) => ">",
     (PRIM_CAR, CAR_SYMBOL) => "car",
     (PRIM_CDR, CDR_SYMBOL) => "cdr",
     (PRIM_NOT, NOT_SYMBOL) => "not",
@@ -727,6 +730,9 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
                 x if x == *PRIM_EQUAL && payload_size == 2 => Some(OpCode::EQUAL2),
                 x if x == *PRIM_EQUAL && payload_size > 0 => Some(OpCode::EQUAL),
                 x if x == *PRIM_LTE && payload_size > 0 => Some(OpCode::LTE),
+                x if x == *PRIM_GTE && payload_size > 0 => Some(OpCode::GTE),
+                x if x == *PRIM_GT && payload_size > 0 => Some(OpCode::GT),
+                x if x == *PRIM_LT && payload_size > 0 => Some(OpCode::LT),
                 _ => None,
             };
 
@@ -818,6 +824,10 @@ pub fn tile_super_instructions(instructions: &mut [Instruction]) {
 }
 
 pub fn merge_conditions_with_if(instructions: &mut [Instruction]) {
+    if cfg!(feature = "jit2") {
+        return;
+    }
+
     for i in 0..instructions.len() - 1 {
         let condition = instructions.get(i);
         let guard = instructions.get(i + 2);

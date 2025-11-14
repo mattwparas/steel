@@ -117,6 +117,10 @@ impl<'a> CodeGenerator<'a> {
     }
 
     fn specialize_immediate(&self, l: &List) -> Option<OpCode> {
+        if cfg!(feature = "jit2") {
+            return None;
+        }
+
         if l.args.len() == 3 {
             let function = l.first()?;
 
@@ -139,6 +143,10 @@ impl<'a> CodeGenerator<'a> {
     }
 
     fn should_specialize_call(&self, l: &List) -> Option<OpCode> {
+        if cfg!(feature = "jit2") {
+            return None;
+        }
+
         if l.args.len() == 3 {
             let function = l.first()?;
 
