@@ -188,7 +188,7 @@ impl ConstantMap {
 
     // Fallible
     #[inline(always)]
-    pub fn get(&mut self, idx: usize) -> SteelVal {
+    pub fn get(&self, idx: usize) -> SteelVal {
         // Just check if the values are the same. Otherwise, push down to the proper one?
 
         // if let Some(value) = self.local_values.get(idx) {

@@ -304,7 +304,7 @@ impl OpCode {
         }
     }
 
-    pub fn width(&self) -> usize {
+    pub fn width(&self) -> Option<usize> {
         match self {
             OpCode::VOID => todo!(),
             OpCode::PUSH => todo!(),
@@ -329,7 +329,7 @@ impl OpCode {
             OpCode::COPYCAPTURESTACK => todo!(),
             OpCode::COPYCAPTURECLOSURE => todo!(),
             OpCode::TCOJMP => todo!(),
-            OpCode::CALLGLOBAL => 2,
+            OpCode::CALLGLOBAL => Some(2),
             OpCode::CALLGLOBALTAIL => todo!(),
             OpCode::LOADINT0 => todo!(),
             OpCode::LOADINT1 => todo!(),
@@ -340,16 +340,16 @@ impl OpCode {
             OpCode::BEGINSCOPE => todo!(),
             OpCode::LETENDSCOPE => todo!(),
             OpCode::PUREFUNC => todo!(),
-            OpCode::ADD => 2,
+            OpCode::ADD => Some(2),
             OpCode::SUB => todo!(),
             OpCode::MUL => todo!(),
             OpCode::DIV => todo!(),
             OpCode::EQUAL => todo!(),
             OpCode::LTE => todo!(),
             OpCode::NEWSCLOSURE => todo!(),
-            OpCode::ADDREGISTER => 2,
-            OpCode::SUBREGISTER => 2,
-            OpCode::LTEREGISTER => 2,
+            OpCode::ADDREGISTER => Some(2),
+            OpCode::SUBREGISTER => Some(2),
+            OpCode::LTEREGISTER => Some(2),
             OpCode::SUBREGISTER1 => todo!(),
             OpCode::ALLOC => todo!(),
             _ => todo!(),
