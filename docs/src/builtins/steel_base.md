@@ -860,7 +860,7 @@ Returns `#t` if the value is an disconnected-channel object.
 
 (eof-object? any/c) -> bool?
 ### **dropping**
-Creates a taking iterator combinator
+Creates a dropping iterator combinator
 
 (dropping integer?) -> iterator?
 
