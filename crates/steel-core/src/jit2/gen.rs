@@ -2142,9 +2142,11 @@ impl FunctionTranslator<'_> {
         // Set the ip to the right spot:
         self.ip = then_start;
 
-        // let frozen_stack = self.stack.clone();
+        let frozen_patched = self.patched_locals;
+        let frozen_stack = self.stack.clone();
         // println!("Traversing then branch");
         // println!("Stack before then branch: {:?}", frozen_stack);
+
         self.stack_to_ssa();
         // println!("Done on then");
         // println!("Stack after then branch: {:?}", self.stack);
@@ -2177,6 +2179,8 @@ impl FunctionTranslator<'_> {
 
         // self.stack = frozen_stack;
 
+        self.patched_locals = frozen_patched;
+        self.stack = frozen_stack;
         self.stack_to_ssa();
 
         // let else_return = self.stack.pop().unwrap().0;

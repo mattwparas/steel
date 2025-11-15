@@ -16,6 +16,7 @@
       (+ (jit-fib (- n 1)) (jit-fib (- n 2)))))
 
 (define jitfib (#%jit-compile jit-fib))
+; (define jitfib jit-fib)
 
 ; (set! jit-fib (#%jit-compile jit-fib "jit-fib"))
 
