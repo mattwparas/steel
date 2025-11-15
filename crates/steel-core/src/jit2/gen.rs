@@ -1098,10 +1098,7 @@ impl FunctionTranslator<'_> {
                     let true_instr = self.ip + 1;
 
                     let test_bool = if typ == InferredType::Bool {
-                        let amount_to_shift = self
-                            .builder
-                            .ins()
-                            .iconst(Type::int(64).unwrap(), 64);
+                        let amount_to_shift = self.builder.ins().iconst(Type::int(64).unwrap(), 64);
 
                         //
                         // self.builder.ins().ireduce(Type::int(8).unwrap(), test)
@@ -1182,7 +1179,6 @@ impl FunctionTranslator<'_> {
                 //     self.ip += 1;
                 //     self.stack.push((value, InferredType::Any));
                 // }
-
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
                 | OpCode::READLOCAL2
@@ -1318,7 +1314,6 @@ impl FunctionTranslator<'_> {
 
                     // Then, we're gonna check the result and see if we should deopt
                     self.check_deopt();
-
                 }
 
                 // Moving the value through to the function call means
@@ -1374,11 +1369,9 @@ impl FunctionTranslator<'_> {
                 OpCode::EQUAL
                 | OpCode::NUMEQUAL
                 | OpCode::LTE
-                // | OpCode::GTE
-                // | OpCode::GT
-                // | OpCode::LT
-
-                => {
+                | OpCode::GTE
+                | OpCode::GT
+                | OpCode::LT => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     self.func_ret_val(op, payload, 2, InferredType::Bool, abi_type, abi_type);
                 }
@@ -1423,7 +1416,7 @@ impl FunctionTranslator<'_> {
                 OpCode::LOADINT0POP => todo!(),
                 OpCode::LOADINT2POP => todo!(),
                 OpCode::CaseLambdaDispatch => todo!(),
-                _ => todo!()
+                _ => todo!(),
             }
         }
 
@@ -2176,8 +2169,6 @@ impl FunctionTranslator<'_> {
         //     .iconst(codegen::ir::Type::int(8).unwrap(), 128);
 
         self.ip = else_start;
-
-        // self.stack = frozen_stack;
 
         self.patched_locals = frozen_patched;
         self.stack = frozen_stack;
