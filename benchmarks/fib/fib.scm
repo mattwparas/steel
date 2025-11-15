@@ -1,4 +1,5 @@
-(provide fib)
+(provide fib
+         jitfib)
 
 ;; This should return an int, and should always
 ;; return an int - we should be able to do
@@ -14,7 +15,9 @@
       1
       (+ (jit-fib (- n 1)) (jit-fib (- n 2)))))
 
-(set! jit-fib (#%jit-compile jit-fib "jit-fib"))
+(define jitfib (#%jit-compile jit-fib))
+
+; (set! jit-fib (#%jit-compile jit-fib "jit-fib"))
 
 ;; Take a callsite, and unroll it multiple times?
 ;; How that would be done; given a function definition,

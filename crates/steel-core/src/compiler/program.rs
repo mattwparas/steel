@@ -717,10 +717,14 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
             let payload_size = payload_size.to_u32();
 
             let replaced = match *ident {
+                #[cfg(not(feature = "jit2"))]
                 x if x == *PRIM_PLUS && payload_size == 2 && *op == OpCode::TAILCALL => {
                     Some(OpCode::BINOPADDTAIL)
                 }
+
+                #[cfg(not(feature = "jit2"))]
                 x if x == *PRIM_PLUS && payload_size == 2 => Some(OpCode::BINOPADD),
+
                 x if x == *PRIM_PLUS && payload_size > 0 => Some(OpCode::ADD),
                 // x if x == *PRIM_MINUS && *payload_size == 2 => Some(OpCode::BINOPSUB),
                 x if x == *PRIM_MINUS && payload_size > 0 => Some(OpCode::SUB),

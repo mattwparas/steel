@@ -1239,7 +1239,7 @@ impl FunctionTranslator<'_> {
                 // just call `drop(...)` on each of the args?
                 OpCode::TCOJMP => todo!(),
 
-                OpCode::CALLGLOBALTAIL => {
+                OpCode::CALLGLOBALTAIL | OpCode::CALLGLOBALTAILNOARITY => {
                     let function_index = payload;
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
@@ -1276,7 +1276,7 @@ impl FunctionTranslator<'_> {
                 }
 
                 // Call global value, with deopt down to auto adjust the stack?
-                OpCode::CALLGLOBAL => {
+                OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY => {
                     // First - find the index that we have to lookup.
                     let function_index = payload;
                     self.ip += 1;
