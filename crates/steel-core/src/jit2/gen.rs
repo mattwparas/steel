@@ -1,6 +1,9 @@
-use cranelift::{codegen::ir::BlockArg, prelude::*};
+use cranelift::{
+    codegen::ir::{BlockArg, Type},
+    prelude::*,
+};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{DataDescription, Linkage, Module};
+use cranelift_module::{DataDescription, FuncId, Linkage, Module};
 use std::collections::HashMap;
 use std::slice;
 // use steel_gen::opcode::OPCODES_ARRAY;
@@ -232,8 +235,8 @@ register_function_pointers_return!(A, B, C, D, E, F);
 register_function_pointers_return!(A, B, C, D, E, F, G);
 register_function_pointers_return!(A, B, C, D, E, F, G, H);
 
-fn type_to_ir_type<T>() -> codegen::ir::Type {
-    codegen::ir::Type::int(std::mem::size_of::<T>() as u16 * 8).unwrap()
+fn type_to_ir_type<T>() -> Type {
+    Type::int(std::mem::size_of::<T>() as u16 * 8).unwrap()
 }
 
 impl Default for JIT {
@@ -517,6 +520,7 @@ fn load_jit() {
         ],
         &[],
         &ConstantMap::default(),
+        None,
     )
     .unwrap();
 }
@@ -529,9 +533,20 @@ unsafe fn compile_bytecode(
     code: &[DenseInstruction],
     globals: &[SteelVal],
     constants: &ConstantMap,
+    function_index: Option<usize>,
 ) -> Result<fn(&mut VmCore) -> bool, String> {
     // Pass the string to the JIT, and it returns a raw pointer to machine code.
-    let code_ptr = jit.compile(name, arity, code, globals, constants)?;
+    // TODO: We'll want to do two different functions.
+    // One which interfaces with the VM, and another which can be called directly
+    // without going through the VM.
+    //
+    // That way we can have direct calls for tail calls and for recursive calls which
+    // aren't tail calls.
+    //
+    // The only difference I believe will be the signature, and we'll have to
+    // take the parameters into account in this case - they won't come from the VM
+    // stack but will instead come from the native stack.
+    let code_ptr = jit.compile(name, arity, code, globals, constants, function_index)?;
     // Cast the raw pointer to a typed function pointer. This is unsafe, because
     // this is the critical point where you have to trust that the generated code
     // is safe to be called.
@@ -547,8 +562,9 @@ impl JIT {
         code: &[DenseInstruction],
         globals: &[SteelVal],
         constants: &ConstantMap,
+        function_index: Option<usize>,
     ) -> Result<fn(&mut VmCore) -> bool, String> {
-        unsafe { compile_bytecode(self, name, arity, code, globals, constants) }
+        unsafe { compile_bytecode(self, name, arity, code, globals, constants, function_index) }
     }
 }
 
@@ -583,6 +599,7 @@ impl JIT {
         instructions: &[DenseInstruction],
         globals: &[SteelVal],
         constants: &ConstantMap,
+        function_index: Option<usize>,
     ) -> Result<*const u8, String> {
         self.ctx.set_disasm(true);
 
@@ -593,8 +610,22 @@ impl JIT {
         let (params, the_return, stmts) = (Default::default(), Default::default(), instructions);
         // parser::function(input).map_err(|e| e.to_string())?;
 
+        let id = self
+            .module
+            .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
+            .map_err(|e| e.to_string())?;
+
         // Then, translate the AST nodes into Cranelift IR.
-        self.translate(arity, params, the_return, stmts, globals, constants)?;
+        self.translate(
+            id,
+            arity,
+            params,
+            the_return,
+            stmts,
+            globals,
+            constants,
+            function_index,
+        )?;
 
         println!("{}", self.ctx.func);
 
@@ -604,10 +635,6 @@ impl JIT {
         // TODO: This may be an area where the API should be streamlined; should
         // we have a version of `declare_function` that automatically declares
         // the function?
-        let id = self
-            .module
-            .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
-            .map_err(|e| e.to_string())?;
 
         if let Err(e) = cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
             println!("codegen error");
@@ -698,19 +725,21 @@ impl JIT {
     // Translate from toy-language AST nodes into Cranelift IR.
     fn translate(
         &mut self,
+        func_id: FuncId,
         arity: u16,
         params: Vec<String>,
         the_return: String,
         bytecode: &[DenseInstruction],
         globals: &[SteelVal], // stmts: Vec<Expr>,
         constants: &ConstantMap,
+        function_context: Option<usize>,
     ) -> Result<(), String> {
         // Our toy language currently only supports I64 values, though Cranelift
         // supports other types.
         // let int = self.module.target_config().pointer_type();
 
         // Upgrade to 128 bit?
-        let int = codegen::ir::Type::int(128).unwrap();
+        let int = Type::int(128).unwrap();
 
         // Set up pointer type to be the first argument.
         let pointer = self.module.target_config().pointer_type();
@@ -726,7 +755,7 @@ impl JIT {
             .func
             .signature
             .returns
-            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+            .push(AbiParam::new(Type::int(8).unwrap()));
 
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
@@ -776,6 +805,9 @@ impl JIT {
             local_count: 0,
             patched_locals: false,
             function_map: &self.function_map,
+            function_context,
+            id: func_id,
+            native: false,
         };
 
         // trans.translate_instructions();
@@ -793,10 +825,7 @@ impl JIT {
         // let return_variable = trans.variables.get(&the_return).unwrap();
         // let return_value = trans.builder.use_var(*return_variable);
 
-        let return_value = trans
-            .builder
-            .ins()
-            .iconst(codegen::ir::Type::int(8).unwrap(), 1);
+        let return_value = trans.builder.ins().iconst(Type::int(8).unwrap(), 1);
 
         // let return_value = trans.create_i128(1);
 
@@ -849,6 +878,12 @@ struct FunctionTranslator<'a> {
     patched_locals: bool,
 
     function_map: &'a OwnedFunctionMap,
+
+    function_context: Option<usize>,
+
+    id: FuncId,
+
+    native: bool,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -953,19 +988,20 @@ impl FunctionTranslator<'_> {
         // }
 
         // For simplicity for now, just make all calls return a single I64.
-        sig.returns
-            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
 
         // TODO: Streamline the API here?
         let callee = self
             .module
             .declare_function("call-global", Linkage::Import, &sig)
             .expect("problem declaring function");
+
         let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
 
         // let mut arg_values = Vec::new();
 
         let variable = self.variables.get("vm-ctx").expect("variable not defined");
+
         let ctx = self.builder.use_var(*variable);
         let arg_values = [ctx];
 
@@ -974,13 +1010,18 @@ impl FunctionTranslator<'_> {
         // }
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
+
         result
     }
 
-    // Read values off of the stack - push them on to wherever they need to go.
-    // Assuming the whole instruction set is translated and we also confirm that _only_
-    // native functions get used, we can probably just rewrite the function
-    // into a function pointer, and we don't need to thread the context through at all.
+    // Read values off of the stack - push them on to
+    // wherever they need to go.
+    // Assuming the whole instruction set is translated and we also confirm
+    // that _only_
+    // native functions get used, we can
+    // probably just rewrite the function
+    // into a function pointer, and we don't need to thread the
+    // context through at all.
     fn stack_to_ssa(&mut self) -> bool {
         while self.ip < self.instructions.len() {
             let instr = self.instructions[self.ip];
@@ -988,19 +1029,19 @@ impl FunctionTranslator<'_> {
             println!("{:?}", op);
             let payload = instr.payload_size.to_usize();
             match op {
-                // Exit points aren't handled quite yet
                 OpCode::LOADINT1POP
                 | OpCode::BINOPADDTAIL
                 | OpCode::NEWSCLOSURE
                 | OpCode::TAILCALL => {
-                    todo!();
+                    todo!("{:?}", op);
                 }
 
                 OpCode::POPJMP | OpCode::POPPURE => {
                     // Push the remaining value back on to the stack.
                     let value = self.stack.pop().unwrap();
 
-                    // Should break here - just call `handle_pop_pure_value` and handle the return value / updating
+                    // Should break here - just call `handle_pop_pure_value` and
+                    // handle the return value / updating
                     // of various things here.
                     // self.push_to_vm_stack(value.0);
                     // self.set_ctx_ip(self.ip);
@@ -1022,12 +1063,12 @@ impl FunctionTranslator<'_> {
                 // Handle global value
                 OpCode::PUSH => {
                     // Let value to push:
-                    let abi_type = AbiParam::new(codegen::ir::Type::int(64).unwrap());
+                    let abi_type = AbiParam::new(Type::int(64).unwrap());
 
                     let index = self
                         .builder
                         .ins()
-                        .iconst(codegen::ir::Type::int(64).unwrap(), payload as i64);
+                        .iconst(Type::int(64).unwrap(), payload as i64);
 
                     // TODO: We could instead call it directly instead of pushing on to the stack!
 
@@ -1036,7 +1077,8 @@ impl FunctionTranslator<'_> {
 
                     // Just...
 
-                    // TODO: If we know what the global is, and we know that its not mutated, we probably can do something
+                    // TODO: If we know what the global is, and we know that its not mutated,
+                    // we probably can do something
                     // interesting here.
                     self.func_ret_val(
                         OpCode::PUSH,
@@ -1044,7 +1086,7 @@ impl FunctionTranslator<'_> {
                         1,
                         InferredType::Any,
                         abi_type,
-                        AbiParam::new(codegen::ir::Type::int(128).unwrap()),
+                        AbiParam::new(Type::int(128).unwrap()),
                     );
                 }
                 // Translate if? Correct the stack accordingly?
@@ -1059,21 +1101,12 @@ impl FunctionTranslator<'_> {
                         let amount_to_shift = self
                             .builder
                             .ins()
-                            .iconst(codegen::ir::Type::int(64).unwrap(), 64);
-
-                        // println!("Handling if with inferred type bool");
-                        // println!(
-                        //     "Split big: {:?}",
-                        //     split_big(unsafe { std::mem::transmute(SteelVal::IntV(1)) })
-                        // );
+                            .iconst(Type::int(64).unwrap(), 64);
 
                         //
                         // self.builder.ins().ireduce(Type::int(8).unwrap(), test)
-
                         // self.builder.ins().
-
                         // self.builder.ins().ireduce(Int, x)
-
                         // self.builder.ins().rotr(test, amount_to_shift)
 
                         let shift_right = self.builder.ins().sshr(test, amount_to_shift);
@@ -1117,6 +1150,39 @@ impl FunctionTranslator<'_> {
                     self.stack.push((value, InferredType::Any));
                 }
 
+                // Patch the args, call the function.
+                // OpCode::READLOCAL0
+                // | OpCode::READLOCAL1
+                // | OpCode::READLOCAL2
+                // | OpCode::READLOCAL3
+                // | OpCode::MOVEREADLOCAL0
+                // | OpCode::MOVEREADLOCAL1
+                // | OpCode::MOVEREADLOCAL2
+                // | OpCode::MOVEREADLOCAL3 if self.native => {
+                //     // these are gonna get spilled anyway?
+                //     if payload + 1 > self.arity as _ && !self.patched_locals {
+                //         let locals_to_patch = self.local_count;
+                //         println!("Patching locals: {}", locals_to_patch);
+
+                //         for i in 0..locals_to_patch {
+                //             let item = self.stack.get(i).unwrap();
+                //             self.push_to_vm_stack(item.0);
+                //         }
+
+                //         self.patched_locals = true;
+
+                //         // Push this on to the VM context stack
+                //         // let local_value = self.stack.get(payload + self.arity as usize);
+
+                //         // Push each of the pending locals to the VM stack?
+                //         // Call function to push onto local stack.
+                //     }
+
+                //     let value = self.call_func_or_immediate(op, payload);
+                //     self.ip += 1;
+                //     self.stack.push((value, InferredType::Any));
+                // }
+
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
                 | OpCode::READLOCAL2
@@ -1157,8 +1223,8 @@ impl FunctionTranslator<'_> {
 
                 // TODO: This _should_ be changed to be a while loop probably.
                 // We can get clever with this to avoid a lot of headache, but it will depend
-                // on destructors getting run during the while loop. Probably just inline a call to drop?
-                // Then can run a while loop no problem?
+                // on destructors getting run during the while loop. Probably just
+                // inline a call to drop? Then can run a while loop no problem?
                 // Something like:
                 //
                 // (define (loop x)
@@ -1184,6 +1250,10 @@ impl FunctionTranslator<'_> {
                         3 => "call-global-function-tail-deopt-3",
                         other => todo!("{}", other),
                     };
+
+                    if self.function_context == Some(function_index) {
+                        println!("Found recursive call");
+                    }
 
                     // This function pushes back on to the stack, and then we should just
                     // return since we're done now.
@@ -1224,6 +1294,23 @@ impl FunctionTranslator<'_> {
                     // back on to the stack.
                     println!("stack at global: {:?}", self.stack);
 
+                    if self.function_context == Some(function_index) {
+                        // If we're calling a global here, we should try
+                        // to instead call the function itself rather
+                        // than anything else.
+                        //
+                        // TODO: We'll have to generate two functions:
+                        // One for calling from steel, and the other
+                        // for calling from native code.
+                        println!("Found recursive call");
+
+                        // let result = self.call_func_recursively();
+
+                        // self.stack.push((result, InferredType::Any));
+
+                        // continue;
+                    }
+
                     let result = self.call_global_function(arity, name, function_index);
 
                     // Assuming this worked, we'll want to push this result on to the stack.
@@ -1231,6 +1318,7 @@ impl FunctionTranslator<'_> {
 
                     // Then, we're gonna check the result and see if we should deopt
                     self.check_deopt();
+
                 }
 
                 // Moving the value through to the function call means
@@ -1276,7 +1364,7 @@ impl FunctionTranslator<'_> {
 
                 // TODO: Roll up the bin ops into a function to make things easier
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
-                    let abi_type = AbiParam::new(codegen::ir::Type::int(128).unwrap());
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
                     // Call the func
                     self.func_ret_val(op, payload, 2, InferredType::Number, abi_type, abi_type);
                 }
@@ -1291,7 +1379,7 @@ impl FunctionTranslator<'_> {
                 // | OpCode::LT
 
                 => {
-                    let abi_type = AbiParam::new(codegen::ir::Type::int(128).unwrap());
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
                     self.func_ret_val(op, payload, 2, InferredType::Bool, abi_type, abi_type);
                 }
                 // OpCode::NUMEQUAL => todo!(),
@@ -1326,7 +1414,7 @@ impl FunctionTranslator<'_> {
                 // If the type is bool, just negate it
                 OpCode::NOT => {
                     // Do the thing.
-                    let abi_type = AbiParam::new(codegen::ir::Type::int(128).unwrap());
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
                     self.func_ret_val(op, 1, 2, InferredType::Bool, abi_type, abi_type);
                 }
                 OpCode::VEC => todo!(),
@@ -1382,12 +1470,10 @@ impl FunctionTranslator<'_> {
             .push(AbiParam::new(self.module.target_config().pointer_type()));
 
         // test
-        sig.params
-            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
 
         // Return value
-        sig.returns
-            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
 
         let callee = self
             .module
@@ -1417,8 +1503,7 @@ impl FunctionTranslator<'_> {
         sig.params
             .push(AbiParam::new(self.module.target_config().pointer_type()));
 
-        sig.params
-            .push(AbiParam::new(codegen::ir::Type::int(64).unwrap()));
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
 
         let name = "let-end-scope-c";
 
@@ -1434,11 +1519,32 @@ impl FunctionTranslator<'_> {
         let amount_to_drop = self
             .builder
             .ins()
-            .iconst(codegen::ir::Type::int(64).unwrap(), amount as i64);
+            .iconst(Type::int(64).unwrap(), amount as i64);
 
         let arg_values = [ctx, amount_to_drop];
         let call = self.builder.ins().call(local_callee, &arg_values);
     }
+
+    // fn call_func_recursively(&mut self) -> Value {
+    //     let mut sig = self.module.make_signature();
+
+    //     // VmCore pointer
+    //     sig.params
+    //         .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+    //     sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
+
+    //     let local_callee = self.module.declare_func_in_func(self.id, self.builder.func);
+
+    //     let variable = self.variables.get("vm-ctx").expect("variable not defined");
+    //     let ctx = self.builder.use_var(*variable);
+
+    //     let arg_values = vec![ctx];
+
+    //     let call = self.builder.ins().call(local_callee, &arg_values);
+    //     let result = self.builder.inst_results(call)[0];
+    //     result
+    // }
 
     fn call_global_function(&mut self, arity: usize, name: &str, function_index: usize) -> Value {
         // This is the call global `call_global_function_deopt`
@@ -1449,21 +1555,17 @@ impl FunctionTranslator<'_> {
             .push(AbiParam::new(self.module.target_config().pointer_type()));
 
         // lookup index
-        sig.params
-            .push(AbiParam::new(codegen::ir::Type::int(64).unwrap()));
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
 
         // instruction pointer
-        sig.params
-            .push(AbiParam::new(codegen::ir::Type::int(64).unwrap()));
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
 
         for _ in 0..arity {
-            sig.params
-                .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+            sig.params.push(AbiParam::new(Type::int(128).unwrap()));
         }
 
         // Return value
-        sig.returns
-            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+        sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
 
         let callee = self
             .module
@@ -1477,12 +1579,12 @@ impl FunctionTranslator<'_> {
         let lookup_index = self
             .builder
             .ins()
-            .iconst(codegen::ir::Type::int(64).unwrap(), function_index as i64);
+            .iconst(Type::int(64).unwrap(), function_index as i64);
 
         let fallback_ip = self
             .builder
             .ins()
-            .iconst(codegen::ir::Type::int(64).unwrap(), self.ip as i64);
+            .iconst(Type::int(64).unwrap(), self.ip as i64);
 
         // Advance to the next thing
         self.ip += 1;
@@ -1560,10 +1662,8 @@ impl FunctionTranslator<'_> {
         // VmCore pointer
         sig.params
             .push(AbiParam::new(self.module.target_config().pointer_type()));
-        sig.params
-            .push(AbiParam::new(codegen::ir::Type::int(64).unwrap()));
-        sig.returns
-            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
+        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
         let callee = self
             .module
             .declare_function(&name, Linkage::Import, &sig)
@@ -1583,8 +1683,7 @@ impl FunctionTranslator<'_> {
         // VmCore pointer
         sig.params
             .push(AbiParam::new(self.module.target_config().pointer_type()));
-        sig.returns
-            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
         let callee = self
             .module
             .declare_function(&name, Linkage::Import, &sig)
@@ -1598,18 +1697,14 @@ impl FunctionTranslator<'_> {
         let else_block = self.builder.create_block();
         let merge_block = self.builder.create_block();
         self.builder
-            .append_block_param(merge_block, codegen::ir::Type::int(8).unwrap());
+            .append_block_param(merge_block, Type::int(8).unwrap());
         // Do the thing.
         self.builder
             .ins()
             .brif(result, then_block, &[], else_block, &[]);
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
-        let then_return = BlockArg::Value(
-            self.builder
-                .ins()
-                .iconst(codegen::ir::Type::int(8).unwrap(), 1),
-        );
+        let then_return = BlockArg::Value(self.builder.ins().iconst(Type::int(8).unwrap(), 1));
         // Just... translate instructions?
         self.stack_to_ssa();
         // Jump to the merge block, passing it the block return value.
@@ -1623,10 +1718,7 @@ impl FunctionTranslator<'_> {
         // }
 
         // // TODO: Update with the proper return value
-        let else_return = self
-            .builder
-            .ins()
-            .iconst(codegen::ir::Type::int(8).unwrap(), 1);
+        let else_return = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
         // let else_return = self.create_i128(0);
         self.builder.ins().return_(&[else_return]);
         self.builder.switch_to_block(merge_block);
@@ -1716,24 +1808,18 @@ impl FunctionTranslator<'_> {
                             .push(AbiParam::new(self.module.target_config().pointer_type()));
 
                         // Function
-                        sig.params
-                            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+                        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
 
                         // Three args
-                        sig.params
-                            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
-                        sig.params
-                            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
-                        sig.params
-                            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+                        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+                        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+                        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
 
                         // offset
-                        sig.params
-                            .push(AbiParam::new(codegen::ir::Type::int(64).unwrap()));
+                        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
 
                         // For simplicity for now, just make all calls return a single I64.
-                        sig.returns
-                            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+                        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
 
                         // TODO: Streamline the API here?
                         let callee = self
@@ -1756,10 +1842,7 @@ impl FunctionTranslator<'_> {
 
                         let func_var = self.create_i128(unsafe { std::mem::transmute(func) });
 
-                        let offset = self
-                            .builder
-                            .ins()
-                            .iconst(codegen::ir::Type::int(64).unwrap(), 3);
+                        let offset = self.builder.ins().iconst(Type::int(64).unwrap(), 3);
 
                         let arg_values = [ctx, func_var, value1, value2, value3, offset];
 
@@ -1901,11 +1984,8 @@ impl FunctionTranslator<'_> {
                     self.builder.seal_block(then_block);
 
                     // // Update with the proper return value
-                    let mut then_return = BlockArg::Value(
-                        self.builder
-                            .ins()
-                            .iconst(codegen::ir::Type::int(8).unwrap(), 1),
-                    );
+                    let mut then_return =
+                        BlockArg::Value(self.builder.ins().iconst(Type::int(8).unwrap(), 1));
 
                     // // Set the ip to the right spot:
                     // self.ip = then_start;
@@ -1918,10 +1998,7 @@ impl FunctionTranslator<'_> {
                     self.builder.seal_block(else_block);
 
                     // // TODO: Update with the proper return value
-                    let mut else_return = self
-                        .builder
-                        .ins()
-                        .iconst(codegen::ir::Type::int(8).unwrap(), 1);
+                    let mut else_return = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
 
                     self.builder.ins().return_(&[else_return]);
 
@@ -2022,7 +2099,7 @@ impl FunctionTranslator<'_> {
     // it directly as anything really?
     fn create_i128(&mut self, value: i128) -> Value {
         let [left, right] = split_big(value);
-        let int = codegen::ir::Type::int(64).unwrap();
+        let int = Type::int(64).unwrap();
 
         let lhs = self.builder.ins().iconst(int, left);
         let rhs = self.builder.ins().iconst(int, right);
@@ -2152,11 +2229,7 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(then_block);
 
         // Update with the proper return value
-        let mut then_return = BlockArg::Value(
-            self.builder
-                .ins()
-                .iconst(codegen::ir::Type::int(8).unwrap(), 1),
-        );
+        let mut then_return = BlockArg::Value(self.builder.ins().iconst(Type::int(8).unwrap(), 1));
 
         // Set the ip to the right spot:
         self.ip = then_start;
@@ -2169,11 +2242,7 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(else_block);
 
         // TODO: Update with the proper return value
-        let mut else_return = BlockArg::Value(
-            self.builder
-                .ins()
-                .iconst(codegen::ir::Type::int(8).unwrap(), 1),
-        );
+        let mut else_return = BlockArg::Value(self.builder.ins().iconst(Type::int(8).unwrap(), 1));
 
         self.ip = else_start;
         self.translate_instructions();
@@ -2201,8 +2270,7 @@ impl FunctionTranslator<'_> {
         sig.params
             .push(AbiParam::new(self.module.target_config().pointer_type()));
 
-        sig.params
-            .push(AbiParam::new(codegen::ir::Type::int(64).unwrap()));
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
 
         // For simplicity for now, just make all calls return a single I64.
         // sig.returns
@@ -2215,10 +2283,7 @@ impl FunctionTranslator<'_> {
             .expect("problem declaring function");
         let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
 
-        let ip = self
-            .builder
-            .ins()
-            .iconst(codegen::ir::Type::int(64).unwrap(), ip as i64);
+        let ip = self.builder.ins().iconst(Type::int(64).unwrap(), ip as i64);
 
         // let mut arg_values = Vec::new();
 
@@ -2239,8 +2304,7 @@ impl FunctionTranslator<'_> {
         sig.params
             .push(AbiParam::new(self.module.target_config().pointer_type()));
 
-        sig.params
-            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
 
         // For simplicity for now, just make all calls return a single I64.
         // sig.returns
@@ -2272,8 +2336,7 @@ impl FunctionTranslator<'_> {
         sig.params
             .push(AbiParam::new(self.module.target_config().pointer_type()));
 
-        sig.params
-            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
 
         // For simplicity for now, just make all calls return a single I64.
         // sig.returns
@@ -2308,8 +2371,7 @@ impl FunctionTranslator<'_> {
             .push(AbiParam::new(self.module.target_config().pointer_type()));
 
         // For simplicity for now, just make all calls return a single I64.
-        sig.returns
-            .push(AbiParam::new(codegen::ir::Type::int(128).unwrap()));
+        sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
 
         // TODO: Streamline the API here?
         let callee = self
@@ -2389,8 +2451,7 @@ impl FunctionTranslator<'_> {
             .push(AbiParam::new(self.module.target_config().pointer_type()));
 
         // For simplicity for now, just make all calls return a single I64.
-        sig.returns
-            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
 
         // TODO: Streamline the API here?
         let callee = self
@@ -2428,8 +2489,7 @@ impl FunctionTranslator<'_> {
         // }
 
         // For simplicity for now, just make all calls return a single I64.
-        sig.returns
-            .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
+        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
 
         // TODO: Streamline the API here?
         let callee = self
@@ -2733,8 +2793,8 @@ fn declare_variables(
 }
 
 // TODO: Stack2SSA here
-/// Recursively descend through the AST, translating all implicit
-/// variable declarations.
+// Recursively descend through the AST, translating all implicit
+// variable declarations.
 // fn declare_variables_in_stmt(
 //     int: types::Type,
 //     builder: &mut FunctionBuilder,

@@ -17,9 +17,21 @@ use crate::{
 use super::*;
 
 #[cfg(feature = "jit2")]
-#[steel_derive::context(name = "#%jit-compile", arity = "Exact(1)")]
+#[steel_derive::context(name = "#%jit-compile", arity = "AtLeast(1)")]
 pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let function = &args[0];
+    // Provide the name for the function for recursive calls
+    // so we can jump straight into it without bailing back
+    // into the function.
+    let function_name = args.get(1).and_then(|x| x.as_string()).and_then(|ident| {
+        ctx.thread
+            .compiler
+            .read()
+            .symbol_map
+            .get(&ident.as_str().into())
+            .ok()
+    });
+
     if let SteelVal::Closure(func) = function {
         let mut func = func.unwrap();
 
@@ -37,6 +49,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
                 &func.body_exp,
                 &ctx.thread.global_env.roots(),
                 &ctx.thread.constant_map,
+                function_name,
             )
             .unwrap();
 
