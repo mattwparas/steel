@@ -97,7 +97,7 @@
       (displayln "Package has changed.")
       (displayln "Package has not changed."))
 
-  (when (or (not package-changed?) force)
+  (when (and (not package-changed?) (not force))
     ;; Try walking the deps
     (walk-and-install package #:force force #:dry-run dry-run)
     (return! destination))
