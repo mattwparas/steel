@@ -356,12 +356,15 @@
   (when (hash-contains? package 'dylibs)
     (let ([cargo-toml-path (append-with-separator destination "Cargo.toml")])
       (when (path-exists? cargo-toml-path)
-        (define dylib-name (find-dylib-name cargo-toml-path))
-        (define dylib-path (append-with-separator *DYLIB-DIR* dylib-name))
-        ;; Delete the dylib. If it doesn't exist, we can continue on.
-        (if (path-exists? dylib-path)
-            (delete-file! dylib-path)
-            (displayln "Dylib not found.")))))
+        (with-handler
+         (lambda (err)
+           (displayln "Unable to discover dylib name. It is possible that it is not deleted"))
+         (define dylib-name (find-dylib-name cargo-toml-path))
+         (define dylib-path (append-with-separator *DYLIB-DIR* dylib-name))
+         ;; Delete the dylib. If it doesn't exist, we can continue on.
+         (if (path-exists? dylib-path)
+             (delete-file! dylib-path)
+             (displayln "Dylib not found."))))))
 
   (delete-directory! destination)
 
