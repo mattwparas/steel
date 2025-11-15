@@ -120,7 +120,13 @@ impl Custom for FunctionSignatureMetadata {
     }
 }
 
-impl Custom for BuiltInModule {}
+impl Custom for BuiltInModule {
+    fn into_serializable_steelval(&mut self) -> Option<crate::rvals::SerializableSteelVal> {
+        Some(crate::rvals::SerializableSteelVal::Custom(Box::new(
+            self.clone(),
+        )))
+    }
+}
 
 impl RegisterValue for BuiltInModule {
     fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self {
@@ -556,6 +562,13 @@ impl BuiltInModule {
 
     pub fn names(&self) -> Vec<String> {
         self.module.read().names()
+    }
+
+    pub(crate) fn inner_map(
+        &self,
+    ) -> MappedScopedReadContainer<'_, std::collections::HashMap<Arc<str>, SteelVal, FxBuildHasher>>
+    {
+        ScopedReadContainer::map(self.module.read(), |x| &x.values)
     }
 
     pub fn name(&self) -> Shared<str> {

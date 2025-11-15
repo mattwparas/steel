@@ -46,11 +46,17 @@ use super::{
 
 // Keep track of this metadata table for getting the docs associated
 // with a given function?
+
+#[derive(Clone)]
 pub struct LambdaMetadataTable {
     fn_ptr_table: HashMap<usize, SteelString>,
 }
 
-impl Custom for LambdaMetadataTable {}
+impl Custom for LambdaMetadataTable {
+    fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
+        Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+    }
+}
 
 impl LambdaMetadataTable {
     pub fn new() -> Self {
@@ -152,6 +158,7 @@ impl std::hash::Hash for ByteCodeLambda {
 
 // Can this be moved across threads? What does it cost to execute a closure in another thread?
 // Engine instances be deep cloned?
+#[derive(Debug)]
 pub struct SerializedLambda {
     pub id: u32,
     pub body_exp: Vec<DenseInstruction>,

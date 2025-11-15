@@ -12,7 +12,7 @@ use crate::parser::interner::InternedString;
 use crate::rerrs::ErrorKind;
 use crate::rvals::{
     from_serializable_value, into_serializable_value, Custom, HeapSerializer, SerializableSteelVal,
-    SerializedHeapRef, SteelHashMap,
+    SerializationContext, SerializedHeapRef, SteelHashMap,
 };
 use crate::rvals::{FromSteelVal, IntoSteelVal};
 use crate::steel_vm::register_fn::RegisterFn;
@@ -124,6 +124,7 @@ impl StructTypeDescriptor {
     }
 }
 
+#[derive(Debug)]
 pub struct SerializableUserDefinedStruct {
     pub(crate) fields: Vec<SerializableSteelVal>,
 
@@ -676,8 +677,7 @@ impl VTable {
     }
 
     pub(crate) fn sendable_entries(
-        serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-        visited: &mut std::collections::HashSet<usize>,
+        ctx: &mut SerializationContext,
     ) -> Result<Vec<SendableVTableEntry>> {
         VTABLE.with(|x| {
             x.borrow()
@@ -694,8 +694,8 @@ impl VTable {
                             .iter()
                             .map(|(key, value)| {
                                 Ok((
-                                    into_serializable_value(key.clone(), serializer, visited)?,
-                                    into_serializable_value(value.clone(), serializer, visited)?,
+                                    into_serializable_value(key.clone(), ctx)?,
+                                    into_serializable_value(value.clone(), ctx)?,
                                 ))
                             })
                             .collect::<Result<Vec<_>>>()?,

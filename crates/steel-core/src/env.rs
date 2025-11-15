@@ -155,6 +155,12 @@ impl Env {
         self.bindings.0.len()
     }
 
+    pub(crate) fn new(values: &[SteelVal]) -> Self {
+        Self {
+            bindings: SharedVectorWrapper(AtomicSharedVector::from_slice(values)),
+        }
+    }
+
     /// top level global env has no parent
     pub fn root() -> Self {
         Env {

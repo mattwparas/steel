@@ -697,7 +697,11 @@ impl WillExecutor {
     }
 }
 
-impl Custom for WillExecutor {}
+impl Custom for WillExecutor {
+    fn into_serializable_steelval(&mut self) -> Option<crate::rvals::SerializableSteelVal> {
+        Some(crate::rvals::SerializableSteelVal::Void)
+    }
+}
 
 #[cfg(feature = "sync")]
 #[steel_derive::function(name = "make-will-executor")]
@@ -1604,6 +1608,10 @@ impl Heap {
             synchronizer,
             force_full,
         );
+    }
+
+    pub fn allocate_without_collection(&mut self, value: SteelVal) -> HeapRef<SteelVal> {
+        self.memory_free_list.allocate(value)
     }
 
     // Clean up the values?
