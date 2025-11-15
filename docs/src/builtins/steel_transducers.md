@@ -12,7 +12,7 @@ Compose multiple iterators into one iterator
     (taking 15))
 ```
 ### **dropping**
-Creates a taking iterator combinator
+Creates a dropping iterator combinator
 
 (dropping integer?) -> iterator?
 
