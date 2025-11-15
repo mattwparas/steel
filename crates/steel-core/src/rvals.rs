@@ -1329,6 +1329,7 @@ pub enum TypeKind {
 
 /// A value as represented in the runtime.
 #[derive(Clone)]
+#[repr(u8)]
 pub enum SteelVal {
     /// Represents a bytecode closure.
     Closure(Gc<ByteCodeLambda>),
