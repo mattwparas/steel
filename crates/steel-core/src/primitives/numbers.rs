@@ -297,7 +297,7 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 #[inline(always)]
-fn add_primitive_no_check(args: &[SteelVal]) -> Result<SteelVal> {
+pub(crate) fn add_primitive_no_check(args: &[SteelVal]) -> Result<SteelVal> {
     match args {
         [] => 0.into_steelval(),
         [x] => x.clone().into_steelval(),
@@ -2294,7 +2294,7 @@ fn complex_reciprocal(c: &SteelComplex) -> Result<SteelVal> {
 /// # Precondition
 /// `value` must be a number.
 #[inline(always)]
-fn negate(value: &SteelVal) -> Result<SteelVal> {
+pub(crate) fn negate(value: &SteelVal) -> Result<SteelVal> {
     match value {
         SteelVal::NumV(x) => (-x).into_steelval(),
         SteelVal::IntV(x) => match x.checked_neg() {

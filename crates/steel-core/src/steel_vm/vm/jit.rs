@@ -3,6 +3,7 @@ use steel_gen::opcode::{MAX_OPCODE_SIZE, OPCODES_ARRAY};
 use super::VmCore;
 use crate::{
     gc::Gc,
+    primitives::numbers::{add_primitive_no_check, negate},
     rvals::Result,
     steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive},
     SteelVal,
@@ -1035,10 +1036,42 @@ impl<'a> VmCore<'a> {
 }
 
 // Set up these for doing each of the handlers
-extern_binop!(extern_c_add_two, add_primitive);
+// extern_binop!(extern_c_add_two, add_primitive);
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn extern_c_add_two(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
+    add_two(&a, &b).unwrap()
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn extern_c_sub_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
+    let rhs = if let SteelVal::IntV(i) = b {
+        i
+    } else {
+        panic!()
+    };
+
+    match a {
+        SteelVal::IntV(l) => match l.checked_sub(rhs) {
+            Some(x) => SteelVal::IntV(x),
+            None => {
+                let res = BigInt::from(l) - rhs;
+                res.into_steelval().unwrap()
+            }
+        },
+        _ => {
+            todo!()
+        }
+    }
+}
+
 extern_binop!(extern_c_sub_two, subtract_primitive);
 extern_binop!(extern_c_lt_two, lt_primitive);
-extern_binop!(extern_c_lte_two, lte_primitive);
+// extern_binop!(extern_c_lte_two, lte_primitive);
+
+pub(crate) extern "C" fn extern_c_lte_two(a: SteelVal, b: SteelVal) -> SteelVal {
+    SteelVal::BoolV(a <= b)
+}
+
 extern_binop!(extern_c_gt_two, gt_primitive);
 extern_binop!(extern_c_gte_two, gte_primitive);
 extern_binop!(extern_c_mult_two, multiply_primitive);
@@ -1492,12 +1525,10 @@ pub(crate) extern "C" fn trampoline(ctx: *mut VmCore, lookup_index: usize) -> St
 
                 (func)(this);
 
-                this.ip = ip;
-
-                panic!("Finished trampoline");
+                this.ip = ip + 1;
 
                 // dbg!(&this.result);
-                // this.thread.stack.pop().unwrap()
+                this.thread.stack.pop().unwrap()
             } else {
                 panic!();
             }

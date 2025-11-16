@@ -23,8 +23,8 @@ use crate::{
             callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
             callglobal_tail_handler_deopt_3_test, check_callable, extern_c_add_two,
             extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
-            extern_c_mult_two, extern_c_sub_two, extern_handle_pop, if_handler_raw_value,
-            if_handler_value, let_end_scope_c, move_read_local_0_value_c,
+            extern_c_mult_two, extern_c_sub_two, extern_c_sub_two_int, extern_handle_pop,
+            if_handler_raw_value, if_handler_value, let_end_scope_c, move_read_local_0_value_c,
             move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
             not_handler_raw_value, num_equal_value, num_equal_value_unboxed, push_const_value_c,
             push_global, push_int_0, push_int_1, push_int_2, push_to_vm_stack,
@@ -148,6 +148,7 @@ pub struct VmContext {}
 // Wire up with function signatures as well for automated unboxing?
 struct FunctionMap<'a> {
     map: HashMap<&'static str, Box<dyn FunctionToCranelift + Send + Sync + 'static>>,
+    map2: HashMap<&'static str, Box<dyn FunctionToCranelift2 + Send + Sync + 'static>>,
     return_type_hints: HashMap<&'static str, InferredType>,
     builder: &'a mut JITBuilder,
 }
@@ -168,6 +169,15 @@ impl<'a> FunctionMap<'a> {
         self.map.insert(name, Box::new(func));
     }
 
+    pub fn add_func2(
+        &mut self,
+        name: &'static str,
+        func: impl FunctionToCranelift2 + Send + Sync + 'static,
+    ) {
+        self.builder.symbol(name, func.as_pointer());
+        self.map2.insert(name, Box::new(func));
+    }
+
     pub fn add_func_hint(
         &mut self,
         name: &'static str,
@@ -178,8 +188,21 @@ impl<'a> FunctionMap<'a> {
         self.return_type_hints.insert(name, return_type);
     }
 
+    pub fn add_func_hint2(
+        &mut self,
+        name: &'static str,
+        func: impl FunctionToCranelift2 + Send + Sync + 'static,
+        return_type: InferredType,
+    ) {
+        self.add_func2(name, func);
+        self.return_type_hints.insert(name, return_type);
+    }
+
     pub fn get_signature(&self, name: &'static str, module: &JITModule) -> Signature {
-        self.map.get(name).unwrap().to_cranelift(module)
+        self.map
+            .get(name)
+            .map(|x| x.to_cranelift(module))
+            .unwrap_or_else(|| self.map2.get(name).map(|x| x.to_cranelift(module)).unwrap())
     }
 }
 
@@ -188,19 +211,50 @@ trait FunctionToCranelift {
     fn as_pointer(&self) -> *const u8;
 }
 
-// TODO: How to set up the right args here?
-impl<T> FunctionToCranelift for extern "C" fn() -> T {
-    fn to_cranelift(&self, module: &JITModule) -> Signature {
-        todo!()
-    }
-    fn as_pointer(&self) -> *const u8 {
-        *self as _
-    }
+trait FunctionToCranelift2 {
+    fn to_cranelift(&self, module: &JITModule) -> Signature;
+    fn as_pointer(&self) -> *const u8;
 }
+
+// TODO: How to set up the right args here?
+// impl<T> FunctionToCranelift for extern "C" fn() -> T {
+//     fn to_cranelift(&self, module: &JITModule) -> Signature {
+//         todo!()
+//     }
+//     fn as_pointer(&self) -> *const u8 {
+//         *self as _
+//     }
+// }
 
 macro_rules! register_function_pointers_return {
     ($($typ:ident),*) => {
         impl<RET, $($typ),*> FunctionToCranelift for extern "C" fn(*mut VmCore, $($typ),*) -> RET {
+            fn to_cranelift(&self, module: &JITModule) -> Signature {
+                let mut sig = module.make_signature();
+
+                // VmCore pointer
+                sig.params
+                    .push(AbiParam::new(module.target_config().pointer_type()));
+
+                $(
+                    sig.params.push(AbiParam::new(type_to_ir_type::<$typ>()));
+                )*
+
+                let return_size = std::mem::size_of::<RET>().min(1);
+
+                if return_size != 0 {
+                    sig.returns.push(AbiParam::new(type_to_ir_type::<RET>()));
+                }
+
+                sig
+            }
+
+            fn as_pointer(&self) -> *const u8 {
+                *self as _
+            }
+        }
+
+        impl<RET, $($typ),*> FunctionToCranelift2 for extern "C" fn($($typ),*) -> RET {
             fn to_cranelift(&self, module: &JITModule) -> Signature {
                 let mut sig = module.make_signature();
 
@@ -328,6 +382,7 @@ impl Default for JIT {
 
         let mut map = FunctionMap {
             map: HashMap::new(),
+            map2: HashMap::new(),
             builder: &mut builder,
             return_type_hints: HashMap::new(),
         };
@@ -397,6 +452,9 @@ impl Default for JIT {
         #[allow(improper_ctypes_definitions)]
         type VmBinOp = extern "C" fn(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal;
 
+        #[allow(improper_ctypes_definitions)]
+        type BinOp = extern "C" fn(a: SteelVal, b: SteelVal) -> SteelVal;
+
         map.add_func("push-const", push_const_value_c as Vm01);
 
         map.add_func_hint(
@@ -409,8 +467,17 @@ impl Default for JIT {
             extern_c_sub_two as VmBinOp,
             InferredType::Number,
         );
+
+        map.add_func_hint2(
+            "sub-binop-int",
+            extern_c_sub_two_int as BinOp,
+            InferredType::Number,
+        );
+
         map.add_func_hint("lt-binop", extern_c_lt_two as VmBinOp, InferredType::Bool);
-        map.add_func_hint("lte-binop", extern_c_lte_two as VmBinOp, InferredType::Bool);
+
+        map.add_func_hint2("lte-binop", extern_c_lte_two as BinOp, InferredType::Bool);
+
         map.add_func_hint("gt-binop", extern_c_gt_two as VmBinOp, InferredType::Bool);
         map.add_func_hint("gte-binop", extern_c_gte_two as VmBinOp, InferredType::Bool);
         map.add_func_hint(
@@ -625,6 +692,7 @@ impl JIT {
 
         // Then, translate the AST nodes into Cranelift IR.
         self.translate(
+            name,
             id,
             arity,
             params,
@@ -733,6 +801,7 @@ impl JIT {
     // Translate from toy-language AST nodes into Cranelift IR.
     fn translate(
         &mut self,
+        name: String,
         func_id: FuncId,
         arity: u16,
         params: Vec<String>,
@@ -801,12 +870,48 @@ impl JIT {
         // Check if all of the functions that are getting
         // called are found to be machine code:
 
-        // let mut call_global_all_native = false;
-        // for instr in bytecode.iter() {
-        //     match instr.op_code {
+        let mut call_global_all_native = true;
+        for instr in bytecode.iter() {
+            match instr.op_code {
+                OpCode::CALLGLOBAL
+                | OpCode::CALLGLOBALTAIL
+                | OpCode::CALLGLOBALTAILNOARITY
+                | OpCode::CALLGLOBALNOARITY => {
+                    let func = globals.get(instr.payload_size.to_usize());
+                    if let Some(value) = func {
+                        match value {
+                            SteelVal::Closure(c) => {
+                                if c.0.id.to_string() == name {
+                                    // Then this is fine. Generate a trampoline call
+                                    // without going through the runtime.
+                                    continue;
+                                } else if c.0.super_instructions.is_some() {
+                                    continue;
+                                } else {
+                                    call_global_all_native = false;
+                                    break;
+                                }
+                            }
 
-        //     }
-        // }
+                            SteelVal::BuiltIn(_) => {
+                                call_global_all_native = false;
+                                break;
+                            }
+
+                            _ => {}
+                        }
+                    }
+                }
+
+                OpCode::FUNC | OpCode::TAILCALL => {
+                    call_global_all_native = false;
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        println!("All native functions: {}", call_global_all_native);
 
         // Now translate the statements of the function body.
         let mut trans = FunctionTranslator {
@@ -826,6 +931,8 @@ impl JIT {
             function_context,
             id: func_id,
             native: false,
+            call_global_all_native,
+            name,
         };
 
         // trans.translate_instructions();
@@ -902,6 +1009,10 @@ struct FunctionTranslator<'a> {
     id: FuncId,
 
     native: bool,
+
+    call_global_all_native: bool,
+
+    name: String,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -1118,6 +1229,7 @@ impl FunctionTranslator<'_> {
                     let test_bool = if typ == InferredType::Bool {
                         let amount_to_shift = self.builder.ins().iconst(Type::int(64).unwrap(), 64);
 
+                        println!("Found inferred type of bool");
                         //
                         // self.builder.ins().ireduce(Type::int(8).unwrap(), test)
                         // self.builder.ins().
@@ -1158,11 +1270,20 @@ impl FunctionTranslator<'_> {
                 OpCode::READLOCAL => todo!(),
 
                 // Read a local from the local stack.
-                OpCode::PUSHCONST | OpCode::LOADINT0 | OpCode::LOADINT1 | OpCode::LOADINT2 => {
+                OpCode::PUSHCONST => {
                     let payload = self.instructions[self.ip].payload_size.to_usize();
                     let value = self.call_func_or_immediate(op, payload);
                     self.ip += 1;
                     self.stack.push((value, InferredType::Any));
+                }
+
+                // If its an integer, we can specialize the
+                // branching logic during compilation
+                OpCode::LOADINT0 | OpCode::LOADINT1 | OpCode::LOADINT2 => {
+                    let payload = self.instructions[self.ip].payload_size.to_usize();
+                    let value = self.call_func_or_immediate(op, payload);
+                    self.ip += 1;
+                    self.stack.push((value, InferredType::Int));
                 }
 
                 // Patch the args, call the function.
@@ -1308,9 +1429,9 @@ impl FunctionTranslator<'_> {
                     // back on to the stack.
                     println!("stack at global: {:?}", self.stack);
 
-                    if self.function_context == Some(function_index) {
-                        println!("Found recursive call");
-                    }
+                    // if self.function_context == Some(function_index) {
+                    //     println!("Found recursive call");
+                    // }
 
                     let result = self.call_global_function(arity, name, function_index);
 
@@ -1362,6 +1483,21 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::PUREFUNC => todo!(),
 
+                // Special case subtraction, with two args, where the
+                // rhs is an integer.
+                OpCode::SUB if payload == 2 => {
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+                    // Call the func
+                    self.func_ret_val_named(
+                        "sub-binop-int",
+                        payload,
+                        2,
+                        InferredType::Number,
+                        abi_type,
+                        abi_type,
+                    );
+                }
+
                 // TODO: Roll up the bin ops into a function to make things easier
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
@@ -1369,11 +1505,23 @@ impl FunctionTranslator<'_> {
                     self.func_ret_val(op, payload, 2, InferredType::Number, abi_type, abi_type);
                 }
 
+                OpCode::LTE if payload == 2 => {
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+                    self.func_ret_val_named(
+                        "lte-binop",
+                        payload,
+                        2,
+                        InferredType::Bool,
+                        abi_type,
+                        abi_type,
+                    );
+                }
+
                 // Should I just... convert this type to the native type?
                 // Or deal with some kind of unboxing naively? Check the back half of it?
                 OpCode::EQUAL
                 | OpCode::NUMEQUAL
-                | OpCode::LTE
+                // | OpCode::LTE
                 | OpCode::GTE
                 | OpCode::GT
                 | OpCode::LT => {
@@ -1586,6 +1734,17 @@ impl FunctionTranslator<'_> {
         //     return self.call_trampoline(arity, function_index);
         // }
 
+        // TODO: Embed the function itself into the generated code?
+        // How to tell if this slot is mutable?
+        // let func = self.globals.get(function_index).unwrap();
+
+        // if let SteelVal::Closure(c) = func {
+        //     if c.id.to_string() == self.name {
+        //         println!("Calling trampoline instead of delegating to the runtime");
+        //         return self.call_trampoline(arity, function_index);
+        //     }
+        // }
+
         // This is the call global `call_global_function_deopt`
         let mut sig = self.module.make_signature();
 
@@ -1627,10 +1786,6 @@ impl FunctionTranslator<'_> {
 
         // Advance to the next thing
         self.ip += 1;
-
-        // TODO: Embed the function itself into the generated code?
-        // How to tell if this slot is mutable?
-        let func = self.globals.get(function_index).unwrap();
 
         let mut arg_values = vec![ctx, lookup_index, fallback_ip];
         arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
@@ -1674,10 +1829,6 @@ impl FunctionTranslator<'_> {
 
             // We've now seen all the predecessors of the merge block.
             self.builder.seal_block(merge_block);
-
-            // Read the value of the if-else by reading the merge block
-            // parameter.
-            // let phi = self.builder.block_params(merge_block)[0];
         }
 
         // TODO:
@@ -1767,6 +1918,31 @@ impl FunctionTranslator<'_> {
         // // parameter.
         let phi = self.builder.block_params(merge_block)[0];
         phi
+    }
+
+    fn func_ret_val_named(
+        &mut self,
+        function_name: &str,
+        payload: usize,
+        ip_inc: usize,
+        inferred_type: InferredType,
+        abi_param_type: AbiParam,
+        abi_return_type: AbiParam,
+    ) {
+        let args = self.stack.split_off(self.stack.len() - payload);
+
+        // TODO: Use the type hints! For now we're not going to for the sake
+        // of getting something running
+        let args = args
+            .into_iter()
+            .map(|x| (x.0, abi_param_type))
+            .collect::<Vec<_>>();
+        let result =
+            self.call_function_returns_value_args_no_context(function_name, &args, abi_return_type);
+
+        // Check the inferred type, if we know of it
+        self.stack.push((result, inferred_type));
+        self.ip += ip_inc;
     }
 
     fn func_ret_val(
@@ -2474,6 +2650,47 @@ impl FunctionTranslator<'_> {
         let variable = self.variables.get("vm-ctx").expect("variable not defined");
         let ctx = self.builder.use_var(*variable);
         let mut arg_values = vec![ctx];
+
+        // let args = args.iter().map(|x| )
+
+        arg_values.extend(args.iter().map(|x| x.0));
+
+        // for arg in args {
+        //     arg_values.push(self.translate_expr(arg))
+        // }
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+    }
+
+    fn call_function_returns_value_args_no_context(
+        &mut self,
+        name: &str,
+        args: &[(Value, AbiParam)],
+        return_type: AbiParam,
+    ) -> Value {
+        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
+        let mut sig = self.module.make_signature();
+
+        //
+        for (_, p) in args {
+            // AbiParam::new(codegen::ir::Type::int(128).unwrap())
+            sig.params.push(*p);
+        }
+
+        // For simplicity for now, just make all calls return a single I64.
+        sig.returns.push(return_type);
+
+        // TODO: Streamline the API here?
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        // let mut arg_values = Vec::new();
+
+        let mut arg_values = vec![];
 
         // let args = args.iter().map(|x| )
 
