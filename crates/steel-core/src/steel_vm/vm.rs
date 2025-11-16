@@ -2533,12 +2533,14 @@ impl<'a> VmCore<'a> {
                         .unwrap()
                         .function
                         .super_instructions
-                        .get(self.ip)
+                        .as_ref()
                         .unwrap()(self);
 
                     self.is_native = false;
 
                     if let Some(res) = self.result.take() {
+                        println!("Found result: {:?}", res);
+
                         return res;
                     }
                 }

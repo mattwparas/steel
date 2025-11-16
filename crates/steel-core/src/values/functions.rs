@@ -131,7 +131,7 @@ pub struct ByteCodeLambda {
     contract: MutContainer<Option<Gc<UserDefinedStruct>>>,
 
     #[cfg(feature = "jit2")]
-    pub(crate) super_instructions: Vec<fn(&mut crate::steel_vm::vm::VmCore) -> bool>,
+    pub(crate) super_instructions: Option<fn(&mut crate::steel_vm::vm::VmCore) -> bool>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -253,7 +253,7 @@ impl ByteCodeLambda {
             blocks: RefCell::new(Vec::new()),
 
             #[cfg(feature = "jit2")]
-            super_instructions: Vec::new(),
+            super_instructions: None,
         }
     }
 

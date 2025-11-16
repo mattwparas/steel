@@ -16,7 +16,66 @@ use crate::{
 
 use super::*;
 
-#[cfg(feature = "jit2")]
+#[steel_derive::context(name = "#%jit-compile-2", arity = "AtLeast(1)")]
+pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    let function = &args[0];
+
+    let mut value_to_assign = None;
+
+    if let SteelVal::Closure(func) = function {
+        for (index, v) in ctx.thread.global_env.roots().iter().enumerate() {
+            if let SteelVal::Closure(f) = v {
+                if Gc::ptr_eq(func, f) {
+                    let mut func = func.unwrap();
+
+                    let name = func.id.to_string();
+
+                    // let mut inner = func.unwrap();
+                    let fn_pointer = ctx
+                        .thread
+                        .jit
+                        .lock()
+                        .unwrap()
+                        .compile_bytecode(
+                            name,
+                            func.arity,
+                            &func.body_exp,
+                            &ctx.thread.global_env.roots(),
+                            &ctx.thread.constant_map,
+                            None,
+                        )
+                        .unwrap();
+
+                    let super_instructions = Some(fn_pointer);
+                    func.super_instructions = super_instructions;
+
+                    let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
+                    instructions[0].op_code = OpCode::DynSuperInstruction;
+
+                    func.body_exp = Arc::from(instructions.into_boxed_slice());
+
+                    let return_func = Gc::new(func);
+                    ctx.thread
+                        .function_interner
+                        .jit_funcs
+                        .insert(return_func.id, return_func.clone());
+
+                    // Whatever, we've rooted it somehow?
+
+                    value_to_assign = Some((index, SteelVal::Closure(return_func)));
+                }
+            }
+        }
+    }
+
+    if let Some((index, value_to_assign)) = value_to_assign {
+        ctx.thread
+            .with_locked_env(|_, env| env.set_idx(index, value_to_assign));
+    }
+
+    Some(Ok(SteelVal::Void))
+}
+
 #[steel_derive::context(name = "#%jit-compile", arity = "AtLeast(1)")]
 pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let function = &args[0];
@@ -53,7 +112,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
             )
             .unwrap();
 
-        let super_instructions = vec![fn_pointer];
+        let super_instructions = Some(fn_pointer);
         func.super_instructions = super_instructions;
 
         let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
@@ -1414,6 +1473,37 @@ pub(crate) extern "C" fn check_callable(ctx: *mut VmCore, lookup_index: usize) -
             func,
             SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_)
         )
+    }
+}
+
+// Directly call and get the result of the next function
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C" fn trampoline(ctx: *mut VmCore, lookup_index: usize) -> SteelVal {
+    unsafe {
+        let this = &mut *ctx;
+        let func = this.thread.global_env.repl_lookup_idx(lookup_index);
+        // println!("Calling trampoline");
+        // Builtins can yield control in a funky way.
+        if let SteelVal::Closure(c) = func {
+            if let Some(func) = c.0.super_instructions.as_ref() {
+                let ip = this.ip;
+
+                this.ip = 0;
+
+                (func)(this);
+
+                this.ip = ip;
+
+                panic!("Finished trampoline");
+
+                // dbg!(&this.result);
+                // this.thread.stack.pop().unwrap()
+            } else {
+                panic!();
+            }
+        } else {
+            panic!();
+        }
     }
 }
 

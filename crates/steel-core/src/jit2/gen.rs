@@ -12,24 +12,27 @@ use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 use crate::{
     compiler::constants::ConstantMap,
     core::instructions::{u24, DenseInstruction},
-    steel_vm::vm::jit::{
-        call_global_function_deopt_0, call_global_function_deopt_0_func,
-        call_global_function_deopt_1, call_global_function_deopt_1_func,
-        call_global_function_deopt_2, call_global_function_deopt_2_func,
-        call_global_function_deopt_3, call_global_function_deopt_3_func,
-        call_global_function_tail_deopt_0, call_global_function_tail_deopt_1,
-        call_global_function_tail_deopt_2, call_global_function_tail_deopt_3,
-        callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
-        callglobal_tail_handler_deopt_3_test, check_callable, extern_c_add_two, extern_c_div_two,
-        extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two, extern_c_mult_two,
-        extern_c_sub_two, extern_handle_pop, if_handler_raw_value, if_handler_value,
-        let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
-        move_read_local_2_value_c, move_read_local_3_value_c, not_handler_raw_value,
-        num_equal_value, num_equal_value_unboxed, push_const_value_c, push_global, push_int_0,
-        push_int_1, push_int_2, push_to_vm_stack, read_local_0_value_c, read_local_1_value_c,
-        read_local_2_value_c, read_local_3_value_c, set_ctx_ip, should_continue,
+    steel_vm::vm::{
+        jit::{
+            call_global_function_deopt_0, call_global_function_deopt_0_func,
+            call_global_function_deopt_1, call_global_function_deopt_1_func,
+            call_global_function_deopt_2, call_global_function_deopt_2_func,
+            call_global_function_deopt_3, call_global_function_deopt_3_func,
+            call_global_function_tail_deopt_0, call_global_function_tail_deopt_1,
+            call_global_function_tail_deopt_2, call_global_function_tail_deopt_3,
+            callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
+            callglobal_tail_handler_deopt_3_test, check_callable, extern_c_add_two,
+            extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
+            extern_c_mult_two, extern_c_sub_two, extern_handle_pop, if_handler_raw_value,
+            if_handler_value, let_end_scope_c, move_read_local_0_value_c,
+            move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
+            not_handler_raw_value, num_equal_value, num_equal_value_unboxed, push_const_value_c,
+            push_global, push_int_0, push_int_1, push_int_2, push_to_vm_stack,
+            read_local_0_value_c, read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
+            set_ctx_ip, should_continue, trampoline,
+        },
+        VmCore,
     },
-    steel_vm::vm::VmCore,
     SteelVal,
 };
 
@@ -349,6 +352,11 @@ impl Default for JIT {
             "call-global-function-deopt-2",
             call_global_function_deopt_2
                 as extern "C" fn(*mut VmCore, usize, usize, SteelVal, SteelVal) -> SteelVal,
+        );
+
+        map.add_func(
+            "trampoline",
+            trampoline as extern "C" fn(*mut VmCore, usize) -> SteelVal,
         );
 
         map.add_func(
@@ -789,6 +797,16 @@ impl JIT {
             bytecode,
             entry_block,
         );
+
+        // Check if all of the functions that are getting
+        // called are found to be machine code:
+
+        // let mut call_global_all_native = false;
+        // for instr in bytecode.iter() {
+        //     match instr.op_code {
+
+        //     }
+        // }
 
         // Now translate the statements of the function body.
         let mut trans = FunctionTranslator {
@@ -1291,20 +1309,7 @@ impl FunctionTranslator<'_> {
                     println!("stack at global: {:?}", self.stack);
 
                     if self.function_context == Some(function_index) {
-                        // If we're calling a global here, we should try
-                        // to instead call the function itself rather
-                        // than anything else.
-                        //
-                        // TODO: We'll have to generate two functions:
-                        // One for calling from steel, and the other
-                        // for calling from native code.
                         println!("Found recursive call");
-
-                        // let result = self.call_func_recursively();
-
-                        // self.stack.push((result, InferredType::Any));
-
-                        // continue;
                     }
 
                     let result = self.call_global_function(arity, name, function_index);
@@ -1518,28 +1523,69 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &arg_values);
     }
 
-    // fn call_func_recursively(&mut self) -> Value {
-    //     let mut sig = self.module.make_signature();
+    // Call the function directly via the trampoline
+    fn call_trampoline(&mut self, arity: usize, function_index: usize) -> Value {
+        let mut sig = self.module.make_signature();
 
-    //     // VmCore pointer
-    //     sig.params
-    //         .push(AbiParam::new(self.module.target_config().pointer_type()));
+        // VmCore pointer
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
 
-    //     sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
+        // lookup index
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
 
-    //     let local_callee = self.module.declare_func_in_func(self.id, self.builder.func);
+        // for _ in 0..arity {
+        //     sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+        // }
 
-    //     let variable = self.variables.get("vm-ctx").expect("variable not defined");
-    //     let ctx = self.builder.use_var(*variable);
+        sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
 
-    //     let arg_values = vec![ctx];
+        let callee = self
+            .module
+            .declare_function("trampoline", Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
 
-    //     let call = self.builder.ins().call(local_callee, &arg_values);
-    //     let result = self.builder.inst_results(call)[0];
-    //     result
-    // }
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+
+        let lookup_index = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), function_index as i64);
+
+        self.ip += 1;
+
+        let arg_values = vec![ctx, lookup_index];
+
+        let spilled = self
+            .stack
+            .drain(self.stack.len() - arity..)
+            .collect::<Vec<_>>();
+
+        for value in spilled {
+            self.push_to_vm_stack(value.0);
+        }
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+
+        // Just
+        // arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
+    }
 
     fn call_global_function(&mut self, arity: usize, name: &str, function_index: usize) -> Value {
+        // println!("{} = {:?}", function_index, self.function_context);
+
+        // TODO: We can only do this if every function that is called is found
+        // to be jit compiled / native code. Otherwise, we can't preemtively
+        // do this kind of jumping
+        // if Some(function_index) == self.function_context {
+        //     println!("Found self function!");
+        //     return self.call_trampoline(arity, function_index);
+        // }
+
         // This is the call global `call_global_function_deopt`
         let mut sig = self.module.make_signature();
 
@@ -2137,8 +2183,6 @@ impl FunctionTranslator<'_> {
 
         let frozen_patched = self.patched_locals;
         let frozen_stack = self.stack.clone();
-        // println!("Traversing then branch");
-        // println!("Stack before then branch: {:?}", frozen_stack);
 
         self.stack_to_ssa();
         // println!("Done on then");
@@ -2197,6 +2241,14 @@ impl FunctionTranslator<'_> {
 
         phi
     }
+
+    // TODO: Actually store local variables on the stack!
+    // fn push_alloc(&mut self, val: Value) {
+    //     self.builder
+    //         .ins()
+    //         .stack_store(val, self.allocs, self.curr_allocs as i32 * 8);
+    //     self.curr_allocs += 1;
+    // }
 
     fn translate_if_else(
         &mut self,
