@@ -2407,7 +2407,7 @@ pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
             debug_assert!(realp(y));
             add_complex(x, &SteelComplex::new(y.clone(), SteelVal::IntV(0)))
         }
-        _ => unreachable!(),
+        (l, r) => stop!(TypeMismatch => "+ expected all numbers, found: {} and {}", l, r),
     }
 }
 

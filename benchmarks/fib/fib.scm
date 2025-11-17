@@ -1,6 +1,7 @@
 (provide fib
          ; jitfib
-         jit-fib)
+         jit-fib
+         add-two)
 
 ;; This should return an int, and should always
 ;; return an int - we should be able to do
@@ -22,7 +23,20 @@
 ; (set! jit-fib (#%jit-compile jit-fib "jit-fib"))
 
 ;; Replace it on the stack
-(#%jit-compile-2 jit-fib)
+; (#%jit-compile-2 jit-fib)
+
+; (define (add-two x y)
+;   (split-many (string-append x y) " "))
+
+(define (add-two x)
+  (cons (car x) (cdr x)))
+
+; (define (add-two x y)
+;   (string-append x y))
+
+(#%jit-compile-2 add-two)
+
+; (add-two 10)
 
 ; (define jitfib jit-fib)
 

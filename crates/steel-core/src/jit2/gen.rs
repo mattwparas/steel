@@ -15,19 +15,22 @@ use crate::{
     steel_vm::vm::{
         jit::{
             call_global_function_deopt_0, call_global_function_deopt_0_func,
-            call_global_function_deopt_1, call_global_function_deopt_1_func,
+            call_global_function_deopt_0_no_arity, call_global_function_deopt_1,
+            call_global_function_deopt_1_func, call_global_function_deopt_1_no_arity,
             call_global_function_deopt_2, call_global_function_deopt_2_func,
-            call_global_function_deopt_3, call_global_function_deopt_3_func,
-            call_global_function_tail_deopt_0, call_global_function_tail_deopt_1,
-            call_global_function_tail_deopt_2, call_global_function_tail_deopt_3,
-            callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
-            callglobal_tail_handler_deopt_3_test, check_callable, extern_c_add_two,
-            extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
-            extern_c_mult_two, extern_c_sub_two, extern_c_sub_two_int, extern_handle_pop,
-            if_handler_raw_value, if_handler_value, let_end_scope_c, move_read_local_0_value_c,
-            move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
-            not_handler_raw_value, num_equal_value, num_equal_value_unboxed, push_const_value_c,
-            push_global, push_int_0, push_int_1, push_int_2, push_to_vm_stack,
+            call_global_function_deopt_2_no_arity, call_global_function_deopt_3,
+            call_global_function_deopt_3_func, call_global_function_tail_deopt_0,
+            call_global_function_tail_deopt_1, call_global_function_tail_deopt_2,
+            call_global_function_tail_deopt_3, callglobal_handler_deopt_c,
+            callglobal_tail_handler_deopt_3, callglobal_tail_handler_deopt_3_test,
+            car_handler_value, cdr_handler_value, check_callable, cons_handler_value,
+            extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
+            extern_c_lte_two, extern_c_mult_two, extern_c_sub_two, extern_c_sub_two_int,
+            extern_handle_pop, if_handler_raw_value, if_handler_value, let_end_scope_c,
+            move_read_local_0_value_c, move_read_local_1_value_c, move_read_local_2_value_c,
+            move_read_local_3_value_c, not_handler_raw_value, num_equal_value,
+            num_equal_value_unboxed, push_const_value_c, push_const_value_index_c, push_global,
+            push_int_0, push_int_1, push_int_2, push_to_vm_stack, push_to_vm_stack_two,
             read_local_0_value_c, read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
             set_ctx_ip, should_continue, trampoline,
         },
@@ -114,15 +117,15 @@ impl SValue {
 // jit compilation nursery, so we can avoid ref counts internally?
 
 // Glue together op codes dynamically at runtime?
-extern "C" fn handle_add(ctx: *mut VmContext) {
+extern "C-unwind" fn handle_add(ctx: *mut VmContext) {
     println!("Calling vm context");
 }
 
-extern "C" fn handle_sub(ctx: *mut VmContext) {
+extern "C-unwind" fn handle_sub(ctx: *mut VmContext) {
     println!("Calling vm context");
 }
 
-extern "C" fn handle_pop(ctx: *mut VmContext) {
+extern "C-unwind" fn handle_pop(ctx: *mut VmContext) {
     println!("Calling vm context");
 }
 
@@ -131,7 +134,7 @@ extern "C" fn handle_pop(ctx: *mut VmContext) {
 // }
 
 // Set up handlers
-extern "C" fn rustfunc(x: i128) -> i128 {
+extern "C-unwind" fn rustfunc(x: i128) -> i128 {
     println!("Hello from rustfunc x={}", x);
     x
 }
@@ -217,7 +220,7 @@ trait FunctionToCranelift2 {
 }
 
 // TODO: How to set up the right args here?
-// impl<T> FunctionToCranelift for extern "C" fn() -> T {
+// impl<T> FunctionToCranelift for extern "C-unwind" fn() -> T {
 //     fn to_cranelift(&self, module: &JITModule) -> Signature {
 //         todo!()
 //     }
@@ -228,7 +231,7 @@ trait FunctionToCranelift2 {
 
 macro_rules! register_function_pointers_return {
     ($($typ:ident),*) => {
-        impl<RET, $($typ),*> FunctionToCranelift for extern "C" fn(*mut VmCore, $($typ),*) -> RET {
+        impl<RET, $($typ),*> FunctionToCranelift for extern "C-unwind" fn(*mut VmCore, $($typ),*) -> RET {
             fn to_cranelift(&self, module: &JITModule) -> Signature {
                 let mut sig = module.make_signature();
 
@@ -254,7 +257,7 @@ macro_rules! register_function_pointers_return {
             }
         }
 
-        impl<RET, $($typ),*> FunctionToCranelift2 for extern "C" fn($($typ),*) -> RET {
+        impl<RET, $($typ),*> FunctionToCranelift2 for extern "C-unwind" fn($($typ),*) -> RET {
             fn to_cranelift(&self, module: &JITModule) -> Signature {
                 let mut sig = module.make_signature();
 
@@ -389,35 +392,54 @@ impl Default for JIT {
 
         map.add_func(
             "handle-pop!",
-            extern_handle_pop as extern "C" fn(*mut VmCore, SteelVal),
+            extern_handle_pop as extern "C-unwind" fn(*mut VmCore, SteelVal),
         );
 
         map.add_func(
             "call-global-function-deopt-0",
-            call_global_function_deopt_0 as extern "C" fn(*mut VmCore, usize, usize) -> SteelVal,
+            call_global_function_deopt_0
+                as extern "C-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
         );
 
         map.add_func(
             "call-global-function-deopt-1",
             call_global_function_deopt_1
-                as extern "C" fn(*mut VmCore, usize, usize, SteelVal) -> SteelVal,
+                as extern "C-unwind" fn(*mut VmCore, usize, usize, SteelVal) -> SteelVal,
         );
 
         map.add_func(
             "call-global-function-deopt-2",
             call_global_function_deopt_2
-                as extern "C" fn(*mut VmCore, usize, usize, SteelVal, SteelVal) -> SteelVal,
+                as extern "C-unwind" fn(*mut VmCore, usize, usize, SteelVal, SteelVal) -> SteelVal,
+        );
+
+        map.add_func(
+            "call-global-function-deopt-no-arity-0",
+            call_global_function_deopt_0_no_arity
+                as extern "C-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
+        );
+
+        map.add_func(
+            "call-global-function-deopt-no-arity-1",
+            call_global_function_deopt_1_no_arity
+                as extern "C-unwind" fn(*mut VmCore, usize, usize, SteelVal) -> SteelVal,
+        );
+
+        map.add_func(
+            "call-global-function-deopt-no-arity-2",
+            call_global_function_deopt_2_no_arity
+                as extern "C-unwind" fn(*mut VmCore, usize, usize, SteelVal, SteelVal) -> SteelVal,
         );
 
         map.add_func(
             "trampoline",
-            trampoline as extern "C" fn(*mut VmCore, usize) -> SteelVal,
+            trampoline as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
         );
 
         map.add_func(
             "call-global-function-deopt-3",
             call_global_function_deopt_3
-                as extern "C" fn(
+                as extern "C-unwind" fn(
                     *mut VmCore,
                     usize,
                     usize,
@@ -429,33 +451,54 @@ impl Default for JIT {
 
         map.add_func(
             "push-global-value",
-            push_global as extern "C" fn(ctx: *mut VmCore, index: usize) -> SteelVal,
+            push_global as extern "C-unwind" fn(ctx: *mut VmCore, index: usize) -> SteelVal,
         );
 
         // Check if the function at the global location is in fact the right one.
         map.add_func(
             "check-callable",
-            check_callable as extern "C" fn(ctx: *mut VmCore, index: usize) -> bool,
+            check_callable as extern "C-unwind" fn(ctx: *mut VmCore, index: usize) -> bool,
         );
 
         map.add_func(
             "push-to-vm-stack",
-            push_to_vm_stack as extern "C" fn(ctx: *mut VmCore, value: SteelVal),
+            push_to_vm_stack as extern "C-unwind" fn(ctx: *mut VmCore, value: SteelVal),
+        );
+
+        map.add_func(
+            "push-to-vm-stack-2",
+            push_to_vm_stack_two
+                as extern "C-unwind" fn(ctx: *mut VmCore, value: SteelVal, value2: SteelVal),
         );
 
         #[allow(improper_ctypes_definitions)]
-        type Vm01 = extern "C" fn(*mut VmCore) -> SteelVal;
+        type Vm01 = extern "C-unwind" fn(*mut VmCore) -> SteelVal;
+
+        type Vm01int = extern "C-unwind" fn(*mut VmCore) -> i128;
 
         #[allow(improper_ctypes_definitions)]
-        type Vm0b = extern "C" fn(*mut VmCore) -> bool;
+        type Vm02 = extern "C-unwind" fn(*mut VmCore, SteelVal) -> SteelVal;
+
+        type Vm02int = extern "C-unwind" fn(*mut VmCore, i128) -> i128;
 
         #[allow(improper_ctypes_definitions)]
-        type VmBinOp = extern "C" fn(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal;
+        type Vm0b = extern "C-unwind" fn(*mut VmCore) -> bool;
 
         #[allow(improper_ctypes_definitions)]
-        type BinOp = extern "C" fn(a: SteelVal, b: SteelVal) -> SteelVal;
+        type VmBinOp = extern "C-unwind" fn(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal;
+
+        #[allow(improper_ctypes_definitions)]
+        type BinOp = extern "C-unwind" fn(a: SteelVal, b: SteelVal) -> SteelVal;
+
+        map.add_func("car-handler-value", car_handler_value as Vm02);
+        map.add_func("cdr-handler-value", cdr_handler_value as Vm02);
+        map.add_func("cons-handler-value", cons_handler_value as VmBinOp);
 
         map.add_func("push-const", push_const_value_c as Vm01);
+        map.add_func(
+            "push-const-index",
+            push_const_value_index_c as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
+        );
 
         map.add_func_hint(
             "add-binop",
@@ -490,7 +533,7 @@ impl Default for JIT {
         map.add_func(
             "call-global-function-tail-deopt-0",
             call_global_function_tail_deopt_0
-                as extern "C" fn(
+                as extern "C-unwind" fn(
                     ctx: *mut VmCore,
                     lookup_index: usize,
                     fallback_ip: usize,
@@ -500,7 +543,7 @@ impl Default for JIT {
         map.add_func(
             "call-global-function-tail-deopt-1",
             call_global_function_tail_deopt_1
-                as extern "C" fn(
+                as extern "C-unwind" fn(
                     ctx: *mut VmCore,
                     lookup_index: usize,
                     fallback_ip: usize,
@@ -511,7 +554,7 @@ impl Default for JIT {
         map.add_func(
             "call-global-function-tail-deopt-2",
             call_global_function_tail_deopt_2
-                as extern "C" fn(
+                as extern "C-unwind" fn(
                     ctx: *mut VmCore,
                     lookup_index: usize,
                     fallback_ip: usize,
@@ -523,7 +566,7 @@ impl Default for JIT {
         map.add_func(
             "call-global-function0-tail-deopt-3",
             call_global_function_tail_deopt_3
-                as extern "C" fn(
+                as extern "C-unwind" fn(
                     ctx: *mut VmCore,
                     lookup_index: usize,
                     fallback_ip: usize,
@@ -538,12 +581,12 @@ impl Default for JIT {
         map.add_func("read-local-1", read_local_1_value_c as Vm01);
         map.add_func("read-local-2", read_local_2_value_c as Vm01);
         map.add_func("read-local-3", read_local_3_value_c as Vm01);
+        // map.add_func("move-read-local-0", move_read_local_0_value_c as Vm01);
+
         map.add_func("move-read-local-0", move_read_local_0_value_c as Vm01);
         map.add_func("move-read-local-1", move_read_local_1_value_c as Vm01);
         map.add_func("move-read-local-2", move_read_local_2_value_c as Vm01);
         map.add_func("move-read-local-3", move_read_local_3_value_c as Vm01);
-
-        map.add_func("vm-should-continue?", should_continue as Vm0b);
 
         let function_map = OwnedFunctionMap {
             map: map.map,
@@ -1086,6 +1129,11 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
 
         // TODO!()
         (OpCode::NUMEQUAL, 2) => "num-equal-value",
+
+        (OpCode::CAR, _) => "car-handler-value",
+        (OpCode::CDR, _) => "cdr-handler-value",
+        (OpCode::CONS, _) => "cons-handler-value",
+
         other => panic!(
             "couldn't match the name for the op code + payload: {:?}",
             other
@@ -1172,8 +1220,6 @@ impl FunctionTranslator<'_> {
                     // Should break here - just call `handle_pop_pure_value` and
                     // handle the return value / updating
                     // of various things here.
-                    // self.push_to_vm_stack(value.0);
-                    // self.set_ctx_ip(self.ip);
 
                     self.vm_pop(value.0);
 
@@ -1386,19 +1432,13 @@ impl FunctionTranslator<'_> {
                         other => todo!("{}", other),
                     };
 
-                    if self.function_context == Some(function_index) {
-                        println!("Found recursive call");
-                    }
-
                     // This function pushes back on to the stack, and then we should just
                     // return since we're done now.
                     let v = self.call_global_function(arity, name, function_index);
 
-                    // self.check_deopt();
-
                     self.stack.push((v, InferredType::Any));
 
-                    // self.check_deopt();
+                    self.check_deopt();
 
                     // let return_value = self
                     //     .builder
@@ -1410,8 +1450,39 @@ impl FunctionTranslator<'_> {
                     // TODO: Push back on to the native stack, then deopt
                 }
 
+                OpCode::CALLGLOBALNOARITY => {
+                    // First - find the index that we have to lookup.
+                    let function_index = payload;
+                    self.ip += 1;
+                    let arity = self.instructions[self.ip].payload_size.to_usize();
+                    let name = match arity {
+                        0 => "call-global-function-deopt-no-arity-0",
+                        1 => "call-global-function-deopt-no-arity-1",
+                        2 => "call-global-function-deopt-no-arity-2",
+                        3 => "call-global-function-deopt-no-arity-3",
+                        other => todo!("{}", other),
+                    };
+
+                    // TODO: If the function that we're calling is not native,
+                    // we need to push all of the values that we have here
+                    // back on to the stack.
+                    println!("stack at global: {:?}", self.stack);
+
+                    // if self.function_context == Some(function_index) {
+                    //     println!("Found recursive call");
+                    // }
+
+                    let result = self.call_global_function(arity, name, function_index);
+
+                    // Assuming this worked, we'll want to push this result on to the stack.
+                    self.stack.push((result, InferredType::Any));
+
+                    // Then, we're gonna check the result and see if we should deopt
+                    self.check_deopt();
+                }
+
                 // Call global value, with deopt down to auto adjust the stack?
-                OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY => {
+                OpCode::CALLGLOBAL => {
                     // First - find the index that we have to lookup.
                     let function_index = payload;
                     self.ip += 1;
@@ -1503,6 +1574,8 @@ impl FunctionTranslator<'_> {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     // Call the func
                     self.func_ret_val(op, payload, 2, InferredType::Number, abi_type, abi_type);
+
+                    self.check_deopt();
                 }
 
                 OpCode::LTE if payload == 2 => {
@@ -1521,7 +1594,7 @@ impl FunctionTranslator<'_> {
                 // Or deal with some kind of unboxing naively? Check the back half of it?
                 OpCode::EQUAL
                 | OpCode::NUMEQUAL
-                // | OpCode::LTE
+                | OpCode::LTE
                 | OpCode::GTE
                 | OpCode::GT
                 | OpCode::LT => {
@@ -1532,10 +1605,21 @@ impl FunctionTranslator<'_> {
                 OpCode::NULL => todo!(),
 
                 // Figure out how to handle heap allocated values like lists.
-                OpCode::CONS => todo!(),
+                OpCode::CONS => {
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+                    self.func_ret_val(op, 2, 2, InferredType::List, abi_type, abi_type);
+                }
+
+                OpCode::CDR => {
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+                    self.func_ret_val(op, 1, 2, InferredType::List, abi_type, abi_type);
+                }
+
                 OpCode::LIST => todo!(),
-                OpCode::CAR => todo!(),
-                OpCode::CDR => todo!(),
+                OpCode::CAR => {
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+                    self.func_ret_val(op, 1, 2, InferredType::Any, abi_type, abi_type);
+                }
                 OpCode::NEWBOX => todo!(),
                 OpCode::SETBOX => todo!(),
                 OpCode::UNBOX => todo!(),
@@ -1711,8 +1795,13 @@ impl FunctionTranslator<'_> {
             .drain(self.stack.len() - arity..)
             .collect::<Vec<_>>();
 
-        for value in spilled {
-            self.push_to_vm_stack(value.0);
+        if spilled.len() == 2 {
+            let mut iter = spilled.into_iter();
+            self.push_to_vm_stack_two(iter.next().unwrap().0, iter.next().unwrap().0);
+        } else {
+            for value in spilled {
+                self.push_to_vm_stack(value.0);
+            }
         }
 
         let call = self.builder.ins().call(local_callee, &arg_values);
@@ -1737,7 +1826,6 @@ impl FunctionTranslator<'_> {
         // TODO: Embed the function itself into the generated code?
         // How to tell if this slot is mutable?
         // let func = self.globals.get(function_index).unwrap();
-
         // if let SteelVal::Closure(c) = func {
         //     if c.id.to_string() == self.name {
         //         println!("Calling trampoline instead of delegating to the runtime");
@@ -1815,10 +1903,18 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(else_block);
             self.builder.seal_block(else_block);
 
-            // Only spill what hasn't been spilled already?
-            for value in self.stack.clone() {
-                self.push_to_vm_stack(value.0);
+            for c in self.stack.clone().chunks(2) {
+                if c.len() == 2 {
+                    self.push_to_vm_stack_two(c[0].0, c[1].0);
+                } else {
+                    self.push_to_vm_stack(c[0].0);
+                }
             }
+
+            // Only spill what hasn't been spilled already?
+            // for value in self.stack.clone() {
+            //     self.push_to_vm_stack(value.0);
+            // }
 
             let else_return = BlockArg::Value(self.create_i128(0));
 
@@ -1867,7 +1963,7 @@ impl FunctionTranslator<'_> {
         return result;
     }
 
-    fn check_deopt(&mut self) -> Value {
+    fn check_deopt_call(&mut self) -> Value {
         let mut sig = self.module.make_signature();
         let name = "vm-should-continue?";
         // VmCore pointer
@@ -1883,6 +1979,23 @@ impl FunctionTranslator<'_> {
         let ctx = self.builder.use_var(*variable);
         let call = self.builder.ins().call(local_callee, &[ctx]);
         let result = self.builder.inst_results(call)[0];
+        result
+    }
+
+    fn check_deopt_ptr_load(&mut self) -> Value {
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let is_native = self
+            .builder
+            .ins()
+            .load(Type::int(8).unwrap(), MemFlags::trusted(), ctx, 0);
+
+        is_native
+    }
+
+    fn check_deopt(&mut self) -> Value {
+        let result = self.check_deopt_ptr_load();
+
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
         let merge_block = self.builder.create_block();
@@ -2297,13 +2410,12 @@ impl FunctionTranslator<'_> {
 
                 let constant = self.constants.get(payload);
 
-                println!("Embedding immediate: {}", constant);
-
                 match &constant {
                     SteelVal::BoolV(_) | SteelVal::IntV(_) => {
+                        println!("Embedding immediate: {}", constant);
                         self.create_i128(unsafe { std::mem::transmute(constant) })
                     }
-                    _ => self.call_function_returns_value(op_to_name_payload(op1, payload)),
+                    _ => self.push_const_index(payload),
                 }
             }
             _ => self.call_function_returns_value(op_to_name_payload(op1, payload)),
@@ -2552,6 +2664,37 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &arg_values);
     }
 
+    fn push_to_vm_stack_two(&mut self, value: Value, value2: Value) {
+        let mut sig = self.module.make_signature();
+        let name = "push-to-vm-stack-2";
+
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+
+        // TODO: Streamline the API here?
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        // let mut arg_values = Vec::new();
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let arg_values = [ctx, value, value2];
+
+        // for arg in args {
+        //     arg_values.push(self.translate_expr(arg))
+        // }
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        // let result = self.builder.inst_results(call)[0];
+        // result
+    }
+
     fn push_to_vm_stack(&mut self, value: Value) {
         let mut sig = self.module.make_signature();
         let name = "push-to-vm-stack";
@@ -2560,10 +2703,6 @@ impl FunctionTranslator<'_> {
             .push(AbiParam::new(self.module.target_config().pointer_type()));
 
         sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-
-        // For simplicity for now, just make all calls return a single I64.
-        // sig.returns
-        //     .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
 
         // TODO: Streamline the API here?
         let callee = self
@@ -2584,6 +2723,45 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &arg_values);
         // let result = self.builder.inst_results(call)[0];
         // result
+    }
+
+    fn push_const_index(&mut self, index: usize) -> Value {
+        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
+        let mut sig = self.module.make_signature();
+
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
+
+        // For simplicity for now, just make all calls return a single I64.
+        sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
+
+        // TODO: Streamline the API here?
+        let callee = self
+            .module
+            .declare_function("push-const-index", Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        // let mut arg_values = Vec::new();
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+
+        let value = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), index as i64);
+
+        let arg_values = [ctx, value];
+
+        // for arg in args {
+        //     arg_values.push(self.translate_expr(arg))
+        // }
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
     }
 
     fn call_function_returns_value(&mut self, name: &str) -> Value {
@@ -2631,7 +2809,6 @@ impl FunctionTranslator<'_> {
 
         //
         for (_, p) in args {
-            // AbiParam::new(codegen::ir::Type::int(128).unwrap())
             sig.params.push(*p);
         }
 

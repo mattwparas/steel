@@ -3,7 +3,10 @@ use steel_gen::opcode::{MAX_OPCODE_SIZE, OPCODES_ARRAY};
 use super::VmCore;
 use crate::{
     gc::Gc,
-    primitives::numbers::{add_primitive_no_check, negate},
+    primitives::{
+        lists::{self, cons},
+        numbers::{add_primitive_no_check, negate},
+    },
     rvals::Result,
     steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive},
     SteelVal,
@@ -137,7 +140,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
 
 pub static C_HANDLERS: [OpHandlerC; MAX_OPCODE_SIZE] = initialize_handlers();
 
-pub type OpHandlerC = extern "C" fn(*mut VmCore) -> bool;
+pub type OpHandlerC = extern "C-unwind" fn(*mut VmCore) -> bool;
 
 const fn initialize_handlers() -> [OpHandlerC; MAX_OPCODE_SIZE] {
     let mut ops = [unhandled_handler_impl_c as _; MAX_OPCODE_SIZE];
@@ -234,9 +237,62 @@ const fn initialize_handlers() -> [OpHandlerC; MAX_OPCODE_SIZE] {
     ops
 }
 
+pub extern "C-unwind" fn car_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
+    println!("Calling car");
+    match car(&arg) {
+        Ok(v) => {
+            println!("Finished calling car");
+            v
+        }
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
+pub extern "C-unwind" fn cons_handler_value(
+    ctx: *mut VmCore,
+    mut arg: SteelVal,
+    mut arg2: SteelVal,
+) -> SteelVal {
+    match cons(&mut arg, &mut arg2) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
+pub extern "C-unwind" fn cdr_handler_value(ctx: *mut VmCore, mut arg: SteelVal) -> SteelVal {
+    match cdr(&mut arg) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
 macro_rules! extern_c {
     ($func:expr, $name:tt) => {
-        extern "C" fn $name(ctx: *mut VmCore) -> bool {
+        extern "C-unwind" fn $name(ctx: *mut VmCore) -> bool {
             unsafe { $func(&mut *ctx).is_ok() }
         }
     };
@@ -931,12 +987,12 @@ fn loadint2_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     Ok(())
 }
 
-pub(crate) extern "C" fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> u8 {
+pub(crate) extern "C-unwind" fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> u8 {
     unsafe { callglobal_handler_deopt(&mut *ctx) }
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn extern_handle_pop(ctx: *mut VmCore, value: SteelVal) {
+pub(crate) extern "C-unwind" fn extern_handle_pop(ctx: *mut VmCore, value: SteelVal) {
     unsafe {
         let this = &mut *ctx;
         let res = this.handle_pop_pure_value(value);
@@ -967,7 +1023,7 @@ fn callglobal_handler_deopt(ctx: &mut VmCore) -> u8 {
 }
 
 // Equality... via the usual scheme? Otherwise this is gonna be an issue?
-pub(crate) extern "C" fn num_equal_value(ctx: *mut VmCore, left: i128, right: i128) -> i128 {
+pub(crate) extern "C-unwind" fn num_equal_value(ctx: *mut VmCore, left: i128, right: i128) -> i128 {
     unsafe {
         if let Ok(b) = number_equality(&std::mem::transmute(left), &std::mem::transmute(right)) {
             std::mem::transmute(b)
@@ -977,7 +1033,7 @@ pub(crate) extern "C" fn num_equal_value(ctx: *mut VmCore, left: i128, right: i1
     }
 }
 
-pub(crate) extern "C" fn num_equal_value_unboxed(
+pub(crate) extern "C-unwind" fn num_equal_value_unboxed(
     ctx: *mut VmCore,
     left: i128,
     right: i128,
@@ -998,7 +1054,11 @@ pub(crate) extern "C" fn num_equal_value_unboxed(
 macro_rules! extern_binop {
     ($name:tt, $func:tt) => {
         #[allow(improper_ctypes_definitions)]
-        pub(crate) extern "C" fn $name(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
+        pub(crate) extern "C-unwind" fn $name(
+            ctx: *mut VmCore,
+            a: SteelVal,
+            b: SteelVal,
+        ) -> SteelVal {
             unsafe { $func(&[a, b]).unwrap() }
         }
     };
@@ -1033,17 +1093,37 @@ impl<'a> VmCore<'a> {
         self.ip += 1;
         return val;
     }
+
+    #[inline(always)]
+    fn get_const_index(&mut self, idx: usize) -> SteelVal {
+        self.constants.get_value(idx)
+    }
 }
 
 // Set up these for doing each of the handlers
 // extern_binop!(extern_c_add_two, add_primitive);
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn extern_c_add_two(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
-    add_two(&a, &b).unwrap()
+pub(crate) extern "C-unwind" fn extern_c_add_two(
+    ctx: *mut VmCore,
+    a: SteelVal,
+    b: SteelVal,
+) -> SteelVal {
+    match add_two(&a, &b) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn extern_c_sub_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
+pub(crate) extern "C-unwind" fn extern_c_sub_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
     let rhs = if let SteelVal::IntV(i) = b {
         i
     } else {
@@ -1068,7 +1148,7 @@ extern_binop!(extern_c_sub_two, subtract_primitive);
 extern_binop!(extern_c_lt_two, lt_primitive);
 // extern_binop!(extern_c_lte_two, lte_primitive);
 
-pub(crate) extern "C" fn extern_c_lte_two(a: SteelVal, b: SteelVal) -> SteelVal {
+pub(crate) extern "C-unwind" fn extern_c_lte_two(a: SteelVal, b: SteelVal) -> SteelVal {
     SteelVal::BoolV(a <= b)
 }
 
@@ -1078,65 +1158,73 @@ extern_binop!(extern_c_mult_two, multiply_primitive);
 extern_binop!(extern_c_div_two, divide_primitive);
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn push_const_value_c(ctx: *mut VmCore) -> SteelVal {
+pub(crate) extern "C-unwind" fn push_const_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).get_const() }
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn move_read_local_0_value_c(ctx: *mut VmCore) -> SteelVal {
+pub(crate) extern "C-unwind" fn push_const_value_index_c(
+    ctx: *mut VmCore,
+    index: usize,
+) -> SteelVal {
+    unsafe { (&mut *ctx).get_const_index(index) }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn move_read_local_0_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).move_local_value(0) }
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn move_read_local_1_value_c(ctx: *mut VmCore) -> SteelVal {
+pub(crate) extern "C-unwind" fn move_read_local_1_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).move_local_value(1) }
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn move_read_local_2_value_c(ctx: *mut VmCore) -> SteelVal {
+pub(crate) extern "C-unwind" fn move_read_local_2_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).move_local_value(2) }
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn move_read_local_3_value_c(ctx: *mut VmCore) -> SteelVal {
+pub(crate) extern "C-unwind" fn move_read_local_3_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).move_local_value(3) }
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn read_local_0_value_c(ctx: *mut VmCore) -> SteelVal {
+pub(crate) extern "C-unwind" fn read_local_0_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).get_local_value(0) }
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn read_local_1_value_c(ctx: *mut VmCore) -> SteelVal {
+pub(crate) extern "C-unwind" fn read_local_1_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).get_local_value(1) }
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn read_local_2_value_c(ctx: *mut VmCore) -> SteelVal {
+pub(crate) extern "C-unwind" fn read_local_2_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).get_local_value(2) }
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn read_local_3_value_c(ctx: *mut VmCore) -> SteelVal {
+pub(crate) extern "C-unwind" fn read_local_3_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).get_local_value(3) }
 }
 
-pub(crate) extern "C" fn push_int_0(ctx: *mut VmCore) -> i128 {
+pub(crate) extern "C-unwind" fn push_int_0(ctx: *mut VmCore) -> i128 {
     unsafe {
         (&mut *ctx).ip += 1;
         std::mem::transmute(SteelVal::INT_ZERO)
     }
 }
 
-pub(crate) extern "C" fn push_int_1(ctx: *mut VmCore) -> i128 {
+pub(crate) extern "C-unwind" fn push_int_1(ctx: *mut VmCore) -> i128 {
     unsafe {
         (&mut *ctx).ip += 1;
         std::mem::transmute(SteelVal::INT_ONE)
     }
 }
 
-pub(crate) extern "C" fn push_int_2(ctx: *mut VmCore) -> i128 {
+pub(crate) extern "C-unwind" fn push_int_2(ctx: *mut VmCore) -> i128 {
     unsafe {
         (&mut *ctx).ip += 1;
         std::mem::transmute(SteelVal::INT_TWO)
@@ -1145,7 +1233,7 @@ pub(crate) extern "C" fn push_int_2(ctx: *mut VmCore) -> i128 {
 
 // Read the global value at the registered index
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn push_global(ctx: *mut VmCore, index: usize) -> SteelVal {
+pub(crate) extern "C-unwind" fn push_global(ctx: *mut VmCore, index: usize) -> SteelVal {
     unsafe {
         let this = &mut *ctx;
         this.thread.global_env.repl_lookup_idx(index)
@@ -1155,7 +1243,7 @@ pub(crate) extern "C" fn push_global(ctx: *mut VmCore, index: usize) -> SteelVal
 // This... is gonna be super suspect - it could really screw up the ref counts
 // on the constants if its a heap allocated value. So probably need a way to make sure
 // the values are only used once.
-pub(crate) extern "C" fn callglobal_handler_deopt_3(
+pub(crate) extern "C-unwind" fn callglobal_handler_deopt_3(
     ctx: *mut VmCore,
     arg1: i128,
     arg2: i128,
@@ -1171,7 +1259,7 @@ pub(crate) extern "C" fn callglobal_handler_deopt_3(
     }
 }
 
-pub(crate) extern "C" fn callglobal_tail_handler_deopt_3(
+pub(crate) extern "C-unwind" fn callglobal_tail_handler_deopt_3(
     ctx: *mut VmCore,
     arg1: i128,
     arg2: i128,
@@ -1219,7 +1307,7 @@ fn callglobal_tail_handler_deopt(ctx: &mut VmCore, args: &mut [SteelVal]) -> u8 
     }
 }
 
-pub(crate) extern "C" fn callglobal_tail_handler_deopt_3_test(
+pub(crate) extern "C-unwind" fn callglobal_tail_handler_deopt_3_test(
     ctx: *mut VmCore,
     func: i128, // This should be an immediate now.
     arg1: i128,
@@ -1265,12 +1353,15 @@ fn new_callglobal_tail_handler_deopt_test(
 
     match handle_global_tail_call_deopt_with_args(ctx, func, args) {
         Ok(v) => {
+            dbg!(&v);
             // ctx.thread.stack.push(v);
             // return SteelVal::Void;
             return v;
         }
-        Err(_) => {
-            panic!("error");
+        Err(e) => {
+            ctx.is_native = false;
+            ctx.result = Some(Err(e));
+
             return SteelVal::Void;
         }
     }
@@ -1384,20 +1475,11 @@ fn handle_global_function_call_with_args(
     args: &mut [SteelVal],
 ) -> Result<SteelVal> {
     match stack_func {
-        // Closure(closure) => self.handle_function_call_closure_jit(closure, payload_size),
-        // FuncV(f) => self.call_primitive_func(f, payload_size),
-        // BoxedFunction(f) => self.call_boxed_func(f.func(), payload_size),
-        // MutFunc(f) => self.call_primitive_mut_func(f, payload_size),
-        // FutureFunc(f) => self.call_future_func(f, payload_size),
-        // ContinuationFunction(cc) => self.call_continuation(cc),
-        // BuiltIn(f) => self.call_builtin_func(f, payload_size),
-        // CustomStruct(s) => self.call_custom_struct(&s, payload_size),
         SteelVal::FuncV(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
         SteelVal::BoxedFunction(func) => {
             func.func()(args).map_err(|x| x.set_span_if_none(ctx.current_span()))
         }
         SteelVal::MutFunc(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
-
         SteelVal::Closure(closure) => {
             let arity = args.len();
             // Just put them all on the stack
@@ -1421,10 +1503,6 @@ fn handle_global_function_call_with_args(
             ctx.call_builtin_func(f, args.len())?;
             Ok(SteelVal::Void)
         }
-        // CustomStruct(s) => self.call_custom_struct(&s, payload_size),
-
-        // Literaly anything else, just push on to the stack
-        // and fall back to the main loop?
         _ => {
             cold();
             stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); ctx.current_span());
@@ -1433,29 +1511,84 @@ fn handle_global_function_call_with_args(
 }
 
 #[inline(always)]
-pub(crate) extern "C" fn should_continue(ctx: *mut VmCore) -> bool {
-    unsafe { &mut *ctx }.is_native
+fn handle_global_function_call_with_args_no_arity(
+    ctx: &mut VmCore,
+    stack_func: SteelVal,
+    args: &mut [SteelVal],
+) -> Result<SteelVal> {
+    match stack_func {
+        SteelVal::FuncV(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
+        SteelVal::BoxedFunction(func) => {
+            func.func()(args).map_err(|x| x.set_span_if_none(ctx.current_span()))
+        }
+        SteelVal::MutFunc(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
+        SteelVal::Closure(closure) => {
+            // Just put them all on the stack
+            for val in args {
+                ctx.thread
+                    .stack
+                    .push(std::mem::replace(val, SteelVal::Void));
+            }
+
+            // We're going to de-opt in this case - unless we intend to do some fun inlining business
+            ctx.handle_function_call_closure_jit_no_arity(closure)?;
+            Ok(SteelVal::Void)
+        }
+
+        // This is probably no good here anyway
+        SteelVal::ContinuationFunction(cc) => {
+            ctx.call_continuation(cc)?;
+            Ok(SteelVal::Void)
+        }
+        SteelVal::BuiltIn(f) => {
+            ctx.call_builtin_func(f, args.len())?;
+            Ok(SteelVal::Void)
+        }
+        _ => {
+            cold();
+            stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); ctx.current_span());
+        }
+    }
+}
+
+#[inline(always)]
+pub(crate) extern "C-unwind" fn should_continue(ctx: *mut VmCore) -> bool {
+    dbg!(unsafe { &mut *ctx }.is_native)
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn push_to_vm_stack(ctx: *mut VmCore, value: SteelVal) {
+pub(crate) extern "C-unwind" fn push_to_vm_stack(ctx: *mut VmCore, value: SteelVal) {
     unsafe {
         (&mut *ctx).thread.stack.push(value);
     }
 }
 
-pub(crate) extern "C" fn set_ctx_ip(ctx: *mut VmCore, value: usize) {
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn push_to_vm_stack_two(
+    ctx: *mut VmCore,
+    value: SteelVal,
+    value2: SteelVal,
+) {
+    unsafe {
+        let guard = &mut *ctx;
+        guard.thread.stack.reserve_exact(2);
+        guard.thread.stack.push(value);
+        guard.thread.stack.push(value2);
+    }
+}
+
+pub(crate) extern "C-unwind" fn set_ctx_ip(ctx: *mut VmCore, value: usize) {
     unsafe { &mut *ctx }.ip = value;
 }
 
-pub(crate) extern "C" fn let_end_scope_c(ctx: *mut VmCore, beginning_scope: usize) {
+pub(crate) extern "C-unwind" fn let_end_scope_c(ctx: *mut VmCore, beginning_scope: usize) {
     unsafe {
         let_end_scope_handler_with_payload(&mut *ctx, beginning_scope).ok();
     }
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn call_global_function_tail_deopt_0(
+pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_0(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
@@ -1464,7 +1597,7 @@ pub(crate) extern "C" fn call_global_function_tail_deopt_0(
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn call_global_function_tail_deopt_1(
+pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_1(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
@@ -1476,7 +1609,7 @@ pub(crate) extern "C" fn call_global_function_tail_deopt_1(
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn call_global_function_tail_deopt_2(
+pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_2(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
@@ -1495,12 +1628,12 @@ pub(crate) extern "C" fn call_global_function_tail_deopt_2(
 
 // Just check if this thing is callable. If its not, just spill everything up to the args
 // to the stack, and otherwise don't continue?
-pub(crate) extern "C" fn check_callable(ctx: *mut VmCore, lookup_index: usize) -> bool {
+pub(crate) extern "C-unwind" fn check_callable(ctx: *mut VmCore, lookup_index: usize) -> bool {
     // Check that the function we're calling is in fact something callable via native code.
     // We'll want to spill the stack otherwise.
     unsafe {
         let this = &mut *ctx;
-        let func = this.thread.global_env.repl_lookup_idx(lookup_index);
+        let func = &this.thread.global_env.roots()[lookup_index];
         // Builtins can yield control in a funky way.
         !matches!(
             func,
@@ -1510,8 +1643,11 @@ pub(crate) extern "C" fn check_callable(ctx: *mut VmCore, lookup_index: usize) -
 }
 
 // Directly call and get the result of the next function
+// TODO: Directly call the function since we know that its going to be hanging around.
+// Which means we can generate two different forms of the function, and we don't need
+// to emit a pop on it since its going to be within itself?
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn trampoline(ctx: *mut VmCore, lookup_index: usize) -> SteelVal {
+pub(crate) extern "C-unwind" fn trampoline(ctx: *mut VmCore, lookup_index: usize) -> SteelVal {
     unsafe {
         let this = &mut *ctx;
         let func = this.thread.global_env.repl_lookup_idx(lookup_index);
@@ -1523,8 +1659,12 @@ pub(crate) extern "C" fn trampoline(ctx: *mut VmCore, lookup_index: usize) -> St
 
                 this.ip = 0;
 
+                let old_sp = this.sp;
+                this.sp = this.thread.stack.len() - c.arity();
+
                 (func)(this);
 
+                // this.sp = old_sp;
                 this.ip = ip + 1;
 
                 // dbg!(&this.result);
@@ -1539,7 +1679,7 @@ pub(crate) extern "C" fn trampoline(ctx: *mut VmCore, lookup_index: usize) -> St
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn call_global_function_tail_deopt_3(
+pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_3(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
@@ -1558,7 +1698,7 @@ pub(crate) extern "C" fn call_global_function_tail_deopt_3(
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn call_global_function_deopt_0(
+pub(crate) extern "C-unwind" fn call_global_function_deopt_0(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
@@ -1567,7 +1707,7 @@ pub(crate) extern "C" fn call_global_function_deopt_0(
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn call_global_function_deopt_1(
+pub(crate) extern "C-unwind" fn call_global_function_deopt_1(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
@@ -1577,7 +1717,7 @@ pub(crate) extern "C" fn call_global_function_deopt_1(
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn call_global_function_deopt_2(
+pub(crate) extern "C-unwind" fn call_global_function_deopt_2(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
@@ -1588,7 +1728,7 @@ pub(crate) extern "C" fn call_global_function_deopt_2(
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C" fn call_global_function_deopt_3(
+pub(crate) extern "C-unwind" fn call_global_function_deopt_3(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
@@ -1606,7 +1746,60 @@ pub(crate) extern "C" fn call_global_function_deopt_3(
     }
 }
 
-pub(crate) extern "C" fn call_global_function_deopt_0_func(
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn call_global_function_deopt_0_no_arity(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+) -> SteelVal {
+    unsafe { call_global_function_deopt_no_arity(&mut *ctx, lookup_index, fallback_ip, &mut []) }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn call_global_function_deopt_1_no_arity(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: SteelVal,
+) -> SteelVal {
+    unsafe {
+        call_global_function_deopt_no_arity(&mut *ctx, lookup_index, fallback_ip, &mut [arg0])
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn call_global_function_deopt_2_no_arity(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: SteelVal,
+    arg1: SteelVal,
+) -> SteelVal {
+    unsafe {
+        call_global_function_deopt_no_arity(&mut *ctx, lookup_index, fallback_ip, &mut [arg0, arg1])
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn call_global_function_deopt_3_no_arity(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: SteelVal,
+    arg1: SteelVal,
+    arg2: SteelVal,
+) -> SteelVal {
+    unsafe {
+        call_global_function_deopt_no_arity(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [arg0, arg1, arg2],
+        )
+    }
+}
+
+pub(crate) extern "C-unwind" fn call_global_function_deopt_0_func(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
@@ -1621,7 +1814,7 @@ pub(crate) extern "C" fn call_global_function_deopt_0_func(
     }
 }
 
-pub(crate) extern "C" fn call_global_function_deopt_1_func(
+pub(crate) extern "C-unwind" fn call_global_function_deopt_1_func(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
@@ -1637,7 +1830,7 @@ pub(crate) extern "C" fn call_global_function_deopt_1_func(
     }
 }
 
-pub(crate) extern "C" fn call_global_function_deopt_2_func(
+pub(crate) extern "C-unwind" fn call_global_function_deopt_2_func(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
@@ -1654,7 +1847,7 @@ pub(crate) extern "C" fn call_global_function_deopt_2_func(
     }
 }
 
-pub(crate) extern "C" fn call_global_function_deopt_3_func(
+pub(crate) extern "C-unwind" fn call_global_function_deopt_3_func(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
@@ -1702,8 +1895,6 @@ fn call_global_function_deopt(
         _ => false,
     };
 
-    // println!("Calling global function, deopt: {}", should_yield);
-
     if should_yield {
         // ctx.ip = dbg!(fallback_ip + 1);
         ctx.ip = fallback_ip;
@@ -1711,23 +1902,54 @@ fn call_global_function_deopt(
     }
 
     match handle_global_function_call_with_args(ctx, func, args) {
-        Ok(v) => {
-            v
-            // if !should_yield {
-            //     // ctx.thread.stack.push(v);
-            //     return v;
-            // } else {
-            //     v
-            // }
-        }
+        Ok(v) => dbg!(v),
         Err(e) => {
-            dbg!(e);
-            panic!("Stopping");
+            ctx.is_native = false;
+            ctx.result = Some(Err(e));
             return SteelVal::Void;
         }
     }
 }
 
+#[inline(always)]
+fn call_global_function_deopt_no_arity(
+    ctx: &mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    args: &mut [SteelVal],
+) -> SteelVal {
+    // println!("Calling global function, with args: {:?}", args);
+
+    // TODO: Only do this if we have to deopt
+    // ctx.ip = fallback_ip;
+
+    // let index = ctx.instructions[ctx.ip].payload_size;
+    // ctx.ip += 1;
+    // let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
+    let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
+
+    // Deopt -> Meaning, check the return value if we're done - so we just
+    // will eventually check the stashed error.
+    let should_yield = match &func {
+        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
+        _ => false,
+    };
+
+    if should_yield {
+        // ctx.ip = dbg!(fallback_ip + 1);
+        ctx.ip = fallback_ip;
+        ctx.is_native = !should_yield;
+    }
+
+    match handle_global_function_call_with_args_no_arity(ctx, func, args) {
+        Ok(v) => v,
+        Err(e) => {
+            ctx.is_native = false;
+            ctx.result = Some(Err(e));
+            return SteelVal::Void;
+        }
+    }
+}
 // TODO: Figure this out?
 #[inline(always)]
 fn callglobal_handler_deopt_three_args(
@@ -1894,18 +2116,18 @@ fn pop_test(ctx: &mut VmCore) -> bool {
     test.is_truthy()
 }
 
-pub(crate) extern "C" fn if_handler_raw_value(_: *mut VmCore, value: i128) -> bool {
+pub(crate) extern "C-unwind" fn if_handler_raw_value(_: *mut VmCore, value: i128) -> bool {
     let test: SteelVal = unsafe { std::mem::transmute(value) };
     test.is_truthy()
 }
 
-pub(crate) extern "C" fn not_handler_raw_value(_: *mut VmCore, value: i128) -> i128 {
+pub(crate) extern "C-unwind" fn not_handler_raw_value(_: *mut VmCore, value: i128) -> i128 {
     let test: SteelVal = unsafe { std::mem::transmute(value) };
     unsafe { std::mem::transmute(SteelVal::BoolV(!test.is_truthy())) }
 }
 
 // Pop the value off?
-pub(crate) extern "C" fn if_handler_value(raw_ctx: *mut VmCore) -> bool {
+pub(crate) extern "C-unwind" fn if_handler_value(raw_ctx: *mut VmCore) -> bool {
     let ctx = unsafe { &mut *raw_ctx };
 
     let test = ctx.thread.stack.pop().unwrap();

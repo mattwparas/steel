@@ -1588,9 +1588,10 @@ impl<'a> VmContext for VmCore<'a> {
 //     }
 // }
 
+#[repr(C)]
 pub struct VmCore<'a> {
+    pub(crate) is_native: bool,
     pub(crate) instructions: RootedInstructions,
-
     // TODO: Replace this with a thread local constant map!
     // that way reads are fast - and any updates to it are
     // broadcast from the shared constant map.
@@ -1604,7 +1605,6 @@ pub struct VmCore<'a> {
 
     pub(crate) return_value: Option<SteelVal>,
     // TODO: This means we've entered the native section of the code
-    pub(crate) is_native: bool,
     pub(crate) result: Option<Result<SteelVal>>,
 }
 
@@ -3902,19 +3902,6 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn handle_pop_pure(&mut self) -> Option<Result<SteelVal>> {
-        // Just collect things to drop, dump them at once at a safe point?
-        // static DROP_THREAD: LazyLock<crossbeam_channel::Sender<SteelVal>> = LazyLock::new(|| {
-        //     let (sender, receiver) = crossbeam_channel::unbounded();
-
-        //     std::thread::spawn(move || {
-        //         for value in receiver {
-        //             drop(value)
-        //         }
-        //     });
-
-        //     sender
-        // });
-
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
         // println!("{} - {}", self.pop_count, self.thread.stack_frames.len());
