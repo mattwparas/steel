@@ -1353,7 +1353,6 @@ fn new_callglobal_tail_handler_deopt_test(
 
     match handle_global_tail_call_deopt_with_args(ctx, func, args) {
         Ok(v) => {
-            dbg!(&v);
             // ctx.thread.stack.push(v);
             // return SteelVal::Void;
             return v;
@@ -1901,8 +1900,10 @@ fn call_global_function_deopt(
         ctx.is_native = !should_yield;
     }
 
+    ctx.ip += 2;
+
     match handle_global_function_call_with_args(ctx, func, args) {
-        Ok(v) => dbg!(v),
+        Ok(v) => v,
         Err(e) => {
             ctx.is_native = false;
             ctx.result = Some(Err(e));

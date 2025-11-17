@@ -1,7 +1,8 @@
 (provide fib
          ; jitfib
          jit-fib
-         add-two)
+         add-two
+         loop)
 
 ;; This should return an int, and should always
 ;; return an int - we should be able to do
@@ -25,16 +26,21 @@
 ;; Replace it on the stack
 ; (#%jit-compile-2 jit-fib)
 
-; (define (add-two x y)
-;   (split-many (string-append x y) " "))
+(define (add-two x y)
+  (split-many (string-append x y) " "))
 
-(define (add-two x)
-  (cons (car x) (cdr x)))
+; (define (add-two x)
+;   (cons (car x) (cdr x)))
 
 ; (define (add-two x y)
 ;   (string-append x y))
 
-(#%jit-compile-2 add-two)
+(define (loop x)
+  (if (= x 100)
+      x
+      (loop (+ x 1))))
+
+; (#%jit-compile-2 loop)
 
 ; (add-two 10)
 

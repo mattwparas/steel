@@ -1332,38 +1332,6 @@ impl FunctionTranslator<'_> {
                     self.stack.push((value, InferredType::Int));
                 }
 
-                // Patch the args, call the function.
-                // OpCode::READLOCAL0
-                // | OpCode::READLOCAL1
-                // | OpCode::READLOCAL2
-                // | OpCode::READLOCAL3
-                // | OpCode::MOVEREADLOCAL0
-                // | OpCode::MOVEREADLOCAL1
-                // | OpCode::MOVEREADLOCAL2
-                // | OpCode::MOVEREADLOCAL3 if self.native => {
-                //     // these are gonna get spilled anyway?
-                //     if payload + 1 > self.arity as _ && !self.patched_locals {
-                //         let locals_to_patch = self.local_count;
-                //         println!("Patching locals: {}", locals_to_patch);
-
-                //         for i in 0..locals_to_patch {
-                //             let item = self.stack.get(i).unwrap();
-                //             self.push_to_vm_stack(item.0);
-                //         }
-
-                //         self.patched_locals = true;
-
-                //         // Push this on to the VM context stack
-                //         // let local_value = self.stack.get(payload + self.arity as usize);
-
-                //         // Push each of the pending locals to the VM stack?
-                //         // Call function to push onto local stack.
-                //     }
-
-                //     let value = self.call_func_or_immediate(op, payload);
-                //     self.ip += 1;
-                //     self.stack.push((value, InferredType::Any));
-                // }
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
                 | OpCode::READLOCAL2
@@ -1418,7 +1386,9 @@ impl FunctionTranslator<'_> {
                 //
                 // And each iteration of the loop prior to the jump back would
                 // just call `drop(...)` on each of the args?
-                OpCode::TCOJMP => todo!(),
+                OpCode::TCOJMP | OpCode::SELFTAILCALLNOARITY => {
+                    self.translate_tco_jmp(payload);
+                }
 
                 OpCode::CALLGLOBALTAIL | OpCode::CALLGLOBALTAILNOARITY => {
                     let function_index = payload;
@@ -1810,6 +1780,13 @@ impl FunctionTranslator<'_> {
 
         // Just
         // arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
+    }
+
+    fn translate_tco_jmp(&mut self, payload: usize) {
+        // Translate to a while loop with calls to destructors?
+        // Or just use the normal jump, where we jump to the
+        // top of the instruction stack and reinvoke
+        // the dyn super instruction?
     }
 
     fn call_global_function(&mut self, arity: usize, name: &str, function_index: usize) -> Value {
@@ -2416,6 +2393,7 @@ impl FunctionTranslator<'_> {
                         self.create_i128(unsafe { std::mem::transmute(constant) })
                     }
                     _ => self.push_const_index(payload),
+                    // _ => self.call_function_returns_value(op_to_name_payload(op1, payload)),
                 }
             }
             _ => self.call_function_returns_value(op_to_name_payload(op1, payload)),

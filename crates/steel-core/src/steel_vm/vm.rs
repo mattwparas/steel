@@ -3487,20 +3487,23 @@ impl<'a> VmCore<'a> {
                 } => {
                     let current_arity = payload_size.to_usize();
 
-                    let last_stack_frame = self.thread.stack_frames.last().unwrap();
+                    // let last_stack_frame = self.thread.stack_frames.last().unwrap();
 
-                    #[cfg(feature = "dynamic")]
-                    {
-                        last_stack_frame.function.increment_call_count();
-                    }
+                    // #[cfg(feature = "dynamic")]
+                    // {
+                    //     last_stack_frame.function.increment_call_count();
+                    // }
 
-                    self.instructions = last_stack_frame.function.body_exp();
-                    self.sp = last_stack_frame.sp;
+                    // self.instructions = last_stack_frame.function.body_exp();
+                    // dbg!(last_stack_frame.sp);
+                    // dbg!(self.sp);
+
+                    // self.sp = last_stack_frame.sp;
 
                     self.ip = 0;
 
                     // TODO: Adjust the stack for multiple arity functions
-                    let offset = last_stack_frame.sp;
+                    // let offset = last_stack_frame.sp;
 
                     // We should have arity at this point, drop the stack up to this point
                     // take the last arity off the stack, go back and replace those in order
@@ -3511,7 +3514,7 @@ impl<'a> VmCore<'a> {
                     // [... frame-start ... arg1 arg2 arg3]
                     //      ^^^^^^~~~~~~~~
                     let back = self.thread.stack.len() - current_arity;
-                    let _ = self.thread.stack.drain(offset..back);
+                    let _ = self.thread.stack.drain(self.sp..back);
                 }
 
                 DenseInstruction {
@@ -3520,24 +3523,17 @@ impl<'a> VmCore<'a> {
                     ..
                 } => {
                     let mut current_arity = payload_size.to_usize();
-                    // This is the number of (local) functions we need to pop to get back to the place we want to be at
-                    // let depth = self.instructions[self.ip + 1].payload_size.to_usize();
-
-                    // for _ in 0..depth {
-                    //     self.thread.stack_frames.pop();
-                    //     self.pop_count -= 1;
-                    // }
 
                     let last_stack_frame = self.thread.stack_frames.last().unwrap();
 
-                    #[cfg(feature = "dynamic")]
-                    {
-                        last_stack_frame.function.increment_call_count();
-                    }
+                    // #[cfg(feature = "dynamic")]
+                    // {
+                    //     last_stack_frame.function.increment_call_count();
+                    // }
 
-                    self.instructions = last_stack_frame.function.body_exp();
+                    // self.instructions = last_stack_frame.function.body_exp();
                     // self.spans = last_stack_frame.function.spans();
-                    self.sp = last_stack_frame.sp;
+                    // self.sp = last_stack_frame.sp;
 
                     // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
@@ -3591,7 +3587,7 @@ impl<'a> VmCore<'a> {
                     // self.heap.collect_garbage();
                     // }
                     // let offset = self.stack_index.last().copied().unwrap_or(0);
-                    let offset = last_stack_frame.sp;
+                    // let offset = last_stack_frame.sp;
 
                     // We should have arity at this point, drop the stack up to this point
                     // take the last arity off the stack, go back and replace those in order
@@ -3606,7 +3602,7 @@ impl<'a> VmCore<'a> {
                     //     self.stack[offset + i] = self.stack[back + i].clone();
                     // }
 
-                    let _ = self.thread.stack.drain(offset..back);
+                    let _ = self.thread.stack.drain(self.sp..back);
                 }
 
                 // Blindly go to the next instructions
