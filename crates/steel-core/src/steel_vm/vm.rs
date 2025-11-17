@@ -22,9 +22,9 @@ use crate::rvals::AsRefSteelVal;
 use crate::rvals::BoxedAsyncFunctionSignature;
 use crate::rvals::FromSteelVal as _;
 use crate::rvals::SteelString;
-use crate::steel_vm::primitives::steel_not;
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
+use crate::steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive, steel_not};
 use crate::values::closed::Heap;
 use crate::values::closed::MarkAndSweepContext;
 use crate::values::functions::CaptureVec;
@@ -3035,8 +3035,8 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    #[cfg(feature = "jit2")]
-                    jit::lt_handler_payload(self, payload_size.to_usize())?;
+                    // #[cfg(feature = "jit2")]
+                    lt_handler_payload(self, payload_size.to_usize())?;
                 }
 
                 DenseInstruction {
@@ -3044,8 +3044,8 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    #[cfg(feature = "jit2")]
-                    jit::gt_handler_payload(self, payload_size.to_usize())?;
+                    // #[cfg(feature = "jit2")]
+                    gt_handler_payload(self, payload_size.to_usize())?;
                 }
 
                 DenseInstruction {
@@ -3053,8 +3053,8 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
-                    #[cfg(feature = "jit2")]
-                    jit::gte_handler_payload(self, payload_size.to_usize())?;
+                    // #[cfg(feature = "jit2")]
+                    gte_handler_payload(self, payload_size.to_usize())?;
                 }
 
                 DenseInstruction {
@@ -7367,6 +7367,21 @@ fn set_alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
 
     Ok(())
     */
+}
+
+pub(super) fn lt_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, lt_primitive, payload);
+    Ok(())
+}
+
+pub(super) fn gt_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, gt_primitive, payload);
+    Ok(())
+}
+
+pub(super) fn gte_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, gte_primitive, payload);
+    Ok(())
 }
 
 #[allow(unused)]
