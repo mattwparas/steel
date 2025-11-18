@@ -62,16 +62,6 @@ pub struct JIT {
     function_map: OwnedFunctionMap,
 }
 
-// Set up ways to deconstruct this value, such that we can use a 16 byte value rather than an 8
-// byte value.
-#[repr(C, u8)]
-enum SValue {
-    Int(i64),
-    Bool(bool),
-    Pointer(Box<SValue>),
-    Void,
-}
-
 // Take a function, if its sufficiently hot, we can jit compile by going
 // through and merging the handlers into one function, avoiding the dispatch
 // cost. After that, we can do even better, but for now that should work.
@@ -88,62 +78,19 @@ enum SValue {
 // println!("{:?}", reconstructed);
 // drop(reconstructed);
 
-macro_rules! offset_of {
-    ($($tt:tt)*) => {
-        {
-            let base = $($tt)*(unsafe { ::std::mem::uninitialized() });
-            let offset = match base {
-                $($tt)*(ref inner) => (inner as *const _ as usize) - (&base as *const _ as usize),
-                _ => unreachable!(),
-            };
-            ::std::mem::forget(base);
-            offset
-        }
-    }
-}
-
-impl SValue {
-    fn discriminant(&self) -> u8 {
-        // SAFETY: Because `Self` is marked `repr(u8)`, its layout is a `repr(C)` `union`
-        // between `repr(C)` structs, each of which has the `u8` discriminant as its first
-        // field, so we can read the discriminant without offsetting the pointer.
-        unsafe { *<*const _>::from(self).cast::<u8>() }
-    }
-
-    fn value(&self) -> usize {
-        unsafe { *<*const _>::from(self).byte_add(8).cast::<usize>() }
-    }
-}
-
-// Any allocated values that are not primitives should be boxed, or set aside into some kind of
-// jit compilation nursery, so we can avoid ref counts internally?
-
-// Glue together op codes dynamically at runtime?
-extern "C-unwind" fn handle_add(ctx: *mut VmContext) {
-    println!("Calling vm context");
-}
-
-extern "C-unwind" fn handle_sub(ctx: *mut VmContext) {
-    println!("Calling vm context");
-}
-
-extern "C-unwind" fn handle_pop(ctx: *mut VmContext) {
-    println!("Calling vm context");
-}
-
-// fn handle_pop_test(ctx: &mut VmContext) {
-//     println!("Calling vm context");
+// macro_rules! offset_of {
+//     ($($tt:tt)*) => {
+//         {
+//             let base = $($tt)*(unsafe { ::std::mem::uninitialized() });
+//             let offset = match base {
+//                 $($tt)*(ref inner) => (inner as *const _ as usize) - (&base as *const _ as usize),
+//                 _ => unreachable!(),
+//             };
+//             ::std::mem::forget(base);
+//             offset
+//         }
+//     }
 // }
-
-// Set up handlers
-extern "C-unwind" fn rustfunc(x: i128) -> i128 {
-    println!("Hello from rustfunc x={}", x);
-    x
-}
-
-// Set up the vm context to be a value
-// when we're calling the function.
-pub struct VmContext {}
 
 // TODO: Implement some kind of handler -> signature generator?
 // Maybe via macros?
@@ -1189,6 +1136,9 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
     }
 }
 
+// TODO: This is certainly no good. We should instead not use transmute,
+// but rather encode the enum variant manually as to not create any
+// nasal demons
 fn encode(value: SteelVal) -> i128 {
     unsafe { std::mem::transmute(value) }
 }
@@ -1251,7 +1201,7 @@ impl FunctionTranslator<'_> {
         while self.ip < self.instructions.len() {
             let instr = self.instructions[self.ip];
             let op = instr.op_code;
-            println!("{:?}", op);
+            println!("{:?} - {:?}", op, std::mem::discriminant(&op));
             let payload = instr.payload_size.to_usize();
             match op {
                 OpCode::LOADINT1POP
@@ -1260,7 +1210,6 @@ impl FunctionTranslator<'_> {
                 | OpCode::TAILCALL => {
                     todo!("{:?}", op);
                 }
-
                 OpCode::POPJMP | OpCode::POPPURE => {
                     // Push the remaining value back on to the stack.
                     let value = self.stack.pop().unwrap();
@@ -1276,7 +1225,6 @@ impl FunctionTranslator<'_> {
 
                     return false;
                 }
-
                 OpCode::VOID => {
                     // Push void onto stack?
                     let void = SteelVal::Void;
@@ -1284,7 +1232,6 @@ impl FunctionTranslator<'_> {
                     self.stack.push((value, InferredType::Void));
                     self.ip += 1;
                 }
-                // Handle global value
                 OpCode::PUSH => {
                     // Let value to push:
                     let abi_type = AbiParam::new(Type::int(64).unwrap());
@@ -1293,8 +1240,6 @@ impl FunctionTranslator<'_> {
                         .builder
                         .ins()
                         .iconst(Type::int(64).unwrap(), payload as i64);
-
-                    // TODO: We could instead call it directly instead of pushing on to the stack!
 
                     // Push on to the stack to call
                     self.stack.push((index, InferredType::Int));
@@ -1313,7 +1258,6 @@ impl FunctionTranslator<'_> {
                         AbiParam::new(Type::int(128).unwrap()),
                     );
                 }
-                // Translate if? Correct the stack accordingly?
                 OpCode::IF => {
                     // TODO: Type inference here! Change which function is called!
                     let (test, typ) = self.stack.pop().unwrap();
@@ -1324,14 +1268,6 @@ impl FunctionTranslator<'_> {
 
                     let test_bool = if typ == InferredType::Bool {
                         let amount_to_shift = self.builder.ins().iconst(Type::int(64).unwrap(), 64);
-
-                        println!("Found inferred type of bool");
-                        //
-                        // self.builder.ins().ireduce(Type::int(8).unwrap(), test)
-                        // self.builder.ins().
-                        // self.builder.ins().ireduce(Int, x)
-                        // self.builder.ins().rotr(test, amount_to_shift)
-
                         let shift_right = self.builder.ins().sshr(test, amount_to_shift);
                         self.builder
                             .ins()
@@ -1345,31 +1281,23 @@ impl FunctionTranslator<'_> {
 
                     self.stack.push((res, InferredType::Any));
                 }
-                // Just... jump to that instruction?
                 OpCode::JMP => {
                     self.ip = payload;
                 }
-
-                // Insert guards against the things.
                 OpCode::FUNC => todo!(),
                 OpCode::SCLOSURE => todo!(),
                 OpCode::ECLOSURE => todo!(),
                 OpCode::BIND => todo!(),
                 OpCode::SDEF => todo!(),
                 OpCode::EDEF => todo!(),
-
-                // Drop n values
                 OpCode::POPN => {
                     for _ in 0..payload {
                         self.pop_single();
                     }
                     self.ip += 1;
                 }
-
                 OpCode::POPSINGLE => {
                     self.pop_single();
-                    // let result = self.builder.inst_results(call)[0];
-
                     self.ip += 1;
                 }
                 OpCode::PASS => todo!(),
@@ -1383,38 +1311,30 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                 }
                 OpCode::READLOCAL => todo!(),
-
-                // Read a local from the local stack.
                 OpCode::PUSHCONST => {
                     let payload = self.instructions[self.ip].payload_size.to_usize();
                     let value = self.call_func_or_immediate(op, payload);
                     self.ip += 1;
                     self.stack.push((value, InferredType::Any));
                 }
-
                 OpCode::TRUE => {
                     let constant = SteelVal::BoolV(true);
-                    let value = self.create_i128(unsafe { std::mem::transmute(constant) });
+                    let value = self.create_i128(encode(constant));
                     self.ip += 1;
                     self.stack.push((value, InferredType::Bool));
                 }
-
                 OpCode::FALSE => {
                     let constant = SteelVal::BoolV(false);
-                    let value = self.create_i128(unsafe { std::mem::transmute(constant) });
+                    let value = self.create_i128(encode(constant));
                     self.ip += 1;
                     self.stack.push((value, InferredType::Any));
                 }
-
-                // If its an integer, we can specialize the
-                // branching logic during compilation
                 OpCode::LOADINT0 | OpCode::LOADINT1 | OpCode::LOADINT2 => {
                     let payload = self.instructions[self.ip].payload_size.to_usize();
                     let value = self.call_func_or_immediate(op, payload);
                     self.ip += 1;
                     self.stack.push((value, InferredType::Int));
                 }
-
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
                 | OpCode::READLOCAL2
@@ -1434,12 +1354,6 @@ impl FunctionTranslator<'_> {
                         }
 
                         self.patched_locals = true;
-
-                        // Push this on to the VM context stack
-                        // let local_value = self.stack.get(payload + self.arity as usize);
-
-                        // Push each of the pending locals to the VM stack?
-                        // Call function to push onto local stack.
                     }
 
                     let value = self.call_func_or_immediate(op, payload);
@@ -1456,36 +1370,17 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                     self.stack.push((value, inferred_type));
                 }
-
                 OpCode::SETLOCAL => todo!(),
                 OpCode::COPYCAPTURESTACK => todo!(),
                 OpCode::COPYCAPTURECLOSURE => todo!(),
                 OpCode::COPYHEAPCAPTURECLOSURE => todo!(),
                 OpCode::FIRSTCOPYHEAPCAPTURECLOSURE => todo!(),
-
-                // TODO: This _should_ be changed to be a while loop probably.
-                // We can get clever with this to avoid a lot of headache, but it will depend
-                // on destructors getting run during the while loop. Probably just
-                // inline a call to drop? Then can run a while loop no problem?
-                // Something like:
-                //
-                // (define (loop x)
-                //     (...)
-                //     (loop (+ x 1))
-                //
-                // Would translate to:
-                // while true:
-                //    (...) - with explicit ret's at the tails?
-                //
-                // And each iteration of the loop prior to the jump back would
-                // just call `drop(...)` on each of the args?
                 OpCode::TCOJMP => {
                     self.translate_tco_jmp(payload);
                     self.ip = self.instructions.len() + 1;
                     println!("Returning...");
                     return false;
                 }
-
                 OpCode::SELFTAILCALLNOARITY => {
                     self.translate_tco_jmp_no_arity(payload);
                     // Jump to out of bounds so signal we're done
@@ -1493,7 +1388,6 @@ impl FunctionTranslator<'_> {
                     println!("Returning...");
                     return false;
                 }
-
                 OpCode::CALLGLOBALTAIL | OpCode::CALLGLOBALTAILNOARITY => {
                     let function_index = payload;
                     self.ip += 1;
@@ -1513,17 +1407,7 @@ impl FunctionTranslator<'_> {
                     self.stack.push((v, InferredType::Any));
 
                     self.check_deopt();
-
-                    // let return_value = self
-                    //     .builder
-                    //     .ins()
-                    //     .iconst(codegen::ir::Type::int(8).unwrap(), 1);
-
-                    // self.builder.ins().return_(&[return_value]);
-
-                    // TODO: Push back on to the native stack, then deopt
                 }
-
                 OpCode::CALLGLOBALNOARITY => {
                     // First - find the index that we have to lookup.
                     let function_index = payload;
@@ -1537,15 +1421,6 @@ impl FunctionTranslator<'_> {
                         other => todo!("{}", other),
                     };
 
-                    // TODO: If the function that we're calling is not native,
-                    // we need to push all of the values that we have here
-                    // back on to the stack.
-                    println!("stack at global: {:?}", self.stack);
-
-                    // if self.function_context == Some(function_index) {
-                    //     println!("Found recursive call");
-                    // }
-
                     let result = self.call_global_function(arity, name, function_index);
 
                     // Assuming this worked, we'll want to push this result on to the stack.
@@ -1554,8 +1429,6 @@ impl FunctionTranslator<'_> {
                     // Then, we're gonna check the result and see if we should deopt
                     self.check_deopt();
                 }
-
-                // Call global value, with deopt down to auto adjust the stack?
                 OpCode::CALLGLOBAL => {
                     // First - find the index that we have to lookup.
                     let function_index = payload;
@@ -1569,15 +1442,6 @@ impl FunctionTranslator<'_> {
                         other => todo!("{}", other),
                     };
 
-                    // TODO: If the function that we're calling is not native,
-                    // we need to push all of the values that we have here
-                    // back on to the stack.
-                    println!("stack at global: {:?}", self.stack);
-
-                    // if self.function_context == Some(function_index) {
-                    //     println!("Found recursive call");
-                    // }
-
                     let result = self.call_global_function(arity, name, function_index);
 
                     // Assuming this worked, we'll want to push this result on to the stack.
@@ -1586,19 +1450,8 @@ impl FunctionTranslator<'_> {
                     // Then, we're gonna check the result and see if we should deopt
                     self.check_deopt();
                 }
-
-                // Moving the value through to the function call means
-                // just invalidating the previous reference on the stack.
-                //
-                // So move off of the stack.
                 OpCode::MOVEREADLOCAL => todo!(),
-
                 OpCode::READCAPTURED => todo!(),
-
-                // Enter a let scope - This is unfortunately important.
-                // This just lets us know now that the local variables from this
-                // point onwards can be references _after_ whatever value we think
-                // it is at.
                 OpCode::BEGINSCOPE => {
                     // Next n values should stick around on the stack.
                     for instr in &self.instructions[self.ip..] {
@@ -1611,11 +1464,7 @@ impl FunctionTranslator<'_> {
 
                     self.ip += 1;
                 }
-
-                // Drop the previous values from the scope.
                 OpCode::LETENDSCOPE => {
-                    // TODO: Drain the values that are left on the stack
-                    println!("Exiting scope: {}", payload);
                     self.local_count = payload;
                     self.ip += 1;
 
@@ -1641,13 +1490,8 @@ impl FunctionTranslator<'_> {
                     self.call_end_scope_handler(payload);
 
                     self.patched_locals = false;
-
-                    // Drop the last n values off the stack
                 }
                 OpCode::PUREFUNC => todo!(),
-
-                // Special case subtraction, with two args, where the
-                // rhs is an integer.
                 OpCode::SUB if payload == 2 => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     // Call the func
@@ -1660,8 +1504,6 @@ impl FunctionTranslator<'_> {
                         abi_type,
                     );
                 }
-
-                // TODO: Roll up the bin ops into a function to make things easier
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     // Call the func
@@ -1669,7 +1511,6 @@ impl FunctionTranslator<'_> {
 
                     self.check_deopt();
                 }
-
                 OpCode::LTE if payload == 2 => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     self.func_ret_val_named(
@@ -1681,14 +1522,10 @@ impl FunctionTranslator<'_> {
                         abi_type,
                     );
                 }
-
                 OpCode::EQUAL2 => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     self.func_ret_val(op, 2, 2, InferredType::Bool, abi_type, abi_type);
                 }
-
-                // Should I just... convert this type to the native type?
-                // Or deal with some kind of unboxing naively? Check the back half of it?
                 OpCode::EQUAL
                 | OpCode::NUMEQUAL
                 | OpCode::LTE
@@ -1698,7 +1535,6 @@ impl FunctionTranslator<'_> {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     self.func_ret_val(op, payload, 2, InferredType::Bool, abi_type, abi_type);
                 }
-                // OpCode::NUMEQUAL => todo!(),
                 OpCode::NULL => {
                     // todo!()
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
@@ -1711,33 +1547,15 @@ impl FunctionTranslator<'_> {
                         abi_type,
                     );
                 }
-
-                // Figure out how to handle heap allocated values like lists.
                 OpCode::CONS => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     self.func_ret_val(op, 2, 2, InferredType::List, abi_type, abi_type);
                 }
-
                 OpCode::CDR => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     self.func_ret_val(op, 1, 2, InferredType::List, abi_type, abi_type);
                 }
-
                 OpCode::LIST => todo!(),
-
-                // Inferred type of list... isn't very helpful when it also could be a pair?
-                // OpCode::CAR if self.stack.last().map(|x| x.1) == Some(InferredType::List) => {
-                //     let abi_type = AbiParam::new(Type::int(128).unwrap());
-
-                //     if let Some(last) = self.stack.last() {
-                //         // Check if that value makes sense
-                //         if let Some(from_local) = self.value_to_local_map.get(&last.0) {
-                //             self.local_to_value_map
-                //                 .insert(*from_local, InferredType::List);
-                //         }
-                //     }
-                //     self.func_ret_val(op, 1, 2, InferredType::Any, abi_type, abi_type);
-                // }
                 OpCode::CAR => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
 
@@ -1779,7 +1597,6 @@ impl FunctionTranslator<'_> {
                 OpCode::BINOPADD => todo!(),
                 OpCode::BINOPSUB => todo!(),
                 OpCode::LTEIMMEDIATEIF => todo!(),
-                // If the type is bool, just negate it
                 OpCode::NOT => {
                     // Do the thing.
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
@@ -1787,11 +1604,20 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::VEC => todo!(),
                 OpCode::Apply => todo!(),
-                // OpCode::CALLGLOBALTAILPOP => todo!(),
                 OpCode::LOADINT0POP => todo!(),
                 OpCode::LOADINT2POP => todo!(),
                 OpCode::CaseLambdaDispatch => todo!(),
-                _ => todo!(),
+                OpCode::CGLOCALCONST => todo!(),
+                OpCode::READLOCAL0CALLGLOBAL => todo!(),
+                OpCode::READLOCAL1CALLGLOBAL => todo!(),
+                OpCode::LISTREF => todo!(),
+                OpCode::VECTORREF => todo!(),
+                OpCode::NULLIF => todo!(),
+                OpCode::UNBOXCALL => todo!(),
+                OpCode::UNBOXTAIL => todo!(),
+                OpCode::EQUALCONST => todo!(),
+                OpCode::FUNCNOARITY => todo!(),
+                OpCode::TAILCALLNOARITY => todo!(),
             }
         }
 
@@ -2485,7 +2311,7 @@ impl FunctionTranslator<'_> {
                         let clone = func.clone();
                         std::mem::forget(clone);
 
-                        let func_var = self.create_i128(unsafe { std::mem::transmute(func) });
+                        let func_var = self.create_i128(encode(func));
 
                         let offset = self.builder.ins().iconst(Type::int(64).unwrap(), 3);
 
@@ -2713,11 +2539,9 @@ impl FunctionTranslator<'_> {
 
     fn call_func_or_immediate(&mut self, op1: OpCode, payload: usize) -> Value {
         match op1 {
-            OpCode::LOADINT0 => {
-                self.create_i128(unsafe { std::mem::transmute(SteelVal::INT_ZERO) })
-            }
-            OpCode::LOADINT1 => self.create_i128(unsafe { std::mem::transmute(SteelVal::INT_ONE) }),
-            OpCode::LOADINT2 => self.create_i128(unsafe { std::mem::transmute(SteelVal::INT_TWO) }),
+            OpCode::LOADINT0 => self.create_i128(encode(SteelVal::INT_ZERO)),
+            OpCode::LOADINT1 => self.create_i128(encode(SteelVal::INT_ONE)),
+            OpCode::LOADINT2 => self.create_i128(encode(SteelVal::INT_TWO)),
             OpCode::PUSHCONST => {
                 // Attempt to inline the constant, if it is something that can be inlined.
                 // Assuming we know the type of it, we can get really fancy here since
@@ -2730,7 +2554,7 @@ impl FunctionTranslator<'_> {
                 match &constant {
                     SteelVal::BoolV(_) | SteelVal::IntV(_) => {
                         println!("Embedding immediate: {}", constant);
-                        self.create_i128(unsafe { std::mem::transmute(constant) })
+                        self.create_i128(encode(constant))
                     }
                     _ => self.push_const_index(payload),
                     // _ => self.call_function_returns_value(op_to_name_payload(op1, payload)),

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 macro_rules! declare_opcodes {
 
     ( { $($variant:tt);* } { $( [ $super:tt => $(($k:path, $v:expr),)* ] );* } ) => {
-        #[repr(u8)]
+        // #[repr(u8)]
         #[derive(Copy, Clone, Debug, Hash, PartialEq, Serialize, Deserialize, Eq, PartialOrd, Ord)]
         pub enum OpCode {
             $($variant),*
