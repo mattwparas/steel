@@ -2,7 +2,10 @@
          ; jitfib
          jit-fib
          add-two
-         loop)
+         loop
+         jit-loop
+         assoc2
+         fake-car)
 
 ;; This should return an int, and should always
 ;; return an int - we should be able to do
@@ -29,18 +32,42 @@
 (define (add-two x y)
   (split-many (string-append x y) " "))
 
+(define (fake-car x)
+  (car x))
+
+; (#%jit-compile-2 fake-car)
+
 ; (define (add-two x)
 ;   (cons (car x) (cdr x)))
 
 ; (define (add-two x y)
 ;   (string-append x y))
 
-(define (loop x)
-  (if (= x 100)
+(define (loop x y)
+  (if (= x y)
       x
-      (loop (+ x 1))))
+      (loop (+ x 1) y)))
 
-; (#%jit-compile-2 loop)
+(define (jit-loop x y)
+  (if (= x y)
+      x
+      (jit-loop (+ x 1) y)))
+
+(define (assoc2 obj lst)
+  (cond
+    ;; TODO: This has a problem because we're double dropping
+    ;; lst here since its a local?
+    [(null? lst) #f]
+    [(equal? (car (car lst)) obj) (car lst)]
+    [else (assoc2 obj (cdr lst))]))
+
+;; TODO: Fix the inlining issue with free identifiers
+; (define (loop x y)
+;   (if (= x y)
+;       x
+;       (loop (+ x 1))))
+
+(#%jit-compile-2 assoc2)
 
 ; (add-two 10)
 

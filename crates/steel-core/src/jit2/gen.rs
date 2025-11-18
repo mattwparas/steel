@@ -23,16 +23,17 @@ use crate::{
             call_global_function_tail_deopt_1, call_global_function_tail_deopt_2,
             call_global_function_tail_deopt_3, callglobal_handler_deopt_c,
             callglobal_tail_handler_deopt_3, callglobal_tail_handler_deopt_3_test,
-            car_handler_value, cdr_handler_value, check_callable, cons_handler_value,
+            car_handler_value, cdr_handler_value, check_callable, cons_handler_value, equal_binop,
             extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
-            extern_c_lte_two, extern_c_mult_two, extern_c_sub_two, extern_c_sub_two_int,
-            extern_handle_pop, if_handler_raw_value, if_handler_value, let_end_scope_c,
-            move_read_local_0_value_c, move_read_local_1_value_c, move_read_local_2_value_c,
-            move_read_local_3_value_c, not_handler_raw_value, num_equal_value,
-            num_equal_value_unboxed, push_const_value_c, push_const_value_index_c, push_global,
-            push_int_0, push_int_1, push_int_2, push_to_vm_stack, push_to_vm_stack_two,
-            read_local_0_value_c, read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
-            set_ctx_ip, should_continue, trampoline,
+            extern_c_lte_two, extern_c_mult_two, extern_c_null_handler, extern_c_sub_two,
+            extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value, if_handler_value,
+            let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
+            move_read_local_2_value_c, move_read_local_3_value_c, not_handler_raw_value,
+            num_equal_value, num_equal_value_unboxed, push_const_value_c, push_const_value_index_c,
+            push_global, push_int_0, push_int_1, push_int_2, push_to_vm_stack,
+            push_to_vm_stack_two, read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
+            read_local_3_value_c, self_tail_call_handler, set_ctx_ip, should_continue,
+            tcojmp_handler, trampoline,
         },
         VmCore,
     },
@@ -355,6 +356,9 @@ impl Default for JIT {
 
         // Value functions:
         builder.symbol("num-equal-value", num_equal_value as *const u8);
+
+        builder.symbol("equal-binop", equal_binop as *const u8);
+
         builder.symbol(
             "num-equal-value-unboxed",
             num_equal_value_unboxed as *const u8,
@@ -521,6 +525,12 @@ impl Default for JIT {
 
         map.add_func_hint2("lte-binop", extern_c_lte_two as BinOp, InferredType::Bool);
 
+        map.add_func_hint2(
+            "null-handler",
+            extern_c_null_handler as extern "C-unwind" fn(a: SteelVal) -> SteelVal,
+            InferredType::Bool,
+        );
+
         map.add_func_hint("gt-binop", extern_c_gt_two as VmBinOp, InferredType::Bool);
         map.add_func_hint("gte-binop", extern_c_gte_two as VmBinOp, InferredType::Bool);
         map.add_func_hint(
@@ -587,6 +597,16 @@ impl Default for JIT {
         map.add_func("move-read-local-1", move_read_local_1_value_c as Vm01);
         map.add_func("move-read-local-2", move_read_local_2_value_c as Vm01);
         map.add_func("move-read-local-3", move_read_local_3_value_c as Vm01);
+
+        map.add_func(
+            "self-tail-call",
+            self_tail_call_handler as extern "C-unwind" fn(*mut VmCore, usize),
+        );
+
+        map.add_func(
+            "tco-jump",
+            tcojmp_handler as extern "C-unwind" fn(*mut VmCore, usize),
+        );
 
         let function_map = OwnedFunctionMap {
             map: map.map,
@@ -1129,6 +1149,7 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
 
         // TODO!()
         (OpCode::NUMEQUAL, 2) => "num-equal-value",
+        (OpCode::EQUAL2, _) => "equal-binop",
 
         (OpCode::CAR, _) => "car-handler-value",
         (OpCode::CDR, _) => "cdr-handler-value",
@@ -1200,6 +1221,7 @@ impl FunctionTranslator<'_> {
     // into a function pointer, and we don't need to thread the
     // context through at all.
     fn stack_to_ssa(&mut self) -> bool {
+        println!("Entering...");
         while self.ip < self.instructions.len() {
             let instr = self.instructions[self.ip];
             let op = instr.op_code;
@@ -1323,6 +1345,20 @@ impl FunctionTranslator<'_> {
                     self.stack.push((value, InferredType::Any));
                 }
 
+                OpCode::TRUE => {
+                    let constant = SteelVal::BoolV(true);
+                    let value = self.create_i128(unsafe { std::mem::transmute(constant) });
+                    self.ip += 1;
+                    self.stack.push((value, InferredType::Bool));
+                }
+
+                OpCode::FALSE => {
+                    let constant = SteelVal::BoolV(false);
+                    let value = self.create_i128(unsafe { std::mem::transmute(constant) });
+                    self.ip += 1;
+                    self.stack.push((value, InferredType::Any));
+                }
+
                 // If its an integer, we can specialize the
                 // branching logic during compilation
                 OpCode::LOADINT0 | OpCode::LOADINT1 | OpCode::LOADINT2 => {
@@ -1386,8 +1422,19 @@ impl FunctionTranslator<'_> {
                 //
                 // And each iteration of the loop prior to the jump back would
                 // just call `drop(...)` on each of the args?
-                OpCode::TCOJMP | OpCode::SELFTAILCALLNOARITY => {
+                OpCode::TCOJMP => {
                     self.translate_tco_jmp(payload);
+                    self.ip = self.instructions.len() + 1;
+                    println!("Returning...");
+                    return false;
+                }
+
+                OpCode::SELFTAILCALLNOARITY => {
+                    self.translate_tco_jmp_no_arity(payload);
+                    // Jump to out of bounds so signal we're done
+                    self.ip = self.instructions.len() + 1;
+                    println!("Returning...");
+                    return false;
                 }
 
                 OpCode::CALLGLOBALTAIL | OpCode::CALLGLOBALTAILNOARITY => {
@@ -1514,13 +1561,27 @@ impl FunctionTranslator<'_> {
                     println!("Exiting scope: {}", payload);
                     self.local_count = payload;
                     self.ip += 1;
+
+                    if !self.patched_locals {
+                        let spilled = self
+                            .stack
+                            .drain(payload..self.stack.len() - 1)
+                            .collect::<Vec<_>>();
+
+                        for c in spilled.chunks(2) {
+                            if c.len() == 2 {
+                                self.push_to_vm_stack_two(c[0].0, c[1].0);
+                            } else {
+                                self.push_to_vm_stack(c[0].0);
+                            }
+                        }
+                    }
+
                     self.call_end_scope_handler(payload);
 
                     self.patched_locals = false;
 
                     // Drop the last n values off the stack
-
-                    self.stack.drain(payload..self.stack.len() - 1);
                 }
                 OpCode::PUREFUNC => todo!(),
 
@@ -1560,6 +1621,11 @@ impl FunctionTranslator<'_> {
                     );
                 }
 
+                OpCode::EQUAL2 => {
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+                    self.func_ret_val(op, 2, 2, InferredType::Bool, abi_type, abi_type);
+                }
+
                 // Should I just... convert this type to the native type?
                 // Or deal with some kind of unboxing naively? Check the back half of it?
                 OpCode::EQUAL
@@ -1572,7 +1638,18 @@ impl FunctionTranslator<'_> {
                     self.func_ret_val(op, payload, 2, InferredType::Bool, abi_type, abi_type);
                 }
                 // OpCode::NUMEQUAL => todo!(),
-                OpCode::NULL => todo!(),
+                OpCode::NULL => {
+                    // todo!()
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+                    self.func_ret_val_named(
+                        "null-handler",
+                        1,
+                        2,
+                        InferredType::Bool,
+                        abi_type,
+                        abi_type,
+                    );
+                }
 
                 // Figure out how to handle heap allocated values like lists.
                 OpCode::CONS => {
@@ -1787,6 +1864,88 @@ impl FunctionTranslator<'_> {
         // Or just use the normal jump, where we jump to the
         // top of the instruction stack and reinvoke
         // the dyn super instruction?
+
+        // Translate to a while loop with calls to destructors?
+        // Or just use the normal jump, where we jump to the
+        // top of the instruction stack and reinvoke
+        // the dyn super instruction?
+
+        for c in self.stack.split_off(self.stack.len() - payload).chunks(2) {
+            if c.len() == 2 {
+                self.push_to_vm_stack_two(c[0].0, c[1].0);
+            } else {
+                self.push_to_vm_stack(c[0].0);
+            }
+        }
+
+        let mut sig = self.module.make_signature();
+
+        // VmCore pointer
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        // arity
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
+
+        let callee = self
+            .module
+            .declare_function("tco-jump", Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let arity = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), payload as i64);
+
+        let arg_values = [ctx, arity];
+        let call = self.builder.ins().call(local_callee, &arg_values);
+    }
+
+    fn translate_tco_jmp_no_arity(&mut self, payload: usize) {
+        // Translate to a while loop with calls to destructors?
+        // Or just use the normal jump, where we jump to the
+        // top of the instruction stack and reinvoke
+        // the dyn super instruction?
+
+        // Its just the arity that we want, not the full stack.
+        for c in self.stack.split_off(self.stack.len() - payload).chunks(2) {
+            if c.len() == 2 {
+                self.push_to_vm_stack_two(c[0].0, c[1].0);
+            } else {
+                self.push_to_vm_stack(c[0].0);
+            }
+        }
+
+        let mut sig = self.module.make_signature();
+
+        // VmCore pointer
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        // arity
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
+
+        let callee = self
+            .module
+            .declare_function("self-tail-call", Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let arity = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), payload as i64);
+
+        let arg_values = [ctx, arity];
+        let call = self.builder.ins().call(local_callee, &arg_values);
+
+        // let ret = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
+        // self.builder.ins().return_(&[ret]);
     }
 
     fn call_global_function(&mut self, arity: usize, name: &str, function_index: usize) -> Value {
@@ -2020,6 +2179,8 @@ impl FunctionTranslator<'_> {
         abi_return_type: AbiParam,
     ) {
         let args = self.stack.split_off(self.stack.len() - payload);
+
+        println!("Args at {}: {:#?}", function_name, args);
 
         // TODO: Use the type hints! For now we're not going to for the sake
         // of getting something running
@@ -2447,6 +2608,7 @@ impl FunctionTranslator<'_> {
         // Set the ip to the right spot:
         self.ip = then_start;
 
+        let local_count = self.local_count;
         let frozen_patched = self.patched_locals;
         let frozen_stack = self.stack.clone();
 
@@ -2480,6 +2642,7 @@ impl FunctionTranslator<'_> {
 
         self.ip = else_start;
 
+        self.local_count = local_count;
         self.patched_locals = frozen_patched;
         self.stack = frozen_stack;
         self.stack_to_ssa();

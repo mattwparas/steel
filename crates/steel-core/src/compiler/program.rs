@@ -50,6 +50,10 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
 
 // Call global if -> merge with if, when possible
 pub fn merge_call_global_if(instructions: &mut [Instruction]) {
+    if cfg!(feature = "jit2") {
+        return;
+    }
+
     if instructions.len() < 3 {
         return;
     }

@@ -3,10 +3,7 @@ use steel_gen::opcode::{MAX_OPCODE_SIZE, OPCODES_ARRAY};
 use super::VmCore;
 use crate::{
     gc::Gc,
-    primitives::{
-        lists::{self, cons},
-        numbers::{add_primitive_no_check, negate},
-    },
+    primitives::lists::cons,
     rvals::Result,
     steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive},
     SteelVal,
@@ -237,13 +234,10 @@ const fn initialize_handlers() -> [OpHandlerC; MAX_OPCODE_SIZE] {
     ops
 }
 
+#[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn car_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
-    println!("Calling car");
     match car(&arg) {
-        Ok(v) => {
-            println!("Finished calling car");
-            v
-        }
+        Ok(v) => v,
         Err(e) => {
             unsafe {
                 let guard = &mut *ctx;
@@ -256,11 +250,23 @@ pub extern "C-unwind" fn car_handler_value(ctx: *mut VmCore, arg: SteelVal) -> S
     }
 }
 
+#[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn cons_handler_value(
     ctx: *mut VmCore,
     mut arg: SteelVal,
     mut arg2: SteelVal,
 ) -> SteelVal {
+    // let mut arg = ManuallyDrop::new(arg);
+    // let mut arg2 = ManuallyDrop::new(arg2);
+
+    // The problem here, is that arg2 is expecting
+    // a reference to the stack slot. If its _actually_
+    // the last value, then we'll have a clone of it.
+    //
+    // Otherwise, we might have a problem. We also need
+    // to be sure that we're not _reusing_ variables off
+    // of the stack here, and that their destructors are
+    // getting called after, if they exist.
     match cons(&mut arg, &mut arg2) {
         Ok(v) => v,
         Err(e) => {
@@ -275,7 +281,10 @@ pub extern "C-unwind" fn cons_handler_value(
     }
 }
 
-pub extern "C-unwind" fn cdr_handler_value(ctx: *mut VmCore, mut arg: SteelVal) -> SteelVal {
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn cdr_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
+    // let mut arg = ManuallyDrop::new(arg);
+    let mut arg = arg;
     match cdr(&mut arg) {
         Ok(v) => v,
         Err(e) => {
@@ -1033,6 +1042,14 @@ pub(crate) extern "C-unwind" fn num_equal_value(ctx: *mut VmCore, left: i128, ri
     }
 }
 
+pub(crate) extern "C-unwind" fn equal_binop(
+    ctx: *mut VmCore,
+    left: SteelVal,
+    right: SteelVal,
+) -> SteelVal {
+    SteelVal::BoolV(left == right)
+}
+
 pub(crate) extern "C-unwind" fn num_equal_value_unboxed(
     ctx: *mut VmCore,
     left: i128,
@@ -1108,6 +1125,8 @@ pub(crate) extern "C-unwind" fn extern_c_add_two(
     a: SteelVal,
     b: SteelVal,
 ) -> SteelVal {
+    // let a = ManuallyDrop::new(a);
+    // let b = ManuallyDrop::new(b);
     match add_two(&a, &b) {
         Ok(v) => v,
         Err(e) => {
@@ -1124,6 +1143,7 @@ pub(crate) extern "C-unwind" fn extern_c_add_two(
 
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn extern_c_sub_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
+    // let a = ManuallyDrop::new(a);
     let rhs = if let SteelVal::IntV(i) = b {
         i
     } else {
@@ -1149,7 +1169,24 @@ extern_binop!(extern_c_lt_two, lt_primitive);
 // extern_binop!(extern_c_lte_two, lte_primitive);
 
 pub(crate) extern "C-unwind" fn extern_c_lte_two(a: SteelVal, b: SteelVal) -> SteelVal {
+    // let a = ManuallyDrop::new(a);
+    // let b = ManuallyDrop::new(b);
     SteelVal::BoolV(a <= b)
+}
+
+pub(crate) extern "C-unwind" fn extern_c_null_handler(a: SteelVal) -> SteelVal {
+    let result = match a {
+        SteelVal::ListV(l) => l.is_empty(),
+        SteelVal::VectorV(v) => v.is_empty(),
+        SteelVal::MutableVector(v) => {
+            let ptr = v.strong_ptr();
+            let guard = &ptr.read().value;
+            guard.is_empty()
+        }
+        _ => false,
+    };
+
+    SteelVal::BoolV(result)
 }
 
 extern_binop!(extern_c_gt_two, gt_primitive);
@@ -2155,6 +2192,74 @@ fn if_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     }
 
     Ok(())
+}
+
+pub(crate) extern "C-unwind" fn tcojmp_handler(ctx: *mut VmCore, current_arity: usize) {
+    // println!("Calling self tail call");
+    let this = unsafe { &mut *ctx };
+
+    if let Err(e) = tco_jmp_handler_multi_arity(current_arity, this) {
+        this.is_native = false;
+        this.result = Some(Err(e));
+    }
+}
+
+fn tco_jmp_handler_multi_arity(mut current_arity: usize, this: &mut VmCore<'_>) -> Result<()> {
+    let last_stack_frame = this.thread.stack_frames.last().unwrap();
+
+    this.ip = 0;
+
+    // TODO: Adjust the stack for multiple arity functions
+    let is_multi_arity = last_stack_frame.function.is_multi_arity;
+    let original_arity = last_stack_frame.function.arity();
+    let payload_size = current_arity;
+    // let new_arity = &mut closure_arity;
+
+    // TODO: Reuse the original list allocation, if it exists.
+    if likely(!is_multi_arity) {
+        if unlikely(original_arity != payload_size) {
+            stop!(ArityMismatch => format!("function expected {} arguments, found {}", original_arity, payload_size); this.current_span());
+        }
+    } else {
+        // println!(
+        //     "multi closure function, multi arity, arity: {:?} - called with: {:?}",
+        //     original_arity, payload_size
+        // );
+
+        if payload_size < original_arity - 1 {
+            stop!(ArityMismatch => format!("function expected at least {} arguments, found {}", original_arity - 1, payload_size); this.current_span());
+        }
+
+        // (define (test x . y))
+        // (test 1 2 3 4 5)
+        // in this case, arity = 2 and payload size = 5
+        // pop off the last 4, collect into a list
+        let amount_to_remove = 1 + payload_size - original_arity;
+
+        let values = this
+            .thread
+            .stack
+            .drain(this.thread.stack.len() - amount_to_remove..)
+            .collect();
+
+        let list = SteelVal::ListV(values);
+
+        this.thread.stack.push(list);
+
+        current_arity = original_arity;
+    }
+
+    let back = this.thread.stack.len() - current_arity;
+    let _ = this.thread.stack.drain(this.sp..back);
+    Ok(())
+}
+
+pub(crate) extern "C-unwind" fn self_tail_call_handler(ctx: *mut VmCore, arity: usize) {
+    // println!("Calling self tail call");
+    let this = unsafe { &mut *ctx };
+    this.ip = 0;
+    let back = this.thread.stack.len() - arity;
+    let _ = this.thread.stack.drain(this.sp..back);
 }
 
 #[inline(always)]
