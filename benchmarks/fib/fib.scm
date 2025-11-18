@@ -56,13 +56,12 @@
 
 (define (assoc2 obj lst)
   (cond
-    ;; TODO: This has a problem because we're double dropping
-    ;; lst here since its a local?
     [(null? lst) #f]
     [(equal? (car (car lst)) obj) (car lst)]
     [else (assoc2 obj (cdr lst))]))
 
 (define (test-alloc-stuff obj)
+  (stdout-simple-displayln obj)
   (unbox (box obj)))
 
 (#%jit-compile-2 test-alloc-stuff)

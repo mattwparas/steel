@@ -23,17 +23,18 @@ use crate::{
             call_global_function_tail_deopt_1, call_global_function_tail_deopt_2,
             call_global_function_tail_deopt_3, callglobal_handler_deopt_c,
             callglobal_tail_handler_deopt_3, callglobal_tail_handler_deopt_3_test,
-            car_handler_value, cdr_handler_value, check_callable, cons_handler_value, equal_binop,
-            extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
-            extern_c_lte_two, extern_c_mult_two, extern_c_null_handler, extern_c_sub_two,
-            extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value, if_handler_value,
-            let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
-            move_read_local_2_value_c, move_read_local_3_value_c, not_handler_raw_value,
-            num_equal_value, num_equal_value_unboxed, push_const_value_c, push_const_value_index_c,
-            push_global, push_int_0, push_int_1, push_int_2, push_to_vm_stack,
-            push_to_vm_stack_two, read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
-            read_local_3_value_c, self_tail_call_handler, set_ctx_ip, setbox_handler_c,
-            should_continue, tcojmp_handler, trampoline, unbox_handler_c,
+            car_handler_value, cdr_handler_value, check_callable, cons_handler_value, drop_value,
+            equal_binop, extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two,
+            extern_c_lt_two, extern_c_lte_two, extern_c_mult_two, extern_c_null_handler,
+            extern_c_sub_two, extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value,
+            if_handler_value, let_end_scope_c, move_read_local_0_value_c,
+            move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
+            not_handler_raw_value, num_equal_value, num_equal_value_unboxed, push_const_value_c,
+            push_const_value_index_c, push_global, push_int_0, push_int_1, push_int_2,
+            push_to_vm_stack, push_to_vm_stack_two, read_local_0_value_c, read_local_1_value_c,
+            read_local_2_value_c, read_local_3_value_c, self_tail_call_handler, set_ctx_ip,
+            set_handler_c, setbox_handler_c, should_continue, tcojmp_handler, trampoline,
+            unbox_handler_c,
         },
         VmCore,
     },
@@ -395,6 +396,11 @@ impl Default for JIT {
         };
 
         map.add_func(
+            "drop-value",
+            drop_value as extern "C-unwind" fn(*mut VmCore, SteelVal),
+        );
+
+        map.add_func(
             "handle-pop!",
             extern_handle_pop as extern "C-unwind" fn(*mut VmCore, SteelVal),
         );
@@ -610,6 +616,11 @@ impl Default for JIT {
         map.add_func(
             "tco-jump",
             tcojmp_handler as extern "C-unwind" fn(*mut VmCore, usize),
+        );
+
+        map.add_func(
+            "set-handler",
+            set_handler_c as extern "C-unwind" fn(*mut VmCore, usize, SteelVal) -> SteelVal,
         );
 
         let function_map = OwnedFunctionMap {
@@ -1237,7 +1248,6 @@ impl FunctionTranslator<'_> {
     // into a function pointer, and we don't need to thread the
     // context through at all.
     fn stack_to_ssa(&mut self) -> bool {
-        println!("Entering...");
         while self.ip < self.instructions.len() {
             let instr = self.instructions[self.ip];
             let op = instr.op_code;
@@ -1347,12 +1357,31 @@ impl FunctionTranslator<'_> {
                 OpCode::BIND => todo!(),
                 OpCode::SDEF => todo!(),
                 OpCode::EDEF => todo!(),
-                OpCode::POPN => todo!(),
-                OpCode::POPSINGLE => todo!(),
+
+                // Drop n values
+                OpCode::POPN => {
+                    for _ in 0..payload {
+                        self.pop_single();
+                    }
+                    self.ip += 1;
+                }
+
+                OpCode::POPSINGLE => {
+                    self.pop_single();
+                    // let result = self.builder.inst_results(call)[0];
+
+                    self.ip += 1;
+                }
                 OpCode::PASS => todo!(),
                 OpCode::NDEFS => todo!(),
                 OpCode::PANIC => todo!(),
-                OpCode::SET => todo!(),
+                OpCode::SET => {
+                    let value = self.stack.pop().unwrap();
+                    self.value_to_local_map.remove(&value.0);
+                    let result = self.call_set(payload, value.0);
+                    self.stack.push((result, InferredType::Any));
+                    self.ip += 1;
+                }
                 OpCode::READLOCAL => todo!(),
 
                 // Read a local from the local stack.
@@ -1767,6 +1796,68 @@ impl FunctionTranslator<'_> {
         }
 
         return true;
+    }
+
+    fn call_set(&mut self, index: usize, value: Value) -> Value {
+        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
+        let mut sig = self.module.make_signature();
+
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
+
+        let p = AbiParam::new(codegen::ir::Type::int(128).unwrap());
+        sig.params.push(p);
+
+        let callee = self
+            .module
+            .declare_function("drop-value", Linkage::Import, &sig)
+            .expect("problem declaring function");
+
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+
+        let index = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), index as i64);
+
+        let arg_values = vec![ctx, index, value];
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+
+        result
+    }
+
+    fn pop_single(&mut self) {
+        let last = self.stack.pop().unwrap();
+        self.value_to_local_map.remove(&last.0);
+
+        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
+        let mut sig = self.module.make_signature();
+
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        let p = AbiParam::new(codegen::ir::Type::int(128).unwrap());
+        sig.params.push(p);
+
+        let callee = self
+            .module
+            .declare_function("drop-value", Linkage::Import, &sig)
+            .expect("problem declaring function");
+
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let arg_values = vec![ctx, last.0];
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
     }
 
     /// Call a function by its name. If this function has been registered in the builder

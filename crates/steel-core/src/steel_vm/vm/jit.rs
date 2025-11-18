@@ -235,6 +235,38 @@ const fn initialize_handlers() -> [OpHandlerC; MAX_OPCODE_SIZE] {
 }
 
 #[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn set_handler_c(
+    ctx: *mut VmCore,
+    index: usize,
+    value_to_assign: SteelVal,
+) -> SteelVal {
+    let this = unsafe { &mut *ctx };
+    let value = if this.thread.safepoints_enabled {
+        #[cfg(feature = "sync")]
+        {
+            this.thread
+                .with_locked_env(|_, env| env.set_idx(index, value_to_assign))
+        }
+
+        #[cfg(not(feature = "sync"))]
+        this.thread
+            .with_locked_env(|this| this.global_env.repl_set_idx(index, value_to_assign))?
+    } else {
+        this.thread.local_set(index, value_to_assign).unwrap()
+    };
+
+    this.ip += 1;
+
+    value
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn drop_value(ctx: *mut VmCore, arg: SteelVal) {
+    unsafe { &mut *ctx }.ip += 1;
+    drop(arg);
+}
+
+#[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn car_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     unsafe { &mut *ctx }.ip += 2;
     match car(&arg) {
