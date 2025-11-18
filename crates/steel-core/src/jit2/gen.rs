@@ -14,7 +14,7 @@ use crate::{
     core::instructions::{u24, DenseInstruction},
     steel_vm::vm::{
         jit::{
-            call_global_function_deopt_0, call_global_function_deopt_0_func,
+            box_handler_c, call_global_function_deopt_0, call_global_function_deopt_0_func,
             call_global_function_deopt_0_no_arity, call_global_function_deopt_1,
             call_global_function_deopt_1_func, call_global_function_deopt_1_no_arity,
             call_global_function_deopt_2, call_global_function_deopt_2_func,
@@ -32,8 +32,8 @@ use crate::{
             num_equal_value, num_equal_value_unboxed, push_const_value_c, push_const_value_index_c,
             push_global, push_int_0, push_int_1, push_int_2, push_to_vm_stack,
             push_to_vm_stack_two, read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
-            read_local_3_value_c, self_tail_call_handler, set_ctx_ip, should_continue,
-            tcojmp_handler, trampoline,
+            read_local_3_value_c, self_tail_call_handler, set_ctx_ip, setbox_handler_c,
+            should_continue, tcojmp_handler, trampoline, unbox_handler_c,
         },
         VmCore,
     },
@@ -497,6 +497,10 @@ impl Default for JIT {
         map.add_func("car-handler-value", car_handler_value as Vm02);
         map.add_func("cdr-handler-value", cdr_handler_value as Vm02);
         map.add_func("cons-handler-value", cons_handler_value as VmBinOp);
+
+        map.add_func("box-handler", box_handler_c as Vm02);
+        map.add_func("unbox-handler", unbox_handler_c as Vm02);
+        map.add_func("set-box-handler", setbox_handler_c as VmBinOp);
 
         map.add_func("push-const", push_const_value_c as Vm01);
         map.add_func(
@@ -996,6 +1000,8 @@ impl JIT {
             native: false,
             call_global_all_native,
             name,
+            value_to_local_map: HashMap::new(),
+            local_to_value_map: HashMap::new(),
         };
 
         // trans.translate_instructions();
@@ -1057,6 +1063,12 @@ struct FunctionTranslator<'a> {
     // Local values - whenever things are locally read, we can start using them
     // here.
     stack: Vec<(Value, InferredType)>,
+
+    // Local value mapping, can allow
+    // us to elide type checks if we have them
+    value_to_local_map: HashMap<Value, usize>,
+
+    local_to_value_map: HashMap<usize, InferredType>,
 
     arity: u16,
     constants: &'a ConstantMap,
@@ -1155,6 +1167,10 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::CDR, _) => "cdr-handler-value",
         (OpCode::CONS, _) => "cons-handler-value",
 
+        (OpCode::NEWBOX, _) => "box-handler",
+        (OpCode::UNBOX, _) => "unbox-handler",
+        (OpCode::SETBOX, _) => "set-box-handler",
+
         other => panic!(
             "couldn't match the name for the op code + payload: {:?}",
             other
@@ -1238,6 +1254,7 @@ impl FunctionTranslator<'_> {
                 OpCode::POPJMP | OpCode::POPPURE => {
                     // Push the remaining value back on to the stack.
                     let value = self.stack.pop().unwrap();
+                    self.value_to_local_map.remove(&value.0);
 
                     // Should break here - just call `handle_pop_pure_value` and
                     // handle the return value / updating
@@ -1290,6 +1307,7 @@ impl FunctionTranslator<'_> {
                 OpCode::IF => {
                     // TODO: Type inference here! Change which function is called!
                     let (test, typ) = self.stack.pop().unwrap();
+                    self.value_to_local_map.remove(&test);
 
                     let false_instr = self.instructions[self.ip].payload_size;
                     let true_instr = self.ip + 1;
@@ -1396,8 +1414,18 @@ impl FunctionTranslator<'_> {
                     }
 
                     let value = self.call_func_or_immediate(op, payload);
+
+                    self.value_to_local_map.insert(value, payload);
+
+                    let inferred_type =
+                        if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
+                            *inferred_type
+                        } else {
+                            InferredType::Any
+                        };
+
                     self.ip += 1;
-                    self.stack.push((value, InferredType::Any));
+                    self.stack.push((value, inferred_type));
                 }
 
                 OpCode::SETLOCAL => todo!(),
@@ -1569,6 +1597,10 @@ impl FunctionTranslator<'_> {
                             .collect::<Vec<_>>();
 
                         for c in spilled.chunks(2) {
+                            for arg in c.iter() {
+                                self.value_to_local_map.remove(&arg.0);
+                            }
+
                             if c.len() == 2 {
                                 self.push_to_vm_stack_two(c[0].0, c[1].0);
                             } else {
@@ -1663,13 +1695,45 @@ impl FunctionTranslator<'_> {
                 }
 
                 OpCode::LIST => todo!(),
+
+                // Inferred type of list... isn't very helpful when it also could be a pair?
+                // OpCode::CAR if self.stack.last().map(|x| x.1) == Some(InferredType::List) => {
+                //     let abi_type = AbiParam::new(Type::int(128).unwrap());
+
+                //     if let Some(last) = self.stack.last() {
+                //         // Check if that value makes sense
+                //         if let Some(from_local) = self.value_to_local_map.get(&last.0) {
+                //             self.local_to_value_map
+                //                 .insert(*from_local, InferredType::List);
+                //         }
+                //     }
+                //     self.func_ret_val(op, 1, 2, InferredType::Any, abi_type, abi_type);
+                // }
                 OpCode::CAR => {
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+
+                    if let Some(last) = self.stack.last() {
+                        // Check if that value makes sense
+                        if let Some(from_local) = self.value_to_local_map.get(&last.0) {
+                            self.local_to_value_map
+                                .insert(*from_local, InferredType::List);
+                        }
+                    }
+
+                    self.func_ret_val(op, 1, 2, InferredType::Any, abi_type, abi_type);
+                }
+                OpCode::NEWBOX => {
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+                    self.func_ret_val(op, 1, 2, InferredType::Box, abi_type, abi_type);
+                }
+                OpCode::SETBOX => {
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+                    self.func_ret_val(op, 2, 2, InferredType::Any, abi_type, abi_type);
+                }
+                OpCode::UNBOX => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     self.func_ret_val(op, 1, 2, InferredType::Any, abi_type, abi_type);
                 }
-                OpCode::NEWBOX => todo!(),
-                OpCode::SETBOX => todo!(),
-                OpCode::UNBOX => todo!(),
                 OpCode::ADDREGISTER => todo!(),
                 OpCode::SUBREGISTER => todo!(),
                 OpCode::LTEREGISTER => todo!(),
@@ -1681,8 +1745,6 @@ impl FunctionTranslator<'_> {
                 OpCode::Arity => todo!(),
                 OpCode::LetVar => todo!(),
                 OpCode::ADDIMMEDIATE => todo!(),
-                // Sub immediate:
-                // What the heck is this op code?
                 OpCode::SUBIMMEDIATE => todo!(),
                 OpCode::LTEIMMEDIATE => todo!(),
                 OpCode::BINOPADD => todo!(),
@@ -1844,9 +1906,18 @@ impl FunctionTranslator<'_> {
 
         if spilled.len() == 2 {
             let mut iter = spilled.into_iter();
-            self.push_to_vm_stack_two(iter.next().unwrap().0, iter.next().unwrap().0);
+
+            let first = iter.next().unwrap();
+            let second = iter.next().unwrap();
+
+            self.value_to_local_map.remove(&first.0);
+            self.value_to_local_map.remove(&second.0);
+
+            self.push_to_vm_stack_two(first.0, second.0);
         } else {
             for value in spilled {
+                self.value_to_local_map.remove(&value.0);
+
                 self.push_to_vm_stack(value.0);
             }
         }
@@ -1869,8 +1940,11 @@ impl FunctionTranslator<'_> {
         // Or just use the normal jump, where we jump to the
         // top of the instruction stack and reinvoke
         // the dyn super instruction?
-
         for c in self.stack.split_off(self.stack.len() - payload).chunks(2) {
+            for v in c {
+                self.value_to_local_map.remove(&v.0);
+            }
+
             if c.len() == 2 {
                 self.push_to_vm_stack_two(c[0].0, c[1].0);
             } else {
@@ -1914,8 +1988,12 @@ impl FunctionTranslator<'_> {
         for c in self.stack.split_off(self.stack.len() - payload).chunks(2) {
             if c.len() == 2 {
                 self.push_to_vm_stack_two(c[0].0, c[1].0);
+
+                self.value_to_local_map.remove(&c[0].0);
+                self.value_to_local_map.remove(&c[1].0);
             } else {
                 self.push_to_vm_stack(c[0].0);
+                self.value_to_local_map.remove(&c[0].0);
             }
         }
 
@@ -2180,6 +2258,10 @@ impl FunctionTranslator<'_> {
     ) {
         let args = self.stack.split_off(self.stack.len() - payload);
 
+        for arg in &args {
+            self.value_to_local_map.remove(&arg.0);
+        }
+
         println!("Args at {}: {:#?}", function_name, args);
 
         // TODO: Use the type hints! For now we're not going to for the sake
@@ -2188,6 +2270,7 @@ impl FunctionTranslator<'_> {
             .into_iter()
             .map(|x| (x.0, abi_param_type))
             .collect::<Vec<_>>();
+
         let result =
             self.call_function_returns_value_args_no_context(function_name, &args, abi_return_type);
 
@@ -2208,12 +2291,17 @@ impl FunctionTranslator<'_> {
         let function_name = op_to_name_payload(op, payload);
         let args = self.stack.split_off(self.stack.len() - payload);
 
+        for arg in &args {
+            self.value_to_local_map.remove(&arg.0);
+        }
+
         // TODO: Use the type hints! For now we're not going to for the sake
         // of getting something running
         let args = args
             .into_iter()
             .map(|x| (x.0, abi_param_type))
             .collect::<Vec<_>>();
+
         let result = self.call_function_returns_value_args(function_name, &args, abi_return_type);
 
         // Check the inferred type, if we know of it
@@ -2620,7 +2708,11 @@ impl FunctionTranslator<'_> {
         let then_return = BlockArg::Value(
             self.stack
                 .pop()
-                .map(|x| x.0)
+                .map(|x| {
+                    let value = x.0;
+                    self.value_to_local_map.remove(&value);
+                    value
+                })
                 .unwrap_or_else(|| dbg!(self.create_i128(encode(SteelVal::Void)))),
         );
 
@@ -2651,7 +2743,11 @@ impl FunctionTranslator<'_> {
         let else_return = BlockArg::Value(
             self.stack
                 .pop()
-                .map(|x| x.0)
+                .map(|x| {
+                    let value = x.0;
+                    self.value_to_local_map.remove(&value);
+                    value
+                })
                 .unwrap_or_else(|| dbg!(self.create_i128(encode(SteelVal::Void)))),
         );
 

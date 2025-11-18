@@ -236,6 +236,7 @@ const fn initialize_handlers() -> [OpHandlerC; MAX_OPCODE_SIZE] {
 
 #[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn car_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
+    unsafe { &mut *ctx }.ip += 2;
     match car(&arg) {
         Ok(v) => v,
         Err(e) => {
@@ -251,6 +252,56 @@ pub extern "C-unwind" fn car_handler_value(ctx: *mut VmCore, arg: SteelVal) -> S
 }
 
 #[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn box_handler_c(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
+    let this = unsafe { &mut *ctx };
+
+    let allocated_var = this.thread.heap.lock().unwrap().allocate(
+        arg,
+        &this.thread.stack,
+        this.thread.stack_frames.iter().map(|x| x.function.as_ref()),
+        this.thread.global_env.roots(),
+        &this.thread.thread_local_storage,
+        &mut this.thread.synchronizer,
+    );
+
+    SteelVal::HeapAllocated(allocated_var)
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn unbox_handler_c(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
+    let this = unsafe { &mut *ctx };
+
+    if let SteelVal::HeapAllocated(h) = arg {
+        h.get()
+    } else {
+        let err = || stop!(TypeMismatch => "unbox expected a boxed value, found: {}", arg);
+
+        this.is_native = false;
+        this.result = Some(err());
+        SteelVal::Void
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn setbox_handler_c(
+    ctx: *mut VmCore,
+    arg: SteelVal,
+    value: SteelVal,
+) -> SteelVal {
+    let this = unsafe { &mut *ctx };
+
+    if let SteelVal::HeapAllocated(h) = arg {
+        h.set_and_return(value)
+    } else {
+        let err = || stop!(TypeMismatch => "unbox expected a boxed value, found: {}", arg);
+
+        this.is_native = false;
+        this.result = Some(err());
+        SteelVal::Void
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn cons_handler_value(
     ctx: *mut VmCore,
     mut arg: SteelVal,
@@ -258,6 +309,8 @@ pub extern "C-unwind" fn cons_handler_value(
 ) -> SteelVal {
     // let mut arg = ManuallyDrop::new(arg);
     // let mut arg2 = ManuallyDrop::new(arg2);
+
+    unsafe { &mut *ctx }.ip += 2;
 
     // The problem here, is that arg2 is expecting
     // a reference to the stack slot. If its _actually_
@@ -283,6 +336,7 @@ pub extern "C-unwind" fn cons_handler_value(
 
 #[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn cdr_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
+    unsafe { &mut *ctx }.ip += 2;
     // let mut arg = ManuallyDrop::new(arg);
     let mut arg = arg;
     match cdr(&mut arg) {

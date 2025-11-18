@@ -1,3 +1,5 @@
+use std::hint::unreachable_unchecked;
+
 use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::{
     gc::Gc,
@@ -501,6 +503,18 @@ pub(crate) fn car(list: &SteelVal) -> Result<SteelVal> {
         _ => stop!(TypeMismatch => "car expected a list or pair, found: {}", list),
     }
 }
+
+// pub(crate) fn unsafe_car(list: &SteelVal) -> Result<SteelVal> {
+//     match list {
+//         SteelVal::ListV(l) => l
+//             .car()
+//             .ok_or_else(throw!(Generic => "car resulted in an error - empty list")),
+
+//         SteelVal::Pair(p) => Ok(p.car()),
+
+//         _ => unsafe { unreachable_unchecked() },
+//     }
+// }
 
 // Optimistic check to see if the rest is null before making an allocation
 #[steel_derive::native(name = "cdr-null?", constant = true, arity = "Exact(1)")]

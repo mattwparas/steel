@@ -5,7 +5,8 @@
          loop
          jit-loop
          assoc2
-         fake-car)
+         fake-car
+         test-alloc-stuff)
 
 ;; This should return an int, and should always
 ;; return an int - we should be able to do
@@ -61,13 +62,18 @@
     [(equal? (car (car lst)) obj) (car lst)]
     [else (assoc2 obj (cdr lst))]))
 
+(define (test-alloc-stuff obj)
+  (unbox (box obj)))
+
+(#%jit-compile-2 test-alloc-stuff)
+
 ;; TODO: Fix the inlining issue with free identifiers
 ; (define (loop x y)
 ;   (if (= x y)
 ;       x
 ;       (loop (+ x 1))))
 
-(#%jit-compile-2 assoc2)
+; (#%jit-compile-2 assoc2)
 
 ; (add-two 10)
 
