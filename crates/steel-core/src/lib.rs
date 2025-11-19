@@ -31,3 +31,6 @@ pub use steel_derive::steel_quote;
 pub use values::LambdaMetadataTable;
 pub use values::RootToken;
 pub use values::RootedSteelVal;
+
+#[cfg(feature = "jit2")]
+pub mod jit2;

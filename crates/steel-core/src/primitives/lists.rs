@@ -1,3 +1,5 @@
+use std::hint::unreachable_unchecked;
+
 use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::{
     gc::Gc,
@@ -435,10 +437,11 @@ fn length(list: &List<SteelVal>) -> usize {
 /// ```
 #[steel_derive::function(name = "reverse", constant = true)]
 fn reverse(arg: &mut SteelVal) -> Result<SteelVal> {
-    if let SteelVal::ListV(l) = std::mem::replace(arg, SteelVal::Void) {
+    let replaced = std::mem::replace(arg, SteelVal::Void);
+    if let SteelVal::ListV(l) = replaced {
         Ok(SteelVal::ListV(l.reverse()))
     } else {
-        stop!(TypeMismatch => "reverse expects a list")
+        stop!(TypeMismatch => "reverse expects a list, found: {}", replaced)
     }
 }
 
@@ -501,6 +504,18 @@ pub(crate) fn car(list: &SteelVal) -> Result<SteelVal> {
         _ => stop!(TypeMismatch => "car expected a list or pair, found: {}", list),
     }
 }
+
+// pub(crate) fn unsafe_car(list: &SteelVal) -> Result<SteelVal> {
+//     match list {
+//         SteelVal::ListV(l) => l
+//             .car()
+//             .ok_or_else(throw!(Generic => "car resulted in an error - empty list")),
+
+//         SteelVal::Pair(p) => Ok(p.car()),
+
+//         _ => unsafe { unreachable_unchecked() },
+//     }
+// }
 
 // Optimistic check to see if the rest is null before making an allocation
 #[steel_derive::native(name = "cdr-null?", constant = true, arity = "Exact(1)")]

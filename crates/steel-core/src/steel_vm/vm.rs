@@ -22,9 +22,9 @@ use crate::rvals::AsRefSteelVal;
 use crate::rvals::BoxedAsyncFunctionSignature;
 use crate::rvals::FromSteelVal as _;
 use crate::rvals::SteelString;
-use crate::steel_vm::primitives::steel_not;
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
+use crate::steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive, steel_not};
 use crate::values::closed::Heap;
 use crate::values::closed::MarkAndSweepContext;
 use crate::values::functions::CaptureVec;
@@ -75,6 +75,9 @@ use threads::ThreadHandle;
 use crate::rvals::{into_serializable_value, IntoSteelVal};
 
 pub(crate) mod threads;
+
+#[cfg(feature = "jit2")]
+pub mod jit;
 
 pub use threads::{mutex_lock, mutex_unlock};
 
@@ -402,7 +405,9 @@ pub struct SteelThread {
     pub(crate) id: EngineId,
 
     pub(crate) safepoints_enabled: bool,
-    // pub(crate) delayed_dropper: DelayedDropper,
+
+    #[cfg(feature = "jit2")]
+    pub(crate) jit: Arc<Mutex<crate::jit2::gen::JIT>>,
 }
 
 #[derive(Clone)]
@@ -436,6 +441,9 @@ pub struct FunctionInterner {
     // reference to the existing thread in which it was created, and if passed in externally by
     // another run time, we can nuke it?
     pub(crate) spans: rustc_hash::FxHashMap<u32, Shared<[Span]>>,
+
+    #[cfg(feature = "jit2")]
+    jit_funcs: rustc_hash::FxHashMap<u32, Gc<ByteCodeLambda>>,
 }
 
 #[derive(Clone, Default)]
@@ -784,6 +792,9 @@ impl SteelThread {
             // Only incur the cost of the actual safepoint behavior
             // if multiple threads are enabled
             safepoints_enabled: false,
+
+            #[cfg(feature = "jit2")]
+            jit: Arc::new(Mutex::new(crate::jit2::gen::JIT::default())),
             // delayed_dropper: DelayedDropper::new(),
         }
     }
@@ -1577,9 +1588,10 @@ impl<'a> VmContext for VmCore<'a> {
 //     }
 // }
 
+#[repr(C)]
 pub struct VmCore<'a> {
+    pub(crate) is_native: bool,
     pub(crate) instructions: RootedInstructions,
-
     // TODO: Replace this with a thread local constant map!
     // that way reads are fast - and any updates to it are
     // broadcast from the shared constant map.
@@ -1590,6 +1602,10 @@ pub struct VmCore<'a> {
     pub(crate) depth: usize,
     pub(crate) thread: &'a mut SteelThread,
     pub(crate) root_spans: &'a [Span],
+
+    pub(crate) return_value: Option<SteelVal>,
+    // TODO: This means we've entered the native section of the code
+    pub(crate) result: Option<Result<SteelVal>>,
 }
 
 // TODO: Delete this entirely, and just have the run function live on top of the SteelThread.
@@ -1610,6 +1626,9 @@ impl<'a> VmCore<'a> {
             depth: 0,
             thread,
             root_spans,
+            return_value: None,
+            is_native: false,
+            result: None,
         }
     }
 
@@ -1632,6 +1651,9 @@ impl<'a> VmCore<'a> {
             depth: 0,
             thread,
             root_spans,
+            return_value: None,
+            is_native: false,
+            result: None,
         })
     }
 
@@ -2494,6 +2516,35 @@ impl<'a> VmCore<'a> {
             // dbg!(&instr);
 
             match instr {
+                #[cfg(feature = "jit2")]
+                DenseInstruction {
+                    op_code: OpCode::DynSuperInstruction,
+                    ..
+                } => {
+                    // Entering the context of the native code.
+                    // If at any point we deopt, we should check this flag on the
+                    // runtime, which tells the function to just return and let
+                    // the runtime do the thing now.
+                    self.is_native = true;
+
+                    self.thread
+                        .stack_frames
+                        .last()
+                        .unwrap()
+                        .function
+                        .super_instructions
+                        .as_ref()
+                        .unwrap()(self);
+
+                    self.is_native = false;
+
+                    if let Some(res) = self.result.take() {
+                        println!("Found result: {:?}", res);
+
+                        return res;
+                    }
+                }
+
                 // DenseInstruction {
                 //     op_code: OpCode::DynSuperInstruction,
                 //     payload_size,
@@ -2980,6 +3031,33 @@ impl<'a> VmCore<'a> {
                 }
 
                 DenseInstruction {
+                    op_code: OpCode::LT,
+                    payload_size,
+                    ..
+                } => {
+                    // #[cfg(feature = "jit2")]
+                    lt_handler_payload(self, payload_size.to_usize())?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::GT,
+                    payload_size,
+                    ..
+                } => {
+                    // #[cfg(feature = "jit2")]
+                    gt_handler_payload(self, payload_size.to_usize())?;
+                }
+
+                DenseInstruction {
+                    op_code: OpCode::GTE,
+                    payload_size,
+                    ..
+                } => {
+                    // #[cfg(feature = "jit2")]
+                    gte_handler_payload(self, payload_size.to_usize())?;
+                }
+
+                DenseInstruction {
                     op_code: OpCode::VOID,
                     ..
                 } => {
@@ -3407,22 +3485,26 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::SELFTAILCALLNOARITY,
                     payload_size,
                 } => {
+                    // println!("self tail cail: {:?}", self.thread.stack);
                     let current_arity = payload_size.to_usize();
 
-                    let last_stack_frame = self.thread.stack_frames.last().unwrap();
+                    // let last_stack_frame = self.thread.stack_frames.last().unwrap();
 
-                    #[cfg(feature = "dynamic")]
-                    {
-                        last_stack_frame.function.increment_call_count();
-                    }
+                    // #[cfg(feature = "dynamic")]
+                    // {
+                    //     last_stack_frame.function.increment_call_count();
+                    // }
 
-                    self.instructions = last_stack_frame.function.body_exp();
-                    self.sp = last_stack_frame.sp;
+                    // self.instructions = last_stack_frame.function.body_exp();
+                    // dbg!(last_stack_frame.sp);
+                    // dbg!(self.sp);
+
+                    // self.sp = last_stack_frame.sp;
 
                     self.ip = 0;
 
                     // TODO: Adjust the stack for multiple arity functions
-                    let offset = last_stack_frame.sp;
+                    // let offset = last_stack_frame.sp;
 
                     // We should have arity at this point, drop the stack up to this point
                     // take the last arity off the stack, go back and replace those in order
@@ -3433,7 +3515,7 @@ impl<'a> VmCore<'a> {
                     // [... frame-start ... arg1 arg2 arg3]
                     //      ^^^^^^~~~~~~~~
                     let back = self.thread.stack.len() - current_arity;
-                    let _ = self.thread.stack.drain(offset..back);
+                    let _ = self.thread.stack.drain(self.sp..back);
                 }
 
                 DenseInstruction {
@@ -3441,25 +3523,19 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
+                    // println!("tcojmp: {:?}", self.thread.stack);
                     let mut current_arity = payload_size.to_usize();
-                    // This is the number of (local) functions we need to pop to get back to the place we want to be at
-                    // let depth = self.instructions[self.ip + 1].payload_size.to_usize();
-
-                    // for _ in 0..depth {
-                    //     self.thread.stack_frames.pop();
-                    //     self.pop_count -= 1;
-                    // }
 
                     let last_stack_frame = self.thread.stack_frames.last().unwrap();
 
-                    #[cfg(feature = "dynamic")]
-                    {
-                        last_stack_frame.function.increment_call_count();
-                    }
+                    // #[cfg(feature = "dynamic")]
+                    // {
+                    //     last_stack_frame.function.increment_call_count();
+                    // }
 
-                    self.instructions = last_stack_frame.function.body_exp();
+                    // self.instructions = last_stack_frame.function.body_exp();
                     // self.spans = last_stack_frame.function.spans();
-                    self.sp = last_stack_frame.sp;
+                    // self.sp = last_stack_frame.sp;
 
                     // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
 
@@ -3513,7 +3589,7 @@ impl<'a> VmCore<'a> {
                     // self.heap.collect_garbage();
                     // }
                     // let offset = self.stack_index.last().copied().unwrap_or(0);
-                    let offset = last_stack_frame.sp;
+                    // let offset = last_stack_frame.sp;
 
                     // We should have arity at this point, drop the stack up to this point
                     // take the last arity off the stack, go back and replace those in order
@@ -3528,7 +3604,7 @@ impl<'a> VmCore<'a> {
                     //     self.stack[offset + i] = self.stack[back + i].clone();
                     // }
 
-                    let _ = self.thread.stack.drain(offset..back);
+                    let _ = self.thread.stack.drain(self.sp..back);
                 }
 
                 // Blindly go to the next instructions
@@ -3765,6 +3841,7 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn handle_pop_pure_value(&mut self, value: SteelVal) -> Option<Result<SteelVal>> {
+        // println!("calling pop: {}", value);
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
         // println!("{} - {}", self.pop_count, self.thread.stack_frames.len());
@@ -3824,19 +3901,6 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn handle_pop_pure(&mut self) -> Option<Result<SteelVal>> {
-        // Just collect things to drop, dump them at once at a safe point?
-        // static DROP_THREAD: LazyLock<crossbeam_channel::Sender<SteelVal>> = LazyLock::new(|| {
-        //     let (sender, receiver) = crossbeam_channel::unbounded();
-
-        //     std::thread::spawn(move || {
-        //         for value in receiver {
-        //             drop(value)
-        //         }
-        //     });
-
-        //     sender
-        // });
-
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
         // println!("{} - {}", self.pop_count, self.thread.stack_frames.len());
@@ -7306,6 +7370,21 @@ fn set_alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
 
     Ok(())
     */
+}
+
+pub(super) fn lt_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, lt_primitive, payload);
+    Ok(())
+}
+
+pub(super) fn gt_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, gt_primitive, payload);
+    Ok(())
+}
+
+pub(super) fn gte_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
+    handler_inline_primitive_payload!(ctx, gte_primitive, payload);
+    Ok(())
 }
 
 #[allow(unused)]
