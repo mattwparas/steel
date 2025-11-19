@@ -437,10 +437,11 @@ fn length(list: &List<SteelVal>) -> usize {
 /// ```
 #[steel_derive::function(name = "reverse", constant = true)]
 fn reverse(arg: &mut SteelVal) -> Result<SteelVal> {
-    if let SteelVal::ListV(l) = std::mem::replace(arg, SteelVal::Void) {
+    let replaced = std::mem::replace(arg, SteelVal::Void);
+    if let SteelVal::ListV(l) = replaced {
         Ok(SteelVal::ListV(l.reverse()))
     } else {
-        stop!(TypeMismatch => "reverse expects a list")
+        stop!(TypeMismatch => "reverse expects a list, found: {}", replaced)
     }
 }
 

@@ -1,3 +1,5 @@
+use std::mem::ManuallyDrop;
+
 use steel_gen::opcode::{MAX_OPCODE_SIZE, OPCODES_ARRAY};
 
 use super::VmCore;
@@ -369,8 +371,8 @@ pub extern "C-unwind" fn cons_handler_value(
 #[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn cdr_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     unsafe { &mut *ctx }.ip += 2;
-    // let mut arg = ManuallyDrop::new(arg);
     let mut arg = arg;
+
     match cdr(&mut arg) {
         Ok(v) => v,
         Err(e) => {
@@ -1091,6 +1093,7 @@ pub(crate) extern "C-unwind" fn extern_handle_pop(ctx: *mut VmCore, value: Steel
     unsafe {
         let this = &mut *ctx;
         let res = this.handle_pop_pure_value(value);
+        this.is_native = false;
         this.result = res;
     }
 }
@@ -1314,6 +1317,13 @@ pub(crate) extern "C-unwind" fn move_read_local_3_value_c(ctx: *mut VmCore) -> S
 }
 
 #[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn move_read_local_any_value_c(ctx: *mut VmCore) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.instructions[guard.ip].payload_size.to_usize();
+    guard.move_local_value(offset)
+}
+
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn read_local_0_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).get_local_value(0) }
 }
@@ -1331,6 +1341,13 @@ pub(crate) extern "C-unwind" fn read_local_2_value_c(ctx: *mut VmCore) -> SteelV
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn read_local_3_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).get_local_value(3) }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn read_local_any_value_c(ctx: *mut VmCore) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.instructions[guard.ip].payload_size.to_usize();
+    guard.get_local_value(offset)
 }
 
 pub(crate) extern "C-unwind" fn push_int_0(ctx: *mut VmCore) -> i128 {
@@ -1468,6 +1485,7 @@ fn new_callglobal_tail_handler_deopt_test(
     };
 
     if should_yield {
+        println!("Yielding");
         ctx.ip = fallback_ip + 1;
         ctx.is_native = !should_yield;
     }
@@ -1680,6 +1698,7 @@ pub(crate) extern "C-unwind" fn should_continue(ctx: *mut VmCore) -> bool {
 
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn push_to_vm_stack(ctx: *mut VmCore, value: SteelVal) {
+    // println!("Pushing to vm stack: {}", value);
     unsafe {
         (&mut *ctx).thread.stack.push(value);
     }
@@ -1762,6 +1781,17 @@ pub(crate) extern "C-unwind" fn check_callable(ctx: *mut VmCore, lookup_index: u
             SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_)
         )
     }
+}
+
+pub(crate) extern "C-unwind" fn check_callable_value(ctx: *mut VmCore, func: SteelVal) -> bool {
+    // Check that the function we're calling is in fact something callable via native code.
+    // We'll want to spill the stack otherwise.
+    let func = ManuallyDrop::new(func);
+    // Builtins can yield control in a funky way.
+    !matches!(
+        &*func,
+        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_)
+    )
 }
 
 // Directly call and get the result of the next function
@@ -1866,6 +1896,48 @@ pub(crate) extern "C-unwind" fn call_global_function_deopt_3(
             &mut [arg0, arg1, arg2],
         )
     }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn call_function_deopt_0(
+    ctx: *mut VmCore,
+    func: SteelVal,
+    fallback_ip: usize,
+) -> SteelVal {
+    unsafe { call_function_deopt(&mut *ctx, func, fallback_ip, &mut []) }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn call_function_deopt_1(
+    ctx: *mut VmCore,
+    func: SteelVal,
+    fallback_ip: usize,
+    arg0: SteelVal,
+) -> SteelVal {
+    unsafe { call_function_deopt(&mut *ctx, func, fallback_ip, &mut [arg0]) }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn call_function_deopt_2(
+    ctx: *mut VmCore,
+    func: SteelVal,
+    fallback_ip: usize,
+    arg0: SteelVal,
+    arg1: SteelVal,
+) -> SteelVal {
+    unsafe { call_function_deopt(&mut *ctx, func, fallback_ip, &mut [arg0, arg1]) }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn call_function_deopt_3(
+    ctx: *mut VmCore,
+    func: SteelVal,
+    fallback_ip: usize,
+    arg0: SteelVal,
+    arg1: SteelVal,
+    arg2: SteelVal,
+) -> SteelVal {
+    unsafe { call_function_deopt(&mut *ctx, func, fallback_ip, &mut [arg0, arg1, arg2]) }
 }
 
 #[allow(improper_ctypes_definitions)]
@@ -2018,12 +2090,61 @@ fn call_global_function_deopt(
     };
 
     if should_yield {
-        // ctx.ip = dbg!(fallback_ip + 1);
         ctx.ip = fallback_ip;
         ctx.is_native = !should_yield;
+    } else {
+        ctx.ip += 2;
     }
 
-    ctx.ip += 2;
+    match handle_global_function_call_with_args(ctx, func, args) {
+        Ok(v) => {
+            // println!("args after call: {:?}", args);
+
+            v
+        }
+        Err(e) => {
+            ctx.is_native = false;
+            ctx.result = Some(Err(e));
+            return SteelVal::Void;
+        }
+    }
+}
+
+// Either... return a value, or deopt and yield control back to the runtime.
+// How do we signal to yield back to the runtime?
+#[inline(always)]
+fn call_function_deopt(
+    ctx: &mut VmCore,
+    func: SteelVal,
+    fallback_ip: usize,
+    args: &mut [SteelVal],
+) -> SteelVal {
+    // println!("Calling global function, with args: {:?}", args);
+
+    // TODO: Only do this if we have to deopt
+    // ctx.ip = fallback_ip;
+
+    // let index = ctx.instructions[ctx.ip].payload_size;
+    // ctx.ip += 1;
+    // let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
+
+    // Deopt -> Meaning, check the return value if we're done - so we just
+    // will eventually check the stashed error.
+    let should_yield = match &func {
+        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
+        _ => false,
+    };
+
+    if should_yield {
+        // println!("Deopt in local function call");
+        // println!("Function: {}", func);
+        // ctx.ip = dbg!(fallback_ip + 1);
+        ctx.ip = fallback_ip;
+
+        ctx.is_native = !should_yield;
+    } else {
+        ctx.ip += 2;
+    }
 
     match handle_global_function_call_with_args(ctx, func, args) {
         Ok(v) => v,

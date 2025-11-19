@@ -14,7 +14,8 @@ use crate::{
     core::instructions::{u24, DenseInstruction},
     steel_vm::vm::{
         jit::{
-            box_handler_c, call_global_function_deopt_0, call_global_function_deopt_0_func,
+            box_handler_c, call_function_deopt_0, call_function_deopt_1, call_function_deopt_2,
+            call_function_deopt_3, call_global_function_deopt_0, call_global_function_deopt_0_func,
             call_global_function_deopt_0_no_arity, call_global_function_deopt_1,
             call_global_function_deopt_1_func, call_global_function_deopt_1_no_arity,
             call_global_function_deopt_2, call_global_function_deopt_2_func,
@@ -23,16 +24,17 @@ use crate::{
             call_global_function_tail_deopt_1, call_global_function_tail_deopt_2,
             call_global_function_tail_deopt_3, callglobal_handler_deopt_c,
             callglobal_tail_handler_deopt_3, callglobal_tail_handler_deopt_3_test,
-            car_handler_value, cdr_handler_value, check_callable, cons_handler_value, drop_value,
-            equal_binop, extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two,
-            extern_c_lt_two, extern_c_lte_two, extern_c_mult_two, extern_c_null_handler,
-            extern_c_sub_two, extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value,
-            if_handler_value, let_end_scope_c, move_read_local_0_value_c,
-            move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
-            not_handler_raw_value, num_equal_value, num_equal_value_unboxed, push_const_value_c,
-            push_const_value_index_c, push_global, push_int_0, push_int_1, push_int_2,
-            push_to_vm_stack, push_to_vm_stack_two, read_local_0_value_c, read_local_1_value_c,
-            read_local_2_value_c, read_local_3_value_c, self_tail_call_handler, set_ctx_ip,
+            car_handler_value, cdr_handler_value, check_callable, check_callable_value,
+            cons_handler_value, drop_value, equal_binop, extern_c_add_two, extern_c_div_two,
+            extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
+            extern_c_mult_two, extern_c_null_handler, extern_c_sub_two, extern_c_sub_two_int,
+            extern_handle_pop, if_handler_raw_value, if_handler_value, let_end_scope_c,
+            move_read_local_0_value_c, move_read_local_1_value_c, move_read_local_2_value_c,
+            move_read_local_3_value_c, move_read_local_any_value_c, not_handler_raw_value,
+            num_equal_value, num_equal_value_unboxed, push_const_value_c, push_const_value_index_c,
+            push_global, push_int_0, push_int_1, push_int_2, push_to_vm_stack,
+            push_to_vm_stack_two, read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
+            read_local_3_value_c, read_local_any_value_c, self_tail_call_handler, set_ctx_ip,
             set_handler_c, setbox_handler_c, should_continue, tcojmp_handler, trampoline,
             unbox_handler_c,
         },
@@ -351,6 +353,43 @@ impl Default for JIT {
             "handle-pop!",
             extern_handle_pop as extern "C-unwind" fn(*mut VmCore, SteelVal),
         );
+        // 0 => "call-func-deopt-0",
+        // 1 => "call-func-deopt-1",
+        // 2 => "call-func-deopt-2",
+        // 3 => "call-func-deopt-3",
+
+        map.add_func(
+            "call-func-deopt-0",
+            call_function_deopt_0 as extern "C-unwind" fn(*mut VmCore, SteelVal, usize) -> SteelVal,
+        );
+        map.add_func(
+            "call-func-deopt-1",
+            call_function_deopt_1
+                as extern "C-unwind" fn(*mut VmCore, SteelVal, usize, SteelVal) -> SteelVal,
+        );
+        map.add_func(
+            "call-func-deopt-2",
+            call_function_deopt_2
+                as extern "C-unwind" fn(
+                    *mut VmCore,
+                    SteelVal,
+                    usize,
+                    SteelVal,
+                    SteelVal,
+                ) -> SteelVal,
+        );
+        map.add_func(
+            "call-func-deopt-3",
+            call_function_deopt_3
+                as extern "C-unwind" fn(
+                    *mut VmCore,
+                    SteelVal,
+                    usize,
+                    SteelVal,
+                    SteelVal,
+                    SteelVal,
+                ) -> SteelVal,
+        );
 
         map.add_func(
             "call-global-function-deopt-0",
@@ -415,6 +454,11 @@ impl Default for JIT {
         map.add_func(
             "check-callable",
             check_callable as extern "C-unwind" fn(ctx: *mut VmCore, index: usize) -> bool,
+        );
+
+        map.add_func(
+            "check-callable-value",
+            check_callable_value as extern "C-unwind" fn(ctx: *mut VmCore, func: SteelVal) -> bool,
         );
 
         map.add_func(
@@ -548,12 +592,15 @@ impl Default for JIT {
         map.add_func("read-local-1", read_local_1_value_c as Vm01);
         map.add_func("read-local-2", read_local_2_value_c as Vm01);
         map.add_func("read-local-3", read_local_3_value_c as Vm01);
-        // map.add_func("move-read-local-0", move_read_local_0_value_c as Vm01);
+
+        map.add_func("read-local-any", read_local_any_value_c as Vm01);
 
         map.add_func("move-read-local-0", move_read_local_0_value_c as Vm01);
         map.add_func("move-read-local-1", move_read_local_1_value_c as Vm01);
         map.add_func("move-read-local-2", move_read_local_2_value_c as Vm01);
         map.add_func("move-read-local-3", move_read_local_3_value_c as Vm01);
+
+        map.add_func("move-read-local-any", move_read_local_any_value_c as Vm01);
 
         map.add_func(
             "self-tail-call",
@@ -728,7 +775,7 @@ impl JIT {
             function_index,
         )?;
 
-        println!("{}", self.ctx.func);
+        // println!("{}", self.ctx.func);
 
         // Next, declare the function to jit. Functions must be declared
         // before they can be called, or defined.
@@ -951,7 +998,7 @@ impl JIT {
             arity,
             constants,
             local_count: 0,
-            patched_locals: false,
+            patched_locals: Vec::new(),
             function_map: &self.function_map,
             function_context,
             id: func_id,
@@ -1033,7 +1080,7 @@ struct FunctionTranslator<'a> {
 
     local_count: usize,
 
-    patched_locals: bool,
+    patched_locals: Vec<bool>,
 
     function_map: &'a OwnedFunctionMap,
 
@@ -1096,6 +1143,9 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::READLOCAL1, _) => "read-local-1",
         (OpCode::READLOCAL2, _) => "read-local-2",
         (OpCode::READLOCAL3, _) => "read-local-3",
+
+        (OpCode::READLOCAL, _) => "read-local-any",
+        (OpCode::MOVEREADLOCAL, _) => "move-read-local-any",
 
         (OpCode::MOVEREADLOCAL0, _) => "move-read-local-0",
         (OpCode::MOVEREADLOCAL1, _) => "move-read-local-1",
@@ -1189,6 +1239,10 @@ impl FunctionTranslator<'_> {
         result
     }
 
+    fn current_scope_locals_patched(&self) -> bool {
+        self.patched_locals.last().copied().unwrap_or_default()
+    }
+
     // Read values off of the stack - push them on to
     // wherever they need to go.
     // Assuming the whole instruction set is translated and we also confirm
@@ -1201,7 +1255,7 @@ impl FunctionTranslator<'_> {
         while self.ip < self.instructions.len() {
             let instr = self.instructions[self.ip];
             let op = instr.op_code;
-            println!("{:?} - {:?}", op, std::mem::discriminant(&op));
+            println!("{:?}", op);
             let payload = instr.payload_size.to_usize();
             match op {
                 OpCode::LOADINT1POP
@@ -1219,9 +1273,23 @@ impl FunctionTranslator<'_> {
                     // handle the return value / updating
                     // of various things here.
 
+                    if self.stack.len() > self.arity as _ && !self.current_scope_locals_patched() {
+                        // if !self.patched_locals {
+                        println!("Stack at vm pop: {:?}", self.stack);
+                        for value in self.stack.clone() {
+                            self.push_to_vm_stack(value.0);
+                        }
+                    } else {
+                        println!(
+                            "Already patched locals, Stack at vm pop: {:?} - {}",
+                            self.stack, self.arity
+                        );
+                    }
+
                     self.vm_pop(value.0);
 
-                    self.ip += 1;
+                    self.ip = self.instructions.len() + 1;
+                    // self.ip + 1;
 
                     return false;
                 }
@@ -1284,7 +1352,22 @@ impl FunctionTranslator<'_> {
                 OpCode::JMP => {
                     self.ip = payload;
                 }
-                OpCode::FUNC => todo!(),
+                // Call func... lets see how this goes...
+                OpCode::FUNC => {
+                    let arity = payload;
+                    let name = match arity {
+                        0 => "call-func-deopt-0",
+                        1 => "call-func-deopt-1",
+                        2 => "call-func-deopt-2",
+                        3 => "call-func-deopt-3",
+                        other => todo!(),
+                    };
+
+                    let v = self.call_function(arity, name);
+                    self.ip += 1;
+                    self.stack.push((v, InferredType::Any));
+                    self.check_deopt();
+                }
                 OpCode::SCLOSURE => todo!(),
                 OpCode::ECLOSURE => todo!(),
                 OpCode::BIND => todo!(),
@@ -1310,7 +1393,44 @@ impl FunctionTranslator<'_> {
                     self.stack.push((result, InferredType::Any));
                     self.ip += 1;
                 }
-                OpCode::READLOCAL => todo!(),
+                // TODO:
+                OpCode::READLOCAL | OpCode::MOVEREADLOCAL => {
+                    if payload + 1 > self.arity as _ && !self.current_scope_locals_patched() {
+                        let locals_to_patch = self.local_count;
+                        println!("Patching locals: {}", locals_to_patch);
+                        println!("Arity: {}", self.arity);
+                        println!("Payload: {}", payload);
+
+                        println!("Stack: {:?}", self.stack);
+
+                        // for i in 0..locals_to_patch {
+                        //     // let i = self.arity as usize + i;
+                        //     let item = self.stack.get(i).unwrap();
+                        //     self.push_to_vm_stack(item.0);
+                        // }
+
+                        for i in (0..locals_to_patch).rev() {
+                            let value = self.stack.remove(i);
+                            self.push_to_vm_stack(value.0);
+                        }
+
+                        *self.patched_locals.last_mut().unwrap() = true;
+                    }
+
+                    let value = self.call_func_or_immediate(op, payload);
+
+                    self.value_to_local_map.insert(value, payload);
+
+                    let inferred_type =
+                        if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
+                            *inferred_type
+                        } else {
+                            InferredType::Any
+                        };
+
+                    self.ip += 1;
+                    self.stack.push((value, inferred_type));
+                }
                 OpCode::PUSHCONST => {
                     let payload = self.instructions[self.ip].payload_size.to_usize();
                     let value = self.call_func_or_immediate(op, payload);
@@ -1344,16 +1464,27 @@ impl FunctionTranslator<'_> {
                 | OpCode::MOVEREADLOCAL2
                 | OpCode::MOVEREADLOCAL3 => {
                     // these are gonna get spilled anyway?
-                    if payload + 1 > self.arity as _ && !self.patched_locals {
+                    if payload + 1 > self.arity as _ && !self.current_scope_locals_patched() {
                         let locals_to_patch = self.local_count;
                         println!("Patching locals: {}", locals_to_patch);
+                        println!("Stack at local patching: {}", self.stack.len());
+                        println!("payload: {}", payload);
 
-                        for i in 0..locals_to_patch {
-                            let item = self.stack.get(i).unwrap();
-                            self.push_to_vm_stack(item.0);
+                        // Patch last n values from the stack on to the VM stack
+                        // let values = self.stack[self.stack.len() - locals_to_patch..].to_vec();
+                        // for i in values {
+                        //     self.push_to_vm_stack(i.0);
+                        // }
+
+                        for i in (0..locals_to_patch).rev() {
+                            let value = self.stack.remove(i);
+                            self.push_to_vm_stack(value.0);
                         }
 
-                        self.patched_locals = true;
+                        // self.patched_locals.push(true);
+                        *self.patched_locals.last_mut().unwrap() = true;
+                    } else {
+                        println!("Skipping patching locals: {:?}", self.patched_locals);
                     }
 
                     let value = self.call_func_or_immediate(op, payload);
@@ -1450,9 +1581,10 @@ impl FunctionTranslator<'_> {
                     // Then, we're gonna check the result and see if we should deopt
                     self.check_deopt();
                 }
-                OpCode::MOVEREADLOCAL => todo!(),
                 OpCode::READCAPTURED => todo!(),
                 OpCode::BEGINSCOPE => {
+                    self.patched_locals.push(false);
+
                     // Next n values should stick around on the stack.
                     for instr in &self.instructions[self.ip..] {
                         if instr.op_code == OpCode::LETENDSCOPE {
@@ -1468,7 +1600,7 @@ impl FunctionTranslator<'_> {
                     self.local_count = payload;
                     self.ip += 1;
 
-                    if !self.patched_locals {
+                    if self.stack.len() > self.arity as _ && !self.current_scope_locals_patched() {
                         let spilled = self
                             .stack
                             .drain(payload..self.stack.len() - 1)
@@ -1489,7 +1621,7 @@ impl FunctionTranslator<'_> {
 
                     self.call_end_scope_handler(payload);
 
-                    self.patched_locals = false;
+                    self.patched_locals.pop();
                 }
                 OpCode::PUREFUNC => todo!(),
                 OpCode::SUB if payload == 2 => {
@@ -1816,6 +1948,7 @@ impl FunctionTranslator<'_> {
 
         let arg_values = vec![ctx, lookup_index];
 
+        // TODO: Revisit when bringing trampoline back
         let spilled = self
             .stack
             .drain(self.stack.len() - arity..)
@@ -1853,11 +1986,14 @@ impl FunctionTranslator<'_> {
         // top of the instruction stack and reinvoke
         // the dyn super instruction?
 
+        let args = self.stack.split_off(self.stack.len() - payload);
+
+        println!("Stack remaining at tco jump: {:?}", self.stack);
         // Translate to a while loop with calls to destructors?
         // Or just use the normal jump, where we jump to the
         // top of the instruction stack and reinvoke
         // the dyn super instruction?
-        for c in self.stack.split_off(self.stack.len() - payload).chunks(2) {
+        for c in args.chunks(2) {
             for v in c {
                 self.value_to_local_map.remove(&v.0);
             }
@@ -1900,9 +2036,20 @@ impl FunctionTranslator<'_> {
         // Or just use the normal jump, where we jump to the
         // top of the instruction stack and reinvoke
         // the dyn super instruction?
+        println!("Stack at self tco jump: {:?}", self.stack);
+
+        let args = self.stack.split_off(self.stack.len() - payload);
+
+        println!("Stack remaining at self tco jump: {:?}", self.stack);
+
+        if self.stack.len() > self.arity as _ {
+            for value in std::mem::take(&mut self.stack) {
+                self.push_to_vm_stack(value.0);
+            }
+        }
 
         // Its just the arity that we want, not the full stack.
-        for c in self.stack.split_off(self.stack.len() - payload).chunks(2) {
+        for c in args.chunks(2) {
             if c.len() == 2 {
                 self.push_to_vm_stack_two(c[0].0, c[1].0);
 
@@ -1943,27 +2090,104 @@ impl FunctionTranslator<'_> {
         // self.builder.ins().return_(&[ret]);
     }
 
+    fn call_function(&mut self, arity: usize, name: &str) -> Value {
+        // This is the call global `call_global_function_deopt`
+        let mut sig = self.module.make_signature();
+
+        // VmCore pointer
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        // Function
+        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+
+        // instruction pointer
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
+
+        for _ in 0..arity {
+            sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+        }
+
+        // Return value
+        sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
+
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+
+        let fallback_ip = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+        let func = self.stack.pop().unwrap().0;
+        self.value_to_local_map.remove(&func);
+
+        let mut arg_values = vec![ctx, func, fallback_ip];
+        arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
+
+        // Check if its a function - otherwise, just spill the values to the stack.
+        let is_function = self.check_callable(func);
+
+        {
+            let then_block = self.builder.create_block();
+            let else_block = self.builder.create_block();
+            let merge_block = self.builder.create_block();
+
+            self.builder.append_block_param(merge_block, self.int);
+
+            self.builder
+                .ins()
+                .brif(is_function, then_block, &[], else_block, &[]);
+
+            self.builder.switch_to_block(then_block);
+            self.builder.seal_block(then_block);
+
+            // Do nothing
+            let then_return = BlockArg::Value(self.create_i128(0));
+
+            self.builder.ins().jump(merge_block, &[then_return]);
+
+            self.builder.switch_to_block(else_block);
+            self.builder.seal_block(else_block);
+
+            // Spilling...
+            if self.patched_locals.last().copied().unwrap_or_default() {
+                println!(
+                    "Patching locals in function call: {:?} - {}",
+                    self.stack, self.local_count
+                );
+                for c in self.stack.clone().chunks(2) {
+                    if c.len() == 2 {
+                        self.push_to_vm_stack_two(c[0].0, c[1].0);
+                    } else {
+                        self.push_to_vm_stack(c[0].0);
+                    }
+                }
+            }
+
+            let else_return = BlockArg::Value(self.create_i128(0));
+
+            self.builder.ins().jump(merge_block, &[else_return]);
+
+            // Switch to the merge block for subsequent statements.
+            self.builder.switch_to_block(merge_block);
+
+            // We've now seen all the predecessors of the merge block.
+            self.builder.seal_block(merge_block);
+        }
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+    }
+
     fn call_global_function(&mut self, arity: usize, name: &str, function_index: usize) -> Value {
-        // println!("{} = {:?}", function_index, self.function_context);
-
-        // TODO: We can only do this if every function that is called is found
-        // to be jit compiled / native code. Otherwise, we can't preemtively
-        // do this kind of jumping
-        // if Some(function_index) == self.function_context {
-        //     println!("Found self function!");
-        //     return self.call_trampoline(arity, function_index);
-        // }
-
-        // TODO: Embed the function itself into the generated code?
-        // How to tell if this slot is mutable?
-        // let func = self.globals.get(function_index).unwrap();
-        // if let SteelVal::Closure(c) = func {
-        //     if c.id.to_string() == self.name {
-        //         println!("Calling trampoline instead of delegating to the runtime");
-        //         return self.call_trampoline(arity, function_index);
-        //     }
-        // }
-
         // This is the call global `call_global_function_deopt`
         let mut sig = self.module.make_signature();
 
@@ -2034,11 +2258,13 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(else_block);
             self.builder.seal_block(else_block);
 
-            for c in self.stack.clone().chunks(2) {
-                if c.len() == 2 {
-                    self.push_to_vm_stack_two(c[0].0, c[1].0);
-                } else {
-                    self.push_to_vm_stack(c[0].0);
+            if !self.current_scope_locals_patched() {
+                for c in self.stack.clone().chunks(2) {
+                    if c.len() == 2 {
+                        self.push_to_vm_stack_two(c[0].0, c[1].0);
+                    } else {
+                        self.push_to_vm_stack(c[0].0);
+                    }
                 }
             }
 
@@ -2058,19 +2284,30 @@ impl FunctionTranslator<'_> {
             self.builder.seal_block(merge_block);
         }
 
-        // TODO:
-        // Check if this is a native function before deopting? This _has_ to be encoded into the
-        // function to call, otherwise we might not deopt correctly.
-        // if let SteelVal::Closure(_) = func {
-        //     println!("Deopting...");
-        //     for value in self.stack.clone() {
-        //         self.push_to_vm_stack(value.0);
-        //     }
-        // }
-
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
+    }
+
+    fn check_callable(&mut self, callable: Value) -> Value {
+        let mut sig = self.module.make_signature();
+        let name = "check-callable-value";
+        // VmCore pointer
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let call = self.builder.ins().call(local_callee, &[ctx, callable]);
+        let result = self.builder.inst_results(call)[0];
+
+        return result;
     }
 
     fn check_function(&mut self, index: Value) -> Value {
@@ -2205,6 +2442,7 @@ impl FunctionTranslator<'_> {
         abi_param_type: AbiParam,
         abi_return_type: AbiParam,
     ) {
+        println!("Func ret val: {:?}", op);
         let function_name = op_to_name_payload(op, payload);
         let args = self.stack.split_off(self.stack.len() - payload);
 
@@ -2612,7 +2850,7 @@ impl FunctionTranslator<'_> {
         self.ip = then_start;
 
         let local_count = self.local_count;
-        let frozen_patched = self.patched_locals;
+        let frozen_patched = self.patched_locals.clone();
         let frozen_stack = self.stack.clone();
 
         self.stack_to_ssa();

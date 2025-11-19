@@ -3485,6 +3485,7 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::SELFTAILCALLNOARITY,
                     payload_size,
                 } => {
+                    // println!("self tail cail: {:?}", self.thread.stack);
                     let current_arity = payload_size.to_usize();
 
                     // let last_stack_frame = self.thread.stack_frames.last().unwrap();
@@ -3522,6 +3523,7 @@ impl<'a> VmCore<'a> {
                     payload_size,
                     ..
                 } => {
+                    // println!("tcojmp: {:?}", self.thread.stack);
                     let mut current_arity = payload_size.to_usize();
 
                     let last_stack_frame = self.thread.stack_frames.last().unwrap();
@@ -3839,6 +3841,7 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn handle_pop_pure_value(&mut self, value: SteelVal) -> Option<Result<SteelVal>> {
+        // println!("calling pop: {}", value);
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
         // println!("{} - {}", self.pop_count, self.thread.stack_frames.len());
