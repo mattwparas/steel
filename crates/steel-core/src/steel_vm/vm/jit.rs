@@ -1126,12 +1126,12 @@ pub(crate) extern "C-unwind" fn num_equal_value(
     left: SteelVal,
     right: SteelVal,
 ) -> SteelVal {
-    println!(
-        "GETTING TO NUM EQUAL VALUE: {} - {}: ip = {}",
-        left,
-        right,
-        unsafe { &mut *ctx }.ip
-    );
+    // println!(
+    //     "GETTING TO NUM EQUAL VALUE: {} - {}: ip = {}",
+    //     left,
+    //     right,
+    //     unsafe { &mut *ctx }.ip
+    // );
     unsafe { &mut *ctx }.ip += 2;
 
     if let Ok(b) = number_equality(&left, &right) {
@@ -1187,7 +1187,7 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn get_local_value(&mut self, index: usize) -> SteelVal {
         let offset = self.get_offset();
-        println!("LOCAL VALUE: ip: {} - {}", self.ip, index);
+        // println!("LOCAL VALUE: ip: {} - {}", self.ip, index);
         let value = self.thread.stack[index + offset].clone();
         self.ip += 1;
         return value;
@@ -1737,14 +1737,14 @@ pub(crate) extern "C-unwind" fn set_ctx_ip(ctx: *mut VmCore, value: usize) {
 }
 
 pub(crate) extern "C-unwind" fn advance_ip(ctx: *mut VmCore) {
-    let guard = unsafe { (&mut *ctx) };
+    let guard = unsafe { &mut *ctx };
 
-    unsafe {
-        println!(
-            "Advancing ip at: {} - {:?}",
-            guard.ip, guard.instructions[guard.ip]
-        );
-    }
+    // unsafe {
+    //     println!(
+    //         "Advancing ip at: {} - {:?}",
+    //         guard.ip, guard.instructions[guard.ip]
+    //     );
+    // }
     unsafe { &mut *ctx }.ip += 1;
 }
 

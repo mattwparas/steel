@@ -9,7 +9,9 @@
 
 ; (require racket/cmdline)
 
-(provide check)
+(provide main
+         make
+         check)
 
 (struct node (left val right) #:transparent)
 
@@ -32,10 +34,8 @@
 ; (set! check check)
 ; (set! make make)
 
-(inspect make)
 (#%jit-compile-2 make)
-; (inspect check)
-; (#%jit-compile-2 check)
+(#%jit-compile-2 check)
 
 (define (iterate n m d sum)
   (if (equal? n m) sum (iterate (+ n 1) m d (+ sum (check (make n d))))))
@@ -66,11 +66,11 @@
 
       (displayln "long lived tree of depth " max-depth " check: " (check long-lived-tree)))))
 
-(define foo (make 0 2))
+; (define foo (make 0 2))
 ; (displayln foo)
 ; (displayln node)
 
-(displayln (check foo))
+; (displayln (check foo))
 
 ; (main 2)
 ; (main 12)
