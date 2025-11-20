@@ -1270,7 +1270,7 @@ extern_binop!(extern_c_lt_two, lt_primitive);
 // extern_binop!(extern_c_lte_two, lte_primitive);
 
 pub(crate) extern "C-unwind" fn extern_c_lte_two(a: SteelVal, b: SteelVal) -> SteelVal {
-    println!("lte two - {} <= {}", a, b);
+    // println!("lte two - {} <= {}", a, b);
 
     // let a = ManuallyDrop::new(a);
     // let b = ManuallyDrop::new(b);
@@ -2124,7 +2124,7 @@ fn call_global_function_deopt(
     fallback_ip: usize,
     args: &mut [SteelVal],
 ) -> SteelVal {
-    println!("Calling global function, with args: {:?}", args);
+    // println!("Calling global function, with args: {:?}", args);
 
     // TODO: Only do this if we have to deopt
     // ctx.ip = fallback_ip;
@@ -2142,7 +2142,7 @@ fn call_global_function_deopt(
     };
 
     if should_yield {
-        println!("Yielding");
+        // println!("Yielding");
         ctx.ip = fallback_ip;
         ctx.is_native = !should_yield;
     } else {
