@@ -1122,7 +1122,7 @@ fn callglobal_handler_deopt(ctx: &mut VmCore) -> u8 {
 
 // Equality... via the usual scheme? Otherwise this is gonna be an issue?
 pub(crate) extern "C-unwind" fn num_equal_value(
-    ctx: *mut VmCore,
+    _: *mut VmCore,
     left: SteelVal,
     right: SteelVal,
 ) -> SteelVal {
@@ -1132,7 +1132,7 @@ pub(crate) extern "C-unwind" fn num_equal_value(
     //     right,
     //     unsafe { &mut *ctx }.ip
     // );
-    unsafe { &mut *ctx }.ip += 2;
+    // unsafe { &mut *ctx }.ip += 2;
 
     if let Ok(b) = number_equality(&left, &right) {
         b
@@ -1175,7 +1175,7 @@ macro_rules! extern_binop {
             a: SteelVal,
             b: SteelVal,
         ) -> SteelVal {
-            unsafe { (&mut *ctx).ip += 2 };
+            // unsafe { (&mut *ctx).ip += 2 };
             $func(&[a, b]).unwrap()
         }
     };
@@ -1270,6 +1270,8 @@ extern_binop!(extern_c_lt_two, lt_primitive);
 // extern_binop!(extern_c_lte_two, lte_primitive);
 
 pub(crate) extern "C-unwind" fn extern_c_lte_two(a: SteelVal, b: SteelVal) -> SteelVal {
+    println!("lte two - {} <= {}", a, b);
+
     // let a = ManuallyDrop::new(a);
     // let b = ManuallyDrop::new(b);
     SteelVal::BoolV(a <= b)
@@ -1329,9 +1331,11 @@ pub(crate) extern "C-unwind" fn move_read_local_3_value_c(ctx: *mut VmCore) -> S
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn move_read_local_any_value_c(ctx: *mut VmCore) -> SteelVal {
+pub(crate) extern "C-unwind" fn move_read_local_any_value_c(
+    ctx: *mut VmCore,
+    offset: usize,
+) -> SteelVal {
     let guard = unsafe { &mut *ctx };
-    let offset = guard.instructions[guard.ip].payload_size.to_usize();
     guard.move_local_value(offset)
 }
 
@@ -1356,9 +1360,11 @@ pub(crate) extern "C-unwind" fn read_local_3_value_c(ctx: *mut VmCore) -> SteelV
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn read_local_any_value_c(ctx: *mut VmCore) -> SteelVal {
+pub(crate) extern "C-unwind" fn read_local_any_value_c(
+    ctx: *mut VmCore,
+    offset: usize,
+) -> SteelVal {
     let guard = unsafe { &mut *ctx };
-    let offset = guard.instructions[guard.ip].payload_size.to_usize();
     guard.get_local_value(offset)
 }
 
@@ -2118,7 +2124,7 @@ fn call_global_function_deopt(
     fallback_ip: usize,
     args: &mut [SteelVal],
 ) -> SteelVal {
-    // println!("Calling global function, with args: {:?}", args);
+    println!("Calling global function, with args: {:?}", args);
 
     // TODO: Only do this if we have to deopt
     // ctx.ip = fallback_ip;
@@ -2136,6 +2142,7 @@ fn call_global_function_deopt(
     };
 
     if should_yield {
+        println!("Yielding");
         ctx.ip = fallback_ip;
         ctx.is_native = !should_yield;
     } else {
@@ -2165,7 +2172,7 @@ fn call_function_deopt(
     fallback_ip: usize,
     args: &mut [SteelVal],
 ) -> SteelVal {
-    // println!("Calling global function, with args: {:?}", args);
+    println!("Calling global function, with args: {:?}", args);
 
     // TODO: Only do this if we have to deopt
     // ctx.ip = fallback_ip;
@@ -2182,7 +2189,7 @@ fn call_function_deopt(
     };
 
     if should_yield {
-        // println!("Deopt in local function call");
+        println!("Deopt in local function call");
         // println!("Function: {}", func);
         // ctx.ip = dbg!(fallback_ip + 1);
         ctx.ip = fallback_ip;
@@ -2407,18 +2414,18 @@ fn pop_test(ctx: &mut VmCore) -> bool {
     test.is_truthy()
 }
 
-pub(crate) extern "C-unwind" fn if_handler_raw_value(raw_ctx: *mut VmCore, value: i128) -> bool {
-    let ctx = unsafe { &mut *raw_ctx };
+pub(crate) extern "C-unwind" fn if_handler_raw_value(_: *mut VmCore, value: i128) -> bool {
+    // let ctx = unsafe { &mut *raw_ctx };
     let test: SteelVal = unsafe { std::mem::transmute(value) };
-    let result = test.is_truthy();
+    test.is_truthy()
 
-    if result {
-        ctx.ip += 1;
-    } else {
-        ctx.ip = ctx.instructions[ctx.ip].payload_size.to_usize();
-    }
+    // if result {
+    //     ctx.ip += 1;
+    // } else {
+    //     ctx.ip = ctx.instructions[ctx.ip].payload_size.to_usize();
+    // }
 
-    result
+    // result
 }
 
 pub(crate) extern "C-unwind" fn not_handler_raw_value(_: *mut VmCore, value: i128) -> i128 {

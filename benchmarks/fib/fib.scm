@@ -20,6 +20,8 @@
   ;; Loop unrolling would do so much, assuming we can do that easily
   (if (<= n 2) 1 (+ (jit-fib (- n 1)) (jit-fib (- n 2)))))
 
+(set! jit-fib jit-fib)
+
 ; (define jitfib (#%jit-compile jit-fib))
 ; (define jitfib jit-fib)
 
@@ -74,9 +76,10 @@
 ;       x
 ;       (loop (+ x 1))))
 
-(#%jit-compile-2 map1)
-(#%jit-compile-2 assoc2)
-(#%jit-compile-2 jit-loop)
+; (#%jit-compile-2 map1)
+; (#%jit-compile-2 assoc2)
+; (#%jit-compile-2 jit-loop)
+(#%jit-compile-2 jit-fib)
 
 ; (displayln (assoc2 999 big-list))
 ; (displayln (assoc2 999 big-list))

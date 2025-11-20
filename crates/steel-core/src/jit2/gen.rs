@@ -598,14 +598,22 @@ impl Default for JIT {
         map.add_func("read-local-2", read_local_2_value_c as Vm01);
         map.add_func("read-local-3", read_local_3_value_c as Vm01);
 
-        map.add_func("read-local-any", read_local_any_value_c as Vm01);
+        map.add_func(
+            "read-local-any",
+            read_local_any_value_c
+                as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize) -> SteelVal,
+        );
 
         map.add_func("move-read-local-0", move_read_local_0_value_c as Vm01);
         map.add_func("move-read-local-1", move_read_local_1_value_c as Vm01);
         map.add_func("move-read-local-2", move_read_local_2_value_c as Vm01);
         map.add_func("move-read-local-3", move_read_local_3_value_c as Vm01);
 
-        map.add_func("move-read-local-any", move_read_local_any_value_c as Vm01);
+        map.add_func(
+            "move-read-local-any",
+            move_read_local_any_value_c
+                as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize) -> SteelVal,
+        );
 
         map.add_func(
             "self-tail-call",
@@ -1361,7 +1369,7 @@ impl FunctionTranslator<'_> {
                     let true_instr = self.ip + 1;
 
                     // TODO: @Matt come back here and adjust IP correctly
-                    let test_bool = if typ == InferredType::Bool && false {
+                    let test_bool = if typ == InferredType::Bool {
                         let amount_to_shift = self.builder.ins().iconst(Type::int(64).unwrap(), 64);
                         let shift_right = self.builder.ins().sshr(test, amount_to_shift);
                         self.builder
@@ -1424,44 +1432,25 @@ impl FunctionTranslator<'_> {
                 OpCode::READLOCAL | OpCode::MOVEREADLOCAL => {
                     if payload + 1 > self.arity as _ {
                         let locals_to_patch = self.local_count;
-                        println!("Patching locals: {}", locals_to_patch);
-                        println!("Arity: {}", self.arity);
-                        println!("Payload: {}", payload);
-                        println!("Stack: {:?}", self.stack);
-
-                        // for i in 0..locals_to_patch {
-                        //     // let i = self.arity as usize + i;
-                        //     let item = self.stack.get(i).unwrap();
-                        //     self.push_to_vm_stack(item.0);
-                        // }
-
-                        // for i in (0..locals_to_patch).rev() {
-                        //     let value = self.stack.remove(i);
-                        //     self.push_to_vm_stack(value.value);
-                        // }
-
-                        // for i in 0..locals_to_patch {
-                        //     // let value = self.stack.remove(i);
-                        //     // self.push_to_vm_stack(value.value);
-                        //     self.spill(i);
-                        // }
-
-                        // println!("Checking spill: {}", self.stack)
-
                         let offset = self.stack.iter().enumerate().find(|(_, x)| !x.spilled);
 
                         if let Some((offset, _)) = offset {
                             for i in 0..locals_to_patch {
-                                // let value = self.stack.remove(i);
-                                // self.push_to_vm_stack(value.value);
                                 self.spill(offset + i);
                             }
                         }
-
-                        // self.patch_up_to();
                     }
 
-                    let value = self.call_func_or_immediate(op, payload);
+                    let index = self
+                        .builder
+                        .ins()
+                        .iconst(Type::int(64).unwrap(), payload as i64);
+
+                    let value = self.call_function_returns_value_args(
+                        op_to_name_payload(op, payload),
+                        &[(index, AbiParam::new(Type::int(64).unwrap()))],
+                        AbiParam::new(Type::int(128).unwrap()),
+                    );
 
                     self.value_to_local_map.insert(value, payload);
 
@@ -1485,19 +1474,19 @@ impl FunctionTranslator<'_> {
                     let constant = SteelVal::BoolV(true);
                     let value = self.create_i128(encode(constant));
                     self.ip += 1;
-                    self.advance_ip();
+                    // self.advance_ip();
                     self.push(value, InferredType::Bool);
                 }
                 OpCode::FALSE => {
                     let constant = SteelVal::BoolV(false);
                     let value = self.create_i128(encode(constant));
                     self.ip += 1;
-                    self.advance_ip();
+                    // self.advance_ip();
                     self.push(value, InferredType::Any);
                 }
                 OpCode::LOADINT0 | OpCode::LOADINT1 | OpCode::LOADINT2 => {
                     let payload = self.instructions[self.ip].payload_size.to_usize();
-                    self.advance_ip();
+                    // self.advance_ip();
                     let value = self.call_func_or_immediate(op, payload);
                     self.ip += 1;
                     self.push(value, InferredType::Int);
@@ -1654,7 +1643,7 @@ impl FunctionTranslator<'_> {
                     }
 
                     println!("Calling begin scope");
-                    self.begin_scope();
+                    // self.begin_scope();
 
                     self.ip += 1;
                 }
@@ -1701,17 +1690,18 @@ impl FunctionTranslator<'_> {
                     self.check_deopt();
                 }
 
-                // OpCode::LTE if payload == 2 => {
-                //     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                //     self.func_ret_val_named(
-                //         "lte-binop",
-                //         payload,
-                //         2,
-                //         InferredType::Bool,
-                //         abi_type,
-                //         abi_type,
-                //     );
-                // }
+                OpCode::LTE if payload == 2 => {
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+                    self.func_ret_val_named(
+                        "lte-binop",
+                        payload,
+                        2,
+                        InferredType::Bool,
+                        abi_type,
+                        abi_type,
+                    );
+                }
+
                 OpCode::EQUAL2 => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     self.func_ret_val(op, 2, 2, InferredType::Bool, abi_type, abi_type);
@@ -2964,7 +2954,7 @@ impl FunctionTranslator<'_> {
                     SteelVal::BoolV(_) | SteelVal::IntV(_) => {
                         println!("Embedding immediate: {}", constant);
 
-                        self.advance_ip();
+                        // self.advance_ip();
 
                         self.create_i128(encode(constant))
                     }
