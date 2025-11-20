@@ -5695,11 +5695,18 @@ fn expand_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     // Syntax Objects -> Expr, expand, put back to syntax objects.
     let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
 
+    let maybe_path = ctx
+        .thread
+        .module_context
+        .last()
+        .map(|x| x.as_str().to_owned())
+        .map(PathBuf::from);
+
     let res = ctx
         .thread
         .compiler
         .write()
-        .lower_expressions_impl(vec![expr], None)?;
+        .lower_expressions_impl(vec![expr], maybe_path)?;
 
     crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(
         res.into_iter().next().unwrap(),
@@ -5743,11 +5750,18 @@ fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> R
 fn eval_string_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let string = SteelString::from_steelval(&args[0])?;
 
+    let maybe_path = ctx
+        .thread
+        .module_context
+        .last()
+        .map(|x| x.as_str().to_owned())
+        .map(PathBuf::from);
+
     let res = ctx
         .thread
         .compiler
         .write()
-        .compile_executable(string.to_string(), None);
+        .compile_executable(string.to_string(), maybe_path);
 
     ctx.thread
         .compiler
