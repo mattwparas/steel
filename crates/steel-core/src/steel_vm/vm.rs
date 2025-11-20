@@ -1591,12 +1591,12 @@ impl<'a> VmContext for VmCore<'a> {
 #[repr(C)]
 pub struct VmCore<'a> {
     pub(crate) is_native: bool,
+    pub(crate) ip: usize,
     pub(crate) instructions: RootedInstructions,
     // TODO: Replace this with a thread local constant map!
     // that way reads are fast - and any updates to it are
     // broadcast from the shared constant map.
     pub(crate) constants: ConstantMap,
-    pub(crate) ip: usize,
     pub(crate) sp: usize,
     pub(crate) pop_count: usize,
     pub(crate) depth: usize,
@@ -7059,18 +7059,6 @@ fn let_end_scope_handler_with_payload(ctx: &mut VmCore<'_>, beginning_scope: usi
     ctx.ip += 1;
 
     let rollback_index = beginning_scope + offset;
-
-    // let rollback_index = offset;
-
-    // dbg!(beginning_scope, offset);
-    // dbg!(rollback_index);
-    // dbg!(ctx
-    //     .thread
-    //     .stack
-    //     .get(rollback_index..ctx.thread.stack.len() - 1));
-    // dbg!(ctx.thread.stack.len() - 1);
-
-    // dbg!(&ctx.thread.stack);
 
     let _ = ctx
         .thread

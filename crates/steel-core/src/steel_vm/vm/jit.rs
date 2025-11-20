@@ -1121,13 +1121,23 @@ fn callglobal_handler_deopt(ctx: &mut VmCore) -> u8 {
 }
 
 // Equality... via the usual scheme? Otherwise this is gonna be an issue?
-pub(crate) extern "C-unwind" fn num_equal_value(ctx: *mut VmCore, left: i128, right: i128) -> i128 {
-    unsafe {
-        if let Ok(b) = number_equality(&std::mem::transmute(left), &std::mem::transmute(right)) {
-            std::mem::transmute(b)
-        } else {
-            unreachable!()
-        }
+pub(crate) extern "C-unwind" fn num_equal_value(
+    ctx: *mut VmCore,
+    left: SteelVal,
+    right: SteelVal,
+) -> SteelVal {
+    println!(
+        "GETTING TO NUM EQUAL VALUE: {} - {}: ip = {}",
+        left,
+        right,
+        unsafe { &mut *ctx }.ip
+    );
+    unsafe { &mut *ctx }.ip += 2;
+
+    if let Ok(b) = number_equality(&left, &right) {
+        b
+    } else {
+        unreachable!()
     }
 }
 
@@ -1165,7 +1175,8 @@ macro_rules! extern_binop {
             a: SteelVal,
             b: SteelVal,
         ) -> SteelVal {
-            unsafe { $func(&[a, b]).unwrap() }
+            unsafe { (&mut *ctx).ip += 2 };
+            $func(&[a, b]).unwrap()
         }
     };
 }
@@ -1176,6 +1187,7 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn get_local_value(&mut self, index: usize) -> SteelVal {
         let offset = self.get_offset();
+        println!("LOCAL VALUE: ip: {} - {}", self.ip, index);
         let value = self.thread.stack[index + offset].clone();
         self.ip += 1;
         return value;
@@ -1488,6 +1500,8 @@ fn new_callglobal_tail_handler_deopt_test(
         println!("Yielding");
         ctx.ip = fallback_ip + 1;
         ctx.is_native = !should_yield;
+    } else {
+        ctx.ip += 2;
     }
 
     // println!("Calling global tail - should yield: {}", should_yield);
@@ -1722,10 +1736,42 @@ pub(crate) extern "C-unwind" fn set_ctx_ip(ctx: *mut VmCore, value: usize) {
     unsafe { &mut *ctx }.ip = value;
 }
 
-pub(crate) extern "C-unwind" fn let_end_scope_c(ctx: *mut VmCore, beginning_scope: usize) {
+pub(crate) extern "C-unwind" fn advance_ip(ctx: *mut VmCore) {
+    let guard = unsafe { (&mut *ctx) };
+
     unsafe {
-        let_end_scope_handler_with_payload(&mut *ctx, beginning_scope).ok();
+        println!(
+            "Advancing ip at: {} - {:?}",
+            guard.ip, guard.instructions[guard.ip]
+        );
     }
+    unsafe { &mut *ctx }.ip += 1;
+}
+
+// pub(crate) extern "C-unwind" fn let_end_scope_c(ctx: *mut VmCore, beginning_scope: usize) {
+//     unsafe {
+//         let_end_scope_handler_with_payload(&mut *ctx, beginning_scope).ok();
+//     }
+// }
+
+pub(crate) extern "C-unwind" fn let_end_scope_c(ctx: *mut VmCore, beginning_scope: usize) {
+    let ctx = unsafe { &mut *ctx };
+    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+    let offset = ctx.get_offset();
+    // let offset = ctx.sp;
+
+    // Move to the pop
+    ctx.ip += 1;
+
+    let rollback_index = beginning_scope + offset;
+
+    let _ = ctx.thread.stack.truncate(rollback_index);
+
+    // dbg!(dropped_locals.collect::<Vec<_>>());
+    // let last = ctx.stack.pop().expect("stack empty at pop");
+    // ctx.stack.truncate(rollback_index);
+    // ctx.stack.push(last);
+    // Ok(())
 }
 
 #[allow(improper_ctypes_definitions)]
@@ -2361,9 +2407,18 @@ fn pop_test(ctx: &mut VmCore) -> bool {
     test.is_truthy()
 }
 
-pub(crate) extern "C-unwind" fn if_handler_raw_value(_: *mut VmCore, value: i128) -> bool {
+pub(crate) extern "C-unwind" fn if_handler_raw_value(raw_ctx: *mut VmCore, value: i128) -> bool {
+    let ctx = unsafe { &mut *raw_ctx };
     let test: SteelVal = unsafe { std::mem::transmute(value) };
-    test.is_truthy()
+    let result = test.is_truthy();
+
+    if result {
+        ctx.ip += 1;
+    } else {
+        ctx.ip = ctx.instructions[ctx.ip].payload_size.to_usize();
+    }
+
+    result
 }
 
 pub(crate) extern "C-unwind" fn not_handler_raw_value(_: *mut VmCore, value: i128) -> i128 {

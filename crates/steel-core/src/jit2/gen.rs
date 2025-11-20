@@ -14,29 +14,29 @@ use crate::{
     core::instructions::{u24, DenseInstruction},
     steel_vm::vm::{
         jit::{
-            box_handler_c, call_function_deopt_0, call_function_deopt_1, call_function_deopt_2,
-            call_function_deopt_3, call_global_function_deopt_0, call_global_function_deopt_0_func,
-            call_global_function_deopt_0_no_arity, call_global_function_deopt_1,
-            call_global_function_deopt_1_func, call_global_function_deopt_1_no_arity,
-            call_global_function_deopt_2, call_global_function_deopt_2_func,
-            call_global_function_deopt_2_no_arity, call_global_function_deopt_3,
-            call_global_function_deopt_3_func, call_global_function_tail_deopt_0,
-            call_global_function_tail_deopt_1, call_global_function_tail_deopt_2,
-            call_global_function_tail_deopt_3, callglobal_handler_deopt_c,
-            callglobal_tail_handler_deopt_3, callglobal_tail_handler_deopt_3_test,
-            car_handler_value, cdr_handler_value, check_callable, check_callable_value,
-            cons_handler_value, drop_value, equal_binop, extern_c_add_two, extern_c_div_two,
-            extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
-            extern_c_mult_two, extern_c_null_handler, extern_c_sub_two, extern_c_sub_two_int,
-            extern_handle_pop, if_handler_raw_value, if_handler_value, let_end_scope_c,
-            move_read_local_0_value_c, move_read_local_1_value_c, move_read_local_2_value_c,
-            move_read_local_3_value_c, move_read_local_any_value_c, not_handler_raw_value,
-            num_equal_value, num_equal_value_unboxed, push_const_value_c, push_const_value_index_c,
-            push_global, push_int_0, push_int_1, push_int_2, push_to_vm_stack,
-            push_to_vm_stack_two, read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
-            read_local_3_value_c, read_local_any_value_c, self_tail_call_handler, set_ctx_ip,
-            set_handler_c, setbox_handler_c, should_continue, tcojmp_handler, trampoline,
-            unbox_handler_c,
+            advance_ip, box_handler_c, call_function_deopt_0, call_function_deopt_1,
+            call_function_deopt_2, call_function_deopt_3, call_global_function_deopt_0,
+            call_global_function_deopt_0_func, call_global_function_deopt_0_no_arity,
+            call_global_function_deopt_1, call_global_function_deopt_1_func,
+            call_global_function_deopt_1_no_arity, call_global_function_deopt_2,
+            call_global_function_deopt_2_func, call_global_function_deopt_2_no_arity,
+            call_global_function_deopt_3, call_global_function_deopt_3_func,
+            call_global_function_tail_deopt_0, call_global_function_tail_deopt_1,
+            call_global_function_tail_deopt_2, call_global_function_tail_deopt_3,
+            callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
+            callglobal_tail_handler_deopt_3_test, car_handler_value, cdr_handler_value,
+            check_callable, check_callable_value, cons_handler_value, drop_value, equal_binop,
+            extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
+            extern_c_lte_two, extern_c_mult_two, extern_c_null_handler, extern_c_sub_two,
+            extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value, if_handler_value,
+            let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
+            move_read_local_2_value_c, move_read_local_3_value_c, move_read_local_any_value_c,
+            not_handler_raw_value, num_equal_value, num_equal_value_unboxed, push_const_value_c,
+            push_const_value_index_c, push_global, push_int_0, push_int_1, push_int_2,
+            push_to_vm_stack, push_to_vm_stack_two, read_local_0_value_c, read_local_1_value_c,
+            read_local_2_value_c, read_local_3_value_c, read_local_any_value_c,
+            self_tail_call_handler, set_ctx_ip, set_handler_c, setbox_handler_c, should_continue,
+            tcojmp_handler, trampoline, unbox_handler_c,
         },
         VmCore,
     },
@@ -345,6 +345,11 @@ impl Default for JIT {
         };
 
         map.add_func(
+            "vm-increment-ip",
+            advance_ip as extern "C-unwind" fn(*mut VmCore),
+        );
+
+        map.add_func(
             "drop-value",
             drop_value as extern "C-unwind" fn(*mut VmCore, SteelVal),
         );
@@ -575,7 +580,7 @@ impl Default for JIT {
         );
 
         map.add_func(
-            "call-global-function0-tail-deopt-3",
+            "call-global-function-tail-deopt-3",
             call_global_function_tail_deopt_3
                 as extern "C-unwind" fn(
                     ctx: *mut VmCore,
@@ -993,6 +998,7 @@ impl JIT {
             module: &mut self.module,
             instructions: bytecode,
             ip: 0,
+            sp: 0,
             globals,
             stack: Vec::new(),
             arity,
@@ -1050,6 +1056,15 @@ enum InferredType {
     Void,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct StackValue {
+    value: Value,
+    inferred_type: InferredType,
+    // Whether or not the value is spilled
+    // to the stack
+    spilled: bool,
+}
+
 /// A collection of state used for translating from toy-language AST nodes
 /// into Cranelift IR.
 struct FunctionTranslator<'a> {
@@ -1067,7 +1082,9 @@ struct FunctionTranslator<'a> {
 
     // Local values - whenever things are locally read, we can start using them
     // here.
-    stack: Vec<(Value, InferredType)>,
+    stack: Vec<StackValue>,
+
+    sp: usize,
 
     // Local value mapping, can allow
     // us to elide type checks if we have them
@@ -1239,9 +1256,13 @@ impl FunctionTranslator<'_> {
         result
     }
 
-    fn current_scope_locals_patched(&self) -> bool {
-        self.patched_locals.last().copied().unwrap_or_default()
-    }
+    // fn current_scope_locals_patched(&self) -> bool {
+    //     self.patched_locals.last().copied().unwrap_or_default()
+    // }
+
+    // fn patch_up_to(&mut self) {
+    //     self.patched_locals.iter_mut().for_each(|x| *x = true);
+    // }
 
     // Read values off of the stack - push them on to
     // wherever they need to go.
@@ -1266,18 +1287,19 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::POPJMP | OpCode::POPPURE => {
                     // Push the remaining value back on to the stack.
-                    let value = self.stack.pop().unwrap();
-                    self.value_to_local_map.remove(&value.0);
+                    let value = self.pop();
 
                     // Should break here - just call `handle_pop_pure_value` and
                     // handle the return value / updating
                     // of various things here.
 
-                    if self.stack.len() > self.arity as _ && !self.current_scope_locals_patched() {
+                    if self.stack.len() > self.arity as _ {
                         // if !self.patched_locals {
                         println!("Stack at vm pop: {:?}", self.stack);
                         for value in self.stack.clone() {
-                            self.push_to_vm_stack(value.0);
+                            if !value.spilled {
+                                self.push_to_vm_stack(value.value);
+                            }
                         }
                     } else {
                         println!(
@@ -1297,7 +1319,9 @@ impl FunctionTranslator<'_> {
                     // Push void onto stack?
                     let void = SteelVal::Void;
                     let value = self.create_i128(encode(void));
-                    self.stack.push((value, InferredType::Void));
+
+                    self.push(value, InferredType::Void);
+
                     self.ip += 1;
                 }
                 OpCode::PUSH => {
@@ -1310,7 +1334,7 @@ impl FunctionTranslator<'_> {
                         .iconst(Type::int(64).unwrap(), payload as i64);
 
                     // Push on to the stack to call
-                    self.stack.push((index, InferredType::Int));
+                    self.push(index, InferredType::Int);
 
                     // Just...
 
@@ -1326,15 +1350,18 @@ impl FunctionTranslator<'_> {
                         AbiParam::new(Type::int(128).unwrap()),
                     );
                 }
+
+                // TODO: Still adjust the ip as needed
                 OpCode::IF => {
                     // TODO: Type inference here! Change which function is called!
-                    let (test, typ) = self.stack.pop().unwrap();
+                    let (test, typ) = self.pop();
                     self.value_to_local_map.remove(&test);
 
                     let false_instr = self.instructions[self.ip].payload_size;
                     let true_instr = self.ip + 1;
 
-                    let test_bool = if typ == InferredType::Bool {
+                    // TODO: @Matt come back here and adjust IP correctly
+                    let test_bool = if typ == InferredType::Bool && false {
                         let amount_to_shift = self.builder.ins().iconst(Type::int(64).unwrap(), 64);
                         let shift_right = self.builder.ins().sshr(test, amount_to_shift);
                         self.builder
@@ -1347,7 +1374,7 @@ impl FunctionTranslator<'_> {
                     let res =
                         self.translate_if_else_value(test_bool, true_instr, false_instr.to_usize());
 
-                    self.stack.push((res, InferredType::Any));
+                    self.push(res, InferredType::Any);
                 }
                 OpCode::JMP => {
                     self.ip = payload;
@@ -1365,7 +1392,7 @@ impl FunctionTranslator<'_> {
 
                     let v = self.call_function(arity, name);
                     self.ip += 1;
-                    self.stack.push((v, InferredType::Any));
+                    self.push(v, InferredType::Any);
                     self.check_deopt();
                 }
                 OpCode::SCLOSURE => todo!(),
@@ -1387,20 +1414,19 @@ impl FunctionTranslator<'_> {
                 OpCode::NDEFS => todo!(),
                 OpCode::PANIC => todo!(),
                 OpCode::SET => {
-                    let value = self.stack.pop().unwrap();
+                    let value = self.pop();
                     self.value_to_local_map.remove(&value.0);
                     let result = self.call_set(payload, value.0);
-                    self.stack.push((result, InferredType::Any));
+                    self.push(result, InferredType::Any);
                     self.ip += 1;
                 }
                 // TODO:
                 OpCode::READLOCAL | OpCode::MOVEREADLOCAL => {
-                    if payload + 1 > self.arity as _ && !self.current_scope_locals_patched() {
+                    if payload + 1 > self.arity as _ {
                         let locals_to_patch = self.local_count;
                         println!("Patching locals: {}", locals_to_patch);
                         println!("Arity: {}", self.arity);
                         println!("Payload: {}", payload);
-
                         println!("Stack: {:?}", self.stack);
 
                         // for i in 0..locals_to_patch {
@@ -1409,12 +1435,30 @@ impl FunctionTranslator<'_> {
                         //     self.push_to_vm_stack(item.0);
                         // }
 
-                        for i in (0..locals_to_patch).rev() {
-                            let value = self.stack.remove(i);
-                            self.push_to_vm_stack(value.0);
+                        // for i in (0..locals_to_patch).rev() {
+                        //     let value = self.stack.remove(i);
+                        //     self.push_to_vm_stack(value.value);
+                        // }
+
+                        // for i in 0..locals_to_patch {
+                        //     // let value = self.stack.remove(i);
+                        //     // self.push_to_vm_stack(value.value);
+                        //     self.spill(i);
+                        // }
+
+                        // println!("Checking spill: {}", self.stack)
+
+                        let offset = self.stack.iter().enumerate().find(|(_, x)| !x.spilled);
+
+                        if let Some((offset, _)) = offset {
+                            for i in 0..locals_to_patch {
+                                // let value = self.stack.remove(i);
+                                // self.push_to_vm_stack(value.value);
+                                self.spill(offset + i);
+                            }
                         }
 
-                        *self.patched_locals.last_mut().unwrap() = true;
+                        // self.patch_up_to();
                     }
 
                     let value = self.call_func_or_immediate(op, payload);
@@ -1429,31 +1473,34 @@ impl FunctionTranslator<'_> {
                         };
 
                     self.ip += 1;
-                    self.stack.push((value, inferred_type));
+                    self.push(value, inferred_type);
                 }
                 OpCode::PUSHCONST => {
                     let payload = self.instructions[self.ip].payload_size.to_usize();
                     let value = self.call_func_or_immediate(op, payload);
                     self.ip += 1;
-                    self.stack.push((value, InferredType::Any));
+                    self.push(value, InferredType::Any);
                 }
                 OpCode::TRUE => {
                     let constant = SteelVal::BoolV(true);
                     let value = self.create_i128(encode(constant));
                     self.ip += 1;
-                    self.stack.push((value, InferredType::Bool));
+                    self.advance_ip();
+                    self.push(value, InferredType::Bool);
                 }
                 OpCode::FALSE => {
                     let constant = SteelVal::BoolV(false);
                     let value = self.create_i128(encode(constant));
                     self.ip += 1;
-                    self.stack.push((value, InferredType::Any));
+                    self.advance_ip();
+                    self.push(value, InferredType::Any);
                 }
                 OpCode::LOADINT0 | OpCode::LOADINT1 | OpCode::LOADINT2 => {
                     let payload = self.instructions[self.ip].payload_size.to_usize();
+                    self.advance_ip();
                     let value = self.call_func_or_immediate(op, payload);
                     self.ip += 1;
-                    self.stack.push((value, InferredType::Int));
+                    self.push(value, InferredType::Int);
                 }
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
@@ -1464,11 +1511,12 @@ impl FunctionTranslator<'_> {
                 | OpCode::MOVEREADLOCAL2
                 | OpCode::MOVEREADLOCAL3 => {
                     // these are gonna get spilled anyway?
-                    if payload + 1 > self.arity as _ && !self.current_scope_locals_patched() {
+                    if payload + 1 > self.arity as _ {
                         let locals_to_patch = self.local_count;
                         println!("Patching locals: {}", locals_to_patch);
                         println!("Stack at local patching: {}", self.stack.len());
                         println!("payload: {}", payload);
+                        println!("stack: {:?}", self.stack);
 
                         // Patch last n values from the stack on to the VM stack
                         // let values = self.stack[self.stack.len() - locals_to_patch..].to_vec();
@@ -1476,15 +1524,21 @@ impl FunctionTranslator<'_> {
                         //     self.push_to_vm_stack(i.0);
                         // }
 
-                        for i in (0..locals_to_patch).rev() {
-                            let value = self.stack.remove(i);
-                            self.push_to_vm_stack(value.0);
+                        let offset = self.stack.iter().enumerate().find(|(_, x)| !x.spilled);
+
+                        if let Some((offset, _)) = offset {
+                            for i in 0..locals_to_patch {
+                                // let value = self.stack.remove(i);
+                                // self.push_to_vm_stack(value.value);
+                                self.spill(offset + i);
+                            }
                         }
 
-                        // self.patched_locals.push(true);
-                        *self.patched_locals.last_mut().unwrap() = true;
+                        // self.patch_up_to();
                     } else {
                         println!("Skipping patching locals: {:?}", self.patched_locals);
+                        println!("{:?}", self.stack);
+                        println!("arity: {}", self.arity)
                     }
 
                     let value = self.call_func_or_immediate(op, payload);
@@ -1499,7 +1553,7 @@ impl FunctionTranslator<'_> {
                         };
 
                     self.ip += 1;
-                    self.stack.push((value, inferred_type));
+                    self.push(value, inferred_type);
                 }
                 OpCode::SETLOCAL => todo!(),
                 OpCode::COPYCAPTURESTACK => todo!(),
@@ -1535,7 +1589,7 @@ impl FunctionTranslator<'_> {
                     // return since we're done now.
                     let v = self.call_global_function(arity, name, function_index);
 
-                    self.stack.push((v, InferredType::Any));
+                    self.push(v, InferredType::Any);
 
                     self.check_deopt();
                 }
@@ -1555,7 +1609,7 @@ impl FunctionTranslator<'_> {
                     let result = self.call_global_function(arity, name, function_index);
 
                     // Assuming this worked, we'll want to push this result on to the stack.
-                    self.stack.push((result, InferredType::Any));
+                    self.push(result, InferredType::Any);
 
                     // Then, we're gonna check the result and see if we should deopt
                     self.check_deopt();
@@ -1576,12 +1630,17 @@ impl FunctionTranslator<'_> {
                     let result = self.call_global_function(arity, name, function_index);
 
                     // Assuming this worked, we'll want to push this result on to the stack.
-                    self.stack.push((result, InferredType::Any));
+                    self.push(result, InferredType::Any);
 
                     // Then, we're gonna check the result and see if we should deopt
                     self.check_deopt();
                 }
                 OpCode::READCAPTURED => todo!(),
+
+                // Begin scope means we're starting
+                // a let scope, which means we'll have some amount
+                // of values that are retained on the stack for
+                // further usage.
                 OpCode::BEGINSCOPE => {
                     self.patched_locals.push(false);
 
@@ -1594,27 +1653,24 @@ impl FunctionTranslator<'_> {
                         }
                     }
 
+                    println!("Calling begin scope");
+                    self.begin_scope();
+
                     self.ip += 1;
                 }
                 OpCode::LETENDSCOPE => {
                     self.local_count = payload;
                     self.ip += 1;
 
-                    if self.stack.len() > self.arity as _ && !self.current_scope_locals_patched() {
+                    if self.stack.len() > self.arity as _ {
                         let spilled = self
                             .stack
                             .drain(payload..self.stack.len() - 1)
                             .collect::<Vec<_>>();
 
-                        for c in spilled.chunks(2) {
-                            for arg in c.iter() {
-                                self.value_to_local_map.remove(&arg.0);
-                            }
-
-                            if c.len() == 2 {
-                                self.push_to_vm_stack_two(c[0].0, c[1].0);
-                            } else {
-                                self.push_to_vm_stack(c[0].0);
+                        for c in spilled {
+                            if !c.spilled {
+                                self.push_to_vm_stack(c.value);
                             }
                         }
                     }
@@ -1624,18 +1680,19 @@ impl FunctionTranslator<'_> {
                     self.patched_locals.pop();
                 }
                 OpCode::PUREFUNC => todo!(),
-                OpCode::SUB if payload == 2 => {
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    // Call the func
-                    self.func_ret_val_named(
-                        "sub-binop-int",
-                        payload,
-                        2,
-                        InferredType::Number,
-                        abi_type,
-                        abi_type,
-                    );
-                }
+
+                // OpCode::SUB if payload == 2 => {
+                //     let abi_type = AbiParam::new(Type::int(128).unwrap());
+                //     // Call the func
+                //     self.func_ret_val_named(
+                //         "sub-binop-int",
+                //         payload,
+                //         2,
+                //         InferredType::Number,
+                //         abi_type,
+                //         abi_type,
+                //     );
+                // }
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     // Call the func
@@ -1643,17 +1700,18 @@ impl FunctionTranslator<'_> {
 
                     self.check_deopt();
                 }
-                OpCode::LTE if payload == 2 => {
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val_named(
-                        "lte-binop",
-                        payload,
-                        2,
-                        InferredType::Bool,
-                        abi_type,
-                        abi_type,
-                    );
-                }
+
+                // OpCode::LTE if payload == 2 => {
+                //     let abi_type = AbiParam::new(Type::int(128).unwrap());
+                //     self.func_ret_val_named(
+                //         "lte-binop",
+                //         payload,
+                //         2,
+                //         InferredType::Bool,
+                //         abi_type,
+                //         abi_type,
+                //     );
+                // }
                 OpCode::EQUAL2 => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     self.func_ret_val(op, 2, 2, InferredType::Bool, abi_type, abi_type);
@@ -1693,7 +1751,7 @@ impl FunctionTranslator<'_> {
 
                     if let Some(last) = self.stack.last() {
                         // Check if that value makes sense
-                        if let Some(from_local) = self.value_to_local_map.get(&last.0) {
+                        if let Some(from_local) = self.value_to_local_map.get(&last.value) {
                             self.local_to_value_map
                                 .insert(*from_local, InferredType::List);
                         }
@@ -1792,8 +1850,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn pop_single(&mut self) {
-        let last = self.stack.pop().unwrap();
-        self.value_to_local_map.remove(&last.0);
+        let last = self.pop();
 
         // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
         let mut sig = self.module.make_signature();
@@ -1914,71 +1971,71 @@ impl FunctionTranslator<'_> {
     }
 
     // Call the function directly via the trampoline
-    fn call_trampoline(&mut self, arity: usize, function_index: usize) -> Value {
-        let mut sig = self.module.make_signature();
+    // fn call_trampoline(&mut self, arity: usize, function_index: usize) -> Value {
+    //     let mut sig = self.module.make_signature();
 
-        // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
+    //     // VmCore pointer
+    //     sig.params
+    //         .push(AbiParam::new(self.module.target_config().pointer_type()));
 
-        // lookup index
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
+    //     // lookup index
+    //     sig.params.push(AbiParam::new(Type::int(64).unwrap()));
 
-        // for _ in 0..arity {
-        //     sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-        // }
+    //     // for _ in 0..arity {
+    //     //     sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+    //     // }
 
-        sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
+    //     sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
 
-        let callee = self
-            .module
-            .declare_function("trampoline", Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+    //     let callee = self
+    //         .module
+    //         .declare_function("trampoline", Linkage::Import, &sig)
+    //         .expect("problem declaring function");
+    //     let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
 
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+    //     let variable = self.variables.get("vm-ctx").expect("variable not defined");
+    //     let ctx = self.builder.use_var(*variable);
 
-        let lookup_index = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), function_index as i64);
+    //     let lookup_index = self
+    //         .builder
+    //         .ins()
+    //         .iconst(Type::int(64).unwrap(), function_index as i64);
 
-        self.ip += 1;
+    //     self.ip += 1;
 
-        let arg_values = vec![ctx, lookup_index];
+    //     let arg_values = vec![ctx, lookup_index];
 
-        // TODO: Revisit when bringing trampoline back
-        let spilled = self
-            .stack
-            .drain(self.stack.len() - arity..)
-            .collect::<Vec<_>>();
+    //     // TODO: Revisit when bringing trampoline back
+    //     let spilled = self
+    //         .stack
+    //         .drain(self.stack.len() - arity..)
+    //         .collect::<Vec<_>>();
 
-        if spilled.len() == 2 {
-            let mut iter = spilled.into_iter();
+    //     if spilled.len() == 2 {
+    //         let mut iter = spilled.into_iter();
 
-            let first = iter.next().unwrap();
-            let second = iter.next().unwrap();
+    //         let first = iter.next().unwrap();
+    //         let second = iter.next().unwrap();
 
-            self.value_to_local_map.remove(&first.0);
-            self.value_to_local_map.remove(&second.0);
+    //         self.value_to_local_map.remove(&first.value);
+    //         self.value_to_local_map.remove(&second.value);
 
-            self.push_to_vm_stack_two(first.0, second.0);
-        } else {
-            for value in spilled {
-                self.value_to_local_map.remove(&value.0);
+    //         self.push_to_vm_stack_two(first.value, second.value);
+    //     } else {
+    //         for value in spilled {
+    //             self.value_to_local_map.remove(&value.value);
 
-                self.push_to_vm_stack(value.0);
-            }
-        }
+    //             self.push_to_vm_stack(value.value);
+    //         }
+    //     }
 
-        let call = self.builder.ins().call(local_callee, &arg_values);
-        let result = self.builder.inst_results(call)[0];
-        result
+    //     let call = self.builder.ins().call(local_callee, &arg_values);
+    //     let result = self.builder.inst_results(call)[0];
+    //     result
 
-        // Just
-        // arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
-    }
+    //     // Just
+    //     // arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
+    // }
 
     fn translate_tco_jmp(&mut self, payload: usize) {
         // Translate to a while loop with calls to destructors?
@@ -1986,9 +2043,14 @@ impl FunctionTranslator<'_> {
         // top of the instruction stack and reinvoke
         // the dyn super instruction?
 
-        let args = self.stack.split_off(self.stack.len() - payload);
+        let args = self.split_off(payload);
 
         println!("Stack remaining at tco jump: {:?}", self.stack);
+
+        for value in &self.stack {
+            assert!(value.spilled);
+        }
+
         // Translate to a while loop with calls to destructors?
         // Or just use the normal jump, where we jump to the
         // top of the instruction stack and reinvoke
@@ -2038,13 +2100,15 @@ impl FunctionTranslator<'_> {
         // the dyn super instruction?
         println!("Stack at self tco jump: {:?}", self.stack);
 
-        let args = self.stack.split_off(self.stack.len() - payload);
+        let args = self.split_off(payload);
 
         println!("Stack remaining at self tco jump: {:?}", self.stack);
 
         if self.stack.len() > self.arity as _ {
             for value in std::mem::take(&mut self.stack) {
-                self.push_to_vm_stack(value.0);
+                if !value.spilled {
+                    self.push_to_vm_stack(value.value);
+                }
             }
         }
 
@@ -2125,11 +2189,14 @@ impl FunctionTranslator<'_> {
             .ins()
             .iconst(Type::int(64).unwrap(), self.ip as i64);
 
-        let func = self.stack.pop().unwrap().0;
-        self.value_to_local_map.remove(&func);
+        let func = self.pop().0;
 
         let mut arg_values = vec![ctx, func, fallback_ip];
-        arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
+        arg_values.extend(
+            self.stack
+                .drain(self.stack.len() - arity..)
+                .map(|x| x.value),
+        );
 
         // Check if its a function - otherwise, just spill the values to the stack.
         let is_function = self.check_callable(func);
@@ -2157,19 +2224,17 @@ impl FunctionTranslator<'_> {
             self.builder.seal_block(else_block);
 
             // Spilling...
-            if self.patched_locals.last().copied().unwrap_or_default() {
-                println!(
-                    "Patching locals in function call: {:?} - {}",
-                    self.stack, self.local_count
-                );
-                for c in self.stack.clone().chunks(2) {
-                    if c.len() == 2 {
-                        self.push_to_vm_stack_two(c[0].0, c[1].0);
-                    } else {
-                        self.push_to_vm_stack(c[0].0);
-                    }
+            // if !self.patched_locals.last().copied().unwrap_or_default() {
+            println!(
+                "Patching locals in function call: {:?} - {}",
+                self.stack, self.local_count
+            );
+            for c in self.stack.clone() {
+                if !c.spilled {
+                    self.push_to_vm_stack(c.value);
                 }
             }
+            // }
 
             let else_return = BlockArg::Value(self.create_i128(0));
 
@@ -2231,7 +2296,11 @@ impl FunctionTranslator<'_> {
         self.ip += 1;
 
         let mut arg_values = vec![ctx, lookup_index, fallback_ip];
-        arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
+        arg_values.extend(
+            self.stack
+                .drain(self.stack.len() - arity..)
+                .map(|x| x.value),
+        );
 
         // Check if its a function - otherwise, just spill the values to the stack.
         let is_function = self.check_function(lookup_index);
@@ -2258,15 +2327,21 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(else_block);
             self.builder.seal_block(else_block);
 
-            if !self.current_scope_locals_patched() {
-                for c in self.stack.clone().chunks(2) {
-                    if c.len() == 2 {
-                        self.push_to_vm_stack_two(c[0].0, c[1].0);
-                    } else {
-                        self.push_to_vm_stack(c[0].0);
-                    }
+            // if !self.current_scope_locals_patched() {
+
+            // println!("Fall back pushing to stack: {}", )
+            for c in self.stack.clone() {
+                if !c.spilled {
+                    self.push_to_vm_stack(c.value);
                 }
+
+                // if c.len() == 2 {
+                //     self.push_to_vm_stack_two(c[0].value, c[1].value);
+                // } else {
+                //     self.push_to_vm_stack(c[0].value);
+                // }
             }
+            // }
 
             // Only spill what hasn't been spilled already?
             // for value in self.stack.clone() {
@@ -2361,6 +2436,57 @@ impl FunctionTranslator<'_> {
         is_native
     }
 
+    fn advance_ip(&mut self) {
+        let mut sig = self.module.make_signature();
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+        let callee = self
+            .module
+            .declare_function("vm-increment-ip", Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let call = self.builder.ins().call(local_callee, &[ctx]);
+    }
+
+    // Advance the pointer
+    fn begin_scope(&mut self) {
+        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
+        let mut sig = self.module.make_signature();
+
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        //
+        // for (_, p) in args {
+        // AbiParam::new(codegen::ir::Type::int(128).unwrap())
+        // sig.params.push(*p);
+        // }
+
+        // For simplicity for now, just make all calls return a single I64.
+        // sig.returns.push(return_type);
+
+        // TODO: Streamline the API here?
+        let callee = self
+            .module
+            .declare_function("vm-increment-ip", Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+
+        // let mut arg_values = Vec::new();
+
+        // let args = args.iter().map(|x| )
+
+        // for arg in args {
+        //     arg_values.push(self.translate_expr(arg))
+        // }
+        let call = self.builder.ins().call(local_callee, &[ctx]);
+    }
+
     fn check_deopt(&mut self) -> Value {
         let result = self.check_deopt_ptr_load();
 
@@ -2410,7 +2536,7 @@ impl FunctionTranslator<'_> {
         abi_param_type: AbiParam,
         abi_return_type: AbiParam,
     ) {
-        let args = self.stack.split_off(self.stack.len() - payload);
+        let args = self.split_off(payload);
 
         for arg in &args {
             self.value_to_local_map.remove(&arg.0);
@@ -2429,8 +2555,56 @@ impl FunctionTranslator<'_> {
             self.call_function_returns_value_args_no_context(function_name, &args, abi_return_type);
 
         // Check the inferred type, if we know of it
-        self.stack.push((result, inferred_type));
+        self.push(result, inferred_type);
         self.ip += ip_inc;
+    }
+
+    fn spill(&mut self, index: usize) -> Option<()> {
+        let guard = self.stack.get_mut(index)?;
+        let mut spilled = false;
+        if !guard.spilled {
+            guard.spilled = true;
+            spilled = true;
+        }
+
+        if spilled {
+            self.push_to_vm_stack(self.stack[index].value);
+        }
+
+        Some(())
+    }
+
+    // TODO: For spilling to the stack, we just _have_ to spill in order.
+    // We have a cursor which will go through and mark if the value has already been pushed to the stack.
+    // As long as we push the values in the right order, we're good.
+    fn push(&mut self, value: Value, typ: InferredType) {
+        self.stack.push(StackValue {
+            value,
+            inferred_type: typ,
+            spilled: false,
+        })
+    }
+
+    fn pop(&mut self) -> (Value, InferredType) {
+        let last = self.stack.pop().unwrap();
+        self.value_to_local_map.remove(&last.value);
+        (last.value, last.inferred_type)
+    }
+
+    fn split_off(&mut self, payload: usize) -> Vec<(Value, InferredType)> {
+        let args = self.stack.split_off(self.stack.len() - payload);
+
+        for arg in &args {
+            self.value_to_local_map.remove(&arg.value);
+        }
+
+        args.into_iter()
+            .map(|x| (x.value, x.inferred_type))
+            .collect()
+    }
+
+    fn drain(&mut self) {
+        todo!()
     }
 
     fn func_ret_val(
@@ -2444,11 +2618,7 @@ impl FunctionTranslator<'_> {
     ) {
         println!("Func ret val: {:?}", op);
         let function_name = op_to_name_payload(op, payload);
-        let args = self.stack.split_off(self.stack.len() - payload);
-
-        for arg in &args {
-            self.value_to_local_map.remove(&arg.0);
-        }
+        let args = self.split_off(payload);
 
         // TODO: Use the type hints! For now we're not going to for the sake
         // of getting something running
@@ -2460,7 +2630,8 @@ impl FunctionTranslator<'_> {
         let result = self.call_function_returns_value_args(function_name, &args, abi_return_type);
 
         // Check the inferred type, if we know of it
-        self.stack.push((result, inferred_type));
+        self.push(result, inferred_type);
+
         self.ip += ip_inc;
     }
 
@@ -2792,6 +2963,9 @@ impl FunctionTranslator<'_> {
                 match &constant {
                     SteelVal::BoolV(_) | SteelVal::IntV(_) => {
                         println!("Embedding immediate: {}", constant);
+
+                        self.advance_ip();
+
                         self.create_i128(encode(constant))
                     }
                     _ => self.push_const_index(payload),
@@ -2859,10 +3033,11 @@ impl FunctionTranslator<'_> {
 
         // Unwrap or... must have been a tail call?
         let then_return = BlockArg::Value(
+            // TODO: Replace this stack pop with the right one
             self.stack
                 .pop()
                 .map(|x| {
-                    let value = x.0;
+                    let value = x.value;
                     self.value_to_local_map.remove(&value);
                     value
                 })
@@ -2897,7 +3072,7 @@ impl FunctionTranslator<'_> {
             self.stack
                 .pop()
                 .map(|x| {
-                    let value = x.0;
+                    let value = x.value;
                     self.value_to_local_map.remove(&value);
                     value
                 })
