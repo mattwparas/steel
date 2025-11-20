@@ -58,7 +58,10 @@ use crate::{
     },
     steel_vm::{
         builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
-        vm::threads::threading_module,
+        vm::{
+            threads::threading_module, GET_MODULE_CONTEXT_DEFINITION,
+            POP_MODULE_CONTEXT_DEFINITION, PUSH_MODULE_CONTEXT_DEFINITION,
+        },
     },
     values::{
         closed::{HeapRef, MAKE_WEAK_BOX_DEFINITION, WEAK_BOX_VALUE_DEFINITION},
@@ -2157,7 +2160,10 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(COMMAND_LINE_DEFINITION)
         .register_native_fn_definition(ERROR_OBJECT_MESSAGE_DEFINITION)
         .register_fn("steel-home-location", steel_home)
-        .register_fn("%#interner-memory-usage", interned_current_memory_usage);
+        .register_fn("%#interner-memory-usage", interned_current_memory_usage)
+        .register_native_fn_definition(PUSH_MODULE_CONTEXT_DEFINITION)
+        .register_native_fn_definition(POP_MODULE_CONTEXT_DEFINITION)
+        .register_native_fn_definition(GET_MODULE_CONTEXT_DEFINITION);
 
     module
         .register_native_fn_definition(WILL_EXECUTE_DEFINITION)

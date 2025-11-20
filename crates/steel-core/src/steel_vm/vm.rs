@@ -53,6 +53,7 @@ use crate::{
     values::functions::ByteCodeLambda,
 };
 use std::io::Read as _;
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -402,7 +403,8 @@ pub struct SteelThread {
     pub(crate) id: EngineId,
 
     pub(crate) safepoints_enabled: bool,
-    // pub(crate) delayed_dropper: DelayedDropper,
+
+    pub(crate) module_context: Vec<SteelString>,
 }
 
 #[derive(Clone)]
@@ -784,6 +786,7 @@ impl SteelThread {
             // Only incur the cost of the actual safepoint behavior
             // if multiple threads are enabled
             safepoints_enabled: false,
+            module_context: Vec::new(),
             // delayed_dropper: DelayedDropper::new(),
         }
     }
@@ -5399,14 +5402,20 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
 
 fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
-    // TODO: Looks like this isn't correctly parsing / pushing down macros!
-    // This needs to extract macros
 
+    let maybe_path = ctx
+        .thread
+        .module_context
+        .last()
+        .map(|x| x.as_str().to_owned())
+        .map(PathBuf::from);
+
+    // TODO: Provide a path / context from which to do this? Or grab it implicitly?
     let res = ctx
         .thread
         .compiler
         .write()
-        .compile_executable_from_expressions(vec![expr]);
+        .compile_executable_from_expressions_from_path(vec![expr], maybe_path);
 
     // Gc the sources, if possible
     ctx.thread
@@ -5608,6 +5617,44 @@ fn load_expanded_file(path: String) {
     engine.load_from_expanded_file(&path)
 }
 
+#[steel_derive::context(name = "current-module", arity = "Exact(0)")]
+fn get_module_context(
+    ctx: &mut crate::steel_vm::vm::VmCore,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    let last = ctx
+        .thread
+        .module_context
+        .last()
+        .cloned()
+        .map(SteelVal::StringV)
+        .unwrap_or(SteelVal::BoolV(false));
+
+    Some(Ok(last))
+}
+
+#[steel_derive::context(name = "#%push-module-context", arity = "Exact(1)")]
+fn push_module_context(
+    ctx: &mut crate::steel_vm::vm::VmCore,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    let arg = args[0].clone();
+    if let SteelVal::StringV(s) = arg {
+        ctx.thread.module_context.push(s);
+    }
+
+    Some(Ok(SteelVal::Void))
+}
+
+#[steel_derive::context(name = "#%pop-module-context", arity = "Exact(0)")]
+fn pop_module_context(
+    ctx: &mut crate::steel_vm::vm::VmCore,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    ctx.thread.module_context.pop();
+    Some(Ok(SteelVal::Void))
+}
+
 #[steel_derive::context(name = "eval", arity = "Exact(1)")]
 fn eval(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     match eval_impl(ctx, args) {
@@ -5648,11 +5695,18 @@ fn expand_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     // Syntax Objects -> Expr, expand, put back to syntax objects.
     let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
 
+    let maybe_path = ctx
+        .thread
+        .module_context
+        .last()
+        .map(|x| x.as_str().to_owned())
+        .map(PathBuf::from);
+
     let res = ctx
         .thread
         .compiler
         .write()
-        .lower_expressions_impl(vec![expr], None)?;
+        .lower_expressions_impl(vec![expr], maybe_path)?;
 
     crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(
         res.into_iter().next().unwrap(),
@@ -5696,11 +5750,18 @@ fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> R
 fn eval_string_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let string = SteelString::from_steelval(&args[0])?;
 
+    let maybe_path = ctx
+        .thread
+        .module_context
+        .last()
+        .map(|x| x.as_str().to_owned())
+        .map(PathBuf::from);
+
     let res = ctx
         .thread
         .compiler
         .write()
-        .compile_executable(string.to_string(), None);
+        .compile_executable(string.to_string(), maybe_path);
 
     ctx.thread
         .compiler
