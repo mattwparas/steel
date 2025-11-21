@@ -434,7 +434,7 @@ impl Default for JIT {
 
         map.add_func(
             "trampoline",
-            trampoline as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
+            trampoline as extern "C-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
         );
 
         map.add_func(
@@ -1021,6 +1021,7 @@ impl JIT {
             name,
             value_to_local_map: HashMap::new(),
             local_to_value_map: HashMap::new(),
+            stack_pointers: Vec::new(),
         };
 
         // trans.translate_instructions();
@@ -1093,6 +1094,8 @@ struct FunctionTranslator<'a> {
     stack: Vec<StackValue>,
 
     sp: usize,
+
+    stack_pointers: Vec<usize>,
 
     // Local value mapping, can allow
     // us to elide type checks if we have them
@@ -1429,15 +1432,15 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                 }
                 // TODO:
+                // Move read local does not require spilling since
+                // it will only be used one. Read local does since we want
+                // to clone it
                 OpCode::READLOCAL | OpCode::MOVEREADLOCAL => {
                     if payload + 1 > self.arity as _ {
                         let locals_to_patch = self.local_count;
-                        let offset = self.stack.iter().enumerate().find(|(_, x)| !x.spilled);
 
-                        if let Some((offset, _)) = offset {
-                            for i in 0..locals_to_patch {
-                                self.spill(offset + i);
-                            }
+                        for i in 0..locals_to_patch {
+                            self.spill(i);
                         }
                     }
 
@@ -1500,6 +1503,10 @@ impl FunctionTranslator<'_> {
                 | OpCode::MOVEREADLOCAL2
                 | OpCode::MOVEREADLOCAL3 => {
                     // these are gonna get spilled anyway?
+                    // TODO: Check... if we even need to spill things at all?
+                    // We probably don't need to do at all, just need to encode
+                    // move semantics into the stack itself to mark that we've
+                    // read it?
                     if payload + 1 > self.arity as _ {
                         let locals_to_patch = self.local_count;
                         println!("Patching locals: {}", locals_to_patch);
@@ -1513,14 +1520,14 @@ impl FunctionTranslator<'_> {
                         //     self.push_to_vm_stack(i.0);
                         // }
 
-                        let offset = self.stack.iter().enumerate().find(|(_, x)| !x.spilled);
+                        // Run the risk of spilling twice
+                        // let offset = self.stack.iter().enumerate().find(|(_, x)| !x.spilled);
+                        // let offset = self.stack_pointers.last().unwrap();
 
-                        if let Some((offset, _)) = offset {
-                            for i in 0..locals_to_patch {
-                                // let value = self.stack.remove(i);
-                                // self.push_to_vm_stack(value.value);
-                                self.spill(offset + i);
-                            }
+                        for i in 0..payload + 1 {
+                            // let value = self.stack.remove(i);
+                            // self.push_to_vm_stack(value.value);
+                            self.spill(i);
                         }
 
                         // self.patch_up_to();
@@ -1632,6 +1639,7 @@ impl FunctionTranslator<'_> {
                 // further usage.
                 OpCode::BEGINSCOPE => {
                     self.patched_locals.push(false);
+                    self.stack_pointers.push(self.local_count);
 
                     // Next n values should stick around on the stack.
                     for instr in &self.instructions[self.ip..] {
@@ -1643,6 +1651,7 @@ impl FunctionTranslator<'_> {
                     }
 
                     println!("Calling begin scope");
+
                     // self.begin_scope();
 
                     self.ip += 1;
@@ -1667,6 +1676,7 @@ impl FunctionTranslator<'_> {
                     self.call_end_scope_handler(payload);
 
                     self.patched_locals.pop();
+                    self.stack_pointers.pop();
                 }
                 OpCode::PUREFUNC => todo!(),
 
@@ -1961,71 +1971,79 @@ impl FunctionTranslator<'_> {
     }
 
     // Call the function directly via the trampoline
-    // fn call_trampoline(&mut self, arity: usize, function_index: usize) -> Value {
-    //     let mut sig = self.module.make_signature();
+    fn call_trampoline(&mut self, arity: usize, function_index: usize) -> Value {
+        let mut sig = self.module.make_signature();
 
-    //     // VmCore pointer
-    //     sig.params
-    //         .push(AbiParam::new(self.module.target_config().pointer_type()));
+        // VmCore pointer
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
 
-    //     // lookup index
-    //     sig.params.push(AbiParam::new(Type::int(64).unwrap()));
+        // Arity
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
 
-    //     // for _ in 0..arity {
-    //     //     sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-    //     // }
+        // lookup index
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
 
-    //     sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
+        // for _ in 0..arity {
+        //     sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+        // }
 
-    //     let callee = self
-    //         .module
-    //         .declare_function("trampoline", Linkage::Import, &sig)
-    //         .expect("problem declaring function");
-    //     let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+        sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
 
-    //     let variable = self.variables.get("vm-ctx").expect("variable not defined");
-    //     let ctx = self.builder.use_var(*variable);
+        let callee = self
+            .module
+            .declare_function("trampoline", Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
 
-    //     let lookup_index = self
-    //         .builder
-    //         .ins()
-    //         .iconst(Type::int(64).unwrap(), function_index as i64);
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
 
-    //     self.ip += 1;
+        let lookup_index = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), function_index as i64);
 
-    //     let arg_values = vec![ctx, lookup_index];
+        let arity_value = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), arity as i64);
 
-    //     // TODO: Revisit when bringing trampoline back
-    //     let spilled = self
-    //         .stack
-    //         .drain(self.stack.len() - arity..)
-    //         .collect::<Vec<_>>();
+        self.ip += 1;
 
-    //     if spilled.len() == 2 {
-    //         let mut iter = spilled.into_iter();
+        let arg_values = vec![ctx, arity_value, lookup_index];
 
-    //         let first = iter.next().unwrap();
-    //         let second = iter.next().unwrap();
+        // TODO: Revisit when bringing trampoline back
+        let spilled = self
+            .stack
+            .drain(self.stack.len() - arity..)
+            .collect::<Vec<_>>();
 
-    //         self.value_to_local_map.remove(&first.value);
-    //         self.value_to_local_map.remove(&second.value);
+        if spilled.len() == 2 {
+            let mut iter = spilled.into_iter();
 
-    //         self.push_to_vm_stack_two(first.value, second.value);
-    //     } else {
-    //         for value in spilled {
-    //             self.value_to_local_map.remove(&value.value);
+            let first = iter.next().unwrap();
+            let second = iter.next().unwrap();
 
-    //             self.push_to_vm_stack(value.value);
-    //         }
-    //     }
+            self.value_to_local_map.remove(&first.value);
+            self.value_to_local_map.remove(&second.value);
 
-    //     let call = self.builder.ins().call(local_callee, &arg_values);
-    //     let result = self.builder.inst_results(call)[0];
-    //     result
+            self.push_to_vm_stack_two(first.value, second.value);
+        } else {
+            for value in spilled {
+                self.value_to_local_map.remove(&value.value);
 
-    //     // Just
-    //     // arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
-    // }
+                self.push_to_vm_stack(value.value);
+            }
+        }
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+
+        // Just
+        // arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
+    }
 
     fn translate_tco_jmp(&mut self, payload: usize) {
         // Translate to a while loop with calls to destructors?
@@ -2243,6 +2261,14 @@ impl FunctionTranslator<'_> {
     }
 
     fn call_global_function(&mut self, arity: usize, name: &str, function_index: usize) -> Value {
+        let func = self.globals.get(function_index).unwrap();
+        if let SteelVal::Closure(c) = func {
+            if c.id.to_string() == self.name {
+                println!("Calling trampoline instead of delegating to the runtime");
+                return self.call_trampoline(arity, function_index);
+            }
+        }
+
         // This is the call global `call_global_function_deopt`
         let mut sig = self.module.make_signature();
 

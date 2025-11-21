@@ -1093,7 +1093,7 @@ pub(crate) extern "C-unwind" fn extern_handle_pop(ctx: *mut VmCore, value: Steel
     unsafe {
         let this = &mut *ctx;
         let res = this.handle_pop_pure_value(value);
-        this.is_native = false;
+        // this.is_native = false;
         this.result = res;
     }
 }
@@ -1187,7 +1187,6 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn get_local_value(&mut self, index: usize) -> SteelVal {
         let offset = self.get_offset();
-        // println!("LOCAL VALUE: ip: {} - {}", self.ip, index);
         let value = self.thread.stack[index + offset].clone();
         self.ip += 1;
         return value;
@@ -1851,27 +1850,31 @@ pub(crate) extern "C-unwind" fn check_callable_value(ctx: *mut VmCore, func: Ste
 // Which means we can generate two different forms of the function, and we don't need
 // to emit a pop on it since its going to be within itself?
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn trampoline(ctx: *mut VmCore, lookup_index: usize) -> SteelVal {
+pub(crate) extern "C-unwind" fn trampoline(
+    ctx: *mut VmCore,
+    arity: usize,
+    lookup_index: usize,
+) -> SteelVal {
     unsafe {
         let this = &mut *ctx;
         let func = this.thread.global_env.repl_lookup_idx(lookup_index);
         // println!("Calling trampoline");
         // Builtins can yield control in a funky way.
         if let SteelVal::Closure(c) = func {
-            if let Some(func) = c.0.super_instructions.as_ref() {
-                let ip = this.ip;
+            if let Some(func) = c.0.super_instructions.as_ref().copied() {
+                // Just call handle_function_call_closure_jit
+                // But then just directly invoke the super instruction
+                // and snag the return type. That way we don't have
+                // to yield right away, but we can instead
+                // just jump in to calling the function.
 
-                this.ip = 0;
-
-                let old_sp = this.sp;
-                this.sp = this.thread.stack.len() - c.arity();
+                // Install the function, so that way we can just trampoline
+                // without needing to spill the stack
+                this.handle_function_call_closure_jit(c, arity).unwrap();
 
                 (func)(this);
 
-                // this.sp = old_sp;
-                this.ip = ip + 1;
-
-                // dbg!(&this.result);
+                // Don't deopt?
                 this.thread.stack.pop().unwrap()
             } else {
                 panic!();
