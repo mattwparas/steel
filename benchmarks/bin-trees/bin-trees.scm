@@ -22,7 +22,7 @@
   (not (node-left l)))
 
 (define (make item d)
-  (stdout-simple-displayln item " " d)
+  ; (stdout-simple-displayln item " " d)
   (if (= d 0)
       (leaf item)
       (let ([item2 (* item 2)]
@@ -30,9 +30,7 @@
         (node (make (- item2 1) d2) item (make item2 d2)))))
 
 (define (check t)
-  (if (leaf? t)
-      1
-      (+ 1 (+ (check (node-left t)) (check (node-right t))))))
+  (if (leaf? t) 1 (+ 1 (+ (check (node-left t)) (check (node-right t))))))
 
 ; (set! check check)
 (set! make make)
@@ -41,9 +39,7 @@
 (#%jit-compile-2 check)
 
 (define (iterate n m d sum)
-  (if (equal? n m)
-      sum
-      (iterate (+ n 1) m d (+ sum (check (make n d))))))
+  (if (equal? n m) sum (iterate (+ n 1) m d (+ sum (check (make n d))))))
 
 (define (max x y)
   (if (> x y) x y))

@@ -433,10 +433,9 @@ impl UserDefinedStruct {
                         stop!(Generic => "struct-ref expected a non negative index");
                     }
 
-                    s.fields
-                        .get(*idx as usize)
-                        .cloned()
-                        .ok_or_else(throw!(Generic => "struct-ref: index out of bounds"))
+                    s.fields.get(*idx as usize).cloned().ok_or_else(
+                        throw!(Generic => "struct-ref: {} - index out of bounds: {}", s.name(), idx),
+                    )
                 }
                 _ => {
                     let error_message = format!(
@@ -474,7 +473,7 @@ impl UserDefinedStruct {
                     s.fields
                         .get(index)
                         .cloned()
-                        .ok_or_else(throw!(Generic => "struct-ref: index out of bounds"))
+                        .ok_or_else(throw!(Generic => "struct-ref: {} - index out of bounds: {}", s.name(), index))
                 }
                 _ => {
                     let error_message = format!(
