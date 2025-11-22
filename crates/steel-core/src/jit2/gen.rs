@@ -27,16 +27,17 @@ use crate::{
             callglobal_tail_handler_deopt_3_test, car_handler_value, cdr_handler_value,
             check_callable, check_callable_value, cons_handler_value, drop_value, equal_binop,
             extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
-            extern_c_lte_two, extern_c_mult_two, extern_c_null_handler, extern_c_sub_two,
-            extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value, if_handler_value,
-            let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
-            move_read_local_2_value_c, move_read_local_3_value_c, move_read_local_any_value_c,
-            not_handler_raw_value, num_equal_value, num_equal_value_unboxed, push_const_value_c,
-            push_const_value_index_c, push_global, push_int_0, push_int_1, push_int_2,
-            push_to_vm_stack, push_to_vm_stack_two, read_local_0_value_c, read_local_1_value_c,
-            read_local_2_value_c, read_local_3_value_c, read_local_any_value_c,
-            self_tail_call_handler, set_ctx_ip, set_handler_c, setbox_handler_c, should_continue,
-            tcojmp_handler, trampoline, unbox_handler_c,
+            extern_c_lte_two, extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler,
+            extern_c_sub_two, extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value,
+            if_handler_value, let_end_scope_c, move_read_local_0_value_c,
+            move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
+            move_read_local_any_value_c, not_handler_raw_value, num_equal_value,
+            num_equal_value_unboxed, push_const_value_c, push_const_value_index_c, push_global,
+            push_int_0, push_int_1, push_int_2, push_to_vm_stack, push_to_vm_stack_two,
+            read_local_0_value_c, read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
+            read_local_any_value_c, self_tail_call_handler, set_ctx_ip, set_handler_c,
+            setbox_handler_c, should_continue, tcojmp_handler, trampoline, trampoline_no_arity,
+            unbox_handler_c,
         },
         VmCore,
     },
@@ -438,6 +439,11 @@ impl Default for JIT {
         );
 
         map.add_func(
+            "trampoline-no-arity",
+            trampoline_no_arity as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
+        );
+
+        map.add_func(
             "call-global-function-deopt-3",
             call_global_function_deopt_3
                 as extern "C-unwind" fn(
@@ -530,6 +536,12 @@ impl Default for JIT {
         map.add_func_hint("lt-binop", extern_c_lt_two as VmBinOp, InferredType::Bool);
 
         map.add_func_hint2("lte-binop", extern_c_lte_two as BinOp, InferredType::Bool);
+
+        map.add_func_hint2(
+            "lte-binop-int",
+            extern_c_lte_two_int as BinOp,
+            InferredType::Bool,
+        );
 
         map.add_func_hint2(
             "null-handler",
@@ -1267,6 +1279,28 @@ impl FunctionTranslator<'_> {
         result
     }
 
+    // Load the VM Context
+    // Find the offset for the
+    // fn move_local(&mut self) -> Value {
+    //     let variable = self.variables.get("vm-ctx").expect("variable not defined");
+    //     let ctx = self.builder.use_var(*variable);
+    //     let sp = self
+    //         .builder
+    //         .ins()
+    //         .load(Type::int(64).unwrap(), MemFlags::trusted(), ctx, 16);
+
+    //     let thread = self.builder.ins().load(
+    //         self.module.target_config().pointer_type(),
+    //         MemFlags::trusted(),
+    //         ctx,
+    //         24,
+    //     );
+
+    //     todo!()
+
+    //     // is_native
+    // }
+
     // fn current_scope_locals_patched(&self) -> bool {
     //     self.patched_locals.last().copied().unwrap_or_default()
     // }
@@ -1524,6 +1558,7 @@ impl FunctionTranslator<'_> {
                         // let offset = self.stack.iter().enumerate().find(|(_, x)| !x.spilled);
                         // let offset = self.stack_pointers.last().unwrap();
 
+                        // for i in 0..payload + 1 {
                         for i in 0..payload + 1 {
                             // let value = self.stack.remove(i);
                             // self.push_to_vm_stack(value.value);
@@ -1534,9 +1569,11 @@ impl FunctionTranslator<'_> {
                     } else {
                         println!("Skipping patching locals: {:?}", self.patched_locals);
                         println!("{:?}", self.stack);
-                        println!("arity: {}", self.arity)
+                        println!("arity: {}", self.arity);
+                        println!("payload: {}", payload);
                     }
 
+                    // Replace this... with just reading from the vector?
                     let value = self.call_func_or_immediate(op, payload);
 
                     self.value_to_local_map.insert(value, payload);
@@ -1581,6 +1618,14 @@ impl FunctionTranslator<'_> {
                         other => todo!("{}", other),
                     };
 
+                    // TODO: @mparas
+                    // Spill, and then call the function.
+                    // for c in self.stack.clone() {
+                    //     if !c.spilled {
+                    //         self.push_to_vm_stack(c.value);
+                    //     }
+                    // }
+
                     // This function pushes back on to the stack, and then we should just
                     // return since we're done now.
                     let v = self.call_global_function(arity, name, function_index);
@@ -1588,6 +1633,8 @@ impl FunctionTranslator<'_> {
                     self.push(v, InferredType::Any);
 
                     self.check_deopt();
+
+                    self.ip = self.instructions.len() + 1;
                 }
                 OpCode::CALLGLOBALNOARITY => {
                     // First - find the index that we have to lookup.
@@ -1668,10 +1715,13 @@ impl FunctionTranslator<'_> {
 
                         for c in spilled {
                             if !c.spilled {
+                                println!("-------------------> Spilling in let end scope: {:?}", c);
                                 self.push_to_vm_stack(c.value);
                             }
                         }
                     }
+
+                    dbg!(self.local_count);
 
                     self.call_end_scope_handler(payload);
 
@@ -1680,24 +1730,45 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::PUREFUNC => todo!(),
 
-                // OpCode::SUB if payload == 2 => {
-                //     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                //     // Call the func
-                //     self.func_ret_val_named(
-                //         "sub-binop-int",
-                //         payload,
-                //         2,
-                //         InferredType::Number,
-                //         abi_type,
-                //         abi_type,
-                //     );
-                // }
+                OpCode::SUB
+                    if payload == 2
+                        && self.stack.last().map(|x| x.inferred_type)
+                            == Some(InferredType::Int) =>
+                {
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+                    // Call the func
+                    self.func_ret_val_named(
+                        "sub-binop-int",
+                        payload,
+                        2,
+                        InferredType::Number,
+                        abi_type,
+                        abi_type,
+                    );
+                }
+
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     // Call the func
                     self.func_ret_val(op, payload, 2, InferredType::Number, abi_type, abi_type);
 
                     self.check_deopt();
+                }
+
+                OpCode::LTE
+                    if payload == 2
+                        && self.stack.last().map(|x| x.inferred_type)
+                            == Some(InferredType::Int) =>
+                {
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+                    self.func_ret_val_named(
+                        "lte-binop-int",
+                        payload,
+                        2,
+                        InferredType::Bool,
+                        abi_type,
+                        abi_type,
+                    );
                 }
 
                 OpCode::LTE if payload == 2 => {
@@ -2045,6 +2116,72 @@ impl FunctionTranslator<'_> {
         // arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
     }
 
+    fn call_trampoline_no_arity(&mut self, arity: usize, function_index: usize) -> Value {
+        let mut sig = self.module.make_signature();
+
+        // VmCore pointer
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        // lookup index
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
+
+        // for _ in 0..arity {
+        //     sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+        // }
+
+        sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
+
+        let callee = self
+            .module
+            .declare_function("trampoline-no-arity", Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+
+        let lookup_index = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), function_index as i64);
+
+        self.ip += 1;
+
+        let arg_values = vec![ctx, lookup_index];
+
+        // TODO: Revisit when bringing trampoline back
+        let spilled = self
+            .stack
+            .drain(self.stack.len() - arity..)
+            .collect::<Vec<_>>();
+
+        if spilled.len() == 2 {
+            let mut iter = spilled.into_iter();
+
+            let first = iter.next().unwrap();
+            let second = iter.next().unwrap();
+
+            self.value_to_local_map.remove(&first.value);
+            self.value_to_local_map.remove(&second.value);
+
+            self.push_to_vm_stack_two(first.value, second.value);
+        } else {
+            for value in spilled {
+                self.value_to_local_map.remove(&value.value);
+
+                self.push_to_vm_stack(value.value);
+            }
+        }
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+
+        // Just
+        // arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
+    }
+
     fn translate_tco_jmp(&mut self, payload: usize) {
         // Translate to a while loop with calls to destructors?
         // Or just use the normal jump, where we jump to the
@@ -2261,13 +2398,19 @@ impl FunctionTranslator<'_> {
     }
 
     fn call_global_function(&mut self, arity: usize, name: &str, function_index: usize) -> Value {
-        let func = self.globals.get(function_index).unwrap();
-        if let SteelVal::Closure(c) = func {
-            if c.id.to_string() == self.name {
-                println!("Calling trampoline instead of delegating to the runtime");
-                return self.call_trampoline(arity, function_index);
-            }
-        }
+        // TODO: Call trampoline, but include the arity check as well
+        // let func = self.globals.get(function_index).unwrap();
+        // if let SteelVal::Closure(c) = func {
+        //     if c.id.to_string() == self.name {
+        //         println!("Calling trampoline instead of delegating to the runtime");
+
+        //         if name.contains("no-arity") {
+        //             return self.call_trampoline_no_arity(arity, function_index);
+        //         } else {
+        //             return self.call_trampoline(arity, function_index);
+        //         }
+        //     }
+        // }
 
         // This is the call global `call_global_function_deopt`
         let mut sig = self.module.make_signature();
@@ -2345,7 +2488,7 @@ impl FunctionTranslator<'_> {
 
             // if !self.current_scope_locals_patched() {
 
-            // println!("Fall back pushing to stack: {}", )
+            println!("Fall back pushing to stack in tail call: {:?}", self.stack);
             for c in self.stack.clone() {
                 if !c.spilled {
                     self.push_to_vm_stack(c.value);
@@ -2632,7 +2775,7 @@ impl FunctionTranslator<'_> {
         abi_param_type: AbiParam,
         abi_return_type: AbiParam,
     ) {
-        println!("Func ret val: {:?}", op);
+        println!("Func ret val: {:?} - {}", op, payload);
         let function_name = op_to_name_payload(op, payload);
         let args = self.split_off(payload);
 

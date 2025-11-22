@@ -377,6 +377,7 @@ pub enum ThreadState {
 
 /// The thread execution context
 #[derive(Clone)]
+#[repr(C)]
 pub struct SteelThread {
     // TODO: Figure out how to best broadcast changes
     // to the rest of the world? Right now pausing threads
@@ -1592,17 +1593,16 @@ impl<'a> VmContext for VmCore<'a> {
 pub struct VmCore<'a> {
     pub(crate) is_native: bool,
     pub(crate) ip: usize,
+    pub(crate) sp: usize,
+    pub(crate) thread: &'a mut SteelThread,
     pub(crate) instructions: RootedInstructions,
     // TODO: Replace this with a thread local constant map!
     // that way reads are fast - and any updates to it are
     // broadcast from the shared constant map.
     pub(crate) constants: ConstantMap,
-    pub(crate) sp: usize,
     pub(crate) pop_count: usize,
     pub(crate) depth: usize,
-    pub(crate) thread: &'a mut SteelThread,
     pub(crate) root_spans: &'a [Span],
-
     pub(crate) return_value: Option<SteelVal>,
     // TODO: This means we've entered the native section of the code
     pub(crate) result: Option<Result<SteelVal>>,
