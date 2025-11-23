@@ -1471,9 +1471,11 @@ impl FunctionTranslator<'_> {
                 // to clone it
                 OpCode::READLOCAL | OpCode::MOVEREADLOCAL => {
                     if payload + 1 > self.arity as _ {
-                        let locals_to_patch = self.local_count;
+                        // let locals_to_patch = self.local_count;
 
-                        for i in 0..locals_to_patch {
+                        for i in 0..payload + 1 {
+                            // for i in 0..(payload + 1 - self.arity as usize) {
+                            println!("Read local spill generic");
                             self.spill(i);
                         }
                     }
@@ -1543,10 +1545,17 @@ impl FunctionTranslator<'_> {
                     // read it?
                     if payload + 1 > self.arity as _ {
                         let locals_to_patch = self.local_count;
+
+                        println!("-----------------");
                         println!("Patching locals: {}", locals_to_patch);
                         println!("Stack at local patching: {}", self.stack.len());
                         println!("payload: {}", payload);
                         println!("stack: {:?}", self.stack);
+                        println!("Arity: {}", self.arity);
+
+                        let upper_bound = payload + 1 - self.arity as usize;
+
+                        println!("Upper bound: {}", upper_bound);
 
                         // Patch last n values from the stack on to the VM stack
                         // let values = self.stack[self.stack.len() - locals_to_patch..].to_vec();
@@ -1558,12 +1567,15 @@ impl FunctionTranslator<'_> {
                         // let offset = self.stack.iter().enumerate().find(|(_, x)| !x.spilled);
                         // let offset = self.stack_pointers.last().unwrap();
 
-                        // for i in 0..payload + 1 {
-                        for i in 0..payload + 1 {
+                        for i in 0..upper_bound {
+                            // for i in 0..(payload + 1 - self.arity as usize) {
                             // let value = self.stack.remove(i);
+                            println!("Read local spill small");
                             // self.push_to_vm_stack(value.value);
                             self.spill(i);
                         }
+
+                        println!("Stack after patching: {:#?}", self.stack);
 
                         // self.patch_up_to();
                     } else {
@@ -2455,11 +2467,21 @@ impl FunctionTranslator<'_> {
         self.ip += 1;
 
         let mut arg_values = vec![ctx, lookup_index, fallback_ip];
-        arg_values.extend(
-            self.stack
-                .drain(self.stack.len() - arity..)
-                .map(|x| x.value),
-        );
+
+        let args_off_the_stack = self
+            .stack
+            .drain(self.stack.len() - arity..)
+            .collect::<Vec<_>>();
+
+        dbg!(&args_off_the_stack);
+
+        for arg in &args_off_the_stack {
+            assert!(!arg.spilled);
+        }
+
+        assert_eq!(args_off_the_stack.len(), arity);
+
+        arg_values.extend(args_off_the_stack.iter().map(|x| x.value));
 
         // Check if its a function - otherwise, just spill the values to the stack.
         let is_function = self.check_function(lookup_index);
@@ -2488,19 +2510,23 @@ impl FunctionTranslator<'_> {
 
             // if !self.current_scope_locals_patched() {
 
-            println!("Fall back pushing to stack in tail call: {:?}", self.stack);
+            // TODO: @matt
+            // Investigate for call globals if we need to do this?
+            // Spilling on the stack here seems suspect? Do we have to
+            // spill the _whole_ stack? Or just part of it?
+            println!(
+                "-------- Fall back pushing to stack in tail call: {:?} ---------",
+                self.stack
+            );
+            println!("Stack length: {}", self.stack.len());
+            println!("Stack pointer: {}", self.local_count);
+
             for c in self.stack.clone() {
                 if !c.spilled {
+                    println!("Spilling...");
                     self.push_to_vm_stack(c.value);
                 }
-
-                // if c.len() == 2 {
-                //     self.push_to_vm_stack_two(c[0].value, c[1].value);
-                // } else {
-                //     self.push_to_vm_stack(c[0].value);
-                // }
             }
-            // }
 
             // Only spill what hasn't been spilled already?
             // for value in self.stack.clone() {
@@ -2727,6 +2753,7 @@ impl FunctionTranslator<'_> {
         }
 
         if spilled {
+            println!("Spilling in spill: {:?}", self.stack[index]);
             self.push_to_vm_stack(self.stack[index].value);
         }
 

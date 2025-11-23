@@ -774,6 +774,7 @@ pub(crate) mod drop_impls {
 
     impl Drop for UserDefinedStruct {
         fn drop(&mut self) {
+            println!("Dropping node: {:?}", self);
             if self.fields.is_empty() {
                 return;
             }

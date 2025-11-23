@@ -19,6 +19,8 @@ use crate::{
 
 use super::*;
 
+pub const TRAMPOLINE: bool = true;
+
 #[steel_derive::context(name = "#%jit-compile-2", arity = "AtLeast(1)")]
 pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let function = &args[0];
@@ -1092,10 +1094,6 @@ pub(crate) extern "C-unwind" fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> 
 pub(crate) extern "C-unwind" fn extern_handle_pop(ctx: *mut VmCore, value: SteelVal) {
     unsafe {
         let this = &mut *ctx;
-        println!(
-            "Calling pop with value: {} - {:#?}",
-            value, this.thread.stack
-        );
         let res = this.handle_pop_pure_value(value);
         // this.is_native = false;
         this.result = res;
@@ -1504,6 +1502,9 @@ fn new_callglobal_tail_handler_deopt_test(
 ) -> SteelVal {
     let func = ctx.thread.global_env.repl_lookup_idx(index);
     println!("Calling tail: {} - {:#?}", func, args);
+
+    println!("What is left on the stack: {:#?}", ctx.thread.stack);
+
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
@@ -1528,7 +1529,7 @@ fn new_callglobal_tail_handler_deopt_test(
         Ok(v) => {
             // ctx.thread.stack.push(v);
             // return SteelVal::Void;
-            return v;
+            return dbg!(v);
         }
         Err(e) => {
             ctx.is_native = false;
@@ -1648,37 +1649,37 @@ fn handle_global_function_call_with_args(
                     .push(std::mem::replace(val, SteelVal::Void));
             }
 
-            // We're going to de-opt in this case - unless we intend to do some fun inlining business
-            // if let Some(func) = closure.0.super_instructions.as_ref().copied() {
-            //     // Just call handle_function_call_closure_jit
-            //     // But then just directly invoke the super instruction
-            //     // and snag the return type. That way we don't have
-            //     // to yield right away, but we can instead
-            //     // just jump in to calling the function.
+            if TRAMPOLINE {
+                // We're going to de-opt in this case - unless we intend to do some fun inlining business
+                if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                    ctx.handle_function_call_closure_jit(closure, arity)
+                        .unwrap();
 
-            //     // Install the function, so that way we can just trampoline
-            //     // without needing to spill the stack
-            //     ctx.handle_function_call_closure_jit(closure, arity)
-            //         .unwrap();
+                    dbg!(&ctx.thread.stack);
 
-            //     (func)(ctx);
+                    (func)(ctx);
 
-            //     dbg!(&ctx.thread.stack);
+                    dbg!(&ctx.thread.stack);
 
-            //     // dbg!(ctx.is_native);
-            //     // dbg!(&ctx.result);
+                    // dbg!(ctx.is_native);
+                    // dbg!(&ctx.result);
 
-            //     if ctx.is_native {
-            //         // Don't deopt?
-            //         Ok(ctx.thread.stack.pop().unwrap())
-            //     } else {
-            //         Ok(SteelVal::Void)
-            //     }
-            // } else {
-            // We're going to de-opt in this case - unless we intend to do some fun inlining business
-            ctx.handle_function_call_closure_jit(closure, arity)?;
-            Ok(SteelVal::Void)
-            // }
+                    if ctx.is_native {
+                        // Don't deopt?
+                        Ok(ctx.thread.stack.pop().unwrap())
+                    } else {
+                        Ok(SteelVal::Void)
+                    }
+                } else {
+                    // We're going to de-opt in this case - unless we intend to do some fun inlining business
+                    ctx.handle_function_call_closure_jit(closure, arity)?;
+                    Ok(SteelVal::Void)
+                }
+            } else {
+                // We're going to de-opt in this case - unless we intend to do some fun inlining business
+                ctx.handle_function_call_closure_jit(closure, arity)?;
+                Ok(SteelVal::Void)
+            }
         }
 
         // This is probably no good here anyway
@@ -1715,32 +1716,39 @@ fn handle_global_function_call_with_args_no_arity(
             // Just put them all on the stack
             ctx.thread.stack.extend(args.into_iter());
 
-            if let Some(func) = closure.0.super_instructions.as_ref().copied() {
-                // Just call handle_function_call_closure_jit
-                // But then just directly invoke the super instruction
-                // and snag the return type. That way we don't have
-                // to yield right away, but we can instead
-                // just jump in to calling the function.
+            if TRAMPOLINE {
+                if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                    // Just call handle_function_call_closure_jit
+                    // But then just directly invoke the super instruction
+                    // and snag the return type. That way we don't have
+                    // to yield right away, but we can instead
+                    // just jump in to calling the function.
 
-                // dbg!(&ctx.thread.stack);
-
-                // Install the function, so that way we can just trampoline
-                // without needing to spill the stack
-                ctx.handle_function_call_closure_jit_no_arity(closure)
-                    .unwrap();
-
-                (func)(ctx);
-
-                if ctx.is_native {
                     // dbg!(&ctx.thread.stack);
 
-                    // Don't deopt?
-                    Ok(ctx.thread.stack.pop().unwrap())
+                    println!("Calling trampoline");
+
+                    // Install the function, so that way we can just trampoline
+                    // without needing to spill the stack
+                    ctx.handle_function_call_closure_jit_no_arity(closure)
+                        .unwrap();
+
+                    (func)(ctx);
+
+                    if ctx.is_native {
+                        // dbg!(&ctx.thread.stack);
+
+                        // Don't deopt?
+                        dbg!(Ok(ctx.thread.stack.pop().unwrap()))
+                    } else {
+                        Ok(SteelVal::Void)
+                    }
                 } else {
+                    // We're going to de-opt in this case - unless we intend to do some fun inlining business
+                    ctx.handle_function_call_closure_jit_no_arity(closure)?;
                     Ok(SteelVal::Void)
                 }
             } else {
-                // We're going to de-opt in this case - unless we intend to do some fun inlining business
                 ctx.handle_function_call_closure_jit_no_arity(closure)?;
                 Ok(SteelVal::Void)
             }
@@ -1769,7 +1777,7 @@ pub(crate) extern "C-unwind" fn should_continue(ctx: *mut VmCore) -> bool {
 
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn push_to_vm_stack(ctx: *mut VmCore, value: SteelVal) {
-    // println!("Pushing to vm stack: {}", value);
+    println!("Pushing to vm stack: {}", value);
     unsafe {
         (&mut *ctx).thread.stack.push(value);
     }
@@ -1885,6 +1893,13 @@ pub(crate) extern "C-unwind" fn check_callable(ctx: *mut VmCore, lookup_index: u
     unsafe {
         let this = &mut *ctx;
         let func = &this.thread.global_env.roots()[lookup_index];
+
+        // if let SteelVal::Closure(c) = func {
+        //     if c.0.super_instructions.as_ref().is_some() {
+        //         return true;
+        //     }
+        // }
+
         // Builtins can yield control in a funky way.
         !matches!(
             func,
@@ -2257,11 +2272,11 @@ fn call_global_function_deopt(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        // SteelVal::Closure(c) if c.0.super_instructions.is_some() => {
-        //     ctx.ip = fallback_ip;
-        //     // println!("{:?}", ctx.instructions[ctx.ip]);
-        //     false
-        // }
+        SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => {
+            ctx.ip = fallback_ip;
+            // println!("{:?}", ctx.instructions[ctx.ip]);
+            false
+        }
         SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => {
             ctx.ip = fallback_ip;
             ctx.is_native = false;
@@ -2363,7 +2378,7 @@ fn call_global_function_deopt_no_arity(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions.is_some() => false,
+        SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
         SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
         _ => false,
     };
