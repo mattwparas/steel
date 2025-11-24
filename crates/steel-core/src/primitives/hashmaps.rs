@@ -45,6 +45,17 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
     module
 }
 
+/// Gets the hash code for the given value;
+///
+/// (hash-code v) -> integer?
+///
+/// * v : hashable?
+///
+/// # Examples
+/// ```scheme
+/// (hash-code 10) ;; => 16689870864682149525
+/// (hash-code "hello world") ;; => 12361891819228967546
+/// ```
 #[steel_derive::function(name = "hash-code", constant = false)]
 pub fn hash_code(arg: &SteelVal) -> Result<SteelVal> {
     let mut hasher = DefaultHasher::new();
