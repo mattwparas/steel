@@ -1,3 +1,5 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use crate::rvals::SteelHashMap;
 use crate::stop;
 use crate::values::HashMap;
@@ -9,6 +11,7 @@ use crate::{
 
 use crate::primitives::vectors::vec_construct_iter_normal;
 
+use num_bigint::BigInt;
 use steel_derive::function;
 
 declare_const_ref_functions!(
@@ -37,8 +40,38 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
         .register_native_fn_definition(CLEAR_DEFINITION)
         .register_native_fn_definition(HM_EMPTY_DEFINITION)
         .register_native_fn_definition(HM_UNION_DEFINITION)
-        .register_native_fn_definition(HASH_REMOVE_DEFINITION);
+        .register_native_fn_definition(HASH_REMOVE_DEFINITION)
+        .register_native_fn_definition(HASH_CODE_DEFINITION);
     module
+}
+
+/// Gets the hash code for the given value;
+///
+/// (hash-code v) -> integer?
+///
+/// * v : hashable?
+///
+/// # Examples
+/// ```scheme
+/// (hash-code 10) ;; => 16689870864682149525
+/// (hash-code "hello world") ;; => 12361891819228967546
+/// ```
+#[steel_derive::function(name = "hash-code", constant = false)]
+pub fn hash_code(arg: &SteelVal) -> Result<SteelVal> {
+    let mut hasher = DefaultHasher::new();
+
+    if !arg.is_hashable() {
+        stop!(TypeMismatch => "value is not hashable: {}", arg);
+    }
+
+    arg.hash(&mut hasher);
+    let value = hasher.finish();
+
+    if let Ok(v) = isize::try_from(value) {
+        Ok(SteelVal::IntV(v))
+    } else {
+        Ok(SteelVal::BigNum(Gc::new(BigInt::from(value))))
+    }
 }
 
 /// Creates an immutable hash table with each given `key` mapped to the following `val`.

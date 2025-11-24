@@ -1299,7 +1299,11 @@ fn number_module() -> BuiltInModule {
         .register_native_fn_definition(numbers::TAN_DEFINITION)
         .register_native_fn_definition(numbers::ASIN_DEFINITION)
         .register_native_fn_definition(numbers::ACOS_DEFINITION)
-        .register_native_fn_definition(numbers::ATAN_DEFINITION);
+        .register_native_fn_definition(numbers::ATAN_DEFINITION)
+        .register_native_fn_definition(numbers::BITWISE_AND_DEFINITION)
+        .register_native_fn_definition(numbers::BITWISE_IOR_DEFINITION)
+        .register_native_fn_definition(numbers::BITWISE_XOR_DEFINITION)
+        .register_native_fn_definition(numbers::BITWISE_NOT_DEFINITION);
 
     module
 }

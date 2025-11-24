@@ -1,3 +1,4 @@
+use crate::gc::Gc;
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
 use crate::{steelerr, stop, throw};
 use num_bigint::BigInt;
@@ -5,7 +6,7 @@ use num_integer::Integer;
 use num_rational::{BigRational, Ratio, Rational32};
 use num_traits::{pow::Pow, CheckedAdd, CheckedMul, Euclid, One, Signed, ToPrimitive, Zero};
 use std::cmp::Ordering;
-use std::ops::Neg;
+use std::ops::{BitAnd, BitOr, BitXor, Neg};
 
 /// Checks if the given value is a number
 ///
@@ -2084,6 +2085,124 @@ pub fn arithmetic_shift(args: &[SteelVal]) -> Result<SteelVal> {
             }
         }
         _ => stop!(TypeMismatch => "arithmetic-shift expected 2 integers"),
+    }
+}
+
+/// Performs a bitwise xor using the given numbers
+///
+/// (bitwise-xor n ...) -> integer?
+///
+/// * n : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (bitwise-xor 1 5) ;; => 4
+/// > (bitwise-xor -32 -1) ;; => 31
+/// ```
+#[steel_derive::native(name = "bitwise-xor", constant = true, arity = "AtLeast(1)")]
+pub fn bitwise_xor(args: &[SteelVal]) -> Result<SteelVal> {
+    let mut accum = if let SteelVal::IntV(i) = &args[0] {
+        *i
+    } else {
+        stop!(TypeMismatch => "bitwise-xor expects an exact integer");
+    };
+
+    if args.len() == 1 {
+        return Ok(args[0].clone());
+    }
+
+    for value in &args[1..] {
+        if let SteelVal::IntV(v) = value {
+            accum = accum.bitxor(v);
+        }
+    }
+
+    Ok(SteelVal::IntV(accum))
+}
+
+/// Performs a bitwise ior using the given numbers
+///
+/// (bitwise-ior n ...) -> integer?
+///
+/// * n : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (bitwise-ior 1 2) ;; => 3
+/// > (bitwise-ior -32 1) ;; => -31
+/// ```
+#[steel_derive::native(name = "bitwise-ior", constant = true, arity = "AtLeast(1)")]
+pub fn bitwise_ior(args: &[SteelVal]) -> Result<SteelVal> {
+    let mut accum = if let SteelVal::IntV(i) = &args[0] {
+        *i
+    } else {
+        stop!(TypeMismatch => "bitwise-ior expects an exact integer");
+    };
+
+    if args.len() == 1 {
+        return Ok(args[0].clone());
+    }
+
+    for value in &args[1..] {
+        if let SteelVal::IntV(v) = value {
+            accum = accum.bitor(v);
+        }
+    }
+
+    Ok(SteelVal::IntV(accum))
+}
+
+/// Performs a bitwise and using the given numbers
+///
+/// (bitwise-and n ...) -> integer?
+///
+/// * n : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (bitwise-and 1 2) ;; => 0
+/// > (bitwise-and -32 -1) ;; => -32
+/// ```
+#[steel_derive::native(name = "bitwise-and", constant = true, arity = "AtLeast(1)")]
+pub fn bitwise_and(args: &[SteelVal]) -> Result<SteelVal> {
+    let mut accum = if let SteelVal::IntV(i) = &args[0] {
+        *i
+    } else {
+        stop!(TypeMismatch => "bitwise-and expects an exact integer");
+    };
+
+    if args.len() == 1 {
+        return Ok(args[0].clone());
+    }
+
+    for value in &args[1..] {
+        if let SteelVal::IntV(v) = value {
+            accum = accum.bitand(v);
+        }
+    }
+
+    Ok(SteelVal::IntV(accum))
+}
+
+/// Performs a bitwise not using the given numbers
+///
+/// (bitwise-not n ...) -> integer?
+///
+/// * n : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (bitwise-not 5) ;; => -6
+/// > (bitwise-not -1) ;; => 0
+/// ```
+#[steel_derive::native(name = "bitwise-not", constant = true, arity = "Exact(1)")]
+pub fn bitwise_not(args: &[SteelVal]) -> Result<SteelVal> {
+    match &args[0] {
+        SteelVal::IntV(i) => Ok(SteelVal::IntV(!i)),
+        SteelVal::BigNum(i) => Ok(SteelVal::BigNum(Gc::new(!i.as_ref()))),
+        _ => {
+            stop!(TypeMismatch => "bitwise-not expects an exact integer");
+        }
     }
 }
 

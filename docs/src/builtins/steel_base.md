@@ -227,6 +227,54 @@ Returns the arctangent, or inverse tangent, of a value; output is in radians.
 > (atan 0.5) ;; => 0.46364760900080615
 > (atan 2) ;; => 1.1071487177940906
 ```
+### **bitwise-and**
+Performs a bitwise and using the given numbers
+
+(bitwise-and n ...) -> integer?
+
+* n : integer?
+
+#### Examples
+```scheme
+> (bitwise-and 1 2) ;; => 0
+> (bitwise-and -32 -1) ;; => -32
+```
+### **bitwise-ior**
+Performs a bitwise ior using the given numbers
+
+(bitwise-ior n ...) -> integer?
+
+* n : integer?
+
+#### Examples
+```scheme
+> (bitwise-ior 1 2) ;; => 3
+> (bitwise-ior -32 1) ;; => -31
+```
+### **bitwise-not**
+Performs a bitwise not using the given numbers
+
+(bitwise-not n ...) -> integer?
+
+* n : integer?
+
+#### Examples
+```scheme
+> (bitwise-not 5) ;; => -6
+> (bitwise-not -1) ;; => 0
+```
+### **bitwise-xor**
+Performs a bitwise xor using the given numbers
+
+(bitwise-xor n ...) -> integer?
+
+* n : integer?
+
+#### Examples
+```scheme
+> (bitwise-xor 1 5) ;; => 4
+> (bitwise-xor -32 -1) ;; => 31
+```
 ### **bool?**
 Alias for `boolean?`. Returns true if the value is a boolean.
 
@@ -1321,6 +1369,18 @@ to the hashmap.
 ```scheme
 > (hash-clear (hash 'a 10 'b 20))
 => '#hash()
+```
+### **hash-code**
+Gets the hash code for the given value;
+
+(hash-code v) -> integer?
+
+* v : hashable?
+
+#### Examples
+```scheme
+(hash-code 10) ;; => 16689870864682149525
+(hash-code "hello world") ;; => 12361891819228967546
 ```
 ### **hash-contains?**
 Checks whether the given map contains the given key. Key must be hashable.
@@ -3880,6 +3940,7 @@ Create a zipping iterator
 ### **command**
 ### **continuation?**
 ### **current-function-span**
+### **current-module**
 ### **current-os!**
 ### **current-thread-id**
 ### **dump-profiler**

@@ -29,6 +29,18 @@ to the hashmap.
 > (hash-clear (hash 'a 10 'b 20))
 => '#hash()
 ```
+### **hash-code**
+Gets the hash code for the given value;
+
+(hash-code v) -> integer?
+
+* v : hashable?
+
+#### Examples
+```scheme
+(hash-code 10) ;; => 16689870864682149525
+(hash-code "hello world") ;; => 12361891819228967546
+```
 ### **hash-contains?**
 Checks whether the given map contains the given key. Key must be hashable.
 

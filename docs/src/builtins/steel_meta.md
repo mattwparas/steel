@@ -49,6 +49,7 @@ then default-value (which defaults to #f) is returned.
 ### **call/cc**
 ### **callstack-hydrate-names**
 ### **current-function-span**
+### **current-module**
 ### **current-os!**
 ### **dump-profiler**
 ### **emit-expanded**
