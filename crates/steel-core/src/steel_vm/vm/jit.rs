@@ -272,7 +272,7 @@ pub extern "C-unwind" fn drop_value(ctx: *mut VmCore, arg: SteelVal) {
 
 #[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn pop_value(ctx: *mut VmCore) -> SteelVal {
-    dbg!(unsafe { &mut *ctx }.thread.stack.pop().unwrap())
+    unsafe { &mut *ctx }.thread.stack.pop().unwrap()
 }
 
 #[allow(improper_ctypes_definitions)]
@@ -1507,8 +1507,8 @@ fn new_callglobal_tail_handler_deopt_test(
     args: &mut [SteelVal],
 ) -> SteelVal {
     let func = ctx.thread.global_env.repl_lookup_idx(index);
-    println!("Calling tail: {} - {:#?}", func, args);
-    println!("What is left on the stack: {:#?}", ctx.thread.stack);
+    println!("Calling tail: {}", func);
+    // println!("What is left on the stack: {:#?}", ctx.thread.stack);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
@@ -1523,7 +1523,7 @@ fn new_callglobal_tail_handler_deopt_test(
         ctx.is_native = !should_yield;
     } else {
         // println!("Not yielding");
-        ctx.ip += 2;
+        ctx.ip += 1;
         // ctx.ip = fallback_ip + 1;
     }
 
@@ -1534,7 +1534,7 @@ fn new_callglobal_tail_handler_deopt_test(
         Ok(v) => {
             // ctx.thread.stack.push(v);
             // return SteelVal::Void;
-            return dbg!(v);
+            return v;
         }
         Err(e) => {
             ctx.is_native = false;
@@ -1610,7 +1610,7 @@ fn handle_global_tail_call_deopt_with_args(
 
             // TODO:
             // Just write directly to the earlier spot.
-            println!("stack before calling closure: {:#?}", ctx.thread.stack);
+            // println!("stack before calling closure: {:#?}", ctx.thread.stack);
 
             // We're going to de-opt in this case - unless we intend to do some fun inlining business
             ctx.new_handle_tail_call_closure(closure, arity)?;
@@ -1664,16 +1664,16 @@ fn handle_global_function_call_with_args(
                     ctx.handle_function_call_closure_jit(closure, arity)
                         .unwrap();
 
-                    println!("Before call:");
-                    dbg!(&ctx.thread.stack);
+                    // println!("Before call:");
+                    // dbg!(&ctx.thread.stack);
 
                     (func)(ctx);
 
-                    println!("After call:");
-                    dbg!(&ctx.thread.stack);
+                    // println!("After call:");
+                    // dbg!(&ctx.thread.stack);
 
                     // dbg!(ctx.is_native);
-                    dbg!(&ctx.result);
+                    // dbg!(&ctx.result);
 
                     if ctx.is_native {
                         // Don't deopt?
@@ -1737,7 +1737,7 @@ fn handle_global_function_call_with_args_no_arity(
 
                     // dbg!(&ctx.thread.stack);
 
-                    println!("Calling trampoline");
+                    // println!("Calling trampoline");
 
                     // Install the function, so that way we can just trampoline
                     // without needing to spill the stack
@@ -1746,7 +1746,7 @@ fn handle_global_function_call_with_args_no_arity(
 
                     (func)(ctx);
 
-                    println!("Done calling trampoline");
+                    // println!("Done calling trampoline");
 
                     // dbg!(&ctx.result);
 
@@ -1754,7 +1754,7 @@ fn handle_global_function_call_with_args_no_arity(
                         // dbg!(&ctx.thread.stack);
 
                         // Don't deopt?
-                        dbg!(Ok(ctx.thread.stack.pop().unwrap()))
+                        Ok(ctx.thread.stack.pop().unwrap())
                     } else {
                         Ok(SteelVal::Void)
                     }
@@ -2310,10 +2310,7 @@ fn call_global_function_deopt(
     // ctx.ip += 1;
     // let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
     let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
-    // println!(
-    //     "Calling global function: {}, with args: {:?} @ {}",
-    //     func, args, fallback_ip
-    // );
+    println!("Calling global function: {} @ {}", func, fallback_ip);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
@@ -2384,7 +2381,7 @@ fn call_function_deopt(
     };
 
     if should_yield {
-        println!("Deopt in local function call");
+        // println!("Deopt in local function call");
         // println!("Function: {}", func);
         // ctx.ip = dbg!(fallback_ip + 1);
         ctx.ip = fallback_ip;
@@ -2411,7 +2408,7 @@ fn call_global_function_deopt_no_arity(
     fallback_ip: usize,
     args: SmallVec<[SteelVal; 3]>,
 ) -> SteelVal {
-    // println!("Calling global function no arity, with args: {:?}", args);
+    println!("Calling global function no arity @ {}", fallback_ip);
     // println!("Stack at function call: {:#?}", ctx.thread.stack);
     // println!("fallback ip: {}", fallback_ip);
 
@@ -2422,7 +2419,7 @@ fn call_global_function_deopt_no_arity(
     // ctx.ip += 1;
     // let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
     let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
-    // println!("Func: {}", func);
+    println!("Func: {}", func);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
@@ -2433,6 +2430,8 @@ fn call_global_function_deopt_no_arity(
     };
 
     if should_yield {
+        println!("Yielding");
+        // println!("Stack: {:#?}", ctx.thread.stack);
         ctx.ip = fallback_ip;
         ctx.is_native = false;
     }
