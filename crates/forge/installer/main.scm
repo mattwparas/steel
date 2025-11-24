@@ -10,7 +10,7 @@
 
   (define version-width (string-length "Version"))
 
-  (displayln "Listing packages from: " *STEEL_HOME*)
+  (displayln "Listing packages from:" *STEEL_HOME*)
   (displayln)
 
   (display "Package")
@@ -29,7 +29,7 @@
               (display (make-string (- package-name-width
                                        (string-length (symbol->string package-name)))
                                     #\SPACE))
-              (display " ")
+              (display "  ")
               (displayln (hash-ref package 'version)))
             (hash-values->list index)))
 
