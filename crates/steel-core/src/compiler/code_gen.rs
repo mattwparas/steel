@@ -885,7 +885,10 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             self.visit(expr)?;
             // For the JIT -> push the last instruction to the internal scope
             // TODO: Rename from BEGINSCOPE to something like MARKLETVAR
-            // self.push(LabeledInstruction::builder(OpCode::LetVar));
+
+            if cfg!(feature = "jit2") {
+                self.push(LabeledInstruction::builder(OpCode::LetVar));
+            }
         }
 
         let mut heap_allocated_arguments = info

@@ -14,18 +14,16 @@
 ;; return an int - we should be able to do
 ;; ADDINT... Or also could do loop unrolling?
 (define (fib n)
-  (if (<= n 2)
-      1
-      (+ (fib (- n 1)) (fib (- n 2)))))
+  (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))
 
 (define (jit-fib n)
   ;; Loop unrolling would do so much, assuming we can do that easily
-  (if (<= n 2)
-      1
-      (+ (jit-fib (- n 1)) (jit-fib (- n 2)))))
+  (if (<= n 2) 1 (+ (jit-fib (- n 1)) (jit-fib (- n 2)))))
 
 ; (define jitfib (#%jit-compile jit-fib))
 ; (define jitfib jit-fib)
+
+; (set! jit-fib jit-fib)
 
 ; (set! jit-fib (#%jit-compile jit-fib "jit-fib"))
 
@@ -47,14 +45,10 @@
 ;   (string-append x y))
 
 (define (loop x y)
-  (if (= x y)
-      x
-      (loop (+ x 1) y)))
+  (if (= x y) x (loop (+ x 1) y)))
 
 (define (jit-loop x y)
-  (if (= x y)
-      (to-string x)
-      (jit-loop (+ x 1) y)))
+  (if (= x y) (to-string x) (jit-loop (+ x 1) y)))
 
 (define (assoc2 obj lst)
   (cond
@@ -70,9 +64,7 @@
 
 (define (map1 func accum lst)
   ; (stdout-simple-displayln accum)
-  (if (null? lst)
-      (reverse accum)
-      (map1 func (cons (func (car lst)) accum) (cdr lst))))
+  (if (null? lst) (reverse accum) (map1 func (cons (func (car lst)) accum) (cdr lst))))
 
 ; (set! map1 map1)
 
@@ -113,3 +105,10 @@
 ;; What that looks like -> Inlining a function call?
 
 ; (fib 35)
+
+; (define jit-fib2
+;   (λ (n2)
+;     (if (<= n2 2)
+;         1
+;         (+ (let ([n23 (- n2 1)]) (if (<= n23 2) 1 (+ (jit-fib2 (- n23 1)) (jit-fib (- n23 2)))))
+;            (let ([n23 (- n2 2)]) (if (<= n23 2) 1 (+ (jit-fib2 (- n23 1)) (jit-fib (- n23 2)))))))))

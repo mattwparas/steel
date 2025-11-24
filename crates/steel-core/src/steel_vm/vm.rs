@@ -3633,6 +3633,15 @@ impl<'a> VmCore<'a> {
                 } => {
                     self.ip += 1;
                 }
+
+                DenseInstruction {
+                    op_code: OpCode::LetVar,
+                    ..
+                } => {
+                    // println!("At let var: {:#?}", self.thread.stack);
+                    self.ip += 1;
+                }
+
                 DenseInstruction {
                     op_code: OpCode::SETALLOC,
                     ..
@@ -7059,6 +7068,15 @@ fn let_end_scope_handler_with_payload(ctx: &mut VmCore<'_>, beginning_scope: usi
     ctx.ip += 1;
 
     let rollback_index = beginning_scope + offset;
+
+    // println!("Let end scope: {:#?}", ctx.thread.stack);
+
+    // println!(
+    //     "Draining: {:#?}",
+    //     ctx.thread
+    //         .stack
+    //         .get(rollback_index..ctx.thread.stack.len() - 1)
+    // );
 
     let _ = ctx
         .thread

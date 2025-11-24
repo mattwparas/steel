@@ -32,9 +32,10 @@ use crate::{
             if_handler_value, let_end_scope_c, move_read_local_0_value_c,
             move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
             move_read_local_any_value_c, not_handler_raw_value, num_equal_value,
-            num_equal_value_unboxed, push_const_value_c, push_const_value_index_c, push_global,
-            push_int_0, push_int_1, push_int_2, push_to_vm_stack, push_to_vm_stack_two,
-            read_local_0_value_c, read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
+            num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
+            push_global, push_int_0, push_int_1, push_int_2, push_to_vm_stack,
+            push_to_vm_stack_let_var, push_to_vm_stack_two, read_local_0_value_c,
+            read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
             read_local_any_value_c, self_tail_call_handler, set_ctx_ip, set_handler_c,
             setbox_handler_c, should_continue, tcojmp_handler, trampoline, trampoline_no_arity,
             unbox_handler_c,
@@ -356,9 +357,15 @@ impl Default for JIT {
         );
 
         map.add_func(
+            "pop-from-stack",
+            pop_value as extern "C-unwind" fn(*mut VmCore) -> SteelVal,
+        );
+
+        map.add_func(
             "handle-pop!",
             extern_handle_pop as extern "C-unwind" fn(*mut VmCore, SteelVal),
         );
+
         // 0 => "call-func-deopt-0",
         // 1 => "call-func-deopt-1",
         // 2 => "call-func-deopt-2",
@@ -475,6 +482,16 @@ impl Default for JIT {
         map.add_func(
             "push-to-vm-stack",
             push_to_vm_stack as extern "C-unwind" fn(ctx: *mut VmCore, value: SteelVal),
+        );
+
+        map.add_func(
+            "push-to-vm-stack-let-var",
+            push_to_vm_stack_let_var as extern "C-unwind" fn(ctx: *mut VmCore, value: SteelVal),
+        );
+
+        map.add_func(
+            "push-to-vm-stack-function-spill",
+            push_to_vm_stack_let_var as extern "C-unwind" fn(ctx: *mut VmCore, value: SteelVal),
         );
 
         map.add_func(
@@ -1034,6 +1051,7 @@ impl JIT {
             value_to_local_map: HashMap::new(),
             local_to_value_map: HashMap::new(),
             stack_pointers: Vec::new(),
+            let_var_stack: Vec::new(),
         };
 
         // trans.translate_instructions();
@@ -1119,6 +1137,8 @@ struct FunctionTranslator<'a> {
     constants: &'a ConstantMap,
 
     local_count: usize,
+
+    let_var_stack: Vec<usize>,
 
     patched_locals: Vec<bool>,
 
@@ -1321,7 +1341,7 @@ impl FunctionTranslator<'_> {
         while self.ip < self.instructions.len() {
             let instr = self.instructions[self.ip];
             let op = instr.op_code;
-            println!("{:?}", op);
+            println!("{:?} @ {}", op, self.ip);
             let payload = instr.payload_size.to_usize();
             match op {
                 OpCode::LOADINT1POP
@@ -1331,6 +1351,10 @@ impl FunctionTranslator<'_> {
                     todo!("{:?}", op);
                 }
                 OpCode::POPJMP | OpCode::POPPURE => {
+                    let last = self.stack.last().unwrap();
+
+                    assert!(!last.spilled);
+
                     // Push the remaining value back on to the stack.
                     let value = self.pop();
 
@@ -1338,20 +1362,20 @@ impl FunctionTranslator<'_> {
                     // handle the return value / updating
                     // of various things here.
 
-                    if self.stack.len() > self.arity as _ {
-                        // if !self.patched_locals {
-                        println!("Stack at vm pop: {:?}", self.stack);
-                        for value in self.stack.clone() {
-                            if !value.spilled {
-                                self.push_to_vm_stack(value.value);
-                            }
+                    // if self.stack.len() > self.arity as _ {
+                    // if !self.patched_locals {
+                    println!("Stack at vm pop: {:?}", self.stack);
+                    for value in self.stack.clone() {
+                        if !value.spilled {
+                            self.push_to_vm_stack(value.value);
                         }
-                    } else {
-                        println!(
-                            "Already patched locals, Stack at vm pop: {:?} - {}",
-                            self.stack, self.arity
-                        );
                     }
+                    // } else {
+                    //     println!(
+                    //         "Already patched locals, Stack at vm pop: {:?} - {}",
+                    //         self.stack, self.arity
+                    //     );
+                    // }
 
                     self.vm_pop(value.0);
 
@@ -1380,8 +1404,6 @@ impl FunctionTranslator<'_> {
 
                     // Push on to the stack to call
                     self.push(index, InferredType::Int);
-
-                    // Just...
 
                     // TODO: If we know what the global is, and we know that its not mutated,
                     // we probably can do something
@@ -1471,9 +1493,19 @@ impl FunctionTranslator<'_> {
                 // to clone it
                 OpCode::READLOCAL | OpCode::MOVEREADLOCAL => {
                     if payload + 1 > self.arity as _ {
-                        // let locals_to_patch = self.local_count;
+                        let locals_to_patch = self.local_count;
 
-                        for i in 0..payload + 1 {
+                        println!("-----------------");
+                        println!("Patching locals: {}", locals_to_patch);
+                        println!("Stack at local patching: {}", self.stack.len());
+                        println!("payload: {}", payload);
+                        println!("stack: {:#?}", self.stack);
+                        println!("Arity: {}", self.arity);
+
+                        let upper_bound = payload + 1 - self.arity as usize;
+                        println!("upper bound: {}", upper_bound);
+
+                        for i in 0..upper_bound {
                             // for i in 0..(payload + 1 - self.arity as usize) {
                             println!("Read local spill generic");
                             self.spill(i);
@@ -1530,6 +1562,22 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                     self.push(value, InferredType::Int);
                 }
+
+                OpCode::LetVar => {
+                    self.ip += 1;
+
+                    let spilled = self.stack.last().unwrap().spilled;
+
+                    // self.spill(self.stack.len() - 1);
+
+                    let (last, _) = self.pop();
+
+                    *self.let_var_stack.last_mut().unwrap() += 1;
+
+                    if !spilled {
+                        self.push_to_vm_stack_let_var(last);
+                    }
+                }
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
                 | OpCode::READLOCAL2
@@ -1543,7 +1591,10 @@ impl FunctionTranslator<'_> {
                     // We probably don't need to do at all, just need to encode
                     // move semantics into the stack itself to mark that we've
                     // read it?
-                    if payload + 1 > self.arity as _ {
+
+                    let let_var_offset = self.let_var_stack.last().copied().unwrap_or(0);
+
+                    if payload > self.arity as usize + let_var_offset {
                         let locals_to_patch = self.local_count;
 
                         println!("-----------------");
@@ -1552,25 +1603,16 @@ impl FunctionTranslator<'_> {
                         println!("payload: {}", payload);
                         println!("stack: {:?}", self.stack);
                         println!("Arity: {}", self.arity);
+                        println!("let var offset: {}", let_var_offset);
 
-                        let upper_bound = payload + 1 - self.arity as usize;
+                        let upper_bound = payload - self.arity as usize - let_var_offset;
 
                         println!("Upper bound: {}", upper_bound);
-
-                        // Patch last n values from the stack on to the VM stack
-                        // let values = self.stack[self.stack.len() - locals_to_patch..].to_vec();
-                        // for i in values {
-                        //     self.push_to_vm_stack(i.0);
-                        // }
-
-                        // Run the risk of spilling twice
-                        // let offset = self.stack.iter().enumerate().find(|(_, x)| !x.spilled);
-                        // let offset = self.stack_pointers.last().unwrap();
 
                         for i in 0..upper_bound {
                             // for i in 0..(payload + 1 - self.arity as usize) {
                             // let value = self.stack.remove(i);
-                            println!("Read local spill small");
+                            println!("Read local spill small: {}", self.ip);
                             // self.push_to_vm_stack(value.value);
                             self.spill(i);
                         }
@@ -1700,6 +1742,14 @@ impl FunctionTranslator<'_> {
                     self.patched_locals.push(false);
                     self.stack_pointers.push(self.local_count);
 
+                    self.let_var_stack.push(0);
+
+                    for arg in 0..self.stack.len() {
+                        self.spill(arg);
+                    }
+
+                    // let count = self.stack_pointers.len();
+
                     // Next n values should stick around on the stack.
                     for instr in &self.instructions[self.ip..] {
                         if instr.op_code == OpCode::LETENDSCOPE {
@@ -1719,18 +1769,31 @@ impl FunctionTranslator<'_> {
                     self.local_count = payload;
                     self.ip += 1;
 
-                    if self.stack.len() > self.arity as _ {
-                        let spilled = self
-                            .stack
-                            .drain(payload..self.stack.len() - 1)
-                            .collect::<Vec<_>>();
+                    self.let_var_stack.pop();
 
-                        for c in spilled {
-                            if !c.spilled {
-                                println!("-------------------> Spilling in let end scope: {:?}", c);
-                                self.push_to_vm_stack(c.value);
-                            }
-                        }
+                    if self.stack.len() > self.arity as _ {
+                        println!("Let end scope: {}", payload);
+                        println!("Stack length: {}", self.stack.len());
+                        println!("Arity: {}", self.arity);
+
+                        // let last = self
+                        //     .stack_pointers
+                        //     .pop()
+                        //     .unwrap()
+                        //     .saturating_sub(self.arity as usize);
+
+                        // let spilled = self
+                        //     .stack
+                        //     .drain(last..self.stack.len() - 1)
+                        //     .collect::<Vec<_>>();
+
+                        // for c in spilled {
+                        //     if !c.spilled {
+                        //         println!("-------------------> Spilling in let end scope: {:?}", c);
+                        //         self.push_to_vm_stack(c.value);
+                        //     }
+                        // }
+                        println!("Stack after let end scope: {:#?}", self.stack);
                     }
 
                     dbg!(self.local_count);
@@ -1863,7 +1926,6 @@ impl FunctionTranslator<'_> {
                 OpCode::SETALLOC => todo!(),
                 OpCode::DynSuperInstruction => todo!(),
                 OpCode::Arity => todo!(),
-                OpCode::LetVar => todo!(),
                 OpCode::ADDIMMEDIATE => todo!(),
                 OpCode::SUBIMMEDIATE => todo!(),
                 OpCode::LTEIMMEDIATE => todo!(),
@@ -1956,6 +2018,34 @@ impl FunctionTranslator<'_> {
         let arg_values = vec![ctx, last.0];
 
         let call = self.builder.ins().call(local_callee, &arg_values);
+    }
+
+    fn pop_value_from_vm_stack(&mut self) -> Value {
+        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
+        let mut sig = self.module.make_signature();
+
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        let p = AbiParam::new(codegen::ir::Type::int(128).unwrap());
+        // sig.params.push(p);
+
+        sig.returns.push(p);
+
+        let callee = self
+            .module
+            .declare_function("pop-from-stack", Linkage::Import, &sig)
+            .expect("problem declaring function");
+
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let arg_values = vec![ctx];
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
     }
 
     /// Call a function by its name. If this function has been registered in the builder
@@ -2054,145 +2144,145 @@ impl FunctionTranslator<'_> {
     }
 
     // Call the function directly via the trampoline
-    fn call_trampoline(&mut self, arity: usize, function_index: usize) -> Value {
-        let mut sig = self.module.make_signature();
+    // fn call_trampoline(&mut self, arity: usize, function_index: usize) -> Value {
+    //     let mut sig = self.module.make_signature();
 
-        // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
+    //     // VmCore pointer
+    //     sig.params
+    //         .push(AbiParam::new(self.module.target_config().pointer_type()));
 
-        // Arity
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
+    //     // Arity
+    //     sig.params.push(AbiParam::new(Type::int(64).unwrap()));
 
-        // lookup index
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
+    //     // lookup index
+    //     sig.params.push(AbiParam::new(Type::int(64).unwrap()));
 
-        // for _ in 0..arity {
-        //     sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-        // }
+    //     // for _ in 0..arity {
+    //     //     sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+    //     // }
 
-        sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
+    //     sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
 
-        let callee = self
-            .module
-            .declare_function("trampoline", Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+    //     let callee = self
+    //         .module
+    //         .declare_function("trampoline", Linkage::Import, &sig)
+    //         .expect("problem declaring function");
+    //     let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
 
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+    //     let variable = self.variables.get("vm-ctx").expect("variable not defined");
+    //     let ctx = self.builder.use_var(*variable);
 
-        let lookup_index = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), function_index as i64);
+    //     let lookup_index = self
+    //         .builder
+    //         .ins()
+    //         .iconst(Type::int(64).unwrap(), function_index as i64);
 
-        let arity_value = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), arity as i64);
+    //     let arity_value = self
+    //         .builder
+    //         .ins()
+    //         .iconst(Type::int(64).unwrap(), arity as i64);
 
-        self.ip += 1;
+    //     self.ip += 1;
 
-        let arg_values = vec![ctx, arity_value, lookup_index];
+    //     let arg_values = vec![ctx, arity_value, lookup_index];
 
-        // TODO: Revisit when bringing trampoline back
-        let spilled = self
-            .stack
-            .drain(self.stack.len() - arity..)
-            .collect::<Vec<_>>();
+    //     // TODO: Revisit when bringing trampoline back
+    //     let spilled = self
+    //         .stack
+    //         .drain(self.stack.len() - arity..)
+    //         .collect::<Vec<_>>();
 
-        if spilled.len() == 2 {
-            let mut iter = spilled.into_iter();
+    //     if spilled.len() == 2 {
+    //         let mut iter = spilled.into_iter();
 
-            let first = iter.next().unwrap();
-            let second = iter.next().unwrap();
+    //         let first = iter.next().unwrap();
+    //         let second = iter.next().unwrap();
 
-            self.value_to_local_map.remove(&first.value);
-            self.value_to_local_map.remove(&second.value);
+    //         self.value_to_local_map.remove(&first.value);
+    //         self.value_to_local_map.remove(&second.value);
 
-            self.push_to_vm_stack_two(first.value, second.value);
-        } else {
-            for value in spilled {
-                self.value_to_local_map.remove(&value.value);
+    //         self.push_to_vm_stack_two(first.value, second.value);
+    //     } else {
+    //         for value in spilled {
+    //             self.value_to_local_map.remove(&value.value);
 
-                self.push_to_vm_stack(value.value);
-            }
-        }
+    //             self.push_to_vm_stack(value.value);
+    //         }
+    //     }
 
-        let call = self.builder.ins().call(local_callee, &arg_values);
-        let result = self.builder.inst_results(call)[0];
-        result
+    //     let call = self.builder.ins().call(local_callee, &arg_values);
+    //     let result = self.builder.inst_results(call)[0];
+    //     result
 
-        // Just
-        // arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
-    }
+    //     // Just
+    //     // arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
+    // }
 
-    fn call_trampoline_no_arity(&mut self, arity: usize, function_index: usize) -> Value {
-        let mut sig = self.module.make_signature();
+    // fn call_trampoline_no_arity(&mut self, arity: usize, function_index: usize) -> Value {
+    //     let mut sig = self.module.make_signature();
 
-        // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
+    //     // VmCore pointer
+    //     sig.params
+    //         .push(AbiParam::new(self.module.target_config().pointer_type()));
 
-        // lookup index
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
+    //     // lookup index
+    //     sig.params.push(AbiParam::new(Type::int(64).unwrap()));
 
-        // for _ in 0..arity {
-        //     sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-        // }
+    //     // for _ in 0..arity {
+    //     //     sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+    //     // }
 
-        sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
+    //     sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
 
-        let callee = self
-            .module
-            .declare_function("trampoline-no-arity", Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+    //     let callee = self
+    //         .module
+    //         .declare_function("trampoline-no-arity", Linkage::Import, &sig)
+    //         .expect("problem declaring function");
+    //     let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
 
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+    //     let variable = self.variables.get("vm-ctx").expect("variable not defined");
+    //     let ctx = self.builder.use_var(*variable);
 
-        let lookup_index = self
-            .builder
-            .ins()
-            .iconst(Type::int(64).unwrap(), function_index as i64);
+    //     let lookup_index = self
+    //         .builder
+    //         .ins()
+    //         .iconst(Type::int(64).unwrap(), function_index as i64);
 
-        self.ip += 1;
+    //     self.ip += 1;
 
-        let arg_values = vec![ctx, lookup_index];
+    //     let arg_values = vec![ctx, lookup_index];
 
-        // TODO: Revisit when bringing trampoline back
-        let spilled = self
-            .stack
-            .drain(self.stack.len() - arity..)
-            .collect::<Vec<_>>();
+    //     // TODO: Revisit when bringing trampoline back
+    //     let spilled = self
+    //         .stack
+    //         .drain(self.stack.len() - arity..)
+    //         .collect::<Vec<_>>();
 
-        if spilled.len() == 2 {
-            let mut iter = spilled.into_iter();
+    //     if spilled.len() == 2 {
+    //         let mut iter = spilled.into_iter();
 
-            let first = iter.next().unwrap();
-            let second = iter.next().unwrap();
+    //         let first = iter.next().unwrap();
+    //         let second = iter.next().unwrap();
 
-            self.value_to_local_map.remove(&first.value);
-            self.value_to_local_map.remove(&second.value);
+    //         self.value_to_local_map.remove(&first.value);
+    //         self.value_to_local_map.remove(&second.value);
 
-            self.push_to_vm_stack_two(first.value, second.value);
-        } else {
-            for value in spilled {
-                self.value_to_local_map.remove(&value.value);
+    //         self.push_to_vm_stack_two(first.value, second.value);
+    //     } else {
+    //         for value in spilled {
+    //             self.value_to_local_map.remove(&value.value);
 
-                self.push_to_vm_stack(value.value);
-            }
-        }
+    //             self.push_to_vm_stack(value.value);
+    //         }
+    //     }
 
-        let call = self.builder.ins().call(local_callee, &arg_values);
-        let result = self.builder.inst_results(call)[0];
-        result
+    //     let call = self.builder.ins().call(local_callee, &arg_values);
+    //     let result = self.builder.inst_results(call)[0];
+    //     result
 
-        // Just
-        // arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
-    }
+    //     // Just
+    //     // arg_values.extend(self.stack.drain(self.stack.len() - arity..).map(|x| x.0));
+    // }
 
     fn translate_tco_jmp(&mut self, payload: usize) {
         // Translate to a while loop with calls to destructors?
@@ -2468,10 +2558,16 @@ impl FunctionTranslator<'_> {
 
         let mut arg_values = vec![ctx, lookup_index, fallback_ip];
 
-        let args_off_the_stack = self
+        // If any of these have been spilled, we have to pop them off
+        // of the shadow stack and use them
+        let mut args_off_the_stack = self
             .stack
             .drain(self.stack.len() - arity..)
             .collect::<Vec<_>>();
+
+        dbg!(&args_off_the_stack);
+
+        self.maybe_patch_from_stack(&mut args_off_the_stack);
 
         dbg!(&args_off_the_stack);
 
@@ -2515,7 +2611,7 @@ impl FunctionTranslator<'_> {
             // Spilling on the stack here seems suspect? Do we have to
             // spill the _whole_ stack? Or just part of it?
             println!(
-                "-------- Fall back pushing to stack in tail call: {:?} ---------",
+                "-------- Fall back pushing to stack in tail call: {:#?} ---------",
                 self.stack
             );
             println!("Stack length: {}", self.stack.len());
@@ -2523,8 +2619,8 @@ impl FunctionTranslator<'_> {
 
             for c in self.stack.clone() {
                 if !c.spilled {
-                    println!("Spilling...");
-                    self.push_to_vm_stack(c.value);
+                    println!("Spilling...: {}", c.value);
+                    self.push_to_vm_stack_function_spill(c.value);
                 }
             }
 
@@ -2773,16 +2869,44 @@ impl FunctionTranslator<'_> {
 
     fn pop(&mut self) -> (Value, InferredType) {
         let last = self.stack.pop().unwrap();
+
+        assert!(!last.spilled);
+
         self.value_to_local_map.remove(&last.value);
         (last.value, last.inferred_type)
     }
 
-    fn split_off(&mut self, payload: usize) -> Vec<(Value, InferredType)> {
-        let args = self.stack.split_off(self.stack.len() - payload);
+    fn maybe_patch_from_stack(&mut self, args_off_the_stack: &mut Vec<StackValue>) {
+        let mut indices_to_get_from_shadow_stack = Vec::new();
 
+        for (idx, arg) in args_off_the_stack.iter().enumerate() {
+            if arg.spilled {
+                indices_to_get_from_shadow_stack.push(idx);
+            }
+        }
+
+        dbg!(&indices_to_get_from_shadow_stack);
+
+        for idx in indices_to_get_from_shadow_stack.iter().rev() {
+            let value = self.pop_value_from_vm_stack();
+
+            args_off_the_stack[*idx] = StackValue {
+                value,
+                inferred_type: InferredType::Any,
+                spilled: false,
+            };
+        }
+    }
+
+    fn split_off(&mut self, payload: usize) -> Vec<(Value, InferredType)> {
+        let mut args = self.stack.split_off(self.stack.len() - payload);
+
+        // Patch the args if needed
         for arg in &args {
             self.value_to_local_map.remove(&arg.value);
         }
+
+        self.maybe_patch_from_stack(&mut args);
 
         args.into_iter()
             .map(|x| (x.value, x.inferred_type))
@@ -3227,7 +3351,16 @@ impl FunctionTranslator<'_> {
                     self.value_to_local_map.remove(&value);
                     value
                 })
+                // .unwrap(),
                 .unwrap_or_else(|| dbg!(self.create_i128(encode(SteelVal::Void)))),
+            // self.stack
+            //     .pop()
+            //     .map(|x| {
+            //         let value = x.value;
+            //         self.value_to_local_map.remove(&value);
+            //         value
+            //     })
+            // self.create_i128(encode(SteelVal::Void)),
         );
 
         // let then_return = self.stack.pop().unwrap().0;
@@ -3262,7 +3395,9 @@ impl FunctionTranslator<'_> {
                     self.value_to_local_map.remove(&value);
                     value
                 })
+                // .unwrap(),
                 .unwrap_or_else(|| dbg!(self.create_i128(encode(SteelVal::Void)))),
+            // self.create_i128(encode(SteelVal::Void)),
         );
 
         // Jump to the merge block, passing it the block return value.
@@ -3449,6 +3584,66 @@ impl FunctionTranslator<'_> {
     fn push_to_vm_stack(&mut self, value: Value) {
         let mut sig = self.module.make_signature();
         let name = "push-to-vm-stack";
+
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+
+        // TODO: Streamline the API here?
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        // let mut arg_values = Vec::new();
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let arg_values = [ctx, value];
+
+        // for arg in args {
+        //     arg_values.push(self.translate_expr(arg))
+        // }
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        // let result = self.builder.inst_results(call)[0];
+        // result
+    }
+
+    fn push_to_vm_stack_function_spill(&mut self, value: Value) {
+        let mut sig = self.module.make_signature();
+        let name = "push-to-vm-stack-function-spill";
+
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+
+        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+
+        // TODO: Streamline the API here?
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+
+        // let mut arg_values = Vec::new();
+
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let arg_values = [ctx, value];
+
+        // for arg in args {
+        //     arg_values.push(self.translate_expr(arg))
+        // }
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        // let result = self.builder.inst_results(call)[0];
+        // result
+    }
+
+    fn push_to_vm_stack_let_var(&mut self, value: Value) {
+        let mut sig = self.module.make_signature();
+        let name = "push-to-vm-stack-let-var";
 
         sig.params
             .push(AbiParam::new(self.module.target_config().pointer_type()));

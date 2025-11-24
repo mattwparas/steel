@@ -271,6 +271,11 @@ pub extern "C-unwind" fn drop_value(ctx: *mut VmCore, arg: SteelVal) {
 }
 
 #[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn pop_value(ctx: *mut VmCore) -> SteelVal {
+    dbg!(unsafe { &mut *ctx }.thread.stack.pop().unwrap())
+}
+
+#[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn car_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     unsafe { &mut *ctx }.ip += 2;
     match car(&arg) {
@@ -1128,12 +1133,7 @@ pub(crate) extern "C-unwind" fn num_equal_value(
     left: SteelVal,
     right: SteelVal,
 ) -> SteelVal {
-    // println!(
-    //     "GETTING TO NUM EQUAL VALUE: {} - {}: ip = {}",
-    //     left,
-    //     right,
-    //     unsafe { &mut *ctx }.ip
-    // );
+    // println!("GETTING TO NUM EQUAL VALUE: {} - {}", left, right,);
     // unsafe { &mut *ctx }.ip += 2;
 
     if let Ok(b) = number_equality(&left, &right) {
@@ -1189,6 +1189,12 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn get_local_value(&mut self, index: usize) -> SteelVal {
         let offset = self.get_offset();
+        // println!(
+        //     "Reading local at: {} - {}: {:#?}",
+        //     index,
+        //     index + offset,
+        //     self.thread.stack
+        // );
         let value = self.thread.stack[index + offset].clone();
         self.ip += 1;
         return value;
@@ -1502,7 +1508,6 @@ fn new_callglobal_tail_handler_deopt_test(
 ) -> SteelVal {
     let func = ctx.thread.global_env.repl_lookup_idx(index);
     println!("Calling tail: {} - {:#?}", func, args);
-
     println!("What is left on the stack: {:#?}", ctx.thread.stack);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
@@ -1603,6 +1608,10 @@ fn handle_global_tail_call_deopt_with_args(
                     .push(std::mem::replace(val, SteelVal::Void));
             }
 
+            // TODO:
+            // Just write directly to the earlier spot.
+            println!("stack before calling closure: {:#?}", ctx.thread.stack);
+
             // We're going to de-opt in this case - unless we intend to do some fun inlining business
             ctx.new_handle_tail_call_closure(closure, arity)?;
             Ok(SteelVal::Void)
@@ -1655,14 +1664,16 @@ fn handle_global_function_call_with_args(
                     ctx.handle_function_call_closure_jit(closure, arity)
                         .unwrap();
 
+                    println!("Before call:");
                     dbg!(&ctx.thread.stack);
 
                     (func)(ctx);
 
+                    println!("After call:");
                     dbg!(&ctx.thread.stack);
 
                     // dbg!(ctx.is_native);
-                    // dbg!(&ctx.result);
+                    dbg!(&ctx.result);
 
                     if ctx.is_native {
                         // Don't deopt?
@@ -1735,6 +1746,10 @@ fn handle_global_function_call_with_args_no_arity(
 
                     (func)(ctx);
 
+                    println!("Done calling trampoline");
+
+                    // dbg!(&ctx.result);
+
                     if ctx.is_native {
                         // dbg!(&ctx.thread.stack);
 
@@ -1777,7 +1792,27 @@ pub(crate) extern "C-unwind" fn should_continue(ctx: *mut VmCore) -> bool {
 
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn push_to_vm_stack(ctx: *mut VmCore, value: SteelVal) {
-    println!("Pushing to vm stack: {}", value);
+    // println!("Pushing to vm stack: {}", value);
+    unsafe {
+        (&mut *ctx).thread.stack.push(value);
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn push_to_vm_stack_function_spill(ctx: *mut VmCore, value: SteelVal) {
+    // println!("Pushing to vm stack in function call spill: {}", value);
+    unsafe {
+        (&mut *ctx).thread.stack.push(value);
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn push_to_vm_stack_let_var(ctx: *mut VmCore, value: SteelVal) {
+    // println!("Pushing to vm stack in let var: {}", value);
+    // println!(
+    //     "stack before pushing: {:#?}",
+    //     unsafe { &mut *ctx }.thread.stack
+    // );
     unsafe {
         (&mut *ctx).thread.stack.push(value);
     }
@@ -1819,6 +1854,12 @@ pub(crate) extern "C-unwind" fn advance_ip(ctx: *mut VmCore) {
 //     }
 // }
 
+// TODO:
+// This is tricky, since we need to remove a range from the stack, where the value on the stack
+// could be genuinely there, versus on the native stack.
+//
+// We could have it so that we don't remove the last value?
+// Or pass in the
 pub(crate) extern "C-unwind" fn let_end_scope_c(ctx: *mut VmCore, beginning_scope: usize) {
     let ctx = unsafe { &mut *ctx };
     // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
@@ -1831,7 +1872,10 @@ pub(crate) extern "C-unwind" fn let_end_scope_c(ctx: *mut VmCore, beginning_scop
     let rollback_index = beginning_scope + offset;
 
     // println!(
-    //     "Dropping at let end scope: {:?} - {} - {}",
+    //     "Dropping at let end scope: {} - {:?}: {:#?} - {:?} - {} - {}",
+    //     ctx.is_native,
+    //     ctx.result,
+    //     ctx.thread.stack,
     //     ctx.thread.stack.get(rollback_index..),
     //     beginning_scope,
     //     offset
@@ -1840,9 +1884,9 @@ pub(crate) extern "C-unwind" fn let_end_scope_c(ctx: *mut VmCore, beginning_scop
     let _ = ctx.thread.stack.truncate(rollback_index);
 
     // dbg!(dropped_locals.collect::<Vec<_>>());
-    // let last = ctx.stack.pop().expect("stack empty at pop");
-    // ctx.stack.truncate(rollback_index);
-    // ctx.stack.push(last);
+    // let last = ctx.thread.stack.pop().expect("stack empty at pop");
+    // ctx.thread.stack.truncate(rollback_index);
+    // ctx.thread.stack.push(last);
     // Ok(())
 }
 
@@ -1894,11 +1938,13 @@ pub(crate) extern "C-unwind" fn check_callable(ctx: *mut VmCore, lookup_index: u
         let this = &mut *ctx;
         let func = &this.thread.global_env.roots()[lookup_index];
 
-        // if let SteelVal::Closure(c) = func {
-        //     if c.0.super_instructions.as_ref().is_some() {
-        //         return true;
-        //     }
-        // }
+        if TRAMPOLINE {
+            if let SteelVal::Closure(c) = func {
+                if c.0.super_instructions.as_ref().is_some() {
+                    return true;
+                }
+            }
+        }
 
         // Builtins can yield control in a funky way.
         !matches!(
@@ -2284,9 +2330,9 @@ fn call_global_function_deopt(
             true
         }
         _ => {
-            ctx.ip += 2;
+            ctx.ip += 1;
 
-            true
+            false
         }
     };
 
@@ -2366,6 +2412,8 @@ fn call_global_function_deopt_no_arity(
     args: SmallVec<[SteelVal; 3]>,
 ) -> SteelVal {
     // println!("Calling global function no arity, with args: {:?}", args);
+    // println!("Stack at function call: {:#?}", ctx.thread.stack);
+    // println!("fallback ip: {}", fallback_ip);
 
     // TODO: Only do this if we have to deopt
     // ctx.ip = fallback_ip;
@@ -2374,6 +2422,7 @@ fn call_global_function_deopt_no_arity(
     // ctx.ip += 1;
     // let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
     let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
+    // println!("Func: {}", func);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
