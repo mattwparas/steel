@@ -189,4 +189,5 @@ Returns the values of the given hash map as an immutable vector
 => '#(10 20)
 ```
 ### **%keyword-hash**
+### **hash-code**
 ### **hash-get**
