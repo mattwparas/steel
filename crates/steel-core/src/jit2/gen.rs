@@ -25,16 +25,16 @@ use crate::{
             call_global_function_tail_deopt_2, call_global_function_tail_deopt_3,
             callglobal_handler_deopt_c, callglobal_tail_handler_deopt_3,
             callglobal_tail_handler_deopt_3_test, car_handler_value, cdr_handler_value,
-            check_callable, check_callable_value, cons_handler_value, drop_value, equal_binop,
-            extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
-            extern_c_lte_two, extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler,
-            extern_c_sub_two, extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value,
-            if_handler_value, let_end_scope_c, move_read_local_0_value_c,
-            move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
-            move_read_local_any_value_c, not_handler_raw_value, num_equal_value,
-            num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
-            push_global, push_int_0, push_int_1, push_int_2, push_to_vm_stack,
-            push_to_vm_stack_let_var, push_to_vm_stack_two, read_local_0_value_c,
+            check_callable, check_callable_tail, check_callable_value, cons_handler_value,
+            drop_value, equal_binop, extern_c_add_two, extern_c_div_two, extern_c_gt_two,
+            extern_c_gte_two, extern_c_lt_two, extern_c_lte_two, extern_c_lte_two_int,
+            extern_c_mult_two, extern_c_null_handler, extern_c_sub_two, extern_c_sub_two_int,
+            extern_handle_pop, if_handler_raw_value, if_handler_value, let_end_scope_c,
+            move_read_local_0_value_c, move_read_local_1_value_c, move_read_local_2_value_c,
+            move_read_local_3_value_c, move_read_local_any_value_c, not_handler_raw_value,
+            num_equal_value, num_equal_value_unboxed, pop_value, push_const_value_c,
+            push_const_value_index_c, push_global, push_int_0, push_int_1, push_int_2,
+            push_to_vm_stack, push_to_vm_stack_let_var, push_to_vm_stack_two, read_local_0_value_c,
             read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
             read_local_any_value_c, self_tail_call_handler, set_ctx_ip, set_handler_c,
             setbox_handler_c, should_continue, tcojmp_handler, trampoline, trampoline_no_arity,
@@ -472,6 +472,11 @@ impl Default for JIT {
         map.add_func(
             "check-callable",
             check_callable as extern "C-unwind" fn(ctx: *mut VmCore, index: usize) -> bool,
+        );
+
+        map.add_func(
+            "check-callable-tail",
+            check_callable_tail as extern "C-unwind" fn(ctx: *mut VmCore, index: usize) -> bool,
         );
 
         map.add_func(
@@ -1682,7 +1687,7 @@ impl FunctionTranslator<'_> {
 
                     // This function pushes back on to the stack, and then we should just
                     // return since we're done now.
-                    let v = self.call_global_function(arity, name, function_index);
+                    let v = self.call_global_function(arity, name, function_index, true);
 
                     self.push(v, InferredType::Any);
 
@@ -1703,7 +1708,7 @@ impl FunctionTranslator<'_> {
                         other => todo!("{}", other),
                     };
 
-                    let result = self.call_global_function(arity, name, function_index);
+                    let result = self.call_global_function(arity, name, function_index, false);
 
                     // Assuming this worked, we'll want to push this result on to the stack.
                     self.push(result, InferredType::Any);
@@ -1724,7 +1729,7 @@ impl FunctionTranslator<'_> {
                         other => todo!("{}", other),
                     };
 
-                    let result = self.call_global_function(arity, name, function_index);
+                    let result = self.call_global_function(arity, name, function_index, false);
 
                     // Assuming this worked, we'll want to push this result on to the stack.
                     self.push(result, InferredType::Any);
@@ -2499,7 +2504,13 @@ impl FunctionTranslator<'_> {
         result
     }
 
-    fn call_global_function(&mut self, arity: usize, name: &str, function_index: usize) -> Value {
+    fn call_global_function(
+        &mut self,
+        arity: usize,
+        name: &str,
+        function_index: usize,
+        tail: bool,
+    ) -> Value {
         // TODO: Call trampoline, but include the arity check as well
         // let func = self.globals.get(function_index).unwrap();
         // if let SteelVal::Closure(c) = func {
@@ -2580,7 +2591,7 @@ impl FunctionTranslator<'_> {
         arg_values.extend(args_off_the_stack.iter().map(|x| x.value));
 
         // Check if its a function - otherwise, just spill the values to the stack.
-        let is_function = self.check_function(lookup_index);
+        let is_function = self.check_function(lookup_index, tail);
 
         {
             let then_block = self.builder.create_block();
@@ -2666,9 +2677,13 @@ impl FunctionTranslator<'_> {
         return result;
     }
 
-    fn check_function(&mut self, index: Value) -> Value {
+    fn check_function(&mut self, index: Value, tail: bool) -> Value {
         let mut sig = self.module.make_signature();
-        let name = "check-callable";
+        let name = if tail {
+            "check-callable-tail"
+        } else {
+            "check-callable"
+        };
         // VmCore pointer
         sig.params
             .push(AbiParam::new(self.module.target_config().pointer_type()));
