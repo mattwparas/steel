@@ -1,3 +1,5 @@
+import time
+
 def ack1(M, N):
     return (
         (N + 1)
@@ -6,5 +8,8 @@ def ack1(M, N):
     )
 
 
+start = time.time()
 for i in range(50):
     ack1(3, 3)
+end = time.time()
+print(end - start)

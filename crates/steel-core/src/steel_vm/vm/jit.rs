@@ -1268,7 +1268,7 @@ pub(crate) extern "C-unwind" fn extern_c_sub_two_int(a: SteelVal, b: SteelVal) -
             }
         },
         _ => {
-            todo!()
+            todo!("{}", a)
         }
     }
 }

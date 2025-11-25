@@ -675,6 +675,9 @@ define_symbols! {
 }
 
 pub fn flatten_equal_const(instructions: &mut [Instruction]) {
+    if cfg!(feature = "jit2") {
+        return;
+    }
     for i in 0..instructions.len() {
         let push_const = instructions.get(i);
         let equal = instructions.get(i + 1);
