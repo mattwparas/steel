@@ -30,23 +30,19 @@
         (node (make (- item2 1) d2) item (make item2 d2)))))
 
 (define (check t)
-  (if (leaf? t)
-      1
-      (+ 1 (+ (check (node-left t)) (check (node-right t))))))
+  (if (leaf? t) 1 (+ 1 (+ (check (node-left t)) (check (node-right t))))))
 
 ; (set! check check)
 ; (set! make make)
 
 ; (inspect check)
-(#%jit-compile-2 make)
-(#%jit-compile-2 check)
-(#%jit-compile-2 leaf)
-(#%jit-compile-2 leaf?)
+; (#%jit-compile-2 make)
+; (#%jit-compile-2 check)
+; (#%jit-compile-2 leaf)
+; (#%jit-compile-2 leaf?)
 
 (define (iterate n m d sum)
-  (if (equal? n m)
-      sum
-      (iterate (+ n 1) m d (+ sum (check (make n d))))))
+  (if (equal? n m) sum (iterate (+ n 1) m d (+ sum (check (make n d))))))
 
 ; (inspect iterate)
 
@@ -76,11 +72,10 @@
 
       (displayln "long lived tree of depth " max-depth " check: " (check long-lived-tree)))))
 
-(#%jit-compile-2 iterate)
-(#%jit-compile-2 max)
-; (inspect loop)
-(#%jit-compile-2 loop)
-(#%jit-compile-2 main)
+; (#%jit-compile-2 iterate)
+; (#%jit-compile-2 max)
+; (#%jit-compile-2 loop)
+; (#%jit-compile-2 main)
 
 ; (inspect make)
 ; (define foo (make 0 2))

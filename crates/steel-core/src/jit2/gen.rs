@@ -1160,6 +1160,7 @@ impl JIT {
             local_to_value_map: HashMap::new(),
             stack_pointers: Vec::new(),
             let_var_stack: Vec::new(),
+            tco: None,
         };
 
         // trans.translate_instructions();
@@ -1178,8 +1179,6 @@ impl JIT {
         // let return_value = trans.builder.use_var(*return_variable);
 
         let return_value = trans.builder.ins().iconst(Type::int(8).unwrap(), 1);
-
-        // let return_value = trans.create_i128(1);
 
         // Emit the return instruction.
         trans.builder.ins().return_(&[return_value]);
@@ -1245,6 +1244,8 @@ struct FunctionTranslator<'a> {
     constants: &'a ConstantMap,
 
     local_count: usize,
+
+    tco: Option<Value>,
 
     let_var_stack: Vec<usize>,
 
@@ -1487,8 +1488,10 @@ impl FunctionTranslator<'_> {
 
                     self.vm_pop(value.0);
 
+                    // let the_return = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
+                    // self.builder.ins().return_(&[the_return]);
+
                     self.ip = self.instructions.len() + 1;
-                    // self.ip + 1;
 
                     return false;
                 }
@@ -1780,7 +1783,8 @@ impl FunctionTranslator<'_> {
                     return false;
                 }
                 OpCode::SELFTAILCALLNOARITY => {
-                    self.translate_tco_jmp_no_arity(payload);
+                    let _ = self.translate_tco_jmp_no_arity(payload);
+                    // self.tco = Some(res);
                     // Jump to out of bounds so signal we're done
                     self.ip = self.instructions.len() + 1;
                     println!("Returning...");
@@ -1815,8 +1819,6 @@ impl FunctionTranslator<'_> {
                     self.push(v, InferredType::Any);
 
                     self.check_deopt();
-
-                    self.ip += 1;
                 }
                 OpCode::CALLGLOBALNOARITY => {
                     // First - find the index that we have to lookup.
@@ -1978,69 +1980,6 @@ impl FunctionTranslator<'_> {
                     );
                 }
 
-                // OpCode::LTE if payload == 2 => {
-                //     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                //     self.func_ret_val_named(
-                //         "lte-binop",
-                //         payload,
-                //         2,
-                //         InferredType::Bool,
-                //         abi_type,
-                //         abi_type,
-                //     );
-                // }
-                // OpCode::EQUAL2 => {
-                //     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                //     self.func_ret_val(op, 2, 2, InferredType::Bool, abi_type, abi_type);
-                // }
-
-                // OpCode::LTE => {
-                //     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                //     self.func_ret_val_named(
-                //         "lte-binop",
-                //         payload,
-                //         2,
-                //         InferredType::Bool,
-                //         abi_type,
-                //         abi_type,
-                //     );
-                // }
-
-                // OpCode::GTE => {
-                //     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                //     self.func_ret_val_named(
-                //         "gte-binop",
-                //         payload,
-                //         2,
-                //         InferredType::Bool,
-                //         abi_type,
-                //         abi_type,
-                //     );
-                // }
-
-                // OpCode::GT => {
-                //     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                //     self.func_ret_val_named(
-                //         "gt-binop",
-                //         payload,
-                //         2,
-                //         InferredType::Bool,
-                //         abi_type,
-                //         abi_type,
-                //     );
-                // }
-
-                // OpCode::LT => {
-                //     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                //     self.func_ret_val_named(
-                //         "lt-binop",
-                //         payload,
-                //         2,
-                //         InferredType::Bool,
-                //         abi_type,
-                //         abi_type,
-                //     );
-                // }
                 OpCode::EQUAL
                 | OpCode::NUMEQUAL
                 | OpCode::LTE
@@ -2539,27 +2478,6 @@ impl FunctionTranslator<'_> {
 
         println!("Stack remaining at self tco jump: {:?}", self.stack);
 
-        // if self.stack.len() > self.arity as _ {
-        //     for value in std::mem::take(&mut self.stack) {
-        //         if !value.spilled {
-        //             self.push_to_vm_stack(value.value);
-        //         }
-        //     }
-        // }
-
-        // Its just the arity that we want, not the full stack.
-        // for c in args.chunks(2) {
-        //     if c.len() == 2 {
-        //         self.push_to_vm_stack_two(c[0].0, c[1].0);
-
-        //         self.value_to_local_map.remove(&c[0].0);
-        //         self.value_to_local_map.remove(&c[1].0);
-        //     } else {
-        //         self.push_to_vm_stack(c[0].0);
-        //         self.value_to_local_map.remove(&c[0].0);
-        //     }
-        // }
-
         let mut sig = self.module.make_signature();
 
         // VmCore pointer
@@ -2584,6 +2502,28 @@ impl FunctionTranslator<'_> {
 
         let arg_values = [ctx, arity];
         let call = self.builder.ins().call(local_callee, &arg_values);
+
+        // Tail call time!
+        {
+            // let pointer = self.module.target_config().pointer_type();
+            // let mut signature = self.module.make_signature();
+            // signature.params.push(AbiParam::new(pointer));
+            // signature.returns.push(AbiParam::new(Type::int(8).unwrap()));
+
+            // let func = self
+            //     .module
+            //     .declare_function(&self.name, Linkage::Import, &self.builder.func.signature)
+            //     .unwrap();
+
+            // let local_callee = self.module.declare_func_in_func(self.id, self.builder.func);
+
+            // let token_return = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
+
+            // let tail_call = self.builder.ins().return_call(local_callee, &[ctx]);
+            // let tail_call = self.builder.ins().return_call(local_callee, &[ctx]);
+
+            // token_return
+        }
 
         // let ret = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
         // self.builder.ins().return_(&[ret]);
@@ -2966,7 +2906,7 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &[ctx]);
     }
 
-    fn check_deopt(&mut self) -> Value {
+    fn check_deopt(&mut self) {
         let result = self.check_deopt_ptr_load();
 
         let then_block = self.builder.create_block();
@@ -2981,8 +2921,19 @@ impl FunctionTranslator<'_> {
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
         let then_return = BlockArg::Value(self.builder.ins().iconst(Type::int(8).unwrap(), 1));
+
+        println!("======== check deopt - tco: {:?}", self.tco);
+
         // Just... translate instructions?
         self.stack_to_ssa();
+
+        if self.tco.is_some() {
+            self.ip = self.instructions.len() + 1;
+            return;
+        }
+
+        println!("======== check deopt - tco: {:?}", self.tco);
+
         // Jump to the merge block, passing it the block return value.
         self.builder.ins().jump(merge_block, &[then_return]);
         self.builder.switch_to_block(else_block);
@@ -3003,7 +2954,7 @@ impl FunctionTranslator<'_> {
         // // Read the value of the if-else by reading the merge block
         // // parameter.
         let phi = self.builder.block_params(merge_block)[0];
-        phi
+        // phi
     }
 
     fn func_ret_val_named(
@@ -3535,8 +3486,12 @@ impl FunctionTranslator<'_> {
         let local_count = self.local_count;
         let frozen_patched = self.patched_locals.clone();
         let frozen_stack = self.stack.clone();
+        let tco = self.tco;
 
         self.stack_to_ssa();
+
+        println!("---------------> Tco after: {:?}", self.tco);
+
         // println!("Done on then");
         // println!("Stack after then branch: {:?}", self.stack);
 
@@ -3580,11 +3535,23 @@ impl FunctionTranslator<'_> {
 
         self.ip = else_start;
 
+        self.tco = None;
         self.let_var_stack = let_stack;
         self.local_count = local_count;
         self.patched_locals = frozen_patched;
         self.stack = frozen_stack;
+        let token_return_value = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
+
         self.stack_to_ssa();
+
+        if let Some(value) = self.tco {
+            // Set the return value to be the
+            // tail called return value?
+            self.ip = self.instructions.len() + 1;
+            return token_return_value;
+        }
+
+        println!("---------------> Tco after: {:?}", self.tco);
 
         // let else_return = self.stack.pop().unwrap().0;
         let else_return = BlockArg::Value(
@@ -3615,74 +3582,6 @@ impl FunctionTranslator<'_> {
 
         phi
     }
-
-    // TODO: Actually store local variables on the stack!
-    // fn push_alloc(&mut self, val: Value) {
-    //     self.builder
-    //         .ins()
-    //         .stack_store(val, self.allocs, self.curr_allocs as i32 * 8);
-    //     self.curr_allocs += 1;
-    // }
-
-    // fn translate_if_else(
-    //     &mut self,
-    //     condition_value: Value,
-    //     then_start: usize,
-    //     else_start: usize,
-    // ) -> Value {
-    //     let then_block = self.builder.create_block();
-    //     let else_block = self.builder.create_block();
-    //     let merge_block = self.builder.create_block();
-
-    //     // If-else constructs in the toy language have a return value.
-    //     // In traditional SSA form, this would produce a PHI between
-    //     // the then and else bodies. Cranelift uses block parameters,
-    //     // so set up a parameter in the merge block, and we'll pass
-    //     // the return values to it from the branches.
-    //     self.builder.append_block_param(merge_block, self.int);
-
-    //     // Test the if condition and conditionally branch.
-    //     self.builder
-    //         .ins()
-    //         .brif(condition_value, then_block, &[], else_block, &[]);
-
-    //     self.builder.switch_to_block(then_block);
-    //     self.builder.seal_block(then_block);
-
-    //     // Update with the proper return value
-    //     let mut then_return = BlockArg::Value(self.builder.ins().iconst(Type::int(8).unwrap(), 1));
-
-    //     // Set the ip to the right spot:
-    //     self.ip = then_start;
-    //     self.translate_instructions();
-
-    //     // Jump to the merge block, passing it the block return value.
-    //     self.builder.ins().jump(merge_block, &[then_return]);
-
-    //     self.builder.switch_to_block(else_block);
-    //     self.builder.seal_block(else_block);
-
-    //     // TODO: Update with the proper return value
-    //     let mut else_return = BlockArg::Value(self.builder.ins().iconst(Type::int(8).unwrap(), 1));
-
-    //     self.ip = else_start;
-    //     self.translate_instructions();
-
-    //     // Jump to the merge block, passing it the block return value.
-    //     self.builder.ins().jump(merge_block, &[else_return]);
-
-    //     // Switch to the merge block for subsequent statements.
-    //     self.builder.switch_to_block(merge_block);
-
-    //     // We've now seen all the predecessors of the merge block.
-    //     self.builder.seal_block(merge_block);
-
-    //     // Read the value of the if-else by reading the merge block
-    //     // parameter.
-    //     let phi = self.builder.block_params(merge_block)[0];
-
-    //     phi
-    // }
 
     fn set_ctx_ip(&mut self, ip: usize) {
         let mut sig = self.module.make_signature();

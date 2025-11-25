@@ -1097,6 +1097,7 @@ pub(crate) extern "C-unwind" fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> 
 
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn extern_handle_pop(ctx: *mut VmCore, value: SteelVal) {
+    // println!("Native pop");
     unsafe {
         let this = &mut *ctx;
         let res = this.handle_pop_pure_value(value);
@@ -1668,6 +1669,8 @@ fn handle_global_function_call_with_args(
                     let pop_count = ctx.pop_count;
                     let depth = ctx.thread.stack_frames.len();
 
+                    // println!("Calling trampoline: {}", depth);
+
                     ctx.handle_function_call_closure_jit(closure, arity)
                         .unwrap();
 
@@ -1676,8 +1679,8 @@ fn handle_global_function_call_with_args(
 
                     (func)(ctx);
 
-                    assert_eq!(ctx.pop_count, pop_count);
-                    assert_eq!(ctx.thread.stack_frames.len(), depth);
+                    debug_assert_eq!(ctx.pop_count, pop_count);
+                    debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
 
                     // println!("After call:");
                     // dbg!(&ctx.thread.stack);
@@ -1686,6 +1689,10 @@ fn handle_global_function_call_with_args(
                     // dbg!(&ctx.result);
 
                     if ctx.is_native {
+                        if ctx.pop_count != pop_count {
+                            return Ok(SteelVal::Void);
+                        }
+
                         // Don't deopt?
                         Ok(ctx.thread.stack.pop().unwrap())
                     } else {
@@ -1750,7 +1757,7 @@ fn handle_global_function_call_with_args_no_arity(
 
                     // dbg!(&ctx.thread.stack);
 
-                    // println!("Calling trampoline");
+                    // println!("Calling trampoline: {}", depth);
 
                     // Install the function, so that way we can just trampoline
                     // without needing to spill the stack
@@ -1759,15 +1766,9 @@ fn handle_global_function_call_with_args_no_arity(
 
                     (func)(ctx);
 
-                    // println!("Done calling trampoline");
-
-                    // dbg!(&ctx.result);
-
                     if ctx.is_native {
-                        // dbg!(&ctx.thread.stack);
-
-                        assert_eq!(ctx.pop_count, pop_count);
-                        assert_eq!(ctx.thread.stack_frames.len(), depth);
+                        debug_assert_eq!(ctx.pop_count, pop_count);
+                        debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
 
                         // Don't deopt?
                         Ok(ctx.thread.stack.pop().unwrap())
@@ -2824,6 +2825,10 @@ pub(crate) extern "C-unwind" fn tcojmp_handler(ctx: *mut VmCore, current_arity: 
     // println!("Calling self tail call");
     let this = unsafe { &mut *ctx };
 
+    // TODO: When this is done with the trampoline, we can do tail
+    // call directly into it
+    this.is_native = false;
+
     if let Err(e) = tco_jmp_handler_multi_arity(current_arity, this) {
         this.is_native = false;
         this.result = Some(Err(e));
@@ -2880,11 +2885,13 @@ fn tco_jmp_handler_multi_arity(mut current_arity: usize, this: &mut VmCore<'_>) 
     Ok(())
 }
 
+// Tail call back into the native code on the thing?
 pub(crate) extern "C-unwind" fn self_tail_call_handler(ctx: *mut VmCore, arity: usize) {
     // println!("Calling self tail call");
     let this = unsafe { &mut *ctx };
     this.ip = 0;
     let back = this.thread.stack.len() - arity;
+    this.is_native = false;
     let _ = this.thread.stack.drain(this.sp..back);
 }
 
