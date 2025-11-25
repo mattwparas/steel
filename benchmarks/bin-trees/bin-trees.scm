@@ -37,14 +37,18 @@
 ; (set! check check)
 ; (set! make make)
 
-(inspect check)
+; (inspect check)
 (#%jit-compile-2 make)
 (#%jit-compile-2 check)
+(#%jit-compile-2 leaf)
+(#%jit-compile-2 leaf?)
 
 (define (iterate n m d sum)
   (if (equal? n m)
       sum
       (iterate (+ n 1) m d (+ sum (check (make n d))))))
+
+; (inspect iterate)
 
 (define (max x y)
   (if (> x y) x y))
@@ -72,11 +76,17 @@
 
       (displayln "long lived tree of depth " max-depth " check: " (check long-lived-tree)))))
 
+(#%jit-compile-2 iterate)
+(#%jit-compile-2 max)
+; (inspect loop)
+(#%jit-compile-2 loop)
+(#%jit-compile-2 main)
+
 ; (inspect make)
-(define foo (make 0 2))
-(displayln foo)
+; (define foo (make 0 2))
+; (displayln foo)
 ; (displayln node)
-(displayln (check foo))
+; (displayln (check foo))
 
 ; (main 2)
 ; (inspect make)

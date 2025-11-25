@@ -1,5 +1,5 @@
 use crate::compiler::compiler::Compiler;
-use crate::core::instructions::u24;
+use crate::core::instructions::{pretty_print_dense_instructions, u24};
 use crate::env::SharedVectorWrapper;
 use crate::gc::shared::{
     MutContainer, ShareableMut, Shared, StandardShared, StandardSharedMut, WeakShared,
@@ -7064,10 +7064,22 @@ fn let_end_scope_handler_with_payload(ctx: &mut VmCore<'_>, beginning_scope: usi
     let offset = ctx.get_offset();
     // let offset = ctx.sp;
 
-    // Move to the pop
-    ctx.ip += 1;
-
     let rollback_index = beginning_scope + offset;
+
+    if rollback_index > ctx.thread.stack.len() {
+        println!("ip: {}", ctx.ip);
+        println!("beginning scope: {}", beginning_scope);
+        println!("Offset: {}", offset);
+
+        println!(
+            "Previous stack offset: {:?}",
+            ctx.thread.stack_frames.last().map(|x| x.sp)
+        );
+
+        pretty_print_dense_instructions(&ctx.instructions);
+    }
+
+    ctx.ip += 1;
 
     // println!("Let end scope: {:#?}", ctx.thread.stack);
 

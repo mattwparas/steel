@@ -88,7 +88,7 @@
 
 ; (#%jit-compile-2 map1)
 (#%jit-compile-2 assoc2)
-; (#%jit-compile-2 jit-loop)
+(#%jit-compile-2 jit-loop)
 ; (#%jit-compile-2 jit-fib)
 
 ; (displayln (assoc2 999 big-list))

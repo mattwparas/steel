@@ -1276,7 +1276,11 @@ extern_binop!(extern_c_sub_two, subtract_primitive);
 extern_binop!(extern_c_lt_two, lt_primitive);
 // extern_binop!(extern_c_lte_two, lte_primitive);
 
-pub(crate) extern "C-unwind" fn extern_c_lte_two(a: SteelVal, b: SteelVal) -> SteelVal {
+pub(crate) extern "C-unwind" fn extern_c_lte_two(
+    ctx: *mut VmCore,
+    a: SteelVal,
+    b: SteelVal,
+) -> SteelVal {
     // println!("lte two - {} <= {}", a, b);
 
     // let a = ManuallyDrop::new(a);
@@ -1661,6 +1665,9 @@ fn handle_global_function_call_with_args(
             if TRAMPOLINE {
                 // We're going to de-opt in this case - unless we intend to do some fun inlining business
                 if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                    let pop_count = ctx.pop_count;
+                    let depth = ctx.thread.stack_frames.len();
+
                     ctx.handle_function_call_closure_jit(closure, arity)
                         .unwrap();
 
@@ -1668,6 +1675,9 @@ fn handle_global_function_call_with_args(
                     // dbg!(&ctx.thread.stack);
 
                     (func)(ctx);
+
+                    assert_eq!(ctx.pop_count, pop_count);
+                    assert_eq!(ctx.thread.stack_frames.len(), depth);
 
                     // println!("After call:");
                     // dbg!(&ctx.thread.stack);
@@ -1713,7 +1723,7 @@ fn handle_global_function_call_with_args(
 fn handle_global_function_call_with_args_no_arity(
     ctx: &mut VmCore,
     stack_func: SteelVal,
-    mut args: SmallVec<[SteelVal; 3]>,
+    mut args: SmallVec<[SteelVal; 5]>,
 ) -> Result<SteelVal> {
     match stack_func {
         SteelVal::FuncV(func) => func(&args).map_err(|x| x.set_span_if_none(ctx.current_span())),
@@ -1729,6 +1739,9 @@ fn handle_global_function_call_with_args_no_arity(
 
             if TRAMPOLINE {
                 if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                    let pop_count = ctx.pop_count;
+                    let depth = ctx.thread.stack_frames.len();
+
                     // Just call handle_function_call_closure_jit
                     // But then just directly invoke the super instruction
                     // and snag the return type. That way we don't have
@@ -1752,6 +1765,9 @@ fn handle_global_function_call_with_args_no_arity(
 
                     if ctx.is_native {
                         // dbg!(&ctx.thread.stack);
+
+                        assert_eq!(ctx.pop_count, pop_count);
+                        assert_eq!(ctx.thread.stack_frames.len(), depth);
 
                         // Don't deopt?
                         Ok(ctx.thread.stack.pop().unwrap())
@@ -2079,6 +2095,47 @@ pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_3(
 }
 
 #[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_4(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: SteelVal,
+    arg1: SteelVal,
+    arg2: SteelVal,
+    arg3: SteelVal,
+) -> SteelVal {
+    unsafe {
+        new_callglobal_tail_handler_deopt_test(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [arg0, arg1, arg2, arg3],
+        )
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_5(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: SteelVal,
+    arg1: SteelVal,
+    arg2: SteelVal,
+    arg3: SteelVal,
+    arg4: SteelVal,
+) -> SteelVal {
+    unsafe {
+        new_callglobal_tail_handler_deopt_test(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [arg0, arg1, arg2, arg3, arg4],
+        )
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn call_global_function_deopt_0(
     ctx: *mut VmCore,
     lookup_index: usize,
@@ -2123,6 +2180,47 @@ pub(crate) extern "C-unwind" fn call_global_function_deopt_3(
             lookup_index,
             fallback_ip,
             &mut [arg0, arg1, arg2],
+        )
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn call_global_function_deopt_4(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: SteelVal,
+    arg1: SteelVal,
+    arg2: SteelVal,
+    arg3: SteelVal,
+) -> SteelVal {
+    unsafe {
+        call_global_function_deopt(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [arg0, arg1, arg2, arg3],
+        )
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn call_global_function_deopt_5(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: SteelVal,
+    arg1: SteelVal,
+    arg2: SteelVal,
+    arg3: SteelVal,
+    arg4: SteelVal,
+) -> SteelVal {
+    unsafe {
+        call_global_function_deopt(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            &mut [arg0, arg1, arg2, arg3, arg4],
         )
     }
 }
@@ -2239,6 +2337,47 @@ pub(crate) extern "C-unwind" fn call_global_function_deopt_3_no_arity(
     }
 }
 
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn call_global_function_deopt_4_no_arity(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: SteelVal,
+    arg1: SteelVal,
+    arg2: SteelVal,
+    arg3: SteelVal,
+) -> SteelVal {
+    unsafe {
+        call_global_function_deopt_no_arity(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            smallvec::smallvec![arg0, arg1, arg2, arg3],
+        )
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn call_global_function_deopt_5_no_arity(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arg0: SteelVal,
+    arg1: SteelVal,
+    arg2: SteelVal,
+    arg3: SteelVal,
+    arg4: SteelVal,
+) -> SteelVal {
+    unsafe {
+        call_global_function_deopt_no_arity(
+            &mut *ctx,
+            lookup_index,
+            fallback_ip,
+            smallvec::smallvec![arg0, arg1, arg2, arg3, arg4],
+        )
+    }
+}
+
 pub(crate) extern "C-unwind" fn call_global_function_deopt_0_func(
     ctx: *mut VmCore,
     lookup_index: usize,
@@ -2331,13 +2470,15 @@ fn call_global_function_deopt(
     // will eventually check the stashed error.
     let should_yield = match &func {
         SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => {
-            ctx.ip = fallback_ip + 1;
+            ctx.ip = fallback_ip;
             // println!("{:?}", ctx.instructions[ctx.ip]);
             false
         }
         SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => {
             ctx.ip = fallback_ip;
             ctx.is_native = false;
+
+            println!("Deopting to: {}", ctx.ip);
 
             true
         }
@@ -2422,7 +2563,7 @@ fn call_global_function_deopt_no_arity(
     ctx: &mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
-    args: SmallVec<[SteelVal; 3]>,
+    args: SmallVec<[SteelVal; 5]>,
 ) -> SteelVal {
     // println!("Calling global function no arity @ {}", fallback_ip);
     // println!("Stack at function call: {:#?}", ctx.thread.stack);
