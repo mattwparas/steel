@@ -314,6 +314,8 @@ impl Default for JIT {
 
         builder.symbol("equal-binop", equal_binop as *const u8);
 
+        builder.symbol("vm-should-continue?", should_continue as *const u8);
+
         builder.symbol(
             "num-equal-value-unboxed",
             num_equal_value_unboxed as *const u8,
@@ -1939,23 +1941,22 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::PUREFUNC => todo!(),
 
-                OpCode::SUB
-                    if payload == 2
-                        && self.stack.last().map(|x| x.inferred_type)
-                            == Some(InferredType::Int) =>
-                {
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    // Call the func
-                    self.func_ret_val_named(
-                        "sub-binop-int",
-                        payload,
-                        2,
-                        InferredType::Number,
-                        abi_type,
-                        abi_type,
-                    );
-                }
-
+                // OpCode::SUB
+                //     if payload == 2
+                //         && self.stack.last().map(|x| x.inferred_type)
+                //             == Some(InferredType::Int) =>
+                // {
+                //     let abi_type = AbiParam::new(Type::int(128).unwrap());
+                //     // Call the func
+                //     self.func_ret_val_named(
+                //         "sub-binop-int",
+                //         payload,
+                //         2,
+                //         InferredType::Number,
+                //         abi_type,
+                //         abi_type,
+                //     );
+                // }
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     // Call the func
@@ -2907,7 +2908,8 @@ impl FunctionTranslator<'_> {
     }
 
     fn check_deopt(&mut self) {
-        let result = self.check_deopt_ptr_load();
+        // let result = self.check_deopt_ptr_load();
+        let result = self.check_deopt_call();
 
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();

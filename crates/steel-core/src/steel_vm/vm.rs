@@ -3869,12 +3869,15 @@ impl<'a> VmCore<'a> {
 
             self.close_continuation_marks(&last);
 
+            println!("Stack at pop: {:#?}", self.thread.stack);
+
             // let _ = self
             //     .thread
             //     .stack
             //     .drain(rollback_index..self.thread.stack.len() - 1);
 
             self.thread.stack.truncate(rollback_index);
+
             self.thread.stack.push(value);
 
             self.ip = last.ip;

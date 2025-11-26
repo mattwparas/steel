@@ -1097,7 +1097,7 @@ pub(crate) extern "C-unwind" fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> 
 
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn extern_handle_pop(ctx: *mut VmCore, value: SteelVal) {
-    // println!("Native pop");
+    println!("Native pop");
     unsafe {
         let this = &mut *ctx;
         let res = this.handle_pop_pure_value(value);
@@ -1149,6 +1149,8 @@ pub(crate) extern "C-unwind" fn equal_binop(
     left: SteelVal,
     right: SteelVal,
 ) -> SteelVal {
+    println!("Calling equal binop: {} - {}", left, right);
+
     SteelVal::BoolV(left == right)
 }
 
@@ -1178,6 +1180,8 @@ macro_rules! extern_binop {
             a: SteelVal,
             b: SteelVal,
         ) -> SteelVal {
+            println!("Calling with args: {} - {}", a, b);
+
             // unsafe { (&mut *ctx).ip += 2 };
             $func(&[a, b]).unwrap()
         }
@@ -1234,6 +1238,8 @@ pub(crate) extern "C-unwind" fn extern_c_add_two(
     a: SteelVal,
     b: SteelVal,
 ) -> SteelVal {
+    println!("Calling add with: {} - {}", a, b);
+
     // let a = ManuallyDrop::new(a);
     // let b = ManuallyDrop::new(b);
     match add_two(&a, &b) {
@@ -1669,7 +1675,7 @@ fn handle_global_function_call_with_args(
                     let pop_count = ctx.pop_count;
                     let depth = ctx.thread.stack_frames.len();
 
-                    // println!("Calling trampoline: {}", depth);
+                    println!("Calling trampoline: {}", depth);
 
                     ctx.handle_function_call_closure_jit(closure, arity)
                         .unwrap();
@@ -1679,8 +1685,8 @@ fn handle_global_function_call_with_args(
 
                     (func)(ctx);
 
-                    // println!("After call:");
-                    // dbg!(&ctx.thread.stack);
+                    println!("finished calling function:");
+                    dbg!(&ctx.thread.stack);
 
                     // dbg!(ctx.is_native);
                     // dbg!(&ctx.result);
@@ -1697,6 +1703,8 @@ fn handle_global_function_call_with_args(
                         // Don't deopt?
                         Ok(ctx.thread.stack.pop().unwrap())
                     } else {
+                        println!("Deopting, pushing void to stack");
+
                         Ok(SteelVal::Void)
                     }
                 } else {
@@ -2483,7 +2491,7 @@ fn call_global_function_deopt(
             ctx.ip = fallback_ip;
             ctx.is_native = false;
 
-            // println!("Deopting to: {}", ctx.ip);
+            println!("Deopting to: {}", ctx.ip);
 
             true
         }

@@ -2,7 +2,7 @@
          ackermann)
 
 (define (ackermann m n)
-  (stdout-simple-displayln m " " n)
+  ; (stdout-simple-displayln m " " n)
   (cond
     [(equal? m 0) (+ n 1)]
     [(equal? n 0) (ackermann (- m 1) 1)]
@@ -25,45 +25,39 @@
 ; (loop 50)
 
 ; 0     DynSuperInstruction : 0       ;; m
-; 1     PUSHCONST           : 598     ;; " "
-; 2     READLOCAL1          : 1       ;; n
-; 3     CALLGLOBAL          : 928     ;; stdout-simple-displayln
-; 4     FUNC                : 3       ;; stdout-simple-displayln
-; 5     POPSINGLE           : 0
-; 6     READLOCAL0          : 0       ;; m
-; 7     LOADINT0            : 563     ;; 0
-; 8     EQUAL2              : 2       ;; equal?
-; 9     PASS                : 2       ;; equal?
-; 10    IF                  : 16
-; 11    READLOCAL1          : 1       ;; n
-; 12    LOADINT1            : 589     ;; 1
-; 13    ADD                 : 2       ;; +
-; 14    PASS                : 2       ;; +
-; 15    POPJMP              : 42
-; 16    READLOCAL1          : 1       ;; n
-; 17    LOADINT0            : 563     ;; 0
-; 18    EQUAL2              : 2       ;; equal?
-; 19    PASS                : 2       ;; equal?
-; 20    IF                  : 29
-; 21    READLOCAL0          : 0       ;; m
-; 22    LOADINT1            : 589     ;; 1
-; 23    SUB                 : 2       ;; -
-; 24    PASS                : 2       ;; -
-; 25    LOADINT1            : 589     ;; 1
-; 26    TCOJMP              : 2       ;; ackermann
-; 27    PASS                : 0
-; 28    POPJMP              : 42
-; 29    READLOCAL0          : 0       ;; m
-; 30    LOADINT1            : 589     ;; 1
-; 31    SUB                 : 2       ;; -
-; 32    PASS                : 2       ;; -
-; 33    MOVEREADLOCAL0      : 0       ;; m
-; 34    MOVEREADLOCAL1      : 1       ;; n
-; 35    LOADINT1            : 589     ;; 1
-; 36    SUB                 : 2       ;; -
-; 37    PASS                : 2       ;; -
-; 38    CALLGLOBAL          : 1230    ;; ackermann
-; 39    FUNC                : 2       ;; ackermann
-; 40    TCOJMP              : 2       ;; ackermann
-; 41    PASS                : 0
-; 42    POPPURE             : 2
+; 1     LOADINT0            : 563     ;; 0
+; 2     EQUAL2              : 2       ;; equal?
+; 3     PASS                : 2       ;; equal?
+; 4     IF                  : 10
+; 5     READLOCAL1          : 1       ;; n
+; 6     LOADINT1            : 589     ;; 1
+; 7     ADD                 : 2       ;; +
+; 8     PASS                : 2       ;; +
+; 9     POPJMP              : 36
+; 10    READLOCAL1          : 1       ;; n
+; 11    LOADINT0            : 563     ;; 0
+; 12    EQUAL2              : 2       ;; equal?
+; 13    PASS                : 2       ;; equal?
+; 14    IF                  : 23
+; 15    READLOCAL0          : 0       ;; m
+; 16    LOADINT1            : 589     ;; 1
+; 17    SUB                 : 2       ;; -
+; 18    PASS                : 2       ;; -
+; 19    LOADINT1            : 589     ;; 1
+; 20    TCOJMP              : 2       ;; ackermann
+; 21    PASS                : 0
+; 22    POPJMP              : 36
+; 23    READLOCAL0          : 0       ;; m
+; 24    LOADINT1            : 589     ;; 1
+; 25    SUB                 : 2       ;; -
+; 26    PASS                : 2       ;; -
+; 27    MOVEREADLOCAL0      : 0       ;; m
+; 28    MOVEREADLOCAL1      : 1       ;; n
+; 29    LOADINT1            : 589     ;; 1
+; 30    SUB                 : 2       ;; -
+; 31    PASS                : 2       ;; -
+; 32    CALLGLOBAL          : 1220    ;; ackermann
+; 33    FUNC                : 2       ;; ackermann
+; 34    TCOJMP              : 2       ;; ackermann
+; 35    PASS                : 0
+; 36    POPPURE             : 2
