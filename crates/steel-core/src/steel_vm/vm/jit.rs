@@ -1679,9 +1679,6 @@ fn handle_global_function_call_with_args(
 
                     (func)(ctx);
 
-                    debug_assert_eq!(ctx.pop_count, pop_count);
-                    debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
-
                     // println!("After call:");
                     // dbg!(&ctx.thread.stack);
 
@@ -1690,9 +1687,13 @@ fn handle_global_function_call_with_args(
 
                     if ctx.is_native {
                         if ctx.pop_count != pop_count {
-                            return Ok(SteelVal::Void);
+                            println!("Attempted to call function inline");
+                            println!("ip: {}", ctx.ip);
+                            pretty_print_dense_instructions(&ctx.instructions);
                         }
 
+                        debug_assert_eq!(ctx.pop_count, pop_count);
+                        debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
                         // Don't deopt?
                         Ok(ctx.thread.stack.pop().unwrap())
                     } else {
@@ -2479,7 +2480,7 @@ fn call_global_function_deopt(
             ctx.ip = fallback_ip;
             ctx.is_native = false;
 
-            println!("Deopting to: {}", ctx.ip);
+            // println!("Deopting to: {}", ctx.ip);
 
             true
         }
@@ -2827,12 +2828,13 @@ pub(crate) extern "C-unwind" fn tcojmp_handler(ctx: *mut VmCore, current_arity: 
 
     // TODO: When this is done with the trampoline, we can do tail
     // call directly into it
-    this.is_native = false;
 
     if let Err(e) = tco_jmp_handler_multi_arity(current_arity, this) {
         this.is_native = false;
         this.result = Some(Err(e));
     }
+
+    this.is_native = false;
 }
 
 fn tco_jmp_handler_multi_arity(mut current_arity: usize, this: &mut VmCore<'_>) -> Result<()> {
