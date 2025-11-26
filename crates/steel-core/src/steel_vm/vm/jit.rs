@@ -2466,7 +2466,10 @@ fn call_global_function_deopt(
     // ctx.ip += 1;
     // let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
     let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
-    // println!("Calling global function: {} @ {}", func, fallback_ip);
+    println!(
+        "Calling global function: {} @ {} - {:#?}",
+        func, fallback_ip, args
+    );
 
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
@@ -2823,7 +2826,7 @@ fn if_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
 }
 
 pub(crate) extern "C-unwind" fn tcojmp_handler(ctx: *mut VmCore, current_arity: usize) {
-    // println!("Calling self tail call");
+    println!("Calling self tail call");
     let this = unsafe { &mut *ctx };
 
     // TODO: When this is done with the trampoline, we can do tail
@@ -2881,6 +2884,8 @@ fn tco_jmp_handler_multi_arity(mut current_arity: usize, this: &mut VmCore<'_>) 
 
         current_arity = original_arity;
     }
+
+    println!("Stack: {:#?}", this.thread.stack);
 
     let back = this.thread.stack.len() - current_arity;
     let _ = this.thread.stack.drain(this.sp..back);
