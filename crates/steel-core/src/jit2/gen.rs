@@ -1928,33 +1928,6 @@ impl FunctionTranslator<'_> {
 
                     self.let_var_stack.pop();
 
-                    if self.stack.len() > self.arity as _ {
-                        println!("Let end scope: {}", payload);
-                        println!("Stack length: {}", self.stack.len());
-                        println!("Arity: {}", self.arity);
-
-                        // let last = self
-                        //     .stack_pointers
-                        //     .pop()
-                        //     .unwrap()
-                        //     .saturating_sub(self.arity as usize);
-
-                        // let spilled = self
-                        //     .stack
-                        //     .drain(last..self.stack.len() - 1)
-                        //     .collect::<Vec<_>>();
-
-                        // for c in spilled {
-                        //     if !c.spilled {
-                        //         println!("-------------------> Spilling in let end scope: {:?}", c);
-                        //         self.push_to_vm_stack(c.value);
-                        //     }
-                        // }
-                        println!("Stack after let end scope: {:#?}", self.stack);
-                    }
-
-                    dbg!(self.local_count);
-
                     self.call_end_scope_handler(payload);
 
                     self.patched_locals.pop();
@@ -2065,10 +2038,20 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::SETBOX => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
+
+                    if let Some(last) = self.stack.get(self.stack.len() - 2).copied() {
+                        self.mark_local_type_from_var(last, InferredType::Box);
+                    }
+
                     self.func_ret_val(op, 2, 2, InferredType::Any, abi_type, abi_type);
                 }
                 OpCode::UNBOX => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
+
+                    if let Some(last) = self.stack.last().copied() {
+                        self.mark_local_type_from_var(last, InferredType::Box);
+                    }
+
                     self.func_ret_val(op, 1, 2, InferredType::Any, abi_type, abi_type);
                 }
                 OpCode::ADDREGISTER => todo!(),
