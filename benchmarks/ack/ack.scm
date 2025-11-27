@@ -14,13 +14,14 @@
   (if (equal? x 1)
       #true
       (begin
-        (ackermann 3 3)
+        ; (ackermann 3 3)
+        (stdout-simple-displayln "hi")
         (loop (+ x 1)))))
 
-(#%jit-compile-2 ackermann)
-; (#%jit-compile-2 loop)
+; (#%jit-compile-2 ackermann)
+(#%jit-compile-2 loop)
 
-(ackermann 1 1)
+; (ackermann 1 1)
 
 ; (loop 50)
 

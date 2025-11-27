@@ -1102,7 +1102,7 @@ pub(crate) extern "C-unwind" fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> 
 
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn extern_handle_pop(ctx: *mut VmCore, value: SteelVal) {
-    println!("Native pop");
+    // println!("Native pop");
     unsafe {
         let this = &mut *ctx;
         let res = this.handle_pop_pure_value(value);
@@ -1154,7 +1154,7 @@ pub(crate) extern "C-unwind" fn equal_binop(
     left: SteelVal,
     right: SteelVal,
 ) -> SteelVal {
-    println!("Calling equal binop: {} - {}", left, right);
+    // println!("Calling equal binop: {} - {}", left, right);
 
     SteelVal::BoolV(left == right)
 }
@@ -1185,8 +1185,8 @@ macro_rules! extern_binop {
             a: SteelVal,
             b: SteelVal,
         ) -> SteelVal {
-            println!("Calling with args: {} - {}", a, b);
-            unsafe { println!("Current stack: {:#?}", (&mut *ctx).thread.stack) };
+            // println!("Calling with args: {} - {}", a, b);
+            // unsafe { println!("Current stack: {:#?}", (&mut *ctx).thread.stack) };
 
             // unsafe { (&mut *ctx).ip += 2 };
             $func(&[a, b]).unwrap()
@@ -1244,7 +1244,7 @@ pub(crate) extern "C-unwind" fn extern_c_add_two(
     a: SteelVal,
     b: SteelVal,
 ) -> SteelVal {
-    println!("Calling add with: {} - {}", a, b);
+    // println!("Calling add with: {} - {}", a, b);
 
     // let a = ManuallyDrop::new(a);
     // let b = ManuallyDrop::new(b);
@@ -1681,7 +1681,7 @@ fn handle_global_function_call_with_args(
                     let pop_count = ctx.pop_count;
                     let depth = ctx.thread.stack_frames.len();
 
-                    println!("Calling trampoline: {} - {}", depth, ctx.is_native);
+                    // println!("Calling trampoline: {} - {}", depth, ctx.is_native);
 
                     ctx.handle_function_call_closure_jit(closure, arity)
                         .unwrap();
@@ -1691,29 +1691,29 @@ fn handle_global_function_call_with_args(
 
                     (func)(ctx);
 
-                    println!(
-                        "finished calling function - is still native: {}, depth: {}",
-                        ctx.is_native,
-                        ctx.thread.stack_frames.len()
-                    );
-                    dbg!(&ctx.thread.stack);
+                    // println!(
+                    //     "finished calling function - is still native: {}, depth: {}",
+                    //     ctx.is_native,
+                    //     ctx.thread.stack_frames.len()
+                    // );
+                    // dbg!(&ctx.thread.stack);
 
                     // dbg!(ctx.is_native);
                     // dbg!(&ctx.result);
 
                     if ctx.is_native {
-                        if ctx.pop_count != pop_count {
-                            println!("Attempted to call function inline");
-                            println!("ip: {}", ctx.ip);
-                            pretty_print_dense_instructions(&ctx.instructions);
-                        }
+                        // if ctx.pop_count != pop_count {
+                        // println!("Attempted to call function inline");
+                        // println!("ip: {}", ctx.ip);
+                        // pretty_print_dense_instructions(&ctx.instructions);
+                        // }
 
                         debug_assert_eq!(ctx.pop_count, pop_count);
                         debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
                         // Don't deopt?
                         Ok(ctx.thread.stack.pop().unwrap())
                     } else {
-                        println!("Deopting, pushing void to stack");
+                        // println!("Deopting, pushing void to stack");
 
                         Ok(SteelVal::Void)
                     }
@@ -1844,7 +1844,7 @@ pub(crate) extern "C-unwind" fn push_to_vm_stack_function_spill(ctx: *mut VmCore
 
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn push_to_vm_stack_let_var(ctx: *mut VmCore, value: SteelVal) {
-    // println!("Pushing to vm stack in let var: {}", value);
+    // println!("Pushing to vm stack in spill: {}", value);
     // println!(
     //     "stack before pushing: {:#?}",
     //     unsafe { &mut *ctx }.thread.stack
@@ -1962,6 +1962,17 @@ pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_2(
             fallback_ip,
             &mut [arg0, arg1],
         )
+    }
+}
+
+// Note: This should only get called with a closure, so we are safe to only
+// check against those.
+pub(crate) extern "C-unwind" fn should_spill(ctx: *mut VmCore, lookup_index: usize) -> bool {
+    unsafe {
+        let this = &mut *ctx;
+        let func = &this.thread.global_env.roots()[lookup_index];
+
+        matches!(func, SteelVal::Closure(_))
     }
 }
 
@@ -2484,10 +2495,10 @@ fn call_global_function_deopt(
     // ctx.ip += 1;
     // let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
     let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
-    println!(
-        "Calling global function: {} @ {} - {:#?}",
-        func, fallback_ip, args
-    );
+    // println!(
+    //     "Calling global function: {} @ {} - {:#?}",
+    //     func, fallback_ip, args
+    // );
 
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
@@ -2501,7 +2512,7 @@ fn call_global_function_deopt(
             ctx.ip = fallback_ip;
             ctx.is_native = false;
 
-            println!("Deopting to: {}", ctx.ip);
+            // println!("Deopting to: {}", ctx.ip);
 
             true
         }
@@ -2523,7 +2534,7 @@ fn call_global_function_deopt(
 
     match handle_global_function_call_with_args(ctx, func, args) {
         Ok(v) => {
-            println!("result: {}", v);
+            // println!("result: {}", v);
 
             v
         }
@@ -2845,7 +2856,7 @@ fn if_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
 }
 
 pub(crate) extern "C-unwind" fn tcojmp_handler(ctx: *mut VmCore, current_arity: usize) {
-    println!("Calling self tail call");
+    // println!("Calling self tail call");
     let this = unsafe { &mut *ctx };
 
     // TODO: When this is done with the trampoline, we can do tail
@@ -2904,14 +2915,14 @@ fn tco_jmp_handler_multi_arity(mut current_arity: usize, this: &mut VmCore<'_>) 
         current_arity = original_arity;
     }
 
-    println!("Stack before: {:#?}", this.thread.stack);
+    // println!("Stack before: {:#?}", this.thread.stack);
 
     let back = this.thread.stack.len() - current_arity;
     let _ = this.thread.stack.drain(this.sp..back);
 
-    println!("Stack after: {:#?}", this.thread.stack);
+    // println!("Stack after: {:#?}", this.thread.stack);
 
-    println!("---- done with tail call handler ----");
+    // println!("---- done with tail call handler ----");
     Ok(())
 }
 
