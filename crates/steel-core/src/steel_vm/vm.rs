@@ -2521,6 +2521,7 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::DynSuperInstruction,
                     ..
                 } => {
+                    println!(">>>>>> Entering jit call: {}", self.is_native);
                     // Entering the context of the native code.
                     // If at any point we deopt, we should check this flag on the
                     // runtime, which tells the function to just return and let
@@ -2537,6 +2538,10 @@ impl<'a> VmCore<'a> {
                         .unwrap()(self);
 
                     self.is_native = false;
+
+                    println!("<<<<<< Exited jit call");
+
+                    // println!("Stack: {:#?}", self.thread.stack);
 
                     if let Some(res) = self.result.take() {
                         println!("Found result: {:?}", res);
@@ -3583,11 +3588,6 @@ impl<'a> VmCore<'a> {
                         current_arity = original_arity;
                     }
 
-                    // HACK COME BACK TO THIS
-                    // if self.ip == 0 && self.heap.len() > self.heap.limit() {
-                    // TODO collect here
-                    // self.heap.collect_garbage();
-                    // }
                     // let offset = self.stack_index.last().copied().unwrap_or(0);
                     // let offset = last_stack_frame.sp;
 
@@ -3869,7 +3869,7 @@ impl<'a> VmCore<'a> {
 
             self.close_continuation_marks(&last);
 
-            println!("Stack at pop: {:#?}", self.thread.stack);
+            // println!("Stack at pop: {:#?}", self.thread.stack);
 
             // let _ = self
             //     .thread
@@ -3879,6 +3879,8 @@ impl<'a> VmCore<'a> {
             self.thread.stack.truncate(rollback_index);
 
             self.thread.stack.push(value);
+
+            println!("Stack after pop: {:#?}", self.thread.stack);
 
             self.ip = last.ip;
             self.instructions = last.instructions;

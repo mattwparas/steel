@@ -20,7 +20,7 @@
 (#%jit-compile-2 ackermann)
 ; (#%jit-compile-2 loop)
 
-(ackermann 3 3)
+(ackermann 1 1)
 
 ; (loop 50)
 

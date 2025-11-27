@@ -132,6 +132,8 @@ pub struct ByteCodeLambda {
 
     #[cfg(feature = "jit2")]
     pub(crate) super_instructions: Option<fn(&mut crate::steel_vm::vm::VmCore) -> bool>,
+    // #[cfg(feature = "jit2")]
+    // pub(crate) tail_call: bool,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -254,6 +256,8 @@ impl ByteCodeLambda {
 
             #[cfg(feature = "jit2")]
             super_instructions: None,
+            // #[cfg(feature = "jit2")]
+            // tail_call: false,
         }
     }
 

@@ -57,7 +57,12 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                     let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
                     instructions[0].op_code = OpCode::DynSuperInstruction;
 
+                    // let tail_call = instructions
+                    //     .iter()
+                    //     .any(|x| matches!(x.op_code, OpCode::SELFTAILCALLNOARITY | OpCode::TCOJMP));
+
                     func.body_exp = Arc::from(instructions.into_boxed_slice());
+                    // func.tail_call = tail_call;
 
                     let return_func = Gc::new(func);
                     ctx.thread
@@ -1181,6 +1186,7 @@ macro_rules! extern_binop {
             b: SteelVal,
         ) -> SteelVal {
             println!("Calling with args: {} - {}", a, b);
+            unsafe { println!("Current stack: {:#?}", (&mut *ctx).thread.stack) };
 
             // unsafe { (&mut *ctx).ip += 2 };
             $func(&[a, b]).unwrap()
@@ -1675,7 +1681,7 @@ fn handle_global_function_call_with_args(
                     let pop_count = ctx.pop_count;
                     let depth = ctx.thread.stack_frames.len();
 
-                    println!("Calling trampoline: {}", depth);
+                    println!("Calling trampoline: {} - {}", depth, ctx.is_native);
 
                     ctx.handle_function_call_closure_jit(closure, arity)
                         .unwrap();
@@ -1685,7 +1691,11 @@ fn handle_global_function_call_with_args(
 
                     (func)(ctx);
 
-                    println!("finished calling function:");
+                    println!(
+                        "finished calling function - is still native: {}, depth: {}",
+                        ctx.is_native,
+                        ctx.thread.stack_frames.len()
+                    );
                     dbg!(&ctx.thread.stack);
 
                     // dbg!(ctx.is_native);
@@ -2496,7 +2506,8 @@ fn call_global_function_deopt(
             true
         }
         _ => {
-            ctx.ip += 1;
+            // ctx.ip += 1;
+            ctx.ip = fallback_ip;
 
             false
         }
@@ -2512,7 +2523,7 @@ fn call_global_function_deopt(
 
     match handle_global_function_call_with_args(ctx, func, args) {
         Ok(v) => {
-            // println!("args after call: {:?}", args);
+            println!("result: {}", v);
 
             v
         }
@@ -2893,10 +2904,14 @@ fn tco_jmp_handler_multi_arity(mut current_arity: usize, this: &mut VmCore<'_>) 
         current_arity = original_arity;
     }
 
-    println!("Stack: {:#?}", this.thread.stack);
+    println!("Stack before: {:#?}", this.thread.stack);
 
     let back = this.thread.stack.len() - current_arity;
     let _ = this.thread.stack.drain(this.sp..back);
+
+    println!("Stack after: {:#?}", this.thread.stack);
+
+    println!("---- done with tail call handler ----");
     Ok(())
 }
 
