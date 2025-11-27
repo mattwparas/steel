@@ -1993,6 +1993,14 @@ pub(crate) extern "C-unwind" fn should_spill(ctx: *mut VmCore, lookup_index: usi
     }
 }
 
+pub(crate) extern "C-unwind" fn should_spill_value(ctx: *mut VmCore, func: SteelVal) -> bool {
+    unsafe {
+        let this = &mut *ctx;
+        let func = ManuallyDrop::new(func);
+        matches!(&*func, SteelVal::Closure(_))
+    }
+}
+
 // 0 -> No good
 // 1 -> Spill
 // 2 -> Call and Spill

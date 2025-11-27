@@ -41,8 +41,8 @@ use crate::{
             push_to_vm_stack_let_var, push_to_vm_stack_two, read_local_0_value_c,
             read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
             read_local_any_value_c, self_tail_call_handler, set_ctx_ip, set_handler_c,
-            setbox_handler_c, should_continue, should_spill, tcojmp_handler, trampoline,
-            trampoline_no_arity, unbox_handler_c,
+            setbox_handler_c, should_continue, should_spill, should_spill_value, tcojmp_handler,
+            trampoline, trampoline_no_arity, unbox_handler_c,
         },
         VmCore,
     },
@@ -556,6 +556,11 @@ impl Default for JIT {
         map.add_func(
             "should-spill",
             should_spill as extern "C-unwind" fn(ctx: *mut VmCore, index: usize) -> bool,
+        );
+
+        map.add_func(
+            "should-spill-value",
+            should_spill_value as extern "C-unwind" fn(ctx: *mut VmCore, value: SteelVal) -> bool,
         );
 
         map.add_func(
@@ -2611,6 +2616,24 @@ impl FunctionTranslator<'_> {
             // Do nothing
             let then_return = BlockArg::Value(self.create_i128(0));
 
+            // Check callable - TODO: Insert these checks elsewhere too!
+            let should_spill = self.check_should_spill_value(func);
+
+            let spill_block = self.builder.create_block();
+
+            self.builder
+                .ins()
+                .brif(should_spill, spill_block, &[], merge_block, &[then_return]);
+
+            self.builder.switch_to_block(spill_block);
+            self.builder.seal_block(spill_block);
+
+            for c in self.stack.clone() {
+                if !c.spilled {
+                    self.push_to_vm_stack_function_spill(c.value);
+                }
+            }
+
             self.builder.ins().jump(merge_block, &[then_return]);
 
             self.builder.switch_to_block(else_block);
@@ -2864,6 +2887,26 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &[ctx, index]);
         let result = self.builder.inst_results(call)[0];
 
+        return result;
+    }
+
+    fn check_should_spill_value(&mut self, callable: Value) -> Value {
+        let mut sig = self.module.make_signature();
+        let name = "should-spill-value";
+        // VmCore pointer
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let call = self.builder.ins().call(local_callee, &[ctx, callable]);
+        let result = self.builder.inst_results(call)[0];
         return result;
     }
 
