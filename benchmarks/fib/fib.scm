@@ -14,11 +14,15 @@
 ;; return an int - we should be able to do
 ;; ADDINT... Or also could do loop unrolling?
 (define (fib n)
-  (if (<= n 2) 1 (+ (fib (- n 1)) (fib (- n 2)))))
+  (if (<= n 2)
+      1
+      (+ (fib (- n 1)) (fib (- n 2)))))
 
 (define (jit-fib n)
   ;; Loop unrolling would do so much, assuming we can do that easily
-  (if (<= n 2) 1 (+ (jit-fib (- n 1)) (jit-fib (- n 2)))))
+  (if (<= n 2)
+      1
+      (+ (jit-fib (- n 1)) (jit-fib (- n 2)))))
 
 ; (define jitfib (#%jit-compile jit-fib))
 ; (define jitfib jit-fib)
@@ -45,10 +49,14 @@
 ;   (string-append x y))
 
 (define (loop x y)
-  (if (= x y) x (loop (+ x 1) y)))
+  (if (= x y)
+      x
+      (loop (+ x 1) y)))
 
 (define (jit-loop x y)
-  (if (= x y) (to-string x) (jit-loop (+ x 1) y)))
+  (if (= x y)
+      (to-string x)
+      (jit-loop (+ x 1) y)))
 
 (define (assoc2 obj lst)
   (cond
@@ -64,7 +72,9 @@
 
 (define (map1 func accum lst)
   ; (stdout-simple-displayln accum)
-  (if (null? lst) (reverse accum) (map1 func (cons (func (car lst)) accum) (cdr lst))))
+  (if (null? lst)
+      (reverse accum)
+      (map1 func (cons (func (car lst)) accum) (cdr lst))))
 
 ; (set! map1 map1)
 
@@ -79,7 +89,7 @@
 ; (#%jit-compile-2 map1)
 ; (#%jit-compile-2 assoc2)
 (#%jit-compile-2 jit-loop)
-; (#%jit-compile-2 jit-fib)
+(#%jit-compile-2 jit-fib)
 
 ; (displayln (assoc2 999 big-list))
 ; (displayln (assoc2 999 big-list))

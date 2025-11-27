@@ -1149,6 +1149,23 @@ pub(crate) extern "C-unwind" fn num_equal_value(
     }
 }
 
+pub(crate) extern "C-unwind" fn num_equal_int(
+    // _: *mut VmCore,
+    left: SteelVal,
+    right: SteelVal,
+) -> SteelVal {
+    // println!("GETTING TO NUM EQUAL VALUE: {} - {}", left, right,);
+    // unsafe { &mut *ctx }.ip += 2;
+
+    assert!(matches!(right, SteelVal::IntV(_) | SteelVal::BigNum(_)));
+
+    if let Ok(b) = number_equality(&left, &right) {
+        b
+    } else {
+        unreachable!()
+    }
+}
+
 pub(crate) extern "C-unwind" fn equal_binop(
     ctx: *mut VmCore,
     left: SteelVal,
@@ -1973,6 +1990,34 @@ pub(crate) extern "C-unwind" fn should_spill(ctx: *mut VmCore, lookup_index: usi
         let func = &this.thread.global_env.roots()[lookup_index];
 
         matches!(func, SteelVal::Closure(_))
+    }
+}
+
+// 0 -> No good
+// 1 -> Spill
+// 2 -> Call and Spill
+pub(crate) extern "C-unwind" fn check_callable_spill(ctx: *mut VmCore, lookup_index: usize) -> u8 {
+    unsafe {
+        let this = &mut *ctx;
+        let func = &this.thread.global_env.roots()[lookup_index];
+
+        if TRAMPOLINE {
+            if let SteelVal::Closure(c) = func {
+                if c.0.super_instructions.as_ref().is_some() {
+                    return 2;
+                }
+            }
+        }
+
+        // Builtins can yield control in a funky way.
+        if matches!(
+            func,
+            SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_)
+        ) {
+            1
+        } else {
+            0
+        }
     }
 }
 

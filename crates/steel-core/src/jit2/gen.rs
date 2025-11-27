@@ -28,17 +28,18 @@ use crate::{
             call_global_function_tail_deopt_3, call_global_function_tail_deopt_4,
             call_global_function_tail_deopt_5, callglobal_handler_deopt_c,
             callglobal_tail_handler_deopt_3, callglobal_tail_handler_deopt_3_test,
-            car_handler_value, cdr_handler_value, check_callable, check_callable_tail,
-            check_callable_value, cons_handler_value, drop_value, equal_binop, extern_c_add_two,
-            extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
-            extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler, extern_c_sub_two,
-            extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value, if_handler_value,
-            let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
-            move_read_local_2_value_c, move_read_local_3_value_c, move_read_local_any_value_c,
-            not_handler_raw_value, num_equal_value, num_equal_value_unboxed, pop_value,
-            push_const_value_c, push_const_value_index_c, push_global, push_int_0, push_int_1,
-            push_int_2, push_to_vm_stack, push_to_vm_stack_let_var, push_to_vm_stack_two,
-            read_local_0_value_c, read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
+            car_handler_value, cdr_handler_value, check_callable, check_callable_spill,
+            check_callable_tail, check_callable_value, cons_handler_value, drop_value, equal_binop,
+            extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
+            extern_c_lte_two, extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler,
+            extern_c_sub_two, extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value,
+            if_handler_value, let_end_scope_c, move_read_local_0_value_c,
+            move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
+            move_read_local_any_value_c, not_handler_raw_value, num_equal_int, num_equal_value,
+            num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
+            push_global, push_int_0, push_int_1, push_int_2, push_to_vm_stack,
+            push_to_vm_stack_let_var, push_to_vm_stack_two, read_local_0_value_c,
+            read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
             read_local_any_value_c, self_tail_call_handler, set_ctx_ip, set_handler_c,
             setbox_handler_c, should_continue, should_spill, tcojmp_handler, trampoline,
             trampoline_no_arity, unbox_handler_c,
@@ -312,6 +313,8 @@ impl Default for JIT {
         // Value functions:
         builder.symbol("num-equal-value", num_equal_value as *const u8);
 
+        builder.symbol("num-equal-int", num_equal_int as *const u8);
+
         builder.symbol("equal-binop", equal_binop as *const u8);
 
         builder.symbol("vm-should-continue?", should_continue as *const u8);
@@ -553,6 +556,11 @@ impl Default for JIT {
         map.add_func(
             "should-spill",
             should_spill as extern "C-unwind" fn(ctx: *mut VmCore, index: usize) -> bool,
+        );
+
+        map.add_func(
+            "check-callable-spill",
+            check_callable_spill as extern "C-unwind" fn(ctx: *mut VmCore, index: usize) -> u8,
         );
 
         map.add_func(
@@ -1445,6 +1453,12 @@ impl FunctionTranslator<'_> {
     //     self.patched_locals.iter_mut().for_each(|x| *x = true);
     // }
 
+    fn mark_local_type_from_var(&mut self, last: StackValue, typ: InferredType) {
+        if let Some(from_local) = self.value_to_local_map.get(&last.value) {
+            self.local_to_value_map.insert(*from_local, typ);
+        }
+    }
+
     // Read values off of the stack - push them on to
     // wherever they need to go.
     // Assuming the whole instruction set is translated and we also confirm
@@ -1784,17 +1798,9 @@ impl FunctionTranslator<'_> {
                 OpCode::COPYHEAPCAPTURECLOSURE => todo!(),
                 OpCode::FIRSTCOPYHEAPCAPTURECLOSURE => todo!(),
 
-                // TODO: @matt
-                // The issue is that when trampolining, a tail call
-                // will yield back to the runtime, and then immediately
-                // jump back in. There is an expectation that the values
-                // are on the stack already, which is an issue, so then things
-                // get popped right away which we don't explicitly want?
                 OpCode::TCOJMP => {
                     self.translate_tco_jmp(payload);
                     self.ip = self.instructions.len() + 1;
-
-                    self.check_deopt();
 
                     println!("Returning...");
                     return false;
@@ -1956,22 +1962,23 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::PUREFUNC => todo!(),
 
-                // OpCode::SUB
-                //     if payload == 2
-                //         && self.stack.last().map(|x| x.inferred_type)
-                //             == Some(InferredType::Int) =>
-                // {
-                //     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                //     // Call the func
-                //     self.func_ret_val_named(
-                //         "sub-binop-int",
-                //         payload,
-                //         2,
-                //         InferredType::Number,
-                //         abi_type,
-                //         abi_type,
-                //     );
-                // }
+                OpCode::SUB
+                    if payload == 2
+                        && self.stack.last().map(|x| x.inferred_type)
+                            == Some(InferredType::Int) =>
+                {
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+                    // Call the func
+                    self.func_ret_val_named(
+                        "sub-binop-int",
+                        payload,
+                        2,
+                        InferredType::Number,
+                        abi_type,
+                        abi_type,
+                    );
+                }
+
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     // Call the func
@@ -1988,6 +1995,22 @@ impl FunctionTranslator<'_> {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     self.func_ret_val_named(
                         "lte-binop-int",
+                        payload,
+                        2,
+                        InferredType::Bool,
+                        abi_type,
+                        abi_type,
+                    );
+                }
+
+                OpCode::NUMEQUAL
+                    if payload == 2
+                        && self.stack.last().map(|x| x.inferred_type)
+                            == Some(InferredType::Int) =>
+                {
+                    let abi_type = AbiParam::new(Type::int(128).unwrap());
+                    self.func_ret_val_named(
+                        "num-equal-int",
                         payload,
                         2,
                         InferredType::Bool,
@@ -2030,12 +2053,8 @@ impl FunctionTranslator<'_> {
                 OpCode::CAR => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
 
-                    if let Some(last) = self.stack.last() {
-                        // Check if that value makes sense
-                        if let Some(from_local) = self.value_to_local_map.get(&last.value) {
-                            self.local_to_value_map
-                                .insert(*from_local, InferredType::List);
-                        }
+                    if let Some(last) = self.stack.last().copied() {
+                        self.mark_local_type_from_var(last, InferredType::List);
                     }
 
                     self.func_ret_val(op, 1, 2, InferredType::Any, abi_type, abi_type);
@@ -2847,6 +2866,27 @@ impl FunctionTranslator<'_> {
     fn check_should_spill(&mut self, index: Value) -> Value {
         let mut sig = self.module.make_signature();
         let name = "should-spill";
+        // VmCore pointer
+        sig.params
+            .push(AbiParam::new(self.module.target_config().pointer_type()));
+        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
+        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+        let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        let ctx = self.builder.use_var(*variable);
+        let call = self.builder.ins().call(local_callee, &[ctx, index]);
+        let result = self.builder.inst_results(call)[0];
+
+        return result;
+    }
+
+    fn check_call_spill(&mut self, index: Value) -> Value {
+        let mut sig = self.module.make_signature();
+        let name = "check-callable-spill";
         // VmCore pointer
         sig.params
             .push(AbiParam::new(self.module.target_config().pointer_type()));
