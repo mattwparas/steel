@@ -3001,7 +3001,7 @@ fn tcojmp_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     }
 
     ctx.instructions = last_stack_frame.function.body_exp();
-    ctx.sp = last_stack_frame.sp;
+    ctx.sp = last_stack_frame.sp as _;
     ctx.ip = 0;
 
     // TODO: Reuse the original list allocation, if it exists.

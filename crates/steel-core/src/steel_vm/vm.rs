@@ -164,11 +164,11 @@ pub struct StackFrameAttachments {
 
 #[derive(Debug, Clone)]
 pub struct StackFrame {
-    sp: usize,
+    sp: u32,
 
     pub(crate) function: Gc<ByteCodeLambda>,
 
-    ip: usize,
+    ip: u32,
 
     instructions: RootedInstructions,
 
@@ -218,9 +218,9 @@ impl StackFrame {
         instructions: RootedInstructions,
     ) -> Self {
         Self {
-            sp: stack_index,
+            sp: stack_index as _,
             function,
-            ip,
+            ip: ip as _,
             instructions,
             attachments: None,
         }
@@ -1145,7 +1145,7 @@ impl SteelThread {
                         .is_some()
                     {
                         vm_instance.thread.stack.truncate(last.sp as _);
-                        vm_instance.ip = last.ip;
+                        vm_instance.ip = last.ip as _;
                         vm_instance.sp = vm_instance.get_last_stack_frame_sp();
 
                         // vm_instance.instructions = Rc::clone(&last.instructions);
@@ -1156,7 +1156,7 @@ impl SteelThread {
                     if let Some(handler) = last.attachments.as_mut().and_then(|x| x.handler.take())
                     {
                         // Drop the stack BACK to where it was on this level
-                        vm_instance.thread.stack.truncate(last.sp);
+                        vm_instance.thread.stack.truncate(last.sp as _);
                         vm_instance.thread.stack.push(e.into_steelval()?);
 
                         // If we're at the top level, we need to handle this _slightly_ differently
@@ -1165,11 +1165,11 @@ impl SteelThread {
                         match handler {
                             SteelVal::Closure(closure) => {
                                 if vm_instance.thread.stack_frames.is_empty() {
-                                    vm_instance.sp = last.sp;
+                                    vm_instance.sp = last.sp as _;
 
                                     // Push on a dummy stack frame if we're at the top
                                     vm_instance.thread.stack_frames.push(StackFrame::new(
-                                        last.sp,
+                                        last.sp as _,
                                         Gc::clone(&closure),
                                         0,
                                         RootedInstructions::new(
@@ -1178,7 +1178,7 @@ impl SteelThread {
                                     ));
                                 }
 
-                                vm_instance.sp = last.sp;
+                                vm_instance.sp = last.sp as _;
                                 vm_instance.instructions = closure.body_exp();
 
                                 if let Some(attachments) = &mut last.attachments {
@@ -1403,8 +1403,8 @@ impl Continuation {
                     }
                 }
 
-                ctx.thread.stack.truncate(stack_frame.sp);
-                ctx.ip = stack_frame.ip;
+                ctx.thread.stack.truncate(stack_frame.sp as _);
+                ctx.ip = stack_frame.ip as _;
                 ctx.sp = ctx.get_last_stack_frame_sp();
                 // ctx.instructions = Shared::clone(&stack_frame.instructions);
 
@@ -1950,8 +1950,8 @@ impl<'a> VmCore<'a> {
             }) {
                 // Close frame if the new continuation doesn't have it
                 if !marks_still_open.contains(&(StandardShared::as_ptr(&cont_mark) as usize)) {
-                    self.thread.stack.truncate(frame.sp);
-                    self.ip = frame.ip;
+                    self.thread.stack.truncate(frame.sp as _);
+                    self.ip = frame.ip as _;
                     self.sp = self.get_last_stack_frame_sp();
                     // self.instructions = Shared::clone(&frame.instructions);
 
@@ -2018,8 +2018,8 @@ impl<'a> VmCore<'a> {
                         .and_then(|x| x.weak_continuation_mark.take())
                         .is_some()
                     {
-                        self.thread.stack.truncate(last.sp);
-                        self.ip = last.ip;
+                        self.thread.stack.truncate(last.sp as _);
+                        self.ip = last.ip as _;
                         self.sp = self.get_last_stack_frame_sp();
                         // self.instructions = Shared::clone(&last.instructions);
 
@@ -2031,7 +2031,7 @@ impl<'a> VmCore<'a> {
                     if let Some(handler) = last.attachments.as_mut().and_then(|x| x.handler.take())
                     {
                         // Drop the stack BACK to where it was on this level
-                        self.thread.stack.truncate(last.sp);
+                        self.thread.stack.truncate(last.sp as _);
 
                         self.thread.stack.push(e.into_steelval()?);
 
@@ -2041,11 +2041,11 @@ impl<'a> VmCore<'a> {
                         match handler {
                             SteelVal::Closure(closure) => {
                                 if self.thread.stack_frames.is_empty() {
-                                    self.sp = last.sp;
+                                    self.sp = last.sp as _;
 
                                     // Push on a dummy stack frame if we're at the top
                                     self.thread.stack_frames.push(StackFrame::new(
-                                        last.sp,
+                                        last.sp as _,
                                         Gc::clone(&closure),
                                         0,
                                         RootedInstructions::new(
@@ -2054,7 +2054,7 @@ impl<'a> VmCore<'a> {
                                     ));
                                 }
 
-                                self.sp = last.sp;
+                                self.sp = last.sp as _;
                                 self.instructions = closure.body_exp();
 
                                 last.function = closure.clone();
@@ -2098,7 +2098,12 @@ impl<'a> VmCore<'a> {
         self.instructions = old_instructions;
         self.pop_count = old_pop_count;
         // self.spans = old_spans;
-        self.sp = self.thread.stack_frames.last().map(|x| x.sp).unwrap_or(0);
+        self.sp = self
+            .thread
+            .stack_frames
+            .last()
+            .map(|x| x.sp as _)
+            .unwrap_or(0);
 
         // println!("After: {:?}", self.thread.stack_frames.len());
         // self.thread.stack.truncate(self.sp);
@@ -3810,7 +3815,7 @@ impl<'a> VmCore<'a> {
                 spans
                     .and_then(|x| {
                         if last.ip > 1 {
-                            x.get(last.ip - 1)
+                            x.get(last.ip as usize - 1)
                         } else {
                             None
                         }
@@ -3825,7 +3830,7 @@ impl<'a> VmCore<'a> {
                 .last()
                 .and_then(|frame| {
                     if frame.ip > 1 {
-                        self.root_spans.get(frame.ip - 1)
+                        self.root_spans.get(frame.ip as usize - 1)
                     } else {
                         None
                     }
@@ -3876,13 +3881,13 @@ impl<'a> VmCore<'a> {
             //     .stack
             //     .drain(rollback_index..self.thread.stack.len() - 1);
 
-            self.thread.stack.truncate(rollback_index);
+            self.thread.stack.truncate(rollback_index as _);
 
             self.thread.stack.push(value);
 
             // println!("Stack after pop: {:#?}", self.thread.stack);
 
-            self.ip = last.ip;
+            self.ip = last.ip as _;
             self.instructions = last.instructions;
 
             self.sp = self.get_last_stack_frame_sp();
@@ -3906,7 +3911,7 @@ impl<'a> VmCore<'a> {
             // Move forward past the pop
             self.ip += 1;
 
-            self.thread.stack.truncate(rollback_index);
+            self.thread.stack.truncate(rollback_index as _);
             self.sp = 0;
 
             Some(ret_val)
@@ -3929,7 +3934,7 @@ impl<'a> VmCore<'a> {
             let last = last.unwrap();
             // let last = unsafe { last.unwrap_unchecked() };
 
-            let rollback_index = last.sp;
+            let rollback_index = last.sp as _;
 
             self.close_continuation_marks(&last);
 
@@ -3952,7 +3957,7 @@ impl<'a> VmCore<'a> {
             //     }
             // }
 
-            self.ip = last.ip;
+            self.ip = last.ip as _;
             self.instructions = last.instructions;
 
             self.sp = self.get_last_stack_frame_sp();
@@ -3974,7 +3979,7 @@ impl<'a> VmCore<'a> {
             // Move forward past the pop
             self.ip += 1;
 
-            self.thread.stack.truncate(rollback_index);
+            self.thread.stack.truncate(rollback_index as _);
             self.sp = 0;
 
             Some(ret_val)
@@ -3983,7 +3988,11 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn get_last_stack_frame_sp(&self) -> usize {
-        self.thread.stack_frames.last().map(|x| x.sp).unwrap_or(0)
+        self.thread
+            .stack_frames
+            .last()
+            .map(|x| x.sp as _)
+            .unwrap_or(0)
     }
 
     // #[inline(always)]
@@ -4542,7 +4551,7 @@ impl<'a> VmCore<'a> {
 
         let last = self.thread.stack_frames.last_mut().unwrap();
 
-        let offset = last.sp;
+        let offset = last.sp as _;
 
         // We should have arity at this point, drop the stack up to this point
         // take the last arity off the stack, go back and replace those in order
@@ -4926,9 +4935,9 @@ impl<'a> VmCore<'a> {
         #[cfg(feature = "rooted-instructions")]
         {
             let frame = StackFrame {
-                sp: self.sp,
+                sp: self.sp as _,
                 function: closure,
-                ip: self.ip + 1,
+                ip: self.ip as u32 + 1,
                 instructions: self.instructions,
                 attachments: None,
             };
@@ -4965,9 +4974,9 @@ impl<'a> VmCore<'a> {
         #[cfg(feature = "rooted-instructions")]
         {
             let frame = StackFrame {
-                sp: self.sp,
+                sp: self.sp as _,
                 function: closure,
-                ip: self.ip + 1,
+                ip: self.ip as u32 + 1,
                 instructions: self.instructions,
                 attachments: None,
             };
@@ -7842,7 +7851,7 @@ mod handlers {
         let last_stack_frame = ctx.thread.stack_frames.last().unwrap();
 
         ctx.instructions = last_stack_frame.function.body_exp();
-        ctx.sp = last_stack_frame.sp;
+        ctx.sp = last_stack_frame.sp as _;
 
         ctx.ip = 0;
 
