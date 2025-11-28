@@ -1273,6 +1273,11 @@ impl Compiler {
         // interactive usages
         self.analysis.shrink_capacity();
 
+        // Run const analysis one more time:
+
+        let mut expanded_statements =
+            self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;
+
         SingleExprOptimizer::run(&mut expanded_statements);
 
         if std::env::var("STEEL_DEBUG_AST").is_ok() {
@@ -1408,15 +1413,15 @@ impl Compiler {
             // TODO
             // Cut this off at 10 iterations no matter what
             OptLevel::Three => {
-                // for _ in 0..10 {
-                expanded_statements = manager.run(expanded_statements)?;
+                for _ in 0..3 {
+                    expanded_statements = manager.run(expanded_statements)?;
 
-                // if !manager.changed {
-                //     break;
-                // }
+                    // if !manager.changed {
+                    //     break;
+                    // }
 
-                // manager.changed = false;
-                // }
+                    // manager.changed = false;
+                }
             }
             OptLevel::Two => {
                 expanded_statements = ConstantEvaluatorManager::new(

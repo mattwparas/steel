@@ -4367,6 +4367,8 @@ impl<'a> SemanticAnalysis<'a> {
         Ok(())
     }
 
+    // TODO: Check the arity at the call site and make sure it matches before inlining!
+    // Otherwise, we're in trouble and we'll get weird compilation errors
     pub fn inline_function_calls(&mut self, size: Option<usize>) -> Result<(), SteelErr> {
         let estimator = self.calculate_function_sizes();
         let threshold = size.unwrap_or(50);
