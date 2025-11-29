@@ -802,46 +802,6 @@ impl Default for JIT {
     }
 }
 
-#[test]
-fn load_jit() {
-    use crate::core::instructions::u24;
-    let mut jit = JIT::default();
-
-    //     MOVEREADLOCAL0 : 0      ;; x
-    // 1    MOVEREADLOCAL1 : 1      ;; y
-    // 2    MOVEREADLOCAL2 : 2      ;; z
-    // 3    CALLGLOBALTAIL : 260    ;; +
-    // 4    TAILCALL       : 3      ;; +
-    // 5    POPPURE        : 3
-
-    jit.compile(
-        "foo".to_string(),
-        0,
-        &[
-            DenseInstruction {
-                op_code: OpCode::MOVEREADLOCAL0,
-                payload_size: u24::from_u32(0),
-            },
-            DenseInstruction {
-                op_code: OpCode::MOVEREADLOCAL1,
-                payload_size: u24::from_u32(0),
-            },
-            DenseInstruction {
-                op_code: OpCode::MOVEREADLOCAL2,
-                payload_size: u24::from_u32(0),
-            },
-            DenseInstruction {
-                op_code: OpCode::CALLGLOBALTAIL,
-                payload_size: u24::from_u32(0),
-            },
-        ],
-        &[],
-        &ConstantMap::default(),
-        None,
-    )
-    .unwrap();
-}
-
 // Compile the bytecode assuming that things... work okay?
 unsafe fn compile_bytecode(
     jit: &mut JIT,
@@ -1168,35 +1128,19 @@ impl JIT {
             stack: Vec::new(),
             arity,
             constants,
-            local_count: 0,
             patched_locals: Vec::new(),
             function_map: &self.function_map,
             function_context,
             id: func_id,
-            native: false,
             call_global_all_native,
             name,
             value_to_local_map: HashMap::new(),
             local_to_value_map: HashMap::new(),
-            stack_pointers: Vec::new(),
             let_var_stack: Vec::new(),
             tco: None,
         };
 
-        // trans.translate_instructions();
-
         trans.stack_to_ssa();
-
-        // TODO:
-        // for expr in stmts {
-        //     trans.translate_expr(expr);
-        // }
-
-        // Set up the return variable of the function. Above, we declared a
-        // variable to hold the return value. Here, we just do a use of that
-        // variable.
-        // let return_variable = trans.variables.get(&the_return).unwrap();
-        // let return_value = trans.builder.use_var(*return_variable);
 
         let return_value = trans.builder.ins().iconst(Type::int(8).unwrap(), 1);
 
@@ -1252,8 +1196,6 @@ struct FunctionTranslator<'a> {
 
     sp: usize,
 
-    stack_pointers: Vec<usize>,
-
     // Local value mapping, can allow
     // us to elide type checks if we have them
     value_to_local_map: HashMap<Value, usize>,
@@ -1262,8 +1204,6 @@ struct FunctionTranslator<'a> {
 
     arity: u16,
     constants: &'a ConstantMap,
-
-    local_count: usize,
 
     tco: Option<Value>,
 
@@ -1276,8 +1216,6 @@ struct FunctionTranslator<'a> {
     function_context: Option<usize>,
 
     id: FuncId,
-
-    native: bool,
 
     call_global_all_native: bool,
 
@@ -1463,24 +1401,11 @@ impl FunctionTranslator<'_> {
                     // Push the remaining value back on to the stack.
                     let value = self.pop();
 
-                    // Should break here - just call `handle_pop_pure_value` and
-                    // handle the return value / updating
-                    // of various things here.
-
-                    // if self.stack.len() > self.arity as _ {
-                    // if !self.patched_locals {
-                    println!("Stack at vm pop: {:?}", self.stack);
                     for value in self.stack.clone() {
                         if !value.spilled {
                             self.push_to_vm_stack(value.value);
                         }
                     }
-                    // } else {
-                    //     println!(
-                    //         "Already patched locals, Stack at vm pop: {:?} - {}",
-                    //         self.stack, self.arity
-                    //     );
-                    // }
 
                     self.vm_pop(value.0);
 
@@ -1509,27 +1434,7 @@ impl FunctionTranslator<'_> {
                         .ins()
                         .iconst(Type::int(64).unwrap(), payload as i64);
 
-                    // Push on to the stack to call
-                    // self.push(index, InferredType::Int);
-
-                    // self.func_ret_val(
-                    //     OpCode::PUSH,
-                    //     0,
-                    //     1,
-                    //     InferredType::Number,
-                    //     AbiParam::new(Type::int(64).unwrap()),
-                    //     abi_type,
-                    // );
-
-                    println!("Func ret val: {:?} - {}", op, payload);
                     let function_name = op_to_name_payload(op, payload);
-
-                    // TODO: Use the type hints! For now we're not going to for the sake
-                    // of getting something running
-                    // let args = args
-                    //     .into_iter()
-                    //     .map(|x| (x.0, abi_param_type))
-                    //     .collect::<Vec<_>>();
 
                     let result = self.call_function_returns_value_args(
                         function_name,
@@ -1618,21 +1523,10 @@ impl FunctionTranslator<'_> {
                 // to clone it
                 OpCode::READLOCAL | OpCode::MOVEREADLOCAL => {
                     if payload + 1 > self.arity as _ {
-                        let locals_to_patch = self.local_count;
-
-                        println!("-----------------");
-                        println!("Patching locals: {}", locals_to_patch);
-                        println!("Stack at local patching: {}", self.stack.len());
-                        println!("payload: {}", payload);
-                        println!("stack: {:#?}", self.stack);
-                        println!("Arity: {}", self.arity);
-
                         let upper_bound = payload + 1 - self.arity as usize;
-                        println!("upper bound: {}", upper_bound);
-
                         for i in 0..upper_bound {
                             // for i in 0..(payload + 1 - self.arity as usize) {
-                            println!("Read local spill generic");
+                            // println!("Read local spill generic");
                             self.spill(i);
                         }
                     }
@@ -1720,36 +1614,14 @@ impl FunctionTranslator<'_> {
                     let let_var_offset = self.let_var_stack.last().copied().unwrap_or(0);
 
                     if payload > self.arity as usize + let_var_offset {
-                        let locals_to_patch = self.local_count;
-
-                        println!("-----------------");
-                        println!("Patching locals: {}", locals_to_patch);
-                        println!("Stack at local patching: {}", self.stack.len());
-                        println!("payload: {}", payload);
-                        println!("stack: {:?}", self.stack);
-                        println!("Arity: {}", self.arity);
-                        println!("let var offset: {}", let_var_offset);
-
                         let upper_bound = payload - self.arity as usize - let_var_offset;
-
-                        println!("Upper bound: {}", upper_bound);
 
                         for i in 0..upper_bound {
                             // for i in 0..(payload + 1 - self.arity as usize) {
                             // let value = self.stack.remove(i);
-                            println!("Read local spill small: {}", self.ip);
                             // self.push_to_vm_stack(value.value);
                             self.spill(i);
                         }
-
-                        println!("Stack after patching: {:#?}", self.stack);
-
-                        // self.patch_up_to();
-                    } else {
-                        println!("Skipping patching locals: {:?}", self.patched_locals);
-                        println!("{:?}", self.stack);
-                        println!("arity: {}", self.arity);
-                        println!("payload: {}", payload);
                     }
 
                     // Replace this... with just reading from the vector?
@@ -1801,14 +1673,6 @@ impl FunctionTranslator<'_> {
                         5 => "call-global-function-tail-deopt-5",
                         other => todo!("{}", other),
                     };
-
-                    // TODO: @mparas
-                    // Spill, and then call the function.
-                    // for c in self.stack.clone() {
-                    //     if !c.spilled {
-                    //         self.push_to_vm_stack(c.value);
-                    //     }
-                    // }
 
                     // This function pushes back on to the stack, and then we should just
                     // return since we're done now.
@@ -1872,7 +1736,6 @@ impl FunctionTranslator<'_> {
                 // further usage.
                 OpCode::BEGINSCOPE => {
                     self.patched_locals.push(false);
-                    self.stack_pointers.push(self.local_count);
 
                     self.let_var_stack.push(0);
 
@@ -1880,25 +1743,20 @@ impl FunctionTranslator<'_> {
                         self.spill(arg);
                     }
 
-                    // let count = self.stack_pointers.len();
-
                     // Next n values should stick around on the stack.
-                    for instr in &self.instructions[self.ip..] {
-                        if instr.op_code == OpCode::LETENDSCOPE {
-                            self.local_count = instr.payload_size.to_usize();
-                            println!("Entering scope: {}", self.local_count);
-                            break;
-                        }
-                    }
-
-                    println!("Calling begin scope");
+                    // for instr in &self.instructions[self.ip..] {
+                    //     if instr.op_code == OpCode::LETENDSCOPE {
+                    //         self.local_count = instr.payload_size.to_usize();
+                    //         break;
+                    //     }
+                    // }
 
                     // self.begin_scope();
 
                     self.ip += 1;
                 }
                 OpCode::LETENDSCOPE => {
-                    self.local_count = payload;
+                    // self.local_count = payload;
                     self.ip += 1;
 
                     self.let_var_stack.pop();
@@ -1906,7 +1764,6 @@ impl FunctionTranslator<'_> {
                     self.call_end_scope_handler(payload);
 
                     self.patched_locals.pop();
-                    self.stack_pointers.pop();
                 }
                 OpCode::PUREFUNC => todo!(),
 
@@ -2441,18 +2298,11 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(else_block);
             self.builder.seal_block(else_block);
 
-            // Spilling...
-            // if !self.patched_locals.last().copied().unwrap_or_default() {
-            println!(
-                "Patching locals in function call: {:?} - {}",
-                self.stack, self.local_count
-            );
             for c in self.stack.clone() {
                 if !c.spilled {
                     self.push_to_vm_stack(c.value);
                 }
             }
-            // }
 
             let else_return = BlockArg::Value(self.create_i128(0));
 
@@ -2608,30 +2458,12 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(else_block);
             self.builder.seal_block(else_block);
 
-            // if !self.current_scope_locals_patched() {
-
-            // TODO: @matt
-            // Investigate for call globals if we need to do this?
-            // Spilling on the stack here seems suspect? Do we have to
-            // spill the _whole_ stack? Or just part of it?
-            println!(
-                "-------- Fall back pushing to stack in tail call: {:#?} ---------",
-                self.stack
-            );
-            println!("Stack length: {}", self.stack.len());
-            println!("Stack pointer: {}", self.local_count);
-
             for c in self.stack.clone() {
                 if !c.spilled {
                     println!("Spilling...: {}", c.value);
                     self.push_to_vm_stack_function_spill(c.value);
                 }
             }
-
-            // Only spill what hasn't been spilled already?
-            // for value in self.stack.clone() {
-            //     self.push_to_vm_stack(value.0);
-            // }
 
             let else_return = BlockArg::Value(self.create_i128(0));
 
@@ -3104,7 +2936,7 @@ impl FunctionTranslator<'_> {
         self.ip = then_start;
 
         let let_stack = self.let_var_stack.clone();
-        let local_count = self.local_count;
+        // let local_count = self.local_count;
         let frozen_patched = self.patched_locals.clone();
         let frozen_stack = self.stack.clone();
         let tco = self.tco;
@@ -3158,7 +2990,7 @@ impl FunctionTranslator<'_> {
 
         self.tco = None;
         self.let_var_stack = let_stack;
-        self.local_count = local_count;
+        // self.local_count = local_count;
         self.patched_locals = frozen_patched;
         self.stack = frozen_stack;
         let token_return_value = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
