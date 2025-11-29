@@ -1388,10 +1388,7 @@ impl FunctionTranslator<'_> {
 
                     let function_name = op_to_name_payload(op, payload);
 
-                    let result = self.call_function_returns_value_args(
-                        function_name,
-                        &[(index, AbiParam::new(Type::int(64).unwrap()))],
-                    );
+                    let result = self.call_function_returns_value_args(function_name, &[index]);
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::Any);
@@ -1489,7 +1486,7 @@ impl FunctionTranslator<'_> {
 
                     let value = self.call_function_returns_value_args(
                         op_to_name_payload(op, payload),
-                        &[(index, AbiParam::new(Type::int(64).unwrap()))],
+                        &[index],
                     );
 
                     self.value_to_local_map.insert(value, payload);
@@ -1691,16 +1688,6 @@ impl FunctionTranslator<'_> {
                         self.spill(arg);
                     }
 
-                    // Next n values should stick around on the stack.
-                    // for instr in &self.instructions[self.ip..] {
-                    //     if instr.op_code == OpCode::LETENDSCOPE {
-                    //         self.local_count = instr.payload_size.to_usize();
-                    //         break;
-                    //     }
-                    // }
-
-                    // self.begin_scope();
-
                     self.ip += 1;
                 }
                 OpCode::LETENDSCOPE => {
@@ -1720,22 +1707,13 @@ impl FunctionTranslator<'_> {
                         && self.stack.last().map(|x| x.inferred_type)
                             == Some(InferredType::Int) =>
                 {
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
                     // Call the func
-                    self.func_ret_val_named(
-                        "sub-binop-int",
-                        payload,
-                        2,
-                        InferredType::Number,
-                        abi_type,
-                    );
+                    self.func_ret_val_named("sub-binop-int", payload, 2, InferredType::Number);
                 }
 
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
                     // Call the func
-                    self.func_ret_val(op, payload, 2, InferredType::Number, abi_type);
-
+                    self.func_ret_val(op, payload, 2, InferredType::Number);
                     self.check_deopt();
                 }
 
@@ -1744,14 +1722,7 @@ impl FunctionTranslator<'_> {
                         && self.stack.last().map(|x| x.inferred_type)
                             == Some(InferredType::Int) =>
                 {
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val_named(
-                        "lte-binop-int",
-                        payload,
-                        2,
-                        InferredType::Bool,
-                        abi_type,
-                    );
+                    self.func_ret_val_named("lte-binop-int", payload, 2, InferredType::Bool);
                 }
 
                 OpCode::NUMEQUAL
@@ -1759,14 +1730,7 @@ impl FunctionTranslator<'_> {
                         && self.stack.last().map(|x| x.inferred_type)
                             == Some(InferredType::Int) =>
                 {
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val_named(
-                        "num-equal-int",
-                        payload,
-                        2,
-                        InferredType::Bool,
-                        abi_type,
-                    );
+                    self.func_ret_val_named("num-equal-int", payload, 2, InferredType::Bool);
                 }
 
                 OpCode::EQUAL
@@ -1776,53 +1740,41 @@ impl FunctionTranslator<'_> {
                 | OpCode::GT
                 | OpCode::LT
                 | OpCode::EQUAL2 => {
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val(op, payload, 2, InferredType::Bool, abi_type);
+                    self.func_ret_val(op, payload, 2, InferredType::Bool);
                 }
                 OpCode::NULL => {
-                    // todo!()
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val_named("null-handler", 1, 2, InferredType::Bool, abi_type);
+                    self.func_ret_val_named("null-handler", 1, 2, InferredType::Bool);
                 }
                 OpCode::CONS => {
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val(op, 2, 2, InferredType::List, abi_type);
+                    self.func_ret_val(op, 2, 2, InferredType::List);
                 }
                 OpCode::CDR => {
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val(op, 1, 2, InferredType::List, abi_type);
+                    self.func_ret_val(op, 1, 2, InferredType::List);
                 }
                 OpCode::LIST => todo!(),
                 OpCode::CAR => {
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-
                     if let Some(last) = self.stack.last().copied() {
                         self.mark_local_type_from_var(last, InferredType::List);
                     }
 
-                    self.func_ret_val(op, 1, 2, InferredType::Any, abi_type);
+                    self.func_ret_val(op, 1, 2, InferredType::Any);
                 }
                 OpCode::NEWBOX => {
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val(op, 1, 2, InferredType::Box, abi_type);
+                    self.func_ret_val(op, 1, 2, InferredType::Box);
                 }
                 OpCode::SETBOX => {
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-
                     if let Some(last) = self.stack.get(self.stack.len() - 2).copied() {
                         self.mark_local_type_from_var(last, InferredType::Box);
                     }
 
-                    self.func_ret_val(op, 2, 2, InferredType::Any, abi_type);
+                    self.func_ret_val(op, 2, 2, InferredType::Any);
                 }
                 OpCode::UNBOX => {
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-
                     if let Some(last) = self.stack.last().copied() {
                         self.mark_local_type_from_var(last, InferredType::Box);
                     }
 
-                    self.func_ret_val(op, 1, 2, InferredType::Any, abi_type);
+                    self.func_ret_val(op, 1, 2, InferredType::Any);
                 }
                 OpCode::ADDREGISTER => todo!(),
                 OpCode::SUBREGISTER => todo!(),
@@ -1841,8 +1793,7 @@ impl FunctionTranslator<'_> {
                 OpCode::LTEIMMEDIATEIF => todo!(),
                 OpCode::NOT => {
                     // Do the thing.
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val(op, 1, 2, InferredType::Bool, abi_type);
+                    self.func_ret_val(op, 1, 2, InferredType::Bool);
                 }
                 OpCode::VEC => todo!(),
                 OpCode::Apply => todo!(),
@@ -2336,7 +2287,6 @@ impl FunctionTranslator<'_> {
         payload: usize,
         ip_inc: usize,
         inferred_type: InferredType,
-        abi_param_type: AbiParam,
     ) {
         let args = self.split_off(payload);
 
@@ -2346,10 +2296,7 @@ impl FunctionTranslator<'_> {
 
         // TODO: Use the type hints! For now we're not going to for the sake
         // of getting something running
-        let args = args
-            .into_iter()
-            .map(|x| (x.0, abi_param_type))
-            .collect::<Vec<_>>();
+        let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
 
         let result = self.call_function_returns_value_args_no_context(function_name, &args);
 
@@ -2428,27 +2375,19 @@ impl FunctionTranslator<'_> {
             .collect()
     }
 
-    fn drain(&mut self) {
-        todo!()
-    }
-
     fn func_ret_val(
         &mut self,
         op: OpCode,
         payload: usize,
         ip_inc: usize,
         inferred_type: InferredType,
-        abi_param_type: AbiParam,
     ) {
         let function_name = op_to_name_payload(op, payload);
         let args = self.split_off(payload);
 
         // TODO: Use the type hints! For now we're not going to for the sake
         // of getting something running
-        let args = args
-            .into_iter()
-            .map(|x| (x.0, abi_param_type))
-            .collect::<Vec<_>>();
+        let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
 
         let result = self.call_function_returns_value_args(function_name, &args);
 
@@ -2761,32 +2700,20 @@ impl FunctionTranslator<'_> {
         ctx
     }
 
-    fn call_function_returns_value_args(
-        &mut self,
-        name: &str,
-        args: &[(Value, AbiParam)],
-    ) -> Value {
+    fn call_function_returns_value_args(&mut self, name: &str, args: &[Value]) -> Value {
         let local_callee = self.get_local_callee(name);
         let ctx = self.get_ctx();
 
         let mut arg_values = vec![ctx];
-
-        arg_values.extend(args.iter().map(|x| x.0));
-
+        arg_values.extend(args.iter());
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
     }
 
-    fn call_function_returns_value_args_no_context(
-        &mut self,
-        name: &str,
-        args: &[(Value, AbiParam)],
-    ) -> Value {
+    fn call_function_returns_value_args_no_context(&mut self, name: &str, args: &[Value]) -> Value {
         let local_callee = self.get_local_callee(name);
-        let mut arg_values = vec![];
-        arg_values.extend(args.iter().map(|x| x.0));
-        let call = self.builder.ins().call(local_callee, &arg_values);
+        let call = self.builder.ins().call(local_callee, &args);
         let result = self.builder.inst_results(call)[0];
         result
     }
