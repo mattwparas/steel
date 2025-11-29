@@ -1,5 +1,5 @@
 use cranelift::{
-    codegen::ir::{BlockArg, Type},
+    codegen::ir::{BlockArg, FuncRef, Type},
     prelude::*,
 };
 use cranelift_jit::{JITBuilder, JITModule};
@@ -15,11 +15,9 @@ use crate::{
         jit::{
             advance_ip, box_handler_c, call_function_deopt_0, call_function_deopt_1,
             call_function_deopt_2, call_function_deopt_3, call_global_function_deopt_0,
-            call_global_function_deopt_0_func, call_global_function_deopt_0_no_arity,
-            call_global_function_deopt_1, call_global_function_deopt_1_func,
+            call_global_function_deopt_0_no_arity, call_global_function_deopt_1,
             call_global_function_deopt_1_no_arity, call_global_function_deopt_2,
-            call_global_function_deopt_2_func, call_global_function_deopt_2_no_arity,
-            call_global_function_deopt_3, call_global_function_deopt_3_func,
+            call_global_function_deopt_2_no_arity, call_global_function_deopt_3,
             call_global_function_deopt_3_no_arity, call_global_function_deopt_4,
             call_global_function_deopt_4_no_arity, call_global_function_deopt_5,
             call_global_function_deopt_5_no_arity, call_global_function_tail_deopt_0,
@@ -36,9 +34,8 @@ use crate::{
             move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
             move_read_local_any_value_c, not_handler_raw_value, num_equal_int, num_equal_value,
             num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
-            push_global, push_int_0, push_int_1, push_int_2, push_to_vm_stack,
-            push_to_vm_stack_let_var, push_to_vm_stack_two, read_local_0_value_c,
-            read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
+            push_global, push_to_vm_stack, push_to_vm_stack_let_var, push_to_vm_stack_two,
+            read_local_0_value_c, read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
             read_local_any_value_c, self_tail_call_handler, set_ctx_ip, set_handler_c,
             setbox_handler_c, should_continue, should_spill, should_spill_value, tcojmp_handler,
             trampoline, trampoline_no_arity, unbox_handler_c,
@@ -69,42 +66,6 @@ pub struct JIT {
     function_map: OwnedFunctionMap,
 }
 
-// Take a function, if its sufficiently hot, we can jit compile by going
-// through and merging the handlers into one function, avoiding the dispatch
-// cost. After that, we can do even better, but for now that should work.
-// Blindly merging the op codes... that should work actually?
-
-// TODO: This could help.
-// // Forget the destructors.
-// let reconstructed = unsafe { std::mem::transmute::<_, Arc<SValue>>(value.value()) };
-// // If this is dropped, we're bad news bears
-// let ptr = Arc::as_ptr(&reconstructed);
-// unsafe { Arc::increment_strong_count(ptr) };
-// // Horrendously unsafe, but waddya gonna do
-// // let ptr = unsafe { std::mem::transmute::<_, Arc<SValue>>(value.value()) };
-// println!("{:?}", reconstructed);
-// drop(reconstructed);
-
-// macro_rules! offset_of {
-//     ($($tt:tt)*) => {
-//         {
-//             let base = $($tt)*(unsafe { ::std::mem::uninitialized() });
-//             let offset = match base {
-//                 $($tt)*(ref inner) => (inner as *const _ as usize) - (&base as *const _ as usize),
-//                 _ => unreachable!(),
-//             };
-//             ::std::mem::forget(base);
-//             offset
-//         }
-//     }
-// }
-
-// TODO: Implement some kind of handler -> signature generator?
-// Maybe via macros?
-
-// Turn functions from function signature, into cranelift signature for backend usage.
-// TODO: Rename to an intrinsic map?
-// Wire up with function signatures as well for automated unboxing?
 struct FunctionMap<'a> {
     map: HashMap<&'static str, Box<dyn FunctionToCranelift + Send + Sync + 'static>>,
     map2: HashMap<&'static str, Box<dyn FunctionToCranelift2 + Send + Sync + 'static>>,
@@ -114,7 +75,17 @@ struct FunctionMap<'a> {
 
 struct OwnedFunctionMap {
     map: HashMap<&'static str, Box<dyn FunctionToCranelift + Send + Sync + 'static>>,
+    map2: HashMap<&'static str, Box<dyn FunctionToCranelift2 + Send + Sync + 'static>>,
     return_type_hints: HashMap<&'static str, InferredType>,
+}
+
+impl OwnedFunctionMap {
+    pub fn get_signature(&self, name: &str, module: &JITModule) -> Signature {
+        self.map
+            .get(name)
+            .map(|x| x.to_cranelift(module))
+            .unwrap_or_else(|| self.map2.get(name).map(|x| x.to_cranelift(module)).unwrap())
+    }
 }
 
 impl<'a> FunctionMap<'a> {
@@ -156,13 +127,6 @@ impl<'a> FunctionMap<'a> {
         self.add_func2(name, func);
         self.return_type_hints.insert(name, return_type);
     }
-
-    pub fn get_signature(&self, name: &'static str, module: &JITModule) -> Signature {
-        self.map
-            .get(name)
-            .map(|x| x.to_cranelift(module))
-            .unwrap_or_else(|| self.map2.get(name).map(|x| x.to_cranelift(module)).unwrap())
-    }
 }
 
 trait FunctionToCranelift {
@@ -174,16 +138,6 @@ trait FunctionToCranelift2 {
     fn to_cranelift(&self, module: &JITModule) -> Signature;
     fn as_pointer(&self) -> *const u8;
 }
-
-// TODO: How to set up the right args here?
-// impl<T> FunctionToCranelift for extern "C-unwind" fn() -> T {
-//     fn to_cranelift(&self, module: &JITModule) -> Signature {
-//         todo!()
-//     }
-//     fn as_pointer(&self) -> *const u8 {
-//         *self as _
-//     }
-// }
 
 macro_rules! register_function_pointers_return {
     ($($typ:ident),*) => {
@@ -199,7 +153,7 @@ macro_rules! register_function_pointers_return {
                     sig.params.push(AbiParam::new(type_to_ir_type::<$typ>()));
                 )*
 
-                let return_size = std::mem::size_of::<RET>().min(1);
+                let return_size = std::mem::size_of::<RET>();
 
                 if return_size != 0 {
                     sig.returns.push(AbiParam::new(type_to_ir_type::<RET>()));
@@ -217,15 +171,11 @@ macro_rules! register_function_pointers_return {
             fn to_cranelift(&self, module: &JITModule) -> Signature {
                 let mut sig = module.make_signature();
 
-                // VmCore pointer
-                sig.params
-                    .push(AbiParam::new(module.target_config().pointer_type()));
-
                 $(
                     sig.params.push(AbiParam::new(type_to_ir_type::<$typ>()));
                 )*
 
-                let return_size = std::mem::size_of::<RET>().min(1);
+                let return_size = std::mem::size_of::<RET>();
 
                 if return_size != 0 {
                     sig.returns.push(AbiParam::new(type_to_ir_type::<RET>()));
@@ -283,68 +233,6 @@ impl Default for JIT {
         }
 
         // How to take the if branch - this will return a boolean. 1 = true, 0 = false
-        builder.symbol("if-branch", if_handler_value as *const u8);
-
-        builder.symbol("if-branch-value", if_handler_raw_value as *const u8);
-
-        builder.symbol("not-value", not_handler_raw_value as *const u8);
-
-        builder.symbol("call-global", callglobal_handler_deopt_c as *const u8);
-
-        // Specialize the constant: Just look up the value itself:
-        // This should be used for constants like #f, 1, 2, 3, etc.
-        // Simply inline the value directly onto the stack, rather than
-        // calling a function
-        builder.symbol("push-int-0", push_int_0 as *const u8);
-        builder.symbol("push-int-1", push_int_1 as *const u8);
-        builder.symbol("push-int-2", push_int_2 as *const u8);
-
-        builder.symbol(
-            "call-global-tail-3",
-            callglobal_tail_handler_deopt_3 as *const u8,
-        );
-
-        builder.symbol(
-            "call-global-tail-3-test",
-            callglobal_tail_handler_deopt_3_test as *const u8,
-        );
-
-        // Value functions:
-        builder.symbol("num-equal-value", num_equal_value as *const u8);
-
-        builder.symbol("num-equal-int", num_equal_int as *const u8);
-
-        builder.symbol("equal-binop", equal_binop as *const u8);
-
-        builder.symbol("vm-should-continue?", should_continue as *const u8);
-
-        builder.symbol(
-            "num-equal-value-unboxed",
-            num_equal_value_unboxed as *const u8,
-        );
-
-        builder.symbol(
-            "call-global-function-deopt-0-func",
-            call_global_function_deopt_0_func as *const u8,
-        );
-
-        builder.symbol(
-            "call-global-function-deopt-1-func",
-            call_global_function_deopt_1_func as *const u8,
-        );
-
-        builder.symbol(
-            "call-global-function-deopt-2-func",
-            call_global_function_deopt_2_func as *const u8,
-        );
-
-        builder.symbol(
-            "call-global-function-deopt-3-func",
-            call_global_function_deopt_3_func as *const u8,
-        );
-
-        builder.symbol("let-end-scope-c", let_end_scope_c as *const u8);
-        builder.symbol("set-ctx-ip!", set_ctx_ip as *const u8);
 
         let mut map = FunctionMap {
             map: HashMap::new(),
@@ -352,6 +240,74 @@ impl Default for JIT {
             builder: &mut builder,
             return_type_hints: HashMap::new(),
         };
+
+        map.add_func(
+            "if-branch",
+            if_handler_value as extern "C-unwind" fn(*mut VmCore) -> bool,
+        );
+
+        map.add_func(
+            "if-branch-value",
+            if_handler_raw_value as extern "C-unwind" fn(*mut VmCore, i128) -> bool,
+        );
+
+        map.add_func(
+            "not-value",
+            not_handler_raw_value as extern "C-unwind" fn(*mut VmCore, i128) -> i128,
+        );
+
+        map.add_func(
+            "call-global",
+            callglobal_handler_deopt_c as extern "C-unwind" fn(*mut VmCore) -> u8,
+        );
+
+        map.add_func(
+            "call-global-tail-3",
+            callglobal_tail_handler_deopt_3
+                as extern "C-unwind" fn(*mut VmCore, i128, i128, i128) -> u8,
+        );
+
+        map.add_func(
+            "call-global-tail-3-test",
+            callglobal_tail_handler_deopt_3_test
+                as extern "C-unwind" fn(*mut VmCore, i128, i128, i128, i128, isize) -> u8,
+        );
+
+        // Value functions:
+        map.add_func(
+            "num-equal-value",
+            num_equal_value as extern "C-unwind" fn(*mut VmCore, SteelVal, SteelVal) -> SteelVal,
+        );
+
+        map.add_func2(
+            "num-equal-int",
+            num_equal_int as extern "C-unwind" fn(SteelVal, SteelVal) -> SteelVal,
+        );
+
+        map.add_func(
+            "equal-binop",
+            equal_binop as extern "C-unwind" fn(*mut VmCore, SteelVal, SteelVal) -> SteelVal,
+        );
+
+        map.add_func(
+            "vm-should-continue?",
+            should_continue as extern "C-unwind" fn(*mut VmCore) -> bool,
+        );
+
+        map.add_func(
+            "num-equal-value-unboxed",
+            num_equal_value_unboxed as extern "C-unwind" fn(*mut VmCore, i128, i128) -> bool,
+        );
+
+        map.add_func(
+            "let-end-scope-c",
+            let_end_scope_c as extern "C-unwind" fn(*mut VmCore, usize),
+        );
+
+        map.add_func(
+            "set-ctx-ip!",
+            set_ctx_ip as extern "C-unwind" fn(*mut VmCore, usize),
+        );
 
         map.add_func(
             "vm-increment-ip",
@@ -788,6 +744,7 @@ impl Default for JIT {
 
         let function_map = OwnedFunctionMap {
             map: map.map,
+            map2: map.map2,
             return_type_hints: map.return_type_hints,
         };
 
@@ -1138,6 +1095,7 @@ impl JIT {
             local_to_value_map: HashMap::new(),
             let_var_stack: Vec::new(),
             tco: None,
+            intrinsics: &self.function_map,
         };
 
         trans.stack_to_ssa();
@@ -1220,6 +1178,8 @@ struct FunctionTranslator<'a> {
     call_global_all_native: bool,
 
     name: String,
+
+    intrinsics: &'a OwnedFunctionMap,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -1246,9 +1206,6 @@ fn op_to_name(op: OpCode) -> &'static str {
         OpCode::MOVEREADLOCAL2 => "move-read-local-2",
         OpCode::MOVEREADLOCAL3 => "move-read-local-3",
 
-        OpCode::LOADINT0 => "push-int-0",
-        OpCode::LOADINT1 => "push-int-1",
-        OpCode::LOADINT2 => "push-int-2",
         OpCode::ADD => "add-binop",
         OpCode::SUB => "sub-binop",
         // OpCode::LT => "lt-binop",
@@ -1279,9 +1236,6 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::MOVEREADLOCAL2, _) => "move-read-local-2",
         (OpCode::MOVEREADLOCAL3, _) => "move-read-local-3",
 
-        (OpCode::LOADINT0, _) => "push-int-0",
-        (OpCode::LOADINT1, _) => "push-int-1",
-        (OpCode::LOADINT2, _) => "push-int-2",
         (OpCode::ADD, 2) => "add-binop",
         (OpCode::SUB, 2) => "sub-binop",
         // (OpCode::LT, 2) => "lt-binop",
@@ -1352,9 +1306,7 @@ impl FunctionTranslator<'_> {
 
         // let mut arg_values = Vec::new();
 
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-
-        let ctx = self.builder.use_var(*variable);
+        let ctx = self.get_ctx();
         let arg_values = [ctx];
 
         // for arg in args {
@@ -1439,7 +1391,6 @@ impl FunctionTranslator<'_> {
                     let result = self.call_function_returns_value_args(
                         function_name,
                         &[(index, AbiParam::new(Type::int(64).unwrap()))],
-                        abi_type,
                     );
 
                     // Check the inferred type, if we know of it
@@ -1539,7 +1490,6 @@ impl FunctionTranslator<'_> {
                     let value = self.call_function_returns_value_args(
                         op_to_name_payload(op, payload),
                         &[(index, AbiParam::new(Type::int(64).unwrap()))],
-                        AbiParam::new(Type::int(128).unwrap()),
                     );
 
                     self.value_to_local_map.insert(value, payload);
@@ -1778,14 +1728,13 @@ impl FunctionTranslator<'_> {
                         2,
                         InferredType::Number,
                         abi_type,
-                        abi_type,
                     );
                 }
 
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
                     // Call the func
-                    self.func_ret_val(op, payload, 2, InferredType::Number, abi_type, abi_type);
+                    self.func_ret_val(op, payload, 2, InferredType::Number, abi_type);
 
                     self.check_deopt();
                 }
@@ -1802,7 +1751,6 @@ impl FunctionTranslator<'_> {
                         2,
                         InferredType::Bool,
                         abi_type,
-                        abi_type,
                     );
                 }
 
@@ -1818,7 +1766,6 @@ impl FunctionTranslator<'_> {
                         2,
                         InferredType::Bool,
                         abi_type,
-                        abi_type,
                     );
                 }
 
@@ -1830,27 +1777,20 @@ impl FunctionTranslator<'_> {
                 | OpCode::LT
                 | OpCode::EQUAL2 => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val(op, payload, 2, InferredType::Bool, abi_type, abi_type);
+                    self.func_ret_val(op, payload, 2, InferredType::Bool, abi_type);
                 }
                 OpCode::NULL => {
                     // todo!()
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val_named(
-                        "null-handler",
-                        1,
-                        2,
-                        InferredType::Bool,
-                        abi_type,
-                        abi_type,
-                    );
+                    self.func_ret_val_named("null-handler", 1, 2, InferredType::Bool, abi_type);
                 }
                 OpCode::CONS => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val(op, 2, 2, InferredType::List, abi_type, abi_type);
+                    self.func_ret_val(op, 2, 2, InferredType::List, abi_type);
                 }
                 OpCode::CDR => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val(op, 1, 2, InferredType::List, abi_type, abi_type);
+                    self.func_ret_val(op, 1, 2, InferredType::List, abi_type);
                 }
                 OpCode::LIST => todo!(),
                 OpCode::CAR => {
@@ -1860,11 +1800,11 @@ impl FunctionTranslator<'_> {
                         self.mark_local_type_from_var(last, InferredType::List);
                     }
 
-                    self.func_ret_val(op, 1, 2, InferredType::Any, abi_type, abi_type);
+                    self.func_ret_val(op, 1, 2, InferredType::Any, abi_type);
                 }
                 OpCode::NEWBOX => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val(op, 1, 2, InferredType::Box, abi_type, abi_type);
+                    self.func_ret_val(op, 1, 2, InferredType::Box, abi_type);
                 }
                 OpCode::SETBOX => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
@@ -1873,7 +1813,7 @@ impl FunctionTranslator<'_> {
                         self.mark_local_type_from_var(last, InferredType::Box);
                     }
 
-                    self.func_ret_val(op, 2, 2, InferredType::Any, abi_type, abi_type);
+                    self.func_ret_val(op, 2, 2, InferredType::Any, abi_type);
                 }
                 OpCode::UNBOX => {
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
@@ -1882,7 +1822,7 @@ impl FunctionTranslator<'_> {
                         self.mark_local_type_from_var(last, InferredType::Box);
                     }
 
-                    self.func_ret_val(op, 1, 2, InferredType::Any, abi_type, abi_type);
+                    self.func_ret_val(op, 1, 2, InferredType::Any, abi_type);
                 }
                 OpCode::ADDREGISTER => todo!(),
                 OpCode::SUBREGISTER => todo!(),
@@ -1902,7 +1842,7 @@ impl FunctionTranslator<'_> {
                 OpCode::NOT => {
                     // Do the thing.
                     let abi_type = AbiParam::new(Type::int(128).unwrap());
-                    self.func_ret_val(op, 1, 2, InferredType::Bool, abi_type, abi_type);
+                    self.func_ret_val(op, 1, 2, InferredType::Bool, abi_type);
                 }
                 OpCode::VEC => todo!(),
                 OpCode::Apply => todo!(),
@@ -1927,26 +1867,9 @@ impl FunctionTranslator<'_> {
     }
 
     fn call_set(&mut self, index: usize, value: Value) -> Value {
-        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
-        let mut sig = self.module.make_signature();
+        let local_callee = self.get_local_callee("set-handler");
 
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
-
-        let p = AbiParam::new(codegen::ir::Type::int(128).unwrap());
-        sig.params.push(p);
-
-        let callee = self
-            .module
-            .declare_function("drop-value", Linkage::Import, &sig)
-            .expect("problem declaring function");
-
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let ctx = self.get_ctx();
 
         let index = self
             .builder
@@ -1964,40 +1887,16 @@ impl FunctionTranslator<'_> {
     fn pop_single(&mut self) {
         let last = self.pop();
 
-        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
-        let mut sig = self.module.make_signature();
+        let local_callee = self.get_local_callee("drop-value");
+        let ctx = self.get_ctx();
 
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        let p = AbiParam::new(codegen::ir::Type::int(128).unwrap());
-        sig.params.push(p);
-
-        let callee = self
-            .module
-            .declare_function("drop-value", Linkage::Import, &sig)
-            .expect("problem declaring function");
-
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
         let arg_values = vec![ctx, last.0];
 
-        let call = self.builder.ins().call(local_callee, &arg_values);
+        let _ = self.builder.ins().call(local_callee, &arg_values);
     }
 
     fn pop_value_from_vm_stack(&mut self) -> Value {
-        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
-        let mut sig = self.module.make_signature();
-
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        let p = AbiParam::new(codegen::ir::Type::int(128).unwrap());
-        // sig.params.push(p);
-
-        sig.returns.push(p);
+        let sig = self.get_signature("pop-from-stack");
 
         let callee = self
             .module
@@ -2005,9 +1904,8 @@ impl FunctionTranslator<'_> {
             .expect("problem declaring function");
 
         let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+        let ctx = self.get_ctx();
 
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
         let arg_values = vec![ctx];
 
         let call = self.builder.ins().call(local_callee, &arg_values);
@@ -2015,59 +1913,10 @@ impl FunctionTranslator<'_> {
         result
     }
 
-    /// Call a function by its name. If this function has been registered in the builder
-    fn call_function_by_name(
-        &mut self,
-        name: &str,
-        args: impl Iterator<Item = Value>,
-    ) -> (Value, InferredType) {
-        let obj = self.function_map.map.get(name).unwrap();
-        let sig = obj.to_cranelift(&self.module);
-
-        let callee = self
-            .module
-            .declare_function(name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
-
-        // Unfortunate allocation here.
-        let args = [ctx].into_iter().chain(args).collect::<Vec<_>>();
-
-        let call = self.builder.ins().call(local_callee, &args);
-
-        let result = self.builder.inst_results(call)[0];
-
-        (
-            result,
-            *self.function_map.return_type_hints.get(name).unwrap(),
-        )
-    }
-
     fn call_test_handler(&mut self, test_value: Value) -> Value {
-        // This is the call global `call_global_function_deopt`
-        let mut sig = self.module.make_signature();
+        let local_callee = self.get_local_callee("if-branch-value");
 
-        // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        // test
-        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-
-        // Return value
-        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
-
-        let callee = self
-            .module
-            .declare_function("if-branch-value", Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let ctx = self.get_ctx();
 
         // Advance to the next thing
         self.ip += 1;
@@ -2081,25 +1930,11 @@ impl FunctionTranslator<'_> {
 
     // Let end scope handler - should instead pass the values in directly.
     fn call_end_scope_handler(&mut self, amount: usize) {
-        // This is the call global `call_global_function_deopt`
-        let mut sig = self.module.make_signature();
-
-        // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
-
         let name = "let-end-scope-c";
 
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+        let local_callee = self.get_local_callee(name);
 
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let ctx = self.get_ctx();
 
         let amount_to_drop = self
             .builder
@@ -2107,7 +1942,7 @@ impl FunctionTranslator<'_> {
             .iconst(Type::int(64).unwrap(), amount as i64);
 
         let arg_values = [ctx, amount_to_drop];
-        let call = self.builder.ins().call(local_callee, &arg_values);
+        let _ = self.builder.ins().call(local_callee, &arg_values);
     }
 
     fn translate_tco_jmp(&mut self, payload: usize) {
@@ -2115,23 +1950,9 @@ impl FunctionTranslator<'_> {
             self.spill(i);
         }
 
-        let mut sig = self.module.make_signature();
+        let local_callee = self.get_local_callee("tco-jump");
 
-        // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        // arity
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
-
-        let callee = self
-            .module
-            .declare_function("tco-jump", Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let ctx = self.get_ctx();
         let arity = self
             .builder
             .ins()
@@ -2151,25 +1972,9 @@ impl FunctionTranslator<'_> {
             self.spill(i);
         }
 
-        // let args = self.split_off(payload);
+        let local_callee = self.get_local_callee("self-tail-call");
+        let ctx = self.get_ctx();
 
-        let mut sig = self.module.make_signature();
-
-        // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        // arity
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
-
-        let callee = self
-            .module
-            .declare_function("self-tail-call", Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
         let arity = self
             .builder
             .ins()
@@ -2205,34 +2010,17 @@ impl FunctionTranslator<'_> {
     }
 
     fn call_function(&mut self, arity: usize, name: &str) -> Value {
-        // This is the call global `call_global_function_deopt`
-        let mut sig = self.module.make_signature();
+        // let sig = self.get_signature(name);
 
-        // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
+        // let callee = self
+        //     .module
+        //     .declare_function(&name, Linkage::Import, &sig)
+        //     .expect("problem declaring function");
+        // let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
 
-        // Function
-        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+        let local_callee = self.get_local_callee(name);
 
-        // instruction pointer
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
-
-        for _ in 0..arity {
-            sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-        }
-
-        // Return value
-        sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
-
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let ctx = self.get_ctx();
 
         let fallback_ip = self
             .builder
@@ -2320,48 +2108,9 @@ impl FunctionTranslator<'_> {
         function_index: usize,
         tail: bool,
     ) -> Value {
-        // TODO: Call trampoline, but include the arity check as well
-        // let func = self.globals.get(function_index).unwrap();
-        // if let SteelVal::Closure(c) = func {
-        //     if c.id.to_string() == self.name {
-        //         println!("Calling trampoline instead of delegating to the runtime");
+        let local_callee = self.get_local_callee(name);
 
-        //         if name.contains("no-arity") {
-        //             return self.call_trampoline_no_arity(arity, function_index);
-        //         } else {
-        //             return self.call_trampoline(arity, function_index);
-        //         }
-        //     }
-        // }
-
-        // This is the call global `call_global_function_deopt`
-        let mut sig = self.module.make_signature();
-
-        // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        // lookup index
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
-
-        // instruction pointer
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
-
-        for _ in 0..arity {
-            sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-        }
-
-        // Return value
-        sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
-
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let ctx = self.get_ctx();
 
         let lookup_index = self
             .builder
@@ -2385,11 +2134,7 @@ impl FunctionTranslator<'_> {
             .drain(self.stack.len() - arity..)
             .collect::<Vec<_>>();
 
-        dbg!(&args_off_the_stack);
-
         self.maybe_patch_from_stack(&mut args_off_the_stack);
-
-        dbg!(&args_off_the_stack);
 
         for arg in &args_off_the_stack {
             assert!(!arg.spilled);
@@ -2474,20 +2219,9 @@ impl FunctionTranslator<'_> {
     }
 
     fn check_callable(&mut self, callable: Value) -> Value {
-        let mut sig = self.module.make_signature();
         let name = "check-callable-value";
-        // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
         let call = self.builder.ins().call(local_callee, &[ctx, callable]);
         let result = self.builder.inst_results(call)[0];
 
@@ -2495,20 +2229,10 @@ impl FunctionTranslator<'_> {
     }
 
     fn check_should_spill(&mut self, index: Value) -> Value {
-        let mut sig = self.module.make_signature();
         let name = "should-spill";
         // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
-        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
         let call = self.builder.ins().call(local_callee, &[ctx, index]);
         let result = self.builder.inst_results(call)[0];
 
@@ -2516,40 +2240,18 @@ impl FunctionTranslator<'_> {
     }
 
     fn check_should_spill_value(&mut self, callable: Value) -> Value {
-        let mut sig = self.module.make_signature();
         let name = "should-spill-value";
-        // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
         let call = self.builder.ins().call(local_callee, &[ctx, callable]);
         let result = self.builder.inst_results(call)[0];
         return result;
     }
 
     fn check_call_spill(&mut self, index: Value) -> Value {
-        let mut sig = self.module.make_signature();
         let name = "check-callable-spill";
-        // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
-        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
         let call = self.builder.ins().call(local_callee, &[ctx, index]);
         let result = self.builder.inst_results(call)[0];
 
@@ -2557,109 +2259,28 @@ impl FunctionTranslator<'_> {
     }
 
     fn check_function(&mut self, index: Value, tail: bool) -> Value {
-        let mut sig = self.module.make_signature();
+        // let mut sig = self.module.make_signature();
         let name = if tail {
             "check-callable-tail"
         } else {
             "check-callable"
         };
-        // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
-        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
         let call = self.builder.ins().call(local_callee, &[ctx, index]);
         let result = self.builder.inst_results(call)[0];
 
         return result;
     }
 
-    fn check_deopt_call(&mut self) -> Value {
-        let mut sig = self.module.make_signature();
-        let name = "vm-should-continue?";
-        // VmCore pointer
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
-        let call = self.builder.ins().call(local_callee, &[ctx]);
-        let result = self.builder.inst_results(call)[0];
-        result
-    }
-
     fn check_deopt_ptr_load(&mut self) -> Value {
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let ctx = self.get_ctx();
         let is_native = self
             .builder
             .ins()
             .load(Type::int(8).unwrap(), MemFlags::trusted(), ctx, 0);
 
         is_native
-    }
-
-    fn advance_ip(&mut self) {
-        let mut sig = self.module.make_signature();
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-        let callee = self
-            .module
-            .declare_function("vm-increment-ip", Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
-        let call = self.builder.ins().call(local_callee, &[ctx]);
-    }
-
-    // Advance the pointer
-    fn begin_scope(&mut self) {
-        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
-        let mut sig = self.module.make_signature();
-
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        //
-        // for (_, p) in args {
-        // AbiParam::new(codegen::ir::Type::int(128).unwrap())
-        // sig.params.push(*p);
-        // }
-
-        // For simplicity for now, just make all calls return a single I64.
-        // sig.returns.push(return_type);
-
-        // TODO: Streamline the API here?
-        let callee = self
-            .module
-            .declare_function("vm-increment-ip", Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
-
-        // let mut arg_values = Vec::new();
-
-        // let args = args.iter().map(|x| )
-
-        // for arg in args {
-        //     arg_values.push(self.translate_expr(arg))
-        // }
-        let call = self.builder.ins().call(local_callee, &[ctx]);
     }
 
     fn check_deopt(&mut self) {
@@ -2716,7 +2337,6 @@ impl FunctionTranslator<'_> {
         ip_inc: usize,
         inferred_type: InferredType,
         abi_param_type: AbiParam,
-        abi_return_type: AbiParam,
     ) {
         let args = self.split_off(payload);
 
@@ -2731,8 +2351,7 @@ impl FunctionTranslator<'_> {
             .map(|x| (x.0, abi_param_type))
             .collect::<Vec<_>>();
 
-        let result =
-            self.call_function_returns_value_args_no_context(function_name, &args, abi_return_type);
+        let result = self.call_function_returns_value_args_no_context(function_name, &args);
 
         // Check the inferred type, if we know of it
         self.push(result, inferred_type);
@@ -2783,8 +2402,6 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        dbg!(&indices_to_get_from_shadow_stack);
-
         for idx in indices_to_get_from_shadow_stack.iter().rev() {
             let value = self.pop_value_from_vm_stack();
 
@@ -2822,7 +2439,6 @@ impl FunctionTranslator<'_> {
         ip_inc: usize,
         inferred_type: InferredType,
         abi_param_type: AbiParam,
-        abi_return_type: AbiParam,
     ) {
         let function_name = op_to_name_payload(op, payload);
         let args = self.split_off(payload);
@@ -2834,7 +2450,7 @@ impl FunctionTranslator<'_> {
             .map(|x| (x.0, abi_param_type))
             .collect::<Vec<_>>();
 
-        let result = self.call_function_returns_value_args(function_name, &args, abi_return_type);
+        let result = self.call_function_returns_value_args(function_name, &args);
 
         // Check the inferred type, if we know of it
         self.push(result, inferred_type);
@@ -2939,7 +2555,7 @@ impl FunctionTranslator<'_> {
                     value
                 })
                 // .unwrap(),
-                .unwrap_or_else(|| dbg!(self.create_i128(encode(SteelVal::Void)))),
+                .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
             // self.stack
             //     .pop()
             //     .map(|x| {
@@ -2994,7 +2610,7 @@ impl FunctionTranslator<'_> {
                     value
                 })
                 // .unwrap(),
-                .unwrap_or_else(|| dbg!(self.create_i128(encode(SteelVal::Void)))),
+                .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
             // self.create_i128(encode(SteelVal::Void)),
         );
 
@@ -3014,123 +2630,51 @@ impl FunctionTranslator<'_> {
         phi
     }
 
-    fn set_ctx_ip(&mut self, ip: usize) {
-        let mut sig = self.module.make_signature();
-        let name = "set-ctx-ip!";
-
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
-
-        // For simplicity for now, just make all calls return a single I64.
-        // sig.returns
-        //     .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
-
-        // TODO: Streamline the API here?
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        let ip = self.builder.ins().iconst(Type::int(64).unwrap(), ip as i64);
-
-        // let mut arg_values = Vec::new();
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
-        let arg_values = [ctx, ip];
-
-        // for arg in args {
-        //     arg_values.push(self.translate_expr(arg))
-        // }
-        let call = self.builder.ins().call(local_callee, &arg_values);
-    }
-
     fn vm_pop(&mut self, value: Value) {
-        let mut sig = self.module.make_signature();
         let name = "handle-pop!";
-
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-
-        // For simplicity for now, just make all calls return a single I64.
-        // sig.returns
-        //     .push(AbiParam::new(codegen::ir::Type::int(8).unwrap()));
-
-        // TODO: Streamline the API here?
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        // let mut arg_values = Vec::new();
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
         let arg_values = [ctx, value];
-
-        // for arg in args {
-        //     arg_values.push(self.translate_expr(arg))
-        // }
         let call = self.builder.ins().call(local_callee, &arg_values);
     }
 
-    fn push_to_vm_stack_two(&mut self, value: Value, value2: Value) {
-        let mut sig = self.module.make_signature();
-        let name = "push-to-vm-stack-2";
+    // fn push_to_vm_stack_two(&mut self, value: Value, value2: Value) {
+    //     let mut sig = self.module.make_signature();
+    //     let name = "push-to-vm-stack-2";
 
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
+    //     sig.params
+    //         .push(AbiParam::new(self.module.target_config().pointer_type()));
 
-        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+    //     sig.params.push(AbiParam::new(Type::int(128).unwrap()));
+    //     sig.params.push(AbiParam::new(Type::int(128).unwrap()));
 
-        // TODO: Streamline the API here?
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+    //     // TODO: Streamline the API here?
+    //     let callee = self
+    //         .module
+    //         .declare_function(&name, Linkage::Import, &sig)
+    //         .expect("problem declaring function");
+    //     let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
 
-        // let mut arg_values = Vec::new();
+    //     // let mut arg_values = Vec::new();
 
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
-        let arg_values = [ctx, value, value2];
+    //     let variable = self.variables.get("vm-ctx").expect("variable not defined");
+    //     let ctx = self.builder.use_var(*variable);
+    //     let arg_values = [ctx, value, value2];
 
-        // for arg in args {
-        //     arg_values.push(self.translate_expr(arg))
-        // }
-        let call = self.builder.ins().call(local_callee, &arg_values);
-        // let result = self.builder.inst_results(call)[0];
-        // result
-    }
+    //     // for arg in args {
+    //     //     arg_values.push(self.translate_expr(arg))
+    //     // }
+    //     let call = self.builder.ins().call(local_callee, &arg_values);
+    //     // let result = self.builder.inst_results(call)[0];
+    //     // result
+    // }
 
     fn push_to_vm_stack(&mut self, value: Value) {
-        let mut sig = self.module.make_signature();
         let name = "push-to-vm-stack";
 
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
+        let local_callee = self.get_local_callee(name);
 
-        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-
-        // TODO: Streamline the API here?
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        // let mut arg_values = Vec::new();
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let ctx = self.get_ctx();
         let arg_values = [ctx, value];
 
         // for arg in args {
@@ -3142,55 +2686,19 @@ impl FunctionTranslator<'_> {
     }
 
     fn push_to_vm_stack_function_spill(&mut self, value: Value) {
-        let mut sig = self.module.make_signature();
         let name = "push-to-vm-stack-function-spill";
-
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-
-        // TODO: Streamline the API here?
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        // let mut arg_values = Vec::new();
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
         let arg_values = [ctx, value];
-
-        // for arg in args {
-        //     arg_values.push(self.translate_expr(arg))
-        // }
         let call = self.builder.ins().call(local_callee, &arg_values);
-        // let result = self.builder.inst_results(call)[0];
-        // result
     }
 
     fn push_to_vm_stack_let_var(&mut self, value: Value) {
-        let mut sig = self.module.make_signature();
         let name = "push-to-vm-stack-let-var";
 
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
+        let local_callee = self.get_local_callee(name);
 
-        sig.params.push(AbiParam::new(Type::int(128).unwrap()));
-
-        // TODO: Streamline the API here?
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        // let mut arg_values = Vec::new();
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let ctx = self.get_ctx();
         let arg_values = [ctx, value];
 
         // for arg in args {
@@ -3202,28 +2710,9 @@ impl FunctionTranslator<'_> {
     }
 
     fn push_const_index(&mut self, index: usize) -> Value {
-        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
-        let mut sig = self.module.make_signature();
+        let local_callee = self.get_local_callee("push-const-index");
 
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        sig.params.push(AbiParam::new(Type::int(64).unwrap()));
-
-        // For simplicity for now, just make all calls return a single I64.
-        sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
-
-        // TODO: Streamline the API here?
-        let callee = self
-            .module
-            .declare_function("push-const-index", Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        // let mut arg_values = Vec::new();
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
+        let ctx = self.get_ctx();
 
         let value = self
             .builder
@@ -3241,76 +2730,49 @@ impl FunctionTranslator<'_> {
     }
 
     fn call_function_returns_value(&mut self, name: &str) -> Value {
-        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
-        let mut sig = self.module.make_signature();
+        let local_callee = self.get_local_callee(name);
 
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
+        let ctx = self.get_ctx();
 
-        // For simplicity for now, just make all calls return a single I64.
-        sig.returns.push(AbiParam::new(Type::int(128).unwrap()));
+        let arg_values = [ctx];
 
-        // TODO: Streamline the API here?
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+    }
+
+    fn get_signature(&self, name: &str) -> Signature {
+        self.intrinsics.get_signature(name, &self.module)
+    }
+
+    fn get_local_callee(&mut self, name: &str) -> FuncRef {
+        let sig = self.get_signature(name);
+
         let callee = self
             .module
             .declare_function(&name, Linkage::Import, &sig)
             .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
+        self.module.declare_func_in_func(callee, self.builder.func)
+    }
 
-        // let mut arg_values = Vec::new();
-
+    fn get_ctx(&mut self) -> Value {
         let variable = self.variables.get("vm-ctx").expect("variable not defined");
         let ctx = self.builder.use_var(*variable);
-        let arg_values = [ctx];
-
-        // for arg in args {
-        //     arg_values.push(self.translate_expr(arg))
-        // }
-        let call = self.builder.ins().call(local_callee, &arg_values);
-        let result = self.builder.inst_results(call)[0];
-        result
+        ctx
     }
 
     fn call_function_returns_value_args(
         &mut self,
         name: &str,
         args: &[(Value, AbiParam)],
-        return_type: AbiParam,
     ) -> Value {
-        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
-        let mut sig = self.module.make_signature();
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
 
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        //
-        for (_, p) in args {
-            sig.params.push(*p);
-        }
-
-        // For simplicity for now, just make all calls return a single I64.
-        sig.returns.push(return_type);
-
-        // TODO: Streamline the API here?
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        // let mut arg_values = Vec::new();
-
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
         let mut arg_values = vec![ctx];
-
-        // let args = args.iter().map(|x| )
 
         arg_values.extend(args.iter().map(|x| x.0));
 
-        // for arg in args {
-        //     arg_values.push(self.translate_expr(arg))
-        // }
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
@@ -3320,38 +2782,10 @@ impl FunctionTranslator<'_> {
         &mut self,
         name: &str,
         args: &[(Value, AbiParam)],
-        return_type: AbiParam,
     ) -> Value {
-        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
-        let mut sig = self.module.make_signature();
-
-        //
-        for (_, p) in args {
-            // AbiParam::new(codegen::ir::Type::int(128).unwrap())
-            sig.params.push(*p);
-        }
-
-        // For simplicity for now, just make all calls return a single I64.
-        sig.returns.push(return_type);
-
-        // TODO: Streamline the API here?
-        let callee = self
-            .module
-            .declare_function(&name, Linkage::Import, &sig)
-            .expect("problem declaring function");
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        // let mut arg_values = Vec::new();
-
+        let local_callee = self.get_local_callee(name);
         let mut arg_values = vec![];
-
-        // let args = args.iter().map(|x| )
-
         arg_values.extend(args.iter().map(|x| x.0));
-
-        // for arg in args {
-        //     arg_values.push(self.translate_expr(arg))
-        // }
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
@@ -3386,7 +2820,6 @@ fn declare_variables(
         // TODO: cranelift_frontend should really have an API to make it easy to set
         // up param variables.
         let val = builder.block_params(entry_block)[i + 1];
-        dbg!(int);
         let var = declare_variable(int, builder, &mut variables, &mut index, name);
         builder.def_var(var, val);
     }

@@ -11,12 +11,6 @@ use crate::{
     SteelVal,
 };
 
-// use super::{
-//     alloc_handler, car_handler, cdr_handler, cons_handler, let_end_scope_handler, list_handler,
-//     local_handler0, local_handler1, local_handler2, local_handler3, new_box_handler,
-//     read_alloc_handler, set_alloc_handler, setbox_handler, unbox_handler,
-// };
-
 use super::*;
 
 pub const TRAMPOLINE: bool = true;
