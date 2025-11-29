@@ -2290,10 +2290,6 @@ impl FunctionTranslator<'_> {
     ) {
         let args = self.split_off(payload);
 
-        for arg in &args {
-            self.value_to_local_map.remove(&arg.0);
-        }
-
         // TODO: Use the type hints! For now we're not going to for the sake
         // of getting something running
         let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
@@ -2719,12 +2715,13 @@ impl FunctionTranslator<'_> {
     }
 }
 
+// TODO: When setting up special functions, we'll
+// do a different thing to create a function that we want
+// that looks more like fn(&mut VmCore, args: &[SteelVal])
 fn declare_variables(
     int: types::Type,
     builder: &mut FunctionBuilder,
     params: &[String],
-    // the_return: &str,
-    // instructions: &[DenseInstruction],
     entry_block: Block,
 ) -> HashMap<String, Variable> {
     let mut variables = HashMap::new();
@@ -2744,25 +2741,10 @@ fn declare_variables(
     }
 
     for (i, name) in params.iter().enumerate() {
-        // TODO: cranelift_frontend should really have an API to make it easy to set
-        // up param variables.
         let val = builder.block_params(entry_block)[i + 1];
         let var = declare_variable(int, builder, &mut variables, &mut index, name);
         builder.def_var(var, val);
     }
-
-    // let zero = builder.ins().iconst(Type::int(64).unwrap(), 0);
-    // let zero = builder.ins().sextend(Type::int(128).unwrap(), zero);
-
-    // let one = builder.ins().iconst(Type::int(8).unwrap(), 1);
-
-    // let return_variable = declare_variable(int, builder, &mut variables, &mut index, the_return);
-    // builder.def_var(return_variable, one);
-
-    // TODO:
-    // for expr in stmts {
-    //     declare_variables_in_stmt(int, builder, &mut variables, &mut index, expr);
-    // }
 
     variables
 }
