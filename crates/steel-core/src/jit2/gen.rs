@@ -1275,49 +1275,6 @@ fn encode(value: SteelVal) -> i128 {
 }
 
 impl FunctionTranslator<'_> {
-    fn call_global_handler(&mut self) -> Value {
-        // fn translate_call(&mut self, name: String, args: Vec<Expr>) -> Value {
-        let mut sig = self.module.make_signature();
-
-        sig.params
-            .push(AbiParam::new(self.module.target_config().pointer_type()));
-
-        // This
-        // sig.params.push(AbiParam::special(
-        //     self.module.target_config().pointer_type(),
-        //     codegen::ir::ArgumentPurpose::VMContext,
-        // ));
-
-        // Add a parameter for each argument.
-        // for _arg in &args {
-        //     sig.params.push(AbiParam::new(self.int));
-        // }
-
-        // For simplicity for now, just make all calls return a single I64.
-        sig.returns.push(AbiParam::new(Type::int(8).unwrap()));
-
-        // TODO: Streamline the API here?
-        let callee = self
-            .module
-            .declare_function("call-global", Linkage::Import, &sig)
-            .expect("problem declaring function");
-
-        let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
-        // let mut arg_values = Vec::new();
-
-        let ctx = self.get_ctx();
-        let arg_values = [ctx];
-
-        // for arg in args {
-        //     arg_values.push(self.translate_expr(arg))
-        // }
-        let call = self.builder.ins().call(local_callee, &arg_values);
-        let result = self.builder.inst_results(call)[0];
-
-        result
-    }
-
     fn mark_local_type_from_var(&mut self, last: StackValue, typ: InferredType) {
         if let Some(from_local) = self.value_to_local_map.get(&last.value) {
             self.local_to_value_map.insert(*from_local, typ);
@@ -1379,8 +1336,6 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::PUSH => {
                     // Let value to push:
-                    let abi_type = AbiParam::new(Type::int(128).unwrap());
-
                     let index = self
                         .builder
                         .ins()
