@@ -1072,48 +1072,48 @@ impl JIT {
         // Check if all of the functions that are getting
         // called are found to be machine code:
 
-        let mut call_global_all_native = true;
-        for instr in bytecode.iter() {
-            match instr.op_code {
-                OpCode::CALLGLOBAL
-                | OpCode::CALLGLOBALTAIL
-                | OpCode::CALLGLOBALTAILNOARITY
-                | OpCode::CALLGLOBALNOARITY => {
-                    let func = globals.get(instr.payload_size.to_usize());
-                    if let Some(value) = func {
-                        match value {
-                            SteelVal::Closure(c) => {
-                                if c.0.id.to_string() == name {
-                                    // Then this is fine. Generate a trampoline call
-                                    // without going through the runtime.
-                                    continue;
-                                } else if c.0.super_instructions.is_some() {
-                                    continue;
-                                } else {
-                                    call_global_all_native = false;
-                                    break;
-                                }
-                            }
+        // let mut call_global_all_native = true;
+        // for instr in bytecode.iter() {
+        //     match instr.op_code {
+        //         OpCode::CALLGLOBAL
+        //         | OpCode::CALLGLOBALTAIL
+        //         | OpCode::CALLGLOBALTAILNOARITY
+        //         | OpCode::CALLGLOBALNOARITY => {
+        //             let func = globals.get(instr.payload_size.to_usize());
+        //             if let Some(value) = func {
+        //                 match value {
+        //                     SteelVal::Closure(c) => {
+        //                         if c.0.id.to_string() == name {
+        //                             // Then this is fine. Generate a trampoline call
+        //                             // without going through the runtime.
+        //                             continue;
+        //                         } else if c.0.super_instructions.is_some() {
+        //                             continue;
+        //                         } else {
+        //                             call_global_all_native = false;
+        //                             break;
+        //                         }
+        //                     }
 
-                            SteelVal::BuiltIn(_) => {
-                                call_global_all_native = false;
-                                break;
-                            }
+        //                     SteelVal::BuiltIn(_) => {
+        //                         call_global_all_native = false;
+        //                         break;
+        //                     }
 
-                            _ => {}
-                        }
-                    }
-                }
+        //                     _ => {}
+        //                 }
+        //             }
+        //         }
 
-                OpCode::FUNC | OpCode::TAILCALL => {
-                    call_global_all_native = false;
-                    break;
-                }
-                _ => {}
-            }
-        }
+        //         OpCode::FUNC | OpCode::TAILCALL => {
+        //             call_global_all_native = false;
+        //             break;
+        //         }
+        //         _ => {}
+        //     }
+        // }
 
-        println!("All native functions: {}", call_global_all_native);
+        // println!("All native functions: {}", call_global_all_native);
 
         // Now translate the statements of the function body.
         let mut trans = FunctionTranslator {
@@ -1132,7 +1132,7 @@ impl JIT {
             function_map: &self.function_map,
             function_context,
             id: func_id,
-            call_global_all_native,
+            call_global_all_native: false,
             name,
             value_to_local_map: HashMap::new(),
             local_to_value_map: HashMap::new(),
@@ -1384,7 +1384,7 @@ impl FunctionTranslator<'_> {
         while self.ip < self.instructions.len() {
             let instr = self.instructions[self.ip];
             let op = instr.op_code;
-            println!("{:?} @ {}", op, self.ip);
+            // println!("{:?} @ {}", op, self.ip);
             let payload = instr.payload_size.to_usize();
             match op {
                 OpCode::LOADINT1POP
@@ -1649,7 +1649,6 @@ impl FunctionTranslator<'_> {
                     self.translate_tco_jmp(payload);
                     self.ip = self.instructions.len() + 1;
 
-                    println!("Returning...");
                     return false;
                 }
                 OpCode::SELFTAILCALLNOARITY => {
@@ -1657,7 +1656,6 @@ impl FunctionTranslator<'_> {
                     // self.tco = Some(res);
                     // Jump to out of bounds so signal we're done
                     self.ip = self.instructions.len() + 1;
-                    println!("Returning...");
                     return false;
                 }
                 OpCode::CALLGLOBALTAIL | OpCode::CALLGLOBALTAILNOARITY => {
@@ -2113,8 +2111,6 @@ impl FunctionTranslator<'_> {
     }
 
     fn translate_tco_jmp(&mut self, payload: usize) {
-        println!("Stack remaining at tco jump: {:?}", self.stack);
-
         for i in 0..self.stack.len() {
             self.spill(i);
         }
@@ -2150,15 +2146,12 @@ impl FunctionTranslator<'_> {
         // Or just use the normal jump, where we jump to the
         // top of the instruction stack and reinvoke
         // the dyn super instruction?
-        println!("Stack at self tco jump: {:?}", self.stack);
 
         for i in 0..self.stack.len() {
             self.spill(i);
         }
 
         // let args = self.split_off(payload);
-
-        println!("Stack remaining at self tco jump: {:?}", self.stack);
 
         let mut sig = self.module.make_signature();
 
@@ -2460,7 +2453,6 @@ impl FunctionTranslator<'_> {
 
             for c in self.stack.clone() {
                 if !c.spilled {
-                    println!("Spilling...: {}", c.value);
                     self.push_to_vm_stack_function_spill(c.value);
                 }
             }
@@ -2686,8 +2678,6 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(then_block);
         let then_return = BlockArg::Value(self.builder.ins().iconst(Type::int(8).unwrap(), 1));
 
-        println!("======== check deopt - tco: {:?}", self.tco);
-
         // Just... translate instructions?
         self.stack_to_ssa();
 
@@ -2695,8 +2685,6 @@ impl FunctionTranslator<'_> {
             self.ip = self.instructions.len() + 1;
             return;
         }
-
-        println!("======== check deopt - tco: {:?}", self.tco);
 
         // Jump to the merge block, passing it the block return value.
         self.builder.ins().jump(merge_block, &[then_return]);
@@ -2736,8 +2724,6 @@ impl FunctionTranslator<'_> {
             self.value_to_local_map.remove(&arg.0);
         }
 
-        println!("Args at {}: {:#?}", function_name, args);
-
         // TODO: Use the type hints! For now we're not going to for the sake
         // of getting something running
         let args = args
@@ -2762,7 +2748,6 @@ impl FunctionTranslator<'_> {
         }
 
         if spilled {
-            println!("Spilling in spill: {:?}", self.stack[index]);
             self.push_to_vm_stack(self.stack[index].value);
         }
 
@@ -2839,7 +2824,6 @@ impl FunctionTranslator<'_> {
         abi_param_type: AbiParam,
         abi_return_type: AbiParam,
     ) {
-        println!("Func ret val: {:?} - {}", op, payload);
         let function_name = op_to_name_payload(op, payload);
         let args = self.split_off(payload);
 
@@ -2874,8 +2858,6 @@ impl FunctionTranslator<'_> {
 
                 match &constant {
                     SteelVal::BoolV(_) | SteelVal::IntV(_) => {
-                        println!("Embedding immediate: {}", constant);
-
                         // self.advance_ip();
 
                         self.create_i128(encode(constant))
@@ -2943,8 +2925,6 @@ impl FunctionTranslator<'_> {
 
         self.stack_to_ssa();
 
-        println!("---------------> Tco after: {:?}", self.tco);
-
         // println!("Done on then");
         // println!("Stack after then branch: {:?}", self.stack);
 
@@ -3003,8 +2983,6 @@ impl FunctionTranslator<'_> {
             self.ip = self.instructions.len() + 1;
             return token_return_value;
         }
-
-        println!("---------------> Tco after: {:?}", self.tco);
 
         // let else_return = self.stack.pop().unwrap().0;
         let else_return = BlockArg::Value(
