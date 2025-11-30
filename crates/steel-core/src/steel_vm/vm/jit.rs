@@ -2524,6 +2524,14 @@ pub(crate) extern "C-unwind" fn self_tail_call_handler(ctx: *mut VmCore, arity: 
     let _ = this.thread.stack.drain(this.sp..back);
 }
 
+pub(crate) extern "C-unwind" fn self_tail_call_handler_loop(ctx: *mut VmCore, arity: usize) {
+    // println!("Calling self tail call");
+    let this = unsafe { &mut *ctx };
+    this.ip = 0;
+    let back = this.thread.stack.len() - arity;
+    let _ = this.thread.stack.drain(this.sp..back);
+}
+
 #[inline(always)]
 fn tcojmp_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;

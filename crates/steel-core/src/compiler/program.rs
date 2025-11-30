@@ -197,6 +197,10 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
 // (READLOCAL0, CALLGLOBAL): 1200919
 // (READLOCAL1, CALLGLOBAL): 1088780
 pub fn specialize_call_global_local(instructions: &mut [Instruction]) {
+    if cfg!(feature = "jit2") {
+        return;
+    }
+
     if instructions.is_empty() {
         return;
     }
@@ -264,6 +268,10 @@ pub fn specialize_call_global_local(instructions: &mut [Instruction]) {
 }
 
 pub fn unbox_function_call(instructions: &mut [Instruction]) {
+    if cfg!(feature = "jit2") {
+        return;
+    }
+
     if instructions.is_empty() {
         return;
     }

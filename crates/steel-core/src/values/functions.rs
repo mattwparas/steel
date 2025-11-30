@@ -131,7 +131,7 @@ pub struct ByteCodeLambda {
     contract: MutContainer<Option<Gc<UserDefinedStruct>>>,
 
     #[cfg(feature = "jit2")]
-    pub(crate) super_instructions: Option<fn(&mut crate::steel_vm::vm::VmCore) -> bool>,
+    pub(crate) super_instructions: Option<fn(&mut crate::steel_vm::vm::VmCore)>,
     // #[cfg(feature = "jit2")]
     // pub(crate) tail_call: bool,
 }
