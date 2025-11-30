@@ -13,13 +13,10 @@ use crate::{
     core::instructions::DenseInstruction,
     steel_vm::vm::{
         jit::{
-            advance_ip, box_handler_c, call_global_function_tail_deopt_0,
-            call_global_function_tail_deopt_1, call_global_function_tail_deopt_2,
-            call_global_function_tail_deopt_3, call_global_function_tail_deopt_4,
-            call_global_function_tail_deopt_5, callglobal_handler_deopt_c, car_handler_value,
-            cdr_handler_value, check_callable, check_callable_spill, check_callable_tail,
-            check_callable_value, cons_handler_value, drop_value, equal_binop, extern_c_add_two,
-            extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
+            box_handler_c, callglobal_handler_deopt_c, car_handler_value, cdr_handler_value,
+            check_callable, check_callable_spill, check_callable_tail, check_callable_value,
+            cons_handler_value, drop_value, equal_binop, extern_c_add_two, extern_c_div_two,
+            extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
             extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler, extern_c_sub_two,
             extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value, if_handler_value,
             let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
@@ -28,9 +25,9 @@ use crate::{
             pop_value, push_const_value_c, push_const_value_index_c, push_global, push_to_vm_stack,
             push_to_vm_stack_let_var, push_to_vm_stack_two, read_local_0_value_c,
             read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
-            read_local_any_value_c, self_tail_call_handler, set_ctx_ip, set_handler_c,
-            setbox_handler_c, should_continue, should_spill, should_spill_value, tcojmp_handler,
-            trampoline, trampoline_no_arity, unbox_handler_c, CallFunctionDefinitions,
+            read_local_any_value_c, self_tail_call_handler, set_handler_c, setbox_handler_c,
+            should_continue, should_spill, should_spill_value, tcojmp_handler, trampoline,
+            trampoline_no_arity, unbox_handler_c, CallFunctionDefinitions,
             CallGlobalFunctionDefinitions, CallGlobalNoArityFunctionDefinitions,
             CallGlobalTailFunctionDefinitions,
         },
@@ -289,16 +286,6 @@ impl Default for JIT {
         );
 
         map.add_func(
-            "set-ctx-ip!",
-            set_ctx_ip as extern "C-unwind" fn(*mut VmCore, usize),
-        );
-
-        map.add_func(
-            "vm-increment-ip",
-            advance_ip as extern "C-unwind" fn(*mut VmCore),
-        );
-
-        map.add_func(
             "drop-value",
             drop_value as extern "C-unwind" fn(*mut VmCore, SteelVal),
         );
@@ -388,15 +375,8 @@ impl Default for JIT {
         #[allow(improper_ctypes_definitions)]
         type Vm01 = extern "C-unwind" fn(*mut VmCore) -> SteelVal;
 
-        type Vm01int = extern "C-unwind" fn(*mut VmCore) -> i128;
-
         #[allow(improper_ctypes_definitions)]
         type Vm02 = extern "C-unwind" fn(*mut VmCore, SteelVal) -> SteelVal;
-
-        type Vm02int = extern "C-unwind" fn(*mut VmCore, i128) -> i128;
-
-        #[allow(improper_ctypes_definitions)]
-        type Vm0b = extern "C-unwind" fn(*mut VmCore) -> bool;
 
         #[allow(improper_ctypes_definitions)]
         type VmBinOp = extern "C-unwind" fn(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal;
@@ -868,7 +848,7 @@ impl JIT {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-enum InferredType {
+pub enum InferredType {
     Int,
     // Is just straight up, unboxed
     UnboxedBool,
@@ -2171,21 +2151,8 @@ impl FunctionTranslator<'_> {
                     self.value_to_local_map.remove(&value);
                     value
                 })
-                // .unwrap(),
                 .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
-            // self.stack
-            //     .pop()
-            //     .map(|x| {
-            //         let value = x.value;
-            //         self.value_to_local_map.remove(&value);
-            //         value
-            //     })
-            // self.create_i128(encode(SteelVal::Void)),
         );
-
-        // let then_return = self.stack.pop().unwrap().0;
-        // .map(|x| x.0)
-        // .unwrap_or(self.create_i128(encode(SteelVal::Void)));
 
         // Jump to the merge block, passing it the block return value.
         self.builder.ins().jump(merge_block, &[then_return]);

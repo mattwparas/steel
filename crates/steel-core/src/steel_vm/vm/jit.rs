@@ -985,16 +985,6 @@ fn pushconst_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     Ok(())
 }
 
-// No stack - handlers that just return the value without pushing
-// to the stack.
-#[inline(always)]
-fn pushconst_handler_nostack(ctx: &mut VmCore) -> SteelVal {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    let val = ctx.constants.get_value(payload_size.to_usize());
-    ctx.ip += 1;
-    val
-}
-
 #[inline(always)]
 fn push_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let payload_size = ctx.instructions[ctx.ip].payload_size;
@@ -1128,6 +1118,7 @@ fn callglobal_handler_deopt(ctx: &mut VmCore) -> u8 {
 }
 
 // Equality... via the usual scheme? Otherwise this is gonna be an issue?
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn num_equal_value(
     _: *mut VmCore,
     left: SteelVal,
@@ -1143,6 +1134,7 @@ pub(crate) extern "C-unwind" fn num_equal_value(
     }
 }
 
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn num_equal_int(
     // _: *mut VmCore,
     left: SteelVal,
@@ -1160,8 +1152,9 @@ pub(crate) extern "C-unwind" fn num_equal_int(
     }
 }
 
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn equal_binop(
-    ctx: *mut VmCore,
+    _ctx: *mut VmCore,
     left: SteelVal,
     right: SteelVal,
 ) -> SteelVal {
@@ -1171,7 +1164,7 @@ pub(crate) extern "C-unwind" fn equal_binop(
 }
 
 pub(crate) extern "C-unwind" fn num_equal_value_unboxed(
-    ctx: *mut VmCore,
+    _ctx: *mut VmCore,
     left: i128,
     right: i128,
 ) -> bool {
@@ -1192,7 +1185,7 @@ macro_rules! extern_binop {
     ($name:tt, $func:tt) => {
         #[allow(improper_ctypes_definitions)]
         pub(crate) extern "C-unwind" fn $name(
-            ctx: *mut VmCore,
+            _ctx: *mut VmCore,
             a: SteelVal,
             b: SteelVal,
         ) -> SteelVal {
@@ -1300,8 +1293,9 @@ extern_binop!(extern_c_sub_two, subtract_primitive);
 extern_binop!(extern_c_lt_two, lt_primitive);
 // extern_binop!(extern_c_lte_two, lte_primitive);
 
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn extern_c_lte_two(
-    ctx: *mut VmCore,
+    _ctx: *mut VmCore,
     a: SteelVal,
     b: SteelVal,
 ) -> SteelVal {
@@ -1312,11 +1306,13 @@ pub(crate) extern "C-unwind" fn extern_c_lte_two(
     SteelVal::BoolV(a <= b)
 }
 
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn extern_c_lte_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
     assert!(matches!(b, SteelVal::IntV(_)));
     SteelVal::BoolV(a <= b)
 }
 
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn extern_c_null_handler(a: SteelVal) -> SteelVal {
     let result = match a {
         SteelVal::ListV(l) => l.is_empty(),
@@ -1408,27 +1404,6 @@ pub(crate) extern "C-unwind" fn read_local_any_value_c(
     guard.get_local_value(offset)
 }
 
-pub(crate) extern "C-unwind" fn push_int_0(ctx: *mut VmCore) -> i128 {
-    unsafe {
-        (&mut *ctx).ip += 1;
-        std::mem::transmute(SteelVal::INT_ZERO)
-    }
-}
-
-pub(crate) extern "C-unwind" fn push_int_1(ctx: *mut VmCore) -> i128 {
-    unsafe {
-        (&mut *ctx).ip += 1;
-        std::mem::transmute(SteelVal::INT_ONE)
-    }
-}
-
-pub(crate) extern "C-unwind" fn push_int_2(ctx: *mut VmCore) -> i128 {
-    unsafe {
-        (&mut *ctx).ip += 1;
-        std::mem::transmute(SteelVal::INT_TWO)
-    }
-}
-
 // Read the global value at the registered index
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn push_global(ctx: *mut VmCore, index: usize) -> SteelVal {
@@ -1481,47 +1456,6 @@ fn new_callglobal_tail_handler_deopt_test(
 
             return SteelVal::Void;
         }
-    }
-}
-
-// Just... inline the function itself into this?
-// If its a global, its going to be rooted, in theory...
-#[inline(always)]
-fn callglobal_tail_handler_deopt_test(
-    ctx: &mut VmCore,
-    // Eliminate the dispatch cost of looking up the value in the array.
-    // And eliminate the dispatch cost of incrementing the instruction pointer.
-    // The IP should just be rolled up across the board -
-    func: SteelVal,
-    args: &mut [SteelVal],
-    prelude_offset: usize,
-) -> u8 {
-    ctx.ip += prelude_offset;
-
-    // println!("Calling function: {} with args: {:?}", func, args);
-
-    // let index = ctx.instructions[ctx.ip].payload_size;
-    // ctx.ip += 1;
-    // let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
-    // let func = ctx.thread.global_env.repl_lookup_idx(index.to_usize());
-    // debug_assert!(payload_size == args.len());
-
-    // Deopt -> Meaning, check the return value if we're done - so we just
-    // will eventually check the stashed error.
-    let ret_value = match &func {
-        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => 0,
-        _ => 1,
-    };
-
-    match handle_global_tail_call_deopt_with_args(ctx, func, args) {
-        Ok(v) => {
-            if ret_value == 1 {
-                ctx.thread.stack.push(v);
-                ctx.ip += 1;
-            }
-            return ret_value;
-        }
-        Err(_) => return 0,
     }
 }
 
@@ -1757,7 +1691,10 @@ pub(crate) extern "C-unwind" fn push_to_vm_stack(ctx: *mut VmCore, value: SteelV
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn push_to_vm_stack_function_spill(ctx: *mut VmCore, value: SteelVal) {
+pub(crate) extern "C-unwind" fn _push_to_vm_stack_function_spill(
+    ctx: *mut VmCore,
+    value: SteelVal,
+) {
     // println!("Pushing to vm stack in function call spill: {}", value);
     unsafe {
         (&mut *ctx).thread.stack.push(value);
@@ -1790,28 +1727,6 @@ pub(crate) extern "C-unwind" fn push_to_vm_stack_two(
     }
 }
 
-pub(crate) extern "C-unwind" fn set_ctx_ip(ctx: *mut VmCore, value: usize) {
-    unsafe { &mut *ctx }.ip = value;
-}
-
-pub(crate) extern "C-unwind" fn advance_ip(ctx: *mut VmCore) {
-    let guard = unsafe { &mut *ctx };
-
-    // unsafe {
-    //     println!(
-    //         "Advancing ip at: {} - {:?}",
-    //         guard.ip, guard.instructions[guard.ip]
-    //     );
-    // }
-    unsafe { &mut *ctx }.ip += 1;
-}
-
-// pub(crate) extern "C-unwind" fn let_end_scope_c(ctx: *mut VmCore, beginning_scope: usize) {
-//     unsafe {
-//         let_end_scope_handler_with_payload(&mut *ctx, beginning_scope).ok();
-//     }
-// }
-
 // TODO:
 // This is tricky, since we need to remove a range from the stack, where the value on the stack
 // could be genuinely there, versus on the native stack.
@@ -1820,32 +1735,14 @@ pub(crate) extern "C-unwind" fn advance_ip(ctx: *mut VmCore) {
 // Or pass in the
 pub(crate) extern "C-unwind" fn let_end_scope_c(ctx: *mut VmCore, beginning_scope: usize) {
     let ctx = unsafe { &mut *ctx };
-    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
     let offset = ctx.get_offset();
-    // let offset = ctx.sp;
 
     // Move to the pop
     ctx.ip += 1;
 
     let rollback_index = beginning_scope + offset;
 
-    // println!(
-    //     "Dropping at let end scope: {} - {:?}: {:#?} - {:?} - {} - {}",
-    //     ctx.is_native,
-    //     ctx.result,
-    //     ctx.thread.stack,
-    //     ctx.thread.stack.get(rollback_index..),
-    //     beginning_scope,
-    //     offset
-    // );
-
     let _ = ctx.thread.stack.truncate(rollback_index);
-
-    // dbg!(dropped_locals.collect::<Vec<_>>());
-    // let last = ctx.thread.stack.pop().expect("stack empty at pop");
-    // ctx.thread.stack.truncate(rollback_index);
-    // ctx.thread.stack.push(last);
-    // Ok(())
 }
 
 macro_rules! make_call_global_function_tail_deopt {
@@ -1921,12 +1818,10 @@ pub(crate) extern "C-unwind" fn should_spill(ctx: *mut VmCore, lookup_index: usi
     }
 }
 
-pub(crate) extern "C-unwind" fn should_spill_value(ctx: *mut VmCore, func: SteelVal) -> bool {
-    unsafe {
-        let this = &mut *ctx;
-        let func = ManuallyDrop::new(func);
-        matches!(&*func, SteelVal::Closure(_))
-    }
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn should_spill_value(_: *mut VmCore, func: SteelVal) -> bool {
+    let func = ManuallyDrop::new(func);
+    matches!(&*func, SteelVal::Closure(_))
 }
 
 // 0 -> No good
@@ -1997,7 +1892,8 @@ pub(crate) extern "C-unwind" fn check_callable_tail(ctx: *mut VmCore, lookup_ind
     }
 }
 
-pub(crate) extern "C-unwind" fn check_callable_value(ctx: *mut VmCore, func: SteelVal) -> bool {
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn check_callable_value(_: *mut VmCore, func: SteelVal) -> bool {
     // Check that the function we're calling is in fact something callable via native code.
     // We'll want to spill the stack otherwise.
     let func = ManuallyDrop::new(func);
@@ -2147,20 +2043,6 @@ make_call_global_function_deopt!(
     (call_global_function_deopt_8, a, b, c, d, e, f, g, h)
 );
 
-// macro_rules! make_call_function_deopt {
-//     ($name:tt, $($typ:ident),*) => {
-//         #[allow(improper_ctypes_definitions)]
-//         pub(crate) extern "C-unwind" fn $name(
-//             ctx: *mut VmCore,
-//             func: SteelVal,
-//             fallback_ip: usize,
-//             $($typ: SteelVal),*
-//         ) -> SteelVal {
-//             unsafe { call_function_deopt(&mut *ctx, func, fallback_ip, &mut [$($typ), *]) }
-//         }
-//     };
-// }
-
 macro_rules! make_call_function_deopt {
     ($(($name:tt, $($typ:ident),*)),*) => {
 
@@ -2293,8 +2175,6 @@ make_call_global_function_deopt_no_arity!(
     )
 );
 
-// Either... return a value, or deopt and yield control back to the runtime.
-// How do we signal to yield back to the runtime?
 #[inline(always)]
 fn call_global_function_deopt(
     ctx: &mut VmCore,
@@ -2302,56 +2182,25 @@ fn call_global_function_deopt(
     fallback_ip: usize,
     args: &mut [SteelVal],
 ) -> SteelVal {
-    // TODO: Only do this if we have to deopt
-    // ctx.ip = fallback_ip;
-
-    // let index = ctx.instructions[ctx.ip].payload_size;
-    // ctx.ip += 1;
-    // let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
     let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
-    // println!(
-    //     "Calling global function: {} @ {} - {:#?}",
-    //     func, fallback_ip, args
-    // );
 
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
-    let should_yield = match &func {
+    match &func {
         SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => {
             ctx.ip = fallback_ip;
-            // println!("{:?}", ctx.instructions[ctx.ip]);
-            false
         }
         SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => {
             ctx.ip = fallback_ip;
             ctx.is_native = false;
-
-            // println!("Deopting to: {}", ctx.ip);
-
-            true
         }
         _ => {
-            // ctx.ip += 1;
             ctx.ip = fallback_ip;
-
-            false
         }
     };
 
-    // if should_yield {
-    //     println!("Yielding");
-    //     ctx.ip = fallback_ip;
-    //     ctx.is_native = false;
-    // } else {
-    //     ctx.ip += 2;
-    // }
-
     match handle_global_function_call_with_args(ctx, func, args) {
-        Ok(v) => {
-            // println!("result: {}", v);
-
-            v
-        }
+        Ok(v) => v,
         Err(e) => {
             // println!("Stack: {:#?}", ctx.thread.stack);
             ctx.is_native = false;
