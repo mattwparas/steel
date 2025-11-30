@@ -1601,81 +1601,81 @@ fn handle_global_function_call_with_args(
     }
 }
 
-#[inline(always)]
-fn handle_global_function_call_with_args_no_arity(
-    ctx: &mut VmCore,
-    stack_func: SteelVal,
-    mut args: SmallVec<[SteelVal; 5]>,
-) -> Result<SteelVal> {
-    match stack_func {
-        SteelVal::FuncV(func) => func(&args).map_err(|x| x.set_span_if_none(ctx.current_span())),
-        SteelVal::BoxedFunction(func) => {
-            func.func()(&args).map_err(|x| x.set_span_if_none(ctx.current_span()))
-        }
-        SteelVal::MutFunc(func) => {
-            func(&mut args).map_err(|x| x.set_span_if_none(ctx.current_span()))
-        }
-        SteelVal::Closure(closure) => {
-            // Just put them all on the stack
-            ctx.thread.stack.extend(args.into_iter());
+// #[inline(always)]
+// fn handle_global_function_call_with_args_no_arity(
+//     ctx: &mut VmCore,
+//     stack_func: SteelVal,
+//     mut args: SmallVec<[SteelVal; 5]>,
+// ) -> Result<SteelVal> {
+//     match stack_func {
+//         SteelVal::FuncV(func) => func(&args).map_err(|x| x.set_span_if_none(ctx.current_span())),
+//         SteelVal::BoxedFunction(func) => {
+//             func.func()(&args).map_err(|x| x.set_span_if_none(ctx.current_span()))
+//         }
+//         SteelVal::MutFunc(func) => {
+//             func(&mut args).map_err(|x| x.set_span_if_none(ctx.current_span()))
+//         }
+//         SteelVal::Closure(closure) => {
+//             // Just put them all on the stack
+//             ctx.thread.stack.extend(args.into_iter());
 
-            if TRAMPOLINE {
-                if let Some(func) = closure.0.super_instructions.as_ref().copied() {
-                    let pop_count = ctx.pop_count;
-                    let depth = ctx.thread.stack_frames.len();
+//             if TRAMPOLINE {
+//                 if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+//                     let pop_count = ctx.pop_count;
+//                     let depth = ctx.thread.stack_frames.len();
 
-                    // Just call handle_function_call_closure_jit
-                    // But then just directly invoke the super instruction
-                    // and snag the return type. That way we don't have
-                    // to yield right away, but we can instead
-                    // just jump in to calling the function.
+//                     // Just call handle_function_call_closure_jit
+//                     // But then just directly invoke the super instruction
+//                     // and snag the return type. That way we don't have
+//                     // to yield right away, but we can instead
+//                     // just jump in to calling the function.
 
-                    // dbg!(&ctx.thread.stack);
+//                     // dbg!(&ctx.thread.stack);
 
-                    // println!("Calling trampoline: {}", depth);
+//                     // println!("Calling trampoline: {}", depth);
 
-                    // Install the function, so that way we can just trampoline
-                    // without needing to spill the stack
-                    ctx.handle_function_call_closure_jit_no_arity(closure)
-                        .unwrap();
+//                     // Install the function, so that way we can just trampoline
+//                     // without needing to spill the stack
+//                     ctx.handle_function_call_closure_jit_no_arity(closure)
+//                         .unwrap();
 
-                    (func)(ctx);
+//                     (func)(ctx);
 
-                    if ctx.is_native {
-                        debug_assert_eq!(ctx.pop_count, pop_count);
-                        debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
+//                     if ctx.is_native {
+//                         debug_assert_eq!(ctx.pop_count, pop_count);
+//                         debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
 
-                        // Don't deopt?
-                        Ok(ctx.thread.stack.pop().unwrap())
-                    } else {
-                        Ok(SteelVal::Void)
-                    }
-                } else {
-                    // We're going to de-opt in this case - unless we intend to do some fun inlining business
-                    ctx.handle_function_call_closure_jit_no_arity(closure)?;
-                    Ok(SteelVal::Void)
-                }
-            } else {
-                ctx.handle_function_call_closure_jit_no_arity(closure)?;
-                Ok(SteelVal::Void)
-            }
-        }
+//                         // Don't deopt?
+//                         Ok(ctx.thread.stack.pop().unwrap())
+//                     } else {
+//                         Ok(SteelVal::Void)
+//                     }
+//                 } else {
+//                     // We're going to de-opt in this case - unless we intend to do some fun inlining business
+//                     ctx.handle_function_call_closure_jit_no_arity(closure)?;
+//                     Ok(SteelVal::Void)
+//                 }
+//             } else {
+//                 ctx.handle_function_call_closure_jit_no_arity(closure)?;
+//                 Ok(SteelVal::Void)
+//             }
+//         }
 
-        // This is probably no good here anyway
-        SteelVal::ContinuationFunction(cc) => {
-            ctx.call_continuation(cc)?;
-            Ok(SteelVal::Void)
-        }
-        SteelVal::BuiltIn(f) => {
-            ctx.call_builtin_func(f, args.len())?;
-            Ok(SteelVal::Void)
-        }
-        _ => {
-            cold();
-            stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); ctx.current_span());
-        }
-    }
-}
+//         // This is probably no good here anyway
+//         SteelVal::ContinuationFunction(cc) => {
+//             ctx.call_continuation(cc)?;
+//             Ok(SteelVal::Void)
+//         }
+//         SteelVal::BuiltIn(f) => {
+//             ctx.call_builtin_func(f, args.len())?;
+//             Ok(SteelVal::Void)
+//         }
+//         _ => {
+//             cold();
+//             stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); ctx.current_span());
+//         }
+//     }
+// }
 
 #[inline(always)]
 pub(crate) extern "C-unwind" fn should_continue(ctx: *mut VmCore) -> bool {
@@ -2146,7 +2146,110 @@ macro_rules! make_call_global_function_deopt_no_arity {
                 fallback_ip: usize,
                 $($typ: SteelVal),*
             ) -> SteelVal {
-                unsafe { call_global_function_deopt_no_arity(&mut *ctx, lookup_index, fallback_ip, smallvec::smallvec![$($typ), *]) }
+                let ctx = unsafe { &mut *ctx };
+
+                let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
+
+                // Deopt -> Meaning, check the return value if we're done - so we just
+                // will eventually check the stashed error.
+                let should_yield = match &func {
+                    SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
+                    SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
+                    _ => false,
+                };
+
+                if should_yield {
+                    ctx.ip = fallback_ip;
+                    ctx.is_native = false;
+                } else {
+                    ctx.ip = fallback_ip;
+                }
+
+                fn inner_handle_global_function_call_with_args_no_arity(
+                    ctx: &mut VmCore,
+                    stack_func: SteelVal,
+                    $($typ: SteelVal),*
+                ) -> Result<SteelVal> {
+                    match stack_func {
+                        SteelVal::FuncV(func) => {
+                            let args = [$($typ),*];
+                            func(&args).map_err(|x| x.set_span_if_none(ctx.current_span()))
+                        },
+                        SteelVal::BoxedFunction(func) => {
+                            let args = [$($typ),*];
+                            func.func()(&args).map_err(|x| x.set_span_if_none(ctx.current_span()))
+                        }
+                        SteelVal::MutFunc(func) => {
+                            let mut args = [$($typ),*];
+                            func(&mut args).map_err(|x| x.set_span_if_none(ctx.current_span()))
+                        }
+                        SteelVal::Closure(closure) => {
+                            // TODO: Consider reserving the amount?
+                            $(
+                                ctx.thread.stack.push($typ);
+                            )*
+
+                            if TRAMPOLINE {
+                                if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                                    let pop_count = ctx.pop_count;
+                                    let depth = ctx.thread.stack_frames.len();
+
+                                    // Install the function, so that way we can just trampoline
+                                    // without needing to spill the stack
+                                    ctx.handle_function_call_closure_jit_no_arity(closure)
+                                        .unwrap();
+
+                                    (func)(ctx);
+
+                                    if ctx.is_native {
+                                        debug_assert_eq!(ctx.pop_count, pop_count);
+                                        debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
+
+                                        // Don't deopt?
+                                        Ok(ctx.thread.stack.pop().unwrap())
+                                    } else {
+                                        Ok(SteelVal::Void)
+                                    }
+                                } else {
+                                    // We're going to de-opt in this case - unless we intend to do some fun inlining business
+                                    ctx.handle_function_call_closure_jit_no_arity(closure)?;
+                                    Ok(SteelVal::Void)
+                                }
+                            } else {
+                                ctx.handle_function_call_closure_jit_no_arity(closure)?;
+                                Ok(SteelVal::Void)
+                            }
+                        }
+
+                        // This is probably no good here anyway
+                        SteelVal::ContinuationFunction(cc) => {
+                            $(
+                                ctx.thread.stack.push($typ);
+                            )*
+                            ctx.call_continuation(cc)?;
+                            Ok(SteelVal::Void)
+                        }
+                        SteelVal::BuiltIn(f) => {
+                            let args: &[SteelVal] = &[$($typ),*];
+                            ctx.call_builtin_func(f, args.len())?;
+                            Ok(SteelVal::Void)
+                        }
+                        _ => {
+                            cold();
+                            stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); ctx.current_span());
+                        }
+                    }
+                }
+
+
+                match inner_handle_global_function_call_with_args_no_arity(ctx, func, $($typ),*) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        ctx.is_native = false;
+                        ctx.result = Some(Err(e));
+                        return SteelVal::Void;
+                    }
+                }
             }
 
         )*
@@ -2252,53 +2355,39 @@ fn call_function_deopt(
     }
 }
 
-#[inline(always)]
-fn call_global_function_deopt_no_arity(
-    ctx: &mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    args: SmallVec<[SteelVal; 5]>,
-) -> SteelVal {
-    // println!("Calling global function no arity @ {}", fallback_ip);
-    // println!("Stack at function call: {:#?}", ctx.thread.stack);
-    // println!("fallback ip: {}", fallback_ip);
+// #[inline(always)]
+// fn call_global_function_deopt_no_arity(
+//     ctx: &mut VmCore,
+//     lookup_index: usize,
+//     fallback_ip: usize,
+//     args: SmallVec<[SteelVal; 5]>,
+// ) -> SteelVal {
+//     let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
 
-    // TODO: Only do this if we have to deopt
-    // ctx.ip = fallback_ip;
+//     // Deopt -> Meaning, check the return value if we're done - so we just
+//     // will eventually check the stashed error.
+//     let should_yield = match &func {
+//         SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
+//         SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
+//         _ => false,
+//     };
 
-    // let index = ctx.instructions[ctx.ip].payload_size;
-    // ctx.ip += 1;
-    // let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
-    let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
-    // println!("Func: {}", func);
+//     if should_yield {
+//         ctx.ip = fallback_ip;
+//         ctx.is_native = false;
+//     } else {
+//         ctx.ip = fallback_ip;
+//     }
 
-    // Deopt -> Meaning, check the return value if we're done - so we just
-    // will eventually check the stashed error.
-    let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
-        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
-        _ => false,
-    };
-
-    if should_yield {
-        // println!("Yielding");
-        // println!("Stack: {:#?}", ctx.thread.stack);
-        ctx.ip = fallback_ip;
-        ctx.is_native = false;
-    } else {
-        ctx.ip = fallback_ip;
-    }
-
-    match handle_global_function_call_with_args_no_arity(ctx, func, args) {
-        Ok(v) => v,
-        Err(e) => {
-            // println!("Stack: {:#?}", ctx.thread.stack);
-            ctx.is_native = false;
-            ctx.result = Some(Err(e));
-            return SteelVal::Void;
-        }
-    }
-}
+//     match handle_global_function_call_with_args_no_arity(ctx, func, args) {
+//         Ok(v) => v,
+//         Err(e) => {
+//             ctx.is_native = false;
+//             ctx.result = Some(Err(e));
+//             return SteelVal::Void;
+//         }
+//     }
+// }
 
 #[inline(always)]
 fn callglobal_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
@@ -2525,12 +2614,235 @@ pub(crate) extern "C-unwind" fn self_tail_call_handler(ctx: *mut VmCore, arity: 
 }
 
 pub(crate) extern "C-unwind" fn self_tail_call_handler_loop(ctx: *mut VmCore, arity: usize) {
-    // println!("Calling self tail call");
+    // println!("Calling self tail call loop");
     let this = unsafe { &mut *ctx };
-    this.ip = 0;
+    // this.ip = 0;
     let back = this.thread.stack.len() - arity;
     let _ = this.thread.stack.drain(this.sp..back);
 }
+
+// macro_rules! count {
+//     () => (0usize);
+//     ( $x:tt $($xs:tt)* ) => (1usize + count!($($xs)*));
+// }
+
+macro_rules! make_self_tail_call_no_arity {
+    ($(($name:tt, $(($typ:ident = $i:expr)),*)),*) => {
+
+        pub struct CallSelfTailCallNoArityDefinitions;
+
+        impl CallSelfTailCallNoArityDefinitions {
+            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+                $(
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, arity: usize, $($typ: SteelVal),*)
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+
+            #[allow(improper_ctypes_definitions)]
+            pub(crate) extern "C-unwind" fn $name(
+                ctx: *mut VmCore,
+                arity: usize,
+                $($typ: SteelVal),*
+            ) {
+                let this = unsafe { &mut *ctx };
+                this.ip = 0;
+                this.is_native = false;
+
+                $(
+                    this.thread.stack[this.sp + $i] = $typ;
+                )*
+
+                this.thread.stack.truncate(this.sp + arity);
+            }
+
+        )*
+    };
+}
+
+make_self_tail_call_no_arity!(
+    (self_tail_call_no_arity_0,),
+    (self_tail_call_no_arity_1, (a = 0)),
+    (self_tail_call_no_arity_2, (a = 0), (b = 1)),
+    (self_tail_call_no_arity_3, (a = 0), (b = 1), (c = 2)),
+    (
+        self_tail_call_no_arity_4,
+        (a = 0),
+        (b = 1),
+        (c = 2),
+        (d = 3)
+    ),
+    (
+        self_tail_call_no_arity_5,
+        (a = 0),
+        (b = 1),
+        (c = 2),
+        (d = 3),
+        (e = 4)
+    ),
+    (
+        self_tail_call_no_arity_6,
+        (a = 0),
+        (b = 1),
+        (c = 2),
+        (d = 3),
+        (e = 4),
+        (f = 5)
+    ),
+    (
+        self_tail_call_no_arity_7,
+        (a = 0),
+        (b = 1),
+        (c = 2),
+        (d = 3),
+        (e = 4),
+        (f = 5),
+        (g = 6)
+    ),
+    (
+        self_tail_call_no_arity_8,
+        (a = 0),
+        (b = 1),
+        (c = 2),
+        (d = 3),
+        (e = 4),
+        (f = 5),
+        (g = 6),
+        (h = 7)
+    )
+);
+
+macro_rules! make_self_tail_call_no_arity_loop {
+    ($(($name:tt, $(($typ:ident = $i:expr)),*)),*) => {
+
+        pub struct CallSelfTailCallNoArityLoopDefinitions;
+
+        impl CallSelfTailCallNoArityLoopDefinitions {
+            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+                $(
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, arity: usize, $($typ: SteelVal),*)
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+
+            #[allow(improper_ctypes_definitions)]
+            pub(crate) extern "C-unwind" fn $name(
+                ctx: *mut VmCore,
+                arity: usize,
+                $($typ: SteelVal),*
+            ) {
+                let this = unsafe { &mut *ctx };
+                // this.ip = 0;
+                // this.is_native = false;
+
+                $(
+                    this.thread.stack[this.sp + $i] = $typ;
+                )*
+
+                this.thread.stack.truncate(this.sp + arity);
+            }
+
+        )*
+    };
+}
+
+make_self_tail_call_no_arity_loop!(
+    (self_tail_call_no_arity_loop_0,),
+    (self_tail_call_no_arity_loop_1, (a = 0)),
+    (self_tail_call_no_arity_loop_2, (a = 0), (b = 1)),
+    (self_tail_call_no_arity_loop_3, (a = 0), (b = 1), (c = 2)),
+    (
+        self_tail_call_no_arity_loop_4,
+        (a = 0),
+        (b = 1),
+        (c = 2),
+        (d = 3)
+    ),
+    (
+        self_tail_call_no_arity_loop_5,
+        (a = 0),
+        (b = 1),
+        (c = 2),
+        (d = 3),
+        (e = 4)
+    ),
+    (
+        self_tail_call_no_arity_loop_6,
+        (a = 0),
+        (b = 1),
+        (c = 2),
+        (d = 3),
+        (e = 4),
+        (f = 5)
+    ),
+    (
+        self_tail_call_no_arity_loop_7,
+        (a = 0),
+        (b = 1),
+        (c = 2),
+        (d = 3),
+        (e = 4),
+        (f = 5),
+        (g = 6)
+    ),
+    (
+        self_tail_call_no_arity_loop_8,
+        (a = 0),
+        (b = 1),
+        (c = 2),
+        (d = 3),
+        (e = 4),
+        (f = 5),
+        (g = 6),
+        (h = 7)
+    )
+);
 
 #[inline(always)]
 fn tcojmp_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {

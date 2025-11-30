@@ -2526,7 +2526,6 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::DynSuperInstruction,
                     ..
                 } => {
-                    // println!(">>>>>> Entering jit call: {}";, self.is_native);
                     // Entering the context of the native code.
                     // If at any point we deopt, we should check this flag on the
                     // runtime, which tells the function to just return and let
@@ -2543,8 +2542,6 @@ impl<'a> VmCore<'a> {
                         .unwrap()(self);
 
                     self.is_native = false;
-
-                    // println!("<<<<<< Exited jit call");
 
                     // println!("Stack: {:#?}", self.thread.stack);
 

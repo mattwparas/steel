@@ -30,6 +30,7 @@ use crate::{
             tcojmp_handler, trampoline, trampoline_no_arity, unbox_handler_c,
             CallFunctionDefinitions, CallGlobalFunctionDefinitions,
             CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
+            CallSelfTailCallNoArityDefinitions, CallSelfTailCallNoArityLoopDefinitions,
         },
         VmCore,
     },
@@ -304,6 +305,8 @@ impl Default for JIT {
         CallGlobalNoArityFunctionDefinitions::register(&mut map);
         CallFunctionDefinitions::register(&mut map);
         CallGlobalTailFunctionDefinitions::register(&mut map);
+        CallSelfTailCallNoArityDefinitions::register(&mut map);
+        CallSelfTailCallNoArityLoopDefinitions::register(&mut map);
 
         map.add_func(
             "trampoline",
@@ -735,9 +738,10 @@ impl JIT {
         }
 
         // trans.builder.switch_to_block(exit_block);
-        // trans.builder.seal_block(exit_block);
 
         trans.builder.ins().return_(&[]);
+
+        trans.builder.seal_block(exit_block);
 
         // Tell the builder we're done with this function.
         trans.builder.finalize();
@@ -922,6 +926,8 @@ impl FunctionTranslator<'_> {
                             self.push_to_vm_stack(value.value);
                         }
                     }
+
+                    println!("Visiting pop: {}", self.ip);
 
                     self.vm_pop(value.0);
 
@@ -1162,11 +1168,29 @@ impl FunctionTranslator<'_> {
                     return false;
                 }
                 OpCode::SELFTAILCALLNOARITY => {
-                    let _ = self.translate_tco_jmp_no_arity(payload);
+                    let kind = std::env::var("TAIL_CALL_KIND").unwrap_or("normal".to_string());
+                    match kind.as_str() {
+                        "normal" => {
+                            let _ = self.translate_tco_jmp_no_arity(payload);
+                        }
+                        "no-spill" => {
+                            let _ = self.translate_tco_jmp_no_arity_without_spill(payload);
+                        }
 
-                    // let _ = self.translate_tco_jmp_no_arity_loop(payload);
+                        "loop-no-spill" => {
+                            let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
+                        }
 
-                    // self.tco = Some(res);
+                        "loop" => {
+                            let _ = self.translate_tco_jmp_no_arity_loop(payload);
+                        }
+                        // TODO: Remove the other ones!
+                        _ => {
+                            let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
+                            // let _ = self.translate_tco_jmp_no_arity(payload);
+                        }
+                    }
+
                     // Jump to out of bounds so signal we're done
                     self.ip = self.instructions.len() + 1;
                     return false;
@@ -1472,14 +1496,102 @@ impl FunctionTranslator<'_> {
         let arg_values = [ctx, arity];
         let call = self.builder.ins().call(local_callee, &arg_values);
 
+        let test = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
+
+        let else_block = self.builder.create_block();
+        // let merge_block = self.builder.create_block();
+
+        // Set up a while loop based on the result of the call.
+        // It is always going to succeed, so we'll just have an if else
+        // and see if that helps us figure out the proper SSA construction.
+
         let fake_entry_block = self.fake_entry_block.unwrap();
 
-        // self.tco = true;
+        // Jump to the fake entry block.
+        //
+        // Construct a fake loop to otherwise jump back to the normal control
+        // flow?
+        self.builder
+            .ins()
+            .brif(test, fake_entry_block, &[], else_block, &[]);
 
-        self.builder.ins().jump(fake_entry_block, &[]);
+        self.builder.switch_to_block(else_block);
+        self.builder.seal_block(else_block);
+    }
+
+    fn translate_tco_jmp_no_arity_loop_no_spill(&mut self, payload: usize) {
+        let name = CallSelfTailCallNoArityLoopDefinitions::arity_to_name(payload).unwrap();
+
+        let mut args_off_the_stack = self
+            .stack
+            .drain(self.stack.len() - payload..)
+            .collect::<Vec<_>>();
+
+        self.maybe_patch_from_stack(&mut args_off_the_stack);
+
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
+
+        let arity = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), payload as i64);
+
+        let mut arg_values = vec![ctx, arity];
+        arg_values.extend(args_off_the_stack.iter().map(|x| x.value));
+        let call = self.builder.ins().call(local_callee, &arg_values);
+
+        let test = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
+
+        let else_block = self.builder.create_block();
+        // let merge_block = self.builder.create_block();
+
+        // Set up a while loop based on the result of the call.
+        // It is always going to succeed, so we'll just have an if else
+        // and see if that helps us figure out the proper SSA construction.
+
+        let fake_entry_block = self.fake_entry_block.unwrap();
+
+        // Jump to the fake entry block.
+        //
+        // Construct a fake loop to otherwise jump back to the normal control
+        // flow?
+        self.builder
+            .ins()
+            .brif(test, fake_entry_block, &[], else_block, &[]);
+
+        self.builder.switch_to_block(else_block);
+        self.builder.seal_block(else_block);
+    }
+
+    fn translate_tco_jmp_no_arity_without_spill(&mut self, payload: usize) {
+        let name = CallSelfTailCallNoArityDefinitions::arity_to_name(payload).unwrap();
+
+        let mut args_off_the_stack = self
+            .stack
+            .drain(self.stack.len() - payload..)
+            .collect::<Vec<_>>();
+
+        self.maybe_patch_from_stack(&mut args_off_the_stack);
+
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
+
+        let arity = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), payload as i64);
+
+        let mut arg_values = vec![ctx, arity];
+        arg_values.extend(args_off_the_stack.iter().map(|x| x.value));
+        let call = self.builder.ins().call(local_callee, &arg_values);
     }
 
     fn translate_tco_jmp_no_arity(&mut self, payload: usize) {
+        // TODO: Don't spill to the stack right away
+        // We can avoid a lot of movement since we can overwrite
+        // the existing values on the stack before they're
+        // pushed on.
         for i in 0..self.stack.len() {
             self.spill(i);
         }
@@ -2023,9 +2135,11 @@ impl FunctionTranslator<'_> {
         then_start: usize,
         else_start: usize,
     ) -> Value {
-        let then_block = dbg!(self.builder.create_block());
-        let else_block = dbg!(self.builder.create_block());
-        let merge_block = dbg!(self.builder.create_block());
+        println!("Visiting if");
+
+        let then_block = self.builder.create_block();
+        let else_block = self.builder.create_block();
+        let merge_block = self.builder.create_block();
 
         // If-else constructs in the toy language have a return value.
         // In traditional SSA form, this would produce a PHI between
