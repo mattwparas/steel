@@ -1438,95 +1438,6 @@ pub(crate) extern "C-unwind" fn push_global(ctx: *mut VmCore, index: usize) -> S
     }
 }
 
-// This... is gonna be super suspect - it could really screw up the ref counts
-// on the constants if its a heap allocated value. So probably need a way to make sure
-// the values are only used once.
-pub(crate) extern "C-unwind" fn callglobal_handler_deopt_3(
-    ctx: *mut VmCore,
-    arg1: i128,
-    arg2: i128,
-    arg3: i128,
-) -> u8 {
-    unsafe {
-        callglobal_handler_deopt_three_args(
-            &mut *ctx,
-            std::mem::transmute(arg1),
-            std::mem::transmute(arg2),
-            std::mem::transmute(arg3),
-        )
-    }
-}
-
-pub(crate) extern "C-unwind" fn callglobal_tail_handler_deopt_3(
-    ctx: *mut VmCore,
-    arg1: i128,
-    arg2: i128,
-    arg3: i128,
-) -> u8 {
-    unsafe {
-        callglobal_tail_handler_deopt(
-            &mut *ctx,
-            &mut [
-                std::mem::transmute(arg1),
-                std::mem::transmute(arg2),
-                std::mem::transmute(arg3),
-            ],
-        )
-    }
-}
-
-// Just... inline the function itself into this?
-// If its a global, its going to be rooted, in theory...
-#[inline(always)]
-fn callglobal_tail_handler_deopt(ctx: &mut VmCore, args: &mut [SteelVal]) -> u8 {
-    let index = ctx.instructions[ctx.ip].payload_size;
-    ctx.ip += 1;
-    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
-    let func = ctx.thread.global_env.repl_lookup_idx(index.to_usize());
-
-    debug_assert!(payload_size == args.len());
-
-    // Deopt -> Meaning, check the return value if we're done - so we just
-    // will eventually check the stashed error.
-    let ret_value = match &func {
-        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => 0,
-        _ => 1,
-    };
-
-    match handle_global_tail_call_deopt_with_args(ctx, func, args) {
-        Ok(v) => {
-            if ret_value == 1 {
-                ctx.thread.stack.push(v);
-                ctx.ip += 1;
-            }
-            return ret_value;
-        }
-        Err(_) => return 0,
-    }
-}
-
-pub(crate) extern "C-unwind" fn callglobal_tail_handler_deopt_3_test(
-    ctx: *mut VmCore,
-    func: i128, // This should be an immediate now.
-    arg1: i128,
-    arg2: i128,
-    arg3: i128,
-    prelude_offset: isize,
-) -> u8 {
-    unsafe {
-        callglobal_tail_handler_deopt_test(
-            &mut *ctx,
-            std::mem::transmute(func),
-            &mut [
-                std::mem::transmute(arg1),
-                std::mem::transmute(arg2),
-                std::mem::transmute(arg3),
-            ],
-            prelude_offset as _,
-        )
-    }
-}
-
 #[inline(always)]
 fn new_callglobal_tail_handler_deopt_test(
     ctx: &mut VmCore,
@@ -1937,44 +1848,67 @@ pub(crate) extern "C-unwind" fn let_end_scope_c(ctx: *mut VmCore, beginning_scop
     // Ok(())
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_0(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-) -> SteelVal {
-    unsafe { new_callglobal_tail_handler_deopt_test(&mut *ctx, lookup_index, fallback_ip, &mut []) }
+macro_rules! make_call_global_function_tail_deopt {
+    ($(($name:tt, $($typ:ident),*)),*) => {
+
+        pub struct CallGlobalTailFunctionDefinitions;
+
+        impl CallGlobalTailFunctionDefinitions {
+            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+                $(
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+
+            #[allow(improper_ctypes_definitions)]
+            pub(crate) extern "C-unwind" fn $name(
+                ctx: *mut VmCore,
+                lookup_index: usize,
+                fallback_ip: usize,
+                $($typ: SteelVal),*
+            ) -> SteelVal {
+                unsafe { new_callglobal_tail_handler_deopt_test(&mut *ctx, lookup_index, fallback_ip, &mut [$($typ), *]) }
+            }
+
+        )*
+    };
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_1(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-) -> SteelVal {
-    unsafe {
-        new_callglobal_tail_handler_deopt_test(&mut *ctx, lookup_index, fallback_ip, &mut [arg0])
-    }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_2(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-    arg1: SteelVal,
-) -> SteelVal {
-    unsafe {
-        new_callglobal_tail_handler_deopt_test(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [arg0, arg1],
-        )
-    }
-}
+make_call_global_function_tail_deopt!(
+    (call_global_function_tail_deopt_0,),
+    (call_global_function_tail_deopt_1, a),
+    (call_global_function_tail_deopt_2, a, b),
+    (call_global_function_tail_deopt_3, a, b, c),
+    (call_global_function_tail_deopt_4, a, b, c, d),
+    (call_global_function_tail_deopt_5, a, b, c, d, e),
+    (call_global_function_tail_deopt_6, a, b, c, d, e, f),
+    (call_global_function_tail_deopt_7, a, b, c, d, e, f, g),
+    (call_global_function_tail_deopt_8, a, b, c, d, e, f, g, h)
+);
 
 // Note: This should only get called with a closure, so we are safe to only
 // check against those.
@@ -2153,312 +2087,211 @@ pub(crate) extern "C-unwind" fn trampoline_no_arity(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_3(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-    arg1: SteelVal,
-    arg2: SteelVal,
-) -> SteelVal {
-    unsafe {
-        new_callglobal_tail_handler_deopt_test(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [arg0, arg1, arg2],
-        )
-    }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_4(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-    arg1: SteelVal,
-    arg2: SteelVal,
-    arg3: SteelVal,
-) -> SteelVal {
-    unsafe {
-        new_callglobal_tail_handler_deopt_test(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [arg0, arg1, arg2, arg3],
-        )
-    }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_5(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-    arg1: SteelVal,
-    arg2: SteelVal,
-    arg3: SteelVal,
-    arg4: SteelVal,
-) -> SteelVal {
-    unsafe {
-        new_callglobal_tail_handler_deopt_test(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [arg0, arg1, arg2, arg3, arg4],
-        )
-    }
-}
-
 macro_rules! make_call_global_function_deopt {
-    ($name:tt, $($typ:ident),*) => {
-        #[allow(improper_ctypes_definitions)]
-        pub(crate) extern "C-unwind" fn $name(
-            ctx: *mut VmCore,
-            lookup_index: usize,
-            fallback_ip: usize,
-            $($typ: SteelVal),*
-        ) -> SteelVal {
-            unsafe { call_global_function_deopt(&mut *ctx, lookup_index, fallback_ip, &mut [$($typ), *]) }
+    ($(($name:tt, $($typ:ident),*)),*) => {
+
+        pub struct CallGlobalFunctionDefinitions;
+
+        impl CallGlobalFunctionDefinitions {
+            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+                $(
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
         }
+
+        $(
+            #[allow(improper_ctypes_definitions)]
+            pub(crate) extern "C-unwind" fn $name(
+                ctx: *mut VmCore,
+                lookup_index: usize,
+                fallback_ip: usize,
+                $($typ: SteelVal),*
+            ) -> SteelVal {
+                unsafe { call_global_function_deopt(&mut *ctx, lookup_index, fallback_ip, &mut [$($typ), *]) }
+            }
+        )*
     };
 }
 
-make_call_global_function_deopt!(call_global_function_deopt_0,);
-make_call_global_function_deopt!(call_global_function_deopt_1, a);
-make_call_global_function_deopt!(call_global_function_deopt_2, a, b);
-make_call_global_function_deopt!(call_global_function_deopt_3, a, b, c);
-make_call_global_function_deopt!(call_global_function_deopt_4, a, b, c, d);
-make_call_global_function_deopt!(call_global_function_deopt_5, a, b, c, d, e);
-make_call_global_function_deopt!(call_global_function_deopt_6, a, b, c, d, e, f);
-make_call_global_function_deopt!(call_global_function_deopt_7, a, b, c, d, e, f, g);
-make_call_global_function_deopt!(call_global_function_deopt_8, a, b, c, d, e, f, g, h);
+make_call_global_function_deopt!(
+    (call_global_function_deopt_0,),
+    (call_global_function_deopt_1, a),
+    (call_global_function_deopt_2, a, b),
+    (call_global_function_deopt_3, a, b, c),
+    (call_global_function_deopt_4, a, b, c, d),
+    (call_global_function_deopt_5, a, b, c, d, e),
+    (call_global_function_deopt_6, a, b, c, d, e, f),
+    (call_global_function_deopt_7, a, b, c, d, e, f, g),
+    (call_global_function_deopt_8, a, b, c, d, e, f, g, h)
+);
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_function_deopt_0(
-    ctx: *mut VmCore,
-    func: SteelVal,
-    fallback_ip: usize,
-) -> SteelVal {
-    unsafe { call_function_deopt(&mut *ctx, func, fallback_ip, &mut []) }
+// macro_rules! make_call_function_deopt {
+//     ($name:tt, $($typ:ident),*) => {
+//         #[allow(improper_ctypes_definitions)]
+//         pub(crate) extern "C-unwind" fn $name(
+//             ctx: *mut VmCore,
+//             func: SteelVal,
+//             fallback_ip: usize,
+//             $($typ: SteelVal),*
+//         ) -> SteelVal {
+//             unsafe { call_function_deopt(&mut *ctx, func, fallback_ip, &mut [$($typ), *]) }
+//         }
+//     };
+// }
+
+macro_rules! make_call_function_deopt {
+    ($(($name:tt, $($typ:ident),*)),*) => {
+
+        pub struct CallFunctionDefinitions;
+
+        impl CallFunctionDefinitions {
+            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+                $(
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+            #[allow(improper_ctypes_definitions)]
+            pub(crate) extern "C-unwind" fn $name(
+                ctx: *mut VmCore,
+                func: SteelVal,
+                fallback_ip: usize,
+                $($typ: SteelVal),*
+            ) -> SteelVal {
+                unsafe { call_function_deopt(&mut *ctx, func, fallback_ip, &mut [$($typ), *]) }
+            }
+        )*
+    };
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_function_deopt_1(
-    ctx: *mut VmCore,
-    func: SteelVal,
-    fallback_ip: usize,
-    arg0: SteelVal,
-) -> SteelVal {
-    unsafe { call_function_deopt(&mut *ctx, func, fallback_ip, &mut [arg0]) }
+make_call_function_deopt!(
+    (call_function_deopt_0,),
+    (call_function_deopt_1, a),
+    (call_function_deopt_2, a, b),
+    (call_function_deopt_3, a, b, c),
+    (call_function_deopt_4, a, b, c, d),
+    (call_function_deopt_5, a, b, c, d, e),
+    (call_function_deopt_6, a, b, c, d, e, f),
+    (call_function_deopt_7, a, b, c, d, e, f, g),
+    (call_function_deopt_8, a, b, c, d, e, f, g, h)
+);
+
+macro_rules! make_call_global_function_deopt_no_arity {
+    ($(($name:tt, $($typ:ident),*)),*) => {
+
+        pub struct CallGlobalNoArityFunctionDefinitions;
+
+        impl CallGlobalNoArityFunctionDefinitions {
+            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+                $(
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+
+            #[allow(improper_ctypes_definitions)]
+            pub(crate) extern "C-unwind" fn $name(
+                ctx: *mut VmCore,
+                lookup_index: usize,
+                fallback_ip: usize,
+                $($typ: SteelVal),*
+            ) -> SteelVal {
+                unsafe { call_global_function_deopt_no_arity(&mut *ctx, lookup_index, fallback_ip, smallvec::smallvec![$($typ), *]) }
+            }
+
+        )*
+    };
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_function_deopt_2(
-    ctx: *mut VmCore,
-    func: SteelVal,
-    fallback_ip: usize,
-    arg0: SteelVal,
-    arg1: SteelVal,
-) -> SteelVal {
-    unsafe { call_function_deopt(&mut *ctx, func, fallback_ip, &mut [arg0, arg1]) }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_function_deopt_3(
-    ctx: *mut VmCore,
-    func: SteelVal,
-    fallback_ip: usize,
-    arg0: SteelVal,
-    arg1: SteelVal,
-    arg2: SteelVal,
-) -> SteelVal {
-    unsafe { call_function_deopt(&mut *ctx, func, fallback_ip, &mut [arg0, arg1, arg2]) }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_deopt_0_no_arity(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-) -> SteelVal {
-    unsafe {
-        call_global_function_deopt_no_arity(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            smallvec::smallvec![],
-        )
-    }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_deopt_1_no_arity(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-) -> SteelVal {
-    unsafe {
-        call_global_function_deopt_no_arity(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            smallvec::smallvec![arg0],
-        )
-    }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_deopt_2_no_arity(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-    arg1: SteelVal,
-) -> SteelVal {
-    unsafe {
-        call_global_function_deopt_no_arity(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            smallvec::smallvec![arg0, arg1],
-        )
-    }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_deopt_3_no_arity(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-    arg1: SteelVal,
-    arg2: SteelVal,
-) -> SteelVal {
-    unsafe {
-        call_global_function_deopt_no_arity(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            smallvec::smallvec![arg0, arg1, arg2],
-        )
-    }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_deopt_4_no_arity(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-    arg1: SteelVal,
-    arg2: SteelVal,
-    arg3: SteelVal,
-) -> SteelVal {
-    unsafe {
-        call_global_function_deopt_no_arity(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            smallvec::smallvec![arg0, arg1, arg2, arg3],
-        )
-    }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_deopt_5_no_arity(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-    arg1: SteelVal,
-    arg2: SteelVal,
-    arg3: SteelVal,
-    arg4: SteelVal,
-) -> SteelVal {
-    unsafe {
-        call_global_function_deopt_no_arity(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            smallvec::smallvec![arg0, arg1, arg2, arg3, arg4],
-        )
-    }
-}
-
-pub(crate) extern "C-unwind" fn call_global_function_deopt_0_func(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-) -> i128 {
-    unsafe {
-        std::mem::transmute(call_global_function_deopt(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [],
-        ))
-    }
-}
-
-pub(crate) extern "C-unwind" fn call_global_function_deopt_1_func(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: i128,
-) -> i128 {
-    unsafe {
-        std::mem::transmute(call_global_function_deopt(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [std::mem::transmute(arg0)],
-        ))
-    }
-}
-
-pub(crate) extern "C-unwind" fn call_global_function_deopt_2_func(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: i128,
-    arg1: i128,
-) -> i128 {
-    unsafe {
-        std::mem::transmute(call_global_function_deopt(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [std::mem::transmute(arg0), std::mem::transmute(arg1)],
-        ))
-    }
-}
-
-pub(crate) extern "C-unwind" fn call_global_function_deopt_3_func(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: i128,
-    arg1: i128,
-    arg2: i128,
-) -> i128 {
-    unsafe {
-        std::mem::transmute(call_global_function_deopt(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [
-                std::mem::transmute(arg0),
-                std::mem::transmute(arg1),
-                std::mem::transmute(arg2),
-            ],
-        ))
-    }
-}
+make_call_global_function_deopt_no_arity!(
+    (call_global_function_deopt_0_no_arity,),
+    (call_global_function_deopt_1_no_arity, a),
+    (call_global_function_deopt_2_no_arity, a, b),
+    (call_global_function_deopt_3_no_arity, a, b, c),
+    (call_global_function_deopt_4_no_arity, a, b, c, d),
+    (call_global_function_deopt_5_no_arity, a, b, c, d, e),
+    (call_global_function_deopt_6_no_arity, a, b, c, d, e, f),
+    (call_global_function_deopt_7_no_arity, a, b, c, d, e, f, g),
+    (
+        call_global_function_deopt_8_no_arity,
+        a,
+        b,
+        c,
+        d,
+        e,
+        f,
+        g,
+        h
+    )
+);
 
 // Either... return a value, or deopt and yield control back to the runtime.
 // How do we signal to yield back to the runtime?
@@ -2619,77 +2452,6 @@ fn call_global_function_deopt_no_arity(
             ctx.result = Some(Err(e));
             return SteelVal::Void;
         }
-    }
-}
-// TODO: Figure this out?
-#[inline(always)]
-fn callglobal_handler_deopt_three_args(
-    ctx: &mut VmCore,
-    arg1: SteelVal,
-    arg2: SteelVal,
-    arg3: SteelVal,
-) -> u8 {
-    let index = ctx.instructions[ctx.ip].payload_size;
-    ctx.ip += 1;
-    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
-    let func = ctx.thread.global_env.repl_lookup_idx(index.to_usize());
-
-    debug_assert!(payload_size == 3);
-
-    // Deopt -> Meaning, check the return value if we're done - so we just
-    // will eventually check the stashed error.
-    let ret_value = match &func {
-        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => 0,
-        _ => 1,
-    };
-
-    match handle_global_function_call_with_args(ctx, func, &mut [arg1, arg2, arg3]) {
-        Ok(_) => return ret_value,
-        Err(_) => return 0,
-    }
-}
-
-#[inline(always)]
-fn callglobal_handler_deopt_two_args(ctx: &mut VmCore, arg1: SteelVal, arg2: SteelVal) -> u8 {
-    let index = ctx.instructions[ctx.ip].payload_size;
-    ctx.ip += 1;
-    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
-    let func = ctx.thread.global_env.repl_lookup_idx(index.to_usize());
-
-    debug_assert!(payload_size == 3);
-
-    // Deopt -> Meaning, check the return value if we're done - so we just
-    // will eventually check the stashed error.
-    let ret_value = match &func {
-        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => 0,
-        _ => 1,
-    };
-
-    match handle_global_function_call_with_args(ctx, func, &mut [arg1, arg2]) {
-        Ok(_) => return ret_value,
-        Err(_) => return 0,
-    }
-}
-
-#[inline(always)]
-fn callglobal_handler_deopt_one_arg(ctx: &mut VmCore, arg1: SteelVal) -> u8 {
-    let index = ctx.instructions[ctx.ip].payload_size;
-    ctx.ip += 1;
-    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
-    let func = ctx.thread.global_env.repl_lookup_idx(index.to_usize());
-
-    debug_assert!(payload_size == 3);
-
-    // Deopt -> Meaning, check the return value if we're done - so we just
-    // will eventually check the stashed error.
-    let ret_value = match &func {
-        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => 0,
-        _ => 1,
-    };
-
-    match handle_global_function_call_with_args(ctx, func, &mut [arg1]) {
-        Ok(_) => return ret_value,
-        Err(_) => return 0,
     }
 }
 

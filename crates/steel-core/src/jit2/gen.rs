@@ -13,32 +13,26 @@ use crate::{
     core::instructions::DenseInstruction,
     steel_vm::vm::{
         jit::{
-            advance_ip, box_handler_c, call_function_deopt_0, call_function_deopt_1,
-            call_function_deopt_2, call_function_deopt_3, call_global_function_deopt_0,
-            call_global_function_deopt_0_no_arity, call_global_function_deopt_1,
-            call_global_function_deopt_1_no_arity, call_global_function_deopt_2,
-            call_global_function_deopt_2_no_arity, call_global_function_deopt_3,
-            call_global_function_deopt_3_no_arity, call_global_function_deopt_4,
-            call_global_function_deopt_4_no_arity, call_global_function_deopt_5,
-            call_global_function_deopt_5_no_arity, call_global_function_tail_deopt_0,
+            advance_ip, box_handler_c, call_global_function_tail_deopt_0,
             call_global_function_tail_deopt_1, call_global_function_tail_deopt_2,
             call_global_function_tail_deopt_3, call_global_function_tail_deopt_4,
-            call_global_function_tail_deopt_5, callglobal_handler_deopt_c,
-            callglobal_tail_handler_deopt_3, callglobal_tail_handler_deopt_3_test,
-            car_handler_value, cdr_handler_value, check_callable, check_callable_spill,
-            check_callable_tail, check_callable_value, cons_handler_value, drop_value, equal_binop,
-            extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
-            extern_c_lte_two, extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler,
-            extern_c_sub_two, extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value,
-            if_handler_value, let_end_scope_c, move_read_local_0_value_c,
-            move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
-            move_read_local_any_value_c, not_handler_raw_value, num_equal_int, num_equal_value,
-            num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
-            push_global, push_to_vm_stack, push_to_vm_stack_let_var, push_to_vm_stack_two,
-            read_local_0_value_c, read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
+            call_global_function_tail_deopt_5, callglobal_handler_deopt_c, car_handler_value,
+            cdr_handler_value, check_callable, check_callable_spill, check_callable_tail,
+            check_callable_value, cons_handler_value, drop_value, equal_binop, extern_c_add_two,
+            extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
+            extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler, extern_c_sub_two,
+            extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value, if_handler_value,
+            let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
+            move_read_local_2_value_c, move_read_local_3_value_c, move_read_local_any_value_c,
+            not_handler_raw_value, num_equal_int, num_equal_value, num_equal_value_unboxed,
+            pop_value, push_const_value_c, push_const_value_index_c, push_global, push_to_vm_stack,
+            push_to_vm_stack_let_var, push_to_vm_stack_two, read_local_0_value_c,
+            read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
             read_local_any_value_c, self_tail_call_handler, set_ctx_ip, set_handler_c,
             setbox_handler_c, should_continue, should_spill, should_spill_value, tcojmp_handler,
-            trampoline, trampoline_no_arity, unbox_handler_c,
+            trampoline, trampoline_no_arity, unbox_handler_c, CallFunctionDefinitions,
+            CallGlobalFunctionDefinitions, CallGlobalNoArityFunctionDefinitions,
+            CallGlobalTailFunctionDefinitions,
         },
         VmCore,
     },
@@ -66,7 +60,7 @@ pub struct JIT {
     function_map: OwnedFunctionMap,
 }
 
-struct FunctionMap<'a> {
+pub struct FunctionMap<'a> {
     map: HashMap<&'static str, Box<dyn FunctionToCranelift + Send + Sync + 'static>>,
     map2: HashMap<&'static str, Box<dyn FunctionToCranelift2 + Send + Sync + 'static>>,
     return_type_hints: HashMap<&'static str, InferredType>,
@@ -129,12 +123,12 @@ impl<'a> FunctionMap<'a> {
     }
 }
 
-trait FunctionToCranelift {
+pub trait FunctionToCranelift {
     fn to_cranelift(&self, module: &JITModule) -> Signature;
     fn as_pointer(&self) -> *const u8;
 }
 
-trait FunctionToCranelift2 {
+pub trait FunctionToCranelift2 {
     fn to_cranelift(&self, module: &JITModule) -> Signature;
     fn as_pointer(&self) -> *const u8;
 }
@@ -200,6 +194,8 @@ register_function_pointers_return!(A, B, C, D, E);
 register_function_pointers_return!(A, B, C, D, E, F);
 register_function_pointers_return!(A, B, C, D, E, F, G);
 register_function_pointers_return!(A, B, C, D, E, F, G, H);
+register_function_pointers_return!(A, B, C, D, E, F, G, H, I);
+register_function_pointers_return!(A, B, C, D, E, F, G, H, I, J);
 
 fn type_to_ir_type<T>() -> Type {
     Type::int(std::mem::size_of::<T>() as u16 * 8).unwrap()
@@ -261,18 +257,6 @@ impl Default for JIT {
             callglobal_handler_deopt_c as extern "C-unwind" fn(*mut VmCore) -> u8,
         );
 
-        map.add_func(
-            "call-global-tail-3",
-            callglobal_tail_handler_deopt_3
-                as extern "C-unwind" fn(*mut VmCore, i128, i128, i128) -> u8,
-        );
-
-        map.add_func(
-            "call-global-tail-3-test",
-            callglobal_tail_handler_deopt_3_test
-                as extern "C-unwind" fn(*mut VmCore, i128, i128, i128, i128, isize) -> u8,
-        );
-
         // Value functions:
         map.add_func(
             "num-equal-value",
@@ -329,121 +313,10 @@ impl Default for JIT {
             extern_handle_pop as extern "C-unwind" fn(*mut VmCore, SteelVal),
         );
 
-        // 0 => "call-func-deopt-0",
-        // 1 => "call-func-deopt-1",
-        // 2 => "call-func-deopt-2",
-        // 3 => "call-func-deopt-3",
-
-        map.add_func(
-            "call-func-deopt-0",
-            call_function_deopt_0 as extern "C-unwind" fn(*mut VmCore, SteelVal, usize) -> SteelVal,
-        );
-        map.add_func(
-            "call-func-deopt-1",
-            call_function_deopt_1
-                as extern "C-unwind" fn(*mut VmCore, SteelVal, usize, SteelVal) -> SteelVal,
-        );
-        map.add_func(
-            "call-func-deopt-2",
-            call_function_deopt_2
-                as extern "C-unwind" fn(
-                    *mut VmCore,
-                    SteelVal,
-                    usize,
-                    SteelVal,
-                    SteelVal,
-                ) -> SteelVal,
-        );
-        map.add_func(
-            "call-func-deopt-3",
-            call_function_deopt_3
-                as extern "C-unwind" fn(
-                    *mut VmCore,
-                    SteelVal,
-                    usize,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                ) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-deopt-0",
-            call_global_function_deopt_0
-                as extern "C-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-deopt-1",
-            call_global_function_deopt_1
-                as extern "C-unwind" fn(*mut VmCore, usize, usize, SteelVal) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-deopt-2",
-            call_global_function_deopt_2
-                as extern "C-unwind" fn(*mut VmCore, usize, usize, SteelVal, SteelVal) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-deopt-no-arity-0",
-            call_global_function_deopt_0_no_arity
-                as extern "C-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-deopt-no-arity-1",
-            call_global_function_deopt_1_no_arity
-                as extern "C-unwind" fn(*mut VmCore, usize, usize, SteelVal) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-deopt-no-arity-2",
-            call_global_function_deopt_2_no_arity
-                as extern "C-unwind" fn(*mut VmCore, usize, usize, SteelVal, SteelVal) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-deopt-no-arity-3",
-            call_global_function_deopt_3_no_arity
-                as extern "C-unwind" fn(
-                    *mut VmCore,
-                    usize,
-                    usize,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                ) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-deopt-no-arity-4",
-            call_global_function_deopt_4_no_arity
-                as extern "C-unwind" fn(
-                    *mut VmCore,
-                    usize,
-                    usize,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                ) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-deopt-no-arity-5",
-            call_global_function_deopt_5_no_arity
-                as extern "C-unwind" fn(
-                    *mut VmCore,
-                    usize,
-                    usize,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                ) -> SteelVal,
-        );
+        CallGlobalFunctionDefinitions::register(&mut map);
+        CallGlobalNoArityFunctionDefinitions::register(&mut map);
+        CallFunctionDefinitions::register(&mut map);
+        CallGlobalTailFunctionDefinitions::register(&mut map);
 
         map.add_func(
             "trampoline",
@@ -453,48 +326,6 @@ impl Default for JIT {
         map.add_func(
             "trampoline-no-arity",
             trampoline_no_arity as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-deopt-3",
-            call_global_function_deopt_3
-                as extern "C-unwind" fn(
-                    *mut VmCore,
-                    usize,
-                    usize,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                ) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-deopt-4",
-            call_global_function_deopt_4
-                as extern "C-unwind" fn(
-                    *mut VmCore,
-                    usize,
-                    usize,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                ) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-deopt-5",
-            call_global_function_deopt_5
-                as extern "C-unwind" fn(
-                    *mut VmCore,
-                    usize,
-                    usize,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                ) -> SteelVal,
         );
 
         map.add_func(
@@ -628,81 +459,6 @@ impl Default for JIT {
             InferredType::Number,
         );
         map.add_func_hint("div-two", extern_c_div_two as VmBinOp, InferredType::Number);
-
-        map.add_func(
-            "call-global-function-tail-deopt-0",
-            call_global_function_tail_deopt_0
-                as extern "C-unwind" fn(
-                    ctx: *mut VmCore,
-                    lookup_index: usize,
-                    fallback_ip: usize,
-                ) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-tail-deopt-1",
-            call_global_function_tail_deopt_1
-                as extern "C-unwind" fn(
-                    ctx: *mut VmCore,
-                    lookup_index: usize,
-                    fallback_ip: usize,
-                    arg0: SteelVal,
-                ) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-tail-deopt-2",
-            call_global_function_tail_deopt_2
-                as extern "C-unwind" fn(
-                    ctx: *mut VmCore,
-                    lookup_index: usize,
-                    fallback_ip: usize,
-                    arg0: SteelVal,
-                    arg1: SteelVal,
-                ) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-tail-deopt-3",
-            call_global_function_tail_deopt_3
-                as extern "C-unwind" fn(
-                    ctx: *mut VmCore,
-                    lookup_index: usize,
-                    fallback_ip: usize,
-                    arg0: SteelVal,
-                    arg1: SteelVal,
-                    arg2: SteelVal,
-                ) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-tail-deopt-4",
-            call_global_function_tail_deopt_4
-                as extern "C-unwind" fn(
-                    ctx: *mut VmCore,
-                    lookup_index: usize,
-                    fallback_ip: usize,
-                    arg0: SteelVal,
-                    arg1: SteelVal,
-                    arg2: SteelVal,
-                    arg4: SteelVal,
-                ) -> SteelVal,
-        );
-
-        map.add_func(
-            "call-global-function-tail-deopt-5",
-            call_global_function_tail_deopt_5
-                as extern "C-unwind" fn(
-                    ctx: *mut VmCore,
-                    lookup_index: usize,
-                    fallback_ip: usize,
-                    arg0: SteelVal,
-                    arg1: SteelVal,
-                    arg2: SteelVal,
-                    arg3: SteelVal,
-                    arg4: SteelVal,
-                ) -> SteelVal,
-        );
 
         // TODO: Pick up from here!
         map.add_func("read-local-0", read_local_0_value_c as Vm01);
@@ -1382,13 +1138,7 @@ impl FunctionTranslator<'_> {
                 // Call func... lets see how this goes...
                 OpCode::FUNC => {
                     let arity = payload;
-                    let name = match arity {
-                        0 => "call-func-deopt-0",
-                        1 => "call-func-deopt-1",
-                        2 => "call-func-deopt-2",
-                        3 => "call-func-deopt-3",
-                        other => todo!(),
-                    };
+                    let name = CallFunctionDefinitions::arity_to_name(arity).unwrap();
 
                     let v = self.call_function(arity, name);
                     self.ip += 1;
@@ -1564,15 +1314,8 @@ impl FunctionTranslator<'_> {
                     let function_index = payload;
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
-                    let name = match arity {
-                        0 => "call-global-function-tail-deopt-0",
-                        1 => "call-global-function-tail-deopt-1",
-                        2 => "call-global-function-tail-deopt-2",
-                        3 => "call-global-function-tail-deopt-3",
-                        4 => "call-global-function-tail-deopt-4",
-                        5 => "call-global-function-tail-deopt-5",
-                        other => todo!("{}", other),
-                    };
+
+                    let name = CallGlobalTailFunctionDefinitions::arity_to_name(arity).unwrap();
 
                     // This function pushes back on to the stack, and then we should just
                     // return since we're done now.
@@ -1587,15 +1330,7 @@ impl FunctionTranslator<'_> {
                     let function_index = payload;
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
-                    let name = match arity {
-                        0 => "call-global-function-deopt-no-arity-0",
-                        1 => "call-global-function-deopt-no-arity-1",
-                        2 => "call-global-function-deopt-no-arity-2",
-                        3 => "call-global-function-deopt-no-arity-3",
-                        4 => "call-global-function-deopt-no-arity-4",
-                        5 => "call-global-function-deopt-no-arity-5",
-                        other => todo!("{}", other),
-                    };
+                    let name = CallGlobalNoArityFunctionDefinitions::arity_to_name(arity).unwrap();
 
                     let result = self.call_global_function(arity, name, function_index, false);
 
@@ -1610,15 +1345,7 @@ impl FunctionTranslator<'_> {
                     let function_index = payload;
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
-                    let name = match arity {
-                        0 => "call-global-function-deopt-0",
-                        1 => "call-global-function-deopt-1",
-                        2 => "call-global-function-deopt-2",
-                        3 => "call-global-function-deopt-3",
-                        4 => "call-global-function-deopt-4",
-                        5 => "call-global-function-deopt-5",
-                        other => todo!("{}", other),
-                    };
+                    let name = CallGlobalFunctionDefinitions::arity_to_name(arity).unwrap();
 
                     let result = self.call_global_function(arity, name, function_index, false);
 
