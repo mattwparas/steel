@@ -2213,95 +2213,29 @@ pub(crate) extern "C-unwind" fn call_global_function_tail_deopt_5(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_deopt_0(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-) -> SteelVal {
-    unsafe { call_global_function_deopt(&mut *ctx, lookup_index, fallback_ip, &mut []) }
+macro_rules! make_call_global_function_deopt {
+    ($name:tt, $($typ:ident),*) => {
+        #[allow(improper_ctypes_definitions)]
+        pub(crate) extern "C-unwind" fn $name(
+            ctx: *mut VmCore,
+            lookup_index: usize,
+            fallback_ip: usize,
+            $($typ: SteelVal),*
+        ) -> SteelVal {
+            unsafe { call_global_function_deopt(&mut *ctx, lookup_index, fallback_ip, &mut [$($typ), *]) }
+        }
+    };
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_deopt_1(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-) -> SteelVal {
-    unsafe { call_global_function_deopt(&mut *ctx, lookup_index, fallback_ip, &mut [arg0]) }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_deopt_2(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-    arg1: SteelVal,
-) -> SteelVal {
-    unsafe { call_global_function_deopt(&mut *ctx, lookup_index, fallback_ip, &mut [arg0, arg1]) }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_deopt_3(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-    arg1: SteelVal,
-    arg2: SteelVal,
-) -> SteelVal {
-    unsafe {
-        call_global_function_deopt(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [arg0, arg1, arg2],
-        )
-    }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_deopt_4(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-    arg1: SteelVal,
-    arg2: SteelVal,
-    arg3: SteelVal,
-) -> SteelVal {
-    unsafe {
-        call_global_function_deopt(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [arg0, arg1, arg2, arg3],
-        )
-    }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn call_global_function_deopt_5(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-    fallback_ip: usize,
-    arg0: SteelVal,
-    arg1: SteelVal,
-    arg2: SteelVal,
-    arg3: SteelVal,
-    arg4: SteelVal,
-) -> SteelVal {
-    unsafe {
-        call_global_function_deopt(
-            &mut *ctx,
-            lookup_index,
-            fallback_ip,
-            &mut [arg0, arg1, arg2, arg3, arg4],
-        )
-    }
-}
+make_call_global_function_deopt!(call_global_function_deopt_0,);
+make_call_global_function_deopt!(call_global_function_deopt_1, a);
+make_call_global_function_deopt!(call_global_function_deopt_2, a, b);
+make_call_global_function_deopt!(call_global_function_deopt_3, a, b, c);
+make_call_global_function_deopt!(call_global_function_deopt_4, a, b, c, d);
+make_call_global_function_deopt!(call_global_function_deopt_5, a, b, c, d, e);
+make_call_global_function_deopt!(call_global_function_deopt_6, a, b, c, d, e, f);
+make_call_global_function_deopt!(call_global_function_deopt_7, a, b, c, d, e, f, g);
+make_call_global_function_deopt!(call_global_function_deopt_8, a, b, c, d, e, f, g, h);
 
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn call_function_deopt_0(
