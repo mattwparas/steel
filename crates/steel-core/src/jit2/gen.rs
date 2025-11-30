@@ -678,7 +678,7 @@ impl JIT {
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
 
         // Create the entry block, to start emitting code in.
-        let entry_block = dbg!(builder.create_block());
+        let entry_block = builder.create_block();
         builder.append_block_params_for_function_params(entry_block);
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
@@ -688,7 +688,7 @@ impl JIT {
             .any(|x| matches!(x.op_code, OpCode::TCOJMP | OpCode::SELFTAILCALLNOARITY));
 
         let fake_entry_block = if contains_tail_call {
-            let fake_entry = dbg!(builder.create_block());
+            let fake_entry = builder.create_block();
             builder.ins().jump(fake_entry, &[]);
             builder.switch_to_block(fake_entry);
 
@@ -926,8 +926,6 @@ impl FunctionTranslator<'_> {
                             self.push_to_vm_stack(value.value);
                         }
                     }
-
-                    println!("Visiting pop: {}", self.ip);
 
                     self.vm_pop(value.0);
 
@@ -2135,7 +2133,7 @@ impl FunctionTranslator<'_> {
         then_start: usize,
         else_start: usize,
     ) -> Value {
-        println!("Visiting if");
+        // println!("Visiting if");
 
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
@@ -2169,12 +2167,12 @@ impl FunctionTranslator<'_> {
         // let local_count = self.local_count;
         let frozen_patched = self.patched_locals.clone();
         let frozen_stack = self.stack.clone();
-        let tco = self.tco;
+        // let tco = self.tco;
 
         self.stack_to_ssa();
 
-        println!("Done on then");
-        println!("tco: {}", self.tco);
+        // println!("Done on then");
+        // println!("tco: {}", self.tco);
 
         // println!("Stack after then branch: {:?}", self.stack);
 
@@ -2214,13 +2212,13 @@ impl FunctionTranslator<'_> {
         self.stack_to_ssa();
 
         if self.tco {
-            println!("Getting here");
+            // println!("Getting here");
             // Set the return value to be the
             // tail called return value?
             self.ip = self.instructions.len() + 1;
 
             // Switch to the merge block for subsequent statements.
-            self.builder.switch_to_block(dbg!(merge_block));
+            self.builder.switch_to_block(merge_block);
 
             // We've now seen all the predecessors of the merge block.
             self.builder.seal_block(merge_block);

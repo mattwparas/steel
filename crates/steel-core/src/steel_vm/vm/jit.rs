@@ -2363,7 +2363,6 @@ fn call_function_deopt(
 //     args: SmallVec<[SteelVal; 5]>,
 // ) -> SteelVal {
 //     let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
-
 //     // Deopt -> Meaning, check the return value if we're done - so we just
 //     // will eventually check the stashed error.
 //     let should_yield = match &func {
@@ -2371,14 +2370,12 @@ fn call_function_deopt(
 //         SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
 //         _ => false,
 //     };
-
 //     if should_yield {
 //         ctx.ip = fallback_ip;
 //         ctx.is_native = false;
 //     } else {
 //         ctx.ip = fallback_ip;
 //     }
-
 //     match handle_global_function_call_with_args_no_arity(ctx, func, args) {
 //         Ok(v) => v,
 //         Err(e) => {
