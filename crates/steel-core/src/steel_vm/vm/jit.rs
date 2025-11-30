@@ -2202,7 +2202,6 @@ fn call_global_function_deopt(
     match handle_global_function_call_with_args(ctx, func, args) {
         Ok(v) => v,
         Err(e) => {
-            // println!("Stack: {:#?}", ctx.thread.stack);
             ctx.is_native = false;
             ctx.result = Some(Err(e));
             return SteelVal::Void;
@@ -2236,9 +2235,6 @@ fn call_function_deopt(
     };
 
     if should_yield {
-        // println!("Deopt in local function call");
-        // println!("Function: {}", func);
-        // ctx.ip = dbg!(fallback_ip + 1);
         ctx.ip = fallback_ip;
 
         ctx.is_native = !should_yield;

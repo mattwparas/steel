@@ -816,13 +816,11 @@ impl JIT {
             module: &mut self.module,
             instructions: bytecode,
             ip: 0,
-            sp: 0,
             globals,
             stack: Vec::new(),
             arity,
             constants,
             patched_locals: Vec::new(),
-            function_map: &self.function_map,
             function_context,
             id: func_id,
             call_global_all_native: false,
@@ -888,8 +886,6 @@ struct FunctionTranslator<'a> {
     // here.
     stack: Vec<StackValue>,
 
-    sp: usize,
-
     // Local value mapping, can allow
     // us to elide type checks if we have them
     value_to_local_map: HashMap<Value, usize>,
@@ -904,8 +900,6 @@ struct FunctionTranslator<'a> {
     let_var_stack: Vec<usize>,
 
     patched_locals: Vec<bool>,
-
-    function_map: &'a OwnedFunctionMap,
 
     function_context: Option<usize>,
 
