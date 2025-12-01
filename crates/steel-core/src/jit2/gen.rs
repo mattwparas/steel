@@ -247,7 +247,7 @@ impl Default for JIT {
 
         map.add_func(
             "not-value",
-            not_handler_raw_value as extern "C-unwind" fn(*mut VmCore, i128) -> i128,
+            not_handler_raw_value as extern "C-unwind" fn(*mut VmCore, SteelVal) -> SteelVal,
         );
 
         map.add_func(
@@ -717,7 +717,6 @@ impl JIT {
             stack: Vec::new(),
             arity,
             constants,
-            patched_locals: Vec::new(),
             function_context,
             id: func_id,
             call_global_all_native: false,
@@ -802,8 +801,6 @@ struct FunctionTranslator<'a> {
     tco: bool,
 
     let_var_stack: Vec<usize>,
-
-    patched_locals: Vec<bool>,
 
     function_context: Option<usize>,
 
@@ -1031,9 +1028,22 @@ impl FunctionTranslator<'_> {
                 // it will only be used one. Read local does since we want
                 // to clone it
                 OpCode::READLOCAL | OpCode::MOVEREADLOCAL => {
-                    if payload + 1 > self.arity as _ {
-                        let upper_bound = payload + 1 - self.arity as usize;
+                    // if payload + 1 > self.arity as _ {
+                    //     let upper_bound = payload + 1 - self.arity as usize;
+                    //     for i in 0..upper_bound {
+                    //         self.spill(i);
+                    //     }
+                    // }
+
+                    let let_var_offset = self.let_var_stack.last().copied().unwrap_or(0);
+
+                    if payload > self.arity as usize + let_var_offset {
+                        let upper_bound = payload - self.arity as usize - let_var_offset;
+
                         for i in 0..upper_bound {
+                            // for i in 0..(payload + 1 - self.arity as usize) {
+                            // let value = self.stack.remove(i);
+                            // self.push_to_vm_stack(value.value);
                             self.spill(i);
                         }
                     }
@@ -1092,6 +1102,8 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
 
                     let spilled = self.stack.last().unwrap().spilled;
+
+                    assert!(!spilled);
 
                     // self.spill(self.stack.len() - 1);
 
@@ -1169,7 +1181,8 @@ impl FunctionTranslator<'_> {
                     let kind = std::env::var("TAIL_CALL_KIND").unwrap_or("normal".to_string());
                     match kind.as_str() {
                         "normal" => {
-                            let _ = self.translate_tco_jmp_no_arity(payload);
+                            // let _ = self.translate_tco_jmp_no_arity(payload);
+                            let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
                         }
                         "no-spill" => {
                             let _ = self.translate_tco_jmp_no_arity_without_spill(payload);
@@ -1247,8 +1260,6 @@ impl FunctionTranslator<'_> {
                 // of values that are retained on the stack for
                 // further usage.
                 OpCode::BEGINSCOPE => {
-                    self.patched_locals.push(false);
-
                     self.let_var_stack.push(0);
 
                     for arg in 0..self.stack.len() {
@@ -1264,8 +1275,6 @@ impl FunctionTranslator<'_> {
                     self.let_var_stack.pop();
 
                     self.call_end_scope_handler(payload);
-
-                    self.patched_locals.pop();
                 }
 
                 OpCode::SUB
@@ -2165,7 +2174,6 @@ impl FunctionTranslator<'_> {
 
         let let_stack = self.let_var_stack.clone();
         // let local_count = self.local_count;
-        let frozen_patched = self.patched_locals.clone();
         let frozen_stack = self.stack.clone();
         // let tco = self.tco;
 
@@ -2182,6 +2190,7 @@ impl FunctionTranslator<'_> {
             self.stack
                 .pop()
                 .map(|x| {
+                    assert!(!x.spilled);
                     let value = x.value;
                     self.value_to_local_map.remove(&value);
                     value
@@ -2205,34 +2214,34 @@ impl FunctionTranslator<'_> {
 
         self.tco = false;
         self.let_var_stack = let_stack;
-        self.patched_locals = frozen_patched;
         self.stack = frozen_stack;
         // let token_return_value = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
 
         self.stack_to_ssa();
 
-        if self.tco {
-            // println!("Getting here");
-            // Set the return value to be the
-            // tail called return value?
-            self.ip = self.instructions.len() + 1;
+        // if self.tco {
+        //     // println!("Getting here");
+        //     // Set the return value to be the
+        //     // tail called return value?
+        //     self.ip = self.instructions.len() + 1;
 
-            // Switch to the merge block for subsequent statements.
-            self.builder.switch_to_block(merge_block);
+        //     // Switch to the merge block for subsequent statements.
+        //     self.builder.switch_to_block(merge_block);
 
-            // We've now seen all the predecessors of the merge block.
-            self.builder.seal_block(merge_block);
+        //     // We've now seen all the predecessors of the merge block.
+        //     self.builder.seal_block(merge_block);
 
-            let phi = self.builder.block_params(merge_block)[0];
+        //     let phi = self.builder.block_params(merge_block)[0];
 
-            return phi;
-        }
+        //     return phi;
+        // }
 
         // let else_return = self.stack.pop().unwrap().0;
         let else_return = BlockArg::Value(
             self.stack
                 .pop()
                 .map(|x| {
+                    assert!(!x.spilled);
                     let value = x.value;
                     self.value_to_local_map.remove(&value);
                     value

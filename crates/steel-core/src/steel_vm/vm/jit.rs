@@ -51,12 +51,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                     let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
                     instructions[0].op_code = OpCode::DynSuperInstruction;
 
-                    // let tail_call = instructions
-                    //     .iter()
-                    //     .any(|x| matches!(x.op_code, OpCode::SELFTAILCALLNOARITY | OpCode::TCOJMP));
-
                     func.body_exp = Arc::from(instructions.into_boxed_slice());
-                    // func.tail_call = tail_call;
 
                     let return_func = Gc::new(func);
                     ctx.thread
@@ -1283,6 +1278,9 @@ pub(crate) extern "C-unwind" fn extern_c_sub_two_int(a: SteelVal, b: SteelVal) -
                 res.into_steelval().unwrap()
             }
         },
+        SteelVal::BigNum(n) => {
+            todo!("found big: {:?}", n);
+        }
         _ => {
             todo!("{}", a)
         }
@@ -1492,11 +1490,22 @@ fn handle_global_tail_call_deopt_with_args(
 
         // This is probably no good here anyway
         SteelVal::ContinuationFunction(cc) => {
+            for val in args {
+                ctx.thread
+                    .stack
+                    .push(std::mem::replace(val, SteelVal::Void));
+            }
             ctx.call_continuation(cc)?;
             Ok(SteelVal::Void)
         }
         SteelVal::BuiltIn(f) => {
-            ctx.call_builtin_func(f, args.len())?;
+            let len = args.len();
+            for val in args {
+                ctx.thread
+                    .stack
+                    .push(std::mem::replace(val, SteelVal::Void));
+            }
+            ctx.call_builtin_func(f, len)?;
             Ok(SteelVal::Void)
         }
         // CustomStruct(s) => self.call_custom_struct(&s, payload_size),
@@ -1587,11 +1596,22 @@ fn handle_global_function_call_with_args(
 
         // This is probably no good here anyway
         SteelVal::ContinuationFunction(cc) => {
+            for val in args {
+                ctx.thread
+                    .stack
+                    .push(std::mem::replace(val, SteelVal::Void));
+            }
             ctx.call_continuation(cc)?;
             Ok(SteelVal::Void)
         }
         SteelVal::BuiltIn(f) => {
-            ctx.call_builtin_func(f, args.len())?;
+            let len = args.len();
+            for val in args {
+                ctx.thread
+                    .stack
+                    .push(std::mem::replace(val, SteelVal::Void));
+            }
+            ctx.call_builtin_func(f, len)?;
             Ok(SteelVal::Void)
         }
         _ => {
@@ -2230,8 +2250,14 @@ macro_rules! make_call_global_function_deopt_no_arity {
                             Ok(SteelVal::Void)
                         }
                         SteelVal::BuiltIn(f) => {
-                            let args: &[SteelVal] = &[$($typ),*];
-                            ctx.call_builtin_func(f, args.len())?;
+                            let args: [SteelVal; _] = [$($typ),*];
+                            let len = args.len();
+
+                            for arg in args {
+                                ctx.thread.stack.push(arg);
+                            }
+
+                            ctx.call_builtin_func(f, len)?;
                             Ok(SteelVal::Void)
                         }
                         _ => {
@@ -2494,9 +2520,8 @@ pub(crate) extern "C-unwind" fn if_handler_raw_value(_: *mut VmCore, value: i128
     // result
 }
 
-pub(crate) extern "C-unwind" fn not_handler_raw_value(_: *mut VmCore, value: i128) -> i128 {
-    let test: SteelVal = unsafe { std::mem::transmute(value) };
-    unsafe { std::mem::transmute(SteelVal::BoolV(!test.is_truthy())) }
+pub(crate) extern "C-unwind" fn not_handler_raw_value(_: *mut VmCore, value: SteelVal) -> SteelVal {
+    SteelVal::BoolV(!value.is_truthy())
 }
 
 // Pop the value off?
