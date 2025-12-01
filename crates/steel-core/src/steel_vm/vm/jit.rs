@@ -5,7 +5,7 @@ use steel_gen::opcode::{MAX_OPCODE_SIZE, OPCODES_ARRAY};
 use super::VmCore;
 use crate::{
     gc::Gc,
-    primitives::lists::cons,
+    primitives::lists::{cons, list_ref},
     rvals::Result,
     steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive},
     SteelVal,
@@ -273,6 +273,58 @@ pub extern "C-unwind" fn pop_value(ctx: *mut VmCore) -> SteelVal {
 pub extern "C-unwind" fn car_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     unsafe { &mut *ctx }.ip += 2;
     match car(&arg) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn list_ref_handler_c(
+    ctx: *mut VmCore,
+    list: SteelVal,
+    index: SteelVal,
+) -> SteelVal {
+    fn inner_list_ref(list: SteelVal, index: SteelVal) -> Result<SteelVal> {
+        if let SteelVal::ListV(l) = list {
+            if let SteelVal::IntV(i) = index {
+                list_ref(&l, i)
+            } else {
+                stop!(TypeMismatch => "list-ref expected an integer, found: {}", index);
+            }
+        } else {
+            stop!(TypeMismatch => "list-ref expected a list, found: {}", list);
+        }
+    }
+
+    match inner_list_ref(list, index) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn vector_ref_handler_c(
+    ctx: *mut VmCore,
+    vec: SteelVal,
+    index: SteelVal,
+) -> SteelVal {
+    match vec_ref(&vec, &index) {
         Ok(v) => v,
         Err(e) => {
             unsafe {

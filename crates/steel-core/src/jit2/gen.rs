@@ -20,15 +20,15 @@ use crate::{
             extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
             extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler, extern_c_sub_two,
             extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value, if_handler_value,
-            let_end_scope_c, list_handler_c, move_read_local_0_value_c, move_read_local_1_value_c,
-            move_read_local_2_value_c, move_read_local_3_value_c, move_read_local_any_value_c,
-            not_handler_raw_value, num_equal_int, num_equal_value, num_equal_value_unboxed,
-            pop_value, push_const_value_c, push_const_value_index_c, push_global, push_to_vm_stack,
-            push_to_vm_stack_let_var, push_to_vm_stack_two, read_local_0_value_c,
-            read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
+            let_end_scope_c, list_handler_c, list_ref_handler_c, move_read_local_0_value_c,
+            move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
+            move_read_local_any_value_c, not_handler_raw_value, num_equal_int, num_equal_value,
+            num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
+            push_global, push_to_vm_stack, push_to_vm_stack_let_var, push_to_vm_stack_two,
+            read_local_0_value_c, read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
             read_local_any_value_c, self_tail_call_handler, self_tail_call_handler_loop,
             set_handler_c, setbox_handler_c, should_continue, should_spill, should_spill_value,
-            tcojmp_handler, trampoline, trampoline_no_arity, unbox_handler_c,
+            tcojmp_handler, trampoline, trampoline_no_arity, unbox_handler_c, vector_ref_handler_c,
             CallFunctionDefinitions, CallGlobalFunctionDefinitions,
             CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
             CallSelfTailCallNoArityDefinitions, CallSelfTailCallNoArityLoopDefinitions,
@@ -414,13 +414,19 @@ impl Default for JIT {
         #[allow(improper_ctypes_definitions)]
         type BinOp = extern "C-unwind" fn(a: SteelVal, b: SteelVal) -> SteelVal;
 
+        // TODO: Add type checked variants as well which can allow
+        // passing through unboxed values on the stack
         map.add_func("car-handler-value", car_handler_value as Vm02);
         map.add_func("cdr-handler-value", cdr_handler_value as Vm02);
         map.add_func("cons-handler-value", cons_handler_value as VmBinOp);
 
+        // TODO: Add type checked variants as well which can allow
+        // passing through unboxed values on the stack
         map.add_func("box-handler", box_handler_c as Vm02);
         map.add_func("unbox-handler", unbox_handler_c as Vm02);
         map.add_func("set-box-handler", setbox_handler_c as VmBinOp);
+        map.add_func("list-ref-value", list_ref_handler_c as VmBinOp);
+        map.add_func("vector-ref-value", vector_ref_handler_c as VmBinOp);
 
         map.add_func("push-const", push_const_value_c as Vm01);
         map.add_func(
@@ -777,15 +783,32 @@ impl JIT {
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum InferredType {
+    // Could be either an i64 or a big int
     Int,
-    // Is just straight up, unboxed
+    // Is just straight up, unboxed, meaning
+    // its represented by a u8 on the stack on not
+    // a 128.
     UnboxedBool,
+
+    // Generic number, could be anything
     Number,
+
+    // Boxed boolean
     Bool,
+
     List,
     Any,
+
+    // Boxed value. Eventually we can introduce Box<T> types,
+    // but those will need to get stored within the type checker
+    // context
     Box,
     Void,
+    Pair,
+
+    // Narrowed version, list or pair, for operations that can
+    // work on both
+    ListOrPair,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -847,6 +870,11 @@ pub fn split_big(a: i128) -> [i64; 2] {
     [(a >> 64) as i64, a as i64]
 }
 
+pub fn encode_big(tag: u8, payload: i64) -> i128 {
+    let tag = tag as i128;
+    ((payload as i128) << 64) | tag as i128
+}
+
 // We should be able to read local values off the stack.
 // Functions _will_ be called via reading from the stack, so the locals will be there,
 // but any other values pushed to the stack do not necessarily have to get pushed on
@@ -893,6 +921,9 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::NEWBOX, _) => "box-handler",
         (OpCode::UNBOX, _) => "unbox-handler",
         (OpCode::SETBOX, _) => "set-box-handler",
+
+        (OpCode::LISTREF, _) => "list-ref-value",
+        (OpCode::VECTORREF, _) => "vector-ref-value",
 
         other => panic!(
             "couldn't match the name for the op code + payload: {:?}",
@@ -996,10 +1027,11 @@ impl FunctionTranslator<'_> {
                     let false_instr = self.instructions[self.ip].payload_size;
                     let true_instr = self.ip + 1;
 
-                    // TODO: @Matt come back here and adjust IP correctly
                     let test_bool = if typ == InferredType::Bool {
                         let amount_to_shift = self.builder.ins().iconst(Type::int(64).unwrap(), 64);
                         let shift_right = self.builder.ins().sshr(test, amount_to_shift);
+
+                        // Do we need to do this at all?
                         self.builder
                             .ins()
                             .ireduce(Type::int(8).unwrap(), shift_right)
@@ -1453,12 +1485,15 @@ impl FunctionTranslator<'_> {
                 OpCode::Apply => todo!(),
                 OpCode::LOADINT0POP => todo!(),
                 OpCode::LOADINT2POP => todo!(),
-                OpCode::CaseLambdaDispatch => todo!(),
                 OpCode::CGLOCALCONST => todo!(),
                 OpCode::READLOCAL0CALLGLOBAL => todo!(),
                 OpCode::READLOCAL1CALLGLOBAL => todo!(),
-                OpCode::LISTREF => todo!(),
-                OpCode::VECTORREF => todo!(),
+                OpCode::LISTREF => {
+                    self.func_ret_val(op, 2, 2, InferredType::Any);
+                }
+                OpCode::VECTORREF => {
+                    self.func_ret_val(op, 2, 2, InferredType::Any);
+                }
                 OpCode::NULLIF => todo!(),
                 OpCode::UNBOXCALL => todo!(),
                 OpCode::UNBOXTAIL => todo!(),
@@ -2332,11 +2367,21 @@ impl FunctionTranslator<'_> {
         let [left, right] = split_big(value);
         let int = Type::int(64).unwrap();
 
+        // Payload
         let lhs = self.builder.ins().iconst(int, left);
+
+        // Tag
         let rhs = self.builder.ins().iconst(int, right);
 
         // TODO:
         self.builder.ins().iconcat(rhs, lhs)
+    }
+
+    // If this is an unboxed value, then we need to cast the value
+    // to the requisite type if its a boolean.
+    fn encode_value(&mut self, tag: i64, value: Value) -> Value {
+        let tag = self.builder.ins().iconst(Type::int(64).unwrap(), tag);
+        self.builder.ins().iconcat(tag, value)
     }
 
     fn translate_if_else_value(

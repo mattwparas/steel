@@ -2,36 +2,12 @@ use serde::{Deserialize, Serialize};
 
 macro_rules! declare_opcodes {
 
-    ( { $($variant:tt);* } { $( [ $super:tt => $(($k:path, $v:expr),)* ] );* } ) => {
+    ( { $($variant:tt);* } ) => {
         // #[repr(u8)]
         #[derive(Copy, Clone, Debug, Hash, PartialEq, Serialize, Deserialize, Eq, PartialOrd, Ord)]
         pub enum OpCode {
             $($variant),*
-
-            ,
-
-            $($super),*
         }
-
-        // $( const $super: &'static [(TestOpCode, usize)] = &[ $($v),* ]; )*
-
-        pub const fn op_code_to_super_instruction_pattern(op_code: OpCode) -> Option<&'static [(OpCode, usize)]> {
-            match op_code {
-                $(OpCode::$super => Some( &[ $(($k, $v)),* ]) ),* ,
-                _ => None
-            }
-        }
-
-        pub const fn sequence_to_opcode(pattern: &[(OpCode, usize)]) -> Option<OpCode> {
-            match pattern {
-                $(&[ $(($k, _)),* ] => Some(OpCode::$super) ),* ,
-                _ => None
-            }
-        }
-
-        pub static PATTERNS: &'static [&'static [(OpCode, usize)]] = &[
-                $( &[ $(($k, $v)),* ] ),* ,
-        ];
 
         pub const MAX_OPCODE_SIZE: usize = OpCode::SELFTAILCALLNOARITY as usize + 1;
 
@@ -154,23 +130,23 @@ declare_opcodes! {
     }
 
     // Super instructions
-    {
+    // {
 
 
-        [
-            CaseLambdaDispatch =>
-                                  (OpCode::BEGINSCOPE, 0),
-                                  (OpCode::READLOCAL0, 0),
-                                  (OpCode::CALLGLOBAL, 75),
-                                  (OpCode::FUNC, 1),
-                                  (OpCode::READLOCAL1, 1),
-                                  (OpCode::PUSHCONST, 565),
-                                  (OpCode::CALLGLOBAL, 75),
-                                  (OpCode::FUNC, 1),
-                                  (OpCode::NUMEQUAL, 2),
-                                  (OpCode::PASS, 2),
-                                  (OpCode::IF, 22),
-        ]
+        // [
+        //     CaseLambdaDispatch =>
+        //                           (OpCode::BEGINSCOPE, 0),
+        //                           (OpCode::READLOCAL0, 0),
+        //                           (OpCode::CALLGLOBAL, 75),
+        //                           (OpCode::FUNC, 1),
+        //                           (OpCode::READLOCAL1, 1),
+        //                           (OpCode::PUSHCONST, 565),
+        //                           (OpCode::CALLGLOBAL, 75),
+        //                           (OpCode::FUNC, 1),
+        //                           (OpCode::NUMEQUAL, 2),
+        //                           (OpCode::PASS, 2),
+        //                           (OpCode::IF, 22),
+        // ]
 
         // [
         //     ReadLocal1PushConstEqualIf => (OpCode::READLOCAL1, 1),
@@ -217,7 +193,7 @@ declare_opcodes! {
         //         (SUB, 2),
         //         (CALLGLOBAL, 1),
 
-    }
+    // }
 }
 
 // // expansion
@@ -402,7 +378,6 @@ impl OpCode {
             OpCode::LOADINT0POP => todo!(),
             OpCode::LOADINT1POP => todo!(),
             OpCode::LOADINT2POP => todo!(),
-            OpCode::CaseLambdaDispatch => todo!(),
             _ => todo!(),
         }
     }
