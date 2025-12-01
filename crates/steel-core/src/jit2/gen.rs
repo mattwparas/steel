@@ -1028,22 +1028,12 @@ impl FunctionTranslator<'_> {
                 // it will only be used one. Read local does since we want
                 // to clone it
                 OpCode::READLOCAL | OpCode::MOVEREADLOCAL => {
-                    // if payload + 1 > self.arity as _ {
-                    //     let upper_bound = payload + 1 - self.arity as usize;
-                    //     for i in 0..upper_bound {
-                    //         self.spill(i);
-                    //     }
-                    // }
-
                     let let_var_offset = self.let_var_stack.last().copied().unwrap_or(0);
 
                     if payload > self.arity as usize + let_var_offset {
                         let upper_bound = payload - self.arity as usize - let_var_offset;
 
                         for i in 0..upper_bound {
-                            // for i in 0..(payload + 1 - self.arity as usize) {
-                            // let value = self.stack.remove(i);
-                            // self.push_to_vm_stack(value.value);
                             self.spill(i);
                         }
                     }
