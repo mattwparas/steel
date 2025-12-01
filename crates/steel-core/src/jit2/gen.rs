@@ -13,24 +13,25 @@ use crate::{
     core::instructions::DenseInstruction,
     steel_vm::vm::{
         jit::{
-            box_handler_c, callglobal_handler_deopt_c, car_handler_value, cdr_handler_value,
-            check_callable, check_callable_spill, check_callable_tail, check_callable_value,
-            cons_handler_value, drop_value, equal_binop, extern_c_add_two, extern_c_div_two,
-            extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
-            extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler, extern_c_sub_two,
-            extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value, if_handler_value,
-            let_end_scope_c, move_read_local_0_value_c, move_read_local_1_value_c,
-            move_read_local_2_value_c, move_read_local_3_value_c, move_read_local_any_value_c,
-            not_handler_raw_value, num_equal_int, num_equal_value, num_equal_value_unboxed,
-            pop_value, push_const_value_c, push_const_value_index_c, push_global, push_to_vm_stack,
-            push_to_vm_stack_let_var, push_to_vm_stack_two, read_local_0_value_c,
-            read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
+            box_handler_c, callglobal_handler_deopt_c, callglobal_tail_handler_deopt_spilled,
+            car_handler_value, cdr_handler_value, check_callable, check_callable_spill,
+            check_callable_tail, check_callable_value, cons_handler_value, drop_value, equal_binop,
+            extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
+            extern_c_lte_two, extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler,
+            extern_c_sub_two, extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value,
+            if_handler_value, let_end_scope_c, list_handler_c, move_read_local_0_value_c,
+            move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
+            move_read_local_any_value_c, not_handler_raw_value, num_equal_int, num_equal_value,
+            num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
+            push_global, push_to_vm_stack, push_to_vm_stack_let_var, push_to_vm_stack_two,
+            read_local_0_value_c, read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
             read_local_any_value_c, self_tail_call_handler, self_tail_call_handler_loop,
             set_handler_c, setbox_handler_c, should_continue, should_spill, should_spill_value,
             tcojmp_handler, trampoline, trampoline_no_arity, unbox_handler_c,
             CallFunctionDefinitions, CallGlobalFunctionDefinitions,
             CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
             CallSelfTailCallNoArityDefinitions, CallSelfTailCallNoArityLoopDefinitions,
+            ListHandlerDefinitions,
         },
         VmCore,
     },
@@ -194,6 +195,13 @@ register_function_pointers_return!(A, B, C, D, E, F, G);
 register_function_pointers_return!(A, B, C, D, E, F, G, H);
 register_function_pointers_return!(A, B, C, D, E, F, G, H, I);
 register_function_pointers_return!(A, B, C, D, E, F, G, H, I, J);
+register_function_pointers_return!(A, B, C, D, E, F, G, H, I, J, K);
+register_function_pointers_return!(A, B, C, D, E, F, G, H, I, J, K, L);
+register_function_pointers_return!(A, B, C, D, E, F, G, H, I, J, K, L, M);
+register_function_pointers_return!(A, B, C, D, E, F, G, H, I, J, K, L, M, N);
+register_function_pointers_return!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O);
+register_function_pointers_return!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P);
+register_function_pointers_return!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q);
 
 fn type_to_ir_type<T>() -> Type {
     Type::int(std::mem::size_of::<T>() as u16 * 8).unwrap()
@@ -255,6 +263,17 @@ impl Default for JIT {
             callglobal_handler_deopt_c as extern "C-unwind" fn(*mut VmCore) -> u8,
         );
 
+        map.add_func(
+            "call-global-tail-spilled",
+            callglobal_tail_handler_deopt_spilled
+                as extern "C-unwind" fn(*mut VmCore, usize, usize, usize) -> SteelVal,
+        );
+
+        map.add_func(
+            "list-handler-spilled",
+            list_handler_c as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
+        );
+
         // Value functions:
         map.add_func(
             "num-equal-value",
@@ -307,6 +326,7 @@ impl Default for JIT {
         CallGlobalTailFunctionDefinitions::register(&mut map);
         CallSelfTailCallNoArityDefinitions::register(&mut map);
         CallSelfTailCallNoArityLoopDefinitions::register(&mut map);
+        ListHandlerDefinitions::register(&mut map);
 
         map.add_func(
             "trampoline",
@@ -991,11 +1011,16 @@ impl FunctionTranslator<'_> {
                 // Call func... lets see how this goes...
                 OpCode::FUNC | OpCode::FUNCNOARITY => {
                     let arity = payload;
-                    let name = CallFunctionDefinitions::arity_to_name(arity).unwrap();
-
-                    let v = self.call_function(arity, name);
+                    let name = CallFunctionDefinitions::arity_to_name(arity);
                     self.ip += 1;
-                    self.push(v, InferredType::Any);
+
+                    if let Some(name) = name {
+                        let v = self.call_function(arity, name);
+                        self.push(v, InferredType::Any);
+                    } else {
+                        todo!("Implement spilled function call");
+                    }
+
                     self.check_deopt();
                 }
                 OpCode::SCLOSURE => todo!(),
@@ -1168,29 +1193,29 @@ impl FunctionTranslator<'_> {
                     return false;
                 }
                 OpCode::SELFTAILCALLNOARITY => {
-                    let kind = std::env::var("TAIL_CALL_KIND").unwrap_or("normal".to_string());
-                    match kind.as_str() {
-                        "normal" => {
-                            // let _ = self.translate_tco_jmp_no_arity(payload);
-                            let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
-                        }
-                        "no-spill" => {
-                            let _ = self.translate_tco_jmp_no_arity_without_spill(payload);
-                        }
+                    // let kind = std::env::var("TAIL_CALL_KIND").unwrap_or("normal".to_string());
+                    // match kind.as_str() {
+                    //     "normal" => {
+                    //         // let _ = self.translate_tco_jmp_no_arity(payload);
+                    let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
+                    //     }
+                    //     "no-spill" => {
+                    //         let _ = self.translate_tco_jmp_no_arity_without_spill(payload);
+                    //     }
 
-                        "loop-no-spill" => {
-                            let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
-                        }
+                    //     "loop-no-spill" => {
+                    //         let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
+                    //     }
 
-                        "loop" => {
-                            let _ = self.translate_tco_jmp_no_arity_loop(payload);
-                        }
-                        // TODO: Remove the other ones!
-                        _ => {
-                            let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
-                            // let _ = self.translate_tco_jmp_no_arity(payload);
-                        }
-                    }
+                    //     "loop" => {
+                    //         let _ = self.translate_tco_jmp_no_arity_loop(payload);
+                    //     }
+                    //     // TODO: Remove the other ones!
+                    //     _ => {
+                    //         let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
+                    //         // let _ = self.translate_tco_jmp_no_arity(payload);
+                    //     }
+                    // }
 
                     // Jump to out of bounds so signal we're done
                     self.ip = self.instructions.len() + 1;
@@ -1201,13 +1226,22 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
 
-                    let name = CallGlobalTailFunctionDefinitions::arity_to_name(arity).unwrap();
+                    let name = CallGlobalTailFunctionDefinitions::arity_to_name(arity);
 
-                    // This function pushes back on to the stack, and then we should just
-                    // return since we're done now.
-                    let v = self.call_global_function(arity, name, function_index, true);
+                    if let Some(name) = name {
+                        // This function pushes back on to the stack, and then we should just
+                        // return since we're done now.
+                        let v = self.call_global_function(arity, name, function_index, true);
 
-                    self.push(v, InferredType::Any);
+                        self.push(v, InferredType::Any);
+                    } else {
+                        let name = "call-global-tail-spilled";
+
+                        let v =
+                            self.call_global_function_spilled(arity, name, function_index, true);
+
+                        self.push(v, InferredType::Any)
+                    }
 
                     self.check_deopt();
 
@@ -1218,12 +1252,16 @@ impl FunctionTranslator<'_> {
                     let function_index = payload;
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
-                    let name = CallGlobalNoArityFunctionDefinitions::arity_to_name(arity).unwrap();
+                    let name = CallGlobalNoArityFunctionDefinitions::arity_to_name(arity);
 
-                    let result = self.call_global_function(arity, name, function_index, false);
+                    if let Some(name) = name {
+                        let result = self.call_global_function(arity, name, function_index, false);
 
-                    // Assuming this worked, we'll want to push this result on to the stack.
-                    self.push(result, InferredType::Any);
+                        // Assuming this worked, we'll want to push this result on to the stack.
+                        self.push(result, InferredType::Any);
+                    } else {
+                        todo!("implement call global no arity spill");
+                    }
 
                     // Then, we're gonna check the result and see if we should deopt
                     self.check_deopt();
@@ -1233,12 +1271,17 @@ impl FunctionTranslator<'_> {
                     let function_index = payload;
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
-                    let name = CallGlobalFunctionDefinitions::arity_to_name(arity).unwrap();
 
-                    let result = self.call_global_function(arity, name, function_index, false);
+                    let name = CallGlobalFunctionDefinitions::arity_to_name(arity);
 
-                    // Assuming this worked, we'll want to push this result on to the stack.
-                    self.push(result, InferredType::Any);
+                    if let Some(name) = name {
+                        let result = self.call_global_function(arity, name, function_index, false);
+
+                        // Assuming this worked, we'll want to push this result on to the stack.
+                        self.push(result, InferredType::Any);
+                    } else {
+                        todo!("implement call global spill")
+                    }
 
                     // Then, we're gonna check the result and see if we should deopt
                     self.check_deopt();
@@ -1316,7 +1359,41 @@ impl FunctionTranslator<'_> {
                 OpCode::CDR => {
                     self.func_ret_val(op, 1, 2, InferredType::List);
                 }
-                OpCode::LIST => todo!(),
+                OpCode::LIST => {
+                    // Return a list:
+                    self.ip += 1;
+                    let arity = self.instructions[self.ip].payload_size.to_usize();
+                    self.ip += 1;
+
+                    if let Some(function_name) = ListHandlerDefinitions::arity_to_name(arity) {
+                        let args = self.split_off(payload);
+                        let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
+
+                        let result = self.call_function_returns_value_args(function_name, &args);
+
+                        // Check the inferred type, if we know of it
+                        self.push(result, InferredType::List);
+                    } else {
+                        let args = self.split_off(payload);
+
+                        for arg in args {
+                            self.push_to_vm_stack(arg.0);
+                        }
+
+                        let arity_value = self
+                            .builder
+                            .ins()
+                            .iconst(Type::int(64).unwrap(), arity as i64);
+
+                        let result = self.call_function_returns_value_args(
+                            "list-handler-spilled",
+                            &[arity_value],
+                        );
+
+                        // Check the inferred type, if we know of it
+                        self.push(result, InferredType::List);
+                    }
+                }
                 OpCode::CAR => {
                     if let Some(last) = self.stack.last().copied() {
                         self.mark_local_type_from_var(last, InferredType::List);
@@ -1739,6 +1816,130 @@ impl FunctionTranslator<'_> {
         assert_eq!(args_off_the_stack.len(), arity);
 
         arg_values.extend(args_off_the_stack.iter().map(|x| x.value));
+
+        // TODO: @Matt
+        // Instead of being binary, this should return multiple values, and
+        // we should check the conditions:
+        //
+        // 1. Is this a function
+        // 2. If its a function, is it native. If its native, continue.
+        // 3. If its a bytecode function, we should spill no matter what.
+        // 4. If its not a bytecode function, we should bail.
+        //
+        // Check if its a function - otherwise, just spill the values to the stack.
+        let is_function = self.check_function(lookup_index, tail);
+
+        {
+            let then_block = self.builder.create_block();
+            let else_block = self.builder.create_block();
+            let merge_block = self.builder.create_block();
+
+            self.builder.append_block_param(merge_block, self.int);
+
+            self.builder
+                .ins()
+                .brif(is_function, then_block, &[], else_block, &[]);
+
+            self.builder.switch_to_block(then_block);
+            self.builder.seal_block(then_block);
+
+            // Do nothing
+            let then_return = BlockArg::Value(self.create_i128(0));
+
+            // Check callable - TODO: Insert these checks elsewhere too!
+            let should_spill = self.check_should_spill(lookup_index);
+
+            let spill_block = self.builder.create_block();
+
+            self.builder
+                .ins()
+                .brif(should_spill, spill_block, &[], merge_block, &[then_return]);
+
+            self.builder.switch_to_block(spill_block);
+            self.builder.seal_block(spill_block);
+
+            for c in self.stack.clone() {
+                if !c.spilled {
+                    self.push_to_vm_stack_function_spill(c.value);
+                }
+            }
+
+            self.builder.ins().jump(merge_block, &[then_return]);
+
+            self.builder.switch_to_block(else_block);
+            self.builder.seal_block(else_block);
+
+            for c in self.stack.clone() {
+                if !c.spilled {
+                    self.push_to_vm_stack_function_spill(c.value);
+                }
+            }
+
+            let else_return = BlockArg::Value(self.create_i128(0));
+
+            self.builder.ins().jump(merge_block, &[else_return]);
+
+            // Switch to the merge block for subsequent statements.
+            self.builder.switch_to_block(merge_block);
+
+            // We've now seen all the predecessors of the merge block.
+            self.builder.seal_block(merge_block);
+        }
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+    }
+
+    fn call_global_function_spilled(
+        &mut self,
+        arity: usize,
+        name: &str,
+        function_index: usize,
+        tail: bool,
+    ) -> Value {
+        let local_callee = self.get_local_callee(name);
+
+        let ctx = self.get_ctx();
+
+        let lookup_index = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), function_index as i64);
+
+        let fallback_ip = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+        let arity_value = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), arity as i64);
+
+        // Advance to the next thing
+        self.ip += 1;
+
+        let arg_values = vec![ctx, lookup_index, fallback_ip, arity_value];
+
+        // If any of these have been spilled, we have to pop them off
+        // of the shadow stack and use them
+        let args_off_the_stack = self
+            .stack
+            .drain(self.stack.len() - arity..)
+            .collect::<Vec<_>>();
+
+        // self.maybe_patch_from_stack(&mut args_off_the_stack);
+
+        for arg in &args_off_the_stack {
+            if !arg.spilled {
+                self.push_to_vm_stack(arg.value);
+            }
+        }
+
+        assert_eq!(args_off_the_stack.len(), arity);
+
+        // arg_values.extend(args_off_the_stack.iter().map(|x| x.value));
 
         // TODO: @Matt
         // Instead of being binary, this should return multiple values, and

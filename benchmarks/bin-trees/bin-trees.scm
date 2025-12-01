@@ -32,9 +32,7 @@
         (node (make (- item2 1) d2) item (make item2 d2)))))
 
 (define (check t)
-  (if (leaf? t)
-      1
-      (+ 1 (+ (check (node-left t)) (check (node-right t))))))
+  (if (leaf? t) 1 (+ 1 (+ (check (node-left t)) (check (node-right t))))))
 
 ; (set! check check)
 ; (set! make make)
@@ -52,9 +50,7 @@
 
 (define (iterate n m d sum)
   ; (stdout-simple-displayln n " " m " " d " " sum)
-  (if (equal? n m)
-      sum
-      (iterate (+ n 1) m d (+ sum (check (make n d))))))
+  (if (equal? n m) sum (iterate (+ n 1) m d (+ sum (check (make n d))))))
 
 ; (inspect iterate)
 

@@ -1457,6 +1457,40 @@ fn new_callglobal_tail_handler_deopt_test(
     }
 }
 
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn callglobal_tail_handler_deopt_spilled(
+    ctx: *mut VmCore,
+    index: usize,
+    fallback_ip: usize,
+    arity: usize,
+) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
+    let func = ctx.thread.global_env.repl_lookup_idx(index);
+    let should_yield = match &func {
+        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
+        _ => false,
+    };
+
+    if should_yield {
+        ctx.ip = fallback_ip;
+        ctx.is_native = !should_yield;
+    } else {
+        ctx.ip += 1;
+    }
+
+    match handle_global_tail_call_deopt_spilled(ctx, func, arity) {
+        Ok(v) => {
+            return v;
+        }
+        Err(e) => {
+            ctx.is_native = false;
+            ctx.result = Some(Err(e));
+
+            return SteelVal::Void;
+        }
+    }
+}
+
 #[inline(always)]
 fn handle_global_tail_call_deopt_with_args(
     ctx: &mut VmCore,
@@ -1506,6 +1540,55 @@ fn handle_global_tail_call_deopt_with_args(
                     .push(std::mem::replace(val, SteelVal::Void));
             }
             ctx.call_builtin_func(f, len)?;
+            Ok(SteelVal::Void)
+        }
+        // CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+
+        // Literaly anything else, just push on to the stack
+        // and fall back to the main loop?
+        _ => {
+            cold();
+            stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); ctx.current_span());
+        }
+    }
+}
+
+#[inline(always)]
+fn handle_global_tail_call_deopt_spilled(
+    ctx: &mut VmCore,
+    stack_func: SteelVal,
+    arity: usize,
+) -> Result<SteelVal> {
+    match stack_func {
+        SteelVal::FuncV(func) => func(&ctx.thread.stack[ctx.thread.stack.len() - arity..])
+            .map_err(|x| x.set_span_if_none(ctx.current_span())),
+        SteelVal::BoxedFunction(func) => {
+            func.func()(&ctx.thread.stack[ctx.thread.stack.len() - arity..])
+                .map_err(|x| x.set_span_if_none(ctx.current_span()))
+        }
+        SteelVal::MutFunc(func) => {
+            let len = ctx.thread.stack.len();
+            func(&mut ctx.thread.stack[len - arity..])
+                .map_err(|x| x.set_span_if_none(ctx.current_span()))
+        }
+
+        SteelVal::Closure(closure) => {
+            // TODO:
+            // Just write directly to the earlier spot.
+            // println!("stack before calling closure: {:#?}", ctx.thread.stack);
+
+            // We're going to de-opt in this case - unless we intend to do some fun inlining business
+            ctx.new_handle_tail_call_closure(closure, arity)?;
+            Ok(SteelVal::Void)
+        }
+
+        // This is probably no good here anyway
+        SteelVal::ContinuationFunction(cc) => {
+            ctx.call_continuation(cc)?;
+            Ok(SteelVal::Void)
+        }
+        SteelVal::BuiltIn(f) => {
+            ctx.call_builtin_func(f, arity)?;
             Ok(SteelVal::Void)
         }
         // CustomStruct(s) => self.call_custom_struct(&s, payload_size),
@@ -1826,6 +1909,83 @@ make_call_global_function_tail_deopt!(
     (call_global_function_tail_deopt_7, a, b, c, d, e, f, g),
     (call_global_function_tail_deopt_8, a, b, c, d, e, f, g, h)
 );
+
+macro_rules! make_list_handlers {
+    ($(($name:tt, $($typ:ident),*)),*) => {
+
+        pub struct ListHandlerDefinitions;
+
+        impl ListHandlerDefinitions {
+            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+                $(
+                    map.add_func2(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn($($typ: SteelVal),*) -> SteelVal
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+
+            #[allow(improper_ctypes_definitions)]
+            pub(crate) extern "C-unwind" fn $name(
+                $($typ: SteelVal),*
+            ) -> SteelVal {
+                // unsafe { new_callglobal_tail_handler_deopt_test(&mut *ctx, lookup_index, fallback_ip, &mut [$($typ), *]) }
+
+                SteelVal::ListV(vec![$($typ),*].into())
+            }
+
+        )*
+    };
+}
+
+make_list_handlers!(
+    (make_list_0,),
+    (make_list_1, a),
+    (make_list_2, a, b),
+    (make_list_3, a, b, c),
+    (make_list_4, a, b, c, d),
+    (make_list_5, a, b, c, d, e),
+    (make_list_6, a, b, c, d, e, f),
+    (make_list_7, a, b, c, d, e, f, g),
+    (make_list_8, a, b, c, d, e, f, g, h),
+    (make_list_9, a, b, c, d, e, f, g, h, i),
+    (make_list_10, a, b, c, d, e, f, g, h, i, j),
+    (make_list_11, a, b, c, d, e, f, g, h, i, j, k),
+    (make_list_12, a, b, c, d, e, f, g, h, i, j, k, l),
+    (make_list_13, a, b, c, d, e, f, g, h, i, j, k, l, m),
+    (make_list_14, a, b, c, d, e, f, g, h, i, j, k, l, m, n),
+    (make_list_15, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o),
+    (make_list_16, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)
+);
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn list_handler_c(ctx: *mut VmCore<'_>, payload: usize) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
+    let last_index = ctx.thread.stack.len() - payload;
+    let remaining = ctx.thread.stack.split_off(last_index);
+    SteelVal::ListV(remaining.into())
+}
 
 // Note: This should only get called with a closure, so we are safe to only
 // check against those.
