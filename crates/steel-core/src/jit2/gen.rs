@@ -13,18 +13,19 @@ use crate::{
     core::instructions::DenseInstruction,
     steel_vm::vm::{
         jit::{
-            box_handler_c, callglobal_handler_deopt_c, callglobal_tail_handler_deopt_spilled,
-            car_handler_value, cdr_handler_value, check_callable, check_callable_spill,
-            check_callable_tail, check_callable_value, cons_handler_value, drop_value, equal_binop,
-            extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
-            extern_c_lte_two, extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler,
-            extern_c_sub_two, extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value,
-            if_handler_value, let_end_scope_c, list_handler_c, move_read_local_0_value_c,
-            move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
-            move_read_local_any_value_c, not_handler_raw_value, num_equal_int, num_equal_value,
-            num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
-            push_global, push_to_vm_stack, push_to_vm_stack_let_var, push_to_vm_stack_two,
-            read_local_0_value_c, read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
+            box_handler_c, call_global_function_deopt_no_arity_spilled, callglobal_handler_deopt_c,
+            callglobal_tail_handler_deopt_spilled, car_handler_value, cdr_handler_value,
+            check_callable, check_callable_spill, check_callable_tail, check_callable_value,
+            cons_handler_value, drop_value, equal_binop, extern_c_add_two, extern_c_div_two,
+            extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
+            extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler, extern_c_sub_two,
+            extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value, if_handler_value,
+            let_end_scope_c, list_handler_c, move_read_local_0_value_c, move_read_local_1_value_c,
+            move_read_local_2_value_c, move_read_local_3_value_c, move_read_local_any_value_c,
+            not_handler_raw_value, num_equal_int, num_equal_value, num_equal_value_unboxed,
+            pop_value, push_const_value_c, push_const_value_index_c, push_global, push_to_vm_stack,
+            push_to_vm_stack_let_var, push_to_vm_stack_two, read_local_0_value_c,
+            read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
             read_local_any_value_c, self_tail_call_handler, self_tail_call_handler_loop,
             set_handler_c, setbox_handler_c, should_continue, should_spill, should_spill_value,
             tcojmp_handler, trampoline, trampoline_no_arity, unbox_handler_c,
@@ -266,6 +267,12 @@ impl Default for JIT {
         map.add_func(
             "call-global-tail-spilled",
             callglobal_tail_handler_deopt_spilled
+                as extern "C-unwind" fn(*mut VmCore, usize, usize, usize) -> SteelVal,
+        );
+
+        map.add_func(
+            "call-global-no-arity-spilled",
+            call_global_function_deopt_no_arity_spilled
                 as extern "C-unwind" fn(*mut VmCore, usize, usize, usize) -> SteelVal,
         );
 
@@ -1260,7 +1267,12 @@ impl FunctionTranslator<'_> {
                         // Assuming this worked, we'll want to push this result on to the stack.
                         self.push(result, InferredType::Any);
                     } else {
-                        todo!("implement call global no arity spill");
+                        let name = "call-global-no-arity-spilled";
+
+                        let v =
+                            self.call_global_function_spilled(arity, name, function_index, true);
+
+                        self.push(v, InferredType::Any)
                     }
 
                     // Then, we're gonna check the result and see if we should deopt

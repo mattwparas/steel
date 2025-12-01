@@ -1629,33 +1629,12 @@ fn handle_global_function_call_with_args(
                     let pop_count = ctx.pop_count;
                     let depth = ctx.thread.stack_frames.len();
 
-                    // println!("Calling trampoline: {} - {}", depth, ctx.is_native);
-
                     ctx.handle_function_call_closure_jit(closure, arity)
                         .unwrap();
 
-                    // println!("Before call:");
-                    // dbg!(&ctx.thread.stack);
-
                     (func)(ctx);
 
-                    // println!(
-                    //     "finished calling function - is still native: {}, depth: {}",
-                    //     ctx.is_native,
-                    //     ctx.thread.stack_frames.len()
-                    // );
-                    // dbg!(&ctx.thread.stack);
-
-                    // dbg!(ctx.is_native);
-                    // dbg!(&ctx.result);
-
                     if ctx.is_native {
-                        // if ctx.pop_count != pop_count {
-                        // println!("Attempted to call function inline");
-                        // println!("ip: {}", ctx.ip);
-                        // pretty_print_dense_instructions(&ctx.instructions);
-                        // }
-
                         debug_assert_eq!(ctx.pop_count, pop_count);
                         debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
                         // Don't deopt?
@@ -2463,6 +2442,111 @@ make_call_global_function_deopt_no_arity!(
         h
     )
 );
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn call_global_function_deopt_no_arity_spilled(
+    ctx: *mut VmCore,
+    lookup_index: usize,
+    fallback_ip: usize,
+    arity: usize,
+) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
+
+    let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
+
+    // Deopt -> Meaning, check the return value if we're done - so we just
+    // will eventually check the stashed error.
+    let should_yield = match &func {
+        SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
+        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
+        _ => false,
+    };
+
+    if should_yield {
+        ctx.ip = fallback_ip;
+        ctx.is_native = false;
+    } else {
+        ctx.ip = fallback_ip;
+    }
+
+    fn inner_handle_global_function_call_with_args_no_arity(
+        ctx: &mut VmCore,
+        stack_func: SteelVal,
+        arity: usize,
+    ) -> Result<SteelVal> {
+        match stack_func {
+            // TODO: Enter safepoint?
+            SteelVal::FuncV(func) => func(&ctx.thread.stack[ctx.thread.stack.len() - arity..])
+                .map_err(|x| x.set_span_if_none(ctx.current_span())),
+            SteelVal::BoxedFunction(func) => {
+                func.func()(&ctx.thread.stack[ctx.thread.stack.len() - arity..])
+                    .map_err(|x| x.set_span_if_none(ctx.current_span()))
+            }
+            SteelVal::MutFunc(func) => {
+                let len = ctx.thread.stack.len();
+                func(&mut ctx.thread.stack[len - arity..])
+                    .map_err(|x| x.set_span_if_none(ctx.current_span()))
+            }
+            SteelVal::Closure(closure) => {
+                // TODO: Consider reserving the amount?
+
+                if TRAMPOLINE {
+                    if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                        let pop_count = ctx.pop_count;
+                        let depth = ctx.thread.stack_frames.len();
+
+                        // Install the function, so that way we can just trampoline
+                        // without needing to spill the stack
+                        ctx.handle_function_call_closure_jit_no_arity(closure)
+                            .unwrap();
+
+                        (func)(ctx);
+
+                        if ctx.is_native {
+                            debug_assert_eq!(ctx.pop_count, pop_count);
+                            debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
+
+                            // Don't deopt?
+                            Ok(ctx.thread.stack.pop().unwrap())
+                        } else {
+                            Ok(SteelVal::Void)
+                        }
+                    } else {
+                        // We're going to de-opt in this case - unless we intend to do some fun inlining business
+                        ctx.handle_function_call_closure_jit_no_arity(closure)?;
+                        Ok(SteelVal::Void)
+                    }
+                } else {
+                    ctx.handle_function_call_closure_jit_no_arity(closure)?;
+                    Ok(SteelVal::Void)
+                }
+            }
+
+            // This is probably no good here anyway
+            SteelVal::ContinuationFunction(cc) => {
+                ctx.call_continuation(cc)?;
+                Ok(SteelVal::Void)
+            }
+            SteelVal::BuiltIn(f) => {
+                ctx.call_builtin_func(f, arity)?;
+                Ok(SteelVal::Void)
+            }
+            _ => {
+                cold();
+                stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); ctx.current_span());
+            }
+        }
+    }
+
+    match inner_handle_global_function_call_with_args_no_arity(ctx, func, arity) {
+        Ok(v) => v,
+        Err(e) => {
+            ctx.is_native = false;
+            ctx.result = Some(Err(e));
+            return SteelVal::Void;
+        }
+    }
+}
 
 #[inline(always)]
 fn call_global_function_deopt(
