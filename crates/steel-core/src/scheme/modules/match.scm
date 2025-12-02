@@ -4,6 +4,8 @@
          match-define
          match-syntax)
 
+(require-builtin steel/base)
+
 ;; ------------------- match functions ----------------------
 
 ;;

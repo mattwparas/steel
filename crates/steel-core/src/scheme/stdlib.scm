@@ -67,6 +67,8 @@
          #%start-will-executor
          with-finalizer)
 
+(require-builtin steel/base)
+
 ; (define-syntax steel/base
 ;   (syntax-rules ()
 ;     [(steel/base) (require-builtin steel/base)]))

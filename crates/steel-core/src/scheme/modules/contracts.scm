@@ -13,6 +13,8 @@
          (for-syntax ->/c)
          (for-syntax define/contract))
 
+(require-builtin steel/base)
+
 ;; struct definitions
 (struct FlatContract (predicate name)
   #:prop:procedure 0

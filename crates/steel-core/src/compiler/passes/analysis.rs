@@ -4318,6 +4318,7 @@ impl<'a> SemanticAnalysis<'a> {
                                                 // its also not accessible at the top level.
                                                 if !analysis.set_bang
                                                     && name.resolve().starts_with("##")
+                                                    && !l.rest
                                                 {
                                                     map.insert(*name, l.args.len());
                                                 }
@@ -4337,7 +4338,10 @@ impl<'a> SemanticAnalysis<'a> {
                                     if let Some(analysis) = self.analysis.get(so) {
                                         // Its not set, so we're okay to do this, assuming
                                         // its also not accessible at the top level.
-                                        if !analysis.set_bang && name.resolve().starts_with("##") {
+                                        if !analysis.set_bang
+                                            && name.resolve().starts_with("##")
+                                            && !l.rest
+                                        {
                                             map.insert(*name, l.args.len());
                                         }
                                     }

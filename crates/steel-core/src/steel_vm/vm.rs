@@ -4258,13 +4258,22 @@ impl<'a> VmCore<'a> {
             // snag the arity from the eclosure instruction
             let arity = self.instructions[forward_index - 1].payload_size;
 
-            let constructed_lambda = Gc::new(ByteCodeLambda::new(
+            let constructed_lambda = ByteCodeLambda::new(
                 closure_id,
                 closure_body,
                 arity.to_usize(),
                 is_multi_arity,
                 CaptureVec::new(),
-            ));
+            );
+
+            #[cfg(feature = "jit2")]
+            let constructed_lambda = if std::env::var("STEEL_JIT").is_ok() {
+                jit::jit_compile_lambda(self, constructed_lambda)
+            } else {
+                constructed_lambda
+            };
+
+            let constructed_lambda = Gc::new(constructed_lambda);
 
             self.thread
                 .function_interner
@@ -4288,14 +4297,6 @@ impl<'a> VmCore<'a> {
     }
 
     fn handle_new_start_closure(&mut self, offset: usize) -> Result<()> {
-        // println!("Hitting start closure");
-
-        // println!("Instruction: {:?}", self.instructions[self.ip]);
-
-        // if self.instructions[self.ip].payload_size == 1 {
-        //     println!("Found multi arity function");
-        // }
-
         assert!(self.ip < self.instructions.len());
 
         self.ip += 1;
@@ -4306,10 +4307,6 @@ impl<'a> VmCore<'a> {
 
         // Get the ID of the function
         let closure_id = self.instructions[self.ip].payload_size.to_u32();
-
-        // if is_multi_arity {
-        //     println!("Found multi arity function");
-        // }
 
         self.ip += 1;
 
@@ -4753,7 +4750,8 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
-    // TODO: Clean up function calls and create a nice calling convention API?
+    // @Matt
+    // TODO: This should handle tail calls as well!
     fn call_custom_struct(&mut self, s: &UserDefinedStruct, payload_size: usize) -> Result<()> {
         if let Some(procedure) = s.maybe_proc() {
             if let SteelVal::HeapAllocated(h) = procedure {
@@ -6920,149 +6918,6 @@ fn local_handler3(ctx: &mut VmCore<'_>) -> Result<()> {
     ctx.handle_local(3)
 }
 
-#[cfg(feature = "dynamic")]
-// OpCode::SETLOCAL
-fn set_local_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let offset = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_set_local(offset.to_usize());
-    Ok(())
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::SETLOCAL
-fn set_local_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    ctx.handle_set_local(payload);
-    Ok(())
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::CALLGLOBAL
-fn call_global_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    // assert!(ctx.ip + 1 < ctx.instructions.len());
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    ctx.ip += 1;
-    let next_inst = ctx.instructions[ctx.ip];
-
-    ctx.handle_call_global(payload_size.to_usize(), next_inst.payload_size.to_usize())
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::CALLGLOBAL
-// TODO: Fix this!
-fn call_global_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-    ctx.ip += 1;
-    let next_inst = ctx.instructions[ctx.ip];
-    ctx.handle_call_global(payload, next_inst.payload_size.to_usize())
-}
-
-// // TODO: Have a way to know the correct arity?
-// fn call_global_handler_no_stack(
-//     ctx: &mut VmCore<'_>,
-//     args: &mut [SteelVal],
-// ) -> Result<Option<SteelVal>> {
-//     // ctx.ip += 1;
-//     let payload_size = ctx.instructions[ctx.ip].payload_size;
-//     ctx.ip += 1;
-//     // TODO: Track the op codes of the surrounding values as well
-//     // let next_inst = ctx.instructions[ctx.ip];
-//     // println!("Looking up a function at index: {}", payload_size.to_usize());
-//     let func = ctx
-//         .thread
-//         .global_env
-//         .repl_lookup_idx(payload_size.to_usize());
-//     ctx.handle_non_instr_global_function_call(func, args)
-// }
-
-#[cfg(feature = "dynamic")]
-fn num_equal_handler_no_stack(_ctx: &mut VmCore<'_>, l: SteelVal, r: SteelVal) -> Result<bool> {
-    if let SteelVal::BoolV(b) = number_equality(&l, &r)? {
-        Ok(b)
-    } else {
-        unreachable!()
-    }
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::LOADINT0
-fn handle_load_int0(ctx: &mut VmCore<'_>) -> Result<()> {
-    ctx.thread.stack.push(SteelVal::INT_ZERO);
-    ctx.ip += 1;
-    Ok(())
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::LOADINT1
-fn handle_load_int1(ctx: &mut VmCore<'_>) -> Result<()> {
-    ctx.thread.stack.push(SteelVal::INT_ONE);
-    ctx.ip += 1;
-    Ok(())
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::LOADINT2
-fn handle_load_int2(ctx: &mut VmCore<'_>) -> Result<()> {
-    ctx.thread.stack.push(SteelVal::INT_TWO);
-    ctx.ip += 1;
-    Ok(())
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::MOVEREADLOCAL
-fn move_local_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let index = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_move_local(index.to_usize())
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::MOVEREADLOCAL
-fn move_local_handler_with_payload(ctx: &mut VmCore<'_>, index: usize) -> Result<()> {
-    ctx.handle_move_local(index)
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::MOVEREADLOCAL0
-fn move_local_handler0(ctx: &mut VmCore<'_>) -> Result<()> {
-    ctx.handle_move_local(0)
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::MOVEREADLOCAL1
-fn move_local_handler1(ctx: &mut VmCore<'_>) -> Result<()> {
-    ctx.handle_move_local(1)
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::MOVEREADLOCAL2
-fn move_local_handler2(ctx: &mut VmCore<'_>) -> Result<()> {
-    ctx.handle_move_local(2)
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::MOVEREADLOCAL3
-fn move_local_handler3(ctx: &mut VmCore<'_>) -> Result<()> {
-    ctx.handle_move_local(3)
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::READCAPTURED
-fn read_captured_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size;
-    ctx.handle_read_captures(payload_size.to_usize())
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::READCAPTURED
-fn read_captured_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
-    ctx.handle_read_captures(payload_size)
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::BEGINSCOPE
-fn begin_scope_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    ctx.ip += 1;
-    Ok(())
-}
-
 // OpCode::LETENDSCOPE
 fn let_end_scope_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let beginning_scope = ctx.instructions[ctx.ip].payload_size.to_usize();
@@ -7113,21 +6968,6 @@ fn let_end_scope_handler_with_payload(ctx: &mut VmCore<'_>, beginning_scope: usi
     // ctx.stack.truncate(rollback_index);
     // ctx.stack.push(last);
 
-    Ok(())
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::PUREFUNC
-fn pure_function_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
-    ctx.handle_pure_function(payload_size);
-    Ok(())
-}
-
-#[cfg(feature = "dynamic")]
-// OpCode::PUREFUNC
-fn pure_function_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
-    ctx.handle_pure_function(payload_size);
     Ok(())
 }
 
@@ -7494,18 +7334,6 @@ mod handlers {
         ctx.thread.stack.push(sub_binop(value, 2)?);
         ctx.ip += 4;
         Ok(())
-    }
-
-    #[cfg(feature = "dynamic")]
-    fn specialized_sub01(ctx: &mut VmCore<'_>) -> Result<()> {
-        let offset = ctx.get_offset();
-        // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
-        let value = ctx.thread.stack[offset].clone();
-
-        ctx.thread.stack.push(sub_binop(value, 1)?);
-        ctx.ip += 4;
-
-        call_global_handler(ctx)
     }
 
     pub fn lte_binop(l: SteelVal, r: isize) -> bool {
@@ -8006,148 +7834,4 @@ mod handlers {
     pub(crate) fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
         add_two(l, r)
     }
-}
-
-#[cfg(feature = "dynamic")]
-pub(crate) use dynamic::pattern_exists;
-
-#[macro_use]
-#[cfg(feature = "dynamic")]
-mod dynamic {
-    use super::*;
-
-    use handlers::{
-        handle_local_0_no_stack, handle_local_1_no_stack, handle_local_2_no_stack,
-        if_handler_with_bool, push_const_handler_no_stack, raw_if_handler,
-    };
-
-    #[macro_export]
-    macro_rules! binop_opcode_to_ssa_handler {
-        (ADD2, Int, Int) => {
-            add_handler_int_int
-        };
-
-        (ADD2, Int, Float) => {
-            add_handler_int_float
-        };
-
-        (ADD2, Float, Int) => {
-            add_handler_int_float
-        };
-
-        (ADD2, Float, Float) => {
-            add_handler_float_float
-        };
-
-        (MUL2, Int, Int) => {
-            multiply_handler_int_int
-        };
-
-        (MUL2, Int, Float) => {
-            multiply_handler_int_float
-        };
-
-        (MUL2, Float, Int) => {
-            multiply_handler_int_float
-        };
-
-        (MUL2, Float, Float) => {
-            multiply_handler_float_float
-        };
-
-        (SUB2, Int, Int) => {
-            sub_handler_int_int
-        };
-
-        (SUB2, Int, None) => {
-            sub_handler_int_none
-        };
-
-        (SUB2, None, Int) => {
-            sub_handler_none_int
-        };
-
-        (SUB2, Int, Float) => {
-            sub_handler_int_float
-        };
-
-        (SUB2, Float, Int) => {
-            sub_handler_float_int
-        };
-
-        (SUB2, Float, Float) => {
-            sub_handler_float_float
-        };
-
-        (DIV2, Int, Int) => {
-            div_handler_int_int
-        };
-
-        (DIV2, Int, Float) => {
-            div_handler_int_float
-        };
-
-        (DIV2, Float, Int) => {
-            div_handler_float_int
-        };
-
-        (DIV2, Float, Float) => {
-            div_handler_float_float
-        };
-
-        (LTE2, None, Int) => {
-            lte_handler_none_int
-        };
-    }
-
-    macro_rules! if_to_ssa_handler {
-        (IF, Bool) => {
-            if_handler_with_bool
-        };
-        (IF) => {
-            raw_if_handler
-        };
-    }
-
-    macro_rules! opcode_to_ssa_handler {
-        (CALLGLOBAL) => {
-            call_global_handler_no_stack
-        };
-
-        (CALLGLOBAL, Tail) => {
-            call_global_handler_with_args
-        };
-
-        (NUMEQUAL) => {
-            num_equal_handler_no_stack
-        };
-
-        (PUSHCONST) => {
-            push_const_handler_no_stack
-        };
-
-        (MOVEREADLOCAL0) => {
-            handle_move_local_0_no_stack
-        };
-
-        (MOVEREADLOCAL1) => {
-            handle_move_local_1_no_stack
-        };
-
-        (READLOCAL0) => {
-            handle_local_0_no_stack
-        };
-
-        (READLOCAL1) => {
-            handle_local_1_no_stack
-        };
-
-        (READLOCAL2) => {
-            handle_local_2_no_stack
-        };
-    }
-
-    // Includes the module as a dependency, that being said - this should
-    // probably get generated into some specific sub module directly?
-    include!(concat!(env!("OUT_DIR"), "/dynamic.rs"));
 }

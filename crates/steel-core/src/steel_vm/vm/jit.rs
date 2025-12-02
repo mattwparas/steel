@@ -15,6 +15,54 @@ use super::*;
 
 pub const TRAMPOLINE: bool = true;
 
+pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> ByteCodeLambda {
+    if func
+        .body_exp
+        .iter()
+        .any(|x| matches!(x.op_code, OpCode::PUREFUNC))
+    {
+        return func;
+    }
+
+    if ctx.thread.compiler.read().kernel.is_none() {
+        return func;
+    }
+
+    // if func.is_multi_arity {
+    //     return func;
+    // }
+
+    let name = func.id.to_string();
+
+    // let mut inner = func.unwrap();
+    let fn_pointer = ctx.thread.jit.lock().unwrap().compile_bytecode(
+        name,
+        func.arity,
+        &func.body_exp,
+        &ctx.thread.global_env.roots(),
+        &ctx.thread.constant_map,
+        None,
+    );
+
+    let fn_pointer = if let Ok(fn_pointer) = fn_pointer {
+        fn_pointer
+    } else {
+        return func;
+    };
+
+    let super_instructions = Some(fn_pointer);
+    func.super_instructions = super_instructions;
+
+    let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
+    instructions[0].op_code = OpCode::DynSuperInstruction;
+
+    func.body_exp = Arc::from(instructions.into_boxed_slice());
+
+    println!("Compiled: {}", func.id);
+
+    func
+}
+
 #[steel_derive::context(name = "#%jit-compile-2", arity = "AtLeast(1)")]
 pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let function = &args[0];
@@ -1340,7 +1388,7 @@ pub(crate) extern "C-unwind" fn extern_c_sub_two_int(a: SteelVal, b: SteelVal) -
 }
 
 extern_binop!(extern_c_sub_two, subtract_primitive);
-extern_binop!(extern_c_lt_two, lt_primitive);
+// extern_binop!(extern_c_lt_two, lt_primitive);
 // extern_binop!(extern_c_lte_two, lte_primitive);
 
 #[allow(improper_ctypes_definitions)]
@@ -1354,6 +1402,19 @@ pub(crate) extern "C-unwind" fn extern_c_lte_two(
     // let a = ManuallyDrop::new(a);
     // let b = ManuallyDrop::new(b);
     SteelVal::BoolV(a <= b)
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn extern_c_lt_two(
+    _ctx: *mut VmCore,
+    a: SteelVal,
+    b: SteelVal,
+) -> SteelVal {
+    // println!("lte two - {} <= {}", a, b);
+
+    // let a = ManuallyDrop::new(a);
+    // let b = ManuallyDrop::new(b);
+    SteelVal::BoolV(a < b)
 }
 
 #[allow(improper_ctypes_definitions)]
@@ -1477,7 +1538,10 @@ fn new_callglobal_tail_handler_deopt_test(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
+        SteelVal::Closure(_)
+        | SteelVal::ContinuationFunction(_)
+        | SteelVal::BuiltIn(_)
+        | SteelVal::CustomStruct(_) => true,
         _ => false,
     };
 
@@ -1519,7 +1583,10 @@ pub extern "C-unwind" fn callglobal_tail_handler_deopt_spilled(
     let ctx = unsafe { &mut *ctx };
     let func = ctx.thread.global_env.repl_lookup_idx(index);
     let should_yield = match &func {
-        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
+        SteelVal::Closure(_)
+        | SteelVal::ContinuationFunction(_)
+        | SteelVal::BuiltIn(_)
+        | SteelVal::CustomStruct(_) => true,
         _ => false,
     };
 
@@ -1594,7 +1661,18 @@ fn handle_global_tail_call_deopt_with_args(
             ctx.call_builtin_func(f, len)?;
             Ok(SteelVal::Void)
         }
-        // CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+        SteelVal::CustomStruct(s) => {
+            let len = args.len();
+            for val in args {
+                ctx.thread
+                    .stack
+                    .push(std::mem::replace(val, SteelVal::Void));
+            }
+
+            ctx.call_custom_struct(&s, len)?;
+
+            Ok(SteelVal::Void)
+        }
 
         // Literaly anything else, just push on to the stack
         // and fall back to the main loop?
@@ -1643,7 +1721,10 @@ fn handle_global_tail_call_deopt_spilled(
             ctx.call_builtin_func(f, arity)?;
             Ok(SteelVal::Void)
         }
-        // CustomStruct(s) => self.call_custom_struct(&s, payload_size),
+        SteelVal::CustomStruct(s) => {
+            ctx.call_custom_struct(&s, arity)?;
+            Ok(SteelVal::Void)
+        }
 
         // Literaly anything else, just push on to the stack
         // and fall back to the main loop?
@@ -1726,6 +1807,18 @@ fn handle_global_function_call_with_args(
                     .push(std::mem::replace(val, SteelVal::Void));
             }
             ctx.call_builtin_func(f, len)?;
+            Ok(SteelVal::Void)
+        }
+        SteelVal::CustomStruct(s) => {
+            let len = args.len();
+            for val in args {
+                ctx.thread
+                    .stack
+                    .push(std::mem::replace(val, SteelVal::Void));
+            }
+
+            ctx.call_custom_struct(&s, len)?;
+
             Ok(SteelVal::Void)
         }
         _ => {
@@ -2054,7 +2147,10 @@ pub(crate) extern "C-unwind" fn check_callable_spill(ctx: *mut VmCore, lookup_in
         // Builtins can yield control in a funky way.
         if matches!(
             func,
-            SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_)
+            SteelVal::Closure(_)
+                | SteelVal::ContinuationFunction(_)
+                | SteelVal::BuiltIn(_)
+                | SteelVal::CustomStruct(_)
         ) {
             1
         } else {
@@ -2083,7 +2179,10 @@ pub(crate) extern "C-unwind" fn check_callable(ctx: *mut VmCore, lookup_index: u
         // Builtins can yield control in a funky way.
         !matches!(
             func,
-            SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_)
+            SteelVal::Closure(_)
+                | SteelVal::ContinuationFunction(_)
+                | SteelVal::BuiltIn(_)
+                | SteelVal::CustomStruct(_)
         )
     }
 }
@@ -2098,7 +2197,10 @@ pub(crate) extern "C-unwind" fn check_callable_tail(ctx: *mut VmCore, lookup_ind
         // Builtins can yield control in a funky way.
         !matches!(
             func,
-            SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_)
+            SteelVal::Closure(_)
+                | SteelVal::ContinuationFunction(_)
+                | SteelVal::BuiltIn(_)
+                | SteelVal::CustomStruct(_)
         )
     }
 }
@@ -2111,7 +2213,10 @@ pub(crate) extern "C-unwind" fn check_callable_value(_: *mut VmCore, func: Steel
     // Builtins can yield control in a funky way.
     !matches!(
         &*func,
-        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_)
+        SteelVal::Closure(_)
+            | SteelVal::ContinuationFunction(_)
+            | SteelVal::BuiltIn(_)
+            | SteelVal::CustomStruct(_)
     )
 }
 
@@ -2314,6 +2419,66 @@ make_call_function_deopt!(
     (call_function_deopt_8, a, b, c, d, e, f, g, h)
 );
 
+macro_rules! make_call_function_tail_deopt {
+    ($(($name:tt, $($typ:ident),*)),*) => {
+
+        pub struct CallFunctionTailDefinitions;
+
+        impl CallFunctionTailDefinitions {
+            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+                $(
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+            #[allow(improper_ctypes_definitions)]
+            pub(crate) extern "C-unwind" fn $name(
+                ctx: *mut VmCore,
+                func: SteelVal,
+                fallback_ip: usize,
+                $($typ: SteelVal),*
+            ) -> SteelVal {
+                unsafe { call_function_tail_deopt(&mut *ctx, func, fallback_ip, &mut [$($typ), *]) }
+            }
+        )*
+    };
+}
+
+make_call_function_tail_deopt!(
+    (call_function_tail_deopt_0,),
+    (call_function_tail_deopt_1, a),
+    (call_function_tail_deopt_2, a, b),
+    (call_function_tail_deopt_3, a, b, c),
+    (call_function_tail_deopt_4, a, b, c, d),
+    (call_function_tail_deopt_5, a, b, c, d, e),
+    (call_function_tail_deopt_6, a, b, c, d, e, f),
+    (call_function_tail_deopt_7, a, b, c, d, e, f, g),
+    (call_function_tail_deopt_8, a, b, c, d, e, f, g, h)
+);
+
 macro_rules! make_call_global_function_deopt_no_arity {
     ($(($name:tt, $($typ:ident),*)),*) => {
 
@@ -2365,7 +2530,7 @@ macro_rules! make_call_global_function_deopt_no_arity {
                 // will eventually check the stashed error.
                 let should_yield = match &func {
                     SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
-                    SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
+                    SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) | SteelVal::CustomStruct(_) => true,
                     _ => false,
                 };
 
@@ -2451,6 +2616,19 @@ macro_rules! make_call_global_function_deopt_no_arity {
                             ctx.call_builtin_func(f, len)?;
                             Ok(SteelVal::Void)
                         }
+                        SteelVal::CustomStruct(s) => {
+                            let args: [SteelVal; _] = [$($typ),*];
+                            let len = args.len();
+                            for val in args {
+                                ctx.thread
+                                    .stack
+                                    .push(val);
+                            }
+
+                            ctx.call_custom_struct(&s, len)?;
+
+                            Ok(SteelVal::Void)
+                        }
                         _ => {
                             cold();
                             stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); ctx.current_span());
@@ -2510,7 +2688,10 @@ pub extern "C-unwind" fn call_global_function_deopt_no_arity_spilled(
     // will eventually check the stashed error.
     let should_yield = match &func {
         SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
-        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
+        SteelVal::Closure(_)
+        | SteelVal::ContinuationFunction(_)
+        | SteelVal::BuiltIn(_)
+        | SteelVal::CustomStruct(_) => true,
         _ => false,
     };
 
@@ -2583,6 +2764,11 @@ pub extern "C-unwind" fn call_global_function_deopt_no_arity_spilled(
                 ctx.call_builtin_func(f, arity)?;
                 Ok(SteelVal::Void)
             }
+            SteelVal::CustomStruct(s) => {
+                ctx.call_custom_struct(&s, arity)?;
+                Ok(SteelVal::Void)
+            }
+
             _ => {
                 cold();
                 stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); ctx.current_span());
@@ -2615,7 +2801,10 @@ fn call_global_function_deopt(
         SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => {
             ctx.ip = fallback_ip;
         }
-        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => {
+        SteelVal::Closure(_)
+        | SteelVal::ContinuationFunction(_)
+        | SteelVal::BuiltIn(_)
+        | SteelVal::CustomStruct(_) => {
             ctx.ip = fallback_ip;
             ctx.is_native = false;
         }
@@ -2643,19 +2832,13 @@ fn call_function_deopt(
     fallback_ip: usize,
     args: &mut [SteelVal],
 ) -> SteelVal {
-    // println!("Calling global function, with args: {:?}", args);
-
-    // TODO: Only do this if we have to deopt
-    // ctx.ip = fallback_ip;
-
-    // let index = ctx.instructions[ctx.ip].payload_size;
-    // ctx.ip += 1;
-    // let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
-
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) => true,
+        SteelVal::Closure(_)
+        | SteelVal::ContinuationFunction(_)
+        | SteelVal::BuiltIn(_)
+        | SteelVal::CustomStruct(_) => true,
         _ => false,
     };
 
@@ -2668,6 +2851,41 @@ fn call_function_deopt(
     }
 
     match handle_global_function_call_with_args(ctx, func, args) {
+        Ok(v) => v,
+        Err(e) => {
+            ctx.is_native = false;
+            ctx.result = Some(Err(e));
+            return SteelVal::Void;
+        }
+    }
+}
+
+#[inline(always)]
+fn call_function_tail_deopt(
+    ctx: &mut VmCore,
+    func: SteelVal,
+    fallback_ip: usize,
+    args: &mut [SteelVal],
+) -> SteelVal {
+    // Deopt -> Meaning, check the return value if we're done - so we just
+    // will eventually check the stashed error.
+    let should_yield = match &func {
+        SteelVal::Closure(_)
+        | SteelVal::ContinuationFunction(_)
+        | SteelVal::BuiltIn(_)
+        | SteelVal::CustomStruct(_) => true,
+        _ => false,
+    };
+
+    if should_yield {
+        ctx.ip = fallback_ip;
+
+        ctx.is_native = !should_yield;
+    } else {
+        ctx.ip += 2;
+    }
+
+    match handle_global_tail_call_deopt_with_args(ctx, func, args) {
         Ok(v) => v,
         Err(e) => {
             ctx.is_native = false;
@@ -3236,6 +3454,380 @@ fn handle_multi_arity(
     }
 
     Ok(())
+}
+
+pub extern "C-unwind" fn handle_pure_function(
+    ctx: *mut VmCore,
+    ip: usize,
+    offset: usize,
+) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
+    ctx.ip = ip;
+
+    // println!("Instruction: {:?}", ctx.instructions[ctx.ip]);
+
+    // if ctx.instructions[ctx.ip].payload_size == 1 {
+    //     println!("Found multi arity function");
+    // }
+
+    assert!(ctx.ip < ctx.instructions.len());
+
+    ctx.ip += 1;
+
+    let is_multi_arity = ctx.instructions[ctx.ip].payload_size.to_u32() == 1;
+
+    ctx.ip += 1;
+
+    // Check whether this is a let or a rooted function
+    let closure_id = ctx.instructions[ctx.ip].payload_size.to_u32();
+
+    // if is_multi_arity {
+    //     println!("Found multi arity function");
+    // }
+
+    ctx.ip += 1;
+
+    // TODO - used to be offset - 2, now 3 with the multi arity
+    let forward_jump = offset - 2;
+    // let forward_jump = offset;
+
+    // TODO clean this up a bit
+    // hold the spot for where we need to jump aftwards
+    let forward_index = ctx.ip + forward_jump;
+
+    let constructed_lambda = if let Some(prototype) = ctx
+        .thread
+        .function_interner
+        .pure_function_interner
+        .get(&closure_id)
+    {
+        prototype.clone()
+    } else {
+        // debug_assert!(ctx.instructions[forward_index - 1].op_code == OpCode::ECLOSURE);
+
+        // TODO -> this is probably quite slow
+        // If extraneous lets are lifted, we probably don't need this
+        // or if instructions get stored in some sort of shared memory so I'm not deep cloning the window
+
+        let forward_jump_index = ctx.ip + forward_jump - 1;
+
+        // Construct the closure body using the offsets from the payload
+        // used to be - 1, now - 2
+        let closure_body = ctx.instructions[ctx.ip..forward_jump_index].into();
+
+        let spans = if let Some(spans) = ctx
+            .thread
+            .stack_frames
+            .last()
+            .and_then(|x| ctx.thread.function_interner.spans.get(&x.function.id))
+        {
+            if forward_jump_index >= spans.len() {
+                // TODO: This is a bug! We can panic here if we are
+                // not running on the root?
+                // ctx.root_spans[ctx.ip..forward_jump_index].into()
+                if let Some(span_range) = ctx.root_spans.get(ctx.ip..forward_jump_index) {
+                    span_range.to_vec().into()
+                } else {
+                    Shared::from(Vec::new())
+                }
+            } else {
+                spans[ctx.ip..forward_jump_index].into()
+            }
+        } else {
+            // TODO: Under certain circumstances, it is possible we're doing some funky
+            // call/cc business, and the rooted spans don't make it back on during the call/cc
+            // section of the evaluation. In this case, we should try to optimistically store
+            // all of the spans that we have, rather than doing it lazily like we're doing now.
+            // See this body of code for an offending edge case:
+            /*
+
+            λ > (define the-empty-cont #f)
+            λ > (call/cc (lambda (k) (set! the-empty-cont k)))
+            => #false
+            λ > the-empty-cont
+            => #<procedure>
+            λ > (+ 10 20 30 40 (call/cc (k) (the-empty-cont k) k))
+            error[E02]: FreeIdentifier
+              ┌─ :1:26
+              │
+            1 │ (+ 10 20 30 40 (call/cc (k) (the-empty-cont k) k))
+              │                          ^ k
+
+            λ > (+ 10 20 30 40 (call/cc (lambda (k) (the-empty-cont k) k)))
+            => #<procedure>
+            λ > ((+ 10 20 30 40 (call/cc (lambda (k) (the-empty-cont k) k))) 100)
+            => #<procedure>
+            λ > (+ 10 20 30 40 (call/cc (lambda (k) (the-empty-cont k) k)))
+            => #<procedure>
+            λ > ((+ 10 20 30 40 (call/cc (lambda (k) (the-empty-cont k) k))))
+            => #<procedure>
+            λ > ((+ 10 20 30 40 (call/cc (lambda (k) (the-empty-cont k) k))) 10)
+            => #<procedure>
+            λ > ((+ 10 20 30 40 (call/cc (lambda (k) (the-empty-cont k) k))) 100)
+            => #<procedure>
+            λ > (define the-next-cont #f)
+            λ > (+ 10 20 30 40 (call/cc (lambda (k) (set! the-next-cont k) k)))
+            error[E03]: TypeMismatch
+              ┌─ :1:2
+              │
+            1 │ (+ 10 20 30 40 (call/cc (lambda (k) (set! the-next-cont k) k)))
+              │  ^ + expects a number, found: (Continuation)
+
+            λ > (+ 10 20 30 40 (call/cc (lambda (k) (set! the-next-cont k) (the-empty-cont #f))))
+
+            => #false
+            λ > the-next-cont
+            => #<procedure>
+            λ > (the-next-cont 10)
+            => 110
+            λ > (+ 10 20 30 40 (call/cc (lambda (k) (set! the-next-cont k) (the-empty-cont #f))) (begin (displayln "hello world") 100))
+            => #false
+            λ > (the-next-cont 10)
+            hello world
+            => 210
+            // λ > (+ 10 20 30 40 (call/cc (lambda (k) (set! the-next-cont k) (the-empty-cont #f))) (begin (displayln "hello world") (call/cc (lambda (k) (set! the-next-cont k) (the-empty-cont #f))) 100))
+            => #false
+            λ > (the-next-cont 10)
+            hello world
+            thread 'main' panicked at crates/steel-core/src/steel_vm/vm.rs:2699:32:
+            range end index 31 out of range for slice of length 4
+            note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+                            */
+            // ctx.root_spans[ctx.ip..forward_jump_index].into()
+            if let Some(span_range) = ctx.root_spans.get(ctx.ip..forward_jump_index) {
+                span_range.to_vec().into()
+            } else {
+                Shared::from(Vec::new())
+            }
+        };
+
+        // snag the arity from the eclosure instruction
+        let arity = ctx.instructions[forward_index - 1].payload_size;
+
+        let constructed_lambda = ByteCodeLambda::new(
+            closure_id,
+            closure_body,
+            arity.to_usize(),
+            is_multi_arity,
+            CaptureVec::new(),
+        );
+
+        #[cfg(feature = "jit2")]
+        let constructed_lambda = jit::jit_compile_lambda(ctx, constructed_lambda);
+
+        let constructed_lambda = Gc::new(constructed_lambda);
+
+        ctx.thread
+            .function_interner
+            .pure_function_interner
+            .insert(closure_id, Gc::clone(&constructed_lambda));
+
+        // Put the spans into the interner as well
+        ctx.thread.function_interner.spans.insert(closure_id, spans);
+
+        constructed_lambda
+    };
+
+    let res = SteelVal::Closure(constructed_lambda);
+
+    ctx.ip = forward_index;
+
+    res
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn handle_new_start_closure(
+    ctx: *mut VmCore,
+    ip: usize,
+    offset: usize,
+) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
+    ctx.ip = ip;
+
+    // assert!(ctx.ip < ctx.instructions.len());
+    ctx.ip += 1;
+
+    let is_multi_arity = ctx.instructions[ctx.ip].payload_size.to_u32() == 1;
+
+    ctx.ip += 1;
+
+    // // Get the ID of the function
+    let closure_id = ctx.instructions[ctx.ip].payload_size.to_u32();
+
+    ctx.ip += 1;
+
+    // TODO - used to be offset - 2, now 3 with the multi arity
+    // let forward_jump = offset;
+    let forward_jump = offset - 3;
+    // println!("Forward jump: {}", forward_jump);
+
+    // Snag the number of upvalues here
+    let ndefs = ctx.instructions[ctx.ip].payload_size.to_usize();
+    ctx.ip += 1;
+
+    // TODO preallocate size
+    let mut captures = CaptureVec::with_capacity(ndefs);
+
+    // TODO clean this up a bit
+    // hold the spot for where we need to jump aftwards
+    let forward_index = ctx.ip + forward_jump;
+
+    // Insert metadata
+    // TODO: We probably can get a bit better than this.
+    // A lot of the captures are static, I'm not quite sure we necessarily need to patch down _every_ single one
+    // each time, especially since each lambda is a standalone instance of this.
+
+    // Top level %plain-let with closures will panic here:
+    // (%plain-let ((foo 10) (bar 20)) (lambda (+ foo bar)))
+    // So, this should probably do something like this:
+
+    if let Some(guard) = ctx.thread.stack_frames.last() {
+        let stack_index = ctx.get_offset();
+
+        for _ in 0..ndefs {
+            let instr = ctx.instructions[ctx.ip];
+            match (instr.op_code, instr.payload_size) {
+                (OpCode::COPYCAPTURESTACK, n) => {
+                    let offset = stack_index;
+                    let value = ctx.thread.stack[n.to_usize() + offset].clone();
+                    captures.push(value);
+                }
+                (OpCode::COPYCAPTURECLOSURE, n) => {
+                    debug_assert!(
+                        !ctx.thread.stack_frames.is_empty(),
+                        "Trying to capture from closure that doesn't exist",
+                    );
+
+                    debug_assert!((n.to_usize()) < guard.function.captures().len());
+
+                    let value = guard.function.captures()[n.to_usize()].clone();
+
+                    captures.push(value);
+                }
+                (l, _) => {
+                    panic!(
+                        "Something went wrong in closure construction!, found: {:?} @ {}",
+                        l, ctx.ip,
+                    );
+                }
+            }
+            ctx.ip += 1;
+        }
+    } else {
+        // let stack_index = ctx.stack_index.last().copied().unwrap_or(0);
+        // let stack_index = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
+        let stack_index = ctx.get_offset();
+
+        for _ in 0..ndefs {
+            let instr = ctx.instructions[ctx.ip];
+            match (instr.op_code, instr.payload_size) {
+                (OpCode::COPYCAPTURESTACK, n) => {
+                    let offset = stack_index;
+                    let value = ctx.thread.stack[n.to_usize() + offset].clone();
+                    captures.push(value);
+                }
+                (l, _) => {
+                    panic!(
+                        "Something went wrong in closure construction!, found: {:?} @ {}",
+                        l, ctx.ip,
+                    );
+                }
+            }
+            ctx.ip += 1;
+        }
+    }
+
+    // TODO: Consider moving these captures into the interned closure directly
+    // Its possible we're just doing a lot of extra capturing that way if we repeatedly copy things
+    let constructed_lambda = if let Some(prototype) = ctx
+        .thread
+        .function_interner
+        .closure_interner
+        .get(&closure_id)
+    {
+        // log::trace!("Fetching closure from cache");
+
+        let mut prototype = prototype.clone();
+        prototype.set_captures(captures);
+        // prototype.set_heap_allocated(heap_vars);
+        prototype
+    } else {
+        // log::trace!("Constructing closure for the first time");
+
+        debug_assert!(ctx.instructions[forward_index - 1].op_code == OpCode::ECLOSURE);
+
+        // debug_assert!(ctx.ip + forward_jump - 1 <= ctx.instructions.len())
+
+        if forward_index - 1 > ctx.instructions.len() {
+            crate::core::instructions::pretty_print_dense_instructions(ctx.instructions.as_ref());
+            println!("Forward index: {}", ctx.ip + forward_jump - 1);
+            println!("Length: {}", ctx.instructions.len());
+            panic!("Out of bounds forward jump");
+        }
+
+        let forward_jump_index = forward_index - 1;
+
+        // Construct the closure body using the offsets from the payload
+        // used to be - 1, now - 2
+        let closure_body = ctx.instructions[ctx.ip..forward_jump_index].into();
+        // let spans = ctx.spans[ctx.ip..forward_jump_index].into();
+
+        let spans = if let Some(spans) = ctx
+            .thread
+            .stack_frames
+            .last()
+            .and_then(|x| ctx.thread.function_interner.spans.get(&x.function.id))
+        {
+            if forward_jump_index >= spans.len() {
+                // ctx.root_spans[ctx.ip..forward_jump_index].into()
+
+                if let Some(span_range) = ctx.root_spans.get(ctx.ip..forward_jump_index) {
+                    span_range.to_vec().into()
+                } else {
+                    Shared::from(Vec::new())
+                }
+            } else {
+                spans[ctx.ip..forward_jump_index].into()
+            }
+        } else {
+            // TODO: This seems to be causing an error
+            // ctx.root_spans[ctx.ip..forward_jump_index].into()
+
+            // For now, lets go ahead and use this... hack to get us going
+            if let Some(span_range) = ctx.root_spans.get(ctx.ip..forward_jump_index) {
+                span_range.to_vec().into()
+            } else {
+                Shared::from(Vec::new())
+            }
+        };
+
+        // snag the arity from the eclosure instruction
+        let arity = ctx.instructions[forward_jump_index].payload_size;
+
+        let mut constructed_lambda = ByteCodeLambda::new(
+            closure_id,
+            closure_body,
+            arity.to_usize(),
+            is_multi_arity,
+            CaptureVec::new(),
+        );
+
+        ctx.thread
+            .function_interner
+            .closure_interner
+            .insert(closure_id, constructed_lambda.clone());
+
+        // Put the spans into the interner
+        ctx.thread.function_interner.spans.insert(closure_id, spans);
+
+        constructed_lambda.set_captures(captures);
+
+        constructed_lambda
+    };
+
+    ctx.ip = forward_index;
+    SteelVal::Closure(Gc::new(constructed_lambda))
 }
 
 #[inline(never)]

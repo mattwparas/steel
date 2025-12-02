@@ -19,8 +19,9 @@ use crate::{
             cons_handler_value, drop_value, equal_binop, extern_c_add_two, extern_c_div_two,
             extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
             extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler, extern_c_sub_two,
-            extern_c_sub_two_int, extern_handle_pop, if_handler_raw_value, if_handler_value,
-            let_end_scope_c, list_handler_c, list_ref_handler_c, move_read_local_0_value_c,
+            extern_c_sub_two_int, extern_handle_pop, handle_new_start_closure,
+            handle_pure_function, if_handler_raw_value, if_handler_value, let_end_scope_c,
+            list_handler_c, list_ref_handler_c, move_read_local_0_value_c,
             move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
             move_read_local_any_value_c, not_handler_raw_value, num_equal_int, num_equal_value,
             num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
@@ -29,7 +30,7 @@ use crate::{
             read_local_any_value_c, self_tail_call_handler, self_tail_call_handler_loop,
             set_handler_c, setbox_handler_c, should_continue, should_spill, should_spill_value,
             tcojmp_handler, trampoline, trampoline_no_arity, unbox_handler_c, vector_ref_handler_c,
-            CallFunctionDefinitions, CallGlobalFunctionDefinitions,
+            CallFunctionDefinitions, CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
             CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
             CallSelfTailCallNoArityDefinitions, CallSelfTailCallNoArityLoopDefinitions,
             ListHandlerDefinitions,
@@ -327,9 +328,20 @@ impl Default for JIT {
             extern_handle_pop as extern "C-unwind" fn(*mut VmCore, SteelVal),
         );
 
+        map.add_func(
+            "new-closure",
+            handle_new_start_closure as extern "C-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
+        );
+
+        map.add_func(
+            "pure-func",
+            handle_pure_function as extern "C-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
+        );
+
         CallGlobalFunctionDefinitions::register(&mut map);
         CallGlobalNoArityFunctionDefinitions::register(&mut map);
         CallFunctionDefinitions::register(&mut map);
+        CallFunctionTailDefinitions::register(&mut map);
         CallGlobalTailFunctionDefinitions::register(&mut map);
         CallSelfTailCallNoArityDefinitions::register(&mut map);
         CallSelfTailCallNoArityLoopDefinitions::register(&mut map);
@@ -695,23 +707,11 @@ impl JIT {
         let pointer = self.module.target_config().pointer_type();
         self.ctx.func.signature.params.push(AbiParam::new(pointer));
 
-        // for _p in &params {
-        //     self.ctx.func.signature.params.push(AbiParam::new(int));
-        // }
-
-        // Our toy language currently only supports one return value, though
-        // Cranelift is designed to support more.
-        // self.ctx
-        //     .func
-        //     .signature
-        //     .returns
-        //     .push(AbiParam::new(Type::int(8).unwrap()));
-
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
 
         // Create the entry block, to start emitting code in.
-        let entry_block = builder.create_block();
+        let entry_block = dbg!(builder.create_block());
         builder.append_block_params_for_function_params(entry_block);
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
@@ -720,23 +720,22 @@ impl JIT {
             .iter()
             .any(|x| matches!(x.op_code, OpCode::TCOJMP | OpCode::SELFTAILCALLNOARITY));
 
-        let fake_entry_block = if contains_tail_call {
-            let fake_entry = builder.create_block();
-            builder.ins().jump(fake_entry, &[]);
-            builder.switch_to_block(fake_entry);
+        // TODO: Scan the bytecode
+        let variables = declare_variables(int, pointer, &mut builder, &params, entry_block);
 
-            Some(fake_entry)
-        } else {
-            None
-        };
+        // let fake_entry_block = if contains_tail_call {
+        //     let fake_entry = builder.create_block();
+        //     builder.ins().jump(fake_entry, &[]);
+        //     builder.switch_to_block(fake_entry);
+
+        //     Some(fake_entry)
+        // } else {
+        //     None
+        // };
+
+        let fake_entry_block = None;
 
         let exit_block = builder.create_block();
-
-        // The toy language allows variables to be declared implicitly.
-        // Walk the AST and declare all implicitly-declared variables.
-
-        // TODO: Scan the bytecode
-        let variables = declare_variables(int, &mut builder, &params, entry_block);
 
         // Now translate the statements of the function body.
         let mut trans = FunctionTranslator {
@@ -809,6 +808,8 @@ pub enum InferredType {
     // Narrowed version, list or pair, for operations that can
     // work on both
     ListOrPair,
+
+    Function,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -900,7 +901,7 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
 
         (OpCode::ADD, 2) => "add-binop",
         (OpCode::SUB, 2) => "sub-binop",
-        // (OpCode::LT, 2) => "lt-binop",
+        (OpCode::LT, 2) => "lt-binop",
         (OpCode::LTE, 2) => "lte-binop",
         (OpCode::GT, 2) => "gt-binop",
         (OpCode::GTE, 2) => "gte-binop",
@@ -961,11 +962,18 @@ impl FunctionTranslator<'_> {
             // println!("{:?} @ {}", op, self.ip);
             let payload = instr.payload_size.to_usize();
             match op {
-                OpCode::LOADINT1POP
-                | OpCode::BINOPADDTAIL
-                | OpCode::NEWSCLOSURE
-                | OpCode::PUREFUNC
-                | OpCode::TAILCALL => {
+                OpCode::LOADINT1POP | OpCode::BINOPADDTAIL => {
+                    todo!("{:?}", op);
+                }
+
+                OpCode::SCLOSURE => {
+                    panic!("Deprecated opcode");
+                }
+                // Primitives can be checked to see if we have
+                // better information, and then can be inlined
+                // accordingly with a trampoline without needing
+                // a special opcode.
+                OpCode::CALLPRIMITIVE => {
                     todo!("{:?}", op);
                 }
                 OpCode::POPJMP | OpCode::POPPURE => {
@@ -1062,8 +1070,71 @@ impl FunctionTranslator<'_> {
 
                     self.check_deopt();
                 }
-                OpCode::SCLOSURE => todo!(),
-                OpCode::ECLOSURE => todo!(),
+                OpCode::TAILCALL | OpCode::TAILCALLNOARITY => {
+                    let arity = payload;
+                    let name = CallFunctionTailDefinitions::arity_to_name(arity);
+                    self.ip += 1;
+
+                    if let Some(name) = name {
+                        let v = self.call_function(arity, name);
+                        self.push(v, InferredType::Any);
+                    } else {
+                        todo!("Implement spilled function call");
+                    }
+
+                    self.ip = self.instructions.len() + 1;
+
+                    self.check_deopt();
+                    return false;
+                }
+                OpCode::NEWSCLOSURE => {
+                    let ip = self.ip;
+                    let offset = payload;
+                    self.ip += payload + 1;
+
+                    let ip_value = self.builder.ins().iconst(Type::int(64).unwrap(), ip as i64);
+                    let offset_value = self
+                        .builder
+                        .ins()
+                        .iconst(Type::int(64).unwrap(), offset as i64);
+
+                    // code gen the sclosure creation:
+                    let v = self
+                        .call_function_returns_value_args("new-closure", &[ip_value, offset_value]);
+
+                    self.push(v, InferredType::Function);
+                }
+
+                // Something is up here - we don't want to do this!
+                OpCode::PUREFUNC => {
+                    let ip = self.ip;
+                    let offset = payload;
+
+                    self.ip += 1;
+                    self.ip += 1;
+                    self.ip += 1;
+
+                    let forward_jump = offset - 2;
+                    let forward_index = self.ip + forward_jump;
+
+                    self.ip = forward_index;
+
+                    println!("{} -> {}", ip, forward_index);
+
+                    let ip_value = self.builder.ins().iconst(Type::int(64).unwrap(), ip as i64);
+                    let offset_value = self
+                        .builder
+                        .ins()
+                        .iconst(Type::int(64).unwrap(), offset as i64);
+
+                    // code gen the sclosure creation:
+                    let v = self
+                        .call_function_returns_value_args("pure-func", &[ip_value, offset_value]);
+
+                    self.push(v, InferredType::Function);
+                }
+
+                OpCode::ECLOSURE => panic!("Should not hit a ECLOSURE during jit pass"),
                 OpCode::BIND => panic!("Should not hit a BIND during jit pass"),
                 OpCode::SDEF => panic!("Should not hit a SDEF during jit pass"),
                 OpCode::EDEF => panic!("Should not hit a EDEF during jit pass"),
@@ -1078,7 +1149,7 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                 }
                 OpCode::PASS => panic!("Should not hit a pass during jit pass"),
-                OpCode::NDEFS => todo!(),
+                OpCode::NDEFS => panic!("Should not get hit during jit pass"),
                 OpCode::PANIC => todo!(),
                 OpCode::SET => {
                     let value = self.pop();
@@ -1226,36 +1297,17 @@ impl FunctionTranslator<'_> {
                 // to the entry block. We're going to loop there
                 // instead.
                 OpCode::TCOJMP => {
+                    // TODO: Make this act like the self tail call no arity
                     self.translate_tco_jmp(payload);
                     self.ip = self.instructions.len() + 1;
 
                     return false;
                 }
                 OpCode::SELFTAILCALLNOARITY => {
-                    // let kind = std::env::var("TAIL_CALL_KIND").unwrap_or("normal".to_string());
-                    // match kind.as_str() {
-                    //     "normal" => {
-                    //         // let _ = self.translate_tco_jmp_no_arity(payload);
-                    let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
-                    //     }
-                    //     "no-spill" => {
-                    //         let _ = self.translate_tco_jmp_no_arity_without_spill(payload);
-                    //     }
-
-                    //     "loop-no-spill" => {
-                    //         let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
-                    //     }
-
-                    //     "loop" => {
-                    //         let _ = self.translate_tco_jmp_no_arity_loop(payload);
-                    //     }
-                    //     // TODO: Remove the other ones!
-                    //     _ => {
-                    //         let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
-                    //         // let _ = self.translate_tco_jmp_no_arity(payload);
-                    //     }
-                    // }
-
+                    // let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
+                    //
+                    // TODO: Move back to using loop?
+                    let _ = self.translate_tco_jmp_no_arity_without_spill(payload);
                     // Jump to out of bounds so signal we're done
                     self.ip = self.instructions.len() + 1;
                     return false;
@@ -1283,6 +1335,8 @@ impl FunctionTranslator<'_> {
                     }
 
                     self.check_deopt();
+
+                    self.ip = self.instructions.len() + 1;
 
                     return false;
                 }
@@ -1498,7 +1552,6 @@ impl FunctionTranslator<'_> {
                 OpCode::UNBOXCALL => todo!(),
                 OpCode::UNBOXTAIL => todo!(),
                 OpCode::EQUALCONST => todo!(),
-                OpCode::TAILCALLNOARITY => todo!(),
             }
         }
 
@@ -2438,7 +2491,7 @@ impl FunctionTranslator<'_> {
             self.stack
                 .pop()
                 .map(|x| {
-                    assert!(!x.spilled);
+                    // assert!(!x.spilled);
                     let value = x.value;
                     self.value_to_local_map.remove(&value);
                     value
@@ -2489,7 +2542,7 @@ impl FunctionTranslator<'_> {
             self.stack
                 .pop()
                 .map(|x| {
-                    assert!(!x.spilled);
+                    // assert!(!x.spilled);
                     let value = x.value;
                     self.value_to_local_map.remove(&value);
                     value
@@ -2670,6 +2723,7 @@ impl FunctionTranslator<'_> {
 // that looks more like fn(&mut VmCore, args: &[SteelVal])
 fn declare_variables(
     int: types::Type,
+    pointer: types::Type,
     builder: &mut FunctionBuilder,
     params: &[String],
     entry_block: Block,
@@ -2680,13 +2734,7 @@ fn declare_variables(
     // Leave the first one in place to pass the context in.
     {
         let ctx = builder.block_params(entry_block)[0];
-        let var = declare_variable(
-            Type::int(64).unwrap(),
-            builder,
-            &mut variables,
-            &mut index,
-            "vm-ctx",
-        );
+        let var = declare_variable(pointer, builder, &mut variables, &mut index, "vm-ctx");
         builder.def_var(var, ctx);
     }
 

@@ -120,9 +120,6 @@ which = "8.0.0"
 proptest = "1.1.0"
 criterion = "0.5.1"
 
-[build-dependencies]
-steel-gen = { path = "../steel-gen", version = "0.3.0" }
-
 [features]
 # TODO: Deprecate the modules feature flag, it no longer does anything
 default = ["modules"]

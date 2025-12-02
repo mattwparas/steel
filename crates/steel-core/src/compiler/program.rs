@@ -30,8 +30,6 @@ use log::{debug, log_enabled};
 
 use super::{compiler::DebruijnIndicesInterner, map::SymbolMap};
 
-const _TILE_SUPER_INSTRUCTIONS: bool = true;
-
 /// Evaluates an atom expression in given environment.
 fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
     match &t.ty {
@@ -770,78 +768,6 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
     }
 }
 
-pub const fn sequence_to_opcode(pattern: &[(OpCode, usize)]) -> &'static [steel_gen::Pattern] {
-    match pattern {
-        &[(OpCode::MOVEREADLOCAL, _)] => &[steel_gen::Pattern::Single(OpCode::MOVEREADLOCAL)],
-        _ => todo!(),
-    }
-}
-
-#[allow(unused)]
-pub fn tile_super_instructions(instructions: &mut [Instruction]) {
-    #[cfg(feature = "dynamic")]
-    {
-        pub fn tile<const N: usize>(instructions: &mut [Instruction]) {
-            // let mut list: List<(usize, OpCode)> = List::new();
-
-            let mut buffer = [(OpCode::VOID, 0); N];
-
-            let mut pattern_buffer = Vec::with_capacity(N);
-
-            // Cell::from_mut()
-
-            if N > instructions.len() {
-                return;
-            }
-
-            for i in 0..instructions.len() - N {
-                for j in 0..N {
-                    buffer[j] = (
-                        instructions[i + j].op_code,
-                        instructions[i + j].payload_size,
-                    );
-                }
-
-                // If this is a candidate to match the pattern, let's try to apply it!
-                if let Some(op_code) = steel_gen::opcode::sequence_to_opcode(&buffer) {
-                    // Check if this pattern genuinely matches one of the code gen'd ones
-                    steel_gen::Pattern::from_opcodes_with_buffer(&buffer, &mut pattern_buffer);
-
-                    if crate::steel_vm::vm::pattern_exists(&pattern_buffer) {
-                        // log::debug!(target: "super-instructions", "Applying tiling for: {:?}", op_code);
-
-                        // println!("Applying tiling for: {:?}", op_code);
-                        // println!("{:?}", pattern_buffer);
-
-                        instructions[i].op_code = op_code;
-
-                        continue;
-                    }
-                }
-            }
-
-            // for (index, op) in list {
-            //     instructions[index].op_code = op;
-            // }
-        }
-
-        // Super instruction tiling here!
-
-        if _TILE_SUPER_INSTRUCTIONS {
-            tile::<11>(instructions);
-            tile::<10>(instructions);
-            tile::<9>(instructions);
-            tile::<8>(instructions);
-            tile::<7>(instructions);
-            tile::<6>(instructions);
-            tile::<5>(instructions);
-            tile::<4>(instructions);
-            tile::<3>(instructions);
-            tile::<2>(instructions);
-        }
-    }
-}
-
 pub fn merge_conditions_with_if(instructions: &mut [Instruction]) {
     if cfg!(feature = "jit2") {
         return;
@@ -1238,7 +1164,6 @@ impl RawProgramWithSymbols {
             specialize_read_local(instructions);
             merge_conditions_with_if(instructions);
             specialize_constants(instructions).unwrap();
-            tile_super_instructions(instructions);
         }
 
         self
