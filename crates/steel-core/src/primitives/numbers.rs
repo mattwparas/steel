@@ -2017,7 +2017,9 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
             steelerr!(Generic => "log: division by zero (log {} {})", first, base)
         }
         (SteelVal::IntV(arg), SteelVal::NumV(n)) => Ok(SteelVal::NumV((*arg as f64).log(*n))),
-        (SteelVal::IntV(arg), SteelVal::IntV(base)) => Ok(SteelVal::IntV(arg.ilog(*base) as isize)),
+        (SteelVal::IntV(arg), SteelVal::IntV(base)) => {
+            Ok(SteelVal::NumV((*arg as f64).log(*base as f64)))
+        }
         (SteelVal::NumV(arg), SteelVal::NumV(n)) => Ok(SteelVal::NumV(arg.log(*n))),
         (SteelVal::NumV(arg), SteelVal::IntV(base)) => Ok(SteelVal::NumV(arg.log(*base as f64))),
         // TODO: Support BigNum, Rational, and BigRational.
