@@ -2007,8 +2007,14 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
 
     match (first, &base) {
         (SteelVal::IntV(1), _) => Ok(SteelVal::IntV(0)),
-        (SteelVal::IntV(_) | SteelVal::NumV(_), SteelVal::IntV(1)) => {
-            steelerr!(Generic => "log: divide by zero with args: {} and {}", first, base)
+        (SteelVal::IntV(val), SteelVal::IntV(base)) if *val < 0 || *base < 0 => {
+            steelerr!(Generic => "log: negative values not yet supported")
+        }
+        (SteelVal::IntV(0), SteelVal::IntV(_) | SteelVal::NumV(_)) => {
+            steelerr!(Generic => "log: division by zero (log {} {})", first, base)
+        }
+        (SteelVal::IntV(_) | SteelVal::NumV(_), SteelVal::IntV(0 | 1)) => {
+            steelerr!(Generic => "log: division by zero (log {} {})", first, base)
         }
         (SteelVal::IntV(arg), SteelVal::NumV(n)) => Ok(SteelVal::NumV((*arg as f64).log(*n))),
         (SteelVal::IntV(arg), SteelVal::IntV(base)) => Ok(SteelVal::IntV(arg.ilog(*base) as isize)),
