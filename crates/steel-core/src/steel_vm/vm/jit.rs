@@ -28,9 +28,9 @@ pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> 
         return func;
     }
 
-    // if func.is_multi_arity {
-    //     return func;
-    // }
+    if func.is_multi_arity {
+        return func;
+    }
 
     let name = func.id.to_string();
 
@@ -1536,7 +1536,7 @@ fn new_callglobal_tail_handler_deopt_test(
     args: &mut [SteelVal],
 ) -> SteelVal {
     let func = ctx.thread.global_env.repl_lookup_idx(index);
-    println!("Calling tail: {}", func);
+    // println!("Calling tail: {}", func);
     // println!("What is left on the stack: {:#?}", ctx.thread.stack);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
@@ -2855,7 +2855,7 @@ fn call_function_deopt(
     fallback_ip: usize,
     args: &mut [SteelVal],
 ) -> SteelVal {
-    println!("Calling function: {}", func);
+    // println!("Calling function: {}", func);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
@@ -2868,14 +2868,14 @@ fn call_function_deopt(
         _ => false,
     };
 
-    println!("Deopting...: {} - {:?}", func, args);
-    println!("Stack: {:?}", ctx.thread.stack);
+    // println!("Deopting...: {} - {:?}", func, args);
+    // println!("Stack: {:?}", ctx.thread.stack);
 
     if should_yield {
         ctx.ip = fallback_ip - 1;
 
-        println!("Prev instruction: {:?}", ctx.instructions[ctx.ip - 1]);
-        println!("Fallback instruction: {:?}", ctx.instructions[ctx.ip]);
+        // println!("Prev instruction: {:?}", ctx.instructions[ctx.ip - 1]);
+        // println!("Fallback instruction: {:?}", ctx.instructions[ctx.ip]);
 
         ctx.is_native = !should_yield;
     } else {
@@ -2911,7 +2911,7 @@ fn call_function_tail_deopt(
     };
 
     if should_yield {
-        ctx.ip = fallback_ip;
+        ctx.ip = fallback_ip - 1;
 
         ctx.is_native = !should_yield;
     } else {
@@ -3102,7 +3102,7 @@ fn if_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
 }
 
 pub(crate) extern "C-unwind" fn tcojmp_handler(ctx: *mut VmCore, current_arity: usize) {
-    println!("Calling self tail call");
+    // println!("Calling self tail call");
     let this = unsafe { &mut *ctx };
 
     // TODO: When this is done with the trampoline, we can do tail
