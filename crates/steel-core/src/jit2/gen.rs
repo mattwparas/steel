@@ -646,7 +646,9 @@ impl JIT {
         )?;
 
         if let Err(e) = cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
+            // println!("{:#?}", self.ctx.func);
             println!("{:#?}", e);
+            self.module.clear_context(&mut self.ctx);
             return Err(format!("errors: {:#?}", e));
         }
 
@@ -707,11 +709,13 @@ impl JIT {
         let pointer = self.module.target_config().pointer_type();
         self.ctx.func.signature.params.push(AbiParam::new(pointer));
 
+        // dbg!(&self.ctx.func.signature);
+
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
 
         // Create the entry block, to start emitting code in.
-        let entry_block = dbg!(builder.create_block());
+        let entry_block = builder.create_block();
         builder.append_block_params_for_function_params(entry_block);
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
@@ -723,17 +727,15 @@ impl JIT {
         // TODO: Scan the bytecode
         let variables = declare_variables(int, pointer, &mut builder, &params, entry_block);
 
-        // let fake_entry_block = if contains_tail_call {
-        //     let fake_entry = builder.create_block();
-        //     builder.ins().jump(fake_entry, &[]);
-        //     builder.switch_to_block(fake_entry);
+        let fake_entry_block = if contains_tail_call {
+            let fake_entry = builder.create_block();
+            builder.ins().jump(fake_entry, &[]);
+            builder.switch_to_block(fake_entry);
 
-        //     Some(fake_entry)
-        // } else {
-        //     None
-        // };
-
-        let fake_entry_block = None;
+            Some(fake_entry)
+        } else {
+            None
+        };
 
         let exit_block = builder.create_block();
 
