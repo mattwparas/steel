@@ -2393,7 +2393,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
                 }
             }
 
-            ContinuationMark::Open(continuation) => {
+            ContinuationMark::Open(_) => {
+                /*
                 for value in &continuation.current_stack_values {
                     self.push_back(value.clone());
                 }
@@ -2401,6 +2402,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
                 for value in &continuation.current_frame.function.captures {
                     self.push_back(value.clone());
                 }
+                */
             }
         }
     }
@@ -2621,7 +2623,8 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
                 }
             }
 
-            ContinuationMark::Open(continuation) => {
+            ContinuationMark::Open(_) => {
+                /*
                 for value in &continuation.current_stack_values {
                     self.save(value.clone());
                     self.push_back(value);
@@ -2631,6 +2634,7 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
                     self.save(value.clone());
                     self.push_back(value);
                 }
+                */
             }
         }
     }
