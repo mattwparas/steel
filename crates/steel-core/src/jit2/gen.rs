@@ -16,10 +16,10 @@ use crate::{
             box_handler_c, call_global_function_deopt_no_arity_spilled, callglobal_handler_deopt_c,
             callglobal_tail_handler_deopt_spilled, car_handler_value, cdr_handler_value,
             check_callable, check_callable_spill, check_callable_tail, check_callable_value,
-            cons_handler_value, drop_value, equal_binop, extern_c_add_two, extern_c_div_two,
-            extern_c_gt_two, extern_c_gte_two, extern_c_lt_two, extern_c_lte_two,
-            extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler, extern_c_sub_two,
-            extern_c_sub_two_int, extern_handle_pop, handle_new_start_closure,
+            check_callable_value_tail, cons_handler_value, drop_value, equal_binop,
+            extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
+            extern_c_lte_two, extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler,
+            extern_c_sub_two, extern_c_sub_two_int, extern_handle_pop, handle_new_start_closure,
             handle_pure_function, if_handler_raw_value, if_handler_value, let_end_scope_c,
             list_handler_c, list_ref_handler_c, move_read_local_0_value_c,
             move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
@@ -391,6 +391,12 @@ impl Default for JIT {
         map.add_func(
             "check-callable-value",
             check_callable_value as extern "C-unwind" fn(ctx: *mut VmCore, func: SteelVal) -> bool,
+        );
+
+        map.add_func(
+            "check-callable-tail-value",
+            check_callable_value_tail
+                as extern "C-unwind" fn(ctx: *mut VmCore, func: SteelVal) -> bool,
         );
 
         map.add_func(
@@ -1064,7 +1070,7 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
 
                     if let Some(name) = name {
-                        let v = self.call_function(arity, name);
+                        let v = self.call_function(arity, name, false);
                         self.push(v, InferredType::Any);
                     } else {
                         todo!("Implement spilled function call");
@@ -1072,13 +1078,15 @@ impl FunctionTranslator<'_> {
 
                     self.check_deopt();
                 }
+
+                // TODO: Revisit this!
                 OpCode::TAILCALL | OpCode::TAILCALLNOARITY => {
                     let arity = payload;
                     let name = CallFunctionTailDefinitions::arity_to_name(arity);
                     self.ip += 1;
 
                     if let Some(name) = name {
-                        let v = self.call_function(arity, name);
+                        let v = self.call_function(arity, name, true);
                         self.push(v, InferredType::Any);
                     } else {
                         todo!("Implement spilled function call");
@@ -1103,6 +1111,11 @@ impl FunctionTranslator<'_> {
                     // code gen the sclosure creation:
                     let v = self
                         .call_function_returns_value_args("new-closure", &[ip_value, offset_value]);
+
+                    println!(
+                        "Instruction after newsclosure: {:?}",
+                        self.instructions[self.ip]
+                    );
 
                     self.push(v, InferredType::Function);
                 }
@@ -1784,7 +1797,7 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &arg_values);
     }
 
-    fn call_function(&mut self, arity: usize, name: &str) -> Value {
+    fn call_function(&mut self, arity: usize, name: &str, tail: bool) -> Value {
         // let sig = self.get_signature(name);
 
         // let callee = self
@@ -1812,7 +1825,7 @@ impl FunctionTranslator<'_> {
         );
 
         // Check if its a function - otherwise, just spill the values to the stack.
-        let is_function = self.check_callable(func);
+        let is_function = self.check_callable(func, tail);
 
         {
             let then_block = self.builder.create_block();
@@ -2117,8 +2130,12 @@ impl FunctionTranslator<'_> {
         result
     }
 
-    fn check_callable(&mut self, callable: Value) -> Value {
-        let name = "check-callable-value";
+    fn check_callable(&mut self, callable: Value, tail: bool) -> Value {
+        let name = if tail {
+            "check-callable-value"
+        } else {
+            "check-callable-tail-value"
+        };
         let local_callee = self.get_local_callee(name);
         let ctx = self.get_ctx();
         let call = self.builder.ins().call(local_callee, &[ctx, callable]);

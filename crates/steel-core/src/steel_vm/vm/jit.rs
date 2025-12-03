@@ -1536,13 +1536,14 @@ fn new_callglobal_tail_handler_deopt_test(
     args: &mut [SteelVal],
 ) -> SteelVal {
     let func = ctx.thread.global_env.repl_lookup_idx(index);
-    // println!("Calling tail: {}", func);
+    println!("Calling tail: {}", func);
+    inspect(ctx, &[func.clone()]);
     // println!("What is left on the stack: {:#?}", ctx.thread.stack);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
+        // SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
         | SteelVal::BuiltIn(_)
@@ -1551,9 +1552,9 @@ fn new_callglobal_tail_handler_deopt_test(
     };
 
     if should_yield {
-        // println!("Yielding");
+        println!("Yielding");
         ctx.ip = fallback_ip;
-        ctx.is_native = !should_yield;
+        ctx.is_native = false;
     } else {
         // println!("Not yielding");
         ctx.ip += 1;
@@ -1598,7 +1599,7 @@ pub extern "C-unwind" fn callglobal_tail_handler_deopt_spilled(
 
     if should_yield {
         ctx.ip = fallback_ip;
-        ctx.is_native = !should_yield;
+        ctx.is_native = false;
     } else {
         ctx.ip += 1;
     }
@@ -1768,12 +1769,23 @@ fn handle_global_function_call_with_args(
                     let pop_count = ctx.pop_count;
                     let depth = ctx.thread.stack_frames.len();
 
+                    inspect_impl(ctx, &[SteelVal::Closure(closure.clone())]);
+
                     ctx.handle_function_call_closure_jit(closure, arity)
                         .unwrap();
 
                     (func)(ctx);
 
                     if ctx.is_native {
+                        if ctx.pop_count != pop_count {
+                            println!("---------------------------------------------");
+
+                            let last_func =
+                                ctx.thread.stack_frames.last().unwrap().function.clone();
+
+                            inspect_impl(ctx, &[SteelVal::Closure(last_func)]);
+                        }
+
                         debug_assert_eq!(ctx.pop_count, pop_count);
                         debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
                         // Don't deopt?
@@ -2130,6 +2142,7 @@ pub(crate) extern "C-unwind" fn should_spill(ctx: *mut VmCore, lookup_index: usi
 
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn should_spill_value(_: *mut VmCore, func: SteelVal) -> bool {
+    println!("Checking if this value should be spilled!: {}", func);
     let func = ManuallyDrop::new(func);
     matches!(&*func, SteelVal::Closure(_))
 }
@@ -2200,13 +2213,13 @@ pub(crate) extern "C-unwind" fn check_callable_tail(ctx: *mut VmCore, lookup_ind
         let this = &mut *ctx;
         let func = &this.thread.global_env.roots()[lookup_index];
 
-        if TRAMPOLINE {
-            if let SteelVal::Closure(c) = &func {
-                if c.0.super_instructions.as_ref().is_some() {
-                    return true;
-                }
-            }
-        }
+        // if TRAMPOLINE {
+        //     if let SteelVal::Closure(c) = &func {
+        //         if c.0.super_instructions.as_ref().is_some() {
+        //             return true;
+        //         }
+        //     }
+        // }
 
         // Builtins can yield control in a funky way.
         !matches!(
@@ -2232,6 +2245,22 @@ pub(crate) extern "C-unwind" fn check_callable_value(_: *mut VmCore, func: Steel
             }
         }
     }
+
+    // Builtins can yield control in a funky way.
+    !matches!(
+        &*func,
+        SteelVal::Closure(_)
+            | SteelVal::ContinuationFunction(_)
+            | SteelVal::BuiltIn(_)
+            | SteelVal::CustomStruct(_)
+    )
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn check_callable_value_tail(_: *mut VmCore, func: SteelVal) -> bool {
+    // Check that the function we're calling is in fact something callable via native code.
+    // We'll want to spill the stack otherwise.
+    let func = ManuallyDrop::new(func);
 
     // Builtins can yield control in a funky way.
     !matches!(
@@ -2818,6 +2847,8 @@ fn call_global_function_deopt(
 ) -> SteelVal {
     let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
 
+    println!("Calling function: {}", func);
+
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     match &func {
@@ -2855,7 +2886,7 @@ fn call_function_deopt(
     fallback_ip: usize,
     args: &mut [SteelVal],
 ) -> SteelVal {
-    // println!("Calling function: {}", func);
+    println!("Calling function: {}", func);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
@@ -2877,7 +2908,7 @@ fn call_function_deopt(
         // println!("Prev instruction: {:?}", ctx.instructions[ctx.ip - 1]);
         // println!("Fallback instruction: {:?}", ctx.instructions[ctx.ip]);
 
-        ctx.is_native = !should_yield;
+        ctx.is_native = false;
     } else {
         ctx.ip += 2;
     }
@@ -2902,7 +2933,7 @@ fn call_function_tail_deopt(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
+        // SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
         | SteelVal::BuiltIn(_)
@@ -2911,9 +2942,12 @@ fn call_function_tail_deopt(
     };
 
     if should_yield {
+        // ctx.ip = fallback_ip - 1;
+        // println!("Tail call: {:?}", ctx.instructions[ctx.ip]);
         ctx.ip = fallback_ip - 1;
+        // println!("Tail call: {:?}", ctx.instructions[ctx.ip]);
 
-        ctx.is_native = !should_yield;
+        ctx.is_native = false;
     } else {
         ctx.ip += 2;
     }
@@ -3860,6 +3894,9 @@ pub extern "C-unwind" fn handle_new_start_closure(
     };
 
     ctx.ip = forward_index;
+
+    dbg!(ctx.instructions[ctx.ip]);
+
     SteelVal::Closure(Gc::new(constructed_lambda))
 }
 
