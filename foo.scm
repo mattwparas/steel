@@ -43,6 +43,8 @@
 ; (#%jit-compile-2 map1)
 ; (#%jit-compile-2 map-many)
 
+(provide print-impl)
+
 (require-builtin steel/base)
 (require "#%private/steel/control"
          (for-syntax "#%private/steel/control"))
@@ -52,6 +54,8 @@
     [(null? lst) #f]
     [(pred (car lst)) #t]
     [else (ormap pred (cdr lst))]))
+
+; (#%jit-compile-2 ormap)
 
 (define (emit-pair printer pair)
   (simple-display "(")
@@ -65,6 +69,8 @@
           (simple-display " . ")
           (printer (cdr pair))
           (simple-display ")")))))
+
+; (#%jit-compile-2 emit-pair)
 
 (define (print-impl obj)
   (define cycle-collector (#%private-cycle-collector obj))
@@ -152,8 +158,12 @@
        (simple-display ")"))]
     [(#%private-struct? obj)
      (let ([printer (#%struct-property-ref obj '#:printer)])
-       (if (function? printer) (printer obj (λ (x) (#%print x collector))) (simple-display obj)))]
+       (if (function? printer)
+           (printer obj (λ (x) (#%print x collector)))
+           (simple-display obj)))]
     [else (simple-display obj)]))
+
+; (#%jit-compile-2 print-impl)
 
 (define (#%top-level-print obj collector)
   (cond
@@ -223,5 +233,9 @@
        (simple-display ")"))]
     [(#%private-struct? obj)
      (let ([printer (#%struct-property-ref obj '#:printer)])
-       (if (function? printer) (printer obj (λ (x) (#%print x collector))) (simple-display obj)))]
+       (if (function? printer)
+           (printer obj (λ (x) (#%print x collector)))
+           (simple-display obj)))]
     [else (simple-display obj)]))
+
+; (#%jit-compile-2 #%top-level-print)

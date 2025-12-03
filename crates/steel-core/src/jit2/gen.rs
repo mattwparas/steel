@@ -1086,7 +1086,7 @@ impl FunctionTranslator<'_> {
 
                     self.ip = self.instructions.len() + 1;
 
-                    self.check_deopt();
+                    // self.check_deopt();
                     return false;
                 }
                 OpCode::NEWSCLOSURE => {
@@ -1121,7 +1121,7 @@ impl FunctionTranslator<'_> {
 
                     self.ip = forward_index;
 
-                    println!("{} -> {}", ip, forward_index);
+                    // println!("{} -> {}", ip, forward_index);
 
                     let ip_value = self.builder.ins().iconst(Type::int(64).unwrap(), ip as i64);
                     let offset_value = self
@@ -1336,7 +1336,7 @@ impl FunctionTranslator<'_> {
                         self.push(v, InferredType::Any)
                     }
 
-                    self.check_deopt();
+                    // self.check_deopt();
 
                     self.ip = self.instructions.len() + 1;
 
