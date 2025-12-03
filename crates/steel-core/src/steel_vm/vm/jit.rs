@@ -76,6 +76,10 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                     continue;
                 }
 
+                if f.super_instructions.is_some() {
+                    continue;
+                }
+
                 if Gc::ptr_eq(func, f) {
                     let mut func = func.unwrap();
 
