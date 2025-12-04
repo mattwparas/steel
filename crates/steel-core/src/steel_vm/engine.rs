@@ -508,9 +508,7 @@ impl Engine {
             .deep_clone();
         engine.virtual_machine.compiler.write().constant_map = constant_map;
 
-        let heap_copy = Arc::new(Mutex::new(
-            engine.virtual_machine.heap.lock().unwrap().clone(),
-        ));
+        let heap_copy = Arc::new(Mutex::new(engine.virtual_machine.heap.lock().clone()));
 
         engine.virtual_machine.heap = heap_copy;
         engine
@@ -1867,7 +1865,7 @@ impl Engine {
                         // &mut env.0.as_mut_slice(),
                         // .unwrap(),
                         &mut ctx.compiler.write().symbol_map,
-                        &mut ctx.heap.lock().unwrap(),
+                        &mut heap_lock,
                     );
                 }
 
@@ -1876,7 +1874,7 @@ impl Engine {
                     GlobalSlotRecycler::free_shadowed_rooted_values(
                         &mut ctx.global_env.bindings_vec,
                         &mut ctx.compiler.write().symbol_map,
-                        &mut ctx.heap.lock().unwrap(),
+                        &mut heap_lock,
                     );
                 }
 
