@@ -2104,18 +2104,6 @@ impl SteelVal {
         matches!(self, SteelVal::FutureV(_))
     }
 
-    pub fn is_hashable(&self) -> bool {
-        match self {
-            BoolV(_) | IntV(_) | CharV(_) | VectorV(_) | StringV(_) | SymbolV(_) | HashMapV(_)
-            | Closure(_) | ListV(_) | FuncV(_) => true,
-            CustomStruct(s) => s.is_hashable(),
-            Pair(pair) => pair.car.is_hashable() && pair.cdr.is_hashable(),
-            #[cfg(feature = "custom-hash")]
-            Custom(v) => v.read().try_as_dyn_hash().is_some(),
-            _ => false,
-        }
-    }
-
     pub fn is_function(&self) -> bool {
         matches!(
             self,

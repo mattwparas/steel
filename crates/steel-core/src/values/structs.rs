@@ -186,12 +186,6 @@ impl Hash for UserDefinedStruct {
     }
 }
 
-impl UserDefinedStruct {
-    pub fn is_hashable(&self) -> bool {
-        self.fields.iter().all(|v| v.is_hashable())
-    }
-}
-
 impl std::fmt::Display for UserDefinedStruct {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self
