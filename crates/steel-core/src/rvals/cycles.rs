@@ -2302,6 +2302,27 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     }
                     continue;
                 }
+                (FutureFunc(l), FutureFunc(r)) => {
+                    if !crate::gc::Shared::ptr_eq(&l, &r) {
+                        return false;
+                    }
+
+                    continue;
+                }
+                (FutureV(l), FutureV(r)) => {
+                    if !Gc::ptr_eq(&l, &r) {
+                        return false;
+                    }
+
+                    continue;
+                }
+                (StreamV(l), StreamV(r)) => {
+                    if !Gc::ptr_eq(&l, &r) {
+                        return false;
+                    }
+
+                    continue;
+                }
                 // MutableVector(b) => self.visit_mutable_vector(b),
                 // BoxedIterator(b) => self.visit_boxed_iterator(b),
                 // SteelVal::SyntaxObject(s) => self.visit_syntax_object(s),
