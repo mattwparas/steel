@@ -2054,7 +2054,7 @@ impl Hash for SteelVal {
             ListV(l) => l.hash(state),
             CustomStruct(s) => s.hash(state),
             VectorV(v) => v.hash(state),
-            v @ Void => v.hash(state),
+            Void => {}
             StringV(s) => s.hash(state),
             FuncV(s) => (*s as *const FunctionSignature).hash(state),
             SymbolV(sym) => sym.hash(state),
