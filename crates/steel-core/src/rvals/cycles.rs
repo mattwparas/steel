@@ -2278,6 +2278,10 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     continue;
                 }
                 (ReducerV(l), ReducerV(r)) => {
+                    if std::mem::discriminant(&*l) != std::mem::discriminant(&*r) {
+                        return false;
+                    }
+
                     self.left.visit_reducer(l);
                     self.right.visit_reducer(r);
 
