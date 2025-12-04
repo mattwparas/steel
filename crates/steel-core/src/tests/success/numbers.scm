@@ -326,7 +326,7 @@
 (assert-equal! 1+2i (sqrt -3+4i))
 
 (assert-equal! 0 (log 1 100))
-(assert-equal! 2 (log 100 10))
+(assert-equal! 2.0 (log 100 10))
 (assert-equal! 2.0 (log 100.0 10.0))
 (assert-equal! 2.0 (log 100.0 10))
 (assert-equal! 2.0 (log 100 10.0))
