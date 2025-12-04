@@ -387,7 +387,7 @@ pub struct SteelThread {
     profiler: OpCodeOccurenceProfiler,
 
     pub(crate) function_interner: FunctionInterner,
-    pub(crate) heap: Arc<Mutex<Heap>>,
+    pub(crate) heap: Arc<parking_lot::Mutex<Heap>>,
     pub(crate) runtime_options: RunTimeOptions,
     pub(crate) current_frame: StackFrame,
     pub(crate) stack_frames: Vec<StackFrame>,
@@ -574,22 +574,19 @@ impl Synchronizer {
         // IMPORTANT - This needs to be all threads except the currently
         // executing one.
         for ThreadContext { ctx, handle } in guard.iter() {
-            if let Some(ctx) = ctx.upgrade() {
-                if Arc::ptr_eq(&ctx, &self.ctx) {
-                    continue;
-                }
+            'inner: loop {
+                if let Some(ctx) = ctx.upgrade() {
+                    if Arc::ptr_eq(&ctx, &self.ctx) {
+                        break 'inner;
+                    }
 
-                // TODO: Have to use a condvar
-                loop {
                     if let Some(ctx) = ctx.load() {
-                        // println!("Broadcasting `set!` operation");
-
                         unsafe {
                             let live_ctx = &mut (*ctx);
                             (func)(live_ctx)
                         }
 
-                        break;
+                        break 'inner;
                     } else {
                         if let SteelVal::Custom(c) = &handle {
                             if let Some(inner) =
@@ -600,22 +597,16 @@ impl Synchronizer {
                                         if let Ok(mut live_ctx) = upgraded.try_lock() {
                                             (func)(&mut live_ctx);
 
-                                            break;
+                                            break 'inner;
                                         }
                                     }
                                 }
                             }
                         }
-
-                        // TODO:
-                        // If the thread was spawned via the make_thread function,
-                        // then we need to check if that thread is even running to begin with.
-
-                        // println!("Waiting for thread...")
                     }
+                } else {
+                    break 'inner;
                 }
-            } else {
-                continue;
             }
         }
     }
@@ -626,14 +617,14 @@ impl Synchronizer {
 
         // Wait for all the threads to be legal
         for ThreadContext { ctx, handle } in guard.iter() {
-            if let Some(ctx) = ctx.upgrade() {
-                // Don't pause myself, enter safepoint from main thread?
-                if Arc::ptr_eq(&ctx, &self.ctx) {
-                    continue;
-                }
+            loop {
+                if let Some(ctx) = ctx.upgrade() {
+                    // Don't pause myself, enter safepoint from main thread?
+                    if Arc::ptr_eq(&ctx, &self.ctx) {
+                        break;
+                    }
 
-                // TODO: Have to use a condvar
-                loop {
+                    // TODO: Have to use a condvar
                     if let Some(ctx) = ctx.load() {
                         log::debug!("Sweeping other threads");
 
@@ -662,8 +653,6 @@ impl Synchronizer {
 
                         break;
                     } else {
-                        log::debug!("Waiting for thread...");
-
                         if let SteelVal::Custom(c) = &handle {
                             if let Some(inner) =
                                 as_underlying_type::<ThreadHandle>(c.read().as_ref())
@@ -699,9 +688,9 @@ impl Synchronizer {
                             }
                         }
                     }
+                } else {
+                    break;
                 }
-            } else {
-                continue;
             }
         }
     }
@@ -767,7 +756,7 @@ impl SteelThread {
 
             function_interner: FunctionInterner::default(),
             // _super_instructions: Vec::new(),
-            heap: Arc::new(Mutex::new(Heap::new())),
+            heap: Arc::new(parking_lot::Mutex::new(Heap::new())),
             runtime_options: RunTimeOptions::new(),
             stack_frames: Vec::with_capacity(128),
             current_frame: StackFrame::main(),
@@ -785,7 +774,7 @@ impl SteelThread {
 
             // Only incur the cost of the actual safepoint behavior
             // if multiple threads are enabled
-            safepoints_enabled: false,
+            safepoints_enabled: true,
             module_context: Vec::new(),
             // delayed_dropper: DelayedDropper::new(),
         }
@@ -801,9 +790,7 @@ impl SteelThread {
         &mut self,
         thunk: F,
     ) -> T {
-        // log::info!("Stopping threads...");
         self.synchronizer.stop_threads();
-        // log::info!("Stopped threads.");
 
         let mut env = self.global_env.drain_env();
 
@@ -841,10 +828,7 @@ impl SteelThread {
     // Allow this thread to be available for garbage collection
     // during the duration of the provided thunk
     #[inline(always)]
-    pub fn enter_safepoint(
-        &mut self,
-        mut finish: impl FnMut(&SteelThread) -> Result<SteelVal>,
-    ) -> Result<SteelVal> {
+    pub fn enter_safepoint<T>(&mut self, mut finish: impl FnMut(&SteelThread) -> T) -> T {
         // TODO:
         // Only need to actually enter the safepoint if another
         // thread exists
@@ -893,8 +877,7 @@ impl SteelThread {
     }
 
     pub fn insert_binding(&mut self, idx: usize, value: SteelVal) {
-        // TODO: Do the thing where we also pause the threads
-        // to broadcast all the values!
+        let _ = self.enter_safepoint(|thread| thread.heap.lock_arc());
 
         #[cfg(feature = "sync")]
         self.with_locked_env(move |_, env| {
@@ -1738,9 +1721,11 @@ impl<'a> VmCore<'a> {
                     // TODO:
                     // Insert the code to do the stack things here
                     let ptr = self.thread as _;
+                    println!("Entering safepoint...");
                     self.thread.synchronizer.ctx.store(Some(ptr));
                     self.park_thread_while_paused();
                     self.thread.synchronizer.ctx.store(None);
+                    println!("Exiting safepoint...");
                 }
                 ThreadState::Running => {}
             }
@@ -1750,7 +1735,8 @@ impl<'a> VmCore<'a> {
     }
 
     pub fn make_box(&mut self, value: SteelVal) -> SteelVal {
-        let allocated_var = self.thread.heap.lock().unwrap().allocate(
+        let mut heap_lock = self.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+        let allocated_var = heap_lock.allocate(
             value,
             &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
@@ -1765,7 +1751,8 @@ impl<'a> VmCore<'a> {
     // TODO: Accept a slice instead, or an iterator with a known size.
     // That way we can take advantage of a pre allocation.
     pub fn make_mutable_vector(&mut self, values: Vec<SteelVal>) -> SteelVal {
-        let allocated_var = self.thread.heap.lock().unwrap().allocate_vector(
+        let mut heap_lock = self.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+        let allocated_var = heap_lock.allocate_vector(
             values,
             &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
@@ -1781,7 +1768,9 @@ impl<'a> VmCore<'a> {
         &mut self,
         values: impl Iterator<Item = SteelVal> + Clone,
     ) -> SteelVal {
-        let allocated_var = self.thread.heap.lock().unwrap().allocate_vector_iter(
+        let mut heap_lock = self.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+
+        let allocated_var = heap_lock.allocate_vector_iter(
             values,
             &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
@@ -1794,7 +1783,11 @@ impl<'a> VmCore<'a> {
     }
 
     pub(crate) fn gc_collect(&mut self) {
-        self.thread.heap.lock().unwrap().collection(
+        // Before we acquire a lock on the heap, make sure we're not going to block
+        // anything since we could deadlock up to this point.
+        let mut heap_lock = self.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+
+        heap_lock.collection(
             &self.thread.stack,
             self.thread.stack_frames.iter().map(|x| x.function.as_ref()),
             self.thread.global_env.roots(),
@@ -3923,6 +3916,7 @@ impl<'a> VmCore<'a> {
     // get in place mutation.
     // Basically a `MoveReadGlobal`
     fn handle_set(&mut self, index: usize) -> Result<()> {
+        let _ = self.thread.enter_safepoint(|thread| thread.heap.lock_arc());
         let value_to_assign = self.thread.stack.pop().unwrap();
 
         let value = if self.thread.safepoints_enabled {
@@ -4416,6 +4410,9 @@ impl<'a> VmCore<'a> {
 
     // #[inline(always)]
     fn handle_bind(&mut self, payload_size: usize) {
+        // Guard against the heap
+        let _ = self.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+
         let value = self.thread.stack.pop().unwrap();
 
         #[cfg(feature = "sync")]
@@ -6020,9 +6017,7 @@ pub(crate) fn sample_stacks(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resul
     let mut capture = CallStackCapture::as_mut_ref(&args[0]).unwrap();
 
     // if let Ok(_) = ctx.thread.heap.try_lock() {
-    log::info!("Stopping threads...");
     ctx.thread.synchronizer.stop_threads();
-    log::info!("Stopped threads.");
     unsafe {
         ctx.thread.synchronizer.maybe_call_per_ctx(
             |thread| {
@@ -7195,7 +7190,8 @@ fn cons_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 fn new_box_handler(ctx: &mut VmCore<'_>) -> Result<()> {
     let last = ctx.thread.stack.pop().unwrap();
 
-    let allocated_var = ctx.thread.heap.lock().unwrap().allocate(
+    let mut heap_lock = ctx.thread.enter_safepoint(|thread| thread.heap.lock_arc());
+    let allocated_var = heap_lock.allocate(
         last,
         &ctx.thread.stack,
         ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
