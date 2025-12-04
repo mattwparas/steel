@@ -49,7 +49,7 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
 ///
 /// (hash-code v) -> integer?
 ///
-/// * v : hashable?
+/// * v : any/c
 ///
 /// # Examples
 /// ```scheme
@@ -75,7 +75,7 @@ pub fn hash_code(arg: &SteelVal) -> Result<SteelVal> {
 ///
 /// (hash key val ...) -> hash?
 ///
-/// * key : hashable?
+/// * key : any/c
 /// * val : any/c
 ///
 /// Note: the keys must be hashable.
@@ -258,7 +258,7 @@ pub fn hash_length(map: &Gc<HashMap<SteelVal, SteelVal>>) -> usize {
 /// (hash-contains? map key) -> bool?
 ///
 /// * map : hash?
-/// * key : hashable?
+/// * key : any/c
 ///
 /// # Example
 ///
@@ -273,7 +273,7 @@ pub fn hash_contains(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> R
 
 /// Returns the keys of the given hash map as a list.
 ///
-/// (hash-keys->list map) -> (listof hashable?)
+/// (hash-keys->list map) -> (listof any/c)
 ///
 /// * map : hash?
 ///
@@ -307,7 +307,7 @@ pub fn values_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<Steel
 
 /// Returns the keys of the given hash map as an immutable vector
 ///
-/// (hash-keys->vector map) -> (vectorof hashable?)
+/// (hash-keys->vector map) -> (vectorof any/c)
 ///
 /// * map: hash?
 ///
