@@ -508,7 +508,9 @@ impl Engine {
             .deep_clone();
         engine.virtual_machine.compiler.write().constant_map = constant_map;
 
-        let heap_copy = Arc::new(Mutex::new(engine.virtual_machine.heap.lock().clone()));
+        let heap_copy = Arc::new(parking_lot::Mutex::new(
+            engine.virtual_machine.heap.lock().clone(),
+        ));
 
         engine.virtual_machine.heap = heap_copy;
         engine
