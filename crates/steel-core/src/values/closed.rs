@@ -1679,7 +1679,7 @@ impl Heap {
                     self.memory_free_list.grow();
                 }
 
-                // synchronizer.resume_threads();
+                synchronizer.resume_threads();
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.memory_free_list.percent_full());
 
@@ -1762,6 +1762,8 @@ impl Heap {
 
                 log::debug!(target: "gc", "---- TOTAL VECTOR GC TIME: {:?} ----", now.elapsed());
             }
+
+            synchronizer.resume_threads();
         }
     }
 
@@ -1854,7 +1856,7 @@ impl Heap {
         // #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
 
-        synchronizer.resume_threads();
+        // synchronizer.resume_threads();
 
         stats
 
