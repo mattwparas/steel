@@ -2299,7 +2299,6 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     continue;
                 }
-                // MutFunc(m) => self.visit_mutable_function(m),
                 (BuiltIn(l), BuiltIn(r)) => {
                     if l as usize != r as usize {
                         return false;

@@ -52,6 +52,7 @@ use crate::{
     stop,
     values::functions::ByteCodeLambda,
 };
+use std::hash::Hash;
 use std::io::Read as _;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;

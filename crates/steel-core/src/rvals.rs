@@ -4,7 +4,7 @@ use crate::{
     gc::{
         shared::{
             MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
-            ScopedWriteContainer, ShareableMut,
+            ScopedWriteContainer, ShareableMut, StandardShared,
         },
         unsafe_erased_pointers::{OpaqueReference, TemporaryMutableView, TemporaryReadonlyView},
         Gc, GcMut,
@@ -2043,34 +2043,49 @@ impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);
         match self {
+            Closure(b) => b.hash(state),
             BoolV(b) => b.hash(state),
             NumV(n) => n.to_string().hash(state),
             IntV(i) => i.hash(state),
             Rational(f) => f.hash(state),
-            BigNum(n) => n.hash(state),
-            BigRational(f) => f.hash(state),
-            Complex(x) => x.hash(state),
             CharV(c) => c.hash(state),
-            ListV(l) => l.hash(state),
-            CustomStruct(s) => s.hash(state),
             VectorV(v) => v.hash(state),
             Void => {}
             StringV(s) => s.hash(state),
-            FuncV(s) => (*s as *const FunctionSignature).hash(state),
+            FuncV(s) => s.hash(state),
             SymbolV(sym) => sym.hash(state),
-            Closure(b) => b.hash(state),
-            HashMapV(hm) => hm.hash(state),
-            IterV(s) => s.hash(state),
-            HashSetV(hs) => hs.hash(state),
-            SyntaxObject(s) => s.raw.hash(state),
-            Pair(p) => (**p).hash(state),
-            ByteVector(v) => (*v).hash(state),
             #[cfg(feature = "custom-hash")]
             Custom(v) => match v.read().try_as_dyn_hash() {
                 Some(x) => x.dyn_hash(state),
-                _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
+                _ => Gc::as_ptr(v).hash(state),
             },
-            _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
+            #[cfg(not(feature = "custom-hash"))]
+            Custom(v) => Gc::as_ptr(v).hash(state),
+            HashMapV(hm) => hm.hash(state),
+            HashSetV(hs) => hs.hash(state),
+            CustomStruct(s) => s.hash(state),
+            PortV(port) => port.hash(state),
+            IterV(s) => s.hash(state),
+            ReducerV(r) => r.hash(state),
+            FutureFunc(fun) => crate::gc::Shared::as_ptr(fun).hash(state),
+            FutureV(f) => Gc::as_ptr(f).hash(state),
+            StreamV(s) => Gc::as_ptr(s).hash(state),
+            BoxedFunction(fun) => Gc::as_ptr(fun).hash(state),
+            ContinuationFunction(cont) => StandardShared::as_ptr(&cont.inner).hash(state),
+            ListV(l) => l.hash(state),
+            Pair(p) => (**p).hash(state),
+            MutFunc(fun) => fun.hash(state),
+            BuiltIn(fun) => fun.hash(state),
+            MutableVector(vec) => vec.get().hash(state),
+            BoxedIterator(iter) => Gc::as_ptr(iter).hash(state),
+            SyntaxObject(s) => s.raw.hash(state),
+            Boxed(val) => val.read().hash(state),
+            HeapAllocated(v) => v.get().hash(state),
+            Reference(v) => Gc::as_ptr(v).hash(state),
+            BigNum(n) => n.hash(state),
+            BigRational(f) => f.hash(state),
+            Complex(x) => x.hash(state),
+            ByteVector(v) => (*v).hash(state),
         }
     }
 }
