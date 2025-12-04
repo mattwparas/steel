@@ -2323,6 +2323,16 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     continue;
                 }
+                (Boxed(l), Boxed(r)) => {
+                    if Gc::ptr_eq(&l, &r) {
+                        continue;
+                    }
+
+                    self.left.visit_boxed_value(l);
+                    self.right.visit_boxed_value(r);
+
+                    continue;
+                }
                 (HeapAllocated(l), HeapAllocated(r)) => {
                     if HeapRef::ptr_eq(&l, &r) {
                         continue;
