@@ -3664,11 +3664,11 @@ impl<'a> VmCore<'a> {
                     // TODO: Dispatch on the function here for super instructions!
                     dynamic::vm_match_dynamic_super_instruction(self, instr)?;
 
-                    // crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
-                    // panic!(
-                    //     "Unhandled opcode: {:?} @ {}",
-                    //     self.instructions[self.ip], self.ip
-                    // );
+                    crate::core::instructions::pretty_print_dense_instructions(&self.instructions);
+                    panic!(
+                        "Unhandled opcode: {:?} @ {}",
+                        self.instructions[self.ip], self.ip
+                    );
                 }
             }
 
