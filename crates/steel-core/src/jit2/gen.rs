@@ -1322,7 +1322,9 @@ impl FunctionTranslator<'_> {
                     // let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
                     //
                     // TODO: Move back to using loop?
-                    let _ = self.translate_tco_jmp_no_arity_without_spill(payload);
+                    // let _ = self.translate_tco_jmp_no_arity_without_spill(payload);
+
+                    let _ = self.translate_tco_jmp_no_arity(payload);
                     // Jump to out of bounds so signal we're done
                     self.ip = self.instructions.len() + 1;
                     return false;

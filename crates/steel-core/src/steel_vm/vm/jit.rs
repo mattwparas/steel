@@ -1540,7 +1540,7 @@ fn new_callglobal_tail_handler_deopt_test(
     args: &mut [SteelVal],
 ) -> SteelVal {
     let func = ctx.thread.global_env.repl_lookup_idx(index);
-    println!("Calling tail: {}", func);
+    println!("Calling global tail: {}", func);
     // inspect(ctx, &[func.clone()]);
     // println!("What is left on the stack: {:#?}", ctx.thread.stack);
 
@@ -1795,7 +1795,7 @@ fn handle_global_function_call_with_args(
                         // Don't deopt?
                         Ok(ctx.thread.stack.pop().unwrap())
                     } else {
-                        // println!("Deopting, pushing void to stack");
+                        println!("Deopting, pushing void to stack");
 
                         Ok(SteelVal::Void)
                     }
@@ -2218,13 +2218,7 @@ pub(crate) extern "C-unwind" fn check_callable_tail(ctx: *mut VmCore, lookup_ind
         let this = &mut *ctx;
         let func = &this.thread.global_env.roots()[lookup_index];
 
-        // if TRAMPOLINE {
-        //     if let SteelVal::Closure(c) = &func {
-        //         if c.0.super_instructions.as_ref().is_some() {
-        //             return true;
-        //         }
-        //     }
-        // }
+        println!("Checking if callable in tail: {}", func);
 
         // Builtins can yield control in a funky way.
         !matches!(
@@ -2891,7 +2885,7 @@ fn call_function_deopt(
     fallback_ip: usize,
     args: &mut [SteelVal],
 ) -> SteelVal {
-    println!("Calling function: {}", func);
+    println!("Calling function off of the stack: {}", func);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.

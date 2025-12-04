@@ -19,13 +19,13 @@
 ;                #t)])))
 ;   (loop 0 0 0 #f))
 
-(define (call-with-port2 port proc)
-  (let ([ret (proc port)])
-    (close-port port)
-    ret))
+; (define (call-with-port2 port proc)
+;   (let ([ret (proc port)])
+;     (close-port port)
+;     ret))
 
-(define (call-with-input-file2 file proc)
-  (call-with-port2 (open-input-file file) proc))
+; (define (call-with-input-file2 file proc)
+;   (call-with-port2 (open-input-file file) proc))
 
 (define (loop nl nw nc inword? port)
   (let ([x (read-char port)])
@@ -43,15 +43,15 @@
              port)])))
 
 (set! loop loop)
-(set! call-with-input-file2 call-with-input-file2)
+; (set! call-with-input-file2 call-with-input-file2)
 
 ; (inspect loop)
 ; (#%jit-compile-2 loop)
 
-(set! call-with-port2 call-with-port2)
+; (set! call-with-port2 call-with-port2)
 ; (#%jit-compile-2 call-with-port2)
 
-(inspect call-with-port2)
+; (inspect call-with-port2)
 
 ; (#%jit-compile-2 call-with-input-file2)
 ; (#%jit-compile-2 call-with-input-file2)
@@ -61,7 +61,7 @@
   (loop 0 0 0 #f port))
 
 (define (go x)
-  (call-with-input-file2 x wcport))
+  (call-with-input-file x wcport))
 
 ; (#%jit-compile-2 call-with-input-file)
 
