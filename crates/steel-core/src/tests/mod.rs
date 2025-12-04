@@ -67,7 +67,8 @@ macro_rules! test_harness_failure {
 }
 
 test_harness_success_sync! {
-    native_threads
+    native_threads,
+    gc_deadlock
 }
 
 test_harness_success! {
@@ -97,7 +98,6 @@ test_harness_success! {
     ellipses,
     empty,
     fib,
-    gc_deadlock,
     generator,
     generic_execution,
     generic_execution_dropping,
