@@ -2092,7 +2092,8 @@ impl SteelVal {
     pub fn is_hashable(&self) -> bool {
         match self {
             BoolV(_) | IntV(_) | CharV(_) | VectorV(_) | StringV(_) | SymbolV(_) | HashMapV(_)
-            | Closure(_) | ListV(_) | FuncV(_) | CustomStruct(_) => true,
+            | Closure(_) | ListV(_) | FuncV(_) => true,
+            CustomStruct(s) => s.is_hashable(),
             #[cfg(feature = "custom-hash")]
             Custom(v) => v.read().try_as_dyn_hash().is_some(),
             _ => false,
