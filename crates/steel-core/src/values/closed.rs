@@ -728,13 +728,15 @@ pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     // and then otherwise drain the vector and put them in when found.
     if let SteelVal::Pair(pair) = ctx
         .thread
-        .enter_safepoint(|_| loop {
-            if let Some(value) = executor.find_next() {
-                return Ok(SteelVal::Pair(Gc::new(value)));
-            } else {
-                // Control frequency here, but for when there is no throughput,
-                // we want to at least poll a bit
-                executor.block_until_incoming();
+        .enter_safepoint(|_| -> Result<SteelVal, SteelErr> {
+            loop {
+                if let Some(value) = executor.find_next() {
+                    return Ok(SteelVal::Pair(Gc::new(value)));
+                } else {
+                    // Control frequency here, but for when there is no throughput,
+                    // we want to at least poll a bit
+                    executor.block_until_incoming();
+                }
             }
         })
         .unwrap()

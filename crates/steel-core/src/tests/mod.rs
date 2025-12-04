@@ -97,6 +97,7 @@ test_harness_success! {
     ellipses,
     empty,
     fib,
+    gc_deadlock,
     generator,
     generic_execution,
     generic_execution_dropping,
