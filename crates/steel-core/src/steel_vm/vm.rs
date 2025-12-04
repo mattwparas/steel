@@ -1721,11 +1721,9 @@ impl<'a> VmCore<'a> {
                     // TODO:
                     // Insert the code to do the stack things here
                     let ptr = self.thread as _;
-                    println!("Entering safepoint...");
                     self.thread.synchronizer.ctx.store(Some(ptr));
                     self.park_thread_while_paused();
                     self.thread.synchronizer.ctx.store(None);
-                    println!("Exiting safepoint...");
                 }
                 ThreadState::Running => {}
             }
