@@ -2268,9 +2268,13 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     continue;
                 }
-                // (PortV(_), PortV(_)) => {
-                // return
-                // }
+                (PortV(l), PortV(r)) => {
+                    if l != r {
+                        return false;
+                    }
+
+                    continue;
+                }
                 (IterV(l), IterV(r)) => {
                     self.left.visit_transducer(l);
                     self.right.visit_transducer(r);
