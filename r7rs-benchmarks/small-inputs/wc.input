@@ -1,3 +1,8 @@
-5
-"r7rs-benchmarks/inputs/bib"
-(31102 851820 4460056)
+; 5
+; "r7rs-benchmarks/inputs/bib"
+; (31102 851820 4460056)
+
+
+1
+"r7rs-benchmarks/cat.scm"
+(36 106 1129)

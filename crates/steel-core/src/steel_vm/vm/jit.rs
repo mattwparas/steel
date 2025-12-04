@@ -1541,7 +1541,7 @@ fn new_callglobal_tail_handler_deopt_test(
 ) -> SteelVal {
     let func = ctx.thread.global_env.repl_lookup_idx(index);
     println!("Calling tail: {}", func);
-    inspect(ctx, &[func.clone()]);
+    // inspect(ctx, &[func.clone()]);
     // println!("What is left on the stack: {:#?}", ctx.thread.stack);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
@@ -1773,7 +1773,7 @@ fn handle_global_function_call_with_args(
                     let pop_count = ctx.pop_count;
                     let depth = ctx.thread.stack_frames.len();
 
-                    inspect_impl(ctx, &[SteelVal::Closure(closure.clone())]);
+                    // inspect_impl(ctx, &[SteelVal::Closure(closure.clone())]);
 
                     ctx.handle_function_call_closure_jit(closure, arity)
                         .unwrap();
@@ -1781,14 +1781,14 @@ fn handle_global_function_call_with_args(
                     (func)(ctx);
 
                     if ctx.is_native {
-                        if ctx.pop_count != pop_count {
-                            println!("---------------------------------------------");
+                        // if ctx.pop_count != pop_count {
+                        // println!("---------------------------------------------");
 
-                            let last_func =
-                                ctx.thread.stack_frames.last().unwrap().function.clone();
+                        // let last_func =
+                        //     ctx.thread.stack_frames.last().unwrap().function.clone();
 
-                            inspect_impl(ctx, &[SteelVal::Closure(last_func)]);
-                        }
+                        // inspect_impl(ctx, &[SteelVal::Closure(last_func)]);
+                        // }
 
                         debug_assert_eq!(ctx.pop_count, pop_count);
                         debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
@@ -2064,9 +2064,9 @@ macro_rules! make_list_handlers {
         impl ListHandlerDefinitions {
             pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
                 $(
-                    map.add_func2(
+                    map.add_func(
                         stringify!($name),
-                        $name as extern "C-unwind" fn($($typ: SteelVal),*) -> SteelVal
+                        $name as extern "C-unwind" fn(*mut VmCore, $($typ: SteelVal),*) -> SteelVal
                     );
                 )*
             }
@@ -2094,6 +2094,7 @@ macro_rules! make_list_handlers {
 
             #[allow(improper_ctypes_definitions)]
             pub(crate) extern "C-unwind" fn $name(
+                _: *mut VmCore,
                 $($typ: SteelVal),*
             ) -> SteelVal {
                 // unsafe { new_callglobal_tail_handler_deopt_test(&mut *ctx, lookup_index, fallback_ip, &mut [$($typ), *]) }
@@ -2851,7 +2852,7 @@ fn call_global_function_deopt(
 ) -> SteelVal {
     let func = ctx.thread.global_env.repl_lookup_idx(lookup_index);
 
-    println!("Calling function: {}", func);
+    // println!("Calling function: {}", func);
 
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
