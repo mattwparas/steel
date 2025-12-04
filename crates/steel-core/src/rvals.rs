@@ -2041,101 +2041,33 @@ fn slow_path_eq_lists(
 
 impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
         match self {
-            BoolV(b) => {
-                state.write_u8(0);
-                b.hash(state)
-            }
-            NumV(n) => {
-                state.write_u8(1);
-                n.to_string().hash(state)
-            }
-            IntV(i) => {
-                state.write_u8(2);
-                i.hash(state)
-            }
-            Rational(f) => {
-                state.write_u8(3);
-                f.hash(state)
-            }
-            BigNum(n) => {
-                state.write_u8(4);
-                n.hash(state)
-            }
-            BigRational(f) => {
-                state.write_u8(5);
-                f.hash(state)
-            }
-            Complex(x) => {
-                state.write_u8(6);
-                x.hash(state)
-            }
-            CharV(c) => {
-                state.write_u8(7);
-                c.hash(state)
-            }
-            ListV(l) => {
-                state.write_u8(8);
-                l.hash(state)
-            }
-            CustomStruct(s) => {
-                state.write_u8(9);
-                s.hash(state)
-            }
-            VectorV(v) => {
-                state.write_u8(10);
-                v.hash(state)
-            }
-            v @ Void => {
-                state.write_u8(11);
-                v.hash(state)
-            }
-            StringV(s) => {
-                state.write_u8(12);
-                s.hash(state)
-            }
-            FuncV(s) => {
-                state.write_u8(13);
-                (*s as *const FunctionSignature).hash(state)
-            }
-            SymbolV(sym) => {
-                state.write_u8(14);
-                sym.hash(state);
-            }
-            Closure(b) => {
-                state.write_u8(15);
-                b.hash(state)
-            }
-            HashMapV(hm) => {
-                state.write_u8(16);
-                hm.hash(state)
-            }
-            IterV(s) => {
-                state.write_u8(17);
-                s.hash(state)
-            }
-            HashSetV(hs) => {
-                state.write_u8(18);
-                hs.hash(state)
-            }
-            SyntaxObject(s) => {
-                state.write_u8(19);
-                s.raw.hash(state)
-            }
-            Pair(p) => {
-                state.write_u8(20);
-                (**p).hash(state)
-            }
-            ByteVector(v) => {
-                state.write_u8(21);
-                (*v).hash(state)
-            }
+            BoolV(b) => b.hash(state),
+            NumV(n) => n.to_string().hash(state),
+            IntV(i) => i.hash(state),
+            Rational(f) => f.hash(state),
+            BigNum(n) => n.hash(state),
+            BigRational(f) => f.hash(state),
+            Complex(x) => x.hash(state),
+            CharV(c) => c.hash(state),
+            ListV(l) => l.hash(state),
+            CustomStruct(s) => s.hash(state),
+            VectorV(v) => v.hash(state),
+            v @ Void => v.hash(state),
+            StringV(s) => s.hash(state),
+            FuncV(s) => (*s as *const FunctionSignature).hash(state),
+            SymbolV(sym) => sym.hash(state),
+            Closure(b) => b.hash(state),
+            HashMapV(hm) => hm.hash(state),
+            IterV(s) => s.hash(state),
+            HashSetV(hs) => hs.hash(state),
+            SyntaxObject(s) => s.raw.hash(state),
+            Pair(p) => (**p).hash(state),
+            ByteVector(v) => (*v).hash(state),
             #[cfg(feature = "custom-hash")]
             Custom(v) => match v.read().try_as_dyn_hash() {
-                Some(x) => {
-                    state.write_u8(22);
-                    x.dyn_hash(state);
-                }
+                Some(x) => x.dyn_hash(state),
                 _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
             },
             _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
