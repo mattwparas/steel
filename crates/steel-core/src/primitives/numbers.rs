@@ -2538,6 +2538,100 @@ pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+pub fn add_two_fallible(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
+    match (x, y) {
+        // Simple integer case. Probably very common.
+        (SteelVal::IntV(x), SteelVal::IntV(y)) => match x.checked_add(y) {
+            Some(res) => res.into_steelval(),
+            None => {
+                let mut res = BigInt::from(*x);
+                res += *y;
+                res.into_steelval()
+            }
+        },
+        // Cases that return an `f64`.
+        (SteelVal::NumV(x), SteelVal::NumV(y)) => (x + y).into_steelval(),
+        (SteelVal::NumV(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::NumV(x)) => {
+            (x + *y as f64).into_steelval()
+        }
+        (SteelVal::NumV(x), SteelVal::BigNum(y)) | (SteelVal::BigNum(y), SteelVal::NumV(x)) => {
+            (x + y.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::NumV(x), SteelVal::Rational(y)) | (SteelVal::Rational(y), SteelVal::NumV(x)) => {
+            (x + y.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::NumV(x), SteelVal::BigRational(y))
+        | (SteelVal::BigRational(y), SteelVal::NumV(x)) => {
+            (x + y.to_f64().unwrap()).into_steelval()
+        }
+        // Cases that interact with `Rational`.
+        (SteelVal::Rational(x), SteelVal::Rational(y)) => (x + y).into_steelval(),
+        (SteelVal::Rational(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::Rational(x)) => {
+            match i32::try_from(*y) {
+                Ok(y) => match x.checked_add(&Rational32::new(y, 1)) {
+                    Some(res) => res.into_steelval(),
+                    None => {
+                        let res =
+                            BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()))
+                                + BigInt::from(y);
+                        res.into_steelval()
+                    }
+                },
+                Err(_) => {
+                    let res = BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()))
+                        + BigInt::from(*y);
+                    res.into_steelval()
+                }
+            }
+        }
+        (SteelVal::Rational(x), SteelVal::BigNum(y))
+        | (SteelVal::BigNum(y), SteelVal::Rational(x)) => {
+            let res =
+                BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom())) + y.as_ref();
+            res.into_steelval()
+        }
+        // Cases that interact with `BigRational`. For the sake of performance, hopefully not too
+        // common.
+        (SteelVal::BigRational(x), SteelVal::BigRational(y)) => {
+            (x.as_ref() + y.as_ref()).into_steelval()
+        }
+        (SteelVal::BigRational(x), SteelVal::Rational(y))
+        | (SteelVal::Rational(y), SteelVal::BigRational(x)) => {
+            let res =
+                x.as_ref() + BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
+            res.into_steelval()
+        }
+        (SteelVal::BigRational(x), SteelVal::IntV(y))
+        | (SteelVal::IntV(y), SteelVal::BigRational(x)) => {
+            (x.as_ref() + BigInt::from(*y)).into_steelval()
+        }
+        (SteelVal::BigRational(x), SteelVal::BigNum(y))
+        | (SteelVal::BigNum(y), SteelVal::BigRational(x)) => {
+            (x.as_ref() + y.as_ref()).into_steelval()
+        }
+        // Remaining cases that interact with `BigNum`. Probably not too common.
+        (SteelVal::BigNum(x), SteelVal::BigNum(y)) => {
+            let mut res = x.as_ref().clone();
+            res += y.as_ref();
+            res.into_steelval()
+        }
+        (SteelVal::BigNum(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::BigNum(x)) => {
+            let mut res = x.as_ref().clone();
+            res += *y;
+            res.into_steelval()
+        }
+        // Complex numbers
+        (SteelVal::Complex(x), SteelVal::Complex(y)) => add_complex(x, y),
+        (SteelVal::Complex(x), y) | (y, SteelVal::Complex(x)) => {
+            debug_assert!(realp(y));
+            add_complex(x, &SteelComplex::new(y.clone(), SteelVal::IntV(0)))
+        }
+        (l, r) => {
+            stop!(TypeMismatch => "+ expects numbers, found: {:?} and {:?}", l, r);
+        }
+    }
+}
+
 #[cold]
 fn multiply_complex(x: &SteelComplex, y: &SteelComplex) -> Result<SteelVal> {
     // TODO: Optimize the implementation if needed.

@@ -12,7 +12,7 @@ use crate::primitives::lists::cdr;
 use crate::primitives::lists::is_empty;
 use crate::primitives::lists::steel_cons;
 use crate::primitives::lists::steel_list_ref;
-use crate::primitives::numbers::add_two;
+use crate::primitives::numbers::add_two_fallible;
 use crate::primitives::vectors::vec_ref;
 use crate::rvals::as_underlying_type;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
@@ -2847,7 +2847,7 @@ impl<'a> VmCore<'a> {
                     let right = self.thread.stack.pop().unwrap();
                     let left = self.thread.stack.last_mut().unwrap();
 
-                    let result = match add_two(left, &right) {
+                    let result = match add_two_fallible(left, &right) {
                         Ok(value) => value,
                         Err(e) => return Err(e.set_span_if_none(self.current_span())),
                     };
@@ -7951,7 +7951,7 @@ mod handlers {
 
     #[inline(always)]
     pub(crate) fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
-        add_two(l, r)
+        add_two_fallible(l, r)
     }
 }
 
