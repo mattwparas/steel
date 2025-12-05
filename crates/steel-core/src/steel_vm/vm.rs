@@ -2532,7 +2532,7 @@ impl<'a> VmCore<'a> {
                     // the runtime do the thing now.
                     self.is_native = true;
 
-                    // println!(">> Entering");
+                    println!(">> Entering");
 
                     self.thread
                         .stack_frames
@@ -2545,10 +2545,12 @@ impl<'a> VmCore<'a> {
 
                     self.is_native = false;
 
-                    // println!(
-                    //     "<< Exiting: {} - {:#?}",
-                    //     self.ip, self.instructions[self.ip]
-                    // );
+                    pretty_print_dense_instructions(&self.instructions);
+
+                    println!(
+                        "<< Exiting: {} - {:#?}",
+                        self.ip, self.instructions[self.ip]
+                    );
 
                     // println!("Stack: {:#?}", self.thread.stack);
 

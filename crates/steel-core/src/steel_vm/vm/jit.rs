@@ -3135,7 +3135,7 @@ fn if_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
 }
 
 pub(crate) extern "C-unwind" fn tcojmp_handler(ctx: *mut VmCore, current_arity: usize) {
-    // println!("Calling self tail call");
+    println!("Calling self tail call");
     let this = unsafe { &mut *ctx };
 
     // TODO: When this is done with the trampoline, we can do tail
@@ -3207,7 +3207,7 @@ fn tco_jmp_handler_multi_arity(mut current_arity: usize, this: &mut VmCore<'_>) 
 
 // Tail call back into the native code on the thing?
 pub(crate) extern "C-unwind" fn self_tail_call_handler(ctx: *mut VmCore, arity: usize) {
-    // println!("Calling self tail call");
+    println!("Calling self tail call");
     let this = unsafe { &mut *ctx };
     this.ip = 0;
     let back = this.thread.stack.len() - arity;
