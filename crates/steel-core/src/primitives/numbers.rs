@@ -299,15 +299,15 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 #[inline(always)]
 pub(crate) fn add_primitive_no_check(args: &[SteelVal]) -> Result<SteelVal> {
     match args {
-        [] => 0.into_steelval(),
-        [x] => x.clone().into_steelval(),
+        [] => Ok(SteelVal::IntV(0)),
+        [x] => Ok(x.clone()),
         [x, y] => add_two(x, y),
         [x, y, zs @ ..] => {
             let mut res = add_two(x, y)?;
             for z in zs {
                 res = add_two(&res, z)?;
             }
-            res.into_steelval()
+            Ok(res)
         }
     }
 }
@@ -328,15 +328,15 @@ pub(crate) fn add_primitive_no_check(args: &[SteelVal]) -> Result<SteelVal> {
 pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("+", args)?;
     match args {
-        [] => 0.into_steelval(),
-        [x] => x.clone().into_steelval(),
+        [] => Ok(SteelVal::IntV(0)),
+        [x] => Ok(x.clone()),
         [x, y] => add_two(x, y),
         [x, y, zs @ ..] => {
             let mut res = add_two(x, y)?;
             for z in zs {
                 res = add_two(&res, z)?;
             }
-            res.into_steelval()
+            Ok(res)
         }
     }
 }
