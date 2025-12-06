@@ -948,7 +948,7 @@ impl SteelThread {
             })
             .collect();
 
-        self.constant_map = DEFAULT_CONSTANT_MAP.with(|x| x.clone());
+        // self.constant_map = DEFAULT_CONSTANT_MAP.with(|x| x.clone());
 
         #[cfg(feature = "op-code-profiling")]
         super::profiling::profiling_report();

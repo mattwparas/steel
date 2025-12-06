@@ -17,8 +17,8 @@
         (ackermann 3 3)
         (loop (+ x 1)))))
 
-(#%jit-compile-2 ackermann)
-(#%jit-compile-2 loop)
+; (#%jit-compile-2 ackermann)
+; (#%jit-compile-2 loop)
 
 ; (ackermann 1 1)
 

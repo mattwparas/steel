@@ -1332,12 +1332,12 @@ impl FunctionTranslator<'_> {
                     return false;
                 }
                 OpCode::SELFTAILCALLNOARITY => {
-                    // let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
+                    let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
                     //
                     // TODO: Move back to using loop?
                     // let _ = self.translate_tco_jmp_no_arity_without_spill(payload);
 
-                    let _ = self.translate_tco_jmp_no_arity(payload);
+                    // let _ = self.translate_tco_jmp_no_arity(payload);
                     // Jump to out of bounds so signal we're done
                     self.ip = self.instructions.len() + 1;
                     return false;
@@ -2458,7 +2458,7 @@ impl FunctionTranslator<'_> {
                 // in play - we can avoid the unboxing / boxing of the type if we know
                 // what we're dealing with.
 
-                let constant = self.constants.get(payload);
+                let constant = self.constants.get_value(payload);
 
                 match &constant {
                     SteelVal::BoolV(_) | SteelVal::IntV(_) => {
