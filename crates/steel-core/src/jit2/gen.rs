@@ -27,11 +27,12 @@ use crate::{
             move_read_local_any_value_c, not_handler_raw_value, num_equal_int, num_equal_value,
             num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
             push_global, push_to_vm_stack, push_to_vm_stack_let_var, push_to_vm_stack_two,
-            read_local_0_value_c, read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
-            read_local_any_value_c, self_tail_call_handler, self_tail_call_handler_loop,
-            set_handler_c, setbox_handler_c, should_continue, should_spill, should_spill_value,
-            tcojmp_handler, trampoline, trampoline_no_arity, unbox_handler_c, vector_ref_handler_c,
-            CallFunctionDefinitions, CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
+            read_captured_c, read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
+            read_local_3_value_c, read_local_any_value_c, self_tail_call_handler,
+            self_tail_call_handler_loop, set_handler_c, setbox_handler_c, should_continue,
+            should_spill, should_spill_value, tcojmp_handler, trampoline, trampoline_no_arity,
+            unbox_handler_c, vector_ref_handler_c, CallFunctionDefinitions,
+            CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
             CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
             CallSelfTailCallNoArityDefinitions, CallSelfTailCallNoArityLoopDefinitions,
             ListHandlerDefinitions,
@@ -513,6 +514,11 @@ impl Default for JIT {
                 as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize) -> SteelVal,
         );
 
+        map.add_func(
+            "read-captured",
+            read_captured_c as extern "C-unwind" fn(ctx: *mut VmCore, index: usize) -> SteelVal,
+        );
+
         map.add_func("move-read-local-0", move_read_local_0_value_c as Vm01);
         map.add_func("move-read-local-1", move_read_local_1_value_c as Vm01);
         map.add_func("move-read-local-2", move_read_local_2_value_c as Vm01);
@@ -908,6 +914,8 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
 
         (OpCode::READLOCAL, _) => "read-local-any",
         (OpCode::MOVEREADLOCAL, _) => "move-read-local-any",
+
+        (OpCode::READCAPTURED, _) => "read-captured",
 
         (OpCode::MOVEREADLOCAL0, _) => "move-read-local-0",
         (OpCode::MOVEREADLOCAL1, _) => "move-read-local-1",
@@ -1411,7 +1419,21 @@ impl FunctionTranslator<'_> {
                     // Then, we're gonna check the result and see if we should deopt
                     self.check_deopt();
                 }
-                OpCode::READCAPTURED => todo!(),
+                OpCode::READCAPTURED => {
+                    let index = self
+                        .builder
+                        .ins()
+                        .iconst(Type::int(64).unwrap(), payload as i64);
+
+                    let value = self.call_function_returns_value_args(
+                        op_to_name_payload(op, payload),
+                        &[index],
+                    );
+
+                    self.push(value, InferredType::Any);
+
+                    self.ip += 1;
+                }
 
                 // Begin scope means we're starting
                 // a let scope, which means we'll have some amount

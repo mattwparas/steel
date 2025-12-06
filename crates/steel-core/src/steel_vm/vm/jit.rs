@@ -1519,6 +1519,20 @@ pub(crate) extern "C-unwind" fn read_local_any_value_c(
     guard.get_local_value(offset)
 }
 
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn read_captured_c(ctx: *mut VmCore, index: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+
+    guard
+        .thread
+        .stack_frames
+        .last()
+        .unwrap()
+        .function
+        .captures()[index]
+        .clone()
+}
+
 // Read the global value at the registered index
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn push_global(ctx: *mut VmCore, index: usize) -> SteelVal {
@@ -4032,13 +4046,20 @@ pub extern "C-unwind" fn handle_new_start_closure(
         // snag the arity from the eclosure instruction
         let arity = ctx.instructions[forward_jump_index].payload_size;
 
-        let mut constructed_lambda = ByteCodeLambda::new(
+        let constructed_lambda = ByteCodeLambda::new(
             closure_id,
             closure_body,
             arity.to_usize(),
             is_multi_arity,
             CaptureVec::new(),
         );
+
+        #[cfg(feature = "jit2")]
+        let mut constructed_lambda = if std::env::var("STEEL_JIT").is_ok() {
+            jit::jit_compile_lambda(ctx, constructed_lambda)
+        } else {
+            constructed_lambda
+        };
 
         ctx.thread
             .function_interner
