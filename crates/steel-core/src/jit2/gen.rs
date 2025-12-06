@@ -13,7 +13,8 @@ use crate::{
     core::instructions::{pretty_print_dense_instructions, DenseInstruction},
     steel_vm::vm::{
         jit::{
-            box_handler_c, call_global_function_deopt_no_arity_spilled, callglobal_handler_deopt_c,
+            box_handler_c, call_global_function_deopt_no_arity_spilled,
+            call_global_function_deopt_spilled, callglobal_handler_deopt_c,
             callglobal_tail_handler_deopt_spilled, car_handler_value, cdr_handler_value,
             check_callable, check_callable_spill, check_callable_tail, check_callable_value,
             check_callable_value_tail, cons_handler_value, drop_value, equal_binop,
@@ -274,6 +275,12 @@ impl Default for JIT {
         map.add_func(
             "call-global-no-arity-spilled",
             call_global_function_deopt_no_arity_spilled
+                as extern "C-unwind" fn(*mut VmCore, usize, usize, usize) -> SteelVal,
+        );
+
+        map.add_func(
+            "call-global-spilled",
+            call_global_function_deopt_spilled
                 as extern "C-unwind" fn(*mut VmCore, usize, usize, usize) -> SteelVal,
         );
 
@@ -1393,7 +1400,12 @@ impl FunctionTranslator<'_> {
                         // Assuming this worked, we'll want to push this result on to the stack.
                         self.push(result, InferredType::Any);
                     } else {
-                        todo!("implement call global spill")
+                        let name = "call-global-spilled";
+
+                        let v =
+                            self.call_global_function_spilled(arity, name, function_index, true);
+
+                        self.push(v, InferredType::Any)
                     }
 
                     // Then, we're gonna check the result and see if we should deopt
