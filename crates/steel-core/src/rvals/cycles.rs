@@ -2268,9 +2268,13 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     continue;
                 }
-                // (PortV(_), PortV(_)) => {
-                // return
-                // }
+                (PortV(l), PortV(r)) => {
+                    if l != r {
+                        return false;
+                    }
+
+                    continue;
+                }
                 (IterV(l), IterV(r)) => {
                     self.left.visit_transducer(l);
                     self.right.visit_transducer(r);
@@ -2278,6 +2282,10 @@ impl<'a> RecursiveEqualityHandler<'a> {
                     continue;
                 }
                 (ReducerV(l), ReducerV(r)) => {
+                    if std::mem::discriminant(&*l) != std::mem::discriminant(&*r) {
+                        return false;
+                    }
+
                     self.left.visit_reducer(l);
                     self.right.visit_reducer(r);
 
@@ -2291,11 +2299,31 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     continue;
                 }
-                // MutFunc(m) => self.visit_mutable_function(m),
                 (BuiltIn(l), BuiltIn(r)) => {
                     if l as usize != r as usize {
                         return false;
                     }
+                    continue;
+                }
+                (FutureFunc(l), FutureFunc(r)) => {
+                    if !crate::gc::Shared::ptr_eq(&l, &r) {
+                        return false;
+                    }
+
+                    continue;
+                }
+                (FutureV(l), FutureV(r)) => {
+                    if !Gc::ptr_eq(&l, &r) {
+                        return false;
+                    }
+
+                    continue;
+                }
+                (StreamV(l), StreamV(r)) => {
+                    if !Gc::ptr_eq(&l, &r) {
+                        return false;
+                    }
+
                     continue;
                 }
                 // MutableVector(b) => self.visit_mutable_vector(b),
@@ -2316,6 +2344,16 @@ impl<'a> RecursiveEqualityHandler<'a> {
 
                     self.left.visit_syntax_object(l);
                     self.right.visit_syntax_object(r);
+
+                    continue;
+                }
+                (Boxed(l), Boxed(r)) => {
+                    if Gc::ptr_eq(&l, &r) {
+                        continue;
+                    }
+
+                    self.left.visit_boxed_value(l);
+                    self.right.visit_boxed_value(r);
 
                     continue;
                 }

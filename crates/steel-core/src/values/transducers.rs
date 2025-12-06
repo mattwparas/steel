@@ -57,7 +57,7 @@ pub enum Transducers {
 // This should just describe how a sequence of values can be reduced
 // assert that the function passed in has an arity of 2
 // and the initival
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ReducerFunc {
     pub(crate) initial_value: SteelVal,
     pub(crate) function: SteelVal,
@@ -75,7 +75,7 @@ impl ReducerFunc {
 // Defines how to collect a function
 // defaults to the same input type?
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Reducer {
     // Sum the sequence
     Sum,

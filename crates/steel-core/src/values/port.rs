@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::fs::OpenOptions;
+use std::hash::Hash;
 use std::io;
 use std::io::prelude::*;
 use std::io::Cursor;
@@ -30,6 +31,20 @@ thread_local! {
 #[derive(Debug, Clone)]
 pub struct SteelPort {
     pub(crate) port: GcMut<SteelPortRepr>,
+}
+
+impl PartialEq for SteelPort {
+    fn eq(&self, other: &Self) -> bool {
+        Gc::ptr_eq(&self.port, &other.port)
+    }
+}
+
+impl Eq for SteelPort {}
+
+impl Hash for SteelPort {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        Gc::as_ptr(&self.port).hash(state);
+    }
 }
 
 impl std::fmt::Display for SteelPort {

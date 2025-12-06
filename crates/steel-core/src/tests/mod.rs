@@ -105,6 +105,7 @@ test_harness_success! {
     generic_transducer,
     generic_transducer_with_different_functions,
     hailstone,
+    hash,
     heap_sort,
     help,
     html_table,

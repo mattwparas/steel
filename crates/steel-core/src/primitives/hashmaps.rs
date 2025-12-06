@@ -49,7 +49,7 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
 ///
 /// (hash-code v) -> integer?
 ///
-/// * v : hashable?
+/// * v : any/c
 ///
 /// # Examples
 /// ```scheme
@@ -59,10 +59,6 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
 #[steel_derive::function(name = "hash-code", constant = false)]
 pub fn hash_code(arg: &SteelVal) -> Result<SteelVal> {
     let mut hasher = DefaultHasher::new();
-
-    if !arg.is_hashable() {
-        stop!(TypeMismatch => "value is not hashable: {}", arg);
-    }
 
     arg.hash(&mut hasher);
     let value = hasher.finish();
@@ -79,7 +75,7 @@ pub fn hash_code(arg: &SteelVal) -> Result<SteelVal> {
 ///
 /// (hash key val ...) -> hash?
 ///
-/// * key : hashable?
+/// * key : any/c
 /// * val : any/c
 ///
 /// Note: the keys must be hashable.
@@ -98,11 +94,7 @@ pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
     loop {
         match (arg_iter.next(), arg_iter.next()) {
             (Some(key), Some(value)) => {
-                if key.is_hashable() {
-                    hm.insert(key, value);
-                } else {
-                    stop!(TypeMismatch => "hash key not hashable!: {}", key);
-                }
+                hm.insert(key, value);
             }
             (None, None) => break,
             _ => {
@@ -122,11 +114,7 @@ pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
     loop {
         match (arg_iter.next(), arg_iter.next()) {
             (Some(key), Some(value)) => {
-                if key.is_hashable() {
-                    hm.insert(key, value);
-                } else {
-                    stop!(TypeMismatch => "hash key not hashable!: {}", key);
-                }
+                hm.insert(key, value);
             }
             (None, None) => break,
             _ => {
@@ -154,25 +142,21 @@ pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[function(name = "hash-remove")]
 pub fn hash_remove(map: &mut SteelVal, key: SteelVal) -> Result<SteelVal> {
-    if key.is_hashable() {
-        if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
-            match Gc::get_mut(m) {
-                Some(m) => {
-                    m.remove(&key);
-                    Ok(std::mem::replace(map, SteelVal::Void))
-                }
-                None => {
-                    let mut m = m.unwrap();
-                    m.remove(&key);
-
-                    Ok(SteelVal::HashMapV(Gc::new(m).into()))
-                }
+    if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
+        match Gc::get_mut(m) {
+            Some(m) => {
+                m.remove(&key);
+                Ok(std::mem::replace(map, SteelVal::Void))
             }
-        } else {
-            stop!(TypeMismatch => "hash-remove expects a hash map, found: {:?}", map);
+            None => {
+                let mut m = m.unwrap();
+                m.remove(&key);
+
+                Ok(SteelVal::HashMapV(Gc::new(m).into()))
+            }
         }
     } else {
-        stop!(TypeMismatch => "hash key not hashable: {:?}", key)
+        stop!(TypeMismatch => "hash-remove expects a hash map, found: {:?}", map);
     }
 }
 
@@ -197,22 +181,18 @@ pub fn hash_insert(
     key: &mut SteelVal,
     value: &mut SteelVal,
 ) -> Result<SteelVal> {
-    if key.is_hashable() {
-        let key = std::mem::take(key);
-        let value = std::mem::take(value);
-        if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
-            match Gc::get_mut(m) {
-                Some(m) => {
-                    m.insert(key, value);
-                    Ok(std::mem::replace(map, SteelVal::Void))
-                }
-                None => Ok(SteelVal::HashMapV(Gc::new(m.update(key, value)).into())),
+    let key = std::mem::take(key);
+    let value = std::mem::take(value);
+    if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
+        match Gc::get_mut(m) {
+            Some(m) => {
+                m.insert(key, value);
+                Ok(std::mem::replace(map, SteelVal::Void))
             }
-        } else {
-            stop!(TypeMismatch => "hash-insert expects a hash map, found: {:?}", map);
+            None => Ok(SteelVal::HashMapV(Gc::new(m.update(key, value)).into())),
         }
     } else {
-        stop!(TypeMismatch => "hash key not hashable: {:?}", key)
+        stop!(TypeMismatch => "hash-insert expects a hash map, found: {:?}", map);
     }
 }
 
@@ -230,13 +210,9 @@ pub fn hash_insert(
 /// ```
 #[function(name = "hash-ref")]
 pub fn hash_ref(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result<SteelVal> {
-    if key.is_hashable() {
-        match map.get(key) {
-            Some(value) => Ok(value.clone()),
-            None => stop!(Generic => "key not found in hash map: {} - map: {:?}", key, map),
-        }
-    } else {
-        stop!(TypeMismatch => "key not hashable: {}", key)
+    match map.get(key) {
+        Some(value) => Ok(value.clone()),
+        None => stop!(Generic => "key not found in hash map: {} - map: {:?}", key, map),
     }
 }
 
@@ -282,7 +258,7 @@ pub fn hash_length(map: &Gc<HashMap<SteelVal, SteelVal>>) -> usize {
 /// (hash-contains? map key) -> bool?
 ///
 /// * map : hash?
-/// * key : hashable?
+/// * key : any/c
 ///
 /// # Example
 ///
@@ -292,16 +268,12 @@ pub fn hash_length(map: &Gc<HashMap<SteelVal, SteelVal>>) -> usize {
 /// ```
 #[function(name = "hash-contains?")]
 pub fn hash_contains(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result<SteelVal> {
-    if key.is_hashable() {
-        Ok(SteelVal::BoolV(map.contains_key(key)))
-    } else {
-        stop!(TypeMismatch => "hash key not hashable!: {}", key);
-    }
+    Ok(SteelVal::BoolV(map.contains_key(key)))
 }
 
 /// Returns the keys of the given hash map as a list.
 ///
-/// (hash-keys->list map) -> (listof hashable?)
+/// (hash-keys->list map) -> (listof any/c)
 ///
 /// * map : hash?
 ///
@@ -335,7 +307,7 @@ pub fn values_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<Steel
 
 /// Returns the keys of the given hash map as an immutable vector
 ///
-/// (hash-keys->vector map) -> (vectorof hashable?)
+/// (hash-keys->vector map) -> (vectorof any/c)
 ///
 /// * map: hash?
 ///

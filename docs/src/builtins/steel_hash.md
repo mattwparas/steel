@@ -5,7 +5,7 @@ Each key must have a val, so the total number of arguments must be even.
 
 (hash key val ...) -> hash?
 
-* key : hashable?
+* key : any/c
 * val : any/c
 
 Note: the keys must be hashable.
@@ -34,7 +34,7 @@ Gets the hash code for the given value;
 
 (hash-code v) -> integer?
 
-* v : hashable?
+* v : any/c
 
 #### Examples
 ```scheme
@@ -47,7 +47,7 @@ Checks whether the given map contains the given key. Key must be hashable.
 (hash-contains? map key) -> bool?
 
 * map : hash?
-* key : hashable?
+* key : any/c
 
 #### Example
 
@@ -86,7 +86,7 @@ so the old hash map is still accessible.
 ### **hash-keys->list**
 Returns the keys of the given hash map as a list.
 
-(hash-keys->list map) -> (listof hashable?)
+(hash-keys->list map) -> (listof any/c)
 
 * map : hash?
 
@@ -99,7 +99,7 @@ Returns the keys of the given hash map as a list.
 ### **hash-keys->vector**
 Returns the keys of the given hash map as an immutable vector
 
-(hash-keys->vector map) -> (vectorof hashable?)
+(hash-keys->vector map) -> (vectorof any/c)
 
 * map: hash?
 

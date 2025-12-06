@@ -36,11 +36,7 @@ pub fn hs_construct(args: &[SteelVal]) -> Result<SteelVal> {
     let mut hs = HashSet::new();
 
     for key in args {
-        if key.is_hashable() {
-            hs.insert(key.clone());
-        } else {
-            stop!(TypeMismatch => "hash key not hashable!");
-        }
+        hs.insert(key.clone());
     }
 
     Ok(SteelVal::HashSetV(Gc::new(hs).into()))
@@ -68,21 +64,17 @@ pub fn hashset_length(hashset: &SteelHashSet) -> usize {
 /// ```
 #[steel_derive::function(name = "hashset-insert")]
 pub fn hs_insert(hashset: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
-    if value.is_hashable() {
-        if let SteelVal::HashSetV(SteelHashSet(hs)) = hashset {
-            match Gc::get_mut(hs) {
-                Some(m) => {
-                    m.insert(value);
-                    Ok(std::mem::replace(hashset, SteelVal::Void))
-                }
-
-                None => Ok(SteelVal::HashSetV(SteelHashSet(Gc::new(hs.update(value))))),
+    if let SteelVal::HashSetV(SteelHashSet(hs)) = hashset {
+        match Gc::get_mut(hs) {
+            Some(m) => {
+                m.insert(value);
+                Ok(std::mem::replace(hashset, SteelVal::Void))
             }
-        } else {
-            stop!(TypeMismatch => "set insert takes a set")
+
+            None => Ok(SteelVal::HashSetV(SteelHashSet(Gc::new(hs.update(value))))),
         }
     } else {
-        stop!(TypeMismatch => "hash key not hashable!");
+        stop!(TypeMismatch => "set insert takes a set")
     }
 }
 
@@ -95,11 +87,7 @@ pub fn hs_insert(hashset: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "hashset-contains?")]
 pub fn hashset_contains(hashset: &SteelHashSet, key: &SteelVal) -> Result<SteelVal> {
-    if key.is_hashable() {
-        Ok(SteelVal::BoolV(hashset.contains(key)))
-    } else {
-        stop!(TypeMismatch => "hash key not hashable!: {}", key);
-    }
+    Ok(SteelVal::BoolV(hashset.contains(key)))
 }
 
 /// Check if the left set is a subset of the right set
