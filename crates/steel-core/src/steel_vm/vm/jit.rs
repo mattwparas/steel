@@ -1,3 +1,5 @@
+#![allow(improper_ctypes_definitions)]
+
 use std::mem::ManuallyDrop;
 
 use steel_gen::opcode::{MAX_OPCODE_SIZE, OPCODES_ARRAY};
@@ -1387,6 +1389,22 @@ pub(crate) extern "C-unwind" fn extern_c_sub_two_int(a: SteelVal, b: SteelVal) -
         }
         _ => {
             todo!("{}", a)
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn extern_c_negate(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
+    match crate::primitives::numbers::negate(&arg) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
         }
     }
 }
@@ -3408,6 +3426,7 @@ macro_rules! make_self_tail_call_no_arity {
 
         pub struct CallSelfTailCallNoArityDefinitions;
 
+        #[allow(unused)]
         impl CallSelfTailCallNoArityDefinitions {
             pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
                 $(

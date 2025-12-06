@@ -2607,7 +2607,7 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::POPSINGLE,
                     ..
                 } => {
-                    let last = self.thread.stack.pop();
+                    self.thread.stack.pop();
                     self.ip += 1;
                 }
 

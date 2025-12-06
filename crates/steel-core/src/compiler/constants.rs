@@ -202,10 +202,6 @@ impl ConstantMap {
     }
 
     pub fn get_value(&self, idx: usize) -> SteelVal {
-        if idx > self.reified_values.load().len() {
-            println!("{:?}", self);
-        }
-
         self.reified_values.load()[idx].clone()
         // self.values.read()[idx].clone()
     }

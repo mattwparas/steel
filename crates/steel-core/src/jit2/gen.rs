@@ -10,7 +10,7 @@ use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
     compiler::constants::ConstantMap,
-    core::instructions::{pretty_print_dense_instructions, DenseInstruction},
+    core::instructions::DenseInstruction,
     steel_vm::vm::{
         jit::{
             box_handler_c, call_global_function_deopt_no_arity_spilled,
@@ -19,10 +19,10 @@ use crate::{
             check_callable, check_callable_spill, check_callable_tail, check_callable_value,
             check_callable_value_tail, cons_handler_value, drop_value, equal_binop,
             extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
-            extern_c_lte_two, extern_c_lte_two_int, extern_c_mult_two, extern_c_null_handler,
-            extern_c_sub_two, extern_c_sub_two_int, extern_handle_pop, handle_new_start_closure,
-            handle_pure_function, if_handler_raw_value, if_handler_value, let_end_scope_c,
-            list_handler_c, list_ref_handler_c, move_read_local_0_value_c,
+            extern_c_lte_two, extern_c_lte_two_int, extern_c_mult_two, extern_c_negate,
+            extern_c_null_handler, extern_c_sub_two, extern_c_sub_two_int, extern_handle_pop,
+            handle_new_start_closure, handle_pure_function, if_handler_raw_value, if_handler_value,
+            let_end_scope_c, list_handler_c, list_ref_handler_c, move_read_local_0_value_c,
             move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
             move_read_local_any_value_c, not_handler_raw_value, num_equal_int, num_equal_value,
             num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
@@ -70,6 +70,7 @@ pub struct FunctionMap<'a> {
     builder: &'a mut JITBuilder,
 }
 
+#[allow(unused)]
 struct OwnedFunctionMap {
     map: HashMap<&'static str, Box<dyn FunctionToCranelift + Send + Sync + 'static>>,
     map2: HashMap<&'static str, Box<dyn FunctionToCranelift2 + Send + Sync + 'static>>,
@@ -465,9 +466,16 @@ impl Default for JIT {
             extern_c_add_two as VmBinOp,
             InferredType::Number,
         );
+
         map.add_func_hint(
             "sub-binop",
             extern_c_sub_two as VmBinOp,
+            InferredType::Number,
+        );
+
+        map.add_func_hint(
+            "sub-negate",
+            extern_c_negate as extern "C-unwind" fn(ctx: *mut VmCore, a: SteelVal) -> SteelVal,
             InferredType::Number,
         );
 
@@ -708,14 +716,14 @@ impl JIT {
     // Translate from toy-language AST nodes into Cranelift IR.
     fn translate(
         &mut self,
-        name: String,
-        func_id: FuncId,
+        _name: String,
+        _func_id: FuncId,
         arity: u16,
         params: Vec<String>,
         bytecode: &[DenseInstruction],
         globals: &[SteelVal], // stmts: Vec<Expr>,
         constants: &ConstantMap,
-        function_context: Option<usize>,
+        _function_context: Option<usize>,
     ) -> Result<(), String> {
         // Our toy language currently only supports I64 values, though Cranelift
         // supports other types.
@@ -766,14 +774,14 @@ impl JIT {
             module: &mut self.module,
             instructions: bytecode,
             ip: 0,
-            globals,
+            _globals: globals,
             stack: Vec::new(),
             arity,
             constants,
-            function_context,
-            id: func_id,
-            call_global_all_native: false,
-            name,
+            // function_context,
+            // id: func_id,
+            // call_global_all_native: false,
+            // name,
             value_to_local_map: HashMap::new(),
             local_to_value_map: HashMap::new(),
             let_var_stack: Vec::new(),
@@ -855,7 +863,7 @@ struct FunctionTranslator<'a> {
     // together into a dynamic sequence.
     instructions: &'a [DenseInstruction],
     ip: usize,
-    globals: &'a [SteelVal],
+    _globals: &'a [SteelVal],
 
     // Local values - whenever things are locally read, we can start using them
     // here.
@@ -874,14 +882,10 @@ struct FunctionTranslator<'a> {
 
     let_var_stack: Vec<usize>,
 
-    function_context: Option<usize>,
-
-    id: FuncId,
-
-    call_global_all_native: bool,
-
-    name: String,
-
+    // function_context: Option<usize>,
+    // id: FuncId,
+    // call_global_all_native: bool,
+    // name: String,
     intrinsics: &'a OwnedFunctionMap,
 
     fake_entry_block: Option<Block>,
@@ -924,6 +928,9 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
 
         (OpCode::ADD, 2) => "add-binop",
         (OpCode::SUB, 2) => "sub-binop",
+
+        (OpCode::SUB, 1) => "sub-negate",
+
         (OpCode::LT, 2) => "lt-binop",
         (OpCode::LTE, 2) => "lte-binop",
         (OpCode::GT, 2) => "gt-binop",
@@ -1707,10 +1714,10 @@ impl FunctionTranslator<'_> {
             .iconst(Type::int(64).unwrap(), payload as i64);
 
         let arg_values = [ctx, arity];
-        let call = self.builder.ins().call(local_callee, &arg_values);
+        let _call = self.builder.ins().call(local_callee, &arg_values);
     }
 
-    fn translate_tco_jmp_no_arity_loop(&mut self, payload: usize) {
+    fn _translate_tco_jmp_no_arity_loop(&mut self, payload: usize) {
         for i in 0..self.stack.len() {
             self.spill(i);
         }
@@ -1724,7 +1731,7 @@ impl FunctionTranslator<'_> {
             .iconst(Type::int(64).unwrap(), payload as i64);
 
         let arg_values = [ctx, arity];
-        let call = self.builder.ins().call(local_callee, &arg_values);
+        let _call = self.builder.ins().call(local_callee, &arg_values);
 
         let test = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
 
@@ -1769,7 +1776,7 @@ impl FunctionTranslator<'_> {
 
         let mut arg_values = vec![ctx, arity];
         arg_values.extend(args_off_the_stack.iter().map(|x| x.value));
-        let call = self.builder.ins().call(local_callee, &arg_values);
+        let _call = self.builder.ins().call(local_callee, &arg_values);
 
         let test = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
 
@@ -1794,7 +1801,7 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(else_block);
     }
 
-    fn translate_tco_jmp_no_arity_without_spill(&mut self, payload: usize) {
+    fn _translate_tco_jmp_no_arity_without_spill(&mut self, payload: usize) {
         let name = CallSelfTailCallNoArityDefinitions::arity_to_name(payload).unwrap();
 
         let mut args_off_the_stack = self
@@ -1814,10 +1821,10 @@ impl FunctionTranslator<'_> {
 
         let mut arg_values = vec![ctx, arity];
         arg_values.extend(args_off_the_stack.iter().map(|x| x.value));
-        let call = self.builder.ins().call(local_callee, &arg_values);
+        let _call = self.builder.ins().call(local_callee, &arg_values);
     }
 
-    fn translate_tco_jmp_no_arity(&mut self, payload: usize) {
+    fn _translate_tco_jmp_no_arity(&mut self, payload: usize) {
         // TODO: Don't spill to the stack right away
         // We can avoid a lot of movement since we can overwrite
         // the existing values on the stack before they're
@@ -1835,7 +1842,7 @@ impl FunctionTranslator<'_> {
             .iconst(Type::int(64).unwrap(), payload as i64);
 
         let arg_values = [ctx, arity];
-        let call = self.builder.ins().call(local_callee, &arg_values);
+        let _call = self.builder.ins().call(local_callee, &arg_values);
     }
 
     fn call_function(&mut self, arity: usize, name: &str, tail: bool) -> Value {
@@ -2205,7 +2212,7 @@ impl FunctionTranslator<'_> {
         return result;
     }
 
-    fn check_call_spill(&mut self, index: Value) -> Value {
+    fn _check_call_spill(&mut self, index: Value) -> Value {
         let name = "check-callable-spill";
         let local_callee = self.get_local_callee(name);
         let ctx = self.get_ctx();
@@ -2240,7 +2247,7 @@ impl FunctionTranslator<'_> {
         is_native
     }
 
-    fn check_deopt_new(&mut self) {
+    fn _check_deopt_new(&mut self) {
         let result = self.check_deopt_ptr_load();
         let then_block = self.builder.create_block();
 
@@ -2330,7 +2337,7 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(merge_block);
         // // Read the value of the if-else by reading the merge block
         // // parameter.
-        let phi = self.builder.block_params(merge_block)[0];
+        let _phi = self.builder.block_params(merge_block)[0];
         // phi
     }
 
@@ -2492,6 +2499,7 @@ impl FunctionTranslator<'_> {
 
     // If this is an unboxed value, then we need to cast the value
     // to the requisite type if its a boolean.
+    #[allow(unused)]
     fn encode_value(&mut self, tag: i64, value: Value) -> Value {
         let tag = self.builder.ins().iconst(Type::int(64).unwrap(), tag);
         self.builder.ins().iconcat(tag, value)
@@ -2633,7 +2641,7 @@ impl FunctionTranslator<'_> {
         let local_callee = self.get_local_callee(name);
         let ctx = self.get_ctx();
         let arg_values = [ctx, value];
-        let call = self.builder.ins().call(local_callee, &arg_values);
+        let _call = self.builder.ins().call(local_callee, &arg_values);
     }
 
     // fn push_to_vm_stack_two(&mut self, value: Value, value2: Value) {
@@ -2678,7 +2686,7 @@ impl FunctionTranslator<'_> {
         // for arg in args {
         //     arg_values.push(self.translate_expr(arg))
         // }
-        let call = self.builder.ins().call(local_callee, &arg_values);
+        let _call = self.builder.ins().call(local_callee, &arg_values);
         // let result = self.builder.inst_results(call)[0];
         // result
     }
@@ -2688,7 +2696,7 @@ impl FunctionTranslator<'_> {
         let local_callee = self.get_local_callee(name);
         let ctx = self.get_ctx();
         let arg_values = [ctx, value];
-        let call = self.builder.ins().call(local_callee, &arg_values);
+        let _call = self.builder.ins().call(local_callee, &arg_values);
     }
 
     fn push_to_vm_stack_let_var(&mut self, value: Value) {
@@ -2702,7 +2710,7 @@ impl FunctionTranslator<'_> {
         // for arg in args {
         //     arg_values.push(self.translate_expr(arg))
         // }
-        let call = self.builder.ins().call(local_callee, &arg_values);
+        let _call = self.builder.ins().call(local_callee, &arg_values);
         // let result = self.builder.inst_results(call)[0];
         // result
     }
