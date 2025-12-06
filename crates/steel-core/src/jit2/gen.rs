@@ -10,7 +10,7 @@ use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
     compiler::constants::ConstantMap,
-    core::instructions::DenseInstruction,
+    core::instructions::{pretty_print_dense_instructions, DenseInstruction},
     steel_vm::vm::{
         jit::{
             box_handler_c, call_global_function_deopt_no_arity_spilled, callglobal_handler_deopt_c,
@@ -1112,11 +1112,6 @@ impl FunctionTranslator<'_> {
                     let v = self
                         .call_function_returns_value_args("new-closure", &[ip_value, offset_value]);
 
-                    println!(
-                        "Instruction after newsclosure: {:?}",
-                        self.instructions[self.ip]
-                    );
-
                     self.push(v, InferredType::Function);
                 }
 
@@ -1178,7 +1173,9 @@ impl FunctionTranslator<'_> {
                 // it will only be used one. Read local does since we want
                 // to clone it
                 OpCode::READLOCAL | OpCode::MOVEREADLOCAL => {
-                    let let_var_offset = self.let_var_stack.last().copied().unwrap_or(0);
+                    // let let_var_offset = self.let_var_stack.last().copied().unwrap_or(0);
+
+                    let let_var_offset: usize = self.let_var_stack.iter().sum();
 
                     if payload > self.arity as usize + let_var_offset {
                         let upper_bound = payload - self.arity as usize - let_var_offset;
@@ -1269,7 +1266,8 @@ impl FunctionTranslator<'_> {
                     // move semantics into the stack itself to mark that we've
                     // read it?
 
-                    let let_var_offset = self.let_var_stack.last().copied().unwrap_or(0);
+                    // let let_var_offset: usize = self.let_var_stack.last().copied().unwrap_or(0);
+                    let let_var_offset: usize = self.let_var_stack.iter().sum();
 
                     if payload > self.arity as usize + let_var_offset {
                         let upper_bound = payload - self.arity as usize - let_var_offset;
@@ -1420,7 +1418,14 @@ impl FunctionTranslator<'_> {
                     // self.local_count = payload;
                     self.ip += 1;
 
-                    self.let_var_stack.pop();
+                    // let last = self.let_var_stack.iter().sum::<usize>() + self.arity as usize;
+
+                    self.let_var_stack.pop().unwrap();
+
+                    // if last != payload {
+                    //     pretty_print_dense_instructions(&self.instructions);
+                    //     assert_eq!(last, payload);
+                    // }
 
                     self.call_end_scope_handler(payload);
                 }

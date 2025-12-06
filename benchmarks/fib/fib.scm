@@ -68,7 +68,7 @@
   (stdout-simple-displayln obj)
   (unbox (box obj)))
 
-(define big-list (map (lambda (x) (cons x x)) (range 0 100000)))
+(define big-list (map (lambda (x) (cons x x)) (range 0 10)))
 
 (define (map1 func accum lst)
   ; (stdout-simple-displayln accum)
@@ -108,10 +108,12 @@
 (define (test-assoc2)
   (loop2 0))
 
-(#%jit-compile-2 map1)
-(#%jit-compile-2 assoc2)
-(#%jit-compile-2 jit-loop)
-(#%jit-compile-2 jit-fib)
+; (displayln (fib 10))
+
+; (#%jit-compile-2 map1)
+; (#%jit-compile-2 assoc2)
+; (#%jit-compile-2 jit-loop)
+; (#%jit-compile-2 jit-fib)
 
 ; (displayln (assoc2 999 big-list))
 ; (displayln (assoc2 999 big-list))

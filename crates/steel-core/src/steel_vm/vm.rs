@@ -2532,7 +2532,10 @@ impl<'a> VmCore<'a> {
                     // the runtime do the thing now.
                     self.is_native = true;
 
-                    println!(">> Entering");
+                    // println!(">> Entering");
+
+                    // #[cfg(debug_assertions)]
+                    // let stack_count = self.thread.stack_frames.len();
 
                     self.thread
                         .stack_frames
@@ -2545,14 +2548,27 @@ impl<'a> VmCore<'a> {
 
                     self.is_native = false;
 
-                    pretty_print_dense_instructions(&self.instructions);
+                    // #[cfg(debug_assertions)]
+                    // if self.ip == 0 {
+                    //     assert_eq!(self.thread.stack_frames.len(), stack_count + 1);
+                    // } else {
+                    //     assert_eq!(self.thread.stack_frames.len(), stack_count);
+                    // }
 
-                    println!(
-                        "<< Exiting: {} - {:#?}",
-                        self.ip, self.instructions[self.ip]
-                    );
+                    // pretty_print_dense_instructions(&self.instructions);
+
+                    // println!(
+                    //     "<< Exiting: {} - {:#?}",
+                    //     self.ip, self.instructions[self.ip]
+                    // );
 
                     // println!("Stack: {:#?}", self.thread.stack);
+                    // println!("Current scope stack: {:?}", &self.thread.stack[self.sp..]);
+
+                    // if let Some(last) = self.thread.stack_frames.last().map(|x| x.function.clone())
+                    // {
+                    //     inspect(self, &[SteelVal::Closure(last.clone())]);
+                    // }
 
                     if let Some(res) = self.result.take() {
                         println!("Found result: {:?}", res);
@@ -2591,7 +2607,7 @@ impl<'a> VmCore<'a> {
                     op_code: OpCode::POPSINGLE,
                     ..
                 } => {
-                    self.thread.stack.pop();
+                    let last = self.thread.stack.pop();
                     self.ip += 1;
                 }
 
@@ -3861,7 +3877,7 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn handle_pop_pure_value(&mut self, value: SteelVal) -> Option<Result<SteelVal>> {
-        // println!("calling pop: {}", value);
+        // println!("calling pop pure value: {}", value);
         // Check that the amount we're looking to pop and the function stack length are equivalent
         // otherwise we have a problem
         // println!("{} - {}", self.pop_count, self.thread.stack_frames.len());
@@ -3892,6 +3908,7 @@ impl<'a> VmCore<'a> {
             self.thread.stack.push(value);
 
             // println!("Stack after pop: {:#?}", self.thread.stack);
+            // println!("rollback index: {}", rollback_index);
 
             self.ip = last.ip as _;
             self.instructions = last.instructions;
@@ -3948,6 +3965,9 @@ impl<'a> VmCore<'a> {
                 .thread
                 .stack
                 .drain(rollback_index..self.thread.stack.len() - 1);
+
+            // println!("Stack at pop: {:?}", self.thread.stack);
+            // println!("rollback index: {}", rollback_index);
 
             // for value in other {
             //     self.thread.delayed_dropper.push(value);
@@ -4119,6 +4139,8 @@ impl<'a> VmCore<'a> {
         // let offset = self.stack_frames.last().unwrap().index;
         let offset = self.get_offset();
         let value = self.move_from_stack(index + offset);
+
+        // println!("Move read local: {} -> {}", index, value);
 
         self.thread.stack.push(value);
         self.ip += 1;
@@ -6956,14 +6978,14 @@ fn let_end_scope_handler_with_payload(ctx: &mut VmCore<'_>, beginning_scope: usi
 
     ctx.ip += 1;
 
-    // println!("Let end scope: {:#?}", ctx.thread.stack);
-
     // println!(
     //     "Draining: {:#?}",
     //     ctx.thread
     //         .stack
     //         .get(rollback_index..ctx.thread.stack.len() - 1)
     // );
+
+    // println!("Stack at let end scope: {:?}", ctx.thread.stack);
 
     let _ = ctx
         .thread
