@@ -1091,10 +1091,10 @@ impl FunctionTranslator<'_> {
                     } else {
                         todo!("Implement spilled function call");
                     }
+                    self.check_deopt();
 
                     self.ip = self.instructions.len() + 1;
 
-                    // self.check_deopt();
                     return false;
                 }
                 OpCode::NEWSCLOSURE => {
@@ -1349,7 +1349,7 @@ impl FunctionTranslator<'_> {
                         self.push(v, InferredType::Any)
                     }
 
-                    // self.check_deopt();
+                    self.check_deopt();
 
                     self.ip = self.instructions.len() + 1;
 
