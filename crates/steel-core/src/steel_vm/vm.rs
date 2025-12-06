@@ -30,6 +30,7 @@ use crate::values::closed::MarkAndSweepContext;
 use crate::values::functions::CaptureVec;
 use crate::values::functions::RootedInstructions;
 use crate::values::functions::SerializedLambda;
+use crate::values::lists::List;
 use crate::values::structs::UserDefinedStruct;
 use crate::values::transducers::Reducer;
 use crate::{
@@ -6054,7 +6055,7 @@ pub(crate) fn sample_stacks(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Resul
 /// > (apply + (list 1 2 3 4)) ;; => 10
 /// > (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
 ///```
-#[steel_derive::context(name = "apply", arity = "Exact(2)")]
+#[steel_derive::context(name = "apply", arity = "AtLeast(2)")]
 pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     let current_instruction = ctx.instructions[ctx.ip - 1];
 
@@ -6064,22 +6065,26 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     );
 
     let mut arg_iter = args.iter();
-    let arg1 = arg_iter.next().unwrap();
-    let arg2 = arg_iter.next().unwrap();
+    let fun = arg_iter.next().unwrap();
+    let lst = arg_iter.next_back().unwrap();
 
-    if let SteelVal::ListV(l) = arg2 {
-        if arg1.is_function() {
-            match arg1 {
+    if let SteelVal::ListV(mut lst) = lst.clone() {
+        for arg in arg_iter.rev() {
+            lst = List::cons(arg.clone(), lst);
+        }
+
+        if fun.is_function() {
+            match fun {
                 SteelVal::Closure(closure) => {
-                    for arg in l {
+                    for arg in &lst {
                         ctx.thread.stack.push(arg.clone());
                     }
 
                     let res = if tail_call {
-                        ctx.new_handle_tail_call_closure(closure.clone(), l.len())
+                        ctx.new_handle_tail_call_closure(closure.clone(), lst.len())
                     } else {
                         ctx.ip -= 1;
-                        ctx.handle_function_call_closure(closure.clone(), l.len())
+                        ctx.handle_function_call_closure(closure.clone(), lst.len())
                     };
 
                     if res.is_err() {
@@ -6099,21 +6104,21 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                 }
                 // TODO: Reuse the allocation for apply
                 SteelVal::FuncV(f) => {
-                    let args = l.into_iter().cloned().collect::<Vec<_>>();
+                    let args = lst.iter().cloned().collect::<Vec<_>>();
 
                     let result = f(&args).map_err(|e| e.set_span_if_none(ctx.current_span()));
 
                     Some(result)
                 }
                 SteelVal::MutFunc(f) => {
-                    let mut args = l.into_iter().cloned().collect::<Vec<_>>();
+                    let mut args = lst.iter().cloned().collect::<Vec<_>>();
 
                     let result = f(&mut args).map_err(|e| e.set_span_if_none(ctx.current_span()));
 
                     Some(result)
                 }
                 SteelVal::BoxedFunction(f) => {
-                    let args = l.into_iter().cloned().collect::<Vec<_>>();
+                    let args = lst.iter().cloned().collect::<Vec<_>>();
 
                     let result =
                         f.func()(&args).map_err(|e| e.set_span_if_none(ctx.current_span()));
@@ -6125,7 +6130,7 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
                 SteelVal::BuiltIn(f) => {
                     // println!("Calling a builtin with apply!");
 
-                    let args = l.into_iter().cloned().collect::<Vec<_>>();
+                    let args = lst.iter().cloned().collect::<Vec<_>>();
 
                     // ctx.ip += 1;
 
@@ -6161,14 +6166,14 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 
                 // }
                 _ => {
-                    builtin_stop!(Generic => format!("apply expects a function, found: {arg1}"));
+                    builtin_stop!(Generic => format!("apply expects a function, found: {fun}"));
                 }
             }
         } else {
-            builtin_stop!(TypeMismatch => "apply expected a function, found: {}", arg1);
+            builtin_stop!(TypeMismatch => "apply expected a function, found: {}", fun);
         }
     } else {
-        builtin_stop!(TypeMismatch => "apply expects a list, found: {}", arg2);
+        builtin_stop!(TypeMismatch => "apply expects a list, found: {}", lst);
     }
 }
 
