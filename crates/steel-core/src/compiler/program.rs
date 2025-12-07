@@ -358,7 +358,15 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 let index = *index;
                 let func_op = *func_op;
 
+                #[cfg(feature = "jit2")]
+                let mut builtin = false;
+
                 if let TokenType::Identifier(ident) = ident.ty {
+                    #[cfg(feature = "jit2")]
+                    {
+                        builtin = ident.resolve().starts_with("#%prim.");
+                    }
+
                     match ident {
                         _ if ident == *PRIM_CONS_SYMBOL && arity == 2 => {
                             if let Some(x) = instructions.get_mut(i) {
@@ -464,7 +472,17 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 // TODO:
                 if let Some(x) = instructions.get_mut(i) {
                     if func_op == OpCode::FUNC {
-                        x.op_code = OpCode::CALLGLOBAL;
+                        #[cfg(feature = "jit2")]
+                        if builtin {
+                            x.op_code = OpCode::CALLPRIMITIVE;
+                        } else {
+                            x.op_code = OpCode::CALLGLOBAL;
+                        }
+
+                        #[cfg(not(feature = "jit2"))]
+                        {
+                            x.op_code = OpCode::CALLGLOBAL;
+                        }
                     } else {
                         x.op_code = OpCode::CALLGLOBALNOARITY;
                     }
@@ -476,6 +494,15 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                     // x.op_code = OpCode::Arity;
                     x.payload_size = u24::from_usize(arity);
                 }
+
+                // #[cfg(feature = "jit2")]
+                // if let Some(x) = instructions.get_mut(i) {
+                //     if builtin {
+                //         if func_op == OpCode::FUNC {
+                //             x.op_code = OpCode::CALLPRIMITIVE;
+                //         }
+                //     }
+                // }
             }
             (
                 Some(Instruction {
@@ -712,6 +739,7 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
                     | OpCode::CALLGLOBAL
                     | OpCode::CALLGLOBALTAIL
                     | OpCode::CALLGLOBALNOARITY
+                    | OpCode::CALLPRIMITIVE
                     | OpCode::CALLGLOBALTAILNOARITY,
                 ..
             }),

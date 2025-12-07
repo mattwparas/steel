@@ -265,6 +265,7 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                 // If this instruction touches this global variable,
                 // then we want to mark it as possibly referenced here.
                 OpCode::CALLGLOBAL
+                | OpCode::CALLPRIMITIVE
                 | OpCode::PUSH
                 | OpCode::CALLGLOBALTAIL
                 | OpCode::CALLGLOBALNOARITY

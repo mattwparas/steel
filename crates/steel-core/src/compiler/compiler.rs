@@ -167,7 +167,8 @@ impl DebruijnIndicesInterner {
                 }
                 (
                     Instruction {
-                        op_code: OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY,
+                        op_code:
+                            OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY | OpCode::CALLPRIMITIVE,
                         contents:
                             Some(Expr::Atom(SyntaxObject {
                                 ty: TokenType::Identifier(s),
@@ -320,7 +321,7 @@ impl DebruijnIndicesInterner {
                     }
                 }
                 Instruction {
-                    op_code: OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY,
+                    op_code: OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY | OpCode::CALLPRIMITIVE,
                     contents:
                         Some(Expr::Atom(SyntaxObject {
                             ty: TokenType::Identifier(s),

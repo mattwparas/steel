@@ -10,7 +10,7 @@ use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
     compiler::constants::ConstantMap,
-    core::instructions::DenseInstruction,
+    core::instructions::{pretty_print_dense_instructions, DenseInstruction},
     steel_vm::vm::{
         jit::{
             box_handler_c, call_global_function_deopt_no_arity_spilled,
@@ -34,8 +34,8 @@ use crate::{
             unbox_handler_c, vector_ref_handler_c, CallFunctionDefinitions,
             CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
             CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
-            CallSelfTailCallNoArityDefinitions, CallSelfTailCallNoArityLoopDefinitions,
-            ListHandlerDefinitions,
+            CallPrimitiveDefinitions, CallSelfTailCallNoArityDefinitions,
+            CallSelfTailCallNoArityLoopDefinitions, ListHandlerDefinitions,
         },
         VmCore,
     },
@@ -355,6 +355,9 @@ impl Default for JIT {
         CallSelfTailCallNoArityDefinitions::register(&mut map);
         CallSelfTailCallNoArityLoopDefinitions::register(&mut map);
         ListHandlerDefinitions::register(&mut map);
+
+        // Primitive calls:
+        CallPrimitiveDefinitions::register(&mut map);
 
         map.add_func(
             "trampoline",
@@ -1003,9 +1006,9 @@ impl FunctionTranslator<'_> {
                 // better information, and then can be inlined
                 // accordingly with a trampoline without needing
                 // a special opcode.
-                OpCode::CALLPRIMITIVE => {
-                    todo!("{:?}", op);
-                }
+                // OpCode::CALLPRIMITIVE => {
+                //     todo!("{:?}", op);
+                // }
                 OpCode::POPJMP | OpCode::POPPURE => {
                     let last = self.stack.last().unwrap();
 
@@ -1349,7 +1352,9 @@ impl FunctionTranslator<'_> {
                     self.ip = self.instructions.len() + 1;
                     return false;
                 }
-                OpCode::CALLGLOBALTAIL | OpCode::CALLGLOBALTAILNOARITY => {
+                OpCode::CALLGLOBALTAIL
+                | OpCode::CALLGLOBALTAILNOARITY
+                | OpCode::CALLPRIMITIVETAIL => {
                     let function_index = payload;
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
@@ -1401,30 +1406,61 @@ impl FunctionTranslator<'_> {
                     // Then, we're gonna check the result and see if we should deopt
                     self.check_deopt();
                 }
-                OpCode::CALLGLOBAL => {
-                    // First - find the index that we have to lookup.
+
+                OpCode::CALLPRIMITIVE => {
+                    // Check the actual value that we're looking up, see if its there
                     let function_index = payload;
-                    self.ip += 1;
-                    let arity = self.instructions[self.ip].payload_size.to_usize();
 
-                    let name = CallGlobalFunctionDefinitions::arity_to_name(arity);
+                    let global = self._globals.get(function_index);
 
-                    if let Some(name) = name {
-                        let result = self.call_global_function(arity, name, function_index, false);
+                    match global {
+                        Some(SteelVal::FuncV(f)) => {
+                            // Attempt the other call
+                            self.ip += 1;
+                            let arity = self.instructions[self.ip].payload_size.to_usize();
 
-                        // Assuming this worked, we'll want to push this result on to the stack.
-                        self.push(result, InferredType::Any);
-                    } else {
-                        let name = "call-global-spilled";
+                            // dbg!(arity);
+                            // dbg!(self.ip);
+                            // pretty_print_dense_instructions(&self.instructions);
 
-                        let v =
-                            self.call_global_function_spilled(arity, name, function_index, true);
+                            let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
-                        self.push(v, InferredType::Any)
+                            if let Some(name) = name {
+                                // attempt to move forward with it
+                                let additional_args = self.split_off(arity);
+
+                                let function = self.builder.ins().iconst(
+                                    self.module.target_config().pointer_type(),
+                                    f as *const _ as i64,
+                                );
+
+                                let fallback_ip = self
+                                    .builder
+                                    .ins()
+                                    .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+                                let mut args = vec![function, fallback_ip];
+
+                                args.extend(additional_args.into_iter().map(|x| x.0));
+
+                                let result = self.call_function_returns_value_args(name, &args);
+                                self.push(result, InferredType::Any);
+                                self.ip += 1;
+                                self.check_deopt();
+                            } else {
+                                self.ip -= 1;
+                                self.call_global_impl(payload);
+                            }
+                        }
+
+                        _ => {
+                            self.call_global_impl(payload);
+                        }
                     }
+                }
 
-                    // Then, we're gonna check the result and see if we should deopt
-                    self.check_deopt();
+                OpCode::CALLGLOBAL => {
+                    self.call_global_impl(payload);
                 }
                 OpCode::READCAPTURED => {
                     let index = self
@@ -1619,6 +1655,31 @@ impl FunctionTranslator<'_> {
         }
 
         return true;
+    }
+
+    fn call_global_impl(&mut self, payload: usize) {
+        // First - find the index that we have to lookup.
+        let function_index = payload;
+        self.ip += 1;
+        let arity = self.instructions[self.ip].payload_size.to_usize();
+
+        let name = CallGlobalFunctionDefinitions::arity_to_name(arity);
+
+        if let Some(name) = name {
+            let result = self.call_global_function(arity, name, function_index, false);
+
+            // Assuming this worked, we'll want to push this result on to the stack.
+            self.push(result, InferredType::Any);
+        } else {
+            let name = "call-global-spilled";
+
+            let v = self.call_global_function_spilled(arity, name, function_index, true);
+
+            self.push(v, InferredType::Any)
+        }
+
+        // Then, we're gonna check the result and see if we should deopt
+        self.check_deopt();
     }
 
     fn call_set(&mut self, index: usize, value: Value) -> Value {
@@ -2468,9 +2529,7 @@ impl FunctionTranslator<'_> {
                 let constant = self.constants.get_value(payload);
 
                 match &constant {
-                    SteelVal::BoolV(_) | SteelVal::IntV(_) => {
-                        // self.advance_ip();
-
+                    SteelVal::BoolV(_) | SteelVal::IntV(_) | SteelVal::CharV(_) => {
                         self.create_i128(encode(constant))
                     }
                     _ => self.push_const_index(payload),

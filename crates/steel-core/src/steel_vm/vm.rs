@@ -3316,10 +3316,11 @@ impl<'a> VmCore<'a> {
                 }
 
                 DenseInstruction {
-                    op_code: OpCode::CALLGLOBAL,
+                    op_code: OpCode::CALLGLOBAL | OpCode::CALLPRIMITIVE,
                     payload_size,
                     ..
                 } => {
+                    // println!("Calling primitive");
                     self.ip += 1;
                     let next_inst = self.instructions[self.ip];
                     self.handle_call_global(
@@ -3366,7 +3367,7 @@ impl<'a> VmCore<'a> {
                 }
                 */
                 DenseInstruction {
-                    op_code: OpCode::CALLGLOBALTAIL,
+                    op_code: OpCode::CALLGLOBALTAIL | OpCode::CALLPRIMITIVETAIL,
                     payload_size,
                     ..
                 } => {
@@ -5606,6 +5607,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
                     op_code:
                         OpCode::PUSH
                         | OpCode::CALLGLOBAL
+                        | OpCode::CALLPRIMITIVE
                         | OpCode::CALLGLOBALTAIL
                         | OpCode::CALLGLOBALNOARITY
                         | OpCode::CALLGLOBALTAILNOARITY,

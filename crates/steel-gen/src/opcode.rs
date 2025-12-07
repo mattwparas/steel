@@ -9,7 +9,7 @@ macro_rules! declare_opcodes {
             $($variant),*
         }
 
-        pub const MAX_OPCODE_SIZE: usize = OpCode::CALLPRIMITIVE as usize + 1;
+        pub const MAX_OPCODE_SIZE: usize = OpCode::CALLPRIMITIVETAIL as usize + 1;
 
         pub const OPCODES_ARRAY: [OpCode; MAX_OPCODE_SIZE] = [
             $(OpCode::$variant),*
@@ -127,7 +127,8 @@ declare_opcodes! {
         FUNCNOARITY;
         TAILCALLNOARITY;
         SELFTAILCALLNOARITY;
-        CALLPRIMITIVE
+        CALLPRIMITIVE;
+        CALLPRIMITIVETAIL
     }
 
     // Super instructions
