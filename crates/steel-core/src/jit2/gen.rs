@@ -1419,10 +1419,6 @@ impl FunctionTranslator<'_> {
                             self.ip += 1;
                             let arity = self.instructions[self.ip].payload_size.to_usize();
 
-                            // dbg!(arity);
-                            // dbg!(self.ip);
-                            // pretty_print_dense_instructions(&self.instructions);
-
                             let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
                             if let Some(name) = name {
