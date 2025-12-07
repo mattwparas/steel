@@ -33,15 +33,18 @@ If the last element is not a list, an improper list will be returned
 ### **apply**
 Applies the given `function` with arguments as the contents of the `list`.
 
-(apply function lst) -> any?
+(apply proc arg1 ... lst) -> any?
 
-* function : function?
-* list: list?
+* proc : function?
+* arg1 : any/c
+* list : list?
 
 #### Examples
+
 ```scheme
 > (apply + (list 1 2 3 4)) ;; => 10
 > (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
+> (apply list 1 2 (list 3 4)) ;; => '(1 2 3 4)
 ```
 ### **car**
 Returns the first element of the list l.

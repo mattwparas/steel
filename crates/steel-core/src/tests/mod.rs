@@ -73,6 +73,7 @@ test_harness_success_sync! {
 
 test_harness_success! {
     abc_problem,
+    apply,
     apply_more_complex,
     babbage_problem,
     balanced_brackets,
