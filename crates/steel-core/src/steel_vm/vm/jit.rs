@@ -2459,6 +2459,77 @@ make_primitive_function_deopt!(
     (call_primitive_function_deopt_8, a, b, c, d, e, f, g, h)
 );
 
+macro_rules! make_primitive_mut_function_deopt {
+    ($(($name:tt, $($typ:ident),*)),*) => {
+
+        pub struct CallPrimitiveMutDefinitions;
+
+        impl CallPrimitiveMutDefinitions {
+            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+                $(
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, func: *const fn(&mut [SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+            #[allow(improper_ctypes_definitions)]
+            pub(crate) extern "C-unwind" fn $name(
+                ctx: *mut VmCore,
+                func: *const fn(&mut [SteelVal]) -> Result<SteelVal>,
+                fallback_ip: usize,
+                $($typ: SteelVal),*
+            ) -> SteelVal {
+                match unsafe { (&*func)(&mut [$($typ),*]) } {
+                    Ok(v) => v,
+                    Err(e) => {
+                        unsafe {
+                            let guard = &mut *ctx;
+                            guard.ip = fallback_ip;
+                            guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
+                            guard.is_native = false;
+                            SteelVal::Void
+                        }
+                    }
+                }
+            }
+        )*
+    };
+}
+
+make_primitive_mut_function_deopt!(
+    (call_primitive_mut_function_deopt_0,),
+    (call_primitive_mut_function_deopt_1, a),
+    (call_primitive_mut_function_deopt_2, a, b),
+    (call_primitive_mut_function_deopt_3, a, b, c),
+    (call_primitive_mut_function_deopt_4, a, b, c, d),
+    (call_primitive_mut_function_deopt_5, a, b, c, d, e),
+    (call_primitive_mut_function_deopt_6, a, b, c, d, e, f),
+    (call_primitive_mut_function_deopt_7, a, b, c, d, e, f, g),
+    (call_primitive_mut_function_deopt_8, a, b, c, d, e, f, g, h)
+);
+
 macro_rules! make_call_global_function_deopt {
     ($(($name:tt, $($typ:ident),*)),*) => {
 

@@ -10,7 +10,7 @@ use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
     compiler::constants::ConstantMap,
-    core::instructions::{pretty_print_dense_instructions, DenseInstruction},
+    core::instructions::DenseInstruction,
     steel_vm::vm::{
         jit::{
             box_handler_c, call_global_function_deopt_no_arity_spilled,
@@ -34,8 +34,9 @@ use crate::{
             unbox_handler_c, vector_ref_handler_c, CallFunctionDefinitions,
             CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
             CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
-            CallPrimitiveDefinitions, CallSelfTailCallNoArityDefinitions,
-            CallSelfTailCallNoArityLoopDefinitions, ListHandlerDefinitions,
+            CallPrimitiveDefinitions, CallPrimitiveMutDefinitions,
+            CallSelfTailCallNoArityDefinitions, CallSelfTailCallNoArityLoopDefinitions,
+            ListHandlerDefinitions,
         },
         VmCore,
     },
@@ -358,6 +359,7 @@ impl Default for JIT {
 
         // Primitive calls:
         CallPrimitiveDefinitions::register(&mut map);
+        CallPrimitiveMutDefinitions::register(&mut map);
 
         map.add_func(
             "trampoline",
@@ -1420,6 +1422,41 @@ impl FunctionTranslator<'_> {
                             let arity = self.instructions[self.ip].payload_size.to_usize();
 
                             let name = CallPrimitiveDefinitions::arity_to_name(arity);
+
+                            if let Some(name) = name {
+                                // attempt to move forward with it
+                                let additional_args = self.split_off(arity);
+
+                                let function = self.builder.ins().iconst(
+                                    self.module.target_config().pointer_type(),
+                                    f as *const _ as i64,
+                                );
+
+                                let fallback_ip = self
+                                    .builder
+                                    .ins()
+                                    .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+                                let mut args = vec![function, fallback_ip];
+
+                                args.extend(additional_args.into_iter().map(|x| x.0));
+
+                                let result = self.call_function_returns_value_args(name, &args);
+                                self.push(result, InferredType::Any);
+                                self.ip += 1;
+                                self.check_deopt();
+                            } else {
+                                self.ip -= 1;
+                                self.call_global_impl(payload);
+                            }
+                        }
+
+                        Some(SteelVal::MutFunc(f)) => {
+                            // Attempt the other call
+                            self.ip += 1;
+                            let arity = self.instructions[self.ip].payload_size.to_usize();
+
+                            let name = CallPrimitiveMutDefinitions::arity_to_name(arity);
 
                             if let Some(name) = name {
                                 // attempt to move forward with it
