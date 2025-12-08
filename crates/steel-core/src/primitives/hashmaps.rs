@@ -2,6 +2,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 
 use crate::rvals::SteelHashMap;
 use crate::stop;
+use crate::values::lists::Pair;
 use crate::values::HashMap;
 use crate::{core::utils::declare_const_ref_functions, gc::Gc};
 use crate::{
@@ -33,6 +34,8 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
         .register_native_fn_definition(HASH_TRY_GET_DEFINITION)
         .register_native_fn_definition(HASH_LENGTH_DEFINITION)
         .register_native_fn_definition(HASH_CONTAINS_DEFINITION)
+        .register_native_fn_definition(HASH_TO_LIST_DEFINITION)
+        .register_native_fn_definition(HASH_TO_VECTOR_DEFINITION)
         .register_native_fn_definition(KEYS_TO_LIST_DEFINITION)
         .register_native_fn_definition(KEYS_TO_VECTOR_DEFINITION)
         .register_native_fn_definition(VALUES_TO_LIST_DEFINITION)
@@ -271,6 +274,27 @@ pub fn hash_contains(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> R
     Ok(SteelVal::BoolV(map.contains_key(key)))
 }
 
+/// Returns a list of the key-value pairs of a given hash map.
+///
+/// (hash->list map) -> (listof (cons/c any/c any/c))
+///
+/// * map : hash?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (hash->list (hash 'a 10 'b 20)) ;; => '((a . 10) (b . 20))
+/// ```
+#[function(name = "hash->list")]
+pub fn hash_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+    Ok(SteelVal::ListV(
+        hashmap
+            .iter()
+            .map(|(key, val)| SteelVal::Pair(Gc::new(Pair::cons(key.clone(), val.clone()))))
+            .collect(),
+    ))
+}
+
 /// Returns the keys of the given hash map as a list.
 ///
 /// (hash-keys->list map) -> (listof any/c)
@@ -305,6 +329,25 @@ pub fn values_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<Steel
     Ok(SteelVal::ListV(hashmap.values().cloned().collect()))
 }
 
+/// Returns a list of the key-value pairs of a given hash map.
+///
+/// (hash->vector map) -> (vectorof (cons/c any/c any/c))
+///
+/// * map : hash?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (hash->vector (hash 'a 10 'b 20)) ;; => '#((a . 10) (b . 20))
+/// ```
+#[function(name = "hash->vector")]
+pub fn hash_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+    vec_construct_iter_normal(
+        hashmap
+            .iter()
+            .map(|(key, val)| SteelVal::Pair(Gc::new(Pair::cons(key.clone(), val.clone())))),
+    )
+}
 /// Returns the keys of the given hash map as an immutable vector
 ///
 /// (hash-keys->vector map) -> (vectorof any/c)
