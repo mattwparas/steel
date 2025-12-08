@@ -1,6 +1,7 @@
+use alloc::sync::Arc;
+use core::hash::Hash;
 use std::fs::File;
 use std::fs::OpenOptions;
-use core::hash::Hash;
 use std::io;
 use std::io::prelude::*;
 use std::io::Cursor;
@@ -10,7 +11,6 @@ use std::net::TcpStream;
 use std::process::ChildStderr;
 use std::process::ChildStdin;
 use std::process::ChildStdout;
-use alloc::sync::Arc;
 use std::sync::Mutex;
 
 use crate::gc::shared::ShareableMut;

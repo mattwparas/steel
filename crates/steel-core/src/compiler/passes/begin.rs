@@ -177,7 +177,10 @@ impl VisitorMutRefUnit for FlattenBegin {
                 }
 
                 if begin.exprs.len() == 1 {
-                    *expr = core::mem::take(&mut begin.exprs).into_iter().next().unwrap();
+                    *expr = core::mem::take(&mut begin.exprs)
+                        .into_iter()
+                        .next()
+                        .unwrap();
 
                     return;
                 }

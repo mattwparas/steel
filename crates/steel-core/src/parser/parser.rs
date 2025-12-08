@@ -4,13 +4,13 @@ use crate::rvals::{IntoSteelVal, SteelComplex, SteelString};
 use crate::HashSet;
 use crate::{parser::tokens::TokenType::*, rvals::FromSteelVal};
 
+use alloc::borrow::Cow;
+use alloc::sync::Arc;
 use num_rational::{BigRational, Rational32};
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rustc_hash::FxHashMap;
-use alloc::borrow::Cow;
 use std::path::{Path, PathBuf};
-use alloc::sync::Arc;
 use steel_parser::interner::InternedString;
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral, TokenType};
 

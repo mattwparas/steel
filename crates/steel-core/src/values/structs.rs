@@ -26,10 +26,10 @@ use crate::{
     SteelErr,
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
-use std::collections::VecDeque;
+use alloc::sync::Arc;
 use core::hash::Hash;
 use core::ops::Deref;
-use alloc::sync::Arc;
+use std::collections::VecDeque;
 use std::{
     cell::{Ref, RefCell},
     rc::Rc,

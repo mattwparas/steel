@@ -8,12 +8,12 @@ use crate::jit::value::{
 use crate::parser::ast::ExprKind;
 use crate::values::Vector;
 use crate::SteelVal;
+use core::slice;
 use cranelift::prelude::types::{F64, I64};
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 use std::collections::{HashMap, HashSet};
-use core::slice;
 
 use core::cell::RefCell;
 

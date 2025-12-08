@@ -2,13 +2,13 @@ use super::parser::SourceId;
 use crate::interner::InternedString;
 use crate::tokens::{IntLiteral, Token, TokenLike, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
-use num_bigint::BigInt;
-use smallvec::{smallvec, SmallVec};
 use alloc::borrow::Cow;
-use std::char;
+use alloc::sync::Arc;
 use core::iter::Iterator;
 use core::ops::Range;
-use alloc::sync::Arc;
+use num_bigint::BigInt;
+use smallvec::{smallvec, SmallVec};
+use std::char;
 use std::{iter::Peekable, str::Chars};
 
 pub const INFINITY: &str = "+inf.0";

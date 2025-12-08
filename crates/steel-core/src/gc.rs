@@ -20,9 +20,9 @@ pub use unsafe_erased_pointers::is_reference_type;
 use parking_lot::RwLock;
 
 pub mod shared {
+    use alloc::rc::Rc;
     use core::cell::{BorrowError, BorrowMutError, Ref, RefCell, RefMut};
     use core::ops::{Deref, DerefMut};
-    use alloc::rc::Rc;
 
     // TODO: Replace these with `parking_lot` primitives instead
     use std::sync::{

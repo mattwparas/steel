@@ -52,11 +52,11 @@ use crate::{
     stop,
     values::functions::ByteCodeLambda,
 };
+use alloc::sync::Arc;
 use core::hash::Hash;
 use std::io::Read as _;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use alloc::sync::Arc;
 use std::sync::Mutex;
 use std::{cell::RefCell, collections::HashMap, iter::Iterator};
 

@@ -1,12 +1,12 @@
 use crate::gc::Gc;
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
 use crate::{steelerr, stop, throw};
+use core::cmp::Ordering;
+use core::ops::{BitAnd, BitOr, BitXor, Neg};
 use num_bigint::BigInt;
 use num_integer::Integer;
 use num_rational::{BigRational, Ratio, Rational32};
 use num_traits::{pow::Pow, CheckedAdd, CheckedMul, Euclid, One, Signed, ToPrimitive, Zero};
-use core::cmp::Ordering;
-use core::ops::{BitAnd, BitOr, BitXor, Neg};
 
 /// Checks if the given value is a number
 ///
