@@ -1092,7 +1092,7 @@ impl RawProgramWithSymbols {
     //             .split(',')
     //             .map(|x| {
     //                 // Parse the input
-    //                 let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+    //                 let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
     //                     Parser::new(&x, &mut intern).collect();
     //                 let parsed = parsed?;
 
@@ -1134,7 +1134,7 @@ impl RawProgramWithSymbols {
     //             continue;
     //         }
 
-    //         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+    //         let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
     //             Parser::new(&instruction_string, &mut intern).collect();
     //         let parsed = parsed?;
 
