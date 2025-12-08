@@ -15,7 +15,7 @@ use crate::parser::{
     parser::{ParseError, Parser},
 };
 
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use arc_swap::ArcSwap;
 use rustc_hash::FxHashMap;
@@ -154,7 +154,7 @@ impl ConstantMap {
             .into_iter()
             .map(|x| {
                 // Parse the input
-                let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+                let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
                     Parser::new_flat(&x, SourceId::none()).collect();
                 let mut parsed = parsed?;
 

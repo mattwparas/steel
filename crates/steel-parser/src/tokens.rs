@@ -6,10 +6,10 @@ use num_bigint::{BigInt, ParseBigIntError};
 use num_rational::Rational32;
 use num_traits::{Num, Signed};
 use serde::{Deserialize, Serialize};
-use std::borrow::Cow;
-use std::fmt::{self, Display};
-use std::str::FromStr;
-use std::sync::Arc;
+use alloc::borrow::Cow;
+use core::fmt::{self, Display};
+use core::str::FromStr;
+use alloc::sync::Arc;
 use TokenType::*;
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -12,7 +12,7 @@ use steel_parser::parser::SourceId;
 
 use crate::parser::span::Span;
 
-use std::fmt;
+use core::fmt;
 
 #[derive(Clone, Debug, PartialEq)]
 #[repr(C)]
@@ -154,11 +154,11 @@ impl fmt::Display for SteelErr {
 }
 
 impl Custom for SteelErr {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         Some(Ok(format!("{}", self)))
     }
 
-    fn into_error(self) -> std::result::Result<SteelErr, Self> {
+    fn into_error(self) -> core::result::Result<SteelErr, Self> {
         Ok(self)
     }
 }
@@ -274,7 +274,7 @@ impl SteelErr {
         let report = self.report();
         term::emit(&mut writer, &config, &file, &report).unwrap(); // TODO come back
         let output = writer.into_inner();
-        std::str::from_utf8(&output).unwrap().to_string()
+        core::str::from_utf8(&output).unwrap().to_string()
     }
 
     fn report(&self) -> Diagnostic<()> {
@@ -374,7 +374,7 @@ pub fn back_trace_to_string(file_name: &str, file_content: &str, span: Span) -> 
 
     let output = writer.into_inner();
 
-    std::str::from_utf8(&output).unwrap().to_string()
+    core::str::from_utf8(&output).unwrap().to_string()
 }
 
 #[macro_export]

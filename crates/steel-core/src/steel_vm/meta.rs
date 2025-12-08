@@ -2,7 +2,7 @@
 
 // pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;`
 
-use std::borrow::Cow;
+use alloc::borrow::Cow;
 use std::{cell::RefCell, convert::TryFrom, io::Write, rc::Rc};
 
 use crate::gc::shared::ShareableMut;
@@ -119,8 +119,8 @@ impl EngineWrapper {
 
 impl Custom for EngineWrapper {}
 
-impl std::fmt::Debug for EngineWrapper {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl core::fmt::Debug for EngineWrapper {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
         write!(f, "SteelEngine")
     }
 }
@@ -179,7 +179,7 @@ pub fn expand_macros(arguments: &[SteelVal]) -> Result<SteelVal> {
         // In order to be actually parsable - might be worth doing ExprKind::try_from
         // instead of writing to a string and reparsing directly...
         .map(|x| crate::parser::parser::Parser::parse(x.trim_start_matches('\'')))
-        .collect::<std::result::Result<Vec<Vec<_>>, ParseError>>()?;
+        .collect::<core::result::Result<Vec<Vec<_>>, ParseError>>()?;
 
     // Separate by define-syntax
     let (macros, mut non_macros) = separate_by(parsed.into_iter().flatten(), |x| {
@@ -207,7 +207,7 @@ fn drain_custom_output_port() -> String {
                 .expect("Unable to flush the captured output port");
         }
 
-        std::str::from_utf8(&x.write().get_mut().drain(0..).collect::<Vec<u8>>())
+        core::str::from_utf8(&x.write().get_mut().drain(0..).collect::<Vec<u8>>())
             .unwrap_or("Unable to capture std out")
             .to_string()
     })

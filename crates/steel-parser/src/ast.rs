@@ -8,8 +8,8 @@ use std::{convert::TryFrom, fmt::Write, sync::Arc};
 use crate::tokens::IntLiteral;
 use pretty::RcDoc;
 use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::ops::Deref;
+use core::fmt;
+use core::ops::Deref;
 
 use super::{interner::InternedString, parser::SyntaxObjectId, span::Span};
 
@@ -97,7 +97,7 @@ impl AstTools for &mut Vec<ExprKind> {
 pub trait IteratorExtensions: Iterator {
     fn join(&mut self, sep: &str) -> String
     where
-        Self::Item: std::fmt::Display,
+        Self::Item: core::fmt::Display,
     {
         match self.next() {
             None => String::new(),
@@ -144,13 +144,13 @@ impl Default for ExprKind {
 
 #[test]
 fn check_size() {
-    println!("ExprKind: {}", std::mem::size_of::<ExprKind>());
-    println!("SyntaxRules: {}", std::mem::size_of::<SyntaxRules>());
-    println!("Macro: {}", std::mem::size_of::<Macro>());
-    println!("List: {}", std::mem::size_of::<List>());
-    println!("Atom: {}", std::mem::size_of::<Atom>());
-    println!("Require: {}", std::mem::size_of::<Require>());
-    println!("Vector: {}", std::mem::size_of::<Vector>());
+    println!("ExprKind: {}", core::mem::size_of::<ExprKind>());
+    println!("SyntaxRules: {}", core::mem::size_of::<SyntaxRules>());
+    println!("Macro: {}", core::mem::size_of::<Macro>());
+    println!("List: {}", core::mem::size_of::<List>());
+    println!("Atom: {}", core::mem::size_of::<Atom>());
+    println!("Require: {}", core::mem::size_of::<Require>());
+    println!("Vector: {}", core::mem::size_of::<Vector>());
 }
 
 #[macro_export]
@@ -322,7 +322,7 @@ impl ExprKind {
     pub fn atom_identifier_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<&InternedString, E> {
+    ) -> core::result::Result<&InternedString, E> {
         match self {
             Self::Atom(Atom {
                 syn:
@@ -377,7 +377,7 @@ impl ExprKind {
         }
     }
 
-    pub fn list_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&List, E> {
+    pub fn list_or_else<E, F: FnOnce() -> E>(&self, err: F) -> core::result::Result<&List, E> {
         match self {
             Self::List(l) => Ok(l),
             _ => Err(err()),
@@ -387,14 +387,14 @@ impl ExprKind {
     pub fn list_mut_or_else<E, F: FnOnce() -> E>(
         &mut self,
         err: F,
-    ) -> std::result::Result<&mut List, E> {
+    ) -> core::result::Result<&mut List, E> {
         match self {
             Self::List(l) => Ok(l),
             _ => Err(err()),
         }
     }
 
-    pub fn into_list_or_else<E, F: FnOnce() -> E>(self, err: F) -> std::result::Result<List, E> {
+    pub fn into_list_or_else<E, F: FnOnce() -> E>(self, err: F) -> core::result::Result<List, E> {
         match self {
             Self::List(l) => Ok(l),
             _ => Err(err()),
@@ -1364,8 +1364,8 @@ impl ToDoc for List {
                 let iter = car
                     .iter()
                     .map(ToDoc::to_doc)
-                    .chain(std::iter::once(RcDoc::text(".")))
-                    .chain(std::iter::once(cdr.to_doc()));
+                    .chain(core::iter::once(RcDoc::text(".")))
+                    .chain(core::iter::once(cdr.to_doc()));
 
                 RcDoc::intersperse(iter, RcDoc::line())
             } else {
@@ -1414,7 +1414,7 @@ impl Deref for List {
 // and we'll implement IntoIterator
 impl IntoIterator for List {
     type Item = ExprKind;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
+    type IntoIter = alloc::vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.args.into_iter()
@@ -1607,7 +1607,7 @@ impl fmt::Display for PatternPair {
 pub(crate) fn parse_if<I>(
     mut value_iter: I,
     syn: SyntaxObject,
-) -> std::result::Result<ExprKind, ParseError>
+) -> core::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
@@ -1659,7 +1659,7 @@ where
 pub(crate) fn parse_define<I>(
     mut value_iter: I,
     syn: SyntaxObject,
-) -> std::result::Result<ExprKind, ParseError>
+) -> core::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
@@ -1847,7 +1847,7 @@ where
 pub(crate) fn parse_new_let<I>(
     mut value_iter: I,
     syn: SyntaxObject,
-) -> std::result::Result<ExprKind, ParseError>
+) -> core::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
@@ -1925,7 +1925,7 @@ fn parse_named_let<I>(
     mut value_iter: I,
     syn: SyntaxObject,
     name: ExprKind,
-) -> std::result::Result<ExprKind, ParseError>
+) -> core::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
@@ -2019,7 +2019,7 @@ where
 pub(crate) fn parse_let<I>(
     mut value_iter: I,
     mut syn: SyntaxObject,
-) -> std::result::Result<ExprKind, ParseError>
+) -> core::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
@@ -2140,7 +2140,7 @@ where
 
 impl TryFrom<Vec<ExprKind>> for ExprKind {
     type Error = ParseError;
-    fn try_from(value: Vec<ExprKind>) -> std::result::Result<Self, Self::Error> {
+    fn try_from(value: Vec<ExprKind>) -> core::result::Result<Self, Self::Error> {
         // let mut value = value.into_iter().peekable();
 
         // TODO -> get rid of this clone on the first value

@@ -27,9 +27,9 @@ use crate::{
 };
 use crate::{steel_vm::builtin::BuiltInModule, stop};
 use std::collections::VecDeque;
-use std::hash::Hash;
-use std::ops::Deref;
-use std::sync::Arc;
+use core::hash::Hash;
+use core::ops::Deref;
+use alloc::sync::Arc;
 use std::{
     cell::{Ref, RefCell},
     rc::Rc,
@@ -180,14 +180,14 @@ impl PartialEq for UserDefinedStruct {
 }
 
 impl Hash for UserDefinedStruct {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.type_descriptor.hash(state);
         self.fields.deref().hash(state);
     }
 }
 
-impl std::fmt::Display for UserDefinedStruct {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for UserDefinedStruct {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         if self
             .get(&SteelVal::SymbolV(SteelString::from("#:transparent")))
             .is_some()
@@ -517,17 +517,17 @@ pub fn struct_update_primitive(args: &mut [SteelVal]) -> Result<SteelVal> {
                 populate_fields_offsets(fields, struct_fields_list, &mut fields_to_update)?;
 
                 for (idx, value) in fields_to_update {
-                    std::mem::swap(&mut s.fields[idx], value);
+                    core::mem::swap(&mut s.fields[idx], value);
                 }
 
-                Ok(std::mem::replace(&mut args[0], SteelVal::Void))
+                Ok(core::mem::replace(&mut args[0], SteelVal::Void))
             }
 
             None => {
                 let mut s = s.unwrap();
                 populate_fields_offsets(fields, struct_fields_list, &mut fields_to_update)?;
                 for (idx, value) in fields_to_update {
-                    std::mem::swap(&mut s.fields[idx], value);
+                    core::mem::swap(&mut s.fields[idx], value);
                 }
 
                 Ok(SteelVal::CustomStruct(Gc::new(s)))
@@ -539,7 +539,7 @@ pub fn struct_update_primitive(args: &mut [SteelVal]) -> Result<SteelVal> {
 }
 
 fn populate_fields_offsets<'a>(
-    mut fields: std::slice::IterMut<'a, SteelVal>,
+    mut fields: core::slice::IterMut<'a, SteelVal>,
     struct_fields_list: &List<SteelVal>,
     fields_to_update: &mut smallvec::SmallVec<[(usize, &'a mut SteelVal); 5]>,
 ) -> Result<()> {
@@ -1267,7 +1267,7 @@ pub(crate) fn build_option_structs() -> BuiltInModule {
     module
 }
 
-pub struct RecoverableResult<T, E>(std::result::Result<T, E>);
+pub struct RecoverableResult<T, E>(core::result::Result<T, E>);
 
 impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for RecoverableResult<T, E> {
     #[inline(always)]
@@ -1279,21 +1279,25 @@ impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for RecoverableResult<T, E> 
     }
 }
 
-impl<T: IntoSteelVal, E: IntoSteelVal> From<RecoverableResult<T, E>> for std::result::Result<T, E> {
+impl<T: IntoSteelVal, E: IntoSteelVal> From<RecoverableResult<T, E>>
+    for core::result::Result<T, E>
+{
     fn from(value: RecoverableResult<T, E>) -> Self {
         value.0
     }
 }
 
-impl<T: IntoSteelVal, E: IntoSteelVal> From<std::result::Result<T, E>> for RecoverableResult<T, E> {
-    fn from(value: std::result::Result<T, E>) -> Self {
+impl<T: IntoSteelVal, E: IntoSteelVal> From<core::result::Result<T, E>>
+    for RecoverableResult<T, E>
+{
+    fn from(value: core::result::Result<T, E>) -> Self {
         RecoverableResult(value)
     }
 }
 
 /// Result type that automatically maps into the equivalent Result type within Steel.
 /// For example, `Ok(10)` will map to `(Ok 10)`, and `Err(10)` will map to `(Err 10)`.
-pub struct SteelResult<T, E>(std::result::Result<T, E>);
+pub struct SteelResult<T, E>(core::result::Result<T, E>);
 impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for SteelResult<T, E> {
     #[inline(always)]
     fn into_steelval(self) -> Result<SteelVal> {
@@ -1304,14 +1308,14 @@ impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for SteelResult<T, E> {
     }
 }
 
-impl<T: IntoSteelVal, E: IntoSteelVal> From<SteelResult<T, E>> for std::result::Result<T, E> {
+impl<T: IntoSteelVal, E: IntoSteelVal> From<SteelResult<T, E>> for core::result::Result<T, E> {
     fn from(value: SteelResult<T, E>) -> Self {
         value.0
     }
 }
 
-impl<T: IntoSteelVal, E: IntoSteelVal> From<std::result::Result<T, E>> for SteelResult<T, E> {
-    fn from(value: std::result::Result<T, E>) -> Self {
+impl<T: IntoSteelVal, E: IntoSteelVal> From<core::result::Result<T, E>> for SteelResult<T, E> {
+    fn from(value: core::result::Result<T, E>) -> Self {
         SteelResult(value)
     }
 }
@@ -1319,7 +1323,7 @@ impl<T: IntoSteelVal, E: IntoSteelVal> From<std::result::Result<T, E>> for Steel
 // By default, the standard result type will automatically unwrap ok values, and raise errors
 // if they occur as genuine steel errors. If you'd like to catch these, you can set up an exception handler.
 // The runtime cost for this is relatively low.
-impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for std::result::Result<T, E> {
+impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for core::result::Result<T, E> {
     fn into_steelval(self) -> Result<SteelVal> {
         match self {
             Ok(s) => s.into_steelval(),
@@ -1334,7 +1338,7 @@ impl<T: IntoSteelVal, E: IntoSteelVal> IntoSteelVal for std::result::Result<T, E
     }
 }
 
-impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for std::result::Result<T, E> {
+impl<T: FromSteelVal, E: FromSteelVal> FromSteelVal for core::result::Result<T, E> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::CustomStruct(s) = val {
             if s.is_ok() {

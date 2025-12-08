@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use core::cell::Cell;
 
 use im_lists::{
     handler::{DefaultDropHandler, DropHandler},
@@ -47,8 +47,8 @@ impl From<Pair> for SteelVal {
     }
 }
 
-impl std::fmt::Debug for Pair {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for Pair {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "({} . {})", &self.car, &self.cdr)
     }
 }
@@ -132,7 +132,7 @@ mod list_drop_handler {
                 if DROP_BUFFER
                     .try_with(|drop_buffer| {
                         if let Ok(mut drop_buffer) = drop_buffer.try_borrow_mut() {
-                            let taken = std::mem::take(obj);
+                            let taken = core::mem::take(obj);
 
                             for value in taken.draining_iterator() {
                                 match &value {
@@ -169,7 +169,7 @@ mod list_drop_handler {
                         } else {
                             let mut drop_buffer = VecDeque::new();
 
-                            for value in std::mem::take(obj).draining_iterator() {
+                            for value in core::mem::take(obj).draining_iterator() {
                                 match &value {
                                     SteelVal::BoolV(_)
                                     | SteelVal::NumV(_)
@@ -205,7 +205,7 @@ mod list_drop_handler {
                     .is_err()
                 {
                     let mut drop_buffer = VecDeque::new();
-                    for value in std::mem::take(obj).draining_iterator() {
+                    for value in core::mem::take(obj).draining_iterator() {
                         match &value {
                             SteelVal::BoolV(_)
                             | SteelVal::NumV(_)

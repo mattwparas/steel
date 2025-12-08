@@ -58,8 +58,8 @@ use num_rational::{BigRational, Rational32};
 use num_traits::ToPrimitive;
 pub use numbers::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 pub use ports::port_module;
-use std::convert::TryFrom;
-use std::result;
+use core::convert::TryFrom;
+use core::result;
 pub use streams::StreamOperations;
 pub use strings::string_module;
 pub use symbols::symbol_module;
@@ -462,8 +462,8 @@ pub enum Either<L, R> {
 impl<'a, L: PrimitiveAsRef<'a>, R: PrimitiveAsRef<'a>> PrimitiveAsRef<'a> for Either<L, R> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
-        let left_type_name = std::any::type_name::<L>();
-        let right_type_name = std::any::type_name::<R>();
+        let left_type_name = core::any::type_name::<L>();
+        let right_type_name = core::any::type_name::<R>();
 
         let error_thunk = crate::throw!(ConversionError => format!("Cannot convert steel value to the specified type: {} or {}", left_type_name, right_type_name));
 

@@ -106,7 +106,7 @@ pub struct DenseInstruction {
     pub payload_size: u24,
 }
 
-use std::ops::Add;
+use core::ops::Add;
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize, Debug)]
 #[allow(non_camel_case_types)]
@@ -153,8 +153,8 @@ impl u24 {
     }
 }
 
-impl std::fmt::Display for u24 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for u24 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.to_u32())
     }
 }

@@ -7,7 +7,7 @@ use crate::{
     rvals::{FromSteelVal, IntoSteelVal, Result, SteelVal},
 };
 use serde_json::{Map, Number, Value};
-use std::convert::{TryFrom, TryInto};
+use core::convert::{TryFrom, TryInto};
 use steel_derive::function;
 
 /// Deserializes a JSON string into a Steel value.
@@ -24,7 +24,7 @@ use steel_derive::function;
 pub fn string_to_jsexpr(value: &SteelString) -> Result<SteelVal> {
     // let unescaped = unescape(&value);
     let unescaped = value;
-    let res: std::result::Result<Value, _> = serde_json::from_str(unescaped.as_str());
+    let res: core::result::Result<Value, _> = serde_json::from_str(unescaped.as_str());
 
     match res {
         Ok(res) => res.try_into(),
@@ -79,7 +79,7 @@ fn unescape(s: &str) -> String {
 
 impl TryFrom<Map<String, Value>> for SteelVal {
     type Error = SteelErr;
-    fn try_from(map: Map<String, Value>) -> std::result::Result<Self, Self::Error> {
+    fn try_from(map: Map<String, Value>) -> core::result::Result<Self, Self::Error> {
         let mut hm = HashMap::new();
         for (key, value) in map {
             hm.insert(SteelVal::SymbolV(key.into()), value.try_into()?);
@@ -90,7 +90,7 @@ impl TryFrom<Map<String, Value>> for SteelVal {
 
 impl TryFrom<Value> for SteelVal {
     type Error = SteelErr;
-    fn try_from(val: Value) -> std::result::Result<Self, Self::Error> {
+    fn try_from(val: Value) -> core::result::Result<Self, Self::Error> {
         match val {
             Value::Null => Ok(SteelVal::Void),
             Value::Bool(t) => Ok(SteelVal::BoolV(t)),
@@ -109,7 +109,7 @@ impl TryFrom<Value> for SteelVal {
 // TODO
 impl TryFrom<Number> for SteelVal {
     type Error = SteelErr;
-    fn try_from(n: Number) -> std::result::Result<Self, Self::Error> {
+    fn try_from(n: Number) -> core::result::Result<Self, Self::Error> {
         let result = n.as_f64().unwrap();
         Ok(SteelVal::NumV(result))
     }
@@ -132,7 +132,7 @@ impl FromSteelVal for Value {
 // Honestly... this is not great
 impl TryFrom<SteelVal> for Value {
     type Error = SteelErr;
-    fn try_from(val: SteelVal) -> std::result::Result<Self, Self::Error> {
+    fn try_from(val: SteelVal) -> core::result::Result<Self, Self::Error> {
         match val {
             SteelVal::BoolV(b) => Ok(Value::Bool(b)),
             SteelVal::NumV(n) => Ok(Value::Number(Number::from_f64(n).unwrap())),

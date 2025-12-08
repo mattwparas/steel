@@ -13,9 +13,9 @@ use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
 use std::collections::{HashMap, HashSet};
-use std::slice;
+use core::slice;
 
-use std::cell::RefCell;
+use core::cell::RefCell;
 
 use super::lower::lower_function;
 use super::sig::{JitFunctionPointer, Sig};
@@ -51,9 +51,9 @@ pub struct JIT {
 unsafe extern "C" fn length_list(value: i128) {
     // Check that this value is actually an i128
 
-    let decoded = std::mem::transmute::<i128, SteelVal>(value);
+    let decoded = core::mem::transmute::<i128, SteelVal>(value);
 
-    let discriminant = std::mem::discriminant(&decoded);
+    let discriminant = core::mem::discriminant(&decoded);
 
     todo!()
 }
@@ -80,7 +80,7 @@ unsafe extern "C" fn empty_const() -> f64 {
 // function to compiled code with the name "print".
 // TODO audit the unsafe
 unsafe extern "C" fn car(value: f64) -> f64 {
-    // let lst: Box<SteelVal> = std::mem::transmute(value);
+    // let lst: Box<SteelVal> = core::mem::transmute(value);
 
     todo!()
 
@@ -299,7 +299,7 @@ impl JIT {
     //     sig: Sig,
     // ) -> Result, String> {
     //     let code_ptr = self.compile(input)?;
-    //     let code_fn = std::mem::transmute::<_, T>(code_ptr);
+    //     let code_fn = core::mem::transmute::<_, T>(code_ptr);
     //     Ok(code_fn)
     // }
 
@@ -490,7 +490,7 @@ impl<'a> FunctionTranslator<'a> {
     // This unboxes the value first by applying the bitwise and
     // then casting to an int
     fn decode_float_to_int(&mut self, value: Value) -> Value {
-        let bitmask: i64 = unsafe { std::mem::transmute(!super::value::INT32_TAG) };
+        let bitmask: i64 = unsafe { core::mem::transmute(!super::value::INT32_TAG) };
         let cast = self.builder.ins().bitcast(I64, value);
         self.builder.ins().band_imm(cast, bitmask)
     }
@@ -509,7 +509,7 @@ impl<'a> FunctionTranslator<'a> {
     // This takes in an int, then applies the bitwise and
     // then we cast this to a float when we're done
     fn encode_int_to_float(&mut self, value: Value) -> Value {
-        let bitmask: i64 = unsafe { std::mem::transmute(super::value::INT32_TAG) };
+        let bitmask: i64 = unsafe { core::mem::transmute(super::value::INT32_TAG) };
         let encoded_int = self.builder.ins().bor_imm(value, bitmask);
         self.builder.ins().bitcast(F64, encoded_int)
     }

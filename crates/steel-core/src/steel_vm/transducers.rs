@@ -92,7 +92,7 @@ pub fn add(a: SizeHint, b: SizeHint) -> SizeHint {
     (min, max)
 }
 
-impl<I, J> std::iter::FusedIterator for Interleave<I, J>
+impl<I, J> core::iter::FusedIterator for Interleave<I, J>
 where
     I: Iterator,
     J: Iterator<Item = I::Item>,
@@ -290,15 +290,15 @@ impl<'global, 'a> VmCore<'a> {
                                                 els => {
                                                     let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {els}")).with_span(*cur_inst_span);
 
-                                                    Box::new(std::iter::once(Err(err)))
+                                                    Box::new(core::iter::once(Err(err)))
                                                 }
                                             }
                                         }
-                                        err => Box::new(std::iter::once(err)),
+                                        err => Box::new(core::iter::once(err)),
                                     }
                                 }
 
-                                err => Box::new(std::iter::once(err)),
+                                err => Box::new(core::iter::once(err)),
                             }
                         };
 
@@ -328,11 +328,11 @@ impl<'global, 'a> VmCore<'a> {
                                         els => {
                                             let err = SteelErr::new(ErrorKind::TypeMismatch, format!("flatten expected a traversable value, found: {els}")).with_span(*cur_inst_span);
 
-                                            Box::new(std::iter::once(Err(err)))
+                                            Box::new(core::iter::once(Err(err)))
                                         }
                                     }
                                 }
-                                err => Box::new(std::iter::once(err)),
+                                err => Box::new(core::iter::once(err)),
                             }
                         };
 
@@ -369,7 +369,7 @@ impl<'global, 'a> VmCore<'a> {
                                 )
                                 .with_span(*cur_inst_span);
 
-                                Box::new(std::iter::once(Err(err)))
+                                Box::new(core::iter::once(Err(err)))
                             }
                         };
 
@@ -405,7 +405,7 @@ impl<'global, 'a> VmCore<'a> {
                                 )
                                 .with_span(*cur_inst_span);
 
-                                Box::new(std::iter::once(Err(err)))
+                                Box::new(core::iter::once(Err(err)))
                             }
                         };
                     Box::new(
@@ -433,7 +433,7 @@ impl<'global, 'a> VmCore<'a> {
                             )
                             .with_span(*cur_inst_span);
 
-                            Box::new(std::iter::once(Err(err)))
+                            Box::new(core::iter::once(Err(err)))
                         }
                     };
                     Box::new(interleave(iter, other))

@@ -52,11 +52,11 @@ use crate::{
     stop,
     values::functions::ByteCodeLambda,
 };
-use std::hash::Hash;
+use core::hash::Hash;
 use std::io::Read as _;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use alloc::sync::Arc;
 use std::sync::Mutex;
 use std::{cell::RefCell, collections::HashMap, iter::Iterator};
 
@@ -189,18 +189,18 @@ impl PartialEq for StackFrame {
 
 #[test]
 fn check_sizes() {
-    println!("stack frame: {:?}", std::mem::size_of::<StackFrame>());
+    println!("stack frame: {:?}", core::mem::size_of::<StackFrame>());
     println!(
         "option rc steelval: {:?}",
-        std::mem::size_of::<Option<std::rc::Rc<SteelVal>>>()
+        core::mem::size_of::<Option<alloc::rc::Rc<SteelVal>>>()
     );
     println!(
         "option box steelval: {:?}",
-        std::mem::size_of::<Option<Box<SteelVal>>>()
+        core::mem::size_of::<Option<Box<SteelVal>>>()
     );
     println!(
         "option steelval: {:?}",
-        std::mem::size_of::<Option<SteelVal>>()
+        core::mem::size_of::<Option<SteelVal>>()
     );
 }
 
@@ -365,7 +365,7 @@ pub enum ThreadState {
 
 //             BACKGROUND_DROPPER
 //                 .forward_sender
-//                 .send(std::mem::take(&mut self.buffer))
+//                 .send(core::mem::take(&mut self.buffer))
 //                 .unwrap();
 //             self.buffer = BACKGROUND_DROPPER.backward_receiver.recv().unwrap();
 //         } else {
@@ -399,7 +399,7 @@ pub struct SteelThread {
     pub(crate) thread_local_storage: Vec<SteelVal>,
 
     // Store... more stuff here
-    pub(crate) compiler: std::sync::Arc<RwLock<Compiler>>,
+    pub(crate) compiler: alloc::sync::Arc<RwLock<Compiler>>,
 
     pub(crate) id: EngineId,
 
@@ -727,7 +727,7 @@ impl Synchronizer {
 }
 
 impl SteelThread {
-    pub fn new(compiler: std::sync::Arc<RwLock<Compiler>>) -> SteelThread {
+    pub fn new(compiler: alloc::sync::Arc<RwLock<Compiler>>) -> SteelThread {
         let synchronizer = Synchronizer::new();
         let weak_ctx = Arc::downgrade(&synchronizer.ctx);
 
@@ -1847,10 +1847,10 @@ impl<'a> VmCore<'a> {
     // once to avoid copying the whole thing.
     pub fn new_oneshot_continuation_from_state(&mut self) -> ClosedContinuation {
         ClosedContinuation {
-            stack: std::mem::take(&mut self.thread.stack),
+            stack: core::mem::take(&mut self.thread.stack),
             instructions: self.instructions.clone(),
             current_frame: self.thread.current_frame.clone(),
-            stack_frames: std::mem::take(&mut self.thread.stack_frames),
+            stack_frames: core::mem::take(&mut self.thread.stack_frames),
             ip: self.ip,
             sp: self.sp,
             pop_count: self.pop_count,
@@ -1956,7 +1956,7 @@ impl<'a> VmCore<'a> {
         closure: RootedInstructions,
     ) -> Result<SteelVal> {
         let old_ip = self.ip;
-        let old_instructions = std::mem::replace(&mut self.instructions, closure);
+        let old_instructions = core::mem::replace(&mut self.instructions, closure);
         let old_pop_count = self.pop_count;
 
         self.ip = 0;
@@ -2191,7 +2191,7 @@ impl<'a> VmCore<'a> {
     // pub(crate) fn eval_executable(&mut self, executable: &Executable) -> Result<Vec<SteelVal>> {
     //     // let prev_length = self.thread.stack.len();
 
-    //     // let prev_stack_frames = std::mem::take(&mut self.thread.stack_frames);
+    //     // let prev_stack_frames = core::mem::take(&mut self.thread.stack_frames);
 
     //     // let mut results = Vec::new();
 
@@ -3677,7 +3677,7 @@ impl<'a> VmCore<'a> {
     }
 
     fn move_from_stack(&mut self, offset: usize) -> SteelVal {
-        std::mem::replace(&mut self.thread.stack[offset], SteelVal::Void)
+        core::mem::replace(&mut self.thread.stack[offset], SteelVal::Void)
     }
 
     pub(crate) fn current_span_for_index(&self, ip: usize) -> Span {
@@ -4807,7 +4807,7 @@ impl<'a> VmCore<'a> {
             self.sp,
             closure,
             self.ip + 1,
-            std::mem::replace(&mut self.instructions, instructions),
+            core::mem::replace(&mut self.instructions, instructions),
         ));
 
         self.check_stack_overflow()?;
@@ -4835,7 +4835,7 @@ impl<'a> VmCore<'a> {
         {
             let mut instructions = closure.body_exp();
 
-            std::mem::swap(&mut instructions, &mut self.instructions);
+            core::mem::swap(&mut instructions, &mut self.instructions);
 
             // Do this _after_ the multi arity business
             // TODO: can these rcs be avoided
@@ -4874,7 +4874,7 @@ impl<'a> VmCore<'a> {
         {
             let mut instructions = closure.body_exp();
 
-            std::mem::swap(&mut instructions, &mut self.instructions);
+            core::mem::swap(&mut instructions, &mut self.instructions);
 
             // Do this _after_ the multi arity business
             // TODO: can these rcs be avoided
@@ -6176,7 +6176,7 @@ pub(crate) fn apply(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
 #[derive(PartialEq, Eq, Hash, Clone, PartialOrd, Ord, Debug)]
 #[cfg(feature = "dynamic")]
 pub struct InstructionPattern {
-    pub(crate) block: std::rc::Rc<[(OpCode, usize)]>,
+    pub(crate) block: alloc::rc::Rc<[(OpCode, usize)]>,
     pub(crate) pattern: BlockPattern,
 }
 
@@ -6204,7 +6204,7 @@ pub struct BlockMetadata {
 #[derive(Clone)]
 pub struct OpCodeOccurenceProfiler {
     occurrences: HashMap<(OpCode, usize), usize>,
-    time: HashMap<(OpCode, usize), std::time::Duration>,
+    time: HashMap<(OpCode, usize), core::time::Duration>,
     starting_index: Option<usize>,
     ending_index: Option<usize>,
     sample_count: usize,
@@ -6402,7 +6402,7 @@ impl OpCodeOccurenceProfiler {
         None
     }
 
-    pub fn add_time(&mut self, opcode: &OpCode, payload: usize, time: std::time::Duration) {
+    pub fn add_time(&mut self, opcode: &OpCode, payload: usize, time: core::time::Duration) {
         *self.time.entry((*opcode, payload)).or_default() += time;
     }
 
