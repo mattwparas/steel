@@ -4,8 +4,8 @@ use cranelift::{
 };
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module};
-use std::collections::HashMap;
 use std::slice;
+use std::{collections::HashMap, sync::Arc};
 use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
@@ -797,6 +797,7 @@ impl JIT {
             intrinsics: &self.function_map,
             fake_entry_block,
             exit_block,
+            generators: Default::default(),
         };
 
         trans.stack_to_ssa();
@@ -850,12 +851,32 @@ pub enum InferredType {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct GeneratorIndex(usize);
+
+#[derive(Default)]
+struct LazyInstructionGenerators {
+    funcs: Vec<Arc<dyn Fn(&mut FunctionTranslator) -> Value>>,
+}
+
+impl LazyInstructionGenerators {
+    fn take(&mut self, index: GeneratorIndex) -> Arc<dyn Fn(&mut FunctionTranslator) -> Value> {
+        self.funcs[index.0].clone()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 struct StackValue {
     value: Value,
     inferred_type: InferredType,
     // Whether or not the value is spilled
     // to the stack
     spilled: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MaybeStackValue {
+    Value(StackValue),
+    Lazy(Option<GeneratorIndex>),
 }
 
 /// A collection of state used for translating from toy-language AST nodes
@@ -898,6 +919,8 @@ struct FunctionTranslator<'a> {
 
     fake_entry_block: Option<Block>,
     exit_block: Block,
+
+    generators: LazyInstructionGenerators,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -1921,12 +1944,14 @@ impl FunctionTranslator<'_> {
     fn translate_tco_jmp_no_arity_loop_no_spill(&mut self, payload: usize) {
         let name = CallSelfTailCallNoArityLoopDefinitions::arity_to_name(payload).unwrap();
 
-        let mut args_off_the_stack = self
-            .stack
-            .drain(self.stack.len() - payload..)
-            .collect::<Vec<_>>();
+        // let mut args_off_the_stack = self
+        //     .stack
+        //     .drain(self.stack.len() - payload..)
+        //     .collect::<Vec<_>>();
 
-        self.maybe_patch_from_stack(&mut args_off_the_stack);
+        // self.maybe_patch_from_stack(&mut args_off_the_stack);
+
+        let args_off_the_stack = self.split_off(payload);
 
         let local_callee = self.get_local_callee(name);
         let ctx = self.get_ctx();
@@ -1937,7 +1962,7 @@ impl FunctionTranslator<'_> {
             .iconst(Type::int(64).unwrap(), payload as i64);
 
         let mut arg_values = vec![ctx, arity];
-        arg_values.extend(args_off_the_stack.iter().map(|x| x.value));
+        arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
         let _call = self.builder.ins().call(local_callee, &arg_values);
 
         let test = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
