@@ -758,6 +758,19 @@ pub fn read_char(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
     }
 }
 
+pub fn read_char_single(port: SteelVal) -> Result<SteelVal> {
+    if let SteelVal::PortV(port) = port {
+        match port.read_char()? {
+            crate::values::port::MaybeBlocking::Nonblocking(c) => {
+                Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
+            }
+            crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+        }
+    } else {
+        stop!(TypeMismatch => "...")
+    }
+}
+
 /// Peeks the next character from an input port.
 ///
 /// (peek-char [port]) -> char?

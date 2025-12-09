@@ -11,6 +11,7 @@ use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 use crate::{
     compiler::constants::ConstantMap,
     core::instructions::DenseInstruction,
+    primitives::ports::steel_read_char,
     steel_vm::vm::{
         jit::{
             box_handler_c, call_global_function_deopt_no_arity_spilled,
@@ -34,7 +35,7 @@ use crate::{
             unbox_handler_c, vector_ref_handler_c, CallFunctionDefinitions,
             CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
             CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
-            CallPrimitiveDefinitions, CallPrimitiveMutDefinitions,
+            CallPrimitiveDefinitions, CallPrimitiveFixedDefinitions, CallPrimitiveMutDefinitions,
             CallSelfTailCallNoArityDefinitions, CallSelfTailCallNoArityLoopDefinitions,
             ListHandlerDefinitions,
         },
@@ -360,6 +361,8 @@ impl Default for JIT {
         // Primitive calls:
         CallPrimitiveDefinitions::register(&mut map);
         CallPrimitiveMutDefinitions::register(&mut map);
+
+        CallPrimitiveFixedDefinitions::register(&mut map);
 
         map.add_func(
             "trampoline",
@@ -1415,7 +1418,7 @@ impl FunctionTranslator<'_> {
 
                     let global = self._globals.get(function_index);
 
-                    match global {
+                    match global.cloned() {
                         Some(SteelVal::FuncV(f)) => {
                             // Attempt the other call
                             self.ip += 1;
@@ -1423,13 +1426,47 @@ impl FunctionTranslator<'_> {
 
                             let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
-                            if let Some(name) = name {
+                            if f == crate::primitives::strings::steel_char_equals && arity == 2 {
+                                let name =
+                                    CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
+
                                 // attempt to move forward with it
                                 let additional_args = self.split_off(arity);
 
+                                // let f = crate::primitives::ports::read_char_single
+                                //     as fn(SteelVal) -> Result<SteelVal, crate::SteelErr>;
+
                                 let function = self.builder.ins().iconst(
                                     self.module.target_config().pointer_type(),
-                                    f as *const _ as i64,
+                                    crate::primitives::strings::char_equals_binop as i64,
+                                );
+
+                                let fallback_ip = self
+                                    .builder
+                                    .ins()
+                                    .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+                                let mut args = vec![function, fallback_ip];
+
+                                args.extend(additional_args.into_iter().map(|x| x.0));
+
+                                let result = self.call_function_returns_value_args(name, &args);
+                                self.push(result, InferredType::Bool);
+                                self.ip += 1;
+                                self.check_deopt();
+                            } else if f == steel_read_char && arity == 1 {
+                                let name =
+                                    CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
+
+                                // attempt to move forward with it
+                                let additional_args = self.split_off(arity);
+
+                                // let f = crate::primitives::ports::read_char_single
+                                //     as fn(SteelVal) -> Result<SteelVal, crate::SteelErr>;
+
+                                let function = self.builder.ins().iconst(
+                                    self.module.target_config().pointer_type(),
+                                    crate::primitives::ports::read_char_single as i64,
                                 );
 
                                 let fallback_ip = self
@@ -1446,8 +1483,34 @@ impl FunctionTranslator<'_> {
                                 self.ip += 1;
                                 self.check_deopt();
                             } else {
-                                self.ip -= 1;
-                                self.call_global_impl(payload);
+                                if let Some(name) = name {
+                                    // attempt to move forward with it
+                                    let additional_args = self.split_off(arity);
+
+                                    let function = self.builder.ins().iconst(
+                                        self.module.target_config().pointer_type(),
+                                        // f as *const fn(&[SteelVal]) -> Result<SteelVal, crate::SteelErr>
+                                        //     as i64,
+                                        f as i64,
+                                    );
+
+                                    let fallback_ip = self
+                                        .builder
+                                        .ins()
+                                        .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+                                    let mut args = vec![function, fallback_ip];
+
+                                    args.extend(additional_args.into_iter().map(|x| x.0));
+
+                                    let result = self.call_function_returns_value_args(name, &args);
+                                    self.push(result, InferredType::Any);
+                                    self.ip += 1;
+                                    self.check_deopt();
+                                } else {
+                                    self.ip -= 1;
+                                    self.call_global_impl(payload);
+                                }
                             }
                         }
 
@@ -1464,7 +1527,12 @@ impl FunctionTranslator<'_> {
 
                                 let function = self.builder.ins().iconst(
                                     self.module.target_config().pointer_type(),
-                                    f as *const _ as i64,
+                                    // f as *const fn(
+                                    //     &mut [SteelVal],
+                                    // )
+                                    //     -> Result<SteelVal, crate::SteelErr>
+                                    //     as i64,
+                                    f as i64,
                                 );
 
                                 let fallback_ip = self

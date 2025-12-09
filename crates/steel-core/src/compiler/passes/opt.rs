@@ -1,5 +1,6 @@
 use steel_parser::{
     ast::{Atom, ExprKind},
+    interner::InternedString,
     parser::SyntaxObject,
     tokens::TokenType,
 };
@@ -18,6 +19,7 @@ impl SingleExprOptimizer {
         for expr in exprs {
             FlipNotCondition.visit(expr);
             PruneConstantIfBranches.visit(expr);
+            RemoveLetsBoundToOtherLocalVars { scope: Vec::new() }.visit(expr);
         }
     }
 }
@@ -108,5 +110,63 @@ impl VisitorMutRefUnit for PruneConstantIfBranches {
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
         }
+    }
+}
+
+pub struct RemoveLetsBoundToOtherLocalVars {
+    scope: Vec<Vec<(InternedString, Option<InternedString>)>>,
+}
+
+impl VisitorMutRefUnit for RemoveLetsBoundToOtherLocalVars {
+    fn visit_atom(&mut self, a: &mut Atom) {
+        if let Some(ident) = a.ident().copied() {
+            // Go through each scope
+            for scope in self.scope.iter().rev() {
+                if let Some(r) = scope
+                    .iter()
+                    .find_map(|x| if x.0 == ident { Some(x.1) } else { None })
+                {
+                    if let Some(r) = r {
+                        *a.ident_mut().unwrap() = r;
+                    }
+
+                    break;
+                } else {
+                    continue;
+                }
+            }
+        }
+    }
+
+    fn visit_let(&mut self, l: &mut steel_parser::ast::Let) {
+        let mut bound = Vec::new();
+
+        for (ident, expr) in l.bindings.iter_mut() {
+            // (let ((a b))
+            //     ;; Replace all usages of a with b?
+            //     ;; Remove it afterwards
+            // )
+            self.visit(expr);
+            if let Some(left) = ident.atom_identifier() {
+                let rhs = expr.atom_identifier().copied();
+                bound.push((*left, rhs));
+            }
+        }
+
+        self.scope.push(bound);
+        self.visit(&mut l.body_expr);
+        let bound = self.scope.pop().unwrap();
+
+        if bound.is_empty() {
+            return;
+        }
+
+        l.bindings.retain(|(ident, expr)| {
+            if ident.atom_identifier().is_some() && expr.atom_identifier().is_some() {
+                return false;
+            }
+
+            true
+        });
     }
 }
