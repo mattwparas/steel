@@ -1219,6 +1219,10 @@ impl Compiler {
         semantic.populate_captures();
         semantic.populate_captures();
 
+        if std::env::var("STEEL_DEBUG_AST").is_ok() {
+            steel_parser::ast::AstTools::pretty_print(&semantic.exprs);
+        }
+
         semantic.replace_mutable_captured_variables_with_boxes();
 
         log::debug!(target: "expansion-phase", "Expanding multiple arity functions");
@@ -1268,6 +1272,8 @@ impl Compiler {
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
 
+        semantic.life_closures();
+
         self.analysis = semantic.into_analysis();
 
         // We don't want to leave this allocate memory just hanging around, but leave enough for
@@ -1281,9 +1287,9 @@ impl Compiler {
 
         SingleExprOptimizer::run(&mut expanded_statements);
 
-        if std::env::var("STEEL_DEBUG_AST").is_ok() {
-            steel_parser::ast::AstTools::pretty_print_log(&expanded_statements);
-        }
+        // if std::env::var("STEEL_DEBUG_AST").is_ok() {
+        //     steel_parser::ast::AstTools::pretty_print_log(&expanded_statements);
+        // }
 
         Ok(expanded_statements)
 

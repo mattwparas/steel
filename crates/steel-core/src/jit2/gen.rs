@@ -797,7 +797,7 @@ impl JIT {
             intrinsics: &self.function_map,
             fake_entry_block,
             exit_block,
-            generators: Default::default(),
+            // generators: Default::default(),
         };
 
         trans.stack_to_ssa();
@@ -850,19 +850,19 @@ pub enum InferredType {
     Function,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct GeneratorIndex(usize);
+// #[derive(Debug, Clone, Copy)]
+// struct GeneratorIndex(usize);
 
-#[derive(Default)]
-struct LazyInstructionGenerators {
-    funcs: Vec<Arc<dyn Fn(&mut FunctionTranslator) -> Value>>,
-}
+// #[derive(Default)]
+// struct LazyInstructionGenerators {
+//     funcs: Vec<Arc<dyn Fn(&mut FunctionTranslator) -> Value>>,
+// }
 
-impl LazyInstructionGenerators {
-    fn take(&mut self, index: GeneratorIndex) -> Arc<dyn Fn(&mut FunctionTranslator) -> Value> {
-        self.funcs[index.0].clone()
-    }
-}
+// impl LazyInstructionGenerators {
+//     fn take(&mut self, index: GeneratorIndex) -> Arc<dyn Fn(&mut FunctionTranslator) -> Value> {
+//         self.funcs[index.0].clone()
+//     }
+// }
 
 #[derive(Debug, Clone, Copy)]
 struct StackValue {
@@ -876,7 +876,8 @@ struct StackValue {
 #[derive(Debug, Clone, Copy)]
 enum MaybeStackValue {
     Value(StackValue),
-    Lazy(Option<GeneratorIndex>),
+    MutRegister(usize),
+    Register(usize),
 }
 
 /// A collection of state used for translating from toy-language AST nodes
@@ -919,8 +920,7 @@ struct FunctionTranslator<'a> {
 
     fake_entry_block: Option<Block>,
     exit_block: Block,
-
-    generators: LazyInstructionGenerators,
+    // generators: LazyInstructionGenerators,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -1226,39 +1226,56 @@ impl FunctionTranslator<'_> {
                 // it will only be used one. Read local does since we want
                 // to clone it
                 OpCode::READLOCAL | OpCode::MOVEREADLOCAL => {
-                    // let let_var_offset = self.let_var_stack.last().copied().unwrap_or(0);
+                    // TODO: @matt remove this and make it more general
+                    // TODO: This optimization should be more general
+                    if payload < self.arity as usize
+                        && payload + 1 == self.arity as usize
+                        && self
+                            .instructions
+                            .get(self.ip + 1)
+                            .map(|x| x.op_code == OpCode::SELFTAILCALLNOARITY)
+                            .unwrap_or_default()
+                    {
+                        // Leave the last in place
+                        self.ip += 1;
+                        let payload = self.instructions[self.ip].payload_size.to_usize();
+                        let _ = self
+                            .test_translate_tco_jmp_no_arity_loop_no_spill(payload - 1, payload);
+                        self.ip = self.instructions.len() + 1;
+                        return false;
+                    } else {
+                        let let_var_offset: usize = self.let_var_stack.iter().sum();
 
-                    let let_var_offset: usize = self.let_var_stack.iter().sum();
+                        if payload > self.arity as usize + let_var_offset {
+                            let upper_bound = payload - self.arity as usize - let_var_offset;
 
-                    if payload > self.arity as usize + let_var_offset {
-                        let upper_bound = payload - self.arity as usize - let_var_offset;
-
-                        for i in 0..upper_bound {
-                            self.spill(i);
+                            for i in 0..upper_bound {
+                                self.spill(i);
+                            }
                         }
+
+                        let index = self
+                            .builder
+                            .ins()
+                            .iconst(Type::int(64).unwrap(), payload as i64);
+
+                        let value = self.call_function_returns_value_args(
+                            op_to_name_payload(op, payload),
+                            &[index],
+                        );
+
+                        self.value_to_local_map.insert(value, payload);
+
+                        let inferred_type =
+                            if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
+                                *inferred_type
+                            } else {
+                                InferredType::Any
+                            };
+
+                        self.ip += 1;
+                        self.push(value, inferred_type);
                     }
-
-                    let index = self
-                        .builder
-                        .ins()
-                        .iconst(Type::int(64).unwrap(), payload as i64);
-
-                    let value = self.call_function_returns_value_args(
-                        op_to_name_payload(op, payload),
-                        &[index],
-                    );
-
-                    self.value_to_local_map.insert(value, payload);
-
-                    let inferred_type =
-                        if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
-                            *inferred_type
-                        } else {
-                            InferredType::Any
-                        };
-
-                    self.ip += 1;
-                    self.push(value, inferred_type);
                 }
                 OpCode::PUSHCONST => {
                     let payload = self.instructions[self.ip].payload_size.to_usize();
@@ -1941,6 +1958,40 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(else_block);
     }
 
+    fn test_translate_tco_jmp_no_arity_loop_no_spill(&mut self, payload: usize, arity: usize) {
+        let name = CallSelfTailCallNoArityLoopDefinitions::arity_to_name(payload).unwrap();
+
+        let args_off_the_stack = self.split_off(payload);
+
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
+
+        let arity = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), arity as i64);
+
+        let mut arg_values = vec![ctx, arity];
+        arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
+        let _call = self.builder.ins().call(local_callee, &arg_values);
+
+        let test = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
+
+        let else_block = self.builder.create_block();
+        let fake_entry_block = self.fake_entry_block.unwrap();
+
+        // Jump to the fake entry block.
+        //
+        // Construct a fake loop to otherwise jump back to the normal control
+        // flow?
+        self.builder
+            .ins()
+            .brif(test, fake_entry_block, &[], else_block, &[]);
+
+        self.builder.switch_to_block(else_block);
+        self.builder.seal_block(else_block);
+    }
+
     fn translate_tco_jmp_no_arity_loop_no_spill(&mut self, payload: usize) {
         let name = CallSelfTailCallNoArityLoopDefinitions::arity_to_name(payload).unwrap();
 
@@ -1991,12 +2042,14 @@ impl FunctionTranslator<'_> {
     fn _translate_tco_jmp_no_arity_without_spill(&mut self, payload: usize) {
         let name = CallSelfTailCallNoArityDefinitions::arity_to_name(payload).unwrap();
 
-        let mut args_off_the_stack = self
-            .stack
-            .drain(self.stack.len() - payload..)
-            .collect::<Vec<_>>();
+        // let mut args_off_the_stack = self
+        //     .stack
+        //     .drain(self.stack.len() - payload..)
+        //     .collect::<Vec<_>>();
 
-        self.maybe_patch_from_stack(&mut args_off_the_stack);
+        // self.maybe_patch_from_stack(&mut args_off_the_stack);
+
+        let args_off_the_stack = self.split_off(payload);
 
         let local_callee = self.get_local_callee(name);
         let ctx = self.get_ctx();
@@ -2007,7 +2060,8 @@ impl FunctionTranslator<'_> {
             .iconst(Type::int(64).unwrap(), payload as i64);
 
         let mut arg_values = vec![ctx, arity];
-        arg_values.extend(args_off_the_stack.iter().map(|x| x.value));
+        // arg_values.extend(args_off_the_stack.iter().map(|x| x.value));
+        arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
         let _call = self.builder.ins().call(local_callee, &arg_values);
     }
 
