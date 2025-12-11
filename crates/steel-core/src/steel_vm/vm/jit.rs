@@ -2504,7 +2504,7 @@ macro_rules! make_primitive_function_fixed_arity_deopt {
                 fallback_ip: usize,
                 $($typ: SteelVal),*
             ) -> SteelVal {
-                match unsafe { (func)($($typ),*) } {
+                match (func)($($typ),*) {
                     Ok(v) => v,
                     Err(e) => {
                         unsafe {
@@ -3863,6 +3863,31 @@ make_self_tail_call_no_arity_loop!(
         (f = 5),
         (g = 6),
         (h = 7)
+    ),
+    (
+        self_tail_call_no_arity_loop_9,
+        (a = 0),
+        (b = 1),
+        (c = 2),
+        (d = 3),
+        (e = 4),
+        (f = 5),
+        (g = 6),
+        (h = 7),
+        (i = 8)
+    ),
+    (
+        self_tail_call_no_arity_loop_10,
+        (a = 0),
+        (b = 1),
+        (c = 2),
+        (d = 3),
+        (e = 4),
+        (f = 5),
+        (g = 6),
+        (h = 7),
+        (i = 8),
+        (j = 9)
     )
 );
 

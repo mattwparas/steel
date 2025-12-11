@@ -1272,7 +1272,30 @@ impl Compiler {
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
 
-        semantic.life_closures();
+        semantic.lift_closures();
+
+        // self.shadowed_variable_renamer
+        //     .rename_shadowed_variables(&mut semantic.exprs, false);
+
+        // analysis.fresh_from_exprs(&expanded_statements);
+        // semantic.analysis.fresh_from_exprs(&semantic.exprs);
+
+        // semantic.fresh
+
+        // TODO: Configure inlining function size
+
+        if std::env::var("STEEL_INLINE").is_ok() {
+            semantic.inline_function_calls(Some(75))?;
+            semantic.refresh_variables();
+            let mut analysis = semantic.into_analysis();
+            self.shadowed_variable_renamer
+                .rename_shadowed_variables(&mut expanded_statements, false);
+            analysis.fresh_from_exprs(&expanded_statements);
+            analysis.populate_captures(&expanded_statements);
+            // Do this again
+            semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+            semantic.replace_anonymous_function_calls_with_plain_lets();
+        }
 
         self.analysis = semantic.into_analysis();
 
