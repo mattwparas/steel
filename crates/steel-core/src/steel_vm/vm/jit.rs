@@ -2398,7 +2398,6 @@ macro_rules! make_primitive_function_deopt {
                 $(
                     map.add_func(
                         stringify!($name),
-                        // $name as extern "C-unwind" fn(ctx: *mut VmCore, func: *const fn(&[SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                         $name as extern "C-unwind" fn(ctx: *mut VmCore, func: fn(&[SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
                 )*
@@ -2427,13 +2426,11 @@ macro_rules! make_primitive_function_deopt {
             #[allow(improper_ctypes_definitions)]
             pub(crate) extern "C-unwind" fn $name(
                 ctx: *mut VmCore,
-                // func: *const fn(&[SteelVal]) -> Result<SteelVal>,
                 func: fn(&[SteelVal]) -> Result<SteelVal>,
                 fallback_ip: usize,
                 $($typ: SteelVal),*
             ) -> SteelVal {
-                // match unsafe { (&*func)(&[$($typ),*]) } {
-                match unsafe { (func)(&[$($typ),*]) } {
+                match (func)(&[$($typ),*]) {
                     Ok(v) => v,
                     Err(e) => {
                         unsafe {
@@ -2461,6 +2458,367 @@ make_primitive_function_deopt!(
     (call_primitive_function_deopt_7, a, b, c, d, e, f, g),
     (call_primitive_function_deopt_8, a, b, c, d, e, f, g, h)
 );
+
+macro_rules! kind {
+    (0) => {
+        SteelVal
+    };
+
+    (1) => {
+        &SteelVal
+    };
+
+    (2) => {
+        &mut SteelVal
+    };
+}
+
+macro_rules! func_handle {
+    (1) => {
+        borrow_local
+    };
+
+    (2) => {
+        borrow_local_mut
+    };
+}
+
+#[inline(always)]
+fn borrow_local<'a>(ctx: &'a mut VmCore, index: usize) -> &'a SteelVal {
+    let offset = ctx.get_offset();
+    &ctx.thread.stack[index + offset]
+}
+
+#[inline(always)]
+fn borrow_local_mut<'a>(ctx: &'a mut VmCore, index: usize) -> &'a mut SteelVal {
+    let offset = ctx.get_offset();
+    &mut ctx.thread.stack[index + offset]
+}
+
+pub struct CallPrimitiveRegisterFixedDefinition;
+
+impl CallPrimitiveRegisterFixedDefinition {
+    pub fn arity_to_name(args: &[usize]) -> Option<&'static str> {
+        match args {
+            [0, 1, 2] => Some("todo"),
+            _ => None,
+        }
+    }
+}
+
+macro_rules! reg_stack_iter {
+    (0, $stack_iter:ident, $reg_iter:ident) => {
+        $stack_iter.next().unwrap()
+    };
+
+    (1, $stack_iter:ident, $reg_iter:ident) => {
+        $reg_iter.next().unwrap()
+    };
+
+    (2, $stack_iter:ident, $reg_iter:ident) => {
+        $reg_iter.next().unwrap()
+    };
+}
+
+// TODO: How to ensure that we can call a function
+// that uses a mutable reference if its not called
+// with a mutable value? is there a fallback in that case
+// to close and call with it then?
+//
+// Do we just spill in that case? i.e. the fallback match
+// for anything with mutable args if there isn't a match
+// for a function would be to call it with immutable fallback?
+//
+// We will see, since for example `car` calls with mutable,
+// but in the event its not called with a move read local,
+// then we wouldn't match. We'd have to clone in that case.
+macro_rules! make_primitive_register_function_fixed_arity_deopt {
+    // TODO: Interleave the regname and stack name, just annotate
+    // the type at the macro callsite
+    ($(($name:tt; ($($regname:ident),*) { $($stackname:ident),* }, [$($typ:tt),* ])),*) => {
+
+
+        pub struct CallRegisterPrimitiveFixedDefinitions;
+
+        impl CallRegisterPrimitiveFixedDefinitions {
+            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+                $(
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore,
+                            func: fn($(kind!($typ)),*) -> Result<SteelVal>,
+                            fallback_ip: usize,
+                            $($regname: usize),*,
+                            $($stackname: SteelVal),*
+                        ) -> SteelVal
+                    );
+                )*
+            }
+
+            pub fn shape_to_name(shape: &[usize]) -> Option<&'static str> {
+
+                $(
+                    if let [$($typ),*] = shape {
+                        return Some(stringify!($name));
+                    }
+                )*
+
+                None
+            }
+        }
+
+
+        $(
+            pub(crate) extern "C-unwind" fn $name(
+                ctx: *mut VmCore,
+                func: fn($(kind!($typ)),*) -> Result<SteelVal>,
+                fallback_ip: usize,
+                $($regname: usize),*,
+                $($stackname: SteelVal),*
+            ) -> SteelVal {
+                let this = unsafe { &mut *ctx };
+                let offset = this.get_offset();
+                let vars = unsafe { this.thread.stack.get_disjoint_unchecked_mut([$($regname + offset),*]) };
+                let mut arg_iter = vars.into_iter();
+                let stack_args = [$($stackname),*];
+                let mut stack_iter = stack_args.into_iter();
+
+                let call = (func)($(reg_stack_iter!($typ, stack_iter, arg_iter)),*);
+
+                match call {
+                    Ok(v) => v,
+                    Err(e) => unsafe {
+                        let guard = &mut *ctx;
+                        guard.ip = fallback_ip;
+                        guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
+                        guard.is_native = false;
+                        SteelVal::Void
+                    },
+                }
+            }
+        )*
+    };
+}
+
+// Register allocation. Use the stack as register where possible,
+// and we'll generate functions for each of these. We're making calls
+// anyway, so at this point we can just limit it to some natural depth.
+//
+// Otherwise, just spill everything.
+make_primitive_register_function_fixed_arity_deopt! {
+    // use the first three registers, in order
+    // with the signature where its 1, 1, 1, 0
+    (primitive_register_function00001; (r0) {s0,s1,s2,s3}, [0, 0, 0, 0, 1]),
+    (primitive_register_function00002; (r0) {s0,s1,s2,s3}, [0, 0, 0, 0, 2]),
+    (primitive_register_function00010; (r0) {s0,s1,s2,s3}, [0, 0, 0, 1, 0]),
+    (primitive_register_function00011; (r0,r1) {s0,s1,s2}, [0, 0, 0, 1, 1]),
+    (primitive_register_function00012; (r0,r1) {s0,s1,s2}, [0, 0, 0, 1, 2]),
+    (primitive_register_function00020; (r0) {s0,s1,s2,s3}, [0, 0, 0, 2, 0]),
+    (primitive_register_function00021; (r0,r1) {s0,s1,s2}, [0, 0, 0, 2, 1]),
+    (primitive_register_function00022; (r0,r1) {s0,s1,s2}, [0, 0, 0, 2, 2]),
+    (primitive_register_function00100; (r0) {s0,s1,s2,s3}, [0, 0, 1, 0, 0]),
+    (primitive_register_function00101; (r0,r1) {s0,s1,s2}, [0, 0, 1, 0, 1]),
+    (primitive_register_function00102; (r0,r1) {s0,s1,s2}, [0, 0, 1, 0, 2]),
+    (primitive_register_function00110; (r0,r1) {s0,s1,s2}, [0, 0, 1, 1, 0]),
+    (primitive_register_function00111; (r0,r1,r2) {s0,s1}, [0, 0, 1, 1, 1]),
+    (primitive_register_function00112; (r0,r1,r2) {s0,s1}, [0, 0, 1, 1, 2]),
+    (primitive_register_function00120; (r0,r1) {s0,s1,s2}, [0, 0, 1, 2, 0]),
+    (primitive_register_function00121; (r0,r1,r2) {s0,s1}, [0, 0, 1, 2, 1]),
+    (primitive_register_function00122; (r0,r1,r2) {s0,s1}, [0, 0, 1, 2, 2]),
+    (primitive_register_function00200; (r0) {s0,s1,s2,s3}, [0, 0, 2, 0, 0]),
+    (primitive_register_function00201; (r0,r1) {s0,s1,s2}, [0, 0, 2, 0, 1]),
+    (primitive_register_function00202; (r0,r1) {s0,s1,s2}, [0, 0, 2, 0, 2]),
+    (primitive_register_function00210; (r0,r1) {s0,s1,s2}, [0, 0, 2, 1, 0]),
+    (primitive_register_function00211; (r0,r1,r2) {s0,s1}, [0, 0, 2, 1, 1]),
+    (primitive_register_function00212; (r0,r1,r2) {s0,s1}, [0, 0, 2, 1, 2]),
+    (primitive_register_function00220; (r0,r1) {s0,s1,s2}, [0, 0, 2, 2, 0]),
+    (primitive_register_function00221; (r0,r1,r2) {s0,s1}, [0, 0, 2, 2, 1]),
+    (primitive_register_function00222; (r0,r1,r2) {s0,s1}, [0, 0, 2, 2, 2]),
+    (primitive_register_function01000; (r0) {s0,s1,s2,s3}, [0, 1, 0, 0, 0]),
+    (primitive_register_function01001; (r0,r1) {s0,s1,s2}, [0, 1, 0, 0, 1]),
+    (primitive_register_function01002; (r0,r1) {s0,s1,s2}, [0, 1, 0, 0, 2]),
+    (primitive_register_function01010; (r0,r1) {s0,s1,s2}, [0, 1, 0, 1, 0]),
+    (primitive_register_function01011; (r0,r1,r2) {s0,s1}, [0, 1, 0, 1, 1]),
+    (primitive_register_function01012; (r0,r1,r2) {s0,s1}, [0, 1, 0, 1, 2]),
+    (primitive_register_function01020; (r0,r1) {s0,s1,s2}, [0, 1, 0, 2, 0]),
+    (primitive_register_function01021; (r0,r1,r2) {s0,s1}, [0, 1, 0, 2, 1]),
+    (primitive_register_function01022; (r0,r1,r2) {s0,s1}, [0, 1, 0, 2, 2]),
+    (primitive_register_function01100; (r0,r1) {s0,s1,s2}, [0, 1, 1, 0, 0]),
+    (primitive_register_function01101; (r0,r1,r2) {s0,s1}, [0, 1, 1, 0, 1]),
+    (primitive_register_function01102; (r0,r1,r2) {s0,s1}, [0, 1, 1, 0, 2]),
+    (primitive_register_function01110; (r0,r1,r2) {s0,s1}, [0, 1, 1, 1, 0]),
+    (primitive_register_function01111; (r0,r1,r2,r3) {s0}, [0, 1, 1, 1, 1]),
+    (primitive_register_function01112; (r0,r1,r2,r3) {s0}, [0, 1, 1, 1, 2]),
+    (primitive_register_function01120; (r0,r1,r2) {s0,s1}, [0, 1, 1, 2, 0]),
+    (primitive_register_function01121; (r0,r1,r2,r3) {s0}, [0, 1, 1, 2, 1]),
+    (primitive_register_function01122; (r0,r1,r2,r3) {s0}, [0, 1, 1, 2, 2]),
+    (primitive_register_function01200; (r0,r1) {s0,s1,s2}, [0, 1, 2, 0, 0]),
+    (primitive_register_function01201; (r0,r1,r2) {s0,s1}, [0, 1, 2, 0, 1]),
+    (primitive_register_function01202; (r0,r1,r2) {s0,s1}, [0, 1, 2, 0, 2]),
+    (primitive_register_function01210; (r0,r1,r2) {s0,s1}, [0, 1, 2, 1, 0]),
+    (primitive_register_function01211; (r0,r1,r2,r3) {s0}, [0, 1, 2, 1, 1]),
+    (primitive_register_function01212; (r0,r1,r2,r3) {s0}, [0, 1, 2, 1, 2]),
+    (primitive_register_function01220; (r0,r1,r2) {s0,s1}, [0, 1, 2, 2, 0]),
+    (primitive_register_function01221; (r0,r1,r2,r3) {s0}, [0, 1, 2, 2, 1]),
+    (primitive_register_function01222; (r0,r1,r2,r3) {s0}, [0, 1, 2, 2, 2]),
+    (primitive_register_function02000; (r0) {s0,s1,s2,s3}, [0, 2, 0, 0, 0]),
+    (primitive_register_function02001; (r0,r1) {s0,s1,s2}, [0, 2, 0, 0, 1]),
+    (primitive_register_function02002; (r0,r1) {s0,s1,s2}, [0, 2, 0, 0, 2]),
+    (primitive_register_function02010; (r0,r1) {s0,s1,s2}, [0, 2, 0, 1, 0]),
+    (primitive_register_function02011; (r0,r1,r2) {s0,s1}, [0, 2, 0, 1, 1]),
+    (primitive_register_function02012; (r0,r1,r2) {s0,s1}, [0, 2, 0, 1, 2]),
+    (primitive_register_function02020; (r0,r1) {s0,s1,s2}, [0, 2, 0, 2, 0]),
+    (primitive_register_function02021; (r0,r1,r2) {s0,s1}, [0, 2, 0, 2, 1]),
+    (primitive_register_function02022; (r0,r1,r2) {s0,s1}, [0, 2, 0, 2, 2]),
+    (primitive_register_function02100; (r0,r1) {s0,s1,s2}, [0, 2, 1, 0, 0]),
+    (primitive_register_function02101; (r0,r1,r2) {s0,s1}, [0, 2, 1, 0, 1]),
+    (primitive_register_function02102; (r0,r1,r2) {s0,s1}, [0, 2, 1, 0, 2]),
+    (primitive_register_function02110; (r0,r1,r2) {s0,s1}, [0, 2, 1, 1, 0]),
+    (primitive_register_function02111; (r0,r1,r2,r3) {s0}, [0, 2, 1, 1, 1]),
+    (primitive_register_function02112; (r0,r1,r2,r3) {s0}, [0, 2, 1, 1, 2]),
+    (primitive_register_function02120; (r0,r1,r2) {s0,s1}, [0, 2, 1, 2, 0]),
+    (primitive_register_function02121; (r0,r1,r2,r3) {s0}, [0, 2, 1, 2, 1]),
+    (primitive_register_function02122; (r0,r1,r2,r3) {s0}, [0, 2, 1, 2, 2]),
+    (primitive_register_function02200; (r0,r1) {s0,s1,s2}, [0, 2, 2, 0, 0]),
+    (primitive_register_function02201; (r0,r1,r2) {s0,s1}, [0, 2, 2, 0, 1]),
+    (primitive_register_function02202; (r0,r1,r2) {s0,s1}, [0, 2, 2, 0, 2]),
+    (primitive_register_function02210; (r0,r1,r2) {s0,s1}, [0, 2, 2, 1, 0]),
+    (primitive_register_function02211; (r0,r1,r2,r3) {s0}, [0, 2, 2, 1, 1]),
+    (primitive_register_function02212; (r0,r1,r2,r3) {s0}, [0, 2, 2, 1, 2]),
+    (primitive_register_function02220; (r0,r1,r2) {s0,s1}, [0, 2, 2, 2, 0]),
+    (primitive_register_function02221; (r0,r1,r2,r3) {s0}, [0, 2, 2, 2, 1]),
+    (primitive_register_function02222; (r0,r1,r2,r3) {s0}, [0, 2, 2, 2, 2]),
+    (primitive_register_function10000; (r0) {s0,s1,s2,s3}, [1, 0, 0, 0, 0]),
+    (primitive_register_function10001; (r0,r1) {s0,s1,s2}, [1, 0, 0, 0, 1]),
+    (primitive_register_function10002; (r0,r1) {s0,s1,s2}, [1, 0, 0, 0, 2]),
+    (primitive_register_function10010; (r0,r1) {s0,s1,s2}, [1, 0, 0, 1, 0]),
+    (primitive_register_function10011; (r0,r1,r2) {s0,s1}, [1, 0, 0, 1, 1]),
+    (primitive_register_function10012; (r0,r1,r2) {s0,s1}, [1, 0, 0, 1, 2]),
+    (primitive_register_function10020; (r0,r1) {s0,s1,s2}, [1, 0, 0, 2, 0]),
+    (primitive_register_function10021; (r0,r1,r2) {s0,s1}, [1, 0, 0, 2, 1]),
+    (primitive_register_function10022; (r0,r1,r2) {s0,s1}, [1, 0, 0, 2, 2]),
+    (primitive_register_function10100; (r0,r1) {s0,s1,s2}, [1, 0, 1, 0, 0]),
+    (primitive_register_function10101; (r0,r1,r2) {s0,s1}, [1, 0, 1, 0, 1]),
+    (primitive_register_function10102; (r0,r1,r2) {s0,s1}, [1, 0, 1, 0, 2]),
+    (primitive_register_function10110; (r0,r1,r2) {s0,s1}, [1, 0, 1, 1, 0]),
+    (primitive_register_function10111; (r0,r1,r2,r3) {s0}, [1, 0, 1, 1, 1]),
+    (primitive_register_function10112; (r0,r1,r2,r3) {s0}, [1, 0, 1, 1, 2]),
+    (primitive_register_function10120; (r0,r1,r2) {s0,s1}, [1, 0, 1, 2, 0]),
+    (primitive_register_function10121; (r0,r1,r2,r3) {s0}, [1, 0, 1, 2, 1]),
+    (primitive_register_function10122; (r0,r1,r2,r3) {s0}, [1, 0, 1, 2, 2]),
+    (primitive_register_function10200; (r0,r1) {s0,s1,s2}, [1, 0, 2, 0, 0]),
+    (primitive_register_function10201; (r0,r1,r2) {s0,s1}, [1, 0, 2, 0, 1]),
+    (primitive_register_function10202; (r0,r1,r2) {s0,s1}, [1, 0, 2, 0, 2]),
+    (primitive_register_function10210; (r0,r1,r2) {s0,s1}, [1, 0, 2, 1, 0]),
+    (primitive_register_function10211; (r0,r1,r2,r3) {s0}, [1, 0, 2, 1, 1]),
+    (primitive_register_function10212; (r0,r1,r2,r3) {s0}, [1, 0, 2, 1, 2]),
+    (primitive_register_function10220; (r0,r1,r2) {s0,s1}, [1, 0, 2, 2, 0]),
+    (primitive_register_function10221; (r0,r1,r2,r3) {s0}, [1, 0, 2, 2, 1]),
+    (primitive_register_function10222; (r0,r1,r2,r3) {s0}, [1, 0, 2, 2, 2]),
+    (primitive_register_function11000; (r0,r1) {s0,s1,s2}, [1, 1, 0, 0, 0]),
+    (primitive_register_function11001; (r0,r1,r2) {s0,s1}, [1, 1, 0, 0, 1]),
+    (primitive_register_function11002; (r0,r1,r2) {s0,s1}, [1, 1, 0, 0, 2]),
+    (primitive_register_function11010; (r0,r1,r2) {s0,s1}, [1, 1, 0, 1, 0]),
+    (primitive_register_function11011; (r0,r1,r2,r3) {s0}, [1, 1, 0, 1, 1]),
+    (primitive_register_function11012; (r0,r1,r2,r3) {s0}, [1, 1, 0, 1, 2]),
+    (primitive_register_function11020; (r0,r1,r2) {s0,s1}, [1, 1, 0, 2, 0]),
+    (primitive_register_function11021; (r0,r1,r2,r3) {s0}, [1, 1, 0, 2, 1]),
+    (primitive_register_function11022; (r0,r1,r2,r3) {s0}, [1, 1, 0, 2, 2]),
+    (primitive_register_function11100; (r0,r1,r2) {s0,s1}, [1, 1, 1, 0, 0]),
+    (primitive_register_function11101; (r0,r1,r2,r3) {s0}, [1, 1, 1, 0, 1]),
+    (primitive_register_function11102; (r0,r1,r2,r3) {s0}, [1, 1, 1, 0, 2]),
+    (primitive_register_function11110; (r0,r1,r2,r3) {s0}, [1, 1, 1, 1, 0]),
+    (primitive_register_function11120; (r0,r1,r2,r3) {s0}, [1, 1, 1, 2, 0]),
+    (primitive_register_function11200; (r0,r1,r2) {s0,s1}, [1, 1, 2, 0, 0]),
+    (primitive_register_function11201; (r0,r1,r2,r3) {s0}, [1, 1, 2, 0, 1]),
+    (primitive_register_function11202; (r0,r1,r2,r3) {s0}, [1, 1, 2, 0, 2]),
+    (primitive_register_function11210; (r0,r1,r2,r3) {s0}, [1, 1, 2, 1, 0]),
+    (primitive_register_function11220; (r0,r1,r2,r3) {s0}, [1, 1, 2, 2, 0]),
+    (primitive_register_function12000; (r0,r1) {s0,s1,s2}, [1, 2, 0, 0, 0]),
+    (primitive_register_function12001; (r0,r1,r2) {s0,s1}, [1, 2, 0, 0, 1]),
+    (primitive_register_function12002; (r0,r1,r2) {s0,s1}, [1, 2, 0, 0, 2]),
+    (primitive_register_function12010; (r0,r1,r2) {s0,s1}, [1, 2, 0, 1, 0]),
+    (primitive_register_function12011; (r0,r1,r2,r3) {s0}, [1, 2, 0, 1, 1]),
+    (primitive_register_function12012; (r0,r1,r2,r3) {s0}, [1, 2, 0, 1, 2]),
+    (primitive_register_function12020; (r0,r1,r2) {s0,s1}, [1, 2, 0, 2, 0]),
+    (primitive_register_function12021; (r0,r1,r2,r3) {s0}, [1, 2, 0, 2, 1]),
+    (primitive_register_function12022; (r0,r1,r2,r3) {s0}, [1, 2, 0, 2, 2]),
+    (primitive_register_function12100; (r0,r1,r2) {s0,s1}, [1, 2, 1, 0, 0]),
+    (primitive_register_function12101; (r0,r1,r2,r3) {s0}, [1, 2, 1, 0, 1]),
+    (primitive_register_function12102; (r0,r1,r2,r3) {s0}, [1, 2, 1, 0, 2]),
+    (primitive_register_function12110; (r0,r1,r2,r3) {s0}, [1, 2, 1, 1, 0]),
+    (primitive_register_function12120; (r0,r1,r2,r3) {s0}, [1, 2, 1, 2, 0]),
+    (primitive_register_function12200; (r0,r1,r2) {s0,s1}, [1, 2, 2, 0, 0]),
+    (primitive_register_function12201; (r0,r1,r2,r3) {s0}, [1, 2, 2, 0, 1]),
+    (primitive_register_function12202; (r0,r1,r2,r3) {s0}, [1, 2, 2, 0, 2]),
+    (primitive_register_function12210; (r0,r1,r2,r3) {s0}, [1, 2, 2, 1, 0]),
+    (primitive_register_function12220; (r0,r1,r2,r3) {s0}, [1, 2, 2, 2, 0]),
+    (primitive_register_function20000; (r0) {s0,s1,s2,s3}, [2, 0, 0, 0, 0]),
+    (primitive_register_function20001; (r0,r1) {s0,s1,s2}, [2, 0, 0, 0, 1]),
+    (primitive_register_function20002; (r0,r1) {s0,s1,s2}, [2, 0, 0, 0, 2]),
+    (primitive_register_function20010; (r0,r1) {s0,s1,s2}, [2, 0, 0, 1, 0]),
+    (primitive_register_function20011; (r0,r1,r2) {s0,s1}, [2, 0, 0, 1, 1]),
+    (primitive_register_function20012; (r0,r1,r2) {s0,s1}, [2, 0, 0, 1, 2]),
+    (primitive_register_function20020; (r0,r1) {s0,s1,s2}, [2, 0, 0, 2, 0]),
+    (primitive_register_function20021; (r0,r1,r2) {s0,s1}, [2, 0, 0, 2, 1]),
+    (primitive_register_function20022; (r0,r1,r2) {s0,s1}, [2, 0, 0, 2, 2]),
+    (primitive_register_function20100; (r0,r1) {s0,s1,s2}, [2, 0, 1, 0, 0]),
+    (primitive_register_function20101; (r0,r1,r2) {s0,s1}, [2, 0, 1, 0, 1]),
+    (primitive_register_function20102; (r0,r1,r2) {s0,s1}, [2, 0, 1, 0, 2]),
+    (primitive_register_function20110; (r0,r1,r2) {s0,s1}, [2, 0, 1, 1, 0]),
+    (primitive_register_function20111; (r0,r1,r2,r3) {s0}, [2, 0, 1, 1, 1]),
+    (primitive_register_function20112; (r0,r1,r2,r3) {s0}, [2, 0, 1, 1, 2]),
+    (primitive_register_function20120; (r0,r1,r2) {s0,s1}, [2, 0, 1, 2, 0]),
+    (primitive_register_function20121; (r0,r1,r2,r3) {s0}, [2, 0, 1, 2, 1]),
+    (primitive_register_function20122; (r0,r1,r2,r3) {s0}, [2, 0, 1, 2, 2]),
+    (primitive_register_function20200; (r0,r1) {s0,s1,s2}, [2, 0, 2, 0, 0]),
+    (primitive_register_function20201; (r0,r1,r2) {s0,s1}, [2, 0, 2, 0, 1]),
+    (primitive_register_function20202; (r0,r1,r2) {s0,s1}, [2, 0, 2, 0, 2]),
+    (primitive_register_function20210; (r0,r1,r2) {s0,s1}, [2, 0, 2, 1, 0]),
+    (primitive_register_function20211; (r0,r1,r2,r3) {s0}, [2, 0, 2, 1, 1]),
+    (primitive_register_function20212; (r0,r1,r2,r3) {s0}, [2, 0, 2, 1, 2]),
+    (primitive_register_function20220; (r0,r1,r2) {s0,s1}, [2, 0, 2, 2, 0]),
+    (primitive_register_function20221; (r0,r1,r2,r3) {s0}, [2, 0, 2, 2, 1]),
+    (primitive_register_function20222; (r0,r1,r2,r3) {s0}, [2, 0, 2, 2, 2]),
+    (primitive_register_function21000; (r0,r1) {s0,s1,s2}, [2, 1, 0, 0, 0]),
+    (primitive_register_function21001; (r0,r1,r2) {s0,s1}, [2, 1, 0, 0, 1]),
+    (primitive_register_function21002; (r0,r1,r2) {s0,s1}, [2, 1, 0, 0, 2]),
+    (primitive_register_function21010; (r0,r1,r2) {s0,s1}, [2, 1, 0, 1, 0]),
+    (primitive_register_function21011; (r0,r1,r2,r3) {s0}, [2, 1, 0, 1, 1]),
+    (primitive_register_function21012; (r0,r1,r2,r3) {s0}, [2, 1, 0, 1, 2]),
+    (primitive_register_function21020; (r0,r1,r2) {s0,s1}, [2, 1, 0, 2, 0]),
+    (primitive_register_function21021; (r0,r1,r2,r3) {s0}, [2, 1, 0, 2, 1]),
+    (primitive_register_function21022; (r0,r1,r2,r3) {s0}, [2, 1, 0, 2, 2]),
+    (primitive_register_function21100; (r0,r1,r2) {s0,s1}, [2, 1, 1, 0, 0]),
+    (primitive_register_function21101; (r0,r1,r2,r3) {s0}, [2, 1, 1, 0, 1]),
+    (primitive_register_function21102; (r0,r1,r2,r3) {s0}, [2, 1, 1, 0, 2]),
+    (primitive_register_function21110; (r0,r1,r2,r3) {s0}, [2, 1, 1, 1, 0]),
+    (primitive_register_function21120; (r0,r1,r2,r3) {s0}, [2, 1, 1, 2, 0]),
+    (primitive_register_function21200; (r0,r1,r2) {s0,s1}, [2, 1, 2, 0, 0]),
+    (primitive_register_function21201; (r0,r1,r2,r3) {s0}, [2, 1, 2, 0, 1]),
+    (primitive_register_function21202; (r0,r1,r2,r3) {s0}, [2, 1, 2, 0, 2]),
+    (primitive_register_function21210; (r0,r1,r2,r3) {s0}, [2, 1, 2, 1, 0]),
+    (primitive_register_function21220; (r0,r1,r2,r3) {s0}, [2, 1, 2, 2, 0]),
+    (primitive_register_function22000; (r0,r1) {s0,s1,s2}, [2, 2, 0, 0, 0]),
+    (primitive_register_function22001; (r0,r1,r2) {s0,s1}, [2, 2, 0, 0, 1]),
+    (primitive_register_function22002; (r0,r1,r2) {s0,s1}, [2, 2, 0, 0, 2]),
+    (primitive_register_function22010; (r0,r1,r2) {s0,s1}, [2, 2, 0, 1, 0]),
+    (primitive_register_function22011; (r0,r1,r2,r3) {s0}, [2, 2, 0, 1, 1]),
+    (primitive_register_function22012; (r0,r1,r2,r3) {s0}, [2, 2, 0, 1, 2]),
+    (primitive_register_function22020; (r0,r1,r2) {s0,s1}, [2, 2, 0, 2, 0]),
+    (primitive_register_function22021; (r0,r1,r2,r3) {s0}, [2, 2, 0, 2, 1]),
+    (primitive_register_function22022; (r0,r1,r2,r3) {s0}, [2, 2, 0, 2, 2]),
+    (primitive_register_function22100; (r0,r1,r2) {s0,s1}, [2, 2, 1, 0, 0]),
+    (primitive_register_function22101; (r0,r1,r2,r3) {s0}, [2, 2, 1, 0, 1]),
+    (primitive_register_function22102; (r0,r1,r2,r3) {s0}, [2, 2, 1, 0, 2]),
+    (primitive_register_function22110; (r0,r1,r2,r3) {s0}, [2, 2, 1, 1, 0]),
+    (primitive_register_function22120; (r0,r1,r2,r3) {s0}, [2, 2, 1, 2, 0]),
+    (primitive_register_function22200; (r0,r1,r2) {s0,s1}, [2, 2, 2, 0, 0]),
+    (primitive_register_function22201; (r0,r1,r2,r3) {s0}, [2, 2, 2, 0, 1]),
+    (primitive_register_function22202; (r0,r1,r2,r3) {s0}, [2, 2, 2, 0, 2]),
+    (primitive_register_function22210; (r0,r1,r2,r3) {s0}, [2, 2, 2, 1, 0]),
+    (primitive_register_function22220; (r0,r1,r2,r3) {s0}, [2, 2, 2, 2, 0])
+}
 
 macro_rules! make_primitive_function_fixed_arity_deopt {
     ($(($name:tt, $($typ:ident),*)),*) => {

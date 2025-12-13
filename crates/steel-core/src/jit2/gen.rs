@@ -4,8 +4,8 @@ use cranelift::{
 };
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module};
+use std::collections::HashMap;
 use std::slice;
-use std::{collections::HashMap, sync::Arc};
 use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
@@ -36,8 +36,8 @@ use crate::{
             CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
             CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
             CallPrimitiveDefinitions, CallPrimitiveFixedDefinitions, CallPrimitiveMutDefinitions,
-            CallSelfTailCallNoArityDefinitions, CallSelfTailCallNoArityLoopDefinitions,
-            ListHandlerDefinitions,
+            CallRegisterPrimitiveFixedDefinitions, CallSelfTailCallNoArityDefinitions,
+            CallSelfTailCallNoArityLoopDefinitions, ListHandlerDefinitions,
         },
         VmCore,
     },
@@ -363,6 +363,8 @@ impl Default for JIT {
         CallPrimitiveMutDefinitions::register(&mut map);
 
         CallPrimitiveFixedDefinitions::register(&mut map);
+
+        CallRegisterPrimitiveFixedDefinitions::register(&mut map);
 
         map.add_func(
             "trampoline",
@@ -784,6 +786,7 @@ impl JIT {
             ip: 0,
             _globals: globals,
             stack: Vec::new(),
+            shadow_stack: Vec::new(),
             arity,
             constants,
             // function_context,
@@ -874,9 +877,17 @@ struct StackValue {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[repr(u8)]
 enum MaybeStackValue {
     Value(StackValue),
+
+    // These should already be spilled by default.
+    //
+    // Mutable registers will get &mut SteelVal via the
+    // index
     MutRegister(usize),
+
+    // Registers will get &SteelVal via the index
     Register(usize),
 }
 
@@ -896,8 +907,13 @@ struct FunctionTranslator<'a> {
     _globals: &'a [SteelVal],
 
     // Local values - whenever things are locally read, we can start using them
-    // here.
+    // here. We should also keep track of which values are actually just registers,
+    // and when calling we can lazily pull them in if it doesn't
+    // fit the calling convention of the function. But, in the event we're calling a
+    // function with one or two args, this seems like a good tradeoff to make.
     stack: Vec<StackValue>,
+
+    shadow_stack: Vec<MaybeStackValue>,
 
     // Local value mapping, can allow
     // us to elide type checks if we have them
@@ -1005,6 +1021,14 @@ impl FunctionTranslator<'_> {
     fn mark_local_type_from_var(&mut self, last: StackValue, typ: InferredType) {
         if let Some(from_local) = self.value_to_local_map.get(&last.value) {
             self.local_to_value_map.insert(*from_local, typ);
+        }
+    }
+
+    fn maybe_check_last(&self) {
+        let last = self.shadow_stack.last().unwrap();
+
+        if let MaybeStackValue::Value(s) = last {
+            assert!(!s.spilled);
         }
     }
 
@@ -1228,54 +1252,55 @@ impl FunctionTranslator<'_> {
                 OpCode::READLOCAL | OpCode::MOVEREADLOCAL => {
                     // TODO: @matt remove this and make it more general
                     // TODO: This optimization should be more general
-                    if payload < self.arity as usize
-                        && payload + 1 == self.arity as usize
-                        && self
-                            .instructions
-                            .get(self.ip + 1)
-                            .map(|x| x.op_code == OpCode::SELFTAILCALLNOARITY)
-                            .unwrap_or_default()
-                    {
-                        // Leave the last in place
-                        self.ip += 1;
-                        let payload = self.instructions[self.ip].payload_size.to_usize();
-                        let _ = self
-                            .test_translate_tco_jmp_no_arity_loop_no_spill(payload - 1, payload);
-                        self.ip = self.instructions.len() + 1;
-                        return false;
-                    } else {
-                        let let_var_offset: usize = self.let_var_stack.iter().sum();
+                    // if payload < self.arity as usize
+                    //     && payload + 1 == self.arity as usize
+                    //     && self
+                    //         .instructions
+                    //         .get(self.ip + 1)
+                    //         .map(|x| x.op_code == OpCode::SELFTAILCALLNOARITY)
+                    //         .unwrap_or_default()
+                    // {
+                    //     // Leave the last in place
+                    //     self.ip += 1;
+                    //     let payload = self.instructions[self.ip].payload_size.to_usize();
+                    //     let _ = self
+                    //         .test_translate_tco_jmp_no_arity_loop_no_spill(payload - 1, payload);
+                    //     self.ip = self.instructions.len() + 1;
+                    //     return false;
+                    // } else {
 
-                        if payload > self.arity as usize + let_var_offset {
-                            let upper_bound = payload - self.arity as usize - let_var_offset;
+                    let let_var_offset: usize = self.let_var_stack.iter().sum();
 
-                            for i in 0..upper_bound {
-                                self.spill(i);
-                            }
+                    if payload > self.arity as usize + let_var_offset {
+                        let upper_bound = payload - self.arity as usize - let_var_offset;
+
+                        for i in 0..upper_bound {
+                            self.spill(i);
                         }
-
-                        let index = self
-                            .builder
-                            .ins()
-                            .iconst(Type::int(64).unwrap(), payload as i64);
-
-                        let value = self.call_function_returns_value_args(
-                            op_to_name_payload(op, payload),
-                            &[index],
-                        );
-
-                        self.value_to_local_map.insert(value, payload);
-
-                        let inferred_type =
-                            if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
-                                *inferred_type
-                            } else {
-                                InferredType::Any
-                            };
-
-                        self.ip += 1;
-                        self.push(value, inferred_type);
                     }
+
+                    let index = self
+                        .builder
+                        .ins()
+                        .iconst(Type::int(64).unwrap(), payload as i64);
+
+                    let value = self.call_function_returns_value_args(
+                        op_to_name_payload(op, payload),
+                        &[index],
+                    );
+
+                    self.value_to_local_map.insert(value, payload);
+
+                    let inferred_type =
+                        if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
+                            *inferred_type
+                        } else {
+                            InferredType::Any
+                        };
+
+                    self.ip += 1;
+                    self.push(value, inferred_type);
+                    // }
                 }
                 OpCode::PUSHCONST => {
                     let payload = self.instructions[self.ip].payload_size.to_usize();
@@ -2637,6 +2662,47 @@ impl FunctionTranslator<'_> {
         (last.value, last.inferred_type)
     }
 
+    fn shadow_pop(&mut self) -> (Value, InferredType) {
+        let last = self.shadow_stack.pop().unwrap();
+
+        match last {
+            MaybeStackValue::Value(last) => {
+                assert!(!last.spilled);
+
+                self.value_to_local_map.remove(&last.value);
+                (last.value, last.inferred_type)
+            }
+
+            // TODO: @matt specialize these for readlocal 0, 1, 2, etc.
+            MaybeStackValue::MutRegister(payload) => {
+                let index = self
+                    .builder
+                    .ins()
+                    .iconst(Type::int(64).unwrap(), payload as i64);
+
+                let value = self.call_function_returns_value_args(
+                    op_to_name_payload(OpCode::MOVEREADLOCAL, payload),
+                    &[index],
+                );
+
+                (value, InferredType::Any)
+            }
+            MaybeStackValue::Register(payload) => {
+                let index = self
+                    .builder
+                    .ins()
+                    .iconst(Type::int(64).unwrap(), payload as i64);
+
+                let value = self.call_function_returns_value_args(
+                    op_to_name_payload(OpCode::READLOCAL, payload),
+                    &[index],
+                );
+
+                (value, InferredType::Any)
+            }
+        }
+    }
+
     fn maybe_patch_from_stack(&mut self, args_off_the_stack: &mut Vec<StackValue>) {
         let mut indices_to_get_from_shadow_stack = Vec::new();
 
@@ -2655,6 +2721,50 @@ impl FunctionTranslator<'_> {
                 spilled: false,
             };
         }
+    }
+
+    // TODO: This can be done to spill to the stack for argument calling
+    //
+    // In the event of single arg, double arg, etc, we can keep the values on the stack.
+    //
+    // Dispatch via the usual mechanism to see if this gets the job done
+    fn shadow_maybe_patch_from_stack(&mut self, args_off_the_stack: &mut Vec<MaybeStackValue>) {
+        let mut indices_to_get_from_shadow_stack = Vec::new();
+
+        for (idx, arg) in args_off_the_stack.iter().enumerate() {
+            if let MaybeStackValue::Value(arg) = arg {
+                if arg.spilled {
+                    indices_to_get_from_shadow_stack.push(idx);
+                }
+            }
+        }
+
+        for idx in indices_to_get_from_shadow_stack.iter().rev() {
+            let value = self.pop_value_from_vm_stack();
+
+            args_off_the_stack[*idx] = MaybeStackValue::Value(StackValue {
+                value,
+                inferred_type: InferredType::Any,
+                spilled: false,
+            });
+        }
+    }
+
+    fn shadow_split_off(&mut self, payload: usize) -> Vec<MaybeStackValue> {
+        let mut args = self.shadow_stack.split_off(self.stack.len() - payload);
+
+        // Patch the args if needed
+        for arg in &args {
+            // self.value_to_local_map.remove(&arg.value);
+
+            if let MaybeStackValue::Value(v) = arg {
+                self.value_to_local_map.remove(&v.value);
+            }
+        }
+
+        self.shadow_maybe_patch_from_stack(&mut args);
+
+        args
     }
 
     fn split_off(&mut self, payload: usize) -> Vec<(Value, InferredType)> {
