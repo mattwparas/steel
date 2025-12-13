@@ -2578,7 +2578,13 @@ macro_rules! make_primitive_register_function_fixed_arity_deopt {
             ) -> SteelVal {
                 let this = unsafe { &mut *ctx };
                 let offset = this.get_offset();
+
+                #[cfg(debug_assertions)]
+                let vars = this.thread.stack.get_disjoint_mut([$($regname + offset),*]).unwrap();
+
+                #[cfg(not(debug_assertions))]
                 let vars = unsafe { this.thread.stack.get_disjoint_unchecked_mut([$($regname + offset),*]) };
+
                 let mut arg_iter = vars.into_iter();
                 let stack_args = [$($stackname),*];
                 let mut stack_iter = stack_args.into_iter();
