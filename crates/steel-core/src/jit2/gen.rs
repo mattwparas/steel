@@ -1269,35 +1269,7 @@ impl FunctionTranslator<'_> {
                     //     return false;
                     // } else {
 
-                    let let_var_offset: usize = self.let_var_stack.iter().sum();
-
-                    if payload > self.arity as usize + let_var_offset {
-                        let upper_bound = payload - self.arity as usize - let_var_offset;
-
-                        for i in 0..upper_bound {
-                            self.spill(i);
-                        }
-                    }
-
-                    let index = self
-                        .builder
-                        .ins()
-                        .iconst(Type::int(64).unwrap(), payload as i64);
-
-                    let value = self.call_function_returns_value_args(
-                        op_to_name_payload(op, payload),
-                        &[index],
-                    );
-
-                    self.value_to_local_map.insert(value, payload);
-
-                    let inferred_type =
-                        if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
-                            *inferred_type
-                        } else {
-                            InferredType::Any
-                        };
-
+                    let (value, inferred_type) = self.read_local_value(op, payload);
                     self.ip += 1;
                     self.push(value, inferred_type);
                     // }
@@ -1355,37 +1327,7 @@ impl FunctionTranslator<'_> {
                 | OpCode::MOVEREADLOCAL1
                 | OpCode::MOVEREADLOCAL2
                 | OpCode::MOVEREADLOCAL3 => {
-                    // these are gonna get spilled anyway?
-                    // TODO: Check... if we even need to spill things at all?
-                    // We probably don't need to do at all, just need to encode
-                    // move semantics into the stack itself to mark that we've
-                    // read it?
-
-                    // let let_var_offset: usize = self.let_var_stack.last().copied().unwrap_or(0);
-                    let let_var_offset: usize = self.let_var_stack.iter().sum();
-
-                    if payload > self.arity as usize + let_var_offset {
-                        let upper_bound = payload - self.arity as usize - let_var_offset;
-
-                        for i in 0..upper_bound {
-                            // for i in 0..(payload + 1 - self.arity as usize) {
-                            // let value = self.stack.remove(i);
-                            // self.push_to_vm_stack(value.value);
-                            self.spill(i);
-                        }
-                    }
-
-                    // Replace this... with just reading from the vector?
-                    let value = self.call_func_or_immediate(op, payload);
-
-                    self.value_to_local_map.insert(value, payload);
-
-                    let inferred_type =
-                        if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
-                            *inferred_type
-                        } else {
-                            InferredType::Any
-                        };
+                    let (value, inferred_type) = self.read_local_fixed(op, payload);
 
                     self.ip += 1;
                     self.push(value, inferred_type);
@@ -1821,6 +1763,146 @@ impl FunctionTranslator<'_> {
         }
 
         return true;
+    }
+
+    // TODO: Should this advance the ip?
+    fn spilled_read_local_fixed(&mut self, op: OpCode, payload: usize) -> MaybeStackValue {
+        let let_var_offset: usize = self.let_var_stack.iter().sum();
+
+        if payload > self.arity as usize + let_var_offset {
+            let upper_bound = payload - self.arity as usize - let_var_offset;
+
+            for i in 0..upper_bound {
+                self.spill(i);
+            }
+        }
+
+        if payload < self.arity as _ {
+            match op {
+                OpCode::READLOCAL0
+                | OpCode::READLOCAL1
+                | OpCode::READLOCAL2
+                | OpCode::READLOCAL3 => MaybeStackValue::Register(payload),
+                OpCode::MOVEREADLOCAL0
+                | OpCode::MOVEREADLOCAL1
+                | OpCode::MOVEREADLOCAL2
+                | OpCode::MOVEREADLOCAL3 => MaybeStackValue::MutRegister(payload),
+                _ => panic!(),
+            }
+        } else {
+            // Replace this... with just reading from the vector?
+            let value = self.call_func_or_immediate(op, payload);
+
+            self.value_to_local_map.insert(value, payload);
+
+            let inferred_type = if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
+                *inferred_type
+            } else {
+                InferredType::Any
+            };
+            MaybeStackValue::Value(StackValue {
+                value,
+                inferred_type,
+                spilled: false,
+            })
+        }
+    }
+
+    fn read_local_fixed(&mut self, op: OpCode, payload: usize) -> (Value, InferredType) {
+        let let_var_offset: usize = self.let_var_stack.iter().sum();
+
+        if payload > self.arity as usize + let_var_offset {
+            let upper_bound = payload - self.arity as usize - let_var_offset;
+
+            for i in 0..upper_bound {
+                self.spill(i);
+            }
+        }
+
+        // Replace this... with just reading from the vector?
+        let value = self.call_func_or_immediate(op, payload);
+
+        self.value_to_local_map.insert(value, payload);
+
+        let inferred_type = if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
+            *inferred_type
+        } else {
+            InferredType::Any
+        };
+        (value, inferred_type)
+    }
+
+    fn spilled_read_local_value(&mut self, op: OpCode, payload: usize) -> MaybeStackValue {
+        let let_var_offset: usize = self.let_var_stack.iter().sum();
+
+        if payload > self.arity as usize + let_var_offset {
+            let upper_bound = payload - self.arity as usize - let_var_offset;
+
+            for i in 0..upper_bound {
+                self.spill(i);
+            }
+        }
+
+        if payload < self.arity as _ {
+            match op {
+                OpCode::READLOCAL => MaybeStackValue::Register(payload),
+                OpCode::MOVEREADLOCAL => MaybeStackValue::MutRegister(payload),
+                _ => panic!(),
+            }
+        } else {
+            let index = self
+                .builder
+                .ins()
+                .iconst(Type::int(64).unwrap(), payload as i64);
+
+            let value =
+                self.call_function_returns_value_args(op_to_name_payload(op, payload), &[index]);
+
+            self.value_to_local_map.insert(value, payload);
+
+            let inferred_type = if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
+                *inferred_type
+            } else {
+                InferredType::Any
+            };
+
+            // TODO: Should this advance the ip here as well?
+            MaybeStackValue::Value(StackValue {
+                value,
+                inferred_type,
+                spilled: false,
+            })
+        }
+    }
+
+    fn read_local_value(&mut self, op: OpCode, payload: usize) -> (Value, InferredType) {
+        let let_var_offset: usize = self.let_var_stack.iter().sum();
+
+        if payload > self.arity as usize + let_var_offset {
+            let upper_bound = payload - self.arity as usize - let_var_offset;
+
+            for i in 0..upper_bound {
+                self.spill(i);
+            }
+        }
+
+        let index = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), payload as i64);
+
+        let value =
+            self.call_function_returns_value_args(op_to_name_payload(op, payload), &[index]);
+
+        self.value_to_local_map.insert(value, payload);
+
+        let inferred_type = if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
+            *inferred_type
+        } else {
+            InferredType::Any
+        };
+
+        (value, inferred_type)
     }
 
     fn call_global_impl(&mut self, payload: usize) {
