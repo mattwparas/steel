@@ -1403,6 +1403,30 @@ Note: the keys must be hashable.
 > (hash 'a 10 'b 20)
 => '#hash((a . 10) (b . 20))
 ```
+### **hash->list**
+Returns a list of the key-value pairs of a given hash map.
+
+(hash->list map) -> (listof (cons/c any/c any/c))
+
+* map : hash?
+
+#### Examples
+
+```scheme
+> (hash->list (hash 'a 10 'b 20)) ;; => '((a . 10) (b . 20))
+```
+### **hash->vector**
+Returns a list of the key-value pairs of a given hash map.
+
+(hash->vector map) -> (vectorof (cons/c any/c any/c))
+
+* map : hash?
+
+#### Examples
+
+```scheme
+> (hash->vector (hash 'a 10 'b 20)) ;; => '#((a . 10) (b . 20))
+```
 ### **hash-clear**
 Clears the entries out of the existing hashmap.
 Will attempt to reuse the existing memory if there are no other references

@@ -19,6 +19,7 @@ preconditions and the postconditions
 ### **and/c**
 ### **any/c**
 ### **bind/c**
+### **cons/c**
 ### **contract->string**
 ### **contract?**
 ### **hashof**
