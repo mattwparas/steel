@@ -1,5 +1,6 @@
 use steel_derive::function;
 
+use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
 use crate::rvals::{AsRefMutSteelVal, AsRefSteelVal, FromSteelVal, IntoSteelVal, SteelString};
 use crate::values::lists::List;
