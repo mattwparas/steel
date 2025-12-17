@@ -77,7 +77,7 @@ struct RestArgs<'a> {
     args: &'a [SteelVal],
 }
 
-impl<'a> std::ops::Deref for RestArgs<'a> {
+impl<'a> core::ops::Deref for RestArgs<'a> {
     type Target = [SteelVal];
 
     fn deref(&self) -> &Self::Target {
@@ -776,7 +776,7 @@ impl<
         // todo!()
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 1 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
@@ -803,7 +803,7 @@ impl<
                 crate::gc::unsafe_erased_pointers::TemporaryObject { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<TemporaryObject<RET>, TemporaryObject<STATICRET>>(
+                core::mem::transmute::<TemporaryObject<RET>, TemporaryObject<STATICRET>>(
                     temporary_borrowed_object,
                 )
             };
@@ -821,7 +821,7 @@ impl<
             let mut borrowed = BorrowedObject::new(weak_ptr).with_parent_flag(borrow_flag);
 
             let extended = unsafe {
-                std::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
+                core::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
             };
 
             let return_value =
@@ -862,7 +862,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 1 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
@@ -889,7 +889,7 @@ impl<
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<
+                core::mem::transmute::<
                     ReadOnlyTemporaryObject<RET>,
                     ReadOnlyTemporaryObject<STATICRET>,
                 >(temporary_borrowed_object)
@@ -909,7 +909,7 @@ impl<
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
             let extended = unsafe {
-                std::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
+                core::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
                     borrowed,
                 )
             };
@@ -944,7 +944,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 2 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
@@ -975,7 +975,7 @@ impl<
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<
+                core::mem::transmute::<
                     ReadOnlyTemporaryObject<RET>,
                     ReadOnlyTemporaryObject<STATICRET>,
                 >(temporary_borrowed_object)
@@ -993,7 +993,7 @@ impl<
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
             let extended = unsafe {
-                std::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
+                core::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
                     borrowed,
                 )
             };
@@ -1028,7 +1028,7 @@ impl<
 {
     fn register_fn_borrowed(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 2 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
@@ -1060,7 +1060,9 @@ impl<
                 crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<Temporary<RET>, Temporary<RETSTAT>>(temporary_borrowed_object)
+                core::mem::transmute::<Temporary<RET>, Temporary<RETSTAT>>(
+                    temporary_borrowed_object,
+                )
             };
 
             // Allocate the rooted object here
@@ -1069,7 +1071,7 @@ impl<
             let borrowed = ReadOnlyTemporary { ptr: weak_ptr };
 
             let extended = unsafe {
-                std::mem::transmute::<ReadOnlyTemporary<RET>, ReadOnlyTemporary<RETSTAT>>(borrowed)
+                core::mem::transmute::<ReadOnlyTemporary<RET>, ReadOnlyTemporary<RETSTAT>>(borrowed)
             };
 
             let return_value =
@@ -1101,7 +1103,7 @@ impl<
 {
     fn register_fn_borrowed(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 1 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
@@ -1117,7 +1119,7 @@ impl<
 
             let res = func(unsafe { &(*pointer) });
 
-            // let lifted = unsafe { std::mem::transmute::<RET, RETSTAT>(res) };
+            // let lifted = unsafe { core::mem::transmute::<RET, RETSTAT>(res) };
 
             // lifted.into_steelval()
 
@@ -1132,7 +1134,9 @@ impl<
                 crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<Temporary<RET>, Temporary<RETSTAT>>(temporary_borrowed_object)
+                core::mem::transmute::<Temporary<RET>, Temporary<RETSTAT>>(
+                    temporary_borrowed_object,
+                )
             };
 
             // Allocate the rooted object here
@@ -1141,7 +1145,7 @@ impl<
             let borrowed = ReadOnlyTemporary { ptr: weak_ptr };
 
             let extended = unsafe {
-                std::mem::transmute::<ReadOnlyTemporary<RET>, ReadOnlyTemporary<RETSTAT>>(borrowed)
+                core::mem::transmute::<ReadOnlyTemporary<RET>, ReadOnlyTemporary<RETSTAT>>(borrowed)
             };
 
             let return_value =
@@ -1359,7 +1363,7 @@ impl<
         // todo!()
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 1 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
@@ -1386,7 +1390,7 @@ impl<
                 crate::gc::unsafe_erased_pointers::TemporaryObject { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<TemporaryObject<RET>, TemporaryObject<STATICRET>>(
+                core::mem::transmute::<TemporaryObject<RET>, TemporaryObject<STATICRET>>(
                     temporary_borrowed_object,
                 )
             };
@@ -1403,7 +1407,7 @@ impl<
             let borrowed = BorrowedObject::new(weak_ptr).with_parent_flag(borrow_flag);
 
             let extended = unsafe {
-                std::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
+                core::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
             };
 
             let return_value =
@@ -1445,7 +1449,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 1 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
@@ -1472,7 +1476,7 @@ impl<
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<
+                core::mem::transmute::<
                     ReadOnlyTemporaryObject<RET>,
                     ReadOnlyTemporaryObject<STATICRET>,
                 >(temporary_borrowed_object)
@@ -1493,7 +1497,7 @@ impl<
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
             let extended = unsafe {
-                std::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
+                core::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
                     borrowed,
                 )
             };
@@ -1529,7 +1533,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 2 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
@@ -1560,7 +1564,7 @@ impl<
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<
+                core::mem::transmute::<
                     ReadOnlyTemporaryObject<RET>,
                     ReadOnlyTemporaryObject<STATICRET>,
                 >(temporary_borrowed_object)
@@ -1578,7 +1582,7 @@ impl<
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
             let extended = unsafe {
-                std::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
+                core::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
                     borrowed,
                 )
             };

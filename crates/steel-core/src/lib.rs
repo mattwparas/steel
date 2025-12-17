@@ -1,3 +1,4 @@
+extern crate alloc;
 extern crate im_rc;
 #[macro_use]
 mod env;

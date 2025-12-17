@@ -1,6 +1,6 @@
+use core::fmt;
 use core::ops::Range;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
 use super::parser::SourceId;
 

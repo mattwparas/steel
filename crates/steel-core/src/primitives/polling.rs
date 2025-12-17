@@ -120,7 +120,7 @@ pub fn polling_module() -> BuiltInModule {
     module
 }
 
-// unsafe fn test() -> std::result::Result<(), Box<dyn Error>> {
+// unsafe fn test() -> core::result::Result<(), Box<dyn Error>> {
 //     // Create a TCP listener.
 //     let socket = TcpListener::bind("127.0.0.1:8000")?;
 //     socket.set_nonblocking(true)?;
