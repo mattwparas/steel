@@ -4,14 +4,15 @@ use cranelift::{
 };
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module};
-use std::collections::HashMap;
 use std::slice;
+use std::{collections::HashMap, ptr::fn_addr_eq};
 use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
     compiler::constants::ConstantMap,
     core::instructions::DenseInstruction,
     primitives::ports::steel_read_char,
+    rvals::FunctionSignature,
     steel_vm::vm::{
         jit::{
             box_handler_c, call_global_function_deopt_no_arity_spilled,
@@ -1328,7 +1329,6 @@ impl FunctionTranslator<'_> {
                 | OpCode::MOVEREADLOCAL2
                 | OpCode::MOVEREADLOCAL3 => {
                     let (value, inferred_type) = self.read_local_fixed(op, payload);
-
                     self.ip += 1;
                     self.push(value, inferred_type);
                 }
@@ -1433,7 +1433,11 @@ impl FunctionTranslator<'_> {
 
                             let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
-                            if f == crate::primitives::strings::steel_char_equals && arity == 2 {
+                            if fn_addr_eq(
+                                f,
+                                crate::primitives::strings::steel_char_equals as FunctionSignature,
+                            ) && arity == 2
+                            {
                                 let name =
                                     CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
 
@@ -1461,7 +1465,9 @@ impl FunctionTranslator<'_> {
                                 self.push(result, InferredType::Bool);
                                 self.ip += 1;
                                 self.check_deopt();
-                            } else if f == steel_read_char && arity == 1 {
+                            } else if fn_addr_eq(f, steel_read_char as FunctionSignature)
+                                && arity == 1
+                            {
                                 let name =
                                     CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
 
