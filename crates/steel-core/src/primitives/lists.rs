@@ -119,7 +119,10 @@ pub fn list_sort(value: &List<SteelVal>, func: SteelVal) -> Result<SteelVal> {
                         }
                     }
 
-                    Ok(_) => Ordering::Equal,
+                    Ok(v) => {
+                        error = Some(throw!(TypeMismatch => "sort expects a function that returns a boolean, found: {}", v)());
+                        Ordering::Equal
+                    },
 
                     Err(e) => {
                         error = Some(e);
@@ -146,7 +149,10 @@ pub fn list_sort(value: &List<SteelVal>, func: SteelVal) -> Result<SteelVal> {
                         }
                     }
 
-                    Ok(_) => Ordering::Equal,
+                    Ok(v) => {
+                        error = Some(throw!(TypeMismatch => "sort expects a function that returns a boolean, found: {}", v)());
+                        Ordering::Equal
+                    },
 
                     Err(e) => {
                         error = Some(e);
@@ -173,7 +179,10 @@ pub fn list_sort(value: &List<SteelVal>, func: SteelVal) -> Result<SteelVal> {
                         }
                     }
 
-                    Ok(_) => Ordering::Equal,
+                    Ok(v) => {
+                        error = Some(throw!(TypeMismatch => "sort expects a function that returns a boolean, found: {}", v)());
+                        Ordering::Equal
+                    },
 
                     Err(e) => {
                         error = Some(e);
