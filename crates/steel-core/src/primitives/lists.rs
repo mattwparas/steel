@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::{
     gc::Gc,
@@ -87,9 +89,110 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(CHUNKS_DEFINITION)
         .register_native_fn_definition(MEMBER_DEFINITION)
         .register_native_fn_definition(MEMQ_DEFINITION)
-        .register_native_fn_definition(LIST_CONTAINS_DEFINITION);
+        .register_native_fn_definition(LIST_CONTAINS_DEFINITION)
+        .register_native_fn_definition(LIST_SORT_DEFINITION);
 
     module
+}
+
+#[steel_derive::function(name = "#%list-sort")]
+pub fn list_sort(value: &List<SteelVal>, func: SteelVal) -> Result<SteelVal> {
+    let mut values = value.iter().cloned().collect::<Vec<_>>();
+
+    let mut error = None;
+
+    match func {
+        SteelVal::FuncV(f) => {
+            values.sort_by(|x, y| {
+                if error.is_some() {
+                    return Ordering::Equal;
+                }
+
+                let res = f(&[x.clone(), y.clone()]);
+
+                match res {
+                    Ok(SteelVal::BoolV(b)) => {
+                        if b {
+                            Ordering::Less
+                        } else {
+                            Ordering::Greater
+                        }
+                    }
+
+                    Ok(_) => Ordering::Equal,
+
+                    Err(e) => {
+                        error = Some(e);
+                        Ordering::Equal
+                    }
+                }
+            });
+        }
+
+        SteelVal::MutFunc(f) => {
+            values.sort_by(|x, y| {
+                if error.is_some() {
+                    return Ordering::Equal;
+                }
+
+                let res = f(&mut [x.clone(), y.clone()]);
+
+                match res {
+                    Ok(SteelVal::BoolV(b)) => {
+                        if b {
+                            Ordering::Less
+                        } else {
+                            Ordering::Greater
+                        }
+                    }
+
+                    Ok(_) => Ordering::Equal,
+
+                    Err(e) => {
+                        error = Some(e);
+                        Ordering::Equal
+                    }
+                }
+            });
+        }
+
+        SteelVal::BoxedFunction(f) => {
+            values.sort_by(|x, y| {
+                if error.is_some() {
+                    return Ordering::Equal;
+                }
+
+                let res = (f.func())(&[x.clone(), y.clone()]);
+
+                match res {
+                    Ok(SteelVal::BoolV(b)) => {
+                        if b {
+                            Ordering::Less
+                        } else {
+                            Ordering::Greater
+                        }
+                    }
+
+                    Ok(_) => Ordering::Equal,
+
+                    Err(e) => {
+                        error = Some(e);
+                        Ordering::Equal
+                    }
+                }
+            });
+        }
+
+        _ => {
+            stop!(TypeMismatch => "#%list-sort expects a native function that doesn't require the context, found: {}", func);
+        }
+    }
+
+    if let Some(error) = error {
+        Err(error)
+    } else {
+        Ok(SteelVal::ListV(values.into()))
+    }
 }
 
 /// Return the first tail of the list, where the car is `equal?` to the given obj.

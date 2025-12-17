@@ -123,7 +123,8 @@ declare_builtins!(
     "#%private/steel/control" => "../scheme/modules/parameters.scm",
     "#%private/steel/reader" => "../scheme/modules/reader.scm",
     "#%private/steel/stdlib" => "../scheme/stdlib.scm",
-    "#%private/steel/match" => "../scheme/modules/match.scm"
+    "#%private/steel/match" => "../scheme/modules/match.scm",
+    "#%private/steel/sort" => "../scheme/modules/sort.scm"
 );
 
 create_prelude!(
@@ -134,6 +135,7 @@ create_prelude!(
     "#%private/steel/ports",
     "#%private/steel/reader",
     "#%private/steel/match",
+    "#%private/steel/sort",
     for_syntax "#%private/steel/control",
     for_syntax "#%private/steel/contract"
 );
