@@ -1298,11 +1298,11 @@ impl FunctionTranslator<'_> {
                     //     return false;
                     // } else {
 
-                    let (value, inferred_type) = self.read_local_value(op, payload);
-                    // let value = self.spilled_read_local_value(op, payload);
+                    // let (value, inferred_type) = self.read_local_value(op, payload);
+                    let value = self.spilled_read_local_value(op, payload);
                     self.ip += 1;
-                    self.push(value, inferred_type);
-                    // self.shadow_push(value);
+                    // self.push(value, inferred_type);
+                    self.shadow_push(value);
                     // }
                 }
                 OpCode::PUSHCONST => {
@@ -1508,6 +1508,8 @@ impl FunctionTranslator<'_> {
                             {
                                 let name =
                                     CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
+
+                                dbg!(self.shadow_stack.get(self.shadow_stack.len() - arity..));
 
                                 // attempt to move forward with it
                                 let additional_args = self.split_off(arity);
