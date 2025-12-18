@@ -786,7 +786,7 @@ impl JIT {
             instructions: bytecode,
             ip: 0,
             _globals: globals,
-            stack: Vec::new(),
+            // stack: Vec::new(),
             shadow_stack: Vec::new(),
             arity,
             constants,
@@ -892,6 +892,16 @@ enum MaybeStackValue {
     Register(usize),
 }
 
+impl MaybeStackValue {
+    fn into_value(self) -> StackValue {
+        if let Self::Value(v) = self {
+            v
+        } else {
+            panic!()
+        }
+    }
+}
+
 /// A collection of state used for translating from toy-language AST nodes
 /// into Cranelift IR.
 struct FunctionTranslator<'a> {
@@ -912,8 +922,7 @@ struct FunctionTranslator<'a> {
     // and when calling we can lazily pull them in if it doesn't
     // fit the calling convention of the function. But, in the event we're calling a
     // function with one or two args, this seems like a good tradeoff to make.
-    stack: Vec<StackValue>,
-
+    // stack: Vec<StackValue>,
     shadow_stack: Vec<MaybeStackValue>,
 
     // Local value mapping, can allow
@@ -1025,11 +1034,25 @@ impl FunctionTranslator<'_> {
         }
     }
 
+    fn shadow_mark_local_type_from_var(&mut self, last: MaybeStackValue, typ: InferredType) {
+        if let MaybeStackValue::Value(value) = last {
+            self.mark_local_type_from_var(value, typ);
+        }
+    }
+
     fn maybe_check_last(&self) {
         let last = self.shadow_stack.last().unwrap();
 
         if let MaybeStackValue::Value(s) = last {
             assert!(!s.spilled);
+        }
+    }
+
+    fn inferred_type(&self, value: &MaybeStackValue) -> Option<InferredType> {
+        match value {
+            MaybeStackValue::Value(stack_value) => Some(stack_value.inferred_type.clone()),
+            MaybeStackValue::MutRegister(i) => self.local_to_value_map.get(i).cloned(),
+            MaybeStackValue::Register(i) => self.local_to_value_map.get(i).cloned(),
         }
     }
 
@@ -1063,6 +1086,14 @@ impl FunctionTranslator<'_> {
                 //     todo!("{:?}", op);
                 // }
                 OpCode::POPJMP | OpCode::POPPURE => {
+                    self.maybe_check_last();
+                    let (value, _) = self.shadow_pop();
+                    self.spill_cloned_stack();
+                    self.vm_pop(value);
+                    self.ip = self.instructions.len() + 1;
+
+                    /*
+
                     let last = self.stack.last().unwrap();
 
                     assert!(!last.spilled);
@@ -1077,12 +1108,9 @@ impl FunctionTranslator<'_> {
                     }
 
                     self.vm_pop(value.0);
-
-                    // let the_return = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
-                    // self.builder.ins().return_(&[the_return]);
-
                     self.ip = self.instructions.len() + 1;
-                    // self.builder.ins().jump(self.exit_block, &[]);
+
+                    */
 
                     return false;
                 }
@@ -1115,7 +1143,7 @@ impl FunctionTranslator<'_> {
                 // TODO: Still adjust the ip as needed
                 OpCode::IF => {
                     // TODO: Type inference here! Change which function is called!
-                    let (test, typ) = self.pop();
+                    let (test, typ) = self.shadow_pop();
                     self.value_to_local_map.remove(&test);
 
                     let false_instr = self.instructions[self.ip].payload_size;
@@ -1240,7 +1268,7 @@ impl FunctionTranslator<'_> {
                 OpCode::NDEFS => panic!("Should not get hit during jit pass"),
                 OpCode::PANIC => todo!(),
                 OpCode::SET => {
-                    let value = self.pop();
+                    let value = self.shadow_pop();
                     self.value_to_local_map.remove(&value.0);
                     let result = self.call_set(payload, value.0);
                     self.push(result, InferredType::Any);
@@ -1271,8 +1299,10 @@ impl FunctionTranslator<'_> {
                     // } else {
 
                     let (value, inferred_type) = self.read_local_value(op, payload);
+                    // let value = self.spilled_read_local_value(op, payload);
                     self.ip += 1;
                     self.push(value, inferred_type);
+                    // self.shadow_push(value);
                     // }
                 }
                 OpCode::PUSHCONST => {
@@ -1306,19 +1336,25 @@ impl FunctionTranslator<'_> {
                 OpCode::LetVar => {
                     self.ip += 1;
 
-                    let spilled = self.stack.last().unwrap().spilled;
+                    // let spilled = self.stack.last().unwrap().spilled;
+                    // assert!(!spilled);
 
-                    assert!(!spilled);
+                    self.maybe_check_last();
 
                     // self.spill(self.stack.len() - 1);
 
-                    let (last, _) = self.pop();
+                    let (last, _) = self.shadow_pop();
 
                     *self.let_var_stack.last_mut().unwrap() += 1;
 
-                    if !spilled {
-                        self.push_to_vm_stack_let_var(last);
-                    }
+                    // if !spilled {
+
+                    // TODO: @mparas - in the event we're using a local value,
+                    // we need to check if this is actually spilled or not.
+                    //
+                    // It shouldn't be though
+                    self.push_to_vm_stack_let_var(last);
+                    // }
                 }
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
@@ -1328,9 +1364,11 @@ impl FunctionTranslator<'_> {
                 | OpCode::MOVEREADLOCAL1
                 | OpCode::MOVEREADLOCAL2
                 | OpCode::MOVEREADLOCAL3 => {
-                    let (value, inferred_type) = self.read_local_fixed(op, payload);
+                    // let (value, inferred_type) = self.read_local_fixed(op, payload);
+                    let value = self.spilled_read_local_fixed(op, payload);
                     self.ip += 1;
-                    self.push(value, inferred_type);
+                    // self.push(value, inferred_type);
+                    self.shadow_push(value);
                 }
                 OpCode::SETLOCAL => panic!("Should be unreachable - setlocal"),
                 OpCode::COPYCAPTURESTACK => panic!("Should be unreachable - copycapturestack"),
@@ -1599,8 +1637,12 @@ impl FunctionTranslator<'_> {
                 OpCode::BEGINSCOPE => {
                     self.let_var_stack.push(0);
 
-                    for arg in 0..self.stack.len() {
-                        self.spill(arg);
+                    // for arg in 0..self.stack.len() {
+                    //     self.spill(arg);
+                    // }
+
+                    for arg in 0..self.shadow_stack.len() {
+                        self.shadow_spill(arg);
                     }
 
                     self.ip += 1;
@@ -1623,7 +1665,7 @@ impl FunctionTranslator<'_> {
 
                 OpCode::SUB
                     if payload == 2
-                        && self.stack.last().map(|x| x.inferred_type)
+                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
                             == Some(InferredType::Int) =>
                 {
                     // Call the func
@@ -1638,7 +1680,7 @@ impl FunctionTranslator<'_> {
 
                 OpCode::LTE
                     if payload == 2
-                        && self.stack.last().map(|x| x.inferred_type)
+                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
                             == Some(InferredType::Int) =>
                 {
                     self.func_ret_val_named("lte-binop-int", payload, 2, InferredType::Bool);
@@ -1646,7 +1688,7 @@ impl FunctionTranslator<'_> {
 
                 OpCode::NUMEQUAL
                     if payload == 2
-                        && self.stack.last().map(|x| x.inferred_type)
+                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
                             == Some(InferredType::Int) =>
                 {
                     self.func_ret_val_named("num-equal-int", payload, 2, InferredType::Bool);
@@ -1706,8 +1748,8 @@ impl FunctionTranslator<'_> {
                     }
                 }
                 OpCode::CAR => {
-                    if let Some(last) = self.stack.last().copied() {
-                        self.mark_local_type_from_var(last, InferredType::List);
+                    if let Some(last) = self.shadow_stack.last().copied() {
+                        self.shadow_mark_local_type_from_var(last, InferredType::List);
                     }
 
                     self.func_ret_val(op, 1, 2, InferredType::Any);
@@ -1716,15 +1758,16 @@ impl FunctionTranslator<'_> {
                     self.func_ret_val(op, 1, 2, InferredType::Box);
                 }
                 OpCode::SETBOX => {
-                    if let Some(last) = self.stack.get(self.stack.len() - 2).copied() {
-                        self.mark_local_type_from_var(last, InferredType::Box);
+                    if let Some(last) = self.shadow_stack.get(self.shadow_stack.len() - 2).copied()
+                    {
+                        self.shadow_mark_local_type_from_var(last, InferredType::Box);
                     }
 
                     self.func_ret_val(op, 2, 2, InferredType::Any);
                 }
                 OpCode::UNBOX => {
-                    if let Some(last) = self.stack.last().copied() {
-                        self.mark_local_type_from_var(last, InferredType::Box);
+                    if let Some(last) = self.shadow_stack.last().copied() {
+                        self.shadow_mark_local_type_from_var(last, InferredType::Box);
                     }
 
                     self.func_ret_val(op, 1, 2, InferredType::Any);
@@ -1779,7 +1822,7 @@ impl FunctionTranslator<'_> {
             let upper_bound = payload - self.arity as usize - let_var_offset;
 
             for i in 0..upper_bound {
-                self.spill(i);
+                self.shadow_spill(i);
             }
         }
 
@@ -1814,6 +1857,22 @@ impl FunctionTranslator<'_> {
         }
     }
 
+    fn read_local_fixed_no_spill(&mut self, op: OpCode, payload: usize) -> (Value, InferredType) {
+        assert!(payload < self.arity as _);
+
+        // Replace this... with just reading from the vector?
+        let value = self.call_func_or_immediate(op, payload);
+
+        self.value_to_local_map.insert(value, payload);
+
+        let inferred_type = if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
+            *inferred_type
+        } else {
+            InferredType::Any
+        };
+        (value, inferred_type)
+    }
+
     fn read_local_fixed(&mut self, op: OpCode, payload: usize) -> (Value, InferredType) {
         let let_var_offset: usize = self.let_var_stack.iter().sum();
 
@@ -1821,7 +1880,7 @@ impl FunctionTranslator<'_> {
             let upper_bound = payload - self.arity as usize - let_var_offset;
 
             for i in 0..upper_bound {
-                self.spill(i);
+                self.shadow_spill(i);
             }
         }
 
@@ -1845,7 +1904,7 @@ impl FunctionTranslator<'_> {
             let upper_bound = payload - self.arity as usize - let_var_offset;
 
             for i in 0..upper_bound {
-                self.spill(i);
+                self.shadow_spill(i);
             }
         }
 
@@ -1881,6 +1940,28 @@ impl FunctionTranslator<'_> {
         }
     }
 
+    fn read_local_value_no_spill(&mut self, op: OpCode, payload: usize) -> (Value, InferredType) {
+        assert!(payload < self.arity as _);
+
+        let index = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), payload as i64);
+
+        let value =
+            self.call_function_returns_value_args(op_to_name_payload(op, payload), &[index]);
+
+        self.value_to_local_map.insert(value, payload);
+
+        let inferred_type = if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
+            *inferred_type
+        } else {
+            InferredType::Any
+        };
+
+        (value, inferred_type)
+    }
+
     fn read_local_value(&mut self, op: OpCode, payload: usize) -> (Value, InferredType) {
         let let_var_offset: usize = self.let_var_stack.iter().sum();
 
@@ -1888,7 +1969,7 @@ impl FunctionTranslator<'_> {
             let upper_bound = payload - self.arity as usize - let_var_offset;
 
             for i in 0..upper_bound {
-                self.spill(i);
+                self.shadow_spill(i);
             }
         }
 
@@ -1955,7 +2036,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn pop_single(&mut self) {
-        let last = self.pop();
+        let last = self.shadow_pop();
 
         let local_callee = self.get_local_callee("drop-value");
         let ctx = self.get_ctx();
@@ -2016,8 +2097,11 @@ impl FunctionTranslator<'_> {
     }
 
     fn translate_tco_jmp(&mut self, payload: usize) {
-        for i in 0..self.stack.len() {
-            self.spill(i);
+        // for i in 0..self.stack.len() {
+        //     self.spill(i);
+        // }
+        for i in 0..self.shadow_stack.len() {
+            self.shadow_spill(i);
         }
 
         let local_callee = self.get_local_callee("tco-jump");
@@ -2033,8 +2117,11 @@ impl FunctionTranslator<'_> {
     }
 
     fn _translate_tco_jmp_no_arity_loop(&mut self, payload: usize) {
-        for i in 0..self.stack.len() {
-            self.spill(i);
+        // for i in 0..self.stack.len() {
+        //     self.spill(i);
+        // }
+        for i in 0..self.shadow_stack.len() {
+            self.shadow_spill(i);
         }
 
         let local_callee = self.get_local_callee("self-tail-call-loop");
@@ -2183,8 +2270,11 @@ impl FunctionTranslator<'_> {
         // We can avoid a lot of movement since we can overwrite
         // the existing values on the stack before they're
         // pushed on.
-        for i in 0..self.stack.len() {
-            self.spill(i);
+        // for i in 0..self.stack.len() {
+        //     self.spill(i);
+        // }
+        for i in 0..self.shadow_stack.len() {
+            self.shadow_spill(i);
         }
 
         let local_callee = self.get_local_callee("self-tail-call");
@@ -2217,14 +2307,18 @@ impl FunctionTranslator<'_> {
             .ins()
             .iconst(Type::int(64).unwrap(), self.ip as i64);
 
-        let func = self.pop().0;
+        let func = self.shadow_pop().0;
 
         let mut arg_values = vec![ctx, func, fallback_ip];
-        arg_values.extend(
-            self.stack
-                .drain(self.stack.len() - arity..)
-                .map(|x| x.value),
-        );
+
+        // Use split off instead?
+        // arg_values.extend(
+        //     self.stack
+        //         .drain(self.stack.len() - arity..)
+        //         .map(|x| x.value),
+        // );
+
+        arg_values.extend(self.split_off(arity).into_iter().map(|x| x.0));
 
         // Check if its a function - otherwise, just spill the values to the stack.
         let is_function = self.check_callable(func, tail);
@@ -2258,22 +2352,25 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(spill_block);
             self.builder.seal_block(spill_block);
 
-            for c in self.stack.clone() {
-                if !c.spilled {
-                    self.push_to_vm_stack_function_spill(c.value);
-                }
-            }
+            // for c in self.stack.clone() {
+            //     if !c.spilled {
+            //         self.push_to_vm_stack_function_spill(c.value);
+            //     }
+            // }
+
+            self.spill_cloned_stack();
 
             self.builder.ins().jump(merge_block, &[then_return]);
 
             self.builder.switch_to_block(else_block);
             self.builder.seal_block(else_block);
 
-            for c in self.stack.clone() {
-                if !c.spilled {
-                    self.push_to_vm_stack(c.value);
-                }
-            }
+            // for c in self.stack.clone() {
+            //     if !c.spilled {
+            //         self.push_to_vm_stack(c.value);
+            //     }
+            // }
+            self.spill_cloned_stack();
 
             let else_return = BlockArg::Value(self.create_i128(0));
 
@@ -2319,20 +2416,22 @@ impl FunctionTranslator<'_> {
 
         // If any of these have been spilled, we have to pop them off
         // of the shadow stack and use them
-        let mut args_off_the_stack = self
-            .stack
-            .drain(self.stack.len() - arity..)
-            .collect::<Vec<_>>();
+        // let mut args_off_the_stack = self
+        //     .stack
+        //     .drain(self.stack.len() - arity..)
+        //     .collect::<Vec<_>>();
 
-        self.maybe_patch_from_stack(&mut args_off_the_stack);
+        let args_off_the_stack = self.split_off(arity);
 
-        for arg in &args_off_the_stack {
-            assert!(!arg.spilled);
-        }
+        // self.maybe_patch_from_stack(&mut args_off_the_stack);
 
-        assert_eq!(args_off_the_stack.len(), arity);
+        // for arg in &args_off_the_stack {
+        //     assert!(!arg.spilled);
+        // }
 
-        arg_values.extend(args_off_the_stack.iter().map(|x| x.value));
+        // assert_eq!(args_off_the_stack.len(), arity);
+
+        arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
 
         // TODO: @Matt
         // Instead of being binary, this should return multiple values, and
@@ -2375,22 +2474,25 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(spill_block);
             self.builder.seal_block(spill_block);
 
-            for c in self.stack.clone() {
-                if !c.spilled {
-                    self.push_to_vm_stack_function_spill(c.value);
-                }
-            }
+            // for c in self.stack.clone() {
+            //     if !c.spilled {
+            //         self.push_to_vm_stack_function_spill(c.value);
+            //     }
+            // }
+
+            self.spill_cloned_stack();
 
             self.builder.ins().jump(merge_block, &[then_return]);
 
             self.builder.switch_to_block(else_block);
             self.builder.seal_block(else_block);
 
-            for c in self.stack.clone() {
-                if !c.spilled {
-                    self.push_to_vm_stack_function_spill(c.value);
-                }
-            }
+            // for c in self.stack.clone() {
+            //     if !c.spilled {
+            //         self.push_to_vm_stack_function_spill(c.value);
+            //     }
+            // }
+            self.spill_cloned_stack();
 
             let else_return = BlockArg::Value(self.create_i128(0));
 
@@ -2441,18 +2543,20 @@ impl FunctionTranslator<'_> {
 
         // If any of these have been spilled, we have to pop them off
         // of the shadow stack and use them
-        let args_off_the_stack = self
-            .stack
-            .drain(self.stack.len() - arity..)
-            .collect::<Vec<_>>();
+        // let args_off_the_stack = self
+        //     .stack
+        //     .drain(self.stack.len() - arity..)
+        //     .collect::<Vec<_>>();
+
+        let args_off_the_stack = self.split_off(arity);
 
         // self.maybe_patch_from_stack(&mut args_off_the_stack);
 
-        for arg in &args_off_the_stack {
-            if !arg.spilled {
-                self.push_to_vm_stack(arg.value);
-            }
-        }
+        // for arg in &args_off_the_stack {
+        //     if !arg.spilled {
+        //         self.push_to_vm_stack(arg.value);
+        //     }
+        // }
 
         assert_eq!(args_off_the_stack.len(), arity);
 
@@ -2499,22 +2603,24 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(spill_block);
             self.builder.seal_block(spill_block);
 
-            for c in self.stack.clone() {
-                if !c.spilled {
-                    self.push_to_vm_stack_function_spill(c.value);
-                }
-            }
+            // for c in self.stack.clone() {
+            //     if !c.spilled {
+            //         self.push_to_vm_stack_function_spill(c.value);
+            //     }
+            // }
+            self.spill_cloned_stack();
 
             self.builder.ins().jump(merge_block, &[then_return]);
 
             self.builder.switch_to_block(else_block);
             self.builder.seal_block(else_block);
 
-            for c in self.stack.clone() {
-                if !c.spilled {
-                    self.push_to_vm_stack_function_spill(c.value);
-                }
-            }
+            // for c in self.stack.clone() {
+            //     if !c.spilled {
+            //         self.push_to_vm_stack_function_spill(c.value);
+            //     }
+            // }
+            self.spill_cloned_stack();
 
             let else_return = BlockArg::Value(self.create_i128(0));
 
@@ -2715,39 +2821,111 @@ impl FunctionTranslator<'_> {
         self.ip += ip_inc;
     }
 
-    fn spill(&mut self, index: usize) -> Option<()> {
-        let guard = self.stack.get_mut(index)?;
+    fn shadow_spill(&mut self, index: usize) -> Option<()> {
+        let guard = self.shadow_stack.get_mut(index)?;
         let mut spilled = false;
-        if !guard.spilled {
-            guard.spilled = true;
-            spilled = true;
+        match guard {
+            MaybeStackValue::Value(stack_value) => {
+                if !stack_value.spilled {
+                    stack_value.spilled = true;
+                    spilled = true;
+                }
+            }
+            MaybeStackValue::MutRegister(p) => {
+                let p = *p;
+                let (value, _) = self.mut_register_to_value(p);
+                spilled = true;
+
+                self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                    value,
+                    inferred_type: InferredType::Any,
+                    spilled: true,
+                });
+            }
+            MaybeStackValue::Register(p) => {
+                let p = *p;
+                let (value, _) = self.immutable_register_to_value(p);
+                spilled = true;
+
+                self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                    value,
+                    inferred_type: InferredType::Any,
+                    spilled: true,
+                });
+            }
         }
 
         if spilled {
-            self.push_to_vm_stack(self.stack[index].value);
+            self.push_to_vm_stack(self.shadow_stack[index].into_value().value);
         }
 
         Some(())
     }
 
+    // fn spill(&mut self, index: usize) -> Option<()> {
+    //     let guard = self.stack.get_mut(index)?;
+    //     let mut spilled = false;
+    //     if !guard.spilled {
+    //         guard.spilled = true;
+    //         spilled = true;
+    //     }
+
+    //     if spilled {
+    //         self.push_to_vm_stack(self.stack[index].value);
+    //     }
+
+    //     Some(())
+    // }
+
     // TODO: For spilling to the stack, we just _have_ to spill in order.
     // We have a cursor which will go through and mark if the value has already been pushed to the stack.
     // As long as we push the values in the right order, we're good.
     fn push(&mut self, value: Value, typ: InferredType) {
-        self.stack.push(StackValue {
+        // self.stack.push(StackValue {
+        //     value,
+        //     inferred_type: typ,
+        //     spilled: false,
+        // })
+
+        self.shadow_stack.push(MaybeStackValue::Value(StackValue {
             value,
             inferred_type: typ,
             spilled: false,
-        })
+        }))
     }
 
-    fn pop(&mut self) -> (Value, InferredType) {
-        let last = self.stack.pop().unwrap();
+    fn shadow_push(&mut self, last: MaybeStackValue) {
+        self.shadow_stack.push(last);
+    }
 
-        assert!(!last.spilled);
+    // fn pop(&mut self) -> (Value, InferredType) {
+    //     let last = self.stack.pop().unwrap();
 
-        self.value_to_local_map.remove(&last.value);
-        (last.value, last.inferred_type)
+    //     assert!(!last.spilled);
+
+    //     self.value_to_local_map.remove(&last.value);
+    //     (last.value, last.inferred_type)
+    // }
+
+    fn spill_cloned_stack(&mut self) {
+        for value in self.shadow_stack.clone() {
+            match value {
+                MaybeStackValue::Value(stack_value) => {
+                    if !stack_value.spilled {
+                        self.push_to_vm_stack(stack_value.value);
+                    }
+                }
+                MaybeStackValue::MutRegister(p) => {
+                    // Read the value:
+                    let (value, _) = self.mut_register_to_value(p);
+                    self.push_to_vm_stack(value);
+                }
+                MaybeStackValue::Register(p) => {
+                    let (value, _) = self.immutable_register_to_value(p);
+                    self.push_to_vm_stack(value);
+                }
+            }
+        }
     }
 
     fn shadow_pop(&mut self) -> (Value, InferredType) {
@@ -2762,33 +2940,50 @@ impl FunctionTranslator<'_> {
             }
 
             // TODO: @matt specialize these for readlocal 0, 1, 2, etc.
-            MaybeStackValue::MutRegister(payload) => {
-                let index = self
-                    .builder
-                    .ins()
-                    .iconst(Type::int(64).unwrap(), payload as i64);
-
-                let value = self.call_function_returns_value_args(
-                    op_to_name_payload(OpCode::MOVEREADLOCAL, payload),
-                    &[index],
-                );
-
-                (value, InferredType::Any)
-            }
-            MaybeStackValue::Register(payload) => {
-                let index = self
-                    .builder
-                    .ins()
-                    .iconst(Type::int(64).unwrap(), payload as i64);
-
-                let value = self.call_function_returns_value_args(
-                    op_to_name_payload(OpCode::READLOCAL, payload),
-                    &[index],
-                );
-
-                (value, InferredType::Any)
-            }
+            MaybeStackValue::MutRegister(p) => self.mut_register_to_value(p),
+            MaybeStackValue::Register(p) => self.immutable_register_to_value(p),
         }
+    }
+
+    fn mut_register_to_value(&mut self, p: usize) -> (Value, InferredType) {
+        let (value, _) = match p {
+            0 => self.read_local_fixed_no_spill(OpCode::READLOCAL0, p),
+            1 => self.read_local_fixed_no_spill(OpCode::READLOCAL1, p),
+            2 => self.read_local_fixed_no_spill(OpCode::READLOCAL2, p),
+            3 => self.read_local_fixed_no_spill(OpCode::READLOCAL3, p),
+            _ => self.read_local_value_no_spill(OpCode::READLOCAL, p),
+        };
+
+        (value, InferredType::Any)
+    }
+
+    fn immutable_register_to_value(&mut self, p: usize) -> (Value, InferredType) {
+        let (value, _) = match p {
+            0 => self.read_local_fixed_no_spill(OpCode::READLOCAL0, p),
+            1 => self.read_local_fixed_no_spill(OpCode::READLOCAL1, p),
+            2 => self.read_local_fixed_no_spill(OpCode::READLOCAL2, p),
+            3 => self.read_local_fixed_no_spill(OpCode::READLOCAL3, p),
+            _ => self.read_local_value_no_spill(OpCode::READLOCAL, p),
+        };
+
+        (value, InferredType::Any)
+    }
+
+    fn maybe_shadow_pop(&mut self) -> Option<(Value, InferredType)> {
+        let last = self.shadow_stack.pop()?;
+
+        Some(match last {
+            MaybeStackValue::Value(last) => {
+                assert!(!last.spilled);
+
+                self.value_to_local_map.remove(&last.value);
+                (last.value, last.inferred_type)
+            }
+
+            // TODO: @matt specialize these for readlocal 0, 1, 2, etc.
+            MaybeStackValue::MutRegister(p) => self.mut_register_to_value(p),
+            MaybeStackValue::Register(p) => self.immutable_register_to_value(p),
+        })
     }
 
     fn maybe_patch_from_stack(&mut self, args_off_the_stack: &mut Vec<StackValue>) {
@@ -2838,8 +3033,34 @@ impl FunctionTranslator<'_> {
         }
     }
 
-    fn shadow_split_off(&mut self, payload: usize) -> Vec<MaybeStackValue> {
-        let mut args = self.shadow_stack.split_off(self.stack.len() - payload);
+    fn split_off(&mut self, payload: usize) -> Vec<(Value, InferredType)> {
+        let mut args = self
+            .shadow_stack
+            .split_off(self.shadow_stack.len() - payload);
+
+        args = args
+            .into_iter()
+            .map(|x| match x {
+                MaybeStackValue::Value(stack_value) => MaybeStackValue::Value(stack_value),
+                MaybeStackValue::MutRegister(p) => {
+                    let (value, _) = self.mut_register_to_value(p);
+                    MaybeStackValue::Value(StackValue {
+                        value,
+                        inferred_type: InferredType::Any,
+                        spilled: false,
+                    })
+                }
+                MaybeStackValue::Register(p) => {
+                    let (value, _) = self.immutable_register_to_value(p);
+
+                    MaybeStackValue::Value(StackValue {
+                        value,
+                        inferred_type: InferredType::Any,
+                        spilled: false,
+                    })
+                }
+            })
+            .collect();
 
         // Patch the args if needed
         for arg in &args {
@@ -2850,18 +3071,16 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        self.shadow_maybe_patch_from_stack(&mut args);
-
-        args
-    }
-
-    fn split_off(&mut self, payload: usize) -> Vec<(Value, InferredType)> {
-        let mut args = self.stack.split_off(self.stack.len() - payload);
-
-        // Patch the args if needed
-        for arg in &args {
-            self.value_to_local_map.remove(&arg.value);
-        }
+        let mut args = args
+            .into_iter()
+            .map(|x| {
+                if let MaybeStackValue::Value(value) = x {
+                    value
+                } else {
+                    unreachable!()
+                }
+            })
+            .collect();
 
         self.maybe_patch_from_stack(&mut args);
 
@@ -2869,6 +3088,38 @@ impl FunctionTranslator<'_> {
             .map(|x| (x.value, x.inferred_type))
             .collect()
     }
+
+    // fn shadow_split_off(&mut self, payload: usize) -> Vec<MaybeStackValue> {
+    //     let mut args = self.shadow_stack.split_off(self.stack.len() - payload);
+
+    //     // Patch the args if needed
+    //     for arg in &args {
+    //         // self.value_to_local_map.remove(&arg.value);
+
+    //         if let MaybeStackValue::Value(v) = arg {
+    //             self.value_to_local_map.remove(&v.value);
+    //         }
+    //     }
+
+    //     self.shadow_maybe_patch_from_stack(&mut args);
+
+    //     args
+    // }
+
+    // fn old_split_off(&mut self, payload: usize) -> Vec<(Value, InferredType)> {
+    //     let mut args = self.stack.split_off(self.stack.len() - payload);
+
+    //     // Patch the args if needed
+    //     for arg in &args {
+    //         self.value_to_local_map.remove(&arg.value);
+    //     }
+
+    //     self.maybe_patch_from_stack(&mut args);
+
+    //     args.into_iter()
+    //         .map(|x| (x.value, x.inferred_type))
+    //         .collect()
+    // }
 
     fn func_ret_val(
         &mut self,
@@ -2980,7 +3231,7 @@ impl FunctionTranslator<'_> {
 
         let let_stack = self.let_var_stack.clone();
         // let local_count = self.local_count;
-        let frozen_stack = self.stack.clone();
+        let frozen_stack = self.shadow_stack.clone();
         // let tco = self.tco;
 
         self.stack_to_ssa();
@@ -2993,11 +3244,10 @@ impl FunctionTranslator<'_> {
         // Unwrap or... must have been a tail call?
         let then_return = BlockArg::Value(
             // TODO: Replace this stack pop with the right one
-            self.stack
-                .pop()
+            self.maybe_shadow_pop()
                 .map(|x| {
                     // assert!(!x.spilled);
-                    let value = x.value;
+                    let value = x.0;
                     self.value_to_local_map.remove(&value);
                     value
                 })
@@ -3020,7 +3270,7 @@ impl FunctionTranslator<'_> {
 
         self.tco = false;
         self.let_var_stack = let_stack;
-        self.stack = frozen_stack;
+        self.shadow_stack = frozen_stack;
         // let token_return_value = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
 
         self.stack_to_ssa();
@@ -3044,11 +3294,10 @@ impl FunctionTranslator<'_> {
 
         // let else_return = self.stack.pop().unwrap().0;
         let else_return = BlockArg::Value(
-            self.stack
-                .pop()
+            self.maybe_shadow_pop()
                 .map(|x| {
                     // assert!(!x.spilled);
-                    let value = x.value;
+                    let value = x.0;
                     self.value_to_local_map.remove(&value);
                     value
                 })
