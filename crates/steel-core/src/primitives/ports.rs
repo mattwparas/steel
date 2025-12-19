@@ -130,14 +130,14 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
 #[function(name = "stdin")]
 pub fn open_stdin() -> SteelVal {
     SteelVal::PortV(SteelPort {
-        port: Gc::new_mut(SteelPortRepr::StdInput(Peekable::new(std::io::stdin()))),
+        port: Gc::new_lock(SteelPortRepr::StdInput(Peekable::new(std::io::stdin()))),
     })
 }
 
 #[function(name = "stdout")]
 pub fn open_stdout() -> SteelVal {
     SteelVal::PortV(SteelPort {
-        port: Gc::new_mut(SteelPortRepr::StdOutput(std::io::stdout())),
+        port: Gc::new_lock(SteelPortRepr::StdOutput(std::io::stdout())),
     })
 }
 
@@ -771,6 +771,7 @@ pub fn read_char_single(port: SteelVal) -> Result<SteelVal> {
     }
 }
 
+// Can we assume there isn't a check here? Just skip the port itself?
 pub fn read_char_single_ref(port: &SteelVal) -> Result<SteelVal> {
     if let SteelVal::PortV(port) = port {
         match port.read_char()? {

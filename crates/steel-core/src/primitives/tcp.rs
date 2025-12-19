@@ -40,7 +40,7 @@ pub fn tcp_input_port(stream: &SteelVal) -> Result<SteelVal> {
 pub fn tcp_output_port(stream: &SteelVal) -> Result<SteelVal> {
     let reader = TcpStream::as_ref(stream)?.try_clone().unwrap();
     Ok(SteelVal::PortV(SteelPort {
-        port: Gc::new_mut(SteelPortRepr::TcpStream(Peekable::new(reader))),
+        port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::new(reader))),
     }))
 }
 
@@ -48,7 +48,7 @@ pub fn tcp_output_port(stream: &SteelVal) -> Result<SteelVal> {
 pub fn tcp_buffered_output_port(stream: &SteelVal) -> Result<SteelVal> {
     let reader = TcpStream::as_ref(stream)?.try_clone().unwrap();
     Ok(SteelVal::PortV(SteelPort {
-        port: Gc::new_mut(SteelPortRepr::DynReader(Peekable::new(BufReader::new(
+        port: Gc::new_lock(SteelPortRepr::DynReader(Peekable::new(BufReader::new(
             Box::new(reader),
         )))),
     }))

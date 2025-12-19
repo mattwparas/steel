@@ -852,6 +852,8 @@ pub enum InferredType {
     ListOrPair,
 
     Function,
+
+    Char,
 }
 
 // #[derive(Debug, Clone, Copy)]
@@ -1549,7 +1551,7 @@ impl FunctionTranslator<'_> {
                                     args.extend(additional_args);
 
                                     let result = self.call_function_returns_value_args(func, &args);
-                                    self.push(result, InferredType::Any);
+                                    self.push(result, InferredType::Char);
                                     self.ip += 1;
                                     self.check_deopt();
                                 } else {
@@ -1557,7 +1559,7 @@ impl FunctionTranslator<'_> {
                                     args.extend(additional_args.into_iter().map(|x| x.0));
 
                                     let result = self.call_function_returns_value_args(name, &args);
-                                    self.push(result, InferredType::Any);
+                                    self.push(result, InferredType::Char);
                                     self.ip += 1;
                                     self.check_deopt();
                                 }

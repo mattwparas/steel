@@ -1581,7 +1581,7 @@ impl SteelVal {
     // TODO: Re-evaluate this - should this be buffered?
     pub fn new_dyn_writer_port(port: impl Write + Send + Sync + 'static) -> SteelVal {
         SteelVal::PortV(SteelPort {
-            port: Gc::new_mut(SteelPortRepr::DynWriter(Arc::new(Mutex::new(port)))),
+            port: Gc::new_lock(SteelPortRepr::DynWriter(Arc::new(Mutex::new(port)))),
         })
     }
 

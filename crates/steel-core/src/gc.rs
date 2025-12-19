@@ -1,3 +1,4 @@
+use crate::gc::shared::GcLock;
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
 use crate::stop;
@@ -82,6 +83,12 @@ pub mod shared {
 
     #[cfg(feature = "sync")]
     pub type GcMut<T> = Gc<RwLock<T>>;
+
+    #[cfg(feature = "sync")]
+    pub type GcLock<T> = Gc<parking_lot::Mutex<T>>;
+
+    #[cfg(not(feature = "sync"))]
+    pub type GcLock<T> = Gc<RefCell<T>>;
 
     #[cfg(feature = "sync")]
     pub type WeakSharedMut<T> = std::sync::Weak<RwLock<T>>;
@@ -396,6 +403,41 @@ pub mod shared {
             Gc::deref(self).try_lock()
         }
     }
+
+    impl<T> ShareableMut<T> for Gc<parking_lot::Mutex<T>> {
+        type ShareableRead<'a>
+            = parking_lot::MutexGuard<'a, T>
+        where
+            T: 'a;
+        type ShareableWrite<'a>
+            = parking_lot::MutexGuard<'a, T>
+        where
+            T: 'a;
+        type TryReadResult<'a>
+            = Option<parking_lot::MutexGuard<'a, T>>
+        where
+            T: 'a;
+        type TryWriteResult<'a>
+            = Option<parking_lot::MutexGuard<'a, T>>
+        where
+            T: 'a;
+
+        fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
+            Gc::deref(self).lock()
+        }
+
+        fn write<'a>(&'a self) -> Self::ShareableWrite<'a> {
+            Gc::deref(self).lock()
+        }
+
+        fn try_read<'a>(&'a self) -> Self::TryReadResult<'a> {
+            Gc::deref(self).try_lock()
+        }
+
+        fn try_write<'a>(&'a self) -> Self::TryWriteResult<'a> {
+            Gc::deref(self).try_lock()
+        }
+    }
 }
 
 // TODO: Consider triomphe for a drop in replacement of Arc
@@ -460,6 +502,16 @@ impl<T> Gc<T> {
 
         #[cfg(feature = "sync")]
         Gc::new(RwLock::new(val))
+    }
+
+    pub fn new_lock(val: T) -> GcLock<T> {
+        #[cfg(not(feature = "sync"))]
+        {
+            Gc::new(RefCell::new(val))
+        }
+
+        #[cfg(feature = "sync")]
+        Gc::new(parking_lot::Mutex::new(val))
     }
 
     pub fn try_new(val: T) -> Result<Gc<T>, SteelErr> {

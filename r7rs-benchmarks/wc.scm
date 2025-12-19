@@ -5,6 +5,8 @@
 
 (define (wcport port)
   (define (loop nl nw nc inword?)
+    ;; TODO: Avoid the character reading bottleneck
+    ;; by reading each character one by one?
     (let ([x (read-char port)])
       (cond
         [(eof-object? x) (list nl nw nc)]
