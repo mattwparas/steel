@@ -1509,17 +1509,30 @@ impl FunctionTranslator<'_> {
                                 let name =
                                     CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
 
-                                dbg!(self.shadow_stack.get(self.shadow_stack.len() - arity..));
+                                let test_stack = self
+                                    .shadow_stack
+                                    .get(self.shadow_stack.len() - arity..)
+                                    .unwrap()
+                                    .to_vec();
 
-                                // attempt to move forward with it
-                                let additional_args = self.split_off(arity);
+                                let shape = test_stack
+                                    .iter()
+                                    .map(|x| match x {
+                                        MaybeStackValue::Value(_) => 0,
+                                        MaybeStackValue::MutRegister(_) => 2,
+                                        MaybeStackValue::Register(_) => 1,
+                                    })
+                                    .collect::<Vec<_>>();
+
+                                let func =
+                                    CallRegisterPrimitiveFixedDefinitions::shape_to_name(&shape);
 
                                 // let f = crate::primitives::ports::read_char_single
                                 //     as fn(SteelVal) -> Result<SteelVal, crate::SteelErr>;
 
                                 let function = self.builder.ins().iconst(
                                     self.module.target_config().pointer_type(),
-                                    crate::primitives::ports::read_char_single as i64,
+                                    crate::primitives::ports::read_char_single_ref as i64,
                                 );
 
                                 let fallback_ip = self
@@ -1529,12 +1542,25 @@ impl FunctionTranslator<'_> {
 
                                 let mut args = vec![function, fallback_ip];
 
-                                args.extend(additional_args.into_iter().map(|x| x.0));
+                                if let Some(func) = func {
+                                    dbg!(test_stack);
+                                    let additional_args = self.split_off_reg(arity);
+                                    dbg!(&additional_args);
+                                    args.extend(additional_args);
 
-                                let result = self.call_function_returns_value_args(name, &args);
-                                self.push(result, InferredType::Any);
-                                self.ip += 1;
-                                self.check_deopt();
+                                    let result = self.call_function_returns_value_args(func, &args);
+                                    self.push(result, InferredType::Any);
+                                    self.ip += 1;
+                                    self.check_deopt();
+                                } else {
+                                    let additional_args = self.split_off(arity);
+                                    args.extend(additional_args.into_iter().map(|x| x.0));
+
+                                    let result = self.call_function_returns_value_args(name, &args);
+                                    self.push(result, InferredType::Any);
+                                    self.ip += 1;
+                                    self.check_deopt();
+                                }
                             } else {
                                 if let Some(name) = name {
                                     // attempt to move forward with it
@@ -2160,6 +2186,7 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(else_block);
     }
 
+    // If the values are left on the stack, we can do that?
     fn test_translate_tco_jmp_no_arity_loop_no_spill(&mut self, payload: usize, arity: usize) {
         let name = CallSelfTailCallNoArityLoopDefinitions::arity_to_name(payload).unwrap();
 
@@ -2203,6 +2230,41 @@ impl FunctionTranslator<'_> {
         //     .collect::<Vec<_>>();
 
         // self.maybe_patch_from_stack(&mut args_off_the_stack);
+
+        dbg!(self.shadow_stack.get(self.shadow_stack.len() - payload..));
+
+        if payload > 0 && false {
+            let mut amount_dropped = 0;
+
+            while let Some(last) = self.shadow_stack.last().copied() {
+                match last {
+                    MaybeStackValue::Value(_) => break,
+                    MaybeStackValue::MutRegister(r) => {
+                        if r == (payload - amount_dropped) {
+                            self.shadow_stack.pop();
+                            amount_dropped += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    MaybeStackValue::Register(r) => {
+                        if r == (payload - amount_dropped) {
+                            self.shadow_stack.pop();
+                            amount_dropped += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if amount_dropped != 0 {
+                return self.test_translate_tco_jmp_no_arity_loop_no_spill(
+                    payload - amount_dropped,
+                    payload,
+                );
+            }
+        }
 
         let args_off_the_stack = self.split_off(payload);
 
@@ -3033,6 +3095,35 @@ impl FunctionTranslator<'_> {
                 spilled: false,
             });
         }
+    }
+
+    fn split_off_reg(&mut self, payload: usize) -> Vec<Value> {
+        let mut args = self
+            .shadow_stack
+            .split_off(self.shadow_stack.len() - payload);
+
+        // Patch the args if needed
+        for arg in &args {
+            if let MaybeStackValue::Value(v) = arg {
+                self.value_to_local_map.remove(&v.value);
+            }
+        }
+
+        self.shadow_maybe_patch_from_stack(&mut args);
+
+        dbg!(&args);
+
+        args.into_iter()
+            .map(|x| match x {
+                MaybeStackValue::Value(stack_value) => stack_value.value,
+                MaybeStackValue::MutRegister(p) => {
+                    self.builder.ins().iconst(Type::int(64).unwrap(), p as i64)
+                }
+                MaybeStackValue::Register(p) => {
+                    self.builder.ins().iconst(Type::int(64).unwrap(), p as i64)
+                }
+            })
+            .collect()
     }
 
     fn split_off(&mut self, payload: usize) -> Vec<(Value, InferredType)> {
