@@ -2230,17 +2230,16 @@ impl FunctionTranslator<'_> {
         //     .collect::<Vec<_>>();
 
         // self.maybe_patch_from_stack(&mut args_off_the_stack);
+        // self.shadow_stack.get(self.shadow_stack.len() - payload..);
 
-        dbg!(self.shadow_stack.get(self.shadow_stack.len() - payload..));
-
-        if payload > 0 && false {
+        if payload > 0 {
             let mut amount_dropped = 0;
 
             while let Some(last) = self.shadow_stack.last().copied() {
                 match last {
                     MaybeStackValue::Value(_) => break,
                     MaybeStackValue::MutRegister(r) => {
-                        if r == (payload - amount_dropped) {
+                        if r == (payload - amount_dropped - 1) {
                             self.shadow_stack.pop();
                             amount_dropped += 1;
                         } else {
@@ -2248,7 +2247,7 @@ impl FunctionTranslator<'_> {
                         }
                     }
                     MaybeStackValue::Register(r) => {
-                        if r == (payload - amount_dropped) {
+                        if r == (payload - amount_dropped - 1) {
                             self.shadow_stack.pop();
                             amount_dropped += 1;
                         } else {
