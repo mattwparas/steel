@@ -1061,6 +1061,16 @@ pub fn char_equals_binop(l: SteelVal, r: SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(l == r))
 }
 
+// Returns a boolean?
+// Inlining calls to certain functions?
+// How could we do that without creating more things?
+pub extern "C-unwind" fn char_equals_binop_unsafe(l: SteelVal, r: SteelVal) -> SteelVal {
+    match (l, r) {
+        (SteelVal::CharV(l), SteelVal::CharV(r)) => SteelVal::BoolV(l == r),
+        _ => unsafe { unreachable_unchecked() },
+    }
+}
+
 /// Checks if all characters are equal, in a case-insensitive fashion
 /// (i.e. as if char-foldcase was applied to the arguments).
 ///

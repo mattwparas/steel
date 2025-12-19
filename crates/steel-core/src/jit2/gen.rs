@@ -11,7 +11,7 @@ use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 use crate::{
     compiler::constants::ConstantMap,
     core::instructions::DenseInstruction,
-    primitives::ports::steel_read_char,
+    primitives::{ports::steel_read_char, strings::char_equals_binop_unsafe},
     rvals::FunctionSignature,
     steel_vm::vm::{
         jit::{
@@ -215,6 +215,11 @@ fn type_to_ir_type<T>() -> Type {
     Type::int(std::mem::size_of::<T>() as u16 * 8).unwrap()
 }
 
+extern "C-unwind" fn print_value(left: i8, right: i8) -> bool {
+    println!("{} - {}", left, right);
+    true
+}
+
 impl Default for JIT {
     fn default() -> Self {
         let mut flag_builder = settings::builder();
@@ -250,6 +255,16 @@ impl Default for JIT {
             builder: &mut builder,
             return_type_hints: HashMap::new(),
         };
+
+        map.add_func2(
+            "#%print-value",
+            print_value as extern "C-unwind" fn(i8, i8) -> bool,
+        );
+
+        map.add_func2(
+            "unsafe-char-equals",
+            char_equals_binop_unsafe as extern "C-unwind" fn(SteelVal, SteelVal) -> SteelVal,
+        );
 
         map.add_func(
             "if-branch",
@@ -584,6 +599,13 @@ impl Default for JIT {
             function_map,
         }
     }
+}
+
+fn discriminant(value: &SteelVal) -> u8 {
+    // SAFETY: Because `Self` is marked `repr(u8)`, its layout is a `repr(C)` `union`
+    // between `repr(C)` structs, each of which has the `u8` discriminant as its first
+    // field, so we can read the discriminant without offsetting the pointer.
+    unsafe { *<*const _>::from(value).cast::<u8>() }
 }
 
 // Compile the bytecode assuming that things... work okay?
@@ -1309,9 +1331,9 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::PUSHCONST => {
                     let payload = self.instructions[self.ip].payload_size.to_usize();
-                    let value = self.call_func_or_immediate(op, payload);
+                    let (value, typ) = self.get_const(op, payload);
                     self.ip += 1;
-                    self.push(value, InferredType::Any);
+                    self.push(value, typ);
                 }
                 OpCode::TRUE => {
                     let constant = SteelVal::BoolV(true);
@@ -1345,18 +1367,19 @@ impl FunctionTranslator<'_> {
 
                     // self.spill(self.stack.len() - 1);
 
-                    let (last, _) = self.shadow_pop();
+                    let (last, typ) = self.shadow_pop();
+
+                    let local_index = *self.let_var_stack.last().unwrap() + self.arity as usize;
+                    self.value_to_local_map.insert(last, local_index);
+                    self.local_to_value_map.insert(local_index, typ);
 
                     *self.let_var_stack.last_mut().unwrap() += 1;
-
-                    // if !spilled {
 
                     // TODO: @mparas - in the event we're using a local value,
                     // we need to check if this is actually spilled or not.
                     //
                     // It shouldn't be though
                     self.push_to_vm_stack_let_var(last);
-                    // }
                 }
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
@@ -1473,6 +1496,13 @@ impl FunctionTranslator<'_> {
 
                             let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
+                            // TODO: Introduce some global lookup for function pointers,
+                            // so that this can be entirely abstracted.
+                            //
+                            // The general idea here being: define a function, but also
+                            // be able to define the specialized versions of that function.
+                            //
+                            // Skipping lots of type checks is good.
                             if fn_addr_eq(
                                 f,
                                 crate::primitives::strings::steel_char_equals as FunctionSignature,
@@ -1481,30 +1511,137 @@ impl FunctionTranslator<'_> {
                                 let name =
                                     CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
 
+                                let args = self
+                                    .shadow_stack
+                                    .get(self.shadow_stack.len() - arity..)
+                                    .unwrap()
+                                    .to_vec();
+
+                                dbg!(args);
+
                                 // attempt to move forward with it
                                 let additional_args = self.split_off(arity);
 
+                                dbg!(&additional_args);
+
                                 // let f = crate::primitives::ports::read_char_single
                                 //     as fn(SteelVal) -> Result<SteelVal, crate::SteelErr>;
+                                //
 
-                                let function = self.builder.ins().iconst(
-                                    self.module.target_config().pointer_type(),
-                                    crate::primitives::strings::char_equals_binop as i64,
+                                let all_chars =
+                                    additional_args.iter().all(|x| x.1 == InferredType::Char);
+
+                                // test encoding a value:
+                                /*
+
+                                let test = self.builder.ins().iconst(types::I64, 'a' as i64);
+                                let encoded = self
+                                    .encode_value(discriminant(&SteelVal::CharV('a')) as _, test);
+
+                                // Get the value out of the rhs?
+                                let new = self.create_i128(encode(SteelVal::CharV('a')));
+
+                                // Now, we're going to uncover the RHS of this.
+
+                                let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
+                                let encoded_rhs = self.builder.ins().sshr(encoded, amount_to_shift);
+                                let new_rhs = self.builder.ins().sshr(new, amount_to_shift);
+
+                                let encoded_rhs =
+                                    self.builder.ins().ireduce(types::I8, encoded_rhs);
+                                let new_rhs = self.builder.ins().ireduce(types::I8, new_rhs);
+
+                                let comparison =
+                                    self.builder.ins().icmp(IntCC::Equal, encoded_rhs, new_rhs);
+
+                                let res = self.builder.ins().uextend(types::I64, comparison);
+                                let boolean = self
+                                    .encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+
+                                self.call_function_returns_value_args_no_context(
+                                    "#%print-value",
+                                    &[encoded_rhs, new_rhs],
                                 );
+                                */
 
-                                let fallback_ip = self
-                                    .builder
-                                    .ins()
-                                    .iconst(Type::int(64).unwrap(), self.ip as i64);
+                                if all_chars {
+                                    println!("Found all characters, applying equality");
+                                    // Just... compare for equality?
 
-                                let mut args = vec![function, fallback_ip];
+                                    let left = additional_args[0].0;
+                                    let right = additional_args[1].0;
 
-                                args.extend(additional_args.into_iter().map(|x| x.0));
+                                    let left = self.unbox_value(left);
+                                    let right = self.unbox_value(right);
 
-                                let result = self.call_function_returns_value_args(name, &args);
-                                self.push(result, InferredType::Bool);
-                                self.ip += 1;
-                                self.check_deopt();
+                                    let left = self.builder.ins().ireduce(types::I8, left);
+                                    let right = self.builder.ins().ireduce(types::I8, right);
+
+                                    let comparison =
+                                        self.builder.ins().icmp(IntCC::Equal, left, right);
+                                    let res = self.builder.ins().uextend(types::I64, comparison);
+                                    let boolean = self.encode_value(
+                                        discriminant(&SteelVal::BoolV(true)) as i64,
+                                        res,
+                                    );
+                                    self.push(boolean, InferredType::Bool);
+
+                                    // let res = self.builder.ins().icmp(
+                                    //     IntCC::Equal,
+                                    //     additional_args[0].0,
+                                    //     additional_args[1].0,
+                                    // );
+
+                                    // // Widen the res to be 64 bits
+
+                                    // let res = self.builder.ins().sextend(types::I64, res);
+
+                                    // let boolean = self.encode_value(
+                                    //     discriminant(&SteelVal::BoolV(true)) as i64,
+                                    //     res,
+                                    // );
+
+                                    // let res = self.call_function_returns_value_args_no_context(
+                                    //     "unsafe-char-equals",
+                                    //     &additional_args
+                                    //         .into_iter()
+                                    //         .map(|x| x.0)
+                                    //         .collect::<Vec<_>>(),
+                                    // );
+
+                                    // self.push(res, InferredType::Bool);
+                                    self.ip += 1;
+
+                                    // No need to check deopt here, we're good.
+                                } else {
+                                    let function =
+                                    // if additional_args.iter().all(|x| x.1 == InferredType::Char) {
+                                    //     self.builder.ins().iconst(
+                                    //         self.module.target_config().pointer_type(),
+                                    //         crate::primitives::strings::char_equals_binop_unsafe
+                                    //             as i64,
+                                    //     )
+                                    // } else {
+                                        self.builder.ins().iconst(
+                                            self.module.target_config().pointer_type(),
+                                            crate::primitives::strings::char_equals_binop as i64,
+                                        );
+                                    // };
+
+                                    let fallback_ip = self
+                                        .builder
+                                        .ins()
+                                        .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+                                    let mut args = vec![function, fallback_ip];
+
+                                    args.extend(additional_args.into_iter().map(|x| x.0));
+
+                                    let result = self.call_function_returns_value_args(name, &args);
+                                    self.push(result, InferredType::Bool);
+                                    self.ip += 1;
+                                    self.check_deopt();
+                                }
                             } else if fn_addr_eq(f, steel_read_char as FunctionSignature)
                                 && arity == 1
                             {
@@ -1702,6 +1839,9 @@ impl FunctionTranslator<'_> {
                     self.func_ret_val_named("sub-binop-int", payload, 2, InferredType::Number);
                 }
 
+                // TODO: Specialize this a bit more. If we know that the RHS is some kind
+                // of constant, we can probably encode that a little bit more effectively
+                // in the generated code.
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
                     // Call the func
                     self.func_ret_val(op, payload, 2, InferredType::Number);
@@ -3237,6 +3377,43 @@ impl FunctionTranslator<'_> {
         self.ip += ip_inc;
     }
 
+    fn get_const(&mut self, op1: OpCode, payload: usize) -> (Value, InferredType) {
+        match op1 {
+            OpCode::LOADINT0 => (
+                self.create_i128(encode(SteelVal::INT_ZERO)),
+                InferredType::Int,
+            ),
+            OpCode::LOADINT1 => (
+                self.create_i128(encode(SteelVal::INT_ONE)),
+                InferredType::Int,
+            ),
+            OpCode::LOADINT2 => (
+                self.create_i128(encode(SteelVal::INT_TWO)),
+                InferredType::Int,
+            ),
+            OpCode::PUSHCONST => {
+                // Attempt to inline the constant, if it is something that can be inlined.
+                // Assuming we know the type of it, we can get really fancy here since
+                // we _should_ be able to do something with it if there are other types
+                // in play - we can avoid the unboxing / boxing of the type if we know
+                // what we're dealing with.
+
+                let constant = self.constants.get_value(payload);
+
+                match &constant {
+                    SteelVal::BoolV(_) => (self.create_i128(encode(constant)), InferredType::Bool),
+                    SteelVal::IntV(_) => (self.create_i128(encode(constant)), InferredType::Int),
+                    SteelVal::CharV(_) => (self.create_i128(encode(constant)), InferredType::Char),
+                    _ => (self.push_const_index(payload), InferredType::Any),
+                }
+            }
+            _ => (
+                self.call_function_returns_value(op_to_name_payload(op1, payload)),
+                InferredType::Any,
+            ),
+        }
+    }
+
     fn call_func_or_immediate(&mut self, op1: OpCode, payload: usize) -> Value {
         match op1 {
             OpCode::LOADINT0 => self.create_i128(encode(SteelVal::INT_ZERO)),
@@ -3285,6 +3462,13 @@ impl FunctionTranslator<'_> {
     fn encode_value(&mut self, tag: i64, value: Value) -> Value {
         let tag = self.builder.ins().iconst(Type::int(64).unwrap(), tag);
         self.builder.ins().iconcat(tag, value)
+    }
+
+    // Remove the tag from a value to get to the underlying type
+    fn unbox_value(&mut self, value: Value) -> Value {
+        let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
+        let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
+        encoded_rhs
     }
 
     fn translate_if_else_value(
