@@ -11,7 +11,12 @@ use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 use crate::{
     compiler::constants::ConstantMap,
     core::instructions::DenseInstruction,
-    primitives::{ports::steel_read_char, strings::char_equals_binop_unsafe},
+    primitives::{
+        ports::{
+            eof_objectp, eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char,
+        },
+        strings::{char_equals_binop, char_equals_binop_unsafe, steel_char_equals},
+    },
     rvals::FunctionSignature,
     steel_vm::vm::{
         jit::{
@@ -20,10 +25,11 @@ use crate::{
             callglobal_tail_handler_deopt_spilled, car_handler_value, cdr_handler_value,
             check_callable, check_callable_spill, check_callable_tail, check_callable_value,
             check_callable_value_tail, cons_handler_value, drop_value, equal_binop,
-            extern_c_add_two, extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
-            extern_c_lte_two, extern_c_lte_two_int, extern_c_mult_two, extern_c_negate,
-            extern_c_null_handler, extern_c_sub_two, extern_c_sub_two_int, extern_handle_pop,
-            handle_new_start_closure, handle_pure_function, if_handler_raw_value, if_handler_value,
+            extern_c_add_two, extern_c_add_two_binop_register, extern_c_div_two, extern_c_gt_two,
+            extern_c_gte_two, extern_c_lt_two, extern_c_lte_two, extern_c_lte_two_int,
+            extern_c_mult_two, extern_c_negate, extern_c_null_handler, extern_c_sub_two,
+            extern_c_sub_two_int, extern_handle_pop, handle_new_start_closure,
+            handle_pure_function, if_handler_raw_value, if_handler_register, if_handler_value,
             let_end_scope_c, list_handler_c, list_ref_handler_c, move_read_local_0_value_c,
             move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
             move_read_local_any_value_c, not_handler_raw_value, num_equal_int, num_equal_value,
@@ -220,6 +226,59 @@ extern "C-unwind" fn print_value(left: i8, right: i8) -> bool {
     true
 }
 
+// Build table mapping the function signatures
+// from the runtime representation to their specialized one via op codes.
+
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+struct PrimitiveSignature {
+    func: i64,
+    arity: usize,
+    shape: &'static [CallKind],
+}
+
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+enum CallKind {
+    Value,
+    Ref,
+    RefMut,
+}
+
+enum FunctionOrInstructionSet {
+    Pointer(i64),
+    InstructionSet(fn(&mut FunctionTranslator, arity: usize)),
+    InstructionSetWithFallback(fn(&mut FunctionTranslator, arity: usize) -> bool, i64),
+}
+
+struct PrimitiveTable {
+    map: HashMap<PrimitiveSignature, i64>,
+}
+
+impl PrimitiveTable {
+    pub fn new() -> Self {
+        let mut map = HashMap::new();
+
+        map.insert(
+            PrimitiveSignature {
+                func: steel_read_char as i64,
+                arity: 1,
+                shape: &[CallKind::Ref],
+            },
+            read_char_single_ref as i64,
+        );
+
+        map.insert(
+            PrimitiveSignature {
+                func: steel_char_equals as i64,
+                arity: 2,
+                shape: &[CallKind::Value, CallKind::Value],
+            },
+            char_equals_binop as i64,
+        );
+
+        Self { map }
+    }
+}
+
 impl Default for JIT {
     fn default() -> Self {
         let mut flag_builder = settings::builder();
@@ -274,6 +333,11 @@ impl Default for JIT {
         map.add_func(
             "if-branch-value",
             if_handler_raw_value as extern "C-unwind" fn(*mut VmCore, i128) -> bool,
+        );
+
+        map.add_func(
+            "if-branch-register",
+            if_handler_register as extern "C-unwind" fn(*mut VmCore, u64) -> bool,
         );
 
         map.add_func(
@@ -490,6 +554,13 @@ impl Default for JIT {
         map.add_func_hint(
             "add-binop",
             extern_c_add_two as VmBinOp,
+            InferredType::Number,
+        );
+
+        map.add_func_hint(
+            "add-binop-reg",
+            extern_c_add_two_binop_register
+                as extern "C-unwind" fn(*mut VmCore, usize, SteelVal) -> SteelVal,
             InferredType::Number,
         );
 
@@ -917,6 +988,14 @@ enum MaybeStackValue {
 }
 
 impl MaybeStackValue {
+    fn into_index(self) -> usize {
+        match self {
+            MaybeStackValue::MutRegister(p) => p,
+            MaybeStackValue::Register(p) => p,
+            _ => panic!(),
+        }
+    }
+
     fn into_value(self) -> StackValue {
         if let Self::Value(v) = self {
             v
@@ -1166,29 +1245,54 @@ impl FunctionTranslator<'_> {
 
                 // TODO: Still adjust the ip as needed
                 OpCode::IF => {
-                    // TODO: Type inference here! Change which function is called!
-                    let (test, typ) = self.shadow_pop();
-                    self.value_to_local_map.remove(&test);
+                    // If we can check the local variable on the stack, we should do that
+                    if matches!(
+                        self.shadow_stack.last(),
+                        Some(MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_))
+                    ) {
+                        let test = self.shadow_stack.pop().unwrap();
 
-                    let false_instr = self.instructions[self.ip].payload_size;
-                    let true_instr = self.ip + 1;
+                        let false_instr = self.instructions[self.ip].payload_size;
+                        let true_instr = self.ip + 1;
 
-                    let test_bool = if typ == InferredType::Bool {
-                        let amount_to_shift = self.builder.ins().iconst(Type::int(64).unwrap(), 64);
-                        let shift_right = self.builder.ins().sshr(test, amount_to_shift);
+                        let test_bool = self.call_test_handler_register(test.into_index());
 
-                        // Do we need to do this at all?
-                        self.builder
-                            .ins()
-                            .ireduce(Type::int(8).unwrap(), shift_right)
+                        let res = self.translate_if_else_value(
+                            test_bool,
+                            true_instr,
+                            false_instr.to_usize(),
+                        );
+
+                        self.push(res, InferredType::Any);
                     } else {
-                        self.call_test_handler(test)
-                    };
+                        // TODO: Type inference here! Change which function is called!
+                        let (test, typ) = self.shadow_pop();
+                        self.value_to_local_map.remove(&test);
 
-                    let res =
-                        self.translate_if_else_value(test_bool, true_instr, false_instr.to_usize());
+                        let false_instr = self.instructions[self.ip].payload_size;
+                        let true_instr = self.ip + 1;
 
-                    self.push(res, InferredType::Any);
+                        let test_bool = if typ == InferredType::Bool {
+                            let amount_to_shift =
+                                self.builder.ins().iconst(Type::int(64).unwrap(), 64);
+                            let shift_right = self.builder.ins().sshr(test, amount_to_shift);
+
+                            // Do we need to do this at all?
+                            self.builder
+                                .ins()
+                                .ireduce(Type::int(8).unwrap(), shift_right)
+                        } else {
+                            self.call_test_handler(test)
+                        };
+
+                        let res = self.translate_if_else_value(
+                            test_bool,
+                            true_instr,
+                            false_instr.to_usize(),
+                        );
+
+                        self.push(res, InferredType::Any);
+                    }
                 }
                 OpCode::JMP => {
                     self.ip = payload;
@@ -1508,198 +1612,16 @@ impl FunctionTranslator<'_> {
                                 crate::primitives::strings::steel_char_equals as FunctionSignature,
                             ) && arity == 2
                             {
-                                let name =
-                                    CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
-
-                                let args = self
-                                    .shadow_stack
-                                    .get(self.shadow_stack.len() - arity..)
-                                    .unwrap()
-                                    .to_vec();
-
-                                dbg!(args);
-
-                                // attempt to move forward with it
-                                let additional_args = self.split_off(arity);
-
-                                dbg!(&additional_args);
-
-                                // let f = crate::primitives::ports::read_char_single
-                                //     as fn(SteelVal) -> Result<SteelVal, crate::SteelErr>;
-                                //
-
-                                let all_chars =
-                                    additional_args.iter().all(|x| x.1 == InferredType::Char);
-
-                                // test encoding a value:
-                                /*
-
-                                let test = self.builder.ins().iconst(types::I64, 'a' as i64);
-                                let encoded = self
-                                    .encode_value(discriminant(&SteelVal::CharV('a')) as _, test);
-
-                                // Get the value out of the rhs?
-                                let new = self.create_i128(encode(SteelVal::CharV('a')));
-
-                                // Now, we're going to uncover the RHS of this.
-
-                                let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
-                                let encoded_rhs = self.builder.ins().sshr(encoded, amount_to_shift);
-                                let new_rhs = self.builder.ins().sshr(new, amount_to_shift);
-
-                                let encoded_rhs =
-                                    self.builder.ins().ireduce(types::I8, encoded_rhs);
-                                let new_rhs = self.builder.ins().ireduce(types::I8, new_rhs);
-
-                                let comparison =
-                                    self.builder.ins().icmp(IntCC::Equal, encoded_rhs, new_rhs);
-
-                                let res = self.builder.ins().uextend(types::I64, comparison);
-                                let boolean = self
-                                    .encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
-
-                                self.call_function_returns_value_args_no_context(
-                                    "#%print-value",
-                                    &[encoded_rhs, new_rhs],
-                                );
-                                */
-
-                                if all_chars {
-                                    println!("Found all characters, applying equality");
-                                    // Just... compare for equality?
-
-                                    let left = additional_args[0].0;
-                                    let right = additional_args[1].0;
-
-                                    let left = self.unbox_value(left);
-                                    let right = self.unbox_value(right);
-
-                                    let left = self.builder.ins().ireduce(types::I8, left);
-                                    let right = self.builder.ins().ireduce(types::I8, right);
-
-                                    let comparison =
-                                        self.builder.ins().icmp(IntCC::Equal, left, right);
-                                    let res = self.builder.ins().uextend(types::I64, comparison);
-                                    let boolean = self.encode_value(
-                                        discriminant(&SteelVal::BoolV(true)) as i64,
-                                        res,
-                                    );
-                                    self.push(boolean, InferredType::Bool);
-
-                                    // let res = self.builder.ins().icmp(
-                                    //     IntCC::Equal,
-                                    //     additional_args[0].0,
-                                    //     additional_args[1].0,
-                                    // );
-
-                                    // // Widen the res to be 64 bits
-
-                                    // let res = self.builder.ins().sextend(types::I64, res);
-
-                                    // let boolean = self.encode_value(
-                                    //     discriminant(&SteelVal::BoolV(true)) as i64,
-                                    //     res,
-                                    // );
-
-                                    // let res = self.call_function_returns_value_args_no_context(
-                                    //     "unsafe-char-equals",
-                                    //     &additional_args
-                                    //         .into_iter()
-                                    //         .map(|x| x.0)
-                                    //         .collect::<Vec<_>>(),
-                                    // );
-
-                                    // self.push(res, InferredType::Bool);
-                                    self.ip += 1;
-
-                                    // No need to check deopt here, we're good.
-                                } else {
-                                    let function =
-                                    // if additional_args.iter().all(|x| x.1 == InferredType::Char) {
-                                    //     self.builder.ins().iconst(
-                                    //         self.module.target_config().pointer_type(),
-                                    //         crate::primitives::strings::char_equals_binop_unsafe
-                                    //             as i64,
-                                    //     )
-                                    // } else {
-                                        self.builder.ins().iconst(
-                                            self.module.target_config().pointer_type(),
-                                            crate::primitives::strings::char_equals_binop as i64,
-                                        );
-                                    // };
-
-                                    let fallback_ip = self
-                                        .builder
-                                        .ins()
-                                        .iconst(Type::int(64).unwrap(), self.ip as i64);
-
-                                    let mut args = vec![function, fallback_ip];
-
-                                    args.extend(additional_args.into_iter().map(|x| x.0));
-
-                                    let result = self.call_function_returns_value_args(name, &args);
-                                    self.push(result, InferredType::Bool);
-                                    self.ip += 1;
-                                    self.check_deopt();
-                                }
+                                self.char_equals(arity);
                             } else if fn_addr_eq(f, steel_read_char as FunctionSignature)
                                 && arity == 1
                             {
-                                let name =
-                                    CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
-
-                                let test_stack = self
-                                    .shadow_stack
-                                    .get(self.shadow_stack.len() - arity..)
-                                    .unwrap()
-                                    .to_vec();
-
-                                let shape = test_stack
-                                    .iter()
-                                    .map(|x| match x {
-                                        MaybeStackValue::Value(_) => 0,
-                                        MaybeStackValue::MutRegister(_) => 2,
-                                        MaybeStackValue::Register(_) => 1,
-                                    })
-                                    .collect::<Vec<_>>();
-
-                                let func =
-                                    CallRegisterPrimitiveFixedDefinitions::shape_to_name(&shape);
-
-                                // let f = crate::primitives::ports::read_char_single
-                                //     as fn(SteelVal) -> Result<SteelVal, crate::SteelErr>;
-
-                                let function = self.builder.ins().iconst(
-                                    self.module.target_config().pointer_type(),
-                                    crate::primitives::ports::read_char_single_ref as i64,
-                                );
-
-                                let fallback_ip = self
-                                    .builder
-                                    .ins()
-                                    .iconst(Type::int(64).unwrap(), self.ip as i64);
-
-                                let mut args = vec![function, fallback_ip];
-
-                                if let Some(func) = func {
-                                    dbg!(test_stack);
-                                    let additional_args = self.split_off_reg(arity);
-                                    dbg!(&additional_args);
-                                    args.extend(additional_args);
-
-                                    let result = self.call_function_returns_value_args(func, &args);
-                                    self.push(result, InferredType::Char);
-                                    self.ip += 1;
-                                    self.check_deopt();
-                                } else {
-                                    let additional_args = self.split_off(arity);
-                                    args.extend(additional_args.into_iter().map(|x| x.0));
-
-                                    let result = self.call_function_returns_value_args(name, &args);
-                                    self.push(result, InferredType::Char);
-                                    self.ip += 1;
-                                    self.check_deopt();
-                                }
+                                self.read_char(arity);
+                            } else if fn_addr_eq(f, steel_eof_objectp as FunctionSignature)
+                                && arity == 1
+                            {
+                                // Encode the object... Any others we can encode in this way?
+                                self.eof_object(1)
                             } else {
                                 if let Some(name) = name {
                                     // attempt to move forward with it
@@ -1837,6 +1759,34 @@ impl FunctionTranslator<'_> {
                 {
                     // Call the func
                     self.func_ret_val_named("sub-binop-int", payload, 2, InferredType::Number);
+                }
+
+                // Specializing addition such that we'll handle when the first argument
+                // is a register.
+                //
+                // We should probably also handle if the value is an immediate; Can it be
+                // encoded unboxed?
+                OpCode::ADD
+                    if matches!(
+                        self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                        Some(&[
+                            MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
+                            MaybeStackValue::Value(_)
+                        ])
+                    ) =>
+                {
+                    let value = self.shadow_stack.pop().unwrap().into_value();
+                    let register = self.shadow_stack.pop().unwrap().into_index();
+
+                    let register = self.builder.ins().iconst(types::I64, register as i64);
+
+                    let args = [register, value.value];
+                    let result = self.call_function_returns_value_args("add-binop-reg", &args);
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::Number);
+
+                    self.ip += 2;
                 }
 
                 // TODO: Specialize this a bit more. If we know that the RHS is some kind
@@ -1982,6 +1932,139 @@ impl FunctionTranslator<'_> {
         }
 
         return true;
+    }
+
+    // TODO: Generalize this to by value functions
+    // to work with anything where every argument is just by value.
+    //
+    // Then, we can specialize as needed.
+    fn eof_object(&mut self, arity: usize) {
+        let name = CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
+        let additional_args = self.split_off(1);
+
+        let fallback_ip = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+        let function = self.builder.ins().iconst(
+            self.module.target_config().pointer_type(),
+            eof_objectp_jit as i64,
+        );
+
+        let mut args = vec![function, fallback_ip];
+        args.extend(additional_args.into_iter().map(|x| x.0));
+
+        let result = self.call_function_returns_value_args(name, &args);
+        self.push(result, InferredType::Char);
+        self.ip += 1;
+
+        // Don't need to check deopt on predicates
+    }
+
+    fn read_char(&mut self, arity: usize) {
+        let test_stack = self
+            .shadow_stack
+            .get(self.shadow_stack.len() - arity..)
+            .unwrap()
+            .to_vec();
+
+        let shape = test_stack
+            .iter()
+            .map(|x| match x {
+                MaybeStackValue::Value(_) => 0,
+                MaybeStackValue::MutRegister(_) => 2,
+                MaybeStackValue::Register(_) => 1,
+            })
+            .collect::<Vec<_>>();
+
+        let func = CallRegisterPrimitiveFixedDefinitions::shape_to_name(&shape).unwrap();
+
+        let function = self.builder.ins().iconst(
+            self.module.target_config().pointer_type(),
+            crate::primitives::ports::read_char_single_ref as i64,
+        );
+
+        let fallback_ip = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+        let mut args = vec![function, fallback_ip];
+
+        // dbg!(test_stack);
+        let additional_args = self.split_off_reg(arity);
+        // dbg!(&additional_args);
+        args.extend(additional_args);
+
+        let result = self.call_function_returns_value_args(func, &args);
+        self.push(result, InferredType::Char);
+        self.ip += 1;
+        self.check_deopt();
+    }
+
+    fn char_equals(&mut self, arity: usize) {
+        let name = CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
+
+        let args = self
+            .shadow_stack
+            .get(self.shadow_stack.len() - arity..)
+            .unwrap()
+            .to_vec();
+
+        dbg!(args);
+
+        // attempt to move forward with it
+        let additional_args = self.split_off(arity);
+
+        dbg!(&additional_args);
+
+        // let f = crate::primitives::ports::read_char_single
+        //     as fn(SteelVal) -> Result<SteelVal, crate::SteelErr>;
+        //
+
+        let all_chars = additional_args.iter().all(|x| x.1 == InferredType::Char);
+
+        if all_chars {
+            // println!("Found all characters, applying equality");
+            // Just... compare for equality?
+
+            let left = additional_args[0].0;
+            let right = additional_args[1].0;
+
+            let left = self.unbox_value(left);
+            let right = self.unbox_value(right);
+
+            let left = self.builder.ins().ireduce(types::I8, left);
+            let right = self.builder.ins().ireduce(types::I8, right);
+
+            let comparison = self.builder.ins().icmp(IntCC::Equal, left, right);
+            let res = self.builder.ins().uextend(types::I64, comparison);
+            let boolean = self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+            self.push(boolean, InferredType::Bool);
+            self.ip += 1;
+
+            // No need to check deopt here, we're good.
+        } else {
+            let function = self.builder.ins().iconst(
+                self.module.target_config().pointer_type(),
+                crate::primitives::strings::char_equals_binop as i64,
+            );
+
+            let fallback_ip = self
+                .builder
+                .ins()
+                .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+            let mut args = vec![function, fallback_ip];
+
+            args.extend(additional_args.into_iter().map(|x| x.0));
+
+            let result = self.call_function_returns_value_args(name, &args);
+            self.push(result, InferredType::Bool);
+            self.ip += 1;
+            self.check_deopt();
+        }
     }
 
     // TODO: Should this advance the ip?
@@ -2228,6 +2311,23 @@ impl FunctionTranslator<'_> {
         let ctx = self.get_ctx();
 
         let arg_values = vec![ctx];
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+    }
+
+    fn call_test_handler_register(&mut self, register: usize) -> Value {
+        let local_callee = self.get_local_callee("if-branch-register");
+
+        let ctx = self.get_ctx();
+
+        // Advance to the next thing
+        self.ip += 1;
+
+        let register = self.builder.ins().iconst(types::I64, register as i64);
+
+        let arg_values = [ctx, register];
 
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];

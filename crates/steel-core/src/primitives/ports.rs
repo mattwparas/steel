@@ -593,6 +593,10 @@ pub fn eof_objectp(value: &SteelVal) -> bool {
     }
 }
 
+pub fn eof_objectp_jit(value: SteelVal) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(eof_objectp(&value)))
+}
+
 /// Returns an EOF object.
 ///
 /// (eof-object) -> eof-object?

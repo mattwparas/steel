@@ -1387,6 +1387,26 @@ pub(crate) extern "C-unwind" fn extern_c_add_two(
 }
 
 #[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn extern_c_add_two_binop_register(
+    ctx: *mut VmCore,
+    reg: usize,
+    b: SteelVal,
+) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
+    let offset = ctx.get_offset();
+    let a = &ctx.thread.stack[reg + offset];
+
+    match add_two(a, &b) {
+        Ok(v) => v,
+        Err(e) => {
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+            SteelVal::Void
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn extern_c_sub_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
     // let a = ManuallyDrop::new(a);
     let rhs = if let SteelVal::IntV(i) = b {
@@ -3996,17 +4016,14 @@ fn pop_test(ctx: &mut VmCore) -> bool {
 }
 
 pub(crate) extern "C-unwind" fn if_handler_raw_value(_: *mut VmCore, value: i128) -> bool {
-    // let ctx = unsafe { &mut *raw_ctx };
     let test: SteelVal = unsafe { std::mem::transmute(value) };
     test.is_truthy()
+}
 
-    // if result {
-    //     ctx.ip += 1;
-    // } else {
-    //     ctx.ip = ctx.instructions[ctx.ip].payload_size.to_usize();
-    // }
-
-    // result
+pub(crate) extern "C-unwind" fn if_handler_register(ctx: *mut VmCore, index: u64) -> bool {
+    let ctx = unsafe { &mut *ctx };
+    let offset = ctx.get_offset();
+    ctx.thread.stack[index as usize + offset].is_truthy()
 }
 
 pub(crate) extern "C-unwind" fn not_handler_raw_value(_: *mut VmCore, value: SteelVal) -> SteelVal {
