@@ -25,7 +25,8 @@ use crate::{
             callglobal_tail_handler_deopt_spilled, car_handler_value, cdr_handler_value,
             check_callable, check_callable_spill, check_callable_tail, check_callable_value,
             check_callable_value_tail, cons_handler_value, drop_value, equal_binop,
-            extern_c_add_two, extern_c_add_two_binop_register, extern_c_div_two, extern_c_gt_two,
+            extern_c_add_two, extern_c_add_two_binop_register,
+            extern_c_add_two_binop_register_both, extern_c_div_two, extern_c_gt_two,
             extern_c_gte_two, extern_c_lt_two, extern_c_lte_two, extern_c_lte_two_int,
             extern_c_mult_two, extern_c_negate, extern_c_null_handler, extern_c_sub_two,
             extern_c_sub_two_int, extern_c_sub_two_int_reg, extern_handle_pop,
@@ -561,6 +562,13 @@ impl Default for JIT {
             "add-binop-reg",
             extern_c_add_two_binop_register
                 as extern "C-unwind" fn(*mut VmCore, usize, SteelVal) -> SteelVal,
+            InferredType::Number,
+        );
+
+        map.add_func_hint(
+            "add-binop-reg-2",
+            extern_c_add_two_binop_register_both
+                as extern "C-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
             InferredType::Number,
         );
 
@@ -1824,10 +1832,41 @@ impl FunctionTranslator<'_> {
                     self.ip += 2;
                 }
 
+                OpCode::ADD
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[
+                                MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
+                                MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
+                            ])
+                        ) =>
+                {
+                    let register_r = self.shadow_stack.pop().unwrap().into_index();
+                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+
+                    let register_r = self.builder.ins().iconst(types::I64, register_r as i64);
+                    let register_l = self.builder.ins().iconst(types::I64, register_l as i64);
+
+                    let args = [register_l, register_r];
+                    let result = self.call_function_returns_value_args("add-binop-reg-2", &args);
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::Number);
+
+                    self.ip += 2;
+                }
+
                 // TODO: Specialize this a bit more. If we know that the RHS is some kind
                 // of constant, we can probably encode that a little bit more effectively
                 // in the generated code.
                 OpCode::ADD | OpCode::SUB | OpCode::MUL | OpCode::DIV => {
+                    // if op == OpCode::ADD {
+                    //     println!(
+                    //         "Getting here: {:?}",
+                    //         self.shadow_stack.get(self.shadow_stack.len() - 2)
+                    //     );
+                    // }
                     // Call the func
                     self.func_ret_val(op, payload, 2, InferredType::Number);
                     self.check_deopt();

@@ -1407,6 +1407,27 @@ pub(crate) extern "C-unwind" fn extern_c_add_two_binop_register(
 }
 
 #[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn extern_c_add_two_binop_register_both(
+    ctx: *mut VmCore,
+    reg1: usize,
+    reg2: usize,
+) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
+    let offset = ctx.get_offset();
+    let a = &ctx.thread.stack[reg1 + offset];
+    let b = &ctx.thread.stack[reg2 + offset];
+
+    match add_two(a, b) {
+        Ok(v) => v,
+        Err(e) => {
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+            SteelVal::Void
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn extern_c_sub_two_int_reg(
     ctx: *mut VmCore,
     reg: usize,
