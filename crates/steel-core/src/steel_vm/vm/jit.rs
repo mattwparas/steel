@@ -1,6 +1,6 @@
 #![allow(improper_ctypes_definitions)]
 
-use std::mem::ManuallyDrop;
+use std::{hint::unreachable_unchecked, mem::ManuallyDrop};
 
 use steel_gen::opcode::{MAX_OPCODE_SIZE, OPCODES_ARRAY};
 
@@ -1417,14 +1417,32 @@ pub(crate) extern "C-unwind" fn extern_c_add_two_binop_register_both(
     let a = &ctx.thread.stack[reg1 + offset];
     let b = &ctx.thread.stack[reg2 + offset];
 
-    match add_two(a, b) {
-        Ok(v) => v,
-        Err(e) => {
-            ctx.result = Some(Err(e));
-            ctx.is_native = false;
-            SteelVal::Void
-        }
+    // assert!(matches!(a, SteelVal::IntV(_)));
+    // assert!(matches!(b, SteelVal::IntV(_)));
+
+    match (a, b) {
+        (SteelVal::IntV(x), SteelVal::IntV(y)) => match x.checked_add(*y) {
+            Some(res) => SteelVal::IntV(res),
+            None => {
+                let mut res = BigInt::from(*x);
+                res += *y;
+                SteelVal::BigNum(Gc::new(res))
+            }
+        },
+
+        _ => unsafe {
+            unreachable_unchecked();
+        },
     }
+
+    // match add_two(a, b) {
+    //     Ok(v) => v,
+    //     Err(e) => {
+    //         ctx.result = Some(Err(e));
+    //         ctx.is_native = false;
+    //         SteelVal::Void
+    //     }
+    // }
 }
 
 #[allow(improper_ctypes_definitions)]

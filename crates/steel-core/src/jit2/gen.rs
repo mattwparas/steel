@@ -1156,6 +1156,14 @@ impl FunctionTranslator<'_> {
         if let MaybeStackValue::Value(value) = last {
             self.mark_local_type_from_var(value, typ);
         }
+
+        if let MaybeStackValue::Register(p) = last {
+            self.local_to_value_map.insert(p, typ);
+        }
+
+        if let MaybeStackValue::MutRegister(p) = last {
+            self.local_to_value_map.insert(p, typ);
+        }
     }
 
     fn maybe_check_last(&self) {
@@ -1845,6 +1853,9 @@ impl FunctionTranslator<'_> {
                     let register_r = self.shadow_stack.pop().unwrap().into_index();
                     let register_l = self.shadow_stack.pop().unwrap().into_index();
 
+                    dbg!(self.local_to_value_map.get(&register_r));
+                    dbg!(self.local_to_value_map.get(&register_l));
+
                     let register_r = self.builder.ins().iconst(types::I64, register_r as i64);
                     let register_l = self.builder.ins().iconst(types::I64, register_l as i64);
 
@@ -1888,13 +1899,22 @@ impl FunctionTranslator<'_> {
                     self.func_ret_val_named("num-equal-int", payload, 2, InferredType::Bool);
                 }
 
-                OpCode::EQUAL
-                | OpCode::NUMEQUAL
-                | OpCode::LTE
-                | OpCode::GTE
-                | OpCode::GT
-                | OpCode::LT
-                | OpCode::EQUAL2 => {
+                OpCode::LTE | OpCode::GTE | OpCode::LT | OpCode::GT => {
+                    if payload == 2 {
+                        for arg in self
+                            .shadow_stack
+                            .get(self.shadow_stack.len() - payload..)
+                            .unwrap()
+                            .to_vec()
+                        {
+                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
+                        }
+                    }
+
+                    self.func_ret_val(op, payload, 2, InferredType::Bool);
+                }
+
+                OpCode::EQUAL | OpCode::NUMEQUAL | OpCode::EQUAL2 => {
                     self.func_ret_val(op, payload, 2, InferredType::Bool);
                 }
                 OpCode::NULL => {

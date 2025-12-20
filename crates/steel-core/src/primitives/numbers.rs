@@ -2323,7 +2323,7 @@ pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
     match (x, y) {
         // Simple integer case. Probably very common.
         (SteelVal::IntV(x), SteelVal::IntV(y)) => match x.checked_add(y) {
-            Some(res) => res.into_steelval(),
+            Some(res) => Ok(SteelVal::IntV(res)),
             None => {
                 let mut res = BigInt::from(*x);
                 res += *y;

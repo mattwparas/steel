@@ -1,5 +1,9 @@
 (require "common.scm")
 
+;; TODO: Look into loop unrolling?
+;; Otherwise, we'll want to look into
+;; better type inference / understanding
+;; how to avoid the dispatching cost.
 (define (run n)
   (let loop ([i n]
              [sum 0])
