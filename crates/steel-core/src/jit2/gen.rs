@@ -28,19 +28,19 @@ use crate::{
             extern_c_add_two, extern_c_add_two_binop_register, extern_c_div_two, extern_c_gt_two,
             extern_c_gte_two, extern_c_lt_two, extern_c_lte_two, extern_c_lte_two_int,
             extern_c_mult_two, extern_c_negate, extern_c_null_handler, extern_c_sub_two,
-            extern_c_sub_two_int, extern_handle_pop, handle_new_start_closure,
-            handle_pure_function, if_handler_raw_value, if_handler_register, if_handler_value,
-            let_end_scope_c, list_handler_c, list_ref_handler_c, move_read_local_0_value_c,
-            move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
-            move_read_local_any_value_c, not_handler_raw_value, num_equal_int, num_equal_value,
-            num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
-            push_global, push_to_vm_stack, push_to_vm_stack_let_var, push_to_vm_stack_two,
-            read_captured_c, read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
-            read_local_3_value_c, read_local_any_value_c, self_tail_call_handler,
-            self_tail_call_handler_loop, set_handler_c, setbox_handler_c, should_continue,
-            should_spill, should_spill_value, tcojmp_handler, trampoline, trampoline_no_arity,
-            unbox_handler_c, vector_ref_handler_c, CallFunctionDefinitions,
-            CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
+            extern_c_sub_two_int, extern_c_sub_two_int_reg, extern_handle_pop,
+            handle_new_start_closure, handle_pure_function, if_handler_raw_value,
+            if_handler_register, if_handler_value, let_end_scope_c, list_handler_c,
+            list_ref_handler_c, move_read_local_0_value_c, move_read_local_1_value_c,
+            move_read_local_2_value_c, move_read_local_3_value_c, move_read_local_any_value_c,
+            not_handler_raw_value, num_equal_int, num_equal_value, num_equal_value_unboxed,
+            pop_value, push_const_value_c, push_const_value_index_c, push_global, push_to_vm_stack,
+            push_to_vm_stack_let_var, push_to_vm_stack_two, read_captured_c, read_local_0_value_c,
+            read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
+            read_local_any_value_c, self_tail_call_handler, self_tail_call_handler_loop,
+            set_handler_c, setbox_handler_c, should_continue, should_spill, should_spill_value,
+            tcojmp_handler, trampoline, trampoline_no_arity, unbox_handler_c, vector_ref_handler_c,
+            CallFunctionDefinitions, CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
             CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
             CallPrimitiveDefinitions, CallPrimitiveFixedDefinitions, CallPrimitiveMutDefinitions,
             CallRegisterPrimitiveFixedDefinitions, CallSelfTailCallNoArityDefinitions,
@@ -579,6 +579,13 @@ impl Default for JIT {
         map.add_func_hint2(
             "sub-binop-int",
             extern_c_sub_two_int as BinOp,
+            InferredType::Number,
+        );
+
+        map.add_func_hint(
+            "sub-binop-int-reg",
+            extern_c_sub_two_int_reg
+                as extern "C-unwind" fn(*mut VmCore, usize, SteelVal) -> SteelVal,
             InferredType::Number,
         );
 
@@ -1754,6 +1761,33 @@ impl FunctionTranslator<'_> {
 
                 OpCode::SUB
                     if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[
+                                MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
+                                MaybeStackValue::Value(StackValue {
+                                    inferred_type: InferredType::Int,
+                                    ..
+                                })
+                            ])
+                        ) =>
+                {
+                    let value = self.shadow_stack.pop().unwrap().into_value();
+                    let register = self.shadow_stack.pop().unwrap().into_index();
+
+                    let register = self.builder.ins().iconst(types::I64, register as i64);
+
+                    let args = [register, value.value];
+                    let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::Number);
+
+                    self.ip += 2;
+                }
+
+                OpCode::SUB
+                    if payload == 2
                         && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
                             == Some(InferredType::Int) =>
                 {
@@ -1767,13 +1801,14 @@ impl FunctionTranslator<'_> {
                 // We should probably also handle if the value is an immediate; Can it be
                 // encoded unboxed?
                 OpCode::ADD
-                    if matches!(
-                        self.shadow_stack.get(self.shadow_stack.len() - 2..),
-                        Some(&[
-                            MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
-                            MaybeStackValue::Value(_)
-                        ])
-                    ) =>
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[
+                                MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
+                                MaybeStackValue::Value(_)
+                            ])
+                        ) =>
                 {
                     let value = self.shadow_stack.pop().unwrap().into_value();
                     let register = self.shadow_stack.pop().unwrap().into_index();

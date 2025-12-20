@@ -1216,7 +1216,7 @@ pub(crate) extern "C-unwind" fn extern_handle_pop(ctx: *mut VmCore, value: Steel
         // println!("stack: {:?}", this.thread.stack);
         let res = this.handle_pop_pure_value(value);
         // println!("stack after pop: {:?}", this.thread.stack);
-        this.is_native = false;
+        // this.is_native = false;
         this.result = res;
     }
 }
@@ -1402,6 +1402,40 @@ pub(crate) extern "C-unwind" fn extern_c_add_two_binop_register(
             ctx.result = Some(Err(e));
             ctx.is_native = false;
             SteelVal::Void
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn extern_c_sub_two_int_reg(
+    ctx: *mut VmCore,
+    reg: usize,
+    b: SteelVal,
+) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
+    // let a = ManuallyDrop::new(a);
+    let rhs = if let SteelVal::IntV(i) = b {
+        i
+    } else {
+        panic!()
+    };
+
+    let offset = ctx.get_offset();
+    let a = &ctx.thread.stack[reg + offset];
+
+    match a {
+        SteelVal::IntV(l) => match (*l).checked_sub(rhs) {
+            Some(x) => SteelVal::IntV(x),
+            None => {
+                let res = BigInt::from(*l) - rhs;
+                res.into_steelval().unwrap()
+            }
+        },
+        SteelVal::BigNum(n) => {
+            todo!("found big: {:?}", n);
+        }
+        _ => {
+            todo!("{}", a)
         }
     }
 }
@@ -2376,8 +2410,6 @@ pub(crate) extern "C-unwind" fn trampoline(
                 this.handle_function_call_closure_jit(c, arity).unwrap();
 
                 (func)(this);
-
-                dbg!(this.is_native);
 
                 // Don't deopt?
                 this.thread.stack.pop().unwrap()
