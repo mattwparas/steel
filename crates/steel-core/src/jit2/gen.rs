@@ -27,9 +27,9 @@ use crate::{
             check_callable_value_tail, cons_handler_value, drop_value, equal_binop,
             extern_c_add_two, extern_c_add_two_binop_register,
             extern_c_add_two_binop_register_both, extern_c_div_two, extern_c_gt_two,
-            extern_c_gte_two, extern_c_lt_two, extern_c_lte_two, extern_c_lte_two_int,
-            extern_c_mult_two, extern_c_negate, extern_c_null_handler, extern_c_sub_two,
-            extern_c_sub_two_int, extern_c_sub_two_int_reg, extern_handle_pop,
+            extern_c_gte_two, extern_c_lt_two, extern_c_lt_two_int, extern_c_lte_two,
+            extern_c_lte_two_int, extern_c_mult_two, extern_c_negate, extern_c_null_handler,
+            extern_c_sub_two, extern_c_sub_two_int, extern_c_sub_two_int_reg, extern_handle_pop,
             handle_new_start_closure, handle_pure_function, if_handler_raw_value,
             if_handler_register, if_handler_value, let_end_scope_c, list_handler_c,
             list_ref_handler_c, move_read_local_0_value_c, move_read_local_1_value_c,
@@ -608,6 +608,12 @@ impl Default for JIT {
         );
 
         map.add_func_hint2(
+            "lt-binop-int",
+            extern_c_lt_two_int as BinOp,
+            InferredType::Bool,
+        );
+
+        map.add_func_hint2(
             "null-handler",
             extern_c_null_handler as extern "C-unwind" fn(a: SteelVal) -> SteelVal,
             InferredType::Bool,
@@ -988,6 +994,39 @@ struct StackValue {
 }
 
 #[derive(Debug, Clone, Copy)]
+enum ConstantValue {
+    Int(isize),
+    Bool(bool),
+    Char(char),
+    Float(f64),
+}
+
+impl ConstantValue {
+    fn as_steelval(self) -> SteelVal {
+        match self {
+            ConstantValue::Int(i) => SteelVal::IntV(i),
+            ConstantValue::Bool(b) => SteelVal::BoolV(b),
+            ConstantValue::Char(c) => SteelVal::CharV(c),
+            ConstantValue::Float(f) => SteelVal::NumV(f),
+        }
+    }
+
+    fn as_typ(self) -> InferredType {
+        match self {
+            ConstantValue::Int(_) => InferredType::Int,
+            ConstantValue::Bool(_) => InferredType::Bool,
+            ConstantValue::Char(_) => InferredType::Char,
+            ConstantValue::Float(_) => InferredType::Number,
+        }
+    }
+
+    fn to_value(self, ctx: &mut FunctionTranslator) -> (Value, InferredType) {
+        let value = ctx.create_i128(encode(self.as_steelval()));
+        (value, self.as_typ())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 enum MaybeStackValue {
     Value(StackValue),
@@ -1000,6 +1039,8 @@ enum MaybeStackValue {
 
     // Registers will get &SteelVal via the index
     Register(usize),
+
+    Constant(ConstantValue),
 }
 
 impl MaybeStackValue {
@@ -1179,6 +1220,7 @@ impl FunctionTranslator<'_> {
             MaybeStackValue::Value(stack_value) => Some(stack_value.inferred_type.clone()),
             MaybeStackValue::MutRegister(i) => self.local_to_value_map.get(i).cloned(),
             MaybeStackValue::Register(i) => self.local_to_value_map.get(i).cloned(),
+            MaybeStackValue::Constant(constant_value) => Some(constant_value.as_typ()),
         }
     }
 
@@ -1883,11 +1925,41 @@ impl FunctionTranslator<'_> {
                     self.check_deopt();
                 }
 
+                OpCode::LT
+                    if payload == 2
+                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
+                            == Some(InferredType::Int) =>
+                {
+                    if payload == 2 {
+                        for arg in self
+                            .shadow_stack
+                            .get(self.shadow_stack.len() - payload..)
+                            .unwrap()
+                            .to_vec()
+                        {
+                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
+                        }
+                    }
+                    // TODO: This isn't quite right. This doesn not check the input
+                    // type properly
+                    self.func_ret_val_named("lt-binop-int", payload, 2, InferredType::Bool);
+                }
+
                 OpCode::LTE
                     if payload == 2
                         && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
                             == Some(InferredType::Int) =>
                 {
+                    if payload == 2 {
+                        for arg in self
+                            .shadow_stack
+                            .get(self.shadow_stack.len() - payload..)
+                            .unwrap()
+                            .to_vec()
+                        {
+                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
+                        }
+                    }
                     self.func_ret_val_named("lte-binop-int", payload, 2, InferredType::Bool);
                 }
 
@@ -2069,6 +2141,7 @@ impl FunctionTranslator<'_> {
                 MaybeStackValue::Value(_) => 0,
                 MaybeStackValue::MutRegister(_) => 2,
                 MaybeStackValue::Register(_) => 1,
+                MaybeStackValue::Constant(_) => 0,
             })
             .collect::<Vec<_>>();
 
@@ -2534,7 +2607,7 @@ impl FunctionTranslator<'_> {
         let arity = self
             .builder
             .ins()
-            .iconst(Type::int(64).unwrap(), arity as i64);
+            .iconst(Type::int(16).unwrap(), arity as i64);
 
         let mut arg_values = vec![ctx, arity];
         arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
@@ -2574,6 +2647,7 @@ impl FunctionTranslator<'_> {
             while let Some(last) = self.shadow_stack.last().copied() {
                 match last {
                     MaybeStackValue::Value(_) => break,
+                    MaybeStackValue::Constant(_) => break,
                     MaybeStackValue::MutRegister(r) => {
                         if r == (payload - amount_dropped - 1) {
                             self.shadow_stack.pop();
@@ -2609,7 +2683,7 @@ impl FunctionTranslator<'_> {
         let arity = self
             .builder
             .ins()
-            .iconst(Type::int(64).unwrap(), payload as i64);
+            .iconst(Type::int(16).unwrap(), payload as i64);
 
         let mut arg_values = vec![ctx, arity];
         arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
@@ -3252,6 +3326,17 @@ impl FunctionTranslator<'_> {
                     spilled: true,
                 });
             }
+            MaybeStackValue::Constant(c) => {
+                let c = *c;
+                let (value, typ) = c.to_value(self);
+                spilled = true;
+
+                self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                    value,
+                    inferred_type: typ,
+                    spilled: true,
+                });
+            }
         }
 
         if spilled {
@@ -3323,6 +3408,10 @@ impl FunctionTranslator<'_> {
                     let (value, _) = self.immutable_register_to_value(p);
                     self.push_to_vm_stack(value);
                 }
+                MaybeStackValue::Constant(c) => {
+                    let (value, _) = c.to_value(self);
+                    self.push_to_vm_stack(value);
+                }
             }
         }
     }
@@ -3341,6 +3430,7 @@ impl FunctionTranslator<'_> {
             // TODO: @matt specialize these for readlocal 0, 1, 2, etc.
             MaybeStackValue::MutRegister(p) => self.mut_register_to_value(p),
             MaybeStackValue::Register(p) => self.immutable_register_to_value(p),
+            MaybeStackValue::Constant(c) => c.to_value(self),
         }
     }
 
@@ -3382,6 +3472,7 @@ impl FunctionTranslator<'_> {
             // TODO: @matt specialize these for readlocal 0, 1, 2, etc.
             MaybeStackValue::MutRegister(p) => self.mut_register_to_value(p),
             MaybeStackValue::Register(p) => self.immutable_register_to_value(p),
+            MaybeStackValue::Constant(c) => c.to_value(self),
         })
     }
 
@@ -3457,6 +3548,7 @@ impl FunctionTranslator<'_> {
                 MaybeStackValue::Register(p) => {
                     self.builder.ins().iconst(Type::int(64).unwrap(), p as i64)
                 }
+                MaybeStackValue::Constant(constant_value) => constant_value.to_value(self).0,
             })
             .collect()
     }
@@ -3484,6 +3576,14 @@ impl FunctionTranslator<'_> {
                     MaybeStackValue::Value(StackValue {
                         value,
                         inferred_type: InferredType::Any,
+                        spilled: false,
+                    })
+                }
+                MaybeStackValue::Constant(c) => {
+                    let (value, typ) = c.to_value(self);
+                    MaybeStackValue::Value(StackValue {
+                        value,
+                        inferred_type: typ,
                         spilled: false,
                     })
                 }

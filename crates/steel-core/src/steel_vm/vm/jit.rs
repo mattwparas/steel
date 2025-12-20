@@ -1420,29 +1420,29 @@ pub(crate) extern "C-unwind" fn extern_c_add_two_binop_register_both(
     // assert!(matches!(a, SteelVal::IntV(_)));
     // assert!(matches!(b, SteelVal::IntV(_)));
 
-    match (a, b) {
-        (SteelVal::IntV(x), SteelVal::IntV(y)) => match x.checked_add(*y) {
-            Some(res) => SteelVal::IntV(res),
-            None => {
-                let mut res = BigInt::from(*x);
-                res += *y;
-                SteelVal::BigNum(Gc::new(res))
-            }
-        },
+    // match (a, b) {
+    //     (SteelVal::IntV(x), SteelVal::IntV(y)) => match x.checked_add(*y) {
+    //         Some(res) => SteelVal::IntV(res),
+    //         None => {
+    //             let mut res = BigInt::from(*x);
+    //             res += *y;
+    //             SteelVal::BigNum(Gc::new(res))
+    //         }
+    //     },
 
-        _ => unsafe {
-            unreachable_unchecked();
-        },
-    }
-
-    // match add_two(a, b) {
-    //     Ok(v) => v,
-    //     Err(e) => {
-    //         ctx.result = Some(Err(e));
-    //         ctx.is_native = false;
-    //         SteelVal::Void
-    //     }
+    //     _ => unsafe {
+    //         unreachable_unchecked();
+    //     },
     // }
+
+    match add_two(a, b) {
+        Ok(v) => v,
+        Err(e) => {
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+            SteelVal::Void
+        }
+    }
 }
 
 #[allow(improper_ctypes_definitions)]
@@ -1555,6 +1555,12 @@ pub(crate) extern "C-unwind" fn extern_c_lt_two(
 pub(crate) extern "C-unwind" fn extern_c_lte_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
     assert!(matches!(b, SteelVal::IntV(_)));
     SteelVal::BoolV(a <= b)
+}
+
+#[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn extern_c_lt_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
+    assert!(matches!(b, SteelVal::IntV(_)));
+    SteelVal::BoolV(a < b)
 }
 
 #[allow(improper_ctypes_definitions)]
@@ -4349,7 +4355,7 @@ macro_rules! make_self_tail_call_no_arity_loop {
                 $(
                     map.add_func(
                         stringify!($name),
-                        $name as extern "C-unwind" fn(ctx: *mut VmCore, arity: usize, $($typ: SteelVal),*)
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, arity: u16, $($typ: SteelVal),*)
                     );
                 )*
             }
@@ -4378,18 +4384,22 @@ macro_rules! make_self_tail_call_no_arity_loop {
             #[allow(improper_ctypes_definitions)]
             pub(crate) extern "C-unwind" fn $name(
                 ctx: *mut VmCore,
-                arity: usize,
+                arity: u16,
                 $($typ: SteelVal),*
             ) {
                 let this = unsafe { &mut *ctx };
                 // this.ip = 0;
                 // this.is_native = false;
 
+                // TODO: if arity is the same, then we don't
+                // need to pass arity through. We can just
+                // do it implicitly from the number of arguments and
+                // it is a constant?
                 $(
                     this.thread.stack[this.sp + $i] = $typ;
                 )*
 
-                this.thread.stack.truncate(this.sp + arity);
+                this.thread.stack.truncate(this.sp + arity as usize);
             }
 
         )*
