@@ -41,7 +41,8 @@ use crate::{
             read_local_any_value_c, self_tail_call_handler, self_tail_call_handler_loop,
             set_handler_c, setbox_handler_c, should_continue, should_spill, should_spill_value,
             tcojmp_handler, trampoline, trampoline_no_arity, unbox_handler_c, vector_ref_handler_c,
-            CallFunctionDefinitions, CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
+            vector_ref_handler_register, vector_ref_handler_register_two, CallFunctionDefinitions,
+            CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
             CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
             CallPrimitiveDefinitions, CallPrimitiveFixedDefinitions, CallPrimitiveMutDefinitions,
             CallRegisterPrimitiveFixedDefinitions, CallSelfTailCallNoArityDefinitions,
@@ -545,6 +546,18 @@ impl Default for JIT {
         map.add_func("set-box-handler", setbox_handler_c as VmBinOp);
         map.add_func("list-ref-value", list_ref_handler_c as VmBinOp);
         map.add_func("vector-ref-value", vector_ref_handler_c as VmBinOp);
+
+        map.add_func(
+            "vector-ref-reg-1",
+            vector_ref_handler_register
+                as extern "C-unwind" fn(*mut VmCore, usize, SteelVal) -> SteelVal,
+        );
+
+        map.add_func(
+            "vector-ref-reg-2",
+            vector_ref_handler_register_two
+                as extern "C-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
+        );
 
         map.add_func("push-const", push_const_value_c as Vm01);
         map.add_func(
@@ -2087,8 +2100,35 @@ impl FunctionTranslator<'_> {
                 OpCode::LISTREF => {
                     self.func_ret_val(op, 2, 2, InferredType::Any);
                 }
+
+                // Add an op code for vector ref as well.
+                //
+                // Probably can do a check based on the previous calls
+                // to skip checks against the vector since
+                // the type is inferred.
                 OpCode::VECTORREF => {
-                    self.func_ret_val(op, 2, 2, InferredType::Any);
+                    let args = self
+                        .shadow_stack
+                        .get(self.shadow_stack.len() - 2..)
+                        .unwrap();
+
+                    // Generate code to handle registers for both reference and setting
+                    match args {
+                        &[MaybeStackValue::MutRegister(v) | MaybeStackValue::Register(v), MaybeStackValue::MutRegister(i) | MaybeStackValue::Register(i)] =>
+                        {
+                            // Both register case
+                            todo!()
+                        }
+                        &[MaybeStackValue::MutRegister(v) | MaybeStackValue::Register(v), MaybeStackValue::Value(i)] =>
+                        {
+                            // Single register case
+                            todo!()
+                        }
+
+                        _ => {
+                            self.func_ret_val(op, 2, 2, InferredType::Any);
+                        }
+                    }
                 }
                 OpCode::NULLIF => todo!(),
                 OpCode::UNBOXCALL => todo!(),

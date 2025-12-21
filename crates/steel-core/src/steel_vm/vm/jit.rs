@@ -416,6 +416,51 @@ pub extern "C-unwind" fn vector_ref_handler_c(
 }
 
 #[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn vector_ref_handler_register(
+    ctx: *mut VmCore,
+    vec_reg: usize,
+    index: SteelVal,
+) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+
+    let offset = guard.get_offset();
+    let vec = &guard.thread.stack[vec_reg + offset];
+
+    match vec_ref(vec, &index) {
+        Ok(v) => v,
+        Err(e) => {
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn vector_ref_handler_register_two(
+    ctx: *mut VmCore,
+    vec_reg: usize,
+    index: usize,
+) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+
+    let offset = guard.get_offset();
+    let vec = &guard.thread.stack[vec_reg + offset];
+    let index = &guard.thread.stack[index + offset];
+
+    match vec_ref(vec, index) {
+        Ok(v) => v,
+        Err(e) => {
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn box_handler_c(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     let this = unsafe { &mut *ctx };
 
