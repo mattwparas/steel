@@ -7,7 +7,10 @@ use steel_gen::opcode::{MAX_OPCODE_SIZE, OPCODES_ARRAY};
 use super::VmCore;
 use crate::{
     gc::Gc,
-    primitives::lists::{cons, list_ref},
+    primitives::{
+        lists::{cons, list_ref},
+        vectors::{mut_vec_set, steel_mut_vec_set},
+    },
     rvals::Result,
     steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive},
     SteelVal,
@@ -453,6 +456,139 @@ pub extern "C-unwind" fn vector_ref_handler_register_two(
         Ok(v) => v,
         Err(e) => {
             guard.result = Some(Err(e));
+            guard.is_native = false;
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn vector_set_handler_stack(
+    ctx: *mut VmCore,
+    vec_reg: SteelVal,
+    index: SteelVal,
+    value: SteelVal,
+) -> SteelVal {
+    match steel_mut_vec_set(&[vec_reg, index, value]) {
+        Ok(v) => v,
+        Err(e) => {
+            let guard = unsafe { &mut *ctx };
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn vector_set_handler_register_one(
+    ctx: *mut VmCore,
+    vec_reg: usize,
+    index: SteelVal,
+    value: SteelVal,
+) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+
+    let offset = guard.get_offset();
+    let vec = &guard.thread.stack[vec_reg + offset];
+
+    match (vec, index) {
+        (SteelVal::MutableVector(h), SteelVal::IntV(i)) => {
+            match mut_vec_set(h, i as usize, value) {
+                Ok(v) => v,
+                Err(e) => {
+                    guard.result = Some(Err(e));
+                    guard.is_native = false;
+
+                    SteelVal::Void
+                }
+            }
+        }
+
+        _ => {
+            guard.result = Some(Err(
+                throw!(TypeMismatch => "vector-set! expects a vector and an index, found: {} and {}")(
+                ),
+            ));
+            guard.is_native = false;
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn vector_set_handler_register_three(
+    ctx: *mut VmCore,
+    vec_reg: usize,
+    index: usize,
+    value: usize,
+) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+
+    let offset = guard.get_offset();
+    let vec = &guard.thread.stack[vec_reg + offset];
+    let index = &guard.thread.stack[index + offset];
+    let value = guard.thread.stack[value + offset].clone();
+
+    match (vec, index) {
+        (SteelVal::MutableVector(h), SteelVal::IntV(i)) => {
+            match mut_vec_set(h, *i as usize, value) {
+                Ok(v) => v,
+                Err(e) => {
+                    guard.result = Some(Err(e));
+                    guard.is_native = false;
+
+                    SteelVal::Void
+                }
+            }
+        }
+
+        _ => {
+            guard.result = Some(Err(
+                throw!(TypeMismatch => "vector-set! expects a vector and an index, found: {} and {}")(
+                ),
+            ));
+            guard.is_native = false;
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn vector_set_handler_register_two(
+    ctx: *mut VmCore,
+    vec_reg: usize,
+    index: usize,
+    value: SteelVal,
+) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+
+    let offset = guard.get_offset();
+    let vec = &guard.thread.stack[vec_reg + offset];
+    let index = &guard.thread.stack[index + offset];
+
+    match (vec, index) {
+        (SteelVal::MutableVector(h), SteelVal::IntV(i)) => {
+            match mut_vec_set(h, *i as usize, value) {
+                Ok(v) => v,
+                Err(e) => {
+                    guard.result = Some(Err(e));
+                    guard.is_native = false;
+
+                    SteelVal::Void
+                }
+            }
+        }
+
+        _ => {
+            guard.result = Some(Err(
+                throw!(TypeMismatch => "vector-set! expects a vector and an index, found: {} and {}")(
+                ),
+            ));
             guard.is_native = false;
 
             SteelVal::Void

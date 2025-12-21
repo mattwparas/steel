@@ -16,6 +16,7 @@ use crate::{
             eof_objectp, eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char,
         },
         strings::{char_equals_binop, char_equals_binop_unsafe, steel_char_equals},
+        vectors::steel_mut_vec_set,
     },
     rvals::FunctionSignature,
     steel_vm::vm::{
@@ -41,7 +42,9 @@ use crate::{
             read_local_any_value_c, self_tail_call_handler, self_tail_call_handler_loop,
             set_handler_c, setbox_handler_c, should_continue, should_spill, should_spill_value,
             tcojmp_handler, trampoline, trampoline_no_arity, unbox_handler_c, vector_ref_handler_c,
-            vector_ref_handler_register, vector_ref_handler_register_two, CallFunctionDefinitions,
+            vector_ref_handler_register, vector_ref_handler_register_two,
+            vector_set_handler_register_one, vector_set_handler_register_three,
+            vector_set_handler_register_two, vector_set_handler_stack, CallFunctionDefinitions,
             CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
             CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
             CallPrimitiveDefinitions, CallPrimitiveFixedDefinitions, CallPrimitiveMutDefinitions,
@@ -557,6 +560,30 @@ impl Default for JIT {
             "vector-ref-reg-2",
             vector_ref_handler_register_two
                 as extern "C-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
+        );
+
+        map.add_func(
+            "vector-set-args",
+            vector_set_handler_stack
+                as extern "C-unwind" fn(ctx: *mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal,
+        );
+
+        map.add_func(
+            "vector-set-reg-1",
+            vector_set_handler_register_one
+                as extern "C-unwind" fn(ctx: *mut VmCore, usize, SteelVal, SteelVal) -> SteelVal,
+        );
+
+        map.add_func(
+            "vector-set-reg-2",
+            vector_set_handler_register_two
+                as extern "C-unwind" fn(ctx: *mut VmCore, usize, usize, SteelVal) -> SteelVal,
+        );
+
+        map.add_func(
+            "vector-set-reg-3",
+            vector_set_handler_register_three
+                as extern "C-unwind" fn(ctx: *mut VmCore, usize, usize, usize) -> SteelVal,
         );
 
         map.add_func("push-const", push_const_value_c as Vm01);
@@ -1700,6 +1727,10 @@ impl FunctionTranslator<'_> {
                             {
                                 // Encode the object... Any others we can encode in this way?
                                 self.eof_object(1)
+                            } else if fn_addr_eq(f, steel_mut_vec_set as FunctionSignature)
+                                && arity == 3
+                            {
+                                self.vector_set()
                             } else {
                                 if let Some(name) = name {
                                     // attempt to move forward with it
@@ -1984,6 +2015,11 @@ impl FunctionTranslator<'_> {
                     self.func_ret_val_named("num-equal-int", payload, 2, InferredType::Bool);
                 }
 
+                // OpCode::GTE if payload == 2 => {
+                //     // If we know the concrete type, we might be able to
+                //     // do something inline?
+                //     self.gte()
+                // }
                 OpCode::LTE | OpCode::GTE | OpCode::LT | OpCode::GT => {
                     if payload == 2 {
                         for arg in self
@@ -2116,13 +2152,34 @@ impl FunctionTranslator<'_> {
                     match args {
                         &[MaybeStackValue::MutRegister(v) | MaybeStackValue::Register(v), MaybeStackValue::MutRegister(i) | MaybeStackValue::Register(i)] =>
                         {
-                            // Both register case
-                            todo!()
+                            let vector = self.register_index(v);
+                            let index = self.register_index(i);
+
+                            // Pop them off
+                            self.shadow_stack.pop();
+                            self.shadow_stack.pop();
+
+                            let res = self.call_function_returns_value_args(
+                                "vector-ref-reg-2",
+                                &[vector, index],
+                            );
+
+                            self.push(res, InferredType::Any);
+                            self.ip += 2;
                         }
-                        &[MaybeStackValue::MutRegister(v) | MaybeStackValue::Register(v), MaybeStackValue::Value(i)] =>
+                        &[MaybeStackValue::MutRegister(v) | MaybeStackValue::Register(v), MaybeStackValue::Value(_)] =>
                         {
-                            // Single register case
-                            todo!()
+                            let index = self.shadow_pop();
+                            let vector = self.register_index(v);
+                            self.shadow_stack.pop();
+
+                            let res = self.call_function_returns_value_args(
+                                "vector-ref-reg-1",
+                                &[vector, index.0],
+                            );
+
+                            self.push(res, InferredType::Any);
+                            self.ip += 2;
                         }
 
                         _ => {
@@ -2138,6 +2195,10 @@ impl FunctionTranslator<'_> {
         }
 
         return true;
+    }
+
+    fn register_index(&mut self, index: usize) -> Value {
+        self.builder.ins().iconst(types::I64, index as i64)
     }
 
     // TODO: Generalize this to by value functions
@@ -2166,6 +2227,85 @@ impl FunctionTranslator<'_> {
         self.ip += 1;
 
         // Don't need to check deopt on predicates
+    }
+
+    fn gte(&mut self) {
+        todo!()
+    }
+
+    fn vector_set(&mut self) {
+        use MaybeStackValue::*;
+
+        let args = self
+            .shadow_stack
+            .get(self.shadow_stack.len() - 3..)
+            .unwrap();
+
+        match args {
+            &[MutRegister(v) | Register(v), MutRegister(i) | Register(i), MutRegister(a) | Register(a)] =>
+            {
+                let vector = self.register_index(v);
+                let index = self.register_index(i);
+                let value = self.register_index(a);
+
+                // Pop them off
+                self.shadow_stack.pop();
+                self.shadow_stack.pop();
+                self.shadow_stack.pop();
+
+                let res = self
+                    .call_function_returns_value_args("vector-set-reg-3", &[vector, index, value]);
+
+                self.push(res, InferredType::Any);
+                self.ip += 2;
+            }
+
+            &[MutRegister(v) | Register(v), MutRegister(i) | Register(i), Value(_)] => {
+                let vector = self.register_index(v);
+                let index = self.register_index(i);
+                let value = self.shadow_pop();
+
+                // Pop them off
+                self.shadow_stack.pop();
+                self.shadow_stack.pop();
+
+                let res = self.call_function_returns_value_args(
+                    "vector-set-reg-2",
+                    &[vector, index, value.0],
+                );
+
+                self.push(res, InferredType::Any);
+                self.ip += 2;
+            }
+            &[MutRegister(v) | Register(v), Value(_), Value(_)] => {
+                let index = self.shadow_pop();
+                let value = self.shadow_pop();
+                let vector = self.register_index(v);
+                self.shadow_stack.pop();
+
+                let res = self.call_function_returns_value_args(
+                    "vector-set-reg-1",
+                    &[vector, index.0, value.0],
+                );
+
+                self.push(res, InferredType::Any);
+                self.ip += 2;
+            }
+
+            // Spill all by value
+            _ => {
+                let args = self
+                    .split_off(3)
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<_>>();
+
+                let res = self.call_function_returns_value_args("vector-set-args", &args);
+
+                self.push(res, InferredType::Any);
+                self.ip += 2;
+            }
+        }
     }
 
     fn read_char(&mut self, arity: usize) {

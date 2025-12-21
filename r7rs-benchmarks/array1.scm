@@ -19,7 +19,6 @@
 ; (define vector-ref mut-vector-ref)
 ; (define vector-length mut-vec-len)
 
-
 ; (define (make-vector n)
 ;   (apply mutable-vector (map (lambda (x) 0) (range 0 n))))
 
@@ -68,6 +67,5 @@
                         count
                         (lambda () (go (hide count count) (hide count input1)))
                         (lambda (result) (equal? result output)))))
-
 
 (with-input-from-file "r7rs-benchmarks/small-inputs/array1.input" run-benchmark)
