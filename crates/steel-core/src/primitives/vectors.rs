@@ -940,9 +940,10 @@ pub fn mut_vec_length(vec: &HeapRef<Vec<SteelVal>>) -> SteelVal {
 /// ```
 #[steel_derive::function(name = "vector-set!")]
 pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> Result<SteelVal> {
-    let ptr = vec.strong_ptr();
+    // let ptr = vec.strong_ptr();
+    // let guard = &mut ptr.write().value;
 
-    let guard = &mut ptr.write().value;
+    let guard = &mut (unsafe { &(*vec.inner.as_ptr()) }.write()).value;
 
     if i >= guard.len() {
         stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
@@ -1214,8 +1215,13 @@ pub fn vec_ref(vec: &SteelVal, idx: &SteelVal) -> Result<SteelVal> {
             SteelVal::MutableVector(v) => {
                 // TODO: If we move this into a context aware function,
                 // then we can avoid the lookup cost since we won't be in a safepoint.
+
+                /*
                 let ptr = v.strong_ptr();
                 let guard = &ptr.read().value;
+                */
+
+                let guard = &(unsafe { &(*v.inner.as_ptr()) }.read()).value;
 
                 if idx_usize >= guard.len() {
                     stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
