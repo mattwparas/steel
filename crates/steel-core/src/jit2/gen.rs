@@ -19,39 +19,45 @@ use crate::{
         vectors::steel_mut_vec_set,
     },
     rvals::FunctionSignature,
-    steel_vm::vm::{
-        jit::{
-            box_handler_c, call_global_function_deopt_no_arity_spilled,
-            call_global_function_deopt_spilled, callglobal_handler_deopt_c,
-            callglobal_tail_handler_deopt_spilled, car_handler_value, cdr_handler_value,
-            check_callable, check_callable_spill, check_callable_tail, check_callable_value,
-            check_callable_value_tail, cons_handler_value, drop_value, equal_binop,
-            extern_c_add_two, extern_c_add_two_binop_register,
-            extern_c_add_two_binop_register_both, extern_c_div_two, extern_c_gt_two,
-            extern_c_gte_two, extern_c_lt_two, extern_c_lt_two_int, extern_c_lte_two,
-            extern_c_lte_two_int, extern_c_mult_two, extern_c_negate, extern_c_null_handler,
-            extern_c_sub_two, extern_c_sub_two_int, extern_c_sub_two_int_reg, extern_handle_pop,
-            handle_new_start_closure, handle_pure_function, if_handler_raw_value,
-            if_handler_register, if_handler_value, let_end_scope_c, list_handler_c,
-            list_ref_handler_c, move_read_local_0_value_c, move_read_local_1_value_c,
-            move_read_local_2_value_c, move_read_local_3_value_c, move_read_local_any_value_c,
-            not_handler_raw_value, num_equal_int, num_equal_value, num_equal_value_unboxed,
-            pop_value, push_const_value_c, push_const_value_index_c, push_global, push_to_vm_stack,
-            push_to_vm_stack_let_var, push_to_vm_stack_two, read_captured_c, read_local_0_value_c,
-            read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
-            read_local_any_value_c, self_tail_call_handler, self_tail_call_handler_loop,
-            set_handler_c, set_local_any_c, setbox_handler_c, should_continue, should_spill,
-            should_spill_value, tcojmp_handler, trampoline, trampoline_no_arity, unbox_handler_c,
-            vector_ref_handler_c, vector_ref_handler_register, vector_ref_handler_register_two,
-            vector_set_handler_register_one, vector_set_handler_register_three,
-            vector_set_handler_register_two, vector_set_handler_stack, CallFunctionDefinitions,
-            CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
-            CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
-            CallPrimitiveDefinitions, CallPrimitiveFixedDefinitions, CallPrimitiveMutDefinitions,
-            CallRegisterPrimitiveFixedDefinitions, CallSelfTailCallNoArityDefinitions,
-            CallSelfTailCallNoArityLoopDefinitions, ListHandlerDefinitions,
+    steel_vm::{
+        primitives::steel_eq,
+        vm::{
+            jit::{
+                box_handler_c, call_global_function_deopt_no_arity_spilled,
+                call_global_function_deopt_spilled, callglobal_handler_deopt_c,
+                callglobal_tail_handler_deopt_spilled, car_handler_reg, car_handler_value,
+                cdr_handler_mut_reg, cdr_handler_reg, cdr_handler_value, check_callable,
+                check_callable_spill, check_callable_tail, check_callable_value,
+                check_callable_value_tail, cons_handler_value, drop_value, eq_reg_1, eq_reg_2,
+                eq_value, equal_binop, extern_c_add_two, extern_c_add_two_binop_register,
+                extern_c_add_two_binop_register_both, extern_c_div_two, extern_c_gt_two,
+                extern_c_gte_two, extern_c_lt_two, extern_c_lt_two_int, extern_c_lte_two,
+                extern_c_lte_two_int, extern_c_mult_two, extern_c_negate, extern_c_null_handler,
+                extern_c_sub_two, extern_c_sub_two_int, extern_c_sub_two_int_reg,
+                extern_handle_pop, handle_new_start_closure, handle_pure_function,
+                if_handler_raw_value, if_handler_register, if_handler_value, let_end_scope_c,
+                list_handler_c, list_ref_handler_c, move_read_local_0_value_c,
+                move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
+                move_read_local_any_value_c, not_handler_raw_value, num_equal_int, num_equal_value,
+                num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
+                push_global, push_to_vm_stack, push_to_vm_stack_let_var, push_to_vm_stack_two,
+                read_captured_c, read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
+                read_local_3_value_c, read_local_any_value_c, self_tail_call_handler,
+                self_tail_call_handler_loop, set_handler_c, set_local_any_c, setbox_handler_c,
+                should_continue, should_spill, should_spill_value, tcojmp_handler, trampoline,
+                trampoline_no_arity, unbox_handler_c, vector_ref_handler_c,
+                vector_ref_handler_register, vector_ref_handler_register_two,
+                vector_set_handler_register_one, vector_set_handler_register_three,
+                vector_set_handler_register_two, vector_set_handler_stack, CallFunctionDefinitions,
+                CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
+                CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
+                CallPrimitiveDefinitions, CallPrimitiveFixedDefinitions,
+                CallPrimitiveMutDefinitions, CallRegisterPrimitiveFixedDefinitions,
+                CallSelfTailCallNoArityDefinitions, CallSelfTailCallNoArityLoopDefinitions,
+                ListHandlerDefinitions,
+            },
+            VmCore,
         },
-        VmCore,
     },
     SteelVal,
 };
@@ -540,7 +546,22 @@ impl Default for JIT {
         // passing through unboxed values on the stack
         map.add_func("car-handler-value", car_handler_value as Vm02);
         map.add_func("cdr-handler-value", cdr_handler_value as Vm02);
+
+        map.add_func(
+            "cdr-reg",
+            cdr_handler_reg as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
+        );
+        map.add_func(
+            "cdr-mut-reg",
+            cdr_handler_mut_reg as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
+        );
+
         map.add_func("cons-handler-value", cons_handler_value as VmBinOp);
+
+        map.add_func(
+            "car-reg",
+            car_handler_reg as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
+        );
 
         // TODO: Add type checked variants as well which can allow
         // passing through unboxed values on the stack
@@ -584,6 +605,21 @@ impl Default for JIT {
             "vector-set-reg-3",
             vector_set_handler_register_three
                 as extern "C-unwind" fn(ctx: *mut VmCore, usize, usize, usize) -> SteelVal,
+        );
+
+        map.add_func(
+            "eq?-reg-2",
+            eq_reg_2 as extern "C-unwind" fn(ctx: *mut VmCore, usize, usize) -> SteelVal,
+        );
+
+        map.add_func(
+            "eq?-reg-1",
+            eq_reg_1 as extern "C-unwind" fn(ctx: *mut VmCore, usize, SteelVal) -> SteelVal,
+        );
+
+        map.add_func2(
+            "eq?-args",
+            eq_value as extern "C-unwind" fn(SteelVal, SteelVal) -> SteelVal,
         );
 
         map.add_func("push-const", push_const_value_c as Vm01);
@@ -1044,6 +1080,9 @@ enum ConstantValue {
     Bool(bool),
     Char(char),
     Float(f64),
+
+    // HeapConstant
+    Index(usize),
 }
 
 impl ConstantValue {
@@ -1053,6 +1092,15 @@ impl ConstantValue {
             ConstantValue::Bool(b) => SteelVal::BoolV(b),
             ConstantValue::Char(c) => SteelVal::CharV(c),
             ConstantValue::Float(f) => SteelVal::NumV(f),
+            ConstantValue::Index(_) => panic!(),
+        }
+    }
+
+    fn into_index(self) -> usize {
+        if let Self::Index(i) = self {
+            i
+        } else {
+            panic!()
         }
     }
 
@@ -1062,12 +1110,20 @@ impl ConstantValue {
             ConstantValue::Bool(_) => InferredType::Bool,
             ConstantValue::Char(_) => InferredType::Char,
             ConstantValue::Float(_) => InferredType::Number,
+            ConstantValue::Index(_) => InferredType::Any,
         }
     }
 
     fn to_value(self, ctx: &mut FunctionTranslator) -> (Value, InferredType) {
-        let value = ctx.create_i128(encode(self.as_steelval()));
-        (value, self.as_typ())
+        match self {
+            // TODO: We can probably infer the type here though, since we know
+            // what the type is based on the values coming in
+            ConstantValue::Index(p) => (ctx.push_const_index(p), InferredType::Any),
+            _ => {
+                let value = ctx.create_i128(encode(self.as_steelval()));
+                (value, self.as_typ())
+            }
+        }
     }
 }
 
@@ -1746,6 +1802,8 @@ impl FunctionTranslator<'_> {
                                 && arity == 3
                             {
                                 self.vector_set()
+                            } else if fn_addr_eq(f, steel_eq as FunctionSignature) && arity == 2 {
+                                self.eq()
                             } else {
                                 if let Some(name) = name {
                                     // attempt to move forward with it
@@ -2060,7 +2118,31 @@ impl FunctionTranslator<'_> {
                     self.func_ret_val(op, 2, 2, InferredType::List);
                 }
                 OpCode::CDR => {
-                    self.func_ret_val(op, 1, 2, InferredType::List);
+                    if let Some(last) = self.shadow_stack.last().copied() {
+                        self.shadow_mark_local_type_from_var(last, InferredType::List);
+                    }
+
+                    match self.shadow_stack.last().unwrap().clone() {
+                        MaybeStackValue::Register(reg) => {
+                            self.shadow_stack.pop();
+                            let reg = self.register_index(reg);
+                            let res = self.call_function_returns_value_args("cdr-reg", &[reg]);
+                            self.push(res, InferredType::List);
+                            self.ip += 2;
+                        }
+
+                        MaybeStackValue::MutRegister(reg) => {
+                            self.shadow_stack.pop();
+                            let reg = self.register_index(reg);
+                            let res = self.call_function_returns_value_args("cdr-mut-reg", &[reg]);
+                            self.push(res, InferredType::List);
+                            self.ip += 2;
+                        }
+
+                        _ => {
+                            self.func_ret_val(op, 1, 2, InferredType::List);
+                        }
+                    }
                 }
                 OpCode::LIST => {
                     // Return a list:
@@ -2097,13 +2179,29 @@ impl FunctionTranslator<'_> {
                         self.push(result, InferredType::List);
                     }
                 }
+
+                // Specialize car for when its on a register, to avoid doing
+                // the read local operations.
                 OpCode::CAR => {
                     if let Some(last) = self.shadow_stack.last().copied() {
                         self.shadow_mark_local_type_from_var(last, InferredType::List);
                     }
 
-                    self.func_ret_val(op, 1, 2, InferredType::Any);
+                    match self.shadow_stack.last().unwrap().clone() {
+                        MaybeStackValue::MutRegister(reg) | MaybeStackValue::Register(reg) => {
+                            self.shadow_stack.pop();
+                            let reg = self.register_index(reg);
+                            let res = self.call_function_returns_value_args("car-reg", &[reg]);
+                            self.push(res, InferredType::Any);
+                            self.ip += 2;
+                        }
+
+                        _ => {
+                            self.func_ret_val(op, 1, 2, InferredType::Any);
+                        }
+                    }
                 }
+
                 OpCode::NEWBOX => {
                     self.func_ret_val(op, 1, 2, InferredType::Box);
                 }
@@ -2248,6 +2346,60 @@ impl FunctionTranslator<'_> {
         todo!()
     }
 
+    // Pointer equality against constants can be inlined
+    fn eq(&mut self) {
+        use MaybeStackValue::*;
+
+        let args = self
+            .shadow_stack
+            .get(self.shadow_stack.len() - 2..)
+            .unwrap();
+
+        match args {
+            // Okay, so for constants, we can wait to actually reify them
+            &[MutRegister(v) | Register(v), MutRegister(i) | Register(i)] => {
+                let left = self.register_index(v);
+                let right = self.register_index(i);
+
+                // Pop them off
+                self.shadow_stack.pop();
+                self.shadow_stack.pop();
+
+                let res = self.call_function_returns_value_args("eq?-reg-2", &[left, right]);
+
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+
+            &[MutRegister(v) | Register(v), Value(_)] => {
+                let left = self.register_index(v);
+                let right = self.shadow_pop();
+
+                // Pop them off
+                self.shadow_stack.pop();
+
+                let res = self.call_function_returns_value_args("eq?-reg-1", &[left, right.0]);
+
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+
+            // Spill all by value
+            _ => {
+                let args = self
+                    .split_off(2)
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<_>>();
+
+                let res = self.call_function_returns_value_args_no_context("eq?-args", &args);
+
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+        }
+    }
+
     fn vector_set(&mut self) {
         use MaybeStackValue::*;
 
@@ -2272,7 +2424,7 @@ impl FunctionTranslator<'_> {
                     .call_function_returns_value_args("vector-set-reg-3", &[vector, index, value]);
 
                 self.push(res, InferredType::Any);
-                self.ip += 2;
+                self.ip += 1;
             }
 
             &[MutRegister(v) | Register(v), MutRegister(i) | Register(i), Value(_)] => {
@@ -2290,7 +2442,7 @@ impl FunctionTranslator<'_> {
                 );
 
                 self.push(res, InferredType::Any);
-                self.ip += 2;
+                self.ip += 1;
             }
             &[MutRegister(v) | Register(v), Value(_), Value(_)] => {
                 let index = self.shadow_pop();
@@ -2304,7 +2456,7 @@ impl FunctionTranslator<'_> {
                 );
 
                 self.push(res, InferredType::Any);
-                self.ip += 2;
+                self.ip += 1;
             }
 
             // Spill all by value
@@ -2318,7 +2470,7 @@ impl FunctionTranslator<'_> {
                 let res = self.call_function_returns_value_args("vector-set-args", &args);
 
                 self.push(res, InferredType::Any);
-                self.ip += 2;
+                self.ip += 1;
             }
         }
     }

@@ -1,6 +1,6 @@
 #![allow(improper_ctypes_definitions)]
 
-use std::{hint::unreachable_unchecked, mem::ManuallyDrop};
+use std::mem::ManuallyDrop;
 
 use steel_gen::opcode::{MAX_OPCODE_SIZE, OPCODES_ARRAY};
 
@@ -367,6 +367,28 @@ pub extern "C-unwind" fn car_handler_value(ctx: *mut VmCore, arg: SteelVal) -> S
 }
 
 #[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn car_handler_reg(ctx: *mut VmCore, reg: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    guard.ip += 2;
+
+    let offset = guard.get_offset();
+    let arg = &guard.thread.stack[offset + reg];
+
+    match car(&arg) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn list_ref_handler_c(
     ctx: *mut VmCore,
     list: SteelVal,
@@ -464,6 +486,33 @@ pub extern "C-unwind" fn vector_ref_handler_register_two(
 }
 
 #[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn eq_reg_2(ctx: *mut VmCore, left: usize, right: usize) -> SteelVal {
+    // println!("calling eq reg 2");
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let l = &guard.thread.stack[left + offset];
+    let r = &guard.thread.stack[right + offset];
+
+    SteelVal::BoolV(l.ptr_eq(r))
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn eq_reg_1(ctx: *mut VmCore, left: usize, right: SteelVal) -> SteelVal {
+    // println!("calling eq reg 1");
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let l = &guard.thread.stack[left + offset];
+
+    SteelVal::BoolV(l.ptr_eq(&right))
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn eq_value(left: SteelVal, right: SteelVal) -> SteelVal {
+    // println!("calling eq value");
+    SteelVal::BoolV(left.ptr_eq(&right))
+}
+
+#[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn vector_set_handler_stack(
     ctx: *mut VmCore,
     vec_reg: SteelVal,
@@ -527,7 +576,6 @@ pub extern "C-unwind" fn vector_set_handler_register_three(
     value: usize,
 ) -> SteelVal {
     let guard = unsafe { &mut *ctx };
-
     let offset = guard.get_offset();
     let vec = &guard.thread.stack[vec_reg + offset];
     let index = &guard.thread.stack[index + offset];
@@ -683,6 +731,47 @@ pub extern "C-unwind" fn cons_handler_value(
 pub extern "C-unwind" fn cdr_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     unsafe { &mut *ctx }.ip += 2;
     let mut arg = arg;
+
+    match cdr(&mut arg) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn cdr_handler_reg(ctx: *mut VmCore, arg: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    guard.ip += 2;
+
+    let offset = guard.get_offset();
+    let mut arg = guard.thread.stack[offset + arg].clone();
+
+    match cdr(&mut arg) {
+        Ok(v) => v,
+        Err(e) => {
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn cdr_handler_mut_reg(ctx: *mut VmCore, arg: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    guard.ip += 2;
+
+    let offset = guard.get_offset();
+    let mut arg = &mut guard.thread.stack[offset + arg];
 
     match cdr(&mut arg) {
         Ok(v) => v,

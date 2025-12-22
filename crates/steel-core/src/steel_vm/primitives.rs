@@ -1357,6 +1357,11 @@ pub fn gt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     })))
 }
 
+#[steel_derive::function(name = "eq?")]
+pub fn eq(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(left.ptr_eq(&right)))
+}
+
 fn equality_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/equality");
     module
@@ -1370,12 +1375,7 @@ fn equality_module() -> BuiltInModule {
                 |a: &SteelVal, b: &SteelVal| a.ptr_eq(b)
             )),
         )
-        .register_value(
-            "eq?",
-            SteelVal::FuncV(ensure_tonicity_two!(
-                |a: &SteelVal, b: &SteelVal| a.ptr_eq(b)
-            )),
-        )
+        .register_native_fn_definition(EQ_DEFINITION)
         .register_native_fn_definition(NUMBER_EQUALITY_DEFINITION);
 
     // TODO: Replace this with just numeric equality!
