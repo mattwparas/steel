@@ -855,6 +855,8 @@ struct FreeList<T: HeapAble> {
     forward: Option<Sender<Vec<HeapElement<T>>>>,
     #[cfg(feature = "sync")]
     backward: Option<Receiver<Vec<HeapElement<T>>>>,
+
+    vec_alloc_count: usize,
 }
 
 impl<T: HeapAble> Clone for FreeList<T> {
@@ -880,6 +882,7 @@ impl<T: HeapAble> Clone for FreeList<T> {
             forward: None,
             #[cfg(feature = "sync")]
             backward: None,
+            vec_alloc_count: self.vec_alloc_count,
         }
     }
 }
@@ -986,9 +989,10 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
             forward: Some(forward_sender),
             #[cfg(feature = "sync")]
             backward: Some(backward_receiver),
+            vec_alloc_count: 0,
         };
 
-        res.grow();
+        res.grow_by(256);
 
         res
     }
@@ -1021,10 +1025,10 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         self.alloc_count == 0
     }
 
-    fn grow(&mut self) {
+    fn grow_by(&mut self, amount: usize) {
         let now = std::time::Instant::now();
         // Can probably make this a lot bigger
-        let current = self.elements.len().max(Self::EXTEND_CHUNK);
+        let current = self.elements.len().max(amount);
 
         self.cursor = self.elements.len();
 
@@ -1053,6 +1057,10 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         {
             assert!(!self.elements[self.cursor].read().is_reachable());
         }
+    }
+
+    fn grow(&mut self) {
+        self.grow_by(Self::EXTEND_CHUNK);
     }
 
     // Extend the heap
@@ -1145,6 +1153,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
                 if guard.reachable {
                     guard.reachable = false;
+                    // Reset the values as well?
                     amount_dropped += 1;
                 }
             }
@@ -1452,6 +1461,14 @@ impl FreeList<Vec<SteelVal>> {
 
         // Check that this fits:
         heap_guard.value.clear();
+
+        if let (_, Some(size)) = value.size_hint() {
+            let capacity = heap_guard.value.capacity();
+            heap_guard
+                .value
+                .reserve_exact(size.saturating_sub(capacity));
+        }
+
         for v in value {
             heap_guard.value.push(v);
         }
@@ -1503,6 +1520,21 @@ impl FreeList<Vec<SteelVal>> {
         // assert!(!self.elements[self.cursor].read().is_reachable());
 
         HeapRef { inner: weak_ptr }
+    }
+
+    fn calculate_slots_reachable(&self) -> usize {
+        let mut amount = 0;
+        for element in &self.elements {
+            let mut guard = element.write();
+            if guard.is_reachable() {
+                amount += guard.value.len()
+            } else {
+                // Eagerly clear the value if its not reachable
+                guard.value.clear();
+            }
+        }
+
+        amount
     }
 }
 
@@ -1722,11 +1754,16 @@ impl Heap {
         synchronizer: &'a mut Synchronizer,
         force: bool,
     ) {
+        if self.vector_free_list.percent_full() > 0.50 {
+            self.vector_free_list.weak_collection();
+        }
+
         if self.vector_free_list.percent_full() > 0.95 || force {
             let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
             self.vector_free_list.weak_collection();
+            self.vector_free_list.calculate_slots_reachable();
             log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.vector_free_list.percent_full() > 0.95 || force {
@@ -1749,6 +1786,9 @@ impl Heap {
                 self.memory_free_list.alloc_count =
                     self.memory_free_list.elements.len() - stats.memory_reached_count;
 
+                log::info!(target: "gc", "vector slots allocated after sweeping: {}", self.vector_free_list.vec_alloc_count);
+
+                // if !self.vector_free_list.has_sufficient_memory_pressure() {
                 // if self.vector_free_list.percent_full() > 0.75 {
                 if self.vector_free_list.grow_count > RESET_LIMIT {
                     // Compact the free list.
@@ -1773,11 +1813,16 @@ impl Heap {
         tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<Vec<SteelVal>> {
+        if self.vector_free_list.percent_full() > 0.50 {
+            self.vector_free_list.weak_collection();
+        }
+
         if self.vector_free_list.percent_full() > 0.95 {
             let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
             self.vector_free_list.weak_collection();
+            self.vector_free_list.calculate_slots_reachable();
             log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.vector_free_list.percent_full() > 0.95 {
@@ -2061,6 +2106,7 @@ impl HeapAble for SteelVal {
         SteelVal::Void
     }
 }
+
 impl HeapAble for Vec<SteelVal> {
     fn empty() -> Self {
         Self::new()

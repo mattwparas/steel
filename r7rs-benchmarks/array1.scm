@@ -64,7 +64,7 @@
          [s1 (number->string input1)]
          [name "array1"])
     (run-r7rs-benchmark (string-append name ":" s1 ":" s2)
-                        count
+                        1
                         (lambda () (go (hide count count) (hide count input1)))
                         (lambda (result) (equal? result output)))))
 
