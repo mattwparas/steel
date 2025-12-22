@@ -10,7 +10,7 @@ use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
     compiler::constants::ConstantMap,
-    core::instructions::DenseInstruction,
+    core::instructions::{pretty_print_dense_instructions, DenseInstruction},
     primitives::{
         ports::{
             eof_objectp, eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char,
@@ -3643,7 +3643,19 @@ impl FunctionTranslator<'_> {
 
         Some(match last {
             MaybeStackValue::Value(last) => {
+                // What is going on here?
+                if last.spilled && self.ip > self.instructions.len() {
+                    // dbg!(&self.shadow_stack);
+                    // dbg!(self.ip);
+                    // dbg!(self.instructions.len());
+                    // pretty_print_dense_instructions(&self.instructions);
+                    return None;
+                }
+
                 assert!(!last.spilled);
+
+                // Pop it off the stack?
+                // self.pop_value_from_vm_stack();
 
                 self.value_to_local_map.remove(&last.value);
                 (last.value, last.inferred_type)
