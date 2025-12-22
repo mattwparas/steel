@@ -4551,13 +4551,29 @@ impl<'a> VmCore<'a> {
 
         assert!(old_index < self.thread.stack.len());
 
-        let old_value = self.thread.stack[old_index].clone();
-
         // Modify the stack and change the value to the new one
-        self.thread.stack[old_index] = value_to_set;
+        let old_value = std::mem::replace(&mut self.thread.stack[old_index], value_to_set);
 
         self.thread.stack.push(old_value);
         self.ip += 1;
+    }
+
+    // Set local value:
+    // this thing needs to be spilled? Does this work properly?
+    fn handle_set_local_value(&mut self, index: usize, value_to_set: SteelVal) -> SteelVal {
+        let offset = self.get_offset();
+        // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
+
+        let old_index = index + offset;
+
+        assert!(old_index < self.thread.stack.len());
+
+        // Modify the stack and change the value to the new one
+        let old_value = std::mem::replace(&mut self.thread.stack[old_index], value_to_set);
+
+        self.ip += 1;
+
+        old_value
     }
 
     // Calls the given function in tail position.

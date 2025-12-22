@@ -1272,7 +1272,9 @@ impl Compiler {
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
 
-        semantic.lift_closures();
+        if std::env::var("STEEL_CLOSURE_LIFTING").is_ok() {
+            semantic.lift_closures();
+        }
 
         // self.shadowed_variable_renamer
         //     .rename_shadowed_variables(&mut semantic.exprs, false);

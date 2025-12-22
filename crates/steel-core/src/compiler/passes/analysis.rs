@@ -1735,6 +1735,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
     fn visit_set(&mut self, s: &'a crate::parser::ast::Set) {
         let name = s.variable.atom_identifier();
+
         // let id = s.variable.atom_syntax_object().map(|x| x.syntax_object_id);
 
         if let Some(info) = s
@@ -1769,8 +1770,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     var.set_bang = true;
                     // scope_info.mutated = true;
                 } else {
-                    // scope_info.mutated = false;
+                    // println!("Unable to find in info: {}", s);
                 }
+            } else {
+                // println!("Unable to find name in scope: {}", name);
             }
         }
 
@@ -3229,6 +3232,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
             // that we need to remove are.
 
             let mut original_func_names = Vec::new();
+            let mut captured_vars_set = Vec::new();
 
             for (variable, expression) in l.bindings.iter_mut() {
                 if let ExprKind::LambdaFunction(_) = expression {
@@ -3241,6 +3245,12 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                         // This is a lambda function. the temporary binding is only used once.
                         if !function_info.captured_vars().is_empty() && info.usage_count == 1 {
                             let function_name = variable.atom_identifier().unwrap();
+
+                            for var in function_info.captured_vars() {
+                                if !captured_vars_set.contains(&var.0) {
+                                    captured_vars_set.push(var.0);
+                                }
+                            }
 
                             if let ExprKind::Begin(b) = &mut l.body_expr {
                                 let mut found_escape_checker: Option<
@@ -3282,6 +3292,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
             }
 
             let mut outer_inner_indexes = Vec::new();
+
             // Inner let:
             for (inner_index, (variable, expression)) in l.bindings.iter_mut().enumerate() {
                 if let ExprKind::LambdaFunction(r) = expression {
@@ -3369,12 +3380,12 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                                         ident: ExprKind::atom(name.clone()),
                                                     };
 
-                                                    let captured_vars =
-                                                        function_info.captured_vars.clone();
-
                                                     if let ExprKind::LambdaFunction(r) = expression
                                                     {
-                                                        for (i, _) in &captured_vars {
+                                                        // Note: If the resulting function then has a
+                                                        // free variable as a
+                                                        // result of this, then we can't necessarily do this?
+                                                        for i in &captured_vars_set {
                                                             if original_func_names.contains(i) {
                                                                 continue;
                                                             }
@@ -3403,16 +3414,25 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                                     // the function.
 
                                                     let func_names = original_func_names.clone();
-                                                    let  find_call_sites =
+                                                    let captured_values = captured_vars_set.clone();
+                                                    let find_call_sites =
                                                         MutateCallSitesNonGlobal::new(
                                                             name,
                                                             &self.analysis,
                                                             move |_: &Analysis, expr: &mut ExprKind| {
                                                                 if let ExprKind::List(l) = expr {
-                                                                    for (i, _) in &captured_vars {
+                                                                    for i in &captured_values {
                                                                         if func_names.contains(i) {
                                                                             continue;
                                                                         }
+
+                                                                        // Note: the issue is here I believe.
+                                                                        // If we've now modified a call site
+                                                                        // for a function, then we're going
+                                                                        // to need to make sure that _this_
+                                                                        // function also has this variable
+                                                                        // available to it as well, since it could
+                                                                        // be free w.r.t the enclosing function.
                                                                         l.args.push(
                                                                             ExprKind::atom(*i),
                                                                         );
@@ -3462,6 +3482,10 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                     SyntaxObject::new(TokenType::Define, span),
                                 )));
 
+                                // Check that, if during the course of the action,
+                                // we've introduce a new free variable,
+                                // then we need to go and modify the callsites accordingly.
+
                                 local_functions.push(define);
                                 changed = true;
 
@@ -3489,6 +3513,9 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
         if changed {
             for (mut replacer, mut callsite_modifier) in replacers {
+                // When does the call site modification happen?
+                // It should be pretty clear that we need to _not_ introduce
+                // new things to the callsite?
                 for expr in &mut local_functions {
                     replacer.visit(expr);
                     callsite_modifier.visit(expr);
@@ -3870,6 +3897,7 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => {
                 if let Some(analysis) = self.analysis.get(&a.syn) {
+                    // Could also be captured?
                     if analysis.kind == IdentifierStatus::HeapAllocated {
                         let mut dummy = ExprKind::List(List::new(Vec::new()));
                         std::mem::swap(&mut dummy, expr);

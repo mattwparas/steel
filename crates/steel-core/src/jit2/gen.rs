@@ -1604,6 +1604,7 @@ impl FunctionTranslator<'_> {
                     // self.push(value, inferred_type);
                     self.shadow_push(value);
                 }
+                // Set local is totally fair game and should be adjusted here:
                 OpCode::SETLOCAL => panic!("Should be unreachable - setlocal"),
                 OpCode::COPYCAPTURESTACK => panic!("Should be unreachable - copycapturestack"),
                 OpCode::COPYCAPTURECLOSURE => panic!("Should be unreachable - copycaptureclosure"),
