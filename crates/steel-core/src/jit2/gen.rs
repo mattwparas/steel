@@ -40,9 +40,9 @@ use crate::{
             push_to_vm_stack_let_var, push_to_vm_stack_two, read_captured_c, read_local_0_value_c,
             read_local_1_value_c, read_local_2_value_c, read_local_3_value_c,
             read_local_any_value_c, self_tail_call_handler, self_tail_call_handler_loop,
-            set_handler_c, setbox_handler_c, should_continue, should_spill, should_spill_value,
-            tcojmp_handler, trampoline, trampoline_no_arity, unbox_handler_c, vector_ref_handler_c,
-            vector_ref_handler_register, vector_ref_handler_register_two,
+            set_handler_c, set_local_any_c, setbox_handler_c, should_continue, should_spill,
+            should_spill_value, tcojmp_handler, trampoline, trampoline_no_arity, unbox_handler_c,
+            vector_ref_handler_c, vector_ref_handler_register, vector_ref_handler_register_two,
             vector_set_handler_register_one, vector_set_handler_register_three,
             vector_set_handler_register_two, vector_set_handler_stack, CallFunctionDefinitions,
             CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
@@ -673,6 +673,11 @@ impl Default for JIT {
         map.add_func("read-local-1", read_local_1_value_c as Vm01);
         map.add_func("read-local-2", read_local_2_value_c as Vm01);
         map.add_func("read-local-3", read_local_3_value_c as Vm01);
+
+        map.add_func(
+            "set-local-any",
+            set_local_any_c as extern "C-unwind" fn(*mut VmCore, usize, SteelVal) -> SteelVal,
+        );
 
         map.add_func(
             "read-local-any",
@@ -1605,7 +1610,16 @@ impl FunctionTranslator<'_> {
                     self.shadow_push(value);
                 }
                 // Set local is totally fair game and should be adjusted here:
-                OpCode::SETLOCAL => panic!("Should be unreachable - setlocal"),
+                OpCode::SETLOCAL => {
+                    let index = self.register_index(payload);
+                    let (value, _) = self.shadow_pop();
+
+                    let value =
+                        self.call_function_returns_value_args("set-local-any", &[index, value]);
+                    self.push(value, InferredType::Any);
+                    self.ip += 1;
+                }
+
                 OpCode::COPYCAPTURESTACK => panic!("Should be unreachable - copycapturestack"),
                 OpCode::COPYCAPTURECLOSURE => panic!("Should be unreachable - copycaptureclosure"),
                 OpCode::COPYHEAPCAPTURECLOSURE => {

@@ -1837,6 +1837,16 @@ pub(crate) extern "C-unwind" fn read_local_any_value_c(
 }
 
 #[allow(improper_ctypes_definitions)]
+pub(crate) extern "C-unwind" fn set_local_any_c(
+    ctx: *mut VmCore,
+    offset: usize,
+    value: SteelVal,
+) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    guard.handle_set_local_value(offset, value)
+}
+
+#[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn read_captured_c(ctx: *mut VmCore, index: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
 
