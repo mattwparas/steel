@@ -2668,7 +2668,9 @@ impl FunctionTranslator<'_> {
                     .call_function_returns_value_args("vector-set-reg-3", &[vector, index, value]);
 
                 self.push(res, InferredType::Any);
+
                 self.ip += 1;
+                self.check_deopt();
             }
 
             &[MutRegister(v) | Register(v), MutRegister(i) | Register(i), Value(_)] => {
@@ -2687,10 +2689,11 @@ impl FunctionTranslator<'_> {
 
                 self.push(res, InferredType::Any);
                 self.ip += 1;
+                self.check_deopt();
             }
             &[MutRegister(v) | Register(v), Value(_), Value(_)] => {
-                let index = self.shadow_pop();
                 let value = self.shadow_pop();
+                let index = self.shadow_pop();
                 let vector = self.register_index(v);
                 self.shadow_stack.pop();
 
@@ -2701,6 +2704,7 @@ impl FunctionTranslator<'_> {
 
                 self.push(res, InferredType::Any);
                 self.ip += 1;
+                self.check_deopt();
             }
 
             // Spill all by value
@@ -2715,6 +2719,7 @@ impl FunctionTranslator<'_> {
 
                 self.push(res, InferredType::Any);
                 self.ip += 1;
+                self.check_deopt();
             }
         }
     }

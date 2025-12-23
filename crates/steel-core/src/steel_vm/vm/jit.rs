@@ -330,25 +330,6 @@ pub extern "C-unwind" fn pop_value(ctx: *mut VmCore) -> SteelVal {
     unsafe { &mut *ctx }.thread.stack.pop().unwrap()
 }
 
-// Call by reference to avoid stack operations on local values.
-#[allow(improper_ctypes_definitions)]
-pub extern "C-unwind" fn car_handle_ref(ctx: *mut VmCore, reg: usize) -> SteelVal {
-    let arg = borrow_local(unsafe { &mut *ctx }, reg);
-
-    match car(arg) {
-        Ok(v) => v,
-        Err(e) => {
-            unsafe {
-                let guard = &mut *ctx;
-                guard.result = Some(Err(e));
-                guard.is_native = false;
-            }
-
-            SteelVal::Void
-        }
-    }
-}
-
 #[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn car_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     unsafe { &mut *ctx }.ip += 2;
