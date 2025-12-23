@@ -4971,7 +4971,6 @@ impl<'a> SemanticAnalysis<'a> {
                                     *d.name.atom_identifier().unwrap(),
                                     Box::new(move |_: &Analysis, lst: &mut List| {
                                         if lst.syntax_object_id > original_id {
-                                            println!("recursively inlining: {} @ {}", l, lst);
                                             lst.args[0] = ExprKind::LambdaFunction(l.clone());
                                         }
                                     }),
@@ -5007,10 +5006,6 @@ impl<'a> SemanticAnalysis<'a> {
                                             *d.name.atom_identifier().unwrap(),
                                             Box::new(move |_: &Analysis, lst: &mut List| {
                                                 if lst.syntax_object_id > original_id {
-                                                    println!(
-                                                        "recursively inlining: {} @ {}",
-                                                        l, lst
-                                                    );
                                                     lst.args[0] =
                                                         ExprKind::LambdaFunction(l.clone());
                                                 }
@@ -5780,11 +5775,6 @@ impl<'a> SemanticAnalysis<'a> {
     ) where
         F: FnMut(&Analysis, &mut List),
     {
-        println!(
-            "Candidates: {:#?}",
-            mapping.keys().map(|x| x.resolve()).collect::<Vec<_>>()
-        );
-
         let mut find_call_sites = FindCallSitesManyDepth {
             analysis: &self.analysis,
             map: mapping,

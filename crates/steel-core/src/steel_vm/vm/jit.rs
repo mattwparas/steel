@@ -440,13 +440,13 @@ pub extern "C-unwind" fn vector_ref_handler_c(
 #[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn vector_ref_handler_register(
     ctx: *mut VmCore,
-    vec_reg: usize,
+    vec_reg: u16,
     index: SteelVal,
 ) -> SteelVal {
     let guard = unsafe { &mut *ctx };
 
     let offset = guard.get_offset();
-    let vec = &guard.thread.stack[vec_reg + offset];
+    let vec = &guard.thread.stack[vec_reg as usize + offset];
 
     match vec_ref(vec, &index) {
         Ok(v) => v,
@@ -1497,11 +1497,7 @@ pub(crate) extern "C-unwind" fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> 
 pub(crate) extern "C-unwind" fn extern_handle_pop(ctx: *mut VmCore, value: SteelVal) {
     unsafe {
         let this = &mut *ctx;
-        // println!("Native pop: {}", value);
-        // println!("stack: {:?}", this.thread.stack);
         let res = this.handle_pop_pure_value(value);
-        // println!("stack after pop: {:?}", this.thread.stack);
-        // this.is_native = false;
         this.result = res;
     }
 }

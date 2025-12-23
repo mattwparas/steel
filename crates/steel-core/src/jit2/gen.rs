@@ -593,7 +593,7 @@ impl Default for JIT {
         map.add_func(
             "vector-ref-reg-1",
             vector_ref_handler_register
-                as extern "C-unwind" fn(*mut VmCore, usize, SteelVal) -> SteelVal,
+                as extern "C-unwind" fn(*mut VmCore, u16, SteelVal) -> SteelVal,
         );
 
         map.add_func(
@@ -728,7 +728,6 @@ impl Default for JIT {
         map.add_func("read-local-1", read_local_1_value_c as Vm01);
         map.add_func("read-local-2", read_local_2_value_c as Vm01);
         map.add_func("read-local-3", read_local_3_value_c as Vm01);
-
         map.add_func(
             "set-local-any",
             set_local_any_c as extern "C-unwind" fn(*mut VmCore, usize, SteelVal) -> SteelVal,
@@ -1302,8 +1301,12 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::READLOCAL2, _) => "read-local-2",
         (OpCode::READLOCAL3, _) => "read-local-3",
 
+        // (OpCode::READLOCAL, 4) => "read-local-4",
+        // (OpCode::READLOCAL, 5) => "read-local-5",
+        // (OpCode::READLOCAL, 6) => "read-local-6",
+        // (OpCode::READLOCAL, 7) => "read-local-7",
+        // (OpCode::READLOCAL, 8) => "read-local-8",
         (OpCode::READLOCAL, _) => "read-local-any",
-        (OpCode::MOVEREADLOCAL, _) => "move-read-local-any",
 
         (OpCode::READCAPTURED, _) => "read-captured",
 
@@ -1311,6 +1314,12 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::MOVEREADLOCAL1, _) => "move-read-local-1",
         (OpCode::MOVEREADLOCAL2, _) => "move-read-local-2",
         (OpCode::MOVEREADLOCAL3, _) => "move-read-local-3",
+        // (OpCode::MOVEREADLOCAL, 4) => "move-read-local-4",
+        // (OpCode::MOVEREADLOCAL, 5) => "move-read-local-5",
+        // (OpCode::MOVEREADLOCAL, 6) => "move-read-local-6",
+        // (OpCode::MOVEREADLOCAL, 7) => "move-read-local-7",
+        // (OpCode::MOVEREADLOCAL, 8) => "move-read-local-8",
+        (OpCode::MOVEREADLOCAL, _) => "move-read-local-any",
 
         (OpCode::ADD, 2) => "add-binop",
         (OpCode::SUB, 2) => "sub-binop",
@@ -2449,7 +2458,7 @@ impl FunctionTranslator<'_> {
                         &[MaybeStackValue::MutRegister(v) | MaybeStackValue::Register(v), MaybeStackValue::Value(_)] =>
                         {
                             let index = self.shadow_pop();
-                            let vector = self.register_index(v);
+                            let vector = self.register_index_small(v);
                             self.shadow_stack.pop();
 
                             let res = self.call_function_returns_value_args(
@@ -2478,6 +2487,10 @@ impl FunctionTranslator<'_> {
 
     fn register_index(&mut self, index: usize) -> Value {
         self.builder.ins().iconst(types::I64, index as i64)
+    }
+
+    fn register_index_small(&mut self, index: usize) -> Value {
+        self.builder.ins().iconst(types::I16, index as i64)
     }
 
     fn tag(&mut self, tag: u8) -> Value {
@@ -2931,13 +2944,20 @@ impl FunctionTranslator<'_> {
                 _ => panic!(),
             }
         } else {
+            // TODO: change this up
+            // let value = if payload < 9 {
+            //     let value =
+            //         self.call_function_returns_value_args(op_to_name_payload(op, payload), &[]);
+            //     value
+            // } else {
             let index = self
                 .builder
                 .ins()
                 .iconst(Type::int(64).unwrap(), payload as i64);
-
             let value =
                 self.call_function_returns_value_args(op_to_name_payload(op, payload), &[index]);
+            //     value
+            // };
 
             self.value_to_local_map.insert(value, payload);
 
@@ -2959,13 +2979,23 @@ impl FunctionTranslator<'_> {
     fn read_local_value_no_spill(&mut self, op: OpCode, payload: usize) -> (Value, InferredType) {
         assert!(payload < self.arity as _);
 
+        // let index = self
+        //     .builder
+        //     .ins()
+        //     .iconst(Type::int(64).unwrap(), payload as i64);
+
+        // let value = if payload < 9 {
+        //     let value = self.call_function_returns_value_args(op_to_name_payload(op, payload), &[]);
+        //     value
+        // } else {
         let index = self
             .builder
             .ins()
             .iconst(Type::int(64).unwrap(), payload as i64);
-
         let value =
             self.call_function_returns_value_args(op_to_name_payload(op, payload), &[index]);
+        //     value
+        // };
 
         self.value_to_local_map.insert(value, payload);
 
