@@ -389,6 +389,14 @@ pub extern "C-unwind" fn car_handler_reg(ctx: *mut VmCore, reg: usize) -> SteelV
 }
 
 #[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn car_handler_reg_no_check(ctx: *mut VmCore, reg: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let arg = &guard.thread.stack[offset + reg];
+    unsafe { crate::primitives::lists::unchecked_car(&arg) }
+}
+
+#[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn list_ref_handler_c(
     ctx: *mut VmCore,
     list: SteelVal,

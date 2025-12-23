@@ -505,17 +505,13 @@ pub(crate) fn car(list: &SteelVal) -> Result<SteelVal> {
     }
 }
 
-// pub(crate) fn unsafe_car(list: &SteelVal) -> Result<SteelVal> {
-//     match list {
-//         SteelVal::ListV(l) => l
-//             .car()
-//             .ok_or_else(throw!(Generic => "car resulted in an error - empty list")),
-
-//         SteelVal::Pair(p) => Ok(p.car()),
-
-//         _ => unsafe { unreachable_unchecked() },
-//     }
-// }
+pub(crate) unsafe fn unchecked_car(list: &SteelVal) -> SteelVal {
+    match list {
+        SteelVal::ListV(l) => l.car().unwrap_unchecked(),
+        SteelVal::Pair(p) => p.car(),
+        _ => unsafe { unreachable_unchecked() },
+    }
+}
 
 // Optimistic check to see if the rest is null before making an allocation
 #[steel_derive::native(name = "cdr-null?", constant = true, arity = "Exact(1)")]

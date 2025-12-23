@@ -24,12 +24,12 @@ use crate::{
             jit::{
                 box_handler_c, call_global_function_deopt_no_arity_spilled,
                 call_global_function_deopt_spilled, callglobal_handler_deopt_c,
-                callglobal_tail_handler_deopt_spilled, car_handler_reg, car_handler_value,
-                cdr_handler_mut_reg, cdr_handler_mut_reg_no_check, cdr_handler_reg,
-                cdr_handler_reg_no_check, cdr_handler_value, check_callable, check_callable_spill,
-                check_callable_tail, check_callable_value, check_callable_value_tail,
-                cons_handler_value, drop_value, eq_reg_1, eq_reg_2, eq_value, equal_binop,
-                extern_c_add_two, extern_c_add_two_binop_register,
+                callglobal_tail_handler_deopt_spilled, car_handler_reg, car_handler_reg_no_check,
+                car_handler_value, cdr_handler_mut_reg, cdr_handler_mut_reg_no_check,
+                cdr_handler_reg, cdr_handler_reg_no_check, cdr_handler_value, check_callable,
+                check_callable_spill, check_callable_tail, check_callable_value,
+                check_callable_value_tail, cons_handler_value, drop_value, eq_reg_1, eq_reg_2,
+                eq_value, equal_binop, extern_c_add_two, extern_c_add_two_binop_register,
                 extern_c_add_two_binop_register_both, extern_c_div_two, extern_c_gt_two,
                 extern_c_gte_two, extern_c_lt_two, extern_c_lt_two_int, extern_c_lte_two,
                 extern_c_lte_two_int, extern_c_mult_two, extern_c_negate, extern_c_null_handler,
@@ -575,6 +575,11 @@ impl Default for JIT {
         map.add_func(
             "car-reg",
             car_handler_reg as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
+        );
+
+        map.add_func(
+            "car-reg-unchecked",
+            car_handler_reg_no_check as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
         );
 
         // TODO: Add type checked variants as well which can allow
@@ -2300,16 +2305,32 @@ impl FunctionTranslator<'_> {
 
                     match self.shadow_stack.last().unwrap().clone() {
                         MaybeStackValue::MutRegister(reg) | MaybeStackValue::Register(reg) => {
-                            // If its a non empty list, the next time we use it, we can skip bounds
-                            // checks since we know that it has a cdr.
-                            self.properties
-                                .insert(ValueOrRegister::Register(reg), Properties::NonEmptyList);
+                            let can_skip_bounds_check = matches!(
+                                self.properties.get(&ValueOrRegister::Register(reg)),
+                                Some(Properties::NonEmptyList)
+                            );
 
-                            self.shadow_stack.pop();
-                            let reg = self.register_index(reg);
-                            let res = self.call_function_returns_value_args("car-reg", &[reg]);
-                            self.push(res, InferredType::Any);
-                            self.ip += 2;
+                            if can_skip_bounds_check {
+                                self.shadow_stack.pop();
+                                let reg = self.register_index(reg);
+                                let res = self
+                                    .call_function_returns_value_args("car-reg-unchecked", &[reg]);
+                                self.push(res, InferredType::Any);
+                                self.ip += 2;
+                            } else {
+                                // If its a non empty list, the next time we use it, we can skip bounds
+                                // checks since we know that it has a cdr.
+                                self.properties.insert(
+                                    ValueOrRegister::Register(reg),
+                                    Properties::NonEmptyList,
+                                );
+
+                                self.shadow_stack.pop();
+                                let reg = self.register_index(reg);
+                                let res = self.call_function_returns_value_args("car-reg", &[reg]);
+                                self.push(res, InferredType::Any);
+                                self.ip += 2;
+                            }
                         }
 
                         _ => {
