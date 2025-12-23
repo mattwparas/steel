@@ -1286,8 +1286,23 @@ impl Compiler {
 
         // TODO: Configure inlining function size
 
+        // Loop unrolling. That is probably what we need?
+        // Inlining?
         if std::env::var("STEEL_INLINE").is_ok() {
             semantic.inline_function_calls(Some(75))?;
+            semantic.refresh_variables();
+            let mut analysis = semantic.into_analysis();
+            self.shadowed_variable_renamer
+                .rename_shadowed_variables(&mut expanded_statements, false);
+            analysis.fresh_from_exprs(&expanded_statements);
+            analysis.populate_captures(&expanded_statements);
+            // Do this again
+            semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+            semantic.replace_anonymous_function_calls_with_plain_lets();
+        }
+
+        if std::env::var("STEEL_INLINE_RECURSIVE").is_ok() {
+            semantic.recursively_inline_function_calls(8)?;
             semantic.refresh_variables();
             let mut analysis = semantic.into_analysis();
             self.shadowed_variable_renamer

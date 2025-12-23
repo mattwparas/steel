@@ -2340,6 +2340,50 @@ where
     fn visit_quote(&mut self, _quote: &mut Quote) {}
 }
 
+struct FindCallSitesManyDepth<'a, F> {
+    analysis: &'a Analysis,
+    map: HashMap<InternedString, F>,
+    depth: usize,
+}
+
+impl<'a, F> VisitorMutRefUnit for FindCallSitesManyDepth<'a, F>
+where
+    F: FnMut(&Analysis, &mut List),
+{
+    fn visit_list(&mut self, l: &mut List) {
+        if self.depth == 0 {
+            return;
+        }
+
+        if let Some(name) = l.first_ident() {
+            // Creates a value that ends up mapping to the new thing?
+            // if let Some(semantic_info) = self.analysis.get(l.args[0].atom_syntax_object().unwrap())
+            // {
+            //     if semantic_info.kind == IdentifierStatus::Global {
+            if let Some(func) = self.map.get_mut(name) {
+                (func)(self.analysis, l);
+                self.depth -= 1;
+            }
+            //     }
+            // }
+
+            for arg in &mut l.args {
+                self.visit(arg);
+            }
+
+            return;
+        }
+
+        for arg in &mut l.args {
+            self.visit(arg);
+        }
+    }
+
+    // TODO: This shouldn't visit at all
+    #[inline]
+    fn visit_quote(&mut self, _quote: &mut Quote) {}
+}
+
 #[derive(Default)]
 struct FunctionSizeEstimator {
     count: usize,
@@ -4894,6 +4938,100 @@ impl<'a> SemanticAnalysis<'a> {
         Ok(())
     }
 
+    // Inline the function calls n times
+    pub fn recursively_inline_function_calls(&mut self, depth: usize) -> Result<(), SteelErr> {
+        let estimator = self.calculate_function_sizes();
+        let threshold = 75;
+
+        let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
+
+        // Only inline forwards, as to not run in to any issues with visibility
+        for expr in self.exprs.iter() {
+            match expr {
+                ExprKind::Define(d) => {
+                    let name = if let Some(name) = d.name.atom_syntax_object() {
+                        name
+                    } else {
+                        continue;
+                    };
+
+                    if let Some(analysis) = self.analysis.get(name) {
+                        if analysis.set_bang {
+                            continue;
+                        }
+                    }
+
+                    if let ExprKind::LambdaFunction(l) = &d.body {
+                        if let Some(count) = estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
+                        {
+                            if *count < threshold {
+                                let original_id = l.syntax_object_id;
+                                let l = l.clone();
+                                funcs.insert(
+                                    *d.name.atom_identifier().unwrap(),
+                                    Box::new(move |_: &Analysis, lst: &mut List| {
+                                        if lst.syntax_object_id > original_id {
+                                            println!("recursively inlining: {} @ {}", l, lst);
+                                            lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                                        }
+                                    }),
+                                );
+                            }
+                        }
+                    }
+                }
+
+                ExprKind::Begin(b) => {
+                    for expr in b.exprs.iter() {
+                        if let ExprKind::Define(d) = expr {
+                            let name = if let Some(name) = d.name.atom_syntax_object() {
+                                name
+                            } else {
+                                continue;
+                            };
+
+                            if let Some(analysis) = self.analysis.get(name) {
+                                if analysis.set_bang {
+                                    continue;
+                                }
+                            }
+
+                            if let ExprKind::LambdaFunction(l) = &d.body {
+                                if let Some(count) =
+                                    estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
+                                {
+                                    if *count < threshold {
+                                        let original_id = l.syntax_object_id;
+                                        let l = l.clone();
+                                        funcs.insert(
+                                            *d.name.atom_identifier().unwrap(),
+                                            Box::new(move |_: &Analysis, lst: &mut List| {
+                                                if lst.syntax_object_id > original_id {
+                                                    println!(
+                                                        "recursively inlining: {} @ {}",
+                                                        l, lst
+                                                    );
+                                                    lst.args[0] =
+                                                        ExprKind::LambdaFunction(l.clone());
+                                                }
+                                            }),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                _ => {}
+            }
+        }
+
+        self.find_call_sites_and_modify_with_many_depth(funcs, depth);
+
+        Ok(())
+    }
+
     // TODO: Check the arity at the call site and make sure it matches before inlining!
     // Otherwise, we're in trouble and we'll get weird compilation errors
     pub fn inline_function_calls(&mut self, size: Option<usize>) -> Result<(), SteelErr> {
@@ -5631,6 +5769,31 @@ impl<'a> SemanticAnalysis<'a> {
         };
 
         for expr in self.exprs.iter_mut() {
+            find_call_sites.visit(expr);
+        }
+    }
+
+    pub fn find_call_sites_and_modify_with_many_depth<F>(
+        &mut self,
+        mapping: HashMap<InternedString, F>,
+        depth: usize,
+    ) where
+        F: FnMut(&Analysis, &mut List),
+    {
+        println!(
+            "Candidates: {:#?}",
+            mapping.keys().map(|x| x.resolve()).collect::<Vec<_>>()
+        );
+
+        let mut find_call_sites = FindCallSitesManyDepth {
+            analysis: &self.analysis,
+            map: mapping,
+            depth,
+        };
+
+        for expr in self.exprs.iter_mut() {
+            // Reset the depth per expression
+            find_call_sites.depth = depth;
             find_call_sites.visit(expr);
         }
     }
