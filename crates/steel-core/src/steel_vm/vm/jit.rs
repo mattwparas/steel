@@ -757,7 +757,6 @@ pub extern "C-unwind" fn cdr_handler_value(ctx: *mut VmCore, arg: SteelVal) -> S
 #[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn cdr_handler_reg(ctx: *mut VmCore, arg: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
-    guard.ip += 2;
 
     let offset = guard.get_offset();
     let mut arg = guard.thread.stack[offset + arg].clone();
@@ -776,7 +775,6 @@ pub extern "C-unwind" fn cdr_handler_reg(ctx: *mut VmCore, arg: usize) -> SteelV
 #[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn cdr_handler_mut_reg(ctx: *mut VmCore, arg: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
-    guard.ip += 2;
 
     let offset = guard.get_offset();
     let mut arg = &mut guard.thread.stack[offset + arg];
@@ -798,7 +796,6 @@ pub extern "C-unwind" fn cdr_handler_mut_reg(ctx: *mut VmCore, arg: usize) -> St
 #[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn cdr_handler_reg_no_check(ctx: *mut VmCore, arg: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
-    guard.ip += 2;
 
     let offset = guard.get_offset();
     let mut arg = guard.thread.stack[offset + arg].clone();
@@ -809,7 +806,6 @@ pub extern "C-unwind" fn cdr_handler_reg_no_check(ctx: *mut VmCore, arg: usize) 
 #[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn cdr_handler_mut_reg_no_check(ctx: *mut VmCore, arg: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
-    guard.ip += 2;
 
     let offset = guard.get_offset();
     let mut arg = &mut guard.thread.stack[offset + arg];

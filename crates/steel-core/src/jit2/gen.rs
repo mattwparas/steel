@@ -2220,9 +2220,9 @@ impl FunctionTranslator<'_> {
                             let reg = self.register_index(reg);
 
                             let func = if can_skip_bounds_check {
-                                "cdr-reg"
-                            } else {
                                 "cdr-reg-no-check"
+                            } else {
+                                "cdr-reg"
                             };
 
                             let res = self.call_function_returns_value_args(func, &[reg]);
@@ -2239,9 +2239,9 @@ impl FunctionTranslator<'_> {
                             self.shadow_stack.pop();
 
                             let func = if can_skip_bounds_check {
-                                "cdr-mut-reg"
-                            } else {
                                 "cdr-mut-reg-no-check"
+                            } else {
+                                "cdr-mut-reg"
                             };
 
                             let reg = self.register_index(reg);
