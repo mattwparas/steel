@@ -12,9 +12,8 @@ use crate::{
     compiler::constants::ConstantMap,
     core::instructions::{pretty_print_dense_instructions, DenseInstruction},
     primitives::{
-        ports::{
-            eof_objectp, eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char,
-        },
+        lists::steel_pair,
+        ports::{eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char},
         strings::{char_equals_binop, char_equals_binop_unsafe, steel_char_equals},
         vectors::steel_mut_vec_set,
     },
@@ -26,17 +25,18 @@ use crate::{
                 box_handler_c, call_global_function_deopt_no_arity_spilled,
                 call_global_function_deopt_spilled, callglobal_handler_deopt_c,
                 callglobal_tail_handler_deopt_spilled, car_handler_reg, car_handler_value,
-                cdr_handler_mut_reg, cdr_handler_reg, cdr_handler_value, check_callable,
-                check_callable_spill, check_callable_tail, check_callable_value,
-                check_callable_value_tail, cons_handler_value, drop_value, eq_reg_1, eq_reg_2,
-                eq_value, equal_binop, extern_c_add_two, extern_c_add_two_binop_register,
+                cdr_handler_mut_reg, cdr_handler_mut_reg_no_check, cdr_handler_reg,
+                cdr_handler_reg_no_check, cdr_handler_value, check_callable, check_callable_spill,
+                check_callable_tail, check_callable_value, check_callable_value_tail,
+                cons_handler_value, drop_value, eq_reg_1, eq_reg_2, eq_value, equal_binop,
+                extern_c_add_two, extern_c_add_two_binop_register,
                 extern_c_add_two_binop_register_both, extern_c_div_two, extern_c_gt_two,
                 extern_c_gte_two, extern_c_lt_two, extern_c_lt_two_int, extern_c_lte_two,
                 extern_c_lte_two_int, extern_c_mult_two, extern_c_negate, extern_c_null_handler,
                 extern_c_sub_two, extern_c_sub_two_int, extern_c_sub_two_int_reg,
                 extern_handle_pop, handle_new_start_closure, handle_pure_function,
-                if_handler_raw_value, if_handler_register, if_handler_value, let_end_scope_c,
-                list_handler_c, list_ref_handler_c, move_read_local_0_value_c,
+                if_handler_raw_value, if_handler_register, if_handler_value, is_pair_c_reg,
+                let_end_scope_c, list_handler_c, list_ref_handler_c, move_read_local_0_value_c,
                 move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
                 move_read_local_any_value_c, not_handler_raw_value, num_equal_int, num_equal_value,
                 num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
@@ -326,6 +326,11 @@ impl Default for JIT {
             return_type_hints: HashMap::new(),
         };
 
+        map.add_func(
+            "pair?",
+            is_pair_c_reg as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
+        );
+
         map.add_func2(
             "#%print-value",
             print_value as extern "C-unwind" fn(i8, i8) -> bool,
@@ -556,6 +561,15 @@ impl Default for JIT {
             cdr_handler_mut_reg as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
         );
 
+        map.add_func(
+            "cdr-reg-no-check",
+            cdr_handler_reg_no_check as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
+        );
+        map.add_func(
+            "cdr-mut-reg-no-check",
+            cdr_handler_mut_reg_no_check as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
+        );
+
         map.add_func("cons-handler-value", cons_handler_value as VmBinOp);
 
         map.add_func(
@@ -609,17 +623,17 @@ impl Default for JIT {
 
         map.add_func(
             "eq?-reg-2",
-            eq_reg_2 as extern "C-unwind" fn(ctx: *mut VmCore, usize, usize) -> SteelVal,
+            eq_reg_2 as extern "C-unwind" fn(ctx: *mut VmCore, usize, usize) -> bool,
         );
 
         map.add_func(
             "eq?-reg-1",
-            eq_reg_1 as extern "C-unwind" fn(ctx: *mut VmCore, usize, SteelVal) -> SteelVal,
+            eq_reg_1 as extern "C-unwind" fn(ctx: *mut VmCore, usize, SteelVal) -> bool,
         );
 
         map.add_func2(
             "eq?-args",
-            eq_value as extern "C-unwind" fn(SteelVal, SteelVal) -> SteelVal,
+            eq_value as extern "C-unwind" fn(SteelVal, SteelVal) -> bool,
         );
 
         map.add_func("push-const", push_const_value_c as Vm01);
@@ -996,6 +1010,7 @@ impl JIT {
             intrinsics: &self.function_map,
             fake_entry_block,
             exit_block,
+            properties: Default::default(),
             // generators: Default::default(),
         };
 
@@ -1032,6 +1047,9 @@ pub enum InferredType {
     // Boxed boolean
     Bool,
 
+    // TODO: We'll want unboxed variants of all of these as well.
+    // That way, we can keep the value around as untagged for use
+    // within the function itself.
     List,
     Any,
 
@@ -1072,6 +1090,23 @@ struct StackValue {
     // Whether or not the value is spilled
     // to the stack
     spilled: bool,
+}
+
+impl StackValue {
+    pub fn as_steelval(&self, ctx: &mut FunctionTranslator) -> Value {
+        match self.inferred_type {
+            InferredType::UnboxedBool => {
+                let value = ctx.builder.ins().uextend(types::I64, self.value);
+                ctx.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, value)
+            }
+            _ => self.value,
+        }
+
+        // Encode it using the discriminant associated with the inferred
+        // type, if its unboxed.
+        //
+        // Otherwise, its just the value itself.
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1127,6 +1162,18 @@ impl ConstantValue {
     }
 }
 
+// TODO: Include another variant for this, which can decide whether the `Value`
+// itself is actually a value represented by a SteelVal, or if its something
+// that is represented by an unboxed version of that value.
+//
+// For example, if we return a `bool` from a function, we should be able to leave
+// it as a u8, unless we pass it directly to a function. At that point, we can
+// then convert it to a proper steel value. However, at this point, we have an
+// encoding of values that more or less assumes that this is a `SteelVal` when
+// its in the `StackValue` state.
+//
+// We'll also want constants to be encoded in the value as well, like we have
+// below.
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 enum MaybeStackValue {
@@ -1142,6 +1189,20 @@ enum MaybeStackValue {
     Register(usize),
 
     Constant(ConstantValue),
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+enum ValueOrRegister {
+    Value(Value),
+    Register(usize),
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Properties {
+    // If we can call car on this list successfully, downstream of this
+    // then we're both going to be listed as a proper list type,
+    // and also this will successfully return without error.
+    NonEmptyList,
 }
 
 impl MaybeStackValue {
@@ -1190,6 +1251,9 @@ struct FunctionTranslator<'a> {
     value_to_local_map: HashMap<Value, usize>,
 
     local_to_value_map: HashMap<usize, InferredType>,
+
+    // This should probably be something more sophisticated, but for now it'll work.
+    properties: HashMap<ValueOrRegister, Properties>,
 
     arity: u16,
     constants: &'a ConstantMap,
@@ -1431,33 +1495,52 @@ impl FunctionTranslator<'_> {
 
                         self.push(res, InferredType::Any);
                     } else {
-                        // TODO: Type inference here! Change which function is called!
-                        let (test, typ) = self.shadow_pop();
-                        self.value_to_local_map.remove(&test);
+                        let last_ref = self.shadow_stack.last().unwrap().into_value();
 
-                        let false_instr = self.instructions[self.ip].payload_size;
-                        let true_instr = self.ip + 1;
+                        if last_ref.inferred_type == InferredType::UnboxedBool {
+                            let false_instr = self.instructions[self.ip].payload_size;
+                            let true_instr = self.ip + 1;
 
-                        let test_bool = if typ == InferredType::Bool {
-                            let amount_to_shift =
-                                self.builder.ins().iconst(Type::int(64).unwrap(), 64);
-                            let shift_right = self.builder.ins().sshr(test, amount_to_shift);
+                            // Explicitly want the unboxed value here
+                            let test_bool = last_ref.value;
 
-                            // Do we need to do this at all?
-                            self.builder
-                                .ins()
-                                .ireduce(Type::int(8).unwrap(), shift_right)
+                            let res = self.translate_if_else_value(
+                                test_bool,
+                                true_instr,
+                                false_instr.to_usize(),
+                            );
+
+                            self.push(res, InferredType::Any);
                         } else {
-                            self.call_test_handler(test)
-                        };
+                            // TODO: Type inference here! Change which function is called!
+                            let (test, typ) = self.shadow_pop();
 
-                        let res = self.translate_if_else_value(
-                            test_bool,
-                            true_instr,
-                            false_instr.to_usize(),
-                        );
+                            let false_instr = self.instructions[self.ip].payload_size;
+                            let true_instr = self.ip + 1;
 
-                        self.push(res, InferredType::Any);
+                            let test_bool = match typ {
+                                InferredType::Bool => {
+                                    let amount_to_shift =
+                                        self.builder.ins().iconst(Type::int(64).unwrap(), 64);
+                                    let shift_right =
+                                        self.builder.ins().sshr(test, amount_to_shift);
+
+                                    // Do we need to do this at all?
+                                    self.builder
+                                        .ins()
+                                        .ireduce(Type::int(8).unwrap(), shift_right)
+                                }
+                                _ => self.call_test_handler(test),
+                            };
+
+                            let res = self.translate_if_else_value(
+                                test_bool,
+                                true_instr,
+                                false_instr.to_usize(),
+                            );
+
+                            self.push(res, InferredType::Any);
+                        }
                     }
                 }
                 OpCode::JMP => {
@@ -1804,6 +1887,8 @@ impl FunctionTranslator<'_> {
                                 self.vector_set()
                             } else if fn_addr_eq(f, steel_eq as FunctionSignature) && arity == 2 {
                                 self.eq()
+                            } else if fn_addr_eq(f, steel_pair as FunctionSignature) && arity == 1 {
+                                self.is_pair()
                             } else {
                                 if let Some(name) = name {
                                     // attempt to move forward with it
@@ -1952,7 +2037,7 @@ impl FunctionTranslator<'_> {
 
                     let register = self.builder.ins().iconst(types::I64, register as i64);
 
-                    let args = [register, value.value];
+                    let args = [register, value.as_steelval(self)];
                     let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
 
                     // Check the inferred type, if we know of it
@@ -1990,7 +2075,7 @@ impl FunctionTranslator<'_> {
 
                     let register = self.builder.ins().iconst(types::I64, register as i64);
 
-                    let args = [register, value.value];
+                    let args = [register, value.as_steelval(self)];
                     let result = self.call_function_returns_value_args("add-binop-reg", &args);
 
                     // Check the inferred type, if we know of it
@@ -2117,6 +2202,8 @@ impl FunctionTranslator<'_> {
                 OpCode::CONS => {
                     self.func_ret_val(op, 2, 2, InferredType::List);
                 }
+
+                // Cdr reg no type check, should be faster
                 OpCode::CDR => {
                     if let Some(last) = self.shadow_stack.last().copied() {
                         self.shadow_mark_local_type_from_var(last, InferredType::List);
@@ -2124,17 +2211,41 @@ impl FunctionTranslator<'_> {
 
                     match self.shadow_stack.last().unwrap().clone() {
                         MaybeStackValue::Register(reg) => {
+                            let can_skip_bounds_check = matches!(
+                                self.properties.get(&ValueOrRegister::Register(reg)),
+                                Some(Properties::NonEmptyList)
+                            );
+
                             self.shadow_stack.pop();
                             let reg = self.register_index(reg);
-                            let res = self.call_function_returns_value_args("cdr-reg", &[reg]);
+
+                            let func = if can_skip_bounds_check {
+                                "cdr-reg"
+                            } else {
+                                "cdr-reg-no-check"
+                            };
+
+                            let res = self.call_function_returns_value_args(func, &[reg]);
                             self.push(res, InferredType::List);
                             self.ip += 2;
                         }
 
                         MaybeStackValue::MutRegister(reg) => {
+                            let can_skip_bounds_check = matches!(
+                                self.properties.get(&ValueOrRegister::Register(reg)),
+                                Some(Properties::NonEmptyList)
+                            );
+
                             self.shadow_stack.pop();
+
+                            let func = if can_skip_bounds_check {
+                                "cdr-mut-reg"
+                            } else {
+                                "cdr-mut-reg-no-check"
+                            };
+
                             let reg = self.register_index(reg);
-                            let res = self.call_function_returns_value_args("cdr-mut-reg", &[reg]);
+                            let res = self.call_function_returns_value_args(func, &[reg]);
                             self.push(res, InferredType::List);
                             self.ip += 2;
                         }
@@ -2189,6 +2300,11 @@ impl FunctionTranslator<'_> {
 
                     match self.shadow_stack.last().unwrap().clone() {
                         MaybeStackValue::MutRegister(reg) | MaybeStackValue::Register(reg) => {
+                            // If its a non empty list, the next time we use it, we can skip bounds
+                            // checks since we know that it has a cdr.
+                            self.properties
+                                .insert(ValueOrRegister::Register(reg), Properties::NonEmptyList);
+
                             self.shadow_stack.pop();
                             let reg = self.register_index(reg);
                             let res = self.call_function_returns_value_args("car-reg", &[reg]);
@@ -2235,9 +2351,38 @@ impl FunctionTranslator<'_> {
                 OpCode::BINOPADD => todo!(),
                 OpCode::BINOPSUB => todo!(),
                 OpCode::LTEIMMEDIATEIF => todo!(),
+
+                // TODO: This should pretty much be able to be inlined entirely?
                 OpCode::NOT => {
+                    let last = self.shadow_stack.last().unwrap().into_value();
+
+                    if last.inferred_type == InferredType::UnboxedBool {
+                        let test = last.value;
+                        let test = self.builder.ins().uextend(types::I64, test);
+                        self.shadow_stack.pop();
+                        let value = self.builder.ins().icmp_imm(IntCC::Equal, test, 0);
+                        self.push(value, InferredType::UnboxedBool);
+                        self.ip += 2;
+                    } else {
+                        let (test, _) = self.shadow_pop();
+                        // If this matches SteelVal::BoolV(false)
+                        // exactly, then we're done.
+                        let false_value = self.create_i128(encode(SteelVal::BoolV(false)));
+
+                        let comparison = self.builder.ins().icmp(IntCC::Equal, test, false_value);
+                        let res = self.builder.ins().uextend(types::I64, comparison);
+                        let boolean =
+                            self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+                        self.push(boolean, InferredType::Bool);
+                        self.ip += 2;
+                    }
+
+                    // let res = self.builder.ins().uextend(types::I64, comparison);
+                    // let boolean =
+                    //     self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+
                     // Do the thing.
-                    self.func_ret_val(op, 1, 2, InferredType::Bool);
+                    // self.func_ret_val(op, 1, 2, InferredType::Bool);
                 }
                 OpCode::VEC => todo!(),
                 OpCode::Apply => todo!(),
@@ -2314,6 +2459,10 @@ impl FunctionTranslator<'_> {
         self.builder.ins().iconst(types::I64, index as i64)
     }
 
+    fn tag(&mut self, tag: u8) -> Value {
+        self.builder.ins().iconst(types::I8, tag as i64)
+    }
+
     // TODO: Generalize this to by value functions
     // to work with anything where every argument is just by value.
     //
@@ -2346,6 +2495,80 @@ impl FunctionTranslator<'_> {
         todo!()
     }
 
+    // do the thing:
+    fn is_pair(&mut self) {
+        use MaybeStackValue::*;
+
+        let last = self.shadow_stack.last().unwrap().clone();
+
+        match last {
+            // TODO: Encode the result of the evaluation into the
+            // branching - if this is used in the test position
+            // of an if statement, we should encode the type checking
+            // through.
+            Value(stack_value) => {
+                self.shadow_stack.pop();
+                // If we've already inferrred this type as a pair,
+                // we can skip the code generation for checking the tags
+                // and actually invoking the function since we know
+                // it will be a pair.
+                match stack_value.inferred_type {
+                    InferredType::List | InferredType::Pair | InferredType::ListOrPair => {
+                        let res = self.builder.ins().iconst(types::I64, 1);
+
+                        let boolean =
+                            self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+
+                        self.push(boolean, InferredType::Bool);
+                        self.ip += 1;
+
+                        return;
+                    }
+                    _ => {}
+                }
+
+                let value = stack_value.as_steelval(self);
+
+                // Encode this manually:
+                let tag = self.get_tag(value);
+
+                // TODO: Encode these tags in a better way besides manually
+                // doing this here
+                let pair_tag = self.tag(24);
+                let list_tag = self.tag(23);
+
+                // Compare these tags:
+                let is_list = self.builder.ins().icmp(IntCC::Equal, tag, list_tag);
+                let is_pair = self.builder.ins().icmp(IntCC::Equal, tag, pair_tag);
+
+                let comparison = self.builder.ins().bor(is_list, is_pair);
+
+                // let res = self.builder.ins().uextend(types::I64, comparison);
+                // let boolean = self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+                // self.push(boolean, InferredType::Bool);
+
+                self.push(comparison, InferredType::UnboxedBool);
+
+                self.ip += 1;
+            }
+            MutRegister(p) | Register(p) => {
+                let register = self.register_index(p);
+                self.shadow_stack.pop();
+                let res = self.call_function_returns_value_args("pair?", &[register]);
+
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+
+            // Depending on what the constant is, we can do this evaluation here
+            // Constant(constant_value) => todo!(),
+            _ => {
+                todo!();
+                // Fall back to checking is pair
+            }
+        }
+    }
+
     // Pointer equality against constants can be inlined
     fn eq(&mut self) {
         use MaybeStackValue::*;
@@ -2367,7 +2590,7 @@ impl FunctionTranslator<'_> {
 
                 let res = self.call_function_returns_value_args("eq?-reg-2", &[left, right]);
 
-                self.push(res, InferredType::Bool);
+                self.push(res, InferredType::UnboxedBool);
                 self.ip += 1;
             }
 
@@ -2380,7 +2603,7 @@ impl FunctionTranslator<'_> {
 
                 let res = self.call_function_returns_value_args("eq?-reg-1", &[left, right.0]);
 
-                self.push(res, InferredType::Bool);
+                self.push(res, InferredType::UnboxedBool);
                 self.ip += 1;
             }
 
@@ -2394,7 +2617,7 @@ impl FunctionTranslator<'_> {
 
                 let res = self.call_function_returns_value_args_no_context("eq?-args", &args);
 
-                self.push(res, InferredType::Bool);
+                self.push(res, InferredType::UnboxedBool);
                 self.ip += 1;
             }
         }
@@ -3687,7 +3910,9 @@ impl FunctionTranslator<'_> {
         }
 
         if spilled {
-            self.push_to_vm_stack(self.shadow_stack[index].into_value().value);
+            let value = self.shadow_stack[index].into_value();
+            let steelval = value.as_steelval(self);
+            self.push_to_vm_stack(steelval);
         }
 
         Some(())
@@ -3743,7 +3968,8 @@ impl FunctionTranslator<'_> {
             match value {
                 MaybeStackValue::Value(stack_value) => {
                     if !stack_value.spilled {
-                        self.push_to_vm_stack(stack_value.value);
+                        let steelval = stack_value.as_steelval(self);
+                        self.push_to_vm_stack(steelval);
                     }
                 }
                 MaybeStackValue::MutRegister(p) => {
@@ -3771,7 +3997,7 @@ impl FunctionTranslator<'_> {
                 assert!(!last.spilled);
 
                 self.value_to_local_map.remove(&last.value);
-                (last.value, last.inferred_type)
+                (last.as_steelval(self), last.inferred_type)
             }
 
             // TODO: @matt specialize these for readlocal 0, 1, 2, etc.
@@ -3825,7 +4051,7 @@ impl FunctionTranslator<'_> {
                 // self.pop_value_from_vm_stack();
 
                 self.value_to_local_map.remove(&last.value);
-                (last.value, last.inferred_type)
+                (last.as_steelval(self), last.inferred_type)
             }
 
             // TODO: @matt specialize these for readlocal 0, 1, 2, etc.
@@ -3900,7 +4126,7 @@ impl FunctionTranslator<'_> {
 
         args.into_iter()
             .map(|x| match x {
-                MaybeStackValue::Value(stack_value) => stack_value.value,
+                MaybeStackValue::Value(stack_value) => stack_value.as_steelval(self),
                 MaybeStackValue::MutRegister(p) => {
                     self.builder.ins().iconst(Type::int(64).unwrap(), p as i64)
                 }
@@ -3972,7 +4198,7 @@ impl FunctionTranslator<'_> {
         self.maybe_patch_from_stack(&mut args);
 
         args.into_iter()
-            .map(|x| (x.value, x.inferred_type))
+            .map(|x| (x.as_steelval(self), x.inferred_type))
             .collect()
     }
 
@@ -4122,6 +4348,11 @@ impl FunctionTranslator<'_> {
         let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
         let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
         encoded_rhs
+    }
+
+    fn get_tag(&mut self, value: Value) -> Value {
+        // Split the value into two:
+        self.builder.ins().ireduce(types::I8, value)
     }
 
     fn translate_if_else_value(

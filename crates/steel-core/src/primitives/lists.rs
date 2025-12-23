@@ -306,7 +306,7 @@ pub fn is_empty(list: &SteelVal) -> bool {
 /// > (pair? '()) ;; => #false
 /// ```
 #[steel_derive::function(name = "pair?")]
-fn pair(list: &SteelVal) -> bool {
+pub fn pair(list: &SteelVal) -> bool {
     match list {
         SteelVal::ListV(l) => !l.is_empty(),
         SteelVal::Pair(_) => true,
@@ -568,6 +568,20 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
         arg => {
             stop!(TypeMismatch => format!("cdr expects a list, found: {}", arg))
         }
+    }
+}
+
+pub(crate) unsafe fn cdr_no_check(arg: &mut SteelVal) -> SteelVal {
+    match std::mem::replace(arg, SteelVal::Void) {
+        SteelVal::ListV(mut l) => {
+            l.rest_mut();
+            SteelVal::ListV(l)
+        }
+
+        SteelVal::Pair(p) => p.cdr(),
+        _ => unsafe {
+            unreachable_unchecked();
+        },
     }
 }
 

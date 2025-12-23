@@ -8,7 +8,7 @@ use super::VmCore;
 use crate::{
     gc::Gc,
     primitives::{
-        lists::{cons, list_ref},
+        lists::{cdr_no_check, cons, list_ref},
         vectors::{mut_vec_set, steel_mut_vec_set},
     },
     rvals::Result,
@@ -421,6 +421,14 @@ pub extern "C-unwind" fn list_ref_handler_c(
 }
 
 #[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn is_pair_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let value = &guard.thread.stack[offset + register];
+    SteelVal::BoolV(crate::primitives::lists::pair(value))
+}
+
+#[allow(improper_ctypes_definitions)]
 pub extern "C-unwind" fn vector_ref_handler_c(
     ctx: *mut VmCore,
     vec: SteelVal,
@@ -486,30 +494,30 @@ pub extern "C-unwind" fn vector_ref_handler_register_two(
 }
 
 #[allow(improper_ctypes_definitions)]
-pub extern "C-unwind" fn eq_reg_2(ctx: *mut VmCore, left: usize, right: usize) -> SteelVal {
+pub extern "C-unwind" fn eq_reg_2(ctx: *mut VmCore, left: usize, right: usize) -> bool {
     // println!("calling eq reg 2");
     let guard = unsafe { &mut *ctx };
     let offset = guard.get_offset();
     let l = &guard.thread.stack[left + offset];
     let r = &guard.thread.stack[right + offset];
 
-    SteelVal::BoolV(l.ptr_eq(r))
+    l.ptr_eq(r)
 }
 
 #[allow(improper_ctypes_definitions)]
-pub extern "C-unwind" fn eq_reg_1(ctx: *mut VmCore, left: usize, right: SteelVal) -> SteelVal {
+pub extern "C-unwind" fn eq_reg_1(ctx: *mut VmCore, left: usize, right: SteelVal) -> bool {
     // println!("calling eq reg 1");
     let guard = unsafe { &mut *ctx };
     let offset = guard.get_offset();
     let l = &guard.thread.stack[left + offset];
 
-    SteelVal::BoolV(l.ptr_eq(&right))
+    l.ptr_eq(&right)
 }
 
 #[allow(improper_ctypes_definitions)]
-pub extern "C-unwind" fn eq_value(left: SteelVal, right: SteelVal) -> SteelVal {
+pub extern "C-unwind" fn eq_value(left: SteelVal, right: SteelVal) -> bool {
     // println!("calling eq value");
-    SteelVal::BoolV(left.ptr_eq(&right))
+    left.ptr_eq(&right)
 }
 
 #[allow(improper_ctypes_definitions)]
@@ -785,6 +793,28 @@ pub extern "C-unwind" fn cdr_handler_mut_reg(ctx: *mut VmCore, arg: usize) -> St
             SteelVal::Void
         }
     }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn cdr_handler_reg_no_check(ctx: *mut VmCore, arg: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    guard.ip += 2;
+
+    let offset = guard.get_offset();
+    let mut arg = guard.thread.stack[offset + arg].clone();
+
+    unsafe { cdr_no_check(&mut arg) }
+}
+
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn cdr_handler_mut_reg_no_check(ctx: *mut VmCore, arg: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    guard.ip += 2;
+
+    let offset = guard.get_offset();
+    let mut arg = &mut guard.thread.stack[offset + arg];
+
+    unsafe { cdr_no_check(&mut arg) }
 }
 
 macro_rules! extern_c {
