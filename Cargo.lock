@@ -1944,6 +1944,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
 
 [[package]]
+name = "hybrid-rc"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ec323de9ef1781124ababe85b0ef35f1266cda8d46e957ab84a041038d6266f"
+
+[[package]]
 name = "hyper"
 version = "0.14.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3892,6 +3898,7 @@ dependencies = [
  "git2",
  "glob",
  "httparse",
+ "hybrid-rc",
  "icu_casemap",
  "im",
  "im-lists",

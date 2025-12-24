@@ -1,3 +1,4 @@
+use std::sync::atomic::AtomicBool;
 use std::{cell::RefCell, collections::HashSet};
 
 #[cfg(feature = "sync")]
@@ -855,8 +856,6 @@ struct FreeList<T: HeapAble> {
     forward: Option<Sender<Vec<HeapElement<T>>>>,
     #[cfg(feature = "sync")]
     backward: Option<Receiver<Vec<HeapElement<T>>>>,
-
-    vec_alloc_count: usize,
 }
 
 impl<T: HeapAble> Clone for FreeList<T> {
@@ -882,7 +881,6 @@ impl<T: HeapAble> Clone for FreeList<T> {
             forward: None,
             #[cfg(feature = "sync")]
             backward: None,
-            vec_alloc_count: self.vec_alloc_count,
         }
     }
 }
@@ -989,7 +987,6 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
             forward: Some(forward_sender),
             #[cfg(feature = "sync")]
             backward: Some(backward_receiver),
-            vec_alloc_count: 0,
         };
 
         res.grow_by(256);
@@ -1786,8 +1783,6 @@ impl Heap {
                 self.memory_free_list.alloc_count =
                     self.memory_free_list.elements.len() - stats.memory_reached_count;
 
-                log::info!(target: "gc", "vector slots allocated after sweeping: {}", self.vector_free_list.vec_alloc_count);
-
                 // if !self.vector_free_list.has_sufficient_memory_pressure() {
                 // if self.vector_free_list.percent_full() > 0.75 {
                 if self.vector_free_list.grow_count > RESET_LIMIT {
@@ -2200,6 +2195,15 @@ pub struct HeapAllocated<T: Clone + std::fmt::Debug + PartialEq + Eq> {
     pub(crate) finalizer: bool,
     pub(crate) value: T,
 }
+
+// // Use atomic bools, and then store the value
+// // as a Cell?
+// pub struct Foo<T: Clone + std::fmt::Debug + PartialEq + Eq> {
+//     pub(crate) reachable: AtomicBool,
+//     pub(crate) finalizer: AtomicBool,
+//     pub(crate) value: T,
+// }
+// type TestThing = hybrid_rc::Arc<String>;
 
 #[test]
 fn check_size_of_heap_allocated_value() {
