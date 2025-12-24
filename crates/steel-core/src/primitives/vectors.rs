@@ -1221,13 +1221,18 @@ pub fn vec_ref(vec: &SteelVal, idx: &SteelVal) -> Result<SteelVal> {
                 let guard = &ptr.read().value;
                 */
 
+                // TODO: Not sure if we can really do this. When entering vec_ref
+                // its possible the values are frozen.
                 let guard = &(unsafe { &(*v.inner.as_ptr()) }.read()).value;
 
                 if idx_usize >= guard.len() {
                     stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
                 }
 
+                // match &guard[idx_usize] {
+                //     SteelVal::IntV(v) => Ok(SteelVal::IntV(*v)),
                 Ok(guard[idx_usize].clone())
+                // }
             }
 
             SteelVal::VectorV(v) => {

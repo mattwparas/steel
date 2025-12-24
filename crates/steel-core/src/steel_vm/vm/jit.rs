@@ -1611,7 +1611,14 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn get_local_value(&mut self, index: usize) -> SteelVal {
         let offset = self.get_offset();
+
+        // let value = match &self.thread.stack[index + offset] {
+        //     SteelVal::IntV(i) => SteelVal::IntV(*i),
+        //     other => other.clone(),
+        // };
+
         let value = self.thread.stack[index + offset].clone();
+
         self.ip += 1;
         return value;
     }
