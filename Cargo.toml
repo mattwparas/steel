@@ -27,7 +27,8 @@ steel-core = { path = "./crates/steel-core", version = "0.7.0", features = [
     "rooted-instructions",
     "triomphe",
     "imbl",
-    "jit2"
+    "jit2",
+    # "biased-rc"
     # "op-code-profiling",
 ] }
 

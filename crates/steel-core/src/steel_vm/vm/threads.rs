@@ -789,7 +789,13 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     // TODO: Continuations should not cross thread barriers.
     // Install continuation barriers here?
 
-    let handle = std::thread::spawn(move || {
+    // Make sure that this thread is certainly registered with the current system,
+    // and otherwise we can install the runtime system to associate with living threads
+    // with something.
+    biased_rc::register_thread();
+
+    // let handle = std::thread::spawn(move || {
+    let handle = biased_rc::with_explicit_merge(move || {
         let constant_map = thread.compiler.read().constant_map.clone();
 
         // TODO: We have to use the `execute` function in vm.rs - this sets up

@@ -76,10 +76,15 @@ pub mod shared {
     #[cfg(all(feature = "sync", not(feature = "triomphe")))]
     pub type SharedMut<T> = Arc<RwLock<T>>;
 
+    // #[cfg(all(feature = "sync", feature = "triomphe"))]
+    // pub type Shared<T> = triomphe::Arc<T>;
+    // #[cfg(all(feature = "sync", feature = "triomphe"))]
+    // pub type SharedMut<T> = triomphe::Arc<RwLock<T>>;
+
     #[cfg(all(feature = "sync", feature = "triomphe"))]
-    pub type Shared<T> = triomphe::Arc<T>;
+    pub type Shared<T> = biased_rc::BiasedRc<T>;
     #[cfg(all(feature = "sync", feature = "triomphe"))]
-    pub type SharedMut<T> = triomphe::Arc<RwLock<T>>;
+    pub type SharedMut<T> = biased_rc::BiasedRc<RwLock<T>>;
 
     #[cfg(feature = "sync")]
     pub type GcMut<T> = Gc<RwLock<T>>;
@@ -442,18 +447,13 @@ pub mod shared {
 
 // TODO: Consider triomphe for a drop in replacement of Arc
 
-/// Used for automatic detection of ref cycle
-pub enum MaybeWeak<T: Clone> {
-    StrongRef(Gc<T>),
-    WeakRef(Gc<T>),
-}
-
 /// This is simply a newtype around the `Rc` type
 /// When enabled, this allows for complete sandboxing of data types
 /// It does not expose the full functionality of the `Rc` type
 /// but it does allow for some
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
-pub struct Gc<T: ?Sized>(pub(crate) Shared<T>);
+// pub struct Gc<T: ?Sized>(pub(crate) Shared<T>);
+pub struct Gc<T: ?Sized + 'static>(pub(crate) Shared<T>);
 
 impl<T: ?Sized> Pointer for Gc<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -544,8 +544,6 @@ impl<T> Gc<T> {
 }
 
 impl<T: ?Sized> Gc<T> {
-    // in order to fully sandbox, I have to check the memory limit
-
     pub fn get_mut(&mut self) -> Option<&mut T> {
         Shared::get_mut(&mut self.0)
     }
