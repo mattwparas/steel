@@ -2000,6 +2000,7 @@ fn new_callglobal_tail_handler_deopt_test(
         _ => false,
     };
 
+    // let should_yield = true;
     // println!("Should yield: {}", should_yield);
 
     if should_yield {
@@ -2015,10 +2016,20 @@ fn new_callglobal_tail_handler_deopt_test(
     }
 
     // dbg!(ctx.instructions[ctx.ip]);
-    // println!("Calling global tail - should yield: {}", should_yield);
+    println!(
+        "Calling global tail - should yield: {} - {}",
+        should_yield, func
+    );
 
     match handle_global_tail_call_deopt_with_args(ctx, func, args) {
         Ok(v) => {
+            if !should_yield {
+                println!("Handling the return value to yield");
+                extern_handle_pop(ctx, v);
+                ctx.is_native = false;
+                return SteelVal::Void;
+            }
+
             // ctx.thread.stack.push(v);
             // return SteelVal::Void;
             return v;

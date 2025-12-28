@@ -1812,8 +1812,10 @@ impl FunctionTranslator<'_> {
                     let arity = self.instructions[self.ip].payload_size.to_usize();
 
                     let name = CallGlobalTailFunctionDefinitions::arity_to_name(arity);
+                    // let name = None;
 
                     if let Some(name) = name {
+                        // TODO: We need to spill the local variables here!
                         // This function pushes back on to the stack, and then we should just
                         // return since we're done now.
                         let v = self.call_global_function(arity, name, function_index, true);
@@ -1822,6 +1824,7 @@ impl FunctionTranslator<'_> {
                     } else {
                         let name = "call-global-tail-spilled";
 
+                        // TODO: We need to spill the local variables here!
                         let v =
                             self.call_global_function_spilled(arity, name, function_index, true);
 
@@ -1866,7 +1869,7 @@ impl FunctionTranslator<'_> {
                     let global = self._globals.get(function_index);
 
                     match global.cloned() {
-                        Some(SteelVal::FuncV(f)) => {
+                        Some(SteelVal::FuncV(f)) if false => {
                             // Attempt the other call
                             self.ip += 1;
                             let arity = self.instructions[self.ip].payload_size.to_usize();
@@ -1935,7 +1938,7 @@ impl FunctionTranslator<'_> {
                             }
                         }
 
-                        Some(SteelVal::MutFunc(f)) => {
+                        Some(SteelVal::MutFunc(f)) if false => {
                             // Attempt the other call
                             self.ip += 1;
                             let arity = self.instructions[self.ip].payload_size.to_usize();
@@ -2384,7 +2387,9 @@ impl FunctionTranslator<'_> {
 
                 // TODO: This should pretty much be able to be inlined entirely?
                 OpCode::NOT => {
-                    let last = self.shadow_stack.last().unwrap().into_value();
+                    // let last = self.shadow_stack.last().unwrap().into_value();
+
+                    /*
 
                     if last.inferred_type == InferredType::UnboxedBool {
                         let test = last.value;
@@ -2406,13 +2411,14 @@ impl FunctionTranslator<'_> {
                         self.push(boolean, InferredType::Bool);
                         self.ip += 2;
                     }
+                    */
 
                     // let res = self.builder.ins().uextend(types::I64, comparison);
                     // let boolean =
                     //     self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
 
                     // Do the thing.
-                    // self.func_ret_val(op, 1, 2, InferredType::Bool);
+                    self.func_ret_val(op, 1, 2, InferredType::Bool);
                 }
                 OpCode::VEC => todo!(),
                 OpCode::Apply => todo!(),
@@ -2855,7 +2861,7 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ {
+        if payload < self.arity as _ && false {
             match op {
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
@@ -2937,7 +2943,7 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ {
+        if payload < self.arity as _ && false {
             match op {
                 OpCode::READLOCAL => MaybeStackValue::Register(payload),
                 OpCode::MOVEREADLOCAL => MaybeStackValue::MutRegister(payload),
