@@ -23,7 +23,6 @@
   (not (node-left l)))
 
 (define (make item d)
-  (stdout-simple-displayln item " " d)
   (if (= d 0)
       (leaf item)
       (let ([item2 (* item 2)]
@@ -100,9 +99,9 @@
 ; (displayln (check foo))
 
 
-(stdout-simple-displayln (make 0 4))
+; (stdout-simple-displayln (make 0 4))
 
-; (main 2)
+(main 12)
 ; (inspect make)
 
 ; (displayln (make 0 2))
