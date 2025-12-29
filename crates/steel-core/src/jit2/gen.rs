@@ -2387,9 +2387,7 @@ impl FunctionTranslator<'_> {
 
                 // TODO: This should pretty much be able to be inlined entirely?
                 OpCode::NOT => {
-                    // let last = self.shadow_stack.last().unwrap().into_value();
-
-                    /*
+                    let last = self.shadow_stack.last().unwrap().into_value();
 
                     if last.inferred_type == InferredType::UnboxedBool {
                         let test = last.value;
@@ -2411,14 +2409,13 @@ impl FunctionTranslator<'_> {
                         self.push(boolean, InferredType::Bool);
                         self.ip += 2;
                     }
-                    */
 
                     // let res = self.builder.ins().uextend(types::I64, comparison);
                     // let boolean =
                     //     self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
 
                     // Do the thing.
-                    self.func_ret_val(op, 1, 2, InferredType::Bool);
+                    // self.func_ret_val(op, 1, 2, InferredType::Bool);
                 }
                 OpCode::VEC => todo!(),
                 OpCode::Apply => todo!(),
@@ -2861,7 +2858,7 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ && false {
+        if payload < self.arity as _ {
             match op {
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
@@ -2943,7 +2940,7 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ && false {
+        if payload < self.arity as _ {
             match op {
                 OpCode::READLOCAL => MaybeStackValue::Register(payload),
                 OpCode::MOVEREADLOCAL => MaybeStackValue::MutRegister(payload),
