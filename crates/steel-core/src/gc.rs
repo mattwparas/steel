@@ -76,15 +76,15 @@ pub mod shared {
     #[cfg(all(feature = "sync", not(feature = "triomphe")))]
     pub type SharedMut<T> = Arc<RwLock<T>>;
 
-    // #[cfg(all(feature = "sync", feature = "triomphe"))]
-    // pub type Shared<T> = triomphe::Arc<T>;
-    // #[cfg(all(feature = "sync", feature = "triomphe"))]
-    // pub type SharedMut<T> = triomphe::Arc<RwLock<T>>;
+    #[cfg(all(feature = "sync", feature = "triomphe"))]
+    pub type Shared<T> = triomphe::Arc<T>;
+    #[cfg(all(feature = "sync", feature = "triomphe"))]
+    pub type SharedMut<T> = triomphe::Arc<RwLock<T>>;
 
-    #[cfg(all(feature = "sync", feature = "triomphe"))]
-    pub type Shared<T> = biased_rc::BiasedRc<T>;
-    #[cfg(all(feature = "sync", feature = "triomphe"))]
-    pub type SharedMut<T> = biased_rc::BiasedRc<RwLock<T>>;
+    // #[cfg(all(feature = "sync", feature = "triomphe"))]
+    // pub type Shared<T> = biased_rc::BiasedRc<T>;
+    // #[cfg(all(feature = "sync", feature = "triomphe"))]
+    // pub type SharedMut<T> = biased_rc::BiasedRc<RwLock<T>>;
 
     #[cfg(feature = "sync")]
     pub type GcMut<T> = Gc<RwLock<T>>;

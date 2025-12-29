@@ -14,7 +14,7 @@ use crate::{
     primitives::{
         lists::steel_pair,
         ports::{eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char},
-        strings::{char_equals_binop, char_equals_binop_unsafe, steel_char_equals},
+        strings::{char_equals_binop, steel_char_equals},
         vectors::steel_mut_vec_set,
     },
     rvals::FunctionSignature,
@@ -334,11 +334,6 @@ impl Default for JIT {
         map.add_func2(
             "#%print-value",
             print_value as extern "C-unwind" fn(i8, i8) -> bool,
-        );
-
-        map.add_func2(
-            "unsafe-char-equals",
-            char_equals_binop_unsafe as extern "C-unwind" fn(SteelVal, SteelVal) -> SteelVal,
         );
 
         map.add_func(

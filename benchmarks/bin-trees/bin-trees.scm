@@ -101,7 +101,7 @@
 
 ; (stdout-simple-displayln (make 0 4))
 
-(main 12)
+(main 20)
 ; (inspect make)
 
 ; (displayln (make 0 2))
