@@ -1010,6 +1010,7 @@ impl JIT {
             fake_entry_block,
             exit_block,
             properties: Default::default(),
+            // cloned_stack: false,
             // generators: Default::default(),
         };
 
@@ -1244,6 +1245,7 @@ struct FunctionTranslator<'a> {
     // function with one or two args, this seems like a good tradeoff to make.
     // stack: Vec<StackValue>,
     shadow_stack: Vec<MaybeStackValue>,
+    // cloned_stack: bool,
 
     // Local value mapping, can allow
     // us to elide type checks if we have them
@@ -3455,11 +3457,11 @@ impl FunctionTranslator<'_> {
             //     }
             // }
 
-            // if tail {
-            self.spill_cloned_stack();
-            // } else {
-            // self.spill_stack();
-            // }
+            if tail {
+                self.spill_cloned_stack();
+            } else {
+                self.spill_stack();
+            }
 
             self.builder.ins().jump(merge_block, &[then_return]);
 
@@ -3472,11 +3474,11 @@ impl FunctionTranslator<'_> {
             //     }
             // }
 
-            // if tail {
-            self.spill_cloned_stack();
-            // } else {
-            // self.spill_stack();
-            // }
+            if tail {
+                self.spill_cloned_stack();
+            } else {
+                self.spill_stack();
+            }
 
             let else_return = BlockArg::Value(self.create_i128(0));
 
@@ -3724,7 +3726,14 @@ impl FunctionTranslator<'_> {
             //         self.push_to_vm_stack_function_spill(c.value);
             //     }
             // }
-            self.spill_cloned_stack();
+
+            // self.spill_cloned_stack();
+
+            if tail {
+                self.spill_cloned_stack();
+            } else {
+                self.spill_stack();
+            }
 
             self.builder.ins().jump(merge_block, &[then_return]);
 
@@ -3736,7 +3745,13 @@ impl FunctionTranslator<'_> {
             //         self.push_to_vm_stack_function_spill(c.value);
             //     }
             // }
-            self.spill_cloned_stack();
+            // self.spill_cloned_stack();
+
+            if tail {
+                self.spill_cloned_stack();
+            } else {
+                self.spill_stack();
+            }
 
             let else_return = BlockArg::Value(self.create_i128(0));
 
@@ -3938,6 +3953,7 @@ impl FunctionTranslator<'_> {
     }
 
     fn shadow_spill(&mut self, index: usize) -> Option<()> {
+        // assert!(!self.cloned_stack);
         let guard = self.shadow_stack.get_mut(index)?;
         let mut spilled = false;
         match guard {
@@ -4037,12 +4053,17 @@ impl FunctionTranslator<'_> {
     // }
 
     fn spill_stack(&mut self) {
-        for arg in 0..self.shadow_stack.len() {
-            self.shadow_spill(arg);
-        }
+        // assert!(!self.cloned_stack);
+        // for arg in 0..self.shadow_stack.len() {
+        //     self.shadow_spill(arg);
+        // }
+
+        self.spill_cloned_stack();
     }
 
     fn spill_cloned_stack(&mut self) {
+        // assert!(!self.cloned_stack);
+        // self.cloned_stack = true;
         for value in self.shadow_stack.clone() {
             match value {
                 MaybeStackValue::Value(stack_value) => {
@@ -4473,6 +4494,7 @@ impl FunctionTranslator<'_> {
         let let_stack = self.let_var_stack.clone();
         // let local_count = self.local_count;
         let frozen_stack = self.shadow_stack.clone();
+        // let cloned_stack = self.cloned_stack;
         // let tco = self.tco;
 
         self.stack_to_ssa();
@@ -4512,6 +4534,7 @@ impl FunctionTranslator<'_> {
         self.tco = false;
         self.let_var_stack = let_stack;
         self.shadow_stack = frozen_stack;
+        // self.cloned_stack = cloned_stack;
         // let token_return_value = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
 
         self.stack_to_ssa();

@@ -17,6 +17,10 @@
 
 (define (first-step curr end graph)
   (define neighbors (get-neighbors curr graph))
+  (stdout-simple-displayln neighbors)
+
+  (stdout-simple-displayln (map (lambda (x) (dfs x end '() '() graph)) neighbors))
+
   (longest (map (lambda (x) (dfs x end '() '() graph)) neighbors)))
 
 ; (define (member? x los)
