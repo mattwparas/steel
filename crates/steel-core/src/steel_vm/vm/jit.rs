@@ -2698,6 +2698,8 @@ pub(crate) extern "C-unwind" fn check_callable_tail(ctx: *mut VmCore, lookup_ind
 
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn check_callable_value(_: *mut VmCore, func: SteelVal) -> bool {
+    // println!("Checking callablue value:: {}", func);
+
     // Check that the function we're calling is in fact something callable via native code.
     // We'll want to spill the stack otherwise.
     let func = ManuallyDrop::new(func);
@@ -4267,7 +4269,16 @@ fn call_function_tail_deopt(
     }
 
     match handle_global_tail_call_deopt_with_args(ctx, func, args) {
-        Ok(v) => v,
+        Ok(v) => {
+            if !should_yield {
+                // println!("Handling the return value to yield");
+                extern_handle_pop(ctx, v);
+                ctx.is_native = false;
+                return SteelVal::Void;
+            }
+
+            return v;
+        }
         Err(e) => {
             ctx.is_native = false;
             ctx.result = Some(Err(e));

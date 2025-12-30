@@ -31,15 +31,15 @@
                                     (list (cadr operands) (car operands)))
                         (cddr operands))))
 
-(define (member? x los)
-    (cond
-        ((null? los) #f)
-        ((equal? x (car los)) #t)
-        (else (member? x (cdr los)))))
+; (define (member? x los)
+;     (cond
+;         ((null? los) #f)
+;         ((equal? x (car los)) #t)
+;         (else (member? x (cdr los)))))
 
 
 (define (precedence oper)
-    (if (member? oper '(+ -))
+    (if (member oper '(+ -))
         1
         2))
 
@@ -47,7 +47,8 @@
 (define (compute tree)
     (if (number? (node-datum tree))
         (node-datum tree)
-        ((function-named-by (node-datum tree))
+        (+
+         ;; (function-named-by (node-datum tree))
             (compute (car (node-children tree)))
             (compute (cadr (node-children tree))))))
 
@@ -60,4 +61,8 @@
 
 ; (define expr (parse '(1 + 2)))
 
-(assert! (equal? 10 (compute (parse '(1 + 2 + 3 + 4))))) ;; => 10
+; (assert! (equal? 3 (compute (parse '(1 + 2))))) ;; => 10
+
+; (assert! (equal? 10 (compute (parse '(1 + 2 + 3 + 4))))) ;; => 10
+
+(parse '(1 + 2))

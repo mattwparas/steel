@@ -2231,7 +2231,7 @@ impl FunctionTranslator<'_> {
                             self.shadow_stack.pop();
                             let reg = self.register_index(reg);
 
-                            let func = if can_skip_bounds_check {
+                            let func = if can_skip_bounds_check && false {
                                 "cdr-reg-no-check"
                             } else {
                                 "cdr-reg"
@@ -2250,7 +2250,7 @@ impl FunctionTranslator<'_> {
 
                             self.shadow_stack.pop();
 
-                            let func = if can_skip_bounds_check {
+                            let func = if can_skip_bounds_check && false {
                                 "cdr-mut-reg-no-check"
                             } else {
                                 "cdr-mut-reg"
@@ -2317,7 +2317,7 @@ impl FunctionTranslator<'_> {
                                 Some(Properties::NonEmptyList)
                             );
 
-                            if can_skip_bounds_check {
+                            if can_skip_bounds_check && false {
                                 self.shadow_stack.pop();
                                 let reg = self.register_index(reg);
                                 let res = self
@@ -2382,35 +2382,35 @@ impl FunctionTranslator<'_> {
 
                 // TODO: This should pretty much be able to be inlined entirely?
                 OpCode::NOT => {
-                    let last = self.shadow_stack.last().unwrap().into_value();
+                    // let last = self.shadow_stack.last().unwrap().into_value();
 
-                    if last.inferred_type == InferredType::UnboxedBool {
-                        let test = last.value;
-                        let test = self.builder.ins().uextend(types::I64, test);
-                        self.shadow_stack.pop();
-                        let value = self.builder.ins().icmp_imm(IntCC::Equal, test, 0);
-                        self.push(value, InferredType::UnboxedBool);
-                        self.ip += 2;
-                    } else {
-                        let (test, _) = self.shadow_pop();
-                        // If this matches SteelVal::BoolV(false)
-                        // exactly, then we're done.
-                        let false_value = self.create_i128(encode(SteelVal::BoolV(false)));
+                    // if last.inferred_type == InferredType::UnboxedBool {
+                    //     let test = last.value;
+                    //     let test = self.builder.ins().uextend(types::I64, test);
+                    //     self.shadow_stack.pop();
+                    //     let value = self.builder.ins().icmp_imm(IntCC::Equal, test, 0);
+                    //     self.push(value, InferredType::UnboxedBool);
+                    //     self.ip += 2;
+                    // } else {
+                    //     let (test, _) = self.shadow_pop();
+                    //     // If this matches SteelVal::BoolV(false)
+                    //     // exactly, then we're done.
+                    //     let false_value = self.create_i128(encode(SteelVal::BoolV(false)));
 
-                        let comparison = self.builder.ins().icmp(IntCC::Equal, test, false_value);
-                        let res = self.builder.ins().uextend(types::I64, comparison);
-                        let boolean =
-                            self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
-                        self.push(boolean, InferredType::Bool);
-                        self.ip += 2;
-                    }
+                    //     let comparison = self.builder.ins().icmp(IntCC::Equal, test, false_value);
+                    //     let res = self.builder.ins().uextend(types::I64, comparison);
+                    //     let boolean =
+                    //         self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+                    //     self.push(boolean, InferredType::Bool);
+                    //     self.ip += 2;
+                    // }
 
                     // let res = self.builder.ins().uextend(types::I64, comparison);
                     // let boolean =
                     //     self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
 
                     // Do the thing.
-                    // self.func_ret_val(op, 1, 2, InferredType::Bool);
+                    self.func_ret_val(op, 1, 2, InferredType::Bool);
                 }
                 OpCode::VEC => todo!(),
                 OpCode::Apply => todo!(),
@@ -3455,7 +3455,11 @@ impl FunctionTranslator<'_> {
             //     }
             // }
 
+            // if tail {
             self.spill_cloned_stack();
+            // } else {
+            // self.spill_stack();
+            // }
 
             self.builder.ins().jump(merge_block, &[then_return]);
 
@@ -3467,7 +3471,12 @@ impl FunctionTranslator<'_> {
             //         self.push_to_vm_stack(c.value);
             //     }
             // }
+
+            // if tail {
             self.spill_cloned_stack();
+            // } else {
+            // self.spill_stack();
+            // }
 
             let else_return = BlockArg::Value(self.create_i128(0));
 
@@ -3577,19 +3586,29 @@ impl FunctionTranslator<'_> {
             //     }
             // }
 
-            self.spill_cloned_stack();
+            if tail {
+                self.spill_cloned_stack();
+            // self.spill_stack();
+            } else {
+                self.spill_stack();
+            }
+            // self.spill_cloned_stack();
+            // self.spill_stack();
 
             self.builder.ins().jump(merge_block, &[then_return]);
 
             self.builder.switch_to_block(else_block);
             self.builder.seal_block(else_block);
 
-            // for c in self.stack.clone() {
-            //     if !c.spilled {
-            //         self.push_to_vm_stack_function_spill(c.value);
-            //     }
-            // }
-            self.spill_cloned_stack();
+            // self.spill_cloned_stack();
+            // self.spill_stack();
+
+            if tail {
+                self.spill_cloned_stack();
+            // self.spill_stack();
+            } else {
+                self.spill_stack();
+            }
 
             let else_return = BlockArg::Value(self.create_i128(0));
 
@@ -4017,6 +4036,12 @@ impl FunctionTranslator<'_> {
     //     (last.value, last.inferred_type)
     // }
 
+    fn spill_stack(&mut self) {
+        for arg in 0..self.shadow_stack.len() {
+            self.shadow_spill(arg);
+        }
+    }
+
     fn spill_cloned_stack(&mut self) {
         for value in self.shadow_stack.clone() {
             match value {
@@ -4063,11 +4088,11 @@ impl FunctionTranslator<'_> {
 
     fn mut_register_to_value(&mut self, p: usize) -> (Value, InferredType) {
         let (value, _) = match p {
-            0 => self.read_local_fixed_no_spill(OpCode::READLOCAL0, p),
-            1 => self.read_local_fixed_no_spill(OpCode::READLOCAL1, p),
-            2 => self.read_local_fixed_no_spill(OpCode::READLOCAL2, p),
-            3 => self.read_local_fixed_no_spill(OpCode::READLOCAL3, p),
-            _ => self.read_local_value_no_spill(OpCode::READLOCAL, p),
+            0 => self.read_local_fixed_no_spill(OpCode::MOVEREADLOCAL0, p),
+            1 => self.read_local_fixed_no_spill(OpCode::MOVEREADLOCAL1, p),
+            2 => self.read_local_fixed_no_spill(OpCode::MOVEREADLOCAL2, p),
+            3 => self.read_local_fixed_no_spill(OpCode::MOVEREADLOCAL3, p),
+            _ => self.read_local_value_no_spill(OpCode::MOVEREADLOCAL, p),
         };
 
         (value, InferredType::Any)

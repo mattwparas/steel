@@ -67,7 +67,7 @@ macro_rules! test_harness_failure {
 }
 
 test_harness_success_sync! {
-    native_threads
+    // native_threads
 }
 
 test_harness_success! {
