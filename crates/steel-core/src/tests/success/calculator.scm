@@ -60,8 +60,8 @@
 
 ; (define expr (parse '(1 + 2)))
 
-; (assert! (equal? 3 (compute (parse '(1 + 2))))) ;; => 10
+(assert! (equal? 3 (compute (parse '(1 + 2))))) ;; => 10
 
-; (assert! (equal? 10 (compute (parse '(1 + 2 + 3 + 4))))) ;; => 10
+(assert! (equal? 10 (compute (parse '(1 + 2 + 3 + 4))))) ;; => 10
 
-(parse '(1 + 2))
+; (parse '(1 + 2))
