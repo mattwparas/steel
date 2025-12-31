@@ -29,7 +29,7 @@ use crate::{
                 cdr_handler_mut_reg_no_check, cdr_handler_reg, cdr_handler_reg_no_check,
                 cdr_handler_value, check_callable, check_callable_spill, check_callable_tail,
                 check_callable_value, check_callable_value_tail, cons_handler_value, drop_value,
-                eq_reg_1, eq_reg_2, eq_value, equal_binop, extern_c_add_two,
+                eq_reg_1, eq_reg_2, eq_value, equal_binop, extern_c_add_three, extern_c_add_two,
                 extern_c_add_two_binop_register, extern_c_add_two_binop_register_both,
                 extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
                 extern_c_lt_two_int, extern_c_lte_two, extern_c_lte_two_int, extern_c_mult_two,
@@ -649,6 +649,13 @@ impl Default for JIT {
         map.add_func_hint(
             "add-binop",
             extern_c_add_two as VmBinOp,
+            InferredType::Number,
+        );
+
+        map.add_func_hint(
+            "add-three",
+            extern_c_add_three
+                as extern "C-unwind" fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal,
             InferredType::Number,
         );
 
@@ -1323,6 +1330,7 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::MOVEREADLOCAL, _) => "move-read-local-any",
 
         (OpCode::ADD, 2) => "add-binop",
+        (OpCode::ADD, 3) => "add-three",
         (OpCode::SUB, 2) => "sub-binop",
 
         (OpCode::SUB, 1) => "sub-negate",
@@ -1855,7 +1863,7 @@ impl FunctionTranslator<'_> {
                         let name = "call-global-no-arity-spilled";
 
                         let v =
-                            self.call_global_function_spilled(arity, name, function_index, true);
+                            self.call_global_function_spilled(arity, name, function_index, false);
 
                         self.push(v, InferredType::Any)
                     }
@@ -1873,7 +1881,7 @@ impl FunctionTranslator<'_> {
                     let global = self._globals.get(function_index);
 
                     match global.cloned() {
-                        Some(SteelVal::FuncV(f)) if false => {
+                        Some(SteelVal::FuncV(f)) => {
                             // Attempt the other call
                             self.ip += 1;
                             let arity = self.instructions[self.ip].payload_size.to_usize();
@@ -1952,7 +1960,7 @@ impl FunctionTranslator<'_> {
                             }
                         }
 
-                        Some(SteelVal::MutFunc(f)) if false => {
+                        Some(SteelVal::MutFunc(f)) => {
                             // Attempt the other call
                             self.ip += 1;
                             let arity = self.instructions[self.ip].payload_size.to_usize();
@@ -3077,7 +3085,7 @@ impl FunctionTranslator<'_> {
         } else {
             let name = "call-global-spilled";
 
-            let v = self.call_global_function_spilled(arity, name, function_index, true);
+            let v = self.call_global_function_spilled(arity, name, function_index, false);
 
             self.push(v, InferredType::Any)
         }
@@ -3442,6 +3450,8 @@ impl FunctionTranslator<'_> {
 
         arg_values.extend(self.split_off(arity).into_iter().map(|x| x.0));
 
+        /*
+
         // Check if its a function - otherwise, just spill the values to the stack.
         let is_function = self.check_callable(func, tail);
 
@@ -3514,6 +3524,14 @@ impl FunctionTranslator<'_> {
             self.builder.seal_block(merge_block);
         }
 
+        */
+
+        if tail {
+            self.spill_cloned_stack();
+        } else {
+            self.spill_stack();
+        }
+
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
@@ -3564,86 +3582,78 @@ impl FunctionTranslator<'_> {
 
         arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
 
-        // TODO: @Matt
-        // Instead of being binary, this should return multiple values, and
-        // we should check the conditions:
-        //
-        // 1. Is this a function
-        // 2. If its a function, is it native. If its native, continue.
-        // 3. If its a bytecode function, we should spill no matter what.
-        // 4. If its not a bytecode function, we should bail.
-        //
-        // Check if its a function - otherwise, just spill the values to the stack.
-        let is_function = self.check_function(lookup_index, tail);
+        /*
+                let is_function = self.check_function(lookup_index, tail);
+                {
+                    let then_block = self.builder.create_block();
+                    let else_block = self.builder.create_block();
+                    let merge_block = self.builder.create_block();
 
-        {
-            let then_block = self.builder.create_block();
-            let else_block = self.builder.create_block();
-            let merge_block = self.builder.create_block();
+                    self.builder.append_block_param(merge_block, self.int);
 
-            self.builder.append_block_param(merge_block, self.int);
+                    self.builder
+                        .ins()
+                        .brif(is_function, then_block, &[], else_block, &[]);
 
-            self.builder
-                .ins()
-                .brif(is_function, then_block, &[], else_block, &[]);
+                    self.builder.switch_to_block(then_block);
+                    self.builder.seal_block(then_block);
 
-            self.builder.switch_to_block(then_block);
-            self.builder.seal_block(then_block);
+                    // Do nothing
+                    let then_return = BlockArg::Value(self.create_i128(0));
 
-            // Do nothing
-            let then_return = BlockArg::Value(self.create_i128(0));
+                    // Check callable - TODO: Insert these checks elsewhere too!
+                    let should_spill = self.check_should_spill(lookup_index);
 
-            // Check callable - TODO: Insert these checks elsewhere too!
-            let should_spill = self.check_should_spill(lookup_index);
+                    let spill_block = self.builder.create_block();
 
-            let spill_block = self.builder.create_block();
+                    self.builder
+                        .ins()
+                        .brif(should_spill, spill_block, &[], merge_block, &[then_return]);
 
-            self.builder
-                .ins()
-                .brif(should_spill, spill_block, &[], merge_block, &[then_return]);
+                    self.builder.switch_to_block(spill_block);
+                    self.builder.seal_block(spill_block);
 
-            self.builder.switch_to_block(spill_block);
-            self.builder.seal_block(spill_block);
+                    // for c in self.stack.clone() {
+                    //     if !c.spilled {
+                    //         self.push_to_vm_stack_function_spill(c.value);
+                    //     }
+                    // }
 
-            // for c in self.stack.clone() {
-            //     if !c.spilled {
-            //         self.push_to_vm_stack_function_spill(c.value);
-            //     }
-            // }
+                    if tail {
+                        self.spill_cloned_stack();
+                    } else {
+                        self.spill_stack();
+                    }
+                    // self.spill_cloned_stack();
+                    // self.spill_stack();
 
-            if tail {
-                self.spill_cloned_stack();
-            // self.spill_stack();
-            } else {
-                self.spill_stack();
-            }
-            // self.spill_cloned_stack();
-            // self.spill_stack();
+                    self.builder.ins().jump(merge_block, &[then_return]);
 
-            self.builder.ins().jump(merge_block, &[then_return]);
+                    self.builder.switch_to_block(else_block);
+                    self.builder.seal_block(else_block);
 
-            self.builder.switch_to_block(else_block);
-            self.builder.seal_block(else_block);
+                    // if tail {
+                    //     self.spill_cloned_stack();
+                    // } else {
+                    //     self.spill_stack();
+                    // }
 
-            // self.spill_cloned_stack();
-            // self.spill_stack();
+                    let else_return = BlockArg::Value(self.create_i128(0));
 
-            if tail {
-                self.spill_cloned_stack();
-            // self.spill_stack();
-            } else {
-                self.spill_stack();
-            }
+                    self.builder.ins().jump(merge_block, &[else_return]);
 
-            let else_return = BlockArg::Value(self.create_i128(0));
+                    // Switch to the merge block for subsequent statements.
+                    self.builder.switch_to_block(merge_block);
 
-            self.builder.ins().jump(merge_block, &[else_return]);
+                    // We've now seen all the predecessors of the merge block.
+                    self.builder.seal_block(merge_block);
+                }
+        */
 
-            // Switch to the merge block for subsequent statements.
-            self.builder.switch_to_block(merge_block);
-
-            // We've now seen all the predecessors of the merge block.
-            self.builder.seal_block(merge_block);
+        if tail {
+            self.spill_cloned_stack();
+        } else {
+            self.spill_stack();
         }
 
         let call = self.builder.ins().call(local_callee, &arg_values);
@@ -3703,16 +3713,8 @@ impl FunctionTranslator<'_> {
 
         // arg_values.extend(args_off_the_stack.iter().map(|x| x.value));
 
-        // TODO: @Matt
-        // Instead of being binary, this should return multiple values, and
-        // we should check the conditions:
-        //
-        // 1. Is this a function
-        // 2. If its a function, is it native. If its native, continue.
-        // 3. If its a bytecode function, we should spill no matter what.
-        // 4. If its not a bytecode function, we should bail.
-        //
-        // Check if its a function - otherwise, just spill the values to the stack.
+        /*
+
         let is_function = self.check_function(lookup_index, tail);
 
         {
@@ -3770,11 +3772,11 @@ impl FunctionTranslator<'_> {
             // }
             // self.spill_cloned_stack();
 
-            if tail {
-                self.spill_cloned_stack();
-            } else {
-                self.spill_stack();
-            }
+            // if tail {
+            //     self.spill_cloned_stack();
+            // } else {
+            //     self.spill_stack();
+            // }
 
             let else_return = BlockArg::Value(self.create_i128(0));
 
@@ -3785,6 +3787,13 @@ impl FunctionTranslator<'_> {
 
             // We've now seen all the predecessors of the merge block.
             self.builder.seal_block(merge_block);
+        }
+        */
+
+        if tail {
+            self.spill_cloned_stack();
+        } else {
+            self.spill_stack();
         }
 
         let call = self.builder.ins().call(local_callee, &arg_values);

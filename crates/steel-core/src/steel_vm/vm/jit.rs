@@ -1685,6 +1685,30 @@ pub(crate) extern "C-unwind" fn extern_c_add_two(
     }
 }
 
+pub(crate) extern "C-unwind" fn extern_c_add_three(
+    ctx: *mut VmCore,
+    a: SteelVal,
+    b: SteelVal,
+    c: SteelVal,
+) -> SteelVal {
+    // println!("Calling add with: {} - {}", a, b);
+
+    // let a = ManuallyDrop::new(a);
+    // let b = ManuallyDrop::new(b);
+    match add_two(&a, &b).and_then(|x| add_two(&x, &c)) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn extern_c_add_two_binop_register(
     ctx: *mut VmCore,
@@ -2706,7 +2730,6 @@ pub(crate) extern "C-unwind" fn should_spill(ctx: *mut VmCore, lookup_index: usi
         // let func = &this.thread.global_env.roots()[lookup_index];
 
         // matches!(func, SteelVal::Closure(_))
-
         true
     }
 }
