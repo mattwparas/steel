@@ -47,8 +47,7 @@
 (define (compute tree)
     (if (number? (node-datum tree))
         (node-datum tree)
-        (+
-         ;; (function-named-by (node-datum tree))
+        ((function-named-by (node-datum tree))
             (compute (car (node-children tree)))
             (compute (cadr (node-children tree))))))
 

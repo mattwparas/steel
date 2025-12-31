@@ -22,26 +22,27 @@ use crate::{
         primitives::steel_eq,
         vm::{
             jit::{
-                box_handler_c, call_global_function_deopt_no_arity_spilled,
-                call_global_function_deopt_spilled, callglobal_handler_deopt_c,
-                callglobal_tail_handler_deopt_spilled, car_handler_reg, car_handler_reg_no_check,
-                car_handler_value, cdr_handler_mut_reg, cdr_handler_mut_reg_no_check,
-                cdr_handler_reg, cdr_handler_reg_no_check, cdr_handler_value, check_callable,
-                check_callable_spill, check_callable_tail, check_callable_value,
-                check_callable_value_tail, cons_handler_value, drop_value, eq_reg_1, eq_reg_2,
-                eq_value, equal_binop, extern_c_add_two, extern_c_add_two_binop_register,
-                extern_c_add_two_binop_register_both, extern_c_div_two, extern_c_gt_two,
-                extern_c_gte_two, extern_c_lt_two, extern_c_lt_two_int, extern_c_lte_two,
-                extern_c_lte_two_int, extern_c_mult_two, extern_c_negate, extern_c_null_handler,
-                extern_c_sub_two, extern_c_sub_two_int, extern_c_sub_two_int_reg,
-                extern_handle_pop, handle_new_start_closure, handle_pure_function,
-                if_handler_raw_value, if_handler_register, if_handler_value, is_pair_c_reg,
-                let_end_scope_c, list_handler_c, list_ref_handler_c, move_read_local_0_value_c,
-                move_read_local_1_value_c, move_read_local_2_value_c, move_read_local_3_value_c,
-                move_read_local_any_value_c, not_handler_raw_value, num_equal_int, num_equal_value,
-                num_equal_value_unboxed, pop_value, push_const_value_c, push_const_value_index_c,
-                push_global, push_to_vm_stack, push_to_vm_stack_let_var, push_to_vm_stack_two,
-                read_captured_c, read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
+                _push_to_vm_stack_function_spill, box_handler_c,
+                call_global_function_deopt_no_arity_spilled, call_global_function_deopt_spilled,
+                callglobal_handler_deopt_c, callglobal_tail_handler_deopt_spilled, car_handler_reg,
+                car_handler_reg_no_check, car_handler_value, cdr_handler_mut_reg,
+                cdr_handler_mut_reg_no_check, cdr_handler_reg, cdr_handler_reg_no_check,
+                cdr_handler_value, check_callable, check_callable_spill, check_callable_tail,
+                check_callable_value, check_callable_value_tail, cons_handler_value, drop_value,
+                eq_reg_1, eq_reg_2, eq_value, equal_binop, extern_c_add_two,
+                extern_c_add_two_binop_register, extern_c_add_two_binop_register_both,
+                extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
+                extern_c_lt_two_int, extern_c_lte_two, extern_c_lte_two_int, extern_c_mult_two,
+                extern_c_negate, extern_c_null_handler, extern_c_sub_two, extern_c_sub_two_int,
+                extern_c_sub_two_int_reg, extern_handle_pop, handle_new_start_closure,
+                handle_pure_function, if_handler_raw_value, if_handler_register, if_handler_value,
+                is_pair_c_reg, let_end_scope_c, list_handler_c, list_ref_handler_c,
+                move_read_local_0_value_c, move_read_local_1_value_c, move_read_local_2_value_c,
+                move_read_local_3_value_c, move_read_local_any_value_c, not_handler_raw_value,
+                num_equal_int, num_equal_value, num_equal_value_unboxed, pop_value,
+                push_const_value_c, push_const_value_index_c, push_global, push_to_vm_stack,
+                push_to_vm_stack_let_var, push_to_vm_stack_two, read_captured_c,
+                read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
                 read_local_3_value_c, read_local_any_value_c, self_tail_call_handler,
                 self_tail_call_handler_loop, set_handler_c, set_local_any_c, setbox_handler_c,
                 should_continue, should_spill, should_spill_value, tcojmp_handler, trampoline,
@@ -54,7 +55,7 @@ use crate::{
                 CallPrimitiveDefinitions, CallPrimitiveFixedDefinitions,
                 CallPrimitiveMutDefinitions, CallRegisterPrimitiveFixedDefinitions,
                 CallSelfTailCallNoArityDefinitions, CallSelfTailCallNoArityLoopDefinitions,
-                ListHandlerDefinitions,
+                DebugStackDefinitions, ListHandlerDefinitions,
             },
             VmCore,
         },
@@ -457,6 +458,8 @@ impl Default for JIT {
 
         CallRegisterPrimitiveFixedDefinitions::register(&mut map);
 
+        DebugStackDefinitions::register(&mut map);
+
         map.add_func(
             "trampoline",
             trampoline as extern "C-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
@@ -521,7 +524,8 @@ impl Default for JIT {
 
         map.add_func(
             "push-to-vm-stack-function-spill",
-            push_to_vm_stack_let_var as extern "C-unwind" fn(ctx: *mut VmCore, value: SteelVal),
+            _push_to_vm_stack_function_spill
+                as extern "C-unwind" fn(ctx: *mut VmCore, value: SteelVal),
         );
 
         map.add_func(
@@ -1585,6 +1589,7 @@ impl FunctionTranslator<'_> {
                     } else {
                         todo!("Implement spilled function call");
                     }
+
                     self.check_deopt();
 
                     self.ip = self.instructions.len() + 1;
@@ -1863,6 +1868,8 @@ impl FunctionTranslator<'_> {
                     // Check the actual value that we're looking up, see if its there
                     let function_index = payload;
 
+                    // dbg!(function_index);
+
                     let global = self._globals.get(function_index);
 
                     match global.cloned() {
@@ -1884,24 +1891,34 @@ impl FunctionTranslator<'_> {
                                 f,
                                 crate::primitives::strings::steel_char_equals as FunctionSignature,
                             ) && arity == 2
+                                && false
                             {
                                 self.char_equals(arity);
                             } else if fn_addr_eq(f, steel_read_char as FunctionSignature)
                                 && arity == 1
+                                && false
                             {
                                 self.read_char(arity);
                             } else if fn_addr_eq(f, steel_eof_objectp as FunctionSignature)
                                 && arity == 1
+                                && false
                             {
                                 // Encode the object... Any others we can encode in this way?
                                 self.eof_object(1)
                             } else if fn_addr_eq(f, steel_mut_vec_set as FunctionSignature)
                                 && arity == 3
+                                && false
                             {
                                 self.vector_set()
-                            } else if fn_addr_eq(f, steel_eq as FunctionSignature) && arity == 2 {
+                            } else if fn_addr_eq(f, steel_eq as FunctionSignature)
+                                && arity == 2
+                                && false
+                            {
                                 self.eq()
-                            } else if fn_addr_eq(f, steel_pair as FunctionSignature) && arity == 1 {
+                            } else if fn_addr_eq(f, steel_pair as FunctionSignature)
+                                && arity == 1
+                                && false
+                            {
                                 self.is_pair()
                             } else {
                                 if let Some(name) = name {
@@ -1976,6 +1993,7 @@ impl FunctionTranslator<'_> {
                         }
 
                         _ => {
+                            // println!("code-gen: {:?}", global);
                             self.call_global_impl(payload);
                         }
                     }
@@ -2208,6 +2226,8 @@ impl FunctionTranslator<'_> {
                 }
 
                 OpCode::EQUAL | OpCode::NUMEQUAL | OpCode::EQUAL2 => {
+                    // println!("Generating code for equal");
+
                     self.func_ret_val(op, payload, 2, InferredType::Bool);
                 }
                 OpCode::NULL => {
@@ -2275,8 +2295,11 @@ impl FunctionTranslator<'_> {
                     let arity = self.instructions[self.ip].payload_size.to_usize();
                     self.ip += 1;
 
-                    if let Some(function_name) = ListHandlerDefinitions::arity_to_name(arity) {
+                    if let Some(function_name) = ListHandlerDefinitions::arity_to_name(payload) {
                         let args = self.split_off(payload);
+
+                        // println!("Calling list: {:?}", args);
+
                         let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
 
                         let result = self.call_function_returns_value_args(function_name, &args);
@@ -2855,7 +2878,7 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ {
+        if payload < self.arity as _ && false {
             match op {
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
@@ -2937,7 +2960,7 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ {
+        if payload < self.arity as _ && false {
             match op {
                 OpCode::READLOCAL => MaybeStackValue::Register(payload),
                 OpCode::MOVEREADLOCAL => MaybeStackValue::MutRegister(payload),
@@ -3474,11 +3497,11 @@ impl FunctionTranslator<'_> {
             //     }
             // }
 
-            if tail {
-                self.spill_cloned_stack();
-            } else {
-                self.spill_stack();
-            }
+            // if tail {
+            //     self.spill_cloned_stack();
+            // } else {
+            //     self.spill_stack();
+            // }
 
             let else_return = BlockArg::Value(self.create_i128(0));
 
@@ -4001,7 +4024,7 @@ impl FunctionTranslator<'_> {
         if spilled {
             let value = self.shadow_stack[index].into_value();
             let steelval = value.as_steelval(self);
-            self.push_to_vm_stack(steelval);
+            self.push_to_vm_stack_spill(steelval);
         }
 
         Some(())
@@ -4053,15 +4076,21 @@ impl FunctionTranslator<'_> {
     // }
 
     fn spill_stack(&mut self) {
-        // assert!(!self.cloned_stack);
-        // for arg in 0..self.shadow_stack.len() {
-        //     self.shadow_spill(arg);
-        // }
+        // println!("Spilling stack: {:?}", self.shadow_stack);
 
-        self.spill_cloned_stack();
+        // assert!(!self.cloned_stack);
+        for arg in 0..self.shadow_stack.len() {
+            self.shadow_spill(arg);
+        }
+
+        // println!("Stack after spill: {:?}", self.shadow_stack);
+
+        // self.spill_cloned_stack();
     }
 
     fn spill_cloned_stack(&mut self) {
+        // println!("Spilling cloned stack: {:?}", self.shadow_stack);
+
         // assert!(!self.cloned_stack);
         // self.cloned_stack = true;
         for value in self.shadow_stack.clone() {
@@ -4164,11 +4193,15 @@ impl FunctionTranslator<'_> {
     fn maybe_patch_from_stack(&mut self, args_off_the_stack: &mut Vec<StackValue>) {
         let mut indices_to_get_from_shadow_stack = Vec::new();
 
+        // dbg!(&args_off_the_stack);
+
         for (idx, arg) in args_off_the_stack.iter().enumerate() {
             if arg.spilled {
                 indices_to_get_from_shadow_stack.push(idx);
             }
         }
+
+        // dbg!(&indices_to_get_from_shadow_stack);
 
         for idx in indices_to_get_from_shadow_stack.iter().rev() {
             let value = self.pop_value_from_vm_stack();
@@ -4222,7 +4255,7 @@ impl FunctionTranslator<'_> {
 
         self.shadow_maybe_patch_from_stack(&mut args);
 
-        dbg!(&args);
+        // dbg!(&args);
 
         args.into_iter()
             .map(|x| match x {
@@ -4342,7 +4375,14 @@ impl FunctionTranslator<'_> {
         inferred_type: InferredType,
     ) {
         let function_name = op_to_name_payload(op, payload);
+
+        // dbg!(function_name);
+        // dbg!(&self.shadow_stack);
+
         let args = self.split_off(payload);
+
+        // dbg!(&args);
+        // dbg!(&self.shadow_stack);
 
         // TODO: Use the type hints! For now we're not going to for the sake
         // of getting something running
@@ -4627,6 +4667,22 @@ impl FunctionTranslator<'_> {
 
     fn push_to_vm_stack(&mut self, value: Value) {
         let name = "push-to-vm-stack";
+
+        let local_callee = self.get_local_callee(name);
+
+        let ctx = self.get_ctx();
+        let arg_values = [ctx, value];
+
+        // for arg in args {
+        //     arg_values.push(self.translate_expr(arg))
+        // }
+        let _call = self.builder.ins().call(local_callee, &arg_values);
+        // let result = self.builder.inst_results(call)[0];
+        // result
+    }
+
+    fn push_to_vm_stack_spill(&mut self, value: Value) {
+        let name = "push-to-vm-stack-function-spill";
 
         let local_callee = self.get_local_callee(name);
 

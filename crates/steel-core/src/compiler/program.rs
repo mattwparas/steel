@@ -421,7 +421,6 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                                 continue;
                             }
                         }
-
                         _ if ident == *PRIM_LIST_REF && arity == 2 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::LISTREF;
