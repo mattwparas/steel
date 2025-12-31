@@ -2261,7 +2261,7 @@ impl FunctionTranslator<'_> {
                             self.shadow_stack.pop();
                             let reg = self.register_index(reg);
 
-                            let func = if can_skip_bounds_check && false {
+                            let func = if can_skip_bounds_check {
                                 "cdr-reg-no-check"
                             } else {
                                 "cdr-reg"
@@ -2280,7 +2280,7 @@ impl FunctionTranslator<'_> {
 
                             self.shadow_stack.pop();
 
-                            let func = if can_skip_bounds_check && false {
+                            let func = if can_skip_bounds_check {
                                 "cdr-mut-reg-no-check"
                             } else {
                                 "cdr-mut-reg"
@@ -2350,7 +2350,7 @@ impl FunctionTranslator<'_> {
                                 Some(Properties::NonEmptyList)
                             );
 
-                            if can_skip_bounds_check && false {
+                            if can_skip_bounds_check {
                                 self.shadow_stack.pop();
                                 let reg = self.register_index(reg);
                                 let res = self
@@ -2886,7 +2886,7 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ && false {
+        if payload < self.arity as _ {
             match op {
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
@@ -2968,7 +2968,7 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ && false {
+        if payload < self.arity as _ {
             match op {
                 OpCode::READLOCAL => MaybeStackValue::Register(payload),
                 OpCode::MOVEREADLOCAL => MaybeStackValue::MutRegister(payload),
