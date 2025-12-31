@@ -68,7 +68,7 @@ use std::{
 };
 
 use crate::values::HashMap as ImmutableHashMap;
-use biased_rc::TypeMap;
+// use biased_rc::TypeMap;
 use lasso::ThreadedRodeo;
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::{
@@ -1125,7 +1125,7 @@ impl Engine {
     /// assert!(vm.run("(+ 1 2 3").is_err()); // + is a free identifier
     /// ```
     pub fn new_raw() -> Self {
-        biased_rc::register_thread();
+        // biased_rc::register_thread();
         let sources = Sources::new();
         let modules = ModuleContainer::default();
 
@@ -1425,7 +1425,7 @@ impl Engine {
     /// vm.run(r#"(+ 1 2 3)"#).unwrap();
     /// ```
     pub fn new() -> Self {
-        biased_rc::register_thread();
+        // biased_rc::register_thread();
         let mut engine = fresh_kernel_image(false);
 
         {

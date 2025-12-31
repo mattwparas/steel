@@ -61,7 +61,7 @@ termimad = { version = "0.31.1", optional = true }
 
 triomphe = { version = "0.1.14", optional = true }
 
-biased-rc = { path = "../../../biased-rc" }
+# biased-rc = { path = "../../../biased-rc" }
 
 # FFI for dylibs
 abi_stable = { version = "0.11.2", optional = true }
