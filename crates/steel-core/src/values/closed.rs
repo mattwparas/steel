@@ -1,4 +1,3 @@
-use std::sync::atomic::AtomicBool;
 use std::{cell::RefCell, collections::HashSet};
 
 #[cfg(feature = "sync")]
@@ -856,6 +855,8 @@ struct FreeList<T: HeapAble> {
     forward: Option<Sender<Vec<HeapElement<T>>>>,
     #[cfg(feature = "sync")]
     backward: Option<Receiver<Vec<HeapElement<T>>>>,
+
+    should_run_weak: bool,
 }
 
 impl<T: HeapAble> Clone for FreeList<T> {
@@ -881,6 +882,8 @@ impl<T: HeapAble> Clone for FreeList<T> {
             forward: None,
             #[cfg(feature = "sync")]
             backward: None,
+
+            should_run_weak: self.should_run_weak,
         }
     }
 }
@@ -987,6 +990,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
             forward: Some(forward_sender),
             #[cfg(feature = "sync")]
             backward: Some(backward_receiver),
+            should_run_weak: true,
         };
 
         res.grow_by(256);
@@ -1751,8 +1755,13 @@ impl Heap {
         synchronizer: &'a mut Synchronizer,
         force: bool,
     ) {
-        if self.vector_free_list.percent_full() > 0.50 {
+        if self.vector_free_list.percent_full() > 0.50 && self.vector_free_list.should_run_weak {
+            log::debug!(target: "gc", "Running weak collection because the vector free list is 50% full");
             self.vector_free_list.weak_collection();
+
+            if self.vector_free_list.percent_full() > 0.30 {
+                self.vector_free_list.should_run_weak = false;
+            }
         }
 
         if self.vector_free_list.percent_full() > 0.95 || force {
@@ -1792,6 +1801,8 @@ impl Heap {
                     self.vector_free_list.grow();
                 }
 
+                self.vector_free_list.should_run_weak = true;
+
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.vector_free_list.percent_full());
 
                 log::debug!(target: "gc", "---- TOTAL VECTOR GC TIME: {:?} ----", now.elapsed());
@@ -1808,8 +1819,12 @@ impl Heap {
         tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<Vec<SteelVal>> {
-        if self.vector_free_list.percent_full() > 0.50 {
+        if self.vector_free_list.percent_full() > 0.50 && self.vector_free_list.should_run_weak {
             self.vector_free_list.weak_collection();
+
+            if self.vector_free_list.percent_full() > 0.30 {
+                self.vector_free_list.should_run_weak = false;
+            }
         }
 
         if self.vector_free_list.percent_full() > 0.95 {
@@ -1847,6 +1862,8 @@ impl Heap {
                 } else {
                     self.vector_free_list.grow();
                 }
+
+                self.vector_free_list.should_run_weak = true;
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.vector_free_list.percent_full());
 
