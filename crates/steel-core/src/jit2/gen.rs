@@ -2886,7 +2886,7 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ {
+        if payload < self.arity as _ && false {
             match op {
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
@@ -2968,7 +2968,7 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ {
+        if payload < self.arity as _ && false {
             match op {
                 OpCode::READLOCAL => MaybeStackValue::Register(payload),
                 OpCode::MOVEREADLOCAL => MaybeStackValue::MutRegister(payload),

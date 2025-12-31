@@ -2248,7 +2248,11 @@ fn handle_global_function_call_with_args(
     args: &mut [SteelVal],
 ) -> Result<SteelVal> {
     match stack_func {
-        SteelVal::FuncV(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
+        // TODO: @Matt - add safepoint handling for every spot where relevant
+        SteelVal::FuncV(func) => ctx
+            .thread
+            .enter_safepoint_once(|_| func(args))
+            .map_err(|x| x.set_span_if_none(ctx.current_span())),
         SteelVal::BoxedFunction(func) => {
             func.func()(args).map_err(|x| x.set_span_if_none(ctx.current_span()))
         }
@@ -2985,7 +2989,10 @@ macro_rules! make_primitive_function_deopt {
                 fallback_ip: usize,
                 $($typ: SteelVal),*
             ) -> SteelVal {
-                match (func)(&[$($typ),*]) {
+
+                let guard = unsafe { &mut *ctx };
+
+                match guard.thread.enter_safepoint_once(move |_: &SteelThread| (func)(&[$($typ),*])) {
                     Ok(v) => v,
                     Err(e) => {
                         unsafe {

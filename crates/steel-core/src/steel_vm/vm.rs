@@ -890,6 +890,46 @@ impl SteelThread {
         res
     }
 
+    pub fn enter_safepoint_once(
+        &mut self,
+        finish: impl FnOnce(&SteelThread) -> Result<SteelVal>,
+    ) -> Result<SteelVal> {
+        // TODO:
+        // Only need to actually enter the safepoint if another
+        // thread exists
+
+        if cfg!(feature = "sync") && self.safepoints_enabled {
+            let ptr = self as _;
+            self.synchronizer.ctx.store(Some(ptr));
+        }
+
+        let res = finish(self);
+
+        if cfg!(feature = "sync") && self.safepoints_enabled {
+            // Just block here until we're out - this only applies if we're not the main thread and
+            // not in garbage collection
+            while self
+                .synchronizer
+                .state
+                .paused
+                .load(std::sync::atomic::Ordering::Relaxed)
+            {
+                if let ThreadState::Interrupted = self.synchronizer.state.state.load() {
+                    break;
+                }
+
+                // Only park the thread if we actually have the ability to unpark it
+                if !self.synchronizer.spawned_via_make_thread {
+                    std::thread::park();
+                }
+            }
+
+            self.synchronizer.ctx.store(None);
+        }
+
+        res
+    }
+
     pub fn with_interrupted(&mut self, interrupted: Arc<AtomicBool>) -> &mut Self {
         self.interrupted = Some(interrupted);
         self

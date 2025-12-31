@@ -42,6 +42,7 @@
 ;;@doc
 ;; Create a thread pool with the given capacity
 (define (make-thread-pool capacity)
+  (stdout-simple-displayln "making thread pool")
   (define channels (channels/new))
   (define sender (channels-sender channels))
   (define receiver (channels-receiver channels))
@@ -65,10 +66,14 @@
 
     (listen-for-tasks))
 
+  (define threads (inner-map (lambda (_) (spawn-native-thread listen-for-tasks)) (range 0 capacity)))
+
+  (stdout-simple-displayln threads)
+
   ;; Give me back a thread pool to do some work
   (ThreadPool sender
               capacity
-              (inner-map (lambda (_) (spawn-native-thread listen-for-tasks)) (range 0 capacity))))
+              threads))
 
 ;;@doc
 ;; Submit task to the thread pool
