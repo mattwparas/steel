@@ -244,11 +244,11 @@ impl Engine {
     }
 }
 
-impl Drop for Engine {
-    fn drop(&mut self) {
-        TypeMap::run_explicit_merge();
-    }
-}
+// impl Drop for Engine {
+//     fn drop(&mut self) {
+//         TypeMap::run_explicit_merge();
+//     }
+// }
 
 impl Clone for Engine {
     fn clone(&self) -> Self {
