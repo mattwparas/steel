@@ -551,9 +551,9 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                             if !self.in_scope_values.contains(s) && self.source_id.is_none()
                                 || self.source_id == m.location.source_id()
                             {
-                                if s.resolve().ends_with("skip-compile") {
-                                    println!("Expanding skip compile: {}", l);
-                                }
+                                // if s.resolve().ends_with("skip-compile") {
+                                //     println!("Expanding skip compile: {}", l);
+                                // }
 
                                 let span = *sp;
 

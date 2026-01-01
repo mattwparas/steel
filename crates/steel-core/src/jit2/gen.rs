@@ -4,8 +4,8 @@ use cranelift::{
 };
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module};
-use std::slice;
 use std::{collections::HashMap, ptr::fn_addr_eq};
+use std::{collections::HashSet, slice};
 use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
@@ -46,7 +46,7 @@ use crate::{
                 read_local_3_value_c, read_local_any_value_c, self_tail_call_handler,
                 self_tail_call_handler_loop, set_handler_c, set_local_any_c, setbox_handler_c,
                 should_continue, should_spill, should_spill_value, tcojmp_handler, trampoline,
-                trampoline_no_arity, unbox_handler_c, vector_ref_handler_c,
+                trampoline_no_arity, unbox_handler_c, vec_handler_c, vector_ref_handler_c,
                 vector_ref_handler_register, vector_ref_handler_register_two,
                 vector_set_handler_register_one, vector_set_handler_register_three,
                 vector_set_handler_register_two, vector_set_handler_stack, CallFunctionDefinitions,
@@ -383,6 +383,11 @@ impl Default for JIT {
         map.add_func(
             "list-handler-spilled",
             list_handler_c as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
+        );
+
+        map.add_func(
+            "vec-handler-spilled",
+            vec_handler_c as extern "C-unwind" fn(*mut VmCore, usize) -> SteelVal,
         );
 
         // Value functions:
@@ -955,6 +960,8 @@ impl JIT {
         constants: &ConstantMap,
         _function_context: Option<usize>,
     ) -> Result<(), String> {
+        println!("----- Compiling function ----");
+
         // Our toy language currently only supports I64 values, though Cranelift
         // supports other types.
         // let int = self.module.target_config().pointer_type();
@@ -1021,6 +1028,7 @@ impl JIT {
             fake_entry_block,
             exit_block,
             properties: Default::default(),
+            // visited: HashSet::default(),
             // cloned_stack: false,
             // generators: Default::default(),
         };
@@ -1282,6 +1290,7 @@ struct FunctionTranslator<'a> {
 
     fake_entry_block: Option<Block>,
     exit_block: Block,
+    // visited: HashSet<usize>,
     // generators: LazyInstructionGenerators,
 }
 
@@ -1424,8 +1433,13 @@ impl FunctionTranslator<'_> {
         while self.ip < self.instructions.len() {
             let instr = self.instructions[self.ip];
             let op = instr.op_code;
-            // println!("{:?} @ {}", op, self.ip);
             let payload = instr.payload_size.to_usize();
+            println!("{:?}:{} @ {}", op, payload, self.ip);
+
+            // if !self.visited.insert(self.ip) {
+            //     panic!("Already visited this instruction",);
+            // }
+
             match op {
                 OpCode::LOADINT1POP | OpCode::BINOPADDTAIL => {
                     todo!("{:?}", op);
@@ -1567,6 +1581,7 @@ impl FunctionTranslator<'_> {
                     }
                 }
                 OpCode::JMP => {
+                    println!("Jumping from {} -> {}", self.ip, payload);
                     self.ip = payload;
                 }
                 // Call func... lets see how this goes...
@@ -1608,6 +1623,11 @@ impl FunctionTranslator<'_> {
                     let ip = self.ip;
                     let offset = payload;
                     self.ip += payload + 1;
+
+                    println!(
+                        "Instruction after newsclosure: {:?}",
+                        self.instructions[self.ip].op_code
+                    );
 
                     let ip_value = self.builder.ins().iconst(Type::int(64).unwrap(), ip as i64);
                     let offset_value = self
@@ -1841,9 +1861,9 @@ impl FunctionTranslator<'_> {
                         self.push(v, InferredType::Any)
                     }
 
-                    self.check_deopt();
-
                     self.ip = self.instructions.len() + 1;
+
+                    self.check_deopt();
 
                     return false;
                 }
@@ -2336,6 +2356,29 @@ impl FunctionTranslator<'_> {
                     }
                 }
 
+                OpCode::VEC => {
+                    let arity = payload / 2;
+
+                    self.ip += 1;
+
+                    let args = self.split_off(arity);
+
+                    for arg in args {
+                        self.push_to_vm_stack(arg.0);
+                    }
+
+                    let arity_value = self
+                        .builder
+                        .ins()
+                        .iconst(Type::int(64).unwrap(), payload as i64);
+
+                    let result = self
+                        .call_function_returns_value_args("vec-handler-spilled", &[arity_value]);
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::Any);
+                }
+
                 // Specialize car for when its on a register, to avoid doing
                 // the read local operations.
                 OpCode::CAR => {
@@ -2445,7 +2488,6 @@ impl FunctionTranslator<'_> {
                     // Do the thing.
                     self.func_ret_val(op, 1, 2, InferredType::Bool);
                 }
-                OpCode::VEC => todo!(),
                 OpCode::Apply => todo!(),
                 OpCode::LOADINT0POP => todo!(),
                 OpCode::LOADINT2POP => todo!(),

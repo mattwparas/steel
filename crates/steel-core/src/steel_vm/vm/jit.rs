@@ -2726,6 +2726,41 @@ pub extern "C-unwind" fn list_handler_c(ctx: *mut VmCore<'_>, payload: usize) ->
     SteelVal::ListV(remaining.into())
 }
 
+#[allow(improper_ctypes_definitions)]
+pub extern "C-unwind" fn vec_handler_c(ctx: *mut VmCore<'_>, payload: usize) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
+
+    let len = payload / 2;
+    let bytes = payload % 2 != 0;
+
+    let args = ctx.thread.stack.split_off(ctx.thread.stack.len() - len);
+
+    let val = if bytes {
+        let buffer: Vec<_> = args
+            .into_iter()
+            .flat_map(|val| {
+                let int = val.int_or_else(|| "unexpected non integer");
+
+                debug_assert!(int.is_ok());
+
+                int.ok()
+            })
+            .flat_map(|int| {
+                let byte = u8::try_from(int);
+
+                debug_assert!(byte.is_ok());
+                byte.ok()
+            })
+            .collect();
+
+        SteelVal::ByteVector(crate::rvals::SteelByteVector::new(buffer))
+    } else {
+        SteelVal::VectorV(crate::rvals::SteelVector(Gc::new(args.into())))
+    };
+
+    val
+}
+
 // Note: This should only get called with a closure, so we are safe to only
 // check against those.
 pub(crate) extern "C-unwind" fn should_spill(ctx: *mut VmCore, lookup_index: usize) -> bool {
@@ -4410,7 +4445,7 @@ fn call_function_tail_deopt(
     match handle_global_tail_call_deopt_with_args(ctx, func, args) {
         Ok(v) => {
             if !should_yield {
-                println!("Handling the return value to yield");
+                // println!("Handling the return value to yield");
                 extern_handle_pop(ctx, v);
                 ctx.is_native = false;
                 return SteelVal::Void;
