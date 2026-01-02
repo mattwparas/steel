@@ -39,6 +39,8 @@ pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> 
 
     let name = func.id.to_string();
 
+    inspect_impl(ctx, &[SteelVal::Closure(Gc::new(func.clone()))]);
+
     // let mut inner = func.unwrap();
     let fn_pointer = ctx.thread.jit.lock().unwrap().compile_bytecode(
         name,
@@ -5210,6 +5212,9 @@ pub extern "C-unwind" fn handle_pure_function(
             CaptureVec::new(),
         );
 
+        // Put the spans into the interner as well
+        ctx.thread.function_interner.spans.insert(closure_id, spans);
+
         #[cfg(feature = "jit2")]
         let constructed_lambda = jit::jit_compile_lambda(ctx, constructed_lambda);
 
@@ -5219,9 +5224,6 @@ pub extern "C-unwind" fn handle_pure_function(
             .function_interner
             .pure_function_interner
             .insert(closure_id, Gc::clone(&constructed_lambda));
-
-        // Put the spans into the interner as well
-        ctx.thread.function_interner.spans.insert(closure_id, spans);
 
         constructed_lambda
     };
@@ -5410,6 +5412,9 @@ pub extern "C-unwind" fn handle_new_start_closure(
             CaptureVec::new(),
         );
 
+        // Put the spans into the interner
+        ctx.thread.function_interner.spans.insert(closure_id, spans);
+
         #[cfg(feature = "jit2")]
         let mut constructed_lambda = if std::env::var("STEEL_JIT").is_ok() {
             jit::jit_compile_lambda(ctx, constructed_lambda)
@@ -5422,9 +5427,6 @@ pub extern "C-unwind" fn handle_new_start_closure(
             .closure_interner
             .insert(closure_id, constructed_lambda.clone());
 
-        // Put the spans into the interner
-        ctx.thread.function_interner.spans.insert(closure_id, spans);
-
         constructed_lambda.set_captures(captures);
 
         constructed_lambda
@@ -5434,7 +5436,9 @@ pub extern "C-unwind" fn handle_new_start_closure(
 
     // dbg!(ctx.instructions[ctx.ip - 1]);
 
-    SteelVal::Closure(Gc::new(constructed_lambda))
+    let closure = SteelVal::Closure(Gc::new(constructed_lambda));
+
+    closure
 }
 
 #[inline(never)]

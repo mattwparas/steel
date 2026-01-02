@@ -4338,6 +4338,12 @@ impl<'a> VmCore<'a> {
                 CaptureVec::new(),
             );
 
+            // Put the spans into the interner as well
+            self.thread
+                .function_interner
+                .spans
+                .insert(closure_id, spans);
+
             #[cfg(feature = "jit2")]
             let constructed_lambda = if std::env::var("STEEL_JIT").is_ok() {
                 jit::jit_compile_lambda(self, constructed_lambda)
@@ -4352,18 +4358,12 @@ impl<'a> VmCore<'a> {
                 .pure_function_interner
                 .insert(closure_id, Gc::clone(&constructed_lambda));
 
-            // Put the spans into the interner as well
-            self.thread
-                .function_interner
-                .spans
-                .insert(closure_id, spans);
-
             constructed_lambda
         };
 
-        self.thread
-            .stack
-            .push(SteelVal::Closure(constructed_lambda));
+        let value = SteelVal::Closure(constructed_lambda);
+
+        self.thread.stack.push(value);
 
         self.ip = forward_index;
     }
@@ -4556,9 +4556,9 @@ impl<'a> VmCore<'a> {
             constructed_lambda
         };
 
-        self.thread
-            .stack
-            .push(SteelVal::Closure(Gc::new(constructed_lambda)));
+        let value = SteelVal::Closure(Gc::new(constructed_lambda));
+
+        self.thread.stack.push(value);
 
         self.ip = forward_index;
         Ok(())

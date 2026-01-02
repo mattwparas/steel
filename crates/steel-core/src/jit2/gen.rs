@@ -962,6 +962,8 @@ impl JIT {
     ) -> Result<(), String> {
         println!("----- Compiling function ----");
 
+        // pretty_print_dense_instructions(bytecode);
+
         // Our toy language currently only supports I64 values, though Cranelift
         // supports other types.
         // let int = self.module.target_config().pointer_type();
@@ -1028,7 +1030,7 @@ impl JIT {
             fake_entry_block,
             exit_block,
             properties: Default::default(),
-            // visited: HashSet::default(),
+            visited: HashSet::default(),
             // cloned_stack: false,
             // generators: Default::default(),
         };
@@ -1290,7 +1292,7 @@ struct FunctionTranslator<'a> {
 
     fake_entry_block: Option<Block>,
     exit_block: Block,
-    // visited: HashSet<usize>,
+    visited: HashSet<usize>,
     // generators: LazyInstructionGenerators,
 }
 
@@ -1434,6 +1436,7 @@ impl FunctionTranslator<'_> {
             let instr = self.instructions[self.ip];
             let op = instr.op_code;
             let payload = instr.payload_size.to_usize();
+
             println!("{:?}:{} @ {}", op, payload, self.ip);
 
             // if !self.visited.insert(self.ip) {
@@ -1581,7 +1584,8 @@ impl FunctionTranslator<'_> {
                     }
                 }
                 OpCode::JMP => {
-                    println!("Jumping from {} -> {}", self.ip, payload);
+                    // println!("Jumping from {} -> {}", self.ip, payload);
+                    assert!(payload > self.ip);
                     self.ip = payload;
                 }
                 // Call func... lets see how this goes...
@@ -1613,9 +1617,9 @@ impl FunctionTranslator<'_> {
                         todo!("Implement spilled function call");
                     }
 
-                    self.check_deopt();
-
                     self.ip = self.instructions.len() + 1;
+
+                    self.check_deopt();
 
                     return false;
                 }
@@ -1624,10 +1628,10 @@ impl FunctionTranslator<'_> {
                     let offset = payload;
                     self.ip += payload + 1;
 
-                    println!(
-                        "Instruction after newsclosure: {:?}",
-                        self.instructions[self.ip].op_code
-                    );
+                    assert_eq!(self.instructions[self.ip - 1].op_code, OpCode::ECLOSURE);
+                    assert!(self.ip < self.instructions.len());
+
+                    // println!("Instruction after newsclosure: {}", self.ip);
 
                     let ip_value = self.builder.ins().iconst(Type::int(64).unwrap(), ip as i64);
                     let offset_value = self
@@ -1656,7 +1660,7 @@ impl FunctionTranslator<'_> {
 
                     self.ip = forward_index;
 
-                    // println!("{} -> {}", ip, forward_index);
+                    // println!("instruction after {} -> {}", ip, forward_index);
 
                     let ip_value = self.builder.ins().iconst(Type::int(64).unwrap(), ip as i64);
                     let offset_value = self
@@ -1864,6 +1868,8 @@ impl FunctionTranslator<'_> {
                     self.ip = self.instructions.len() + 1;
 
                     self.check_deopt();
+
+                    // println!("------------------------> Returning");
 
                     return false;
                 }
@@ -3206,7 +3212,7 @@ impl FunctionTranslator<'_> {
         let ctx = self.get_ctx();
 
         // Advance to the next thing
-        self.ip += 1;
+        // self.ip += 1;
 
         let arg_values = [ctx, test_value];
 
@@ -3710,6 +3716,8 @@ impl FunctionTranslator<'_> {
         function_index: usize,
         tail: bool,
     ) -> Value {
+        println!("--------------------Call global tail spilled---------------------");
+
         let local_callee = self.get_local_callee(name);
 
         let ctx = self.get_ctx();
@@ -4552,7 +4560,14 @@ impl FunctionTranslator<'_> {
         then_start: usize,
         else_start: usize,
     ) -> Value {
-        // println!("Visiting if");
+        println!("Visiting if @ {}", self.ip);
+        // if self.visited.insert(self.ip) {
+        // }
+
+        // if !self.visited.insert(self.ip) {
+        //     pretty_print_dense_instructions(&self.instructions);
+        //     panic!("Already visited this if instruction");
+        // }
 
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
@@ -4579,6 +4594,8 @@ impl FunctionTranslator<'_> {
         //     .ins()
         //     .iconst(codegen::ir::Type::int(128).unwrap(), 1);
 
+        println!("setting ip to then: {}", then_start);
+
         // Set the ip to the right spot:
         self.ip = then_start;
 
@@ -4589,6 +4606,8 @@ impl FunctionTranslator<'_> {
         // let tco = self.tco;
 
         self.stack_to_ssa();
+
+        println!("---------- then done ----------");
 
         // println!("Done on then");
         // println!("tco: {}", self.tco);
@@ -4620,6 +4639,8 @@ impl FunctionTranslator<'_> {
         //     .ins()
         //     .iconst(codegen::ir::Type::int(8).unwrap(), 128);
 
+        println!("Setting ip to else: {}", else_start);
+
         self.ip = else_start;
 
         self.tco = false;
@@ -4629,6 +4650,8 @@ impl FunctionTranslator<'_> {
         // let token_return_value = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
 
         self.stack_to_ssa();
+
+        println!("---------- else done ----------");
 
         // if self.tco {
         //     // println!("Getting here");
