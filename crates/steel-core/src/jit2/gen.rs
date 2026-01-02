@@ -1031,6 +1031,7 @@ impl JIT {
             exit_block,
             properties: Default::default(),
             visited: HashSet::default(),
+            depth: 0,
             // cloned_stack: false,
             // generators: Default::default(),
         };
@@ -1293,6 +1294,7 @@ struct FunctionTranslator<'a> {
     fake_entry_block: Option<Block>,
     exit_block: Block,
     visited: HashSet<usize>,
+    depth: usize,
     // generators: LazyInstructionGenerators,
 }
 
@@ -1432,6 +1434,7 @@ impl FunctionTranslator<'_> {
     // into a function pointer, and we don't need to thread the
     // context through at all.
     fn stack_to_ssa(&mut self) -> bool {
+        self.depth += 1;
         while self.ip < self.instructions.len() {
             let instr = self.instructions[self.ip];
             let op = instr.op_code;
@@ -1484,6 +1487,8 @@ impl FunctionTranslator<'_> {
                     self.ip = self.instructions.len() + 1;
 
                     */
+
+                    self.depth -= 1;
 
                     return false;
                 }
@@ -1620,6 +1625,8 @@ impl FunctionTranslator<'_> {
                     self.ip = self.instructions.len() + 1;
 
                     self.check_deopt();
+
+                    self.depth -= 1;
 
                     return false;
                 }
@@ -1825,6 +1832,8 @@ impl FunctionTranslator<'_> {
                     self.translate_tco_jmp(payload);
                     self.ip = self.instructions.len() + 1;
 
+                    self.depth -= 1;
+
                     return false;
                 }
                 OpCode::SELFTAILCALLNOARITY => {
@@ -1836,6 +1845,9 @@ impl FunctionTranslator<'_> {
                     // let _ = self.translate_tco_jmp_no_arity(payload);
                     // Jump to out of bounds so signal we're done
                     self.ip = self.instructions.len() + 1;
+
+                    self.depth -= 1;
+
                     return false;
                 }
                 OpCode::CALLGLOBALTAIL
@@ -1870,6 +1882,8 @@ impl FunctionTranslator<'_> {
                     self.check_deopt();
 
                     // println!("------------------------> Returning");
+
+                    self.depth -= 1;
 
                     return false;
                 }
@@ -2558,8 +2572,14 @@ impl FunctionTranslator<'_> {
                 OpCode::UNBOXCALL => todo!(),
                 OpCode::UNBOXTAIL => todo!(),
                 OpCode::EQUALCONST => todo!(),
+
+                _ => {
+                    todo!()
+                }
             }
         }
+
+        self.depth -= 1;
 
         return true;
     }
@@ -4560,7 +4580,12 @@ impl FunctionTranslator<'_> {
         then_start: usize,
         else_start: usize,
     ) -> Value {
-        println!("Visiting if @ {}", self.ip);
+        println!("Visiting if @ {} - depth: {}", self.ip, self.depth);
+
+        let start = self.ip;
+
+        let mut out_of_bounds = false;
+
         // if self.visited.insert(self.ip) {
         // }
 
@@ -4594,7 +4619,7 @@ impl FunctionTranslator<'_> {
         //     .ins()
         //     .iconst(codegen::ir::Type::int(128).unwrap(), 1);
 
-        println!("setting ip to then: {}", then_start);
+        println!("if: {} - setting ip to then: {}", start, then_start);
 
         // Set the ip to the right spot:
         self.ip = then_start;
@@ -4608,6 +4633,8 @@ impl FunctionTranslator<'_> {
         self.stack_to_ssa();
 
         println!("---------- then done ----------");
+
+        out_of_bounds = self.ip > self.instructions.len();
 
         // println!("Done on then");
         // println!("tco: {}", self.tco);
@@ -4639,7 +4666,7 @@ impl FunctionTranslator<'_> {
         //     .ins()
         //     .iconst(codegen::ir::Type::int(8).unwrap(), 128);
 
-        println!("Setting ip to else: {}", else_start);
+        println!("if: {} - Setting ip to else: {}", start, else_start);
 
         self.ip = else_start;
 
@@ -4652,6 +4679,14 @@ impl FunctionTranslator<'_> {
         self.stack_to_ssa();
 
         println!("---------- else done ----------");
+
+        println!(
+            "ip after else: {} - instructions length: {}",
+            self.ip,
+            self.instructions.len()
+        );
+
+        out_of_bounds &= self.ip > self.instructions.len();
 
         // if self.tco {
         //     // println!("Getting here");
@@ -4696,6 +4731,10 @@ impl FunctionTranslator<'_> {
         // Read the value of the if-else by reading the merge block
         // parameter.
         let phi = self.builder.block_params(merge_block)[0];
+
+        if out_of_bounds {
+            println!("Both resulted in a tail call")
+        }
 
         phi
     }
