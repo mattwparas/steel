@@ -1913,6 +1913,9 @@ impl FunctionTranslator<'_> {
                 OpCode::TCOJMP => {
                     // TODO: Make this act like the self tail call no arity
                     self.translate_tco_jmp(payload);
+
+                    // let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
+
                     self.ip = self.instructions.len() + 1;
 
                     self.depth -= 1;
@@ -3339,6 +3342,10 @@ impl FunctionTranslator<'_> {
 
         let arg_values = [ctx, amount_to_drop];
         let _ = self.builder.ins().call(local_callee, &arg_values);
+    }
+
+    fn translate_tco_jmp_loop(&mut self, payload: usize) {
+        todo!()
     }
 
     fn translate_tco_jmp(&mut self, payload: usize) {

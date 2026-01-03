@@ -1506,7 +1506,7 @@ pub(crate) extern "C-unwind" fn extern_handle_pop(ctx: *mut VmCore, value: Steel
     unsafe {
         let this = &mut *ctx;
         let res = this.handle_pop_pure_value(value);
-        this.is_native = false;
+        // this.is_native = false;
         this.result = res;
     }
 }
