@@ -36,7 +36,7 @@
           'any))]
    ;; If this doesn't match any of our other forms, recur
    ; [(list other ...) (map (lambda (e) (check-type-info e type-info)) other)]
-   #;[(list other ...) '()]
+   [(list other ...) '()]
    ;; We've bottomed out, just return the collected type information
    ; [other (or (hash-try-get type-info (syntax-e other)) 'any)]))
    [other (or (hash-try-get type-info (syntax-e other)) 'any)]))

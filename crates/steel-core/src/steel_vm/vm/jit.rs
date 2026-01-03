@@ -1506,6 +1506,7 @@ pub(crate) extern "C-unwind" fn extern_handle_pop(ctx: *mut VmCore, value: Steel
     unsafe {
         let this = &mut *ctx;
         let res = this.handle_pop_pure_value(value);
+        this.is_native = false;
         this.result = res;
     }
 }
@@ -2039,6 +2040,8 @@ fn new_callglobal_tail_handler_deopt_test(
     // let should_yield = true;
     // println!("Should yield: {}", should_yield);
 
+    ctx.is_native = false;
+
     if should_yield {
         // println!("Yielding: {:?}", args);
         ctx.ip = fallback_ip;
@@ -2104,6 +2107,8 @@ pub extern "C-unwind" fn callglobal_tail_handler_deopt_spilled(
         ctx.ip = fallback_ip;
         // ctx.ip += 1;
     }
+
+    ctx.is_native = false;
 
     match handle_global_tail_call_deopt_spilled(ctx, func, arity) {
         Ok(v) => {
@@ -4443,6 +4448,8 @@ fn call_function_tail_deopt(
         // ctx.ip += 2;
         ctx.ip = fallback_ip - 1;
     }
+
+    ctx.is_native = false;
 
     match handle_global_tail_call_deopt_with_args(ctx, func, args) {
         Ok(v) => {

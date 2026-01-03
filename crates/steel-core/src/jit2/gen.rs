@@ -4,8 +4,11 @@ use cranelift::{
 };
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module};
-use std::{collections::HashMap, ptr::fn_addr_eq};
 use std::{collections::HashSet, slice};
+use std::{
+    collections::{HashMap, VecDeque},
+    ptr::fn_addr_eq,
+};
 use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
@@ -1032,6 +1035,9 @@ impl JIT {
             properties: Default::default(),
             visited: HashSet::default(),
             depth: 0,
+            queue: VecDeque::new(),
+            if_stack: Vec::new(),
+            if_bound: None,
             // cloned_stack: false,
             // generators: Default::default(),
         };
@@ -1047,6 +1053,9 @@ impl JIT {
         trans.builder.ins().return_(&[]);
 
         trans.builder.seal_block(exit_block);
+
+        // Just seal all the blocks?
+        trans.builder.seal_all_blocks();
 
         // Tell the builder we're done with this function.
         trans.builder.finalize();
@@ -1294,7 +1303,14 @@ struct FunctionTranslator<'a> {
     fake_entry_block: Option<Block>,
     exit_block: Block,
     visited: HashSet<usize>,
+
+    queue: VecDeque<(OpCode, usize, usize)>,
+
     depth: usize,
+
+    if_bound: Option<usize>,
+
+    if_stack: Vec<usize>,
     // generators: LazyInstructionGenerators,
 }
 
@@ -1434,13 +1450,75 @@ impl FunctionTranslator<'_> {
     // into a function pointer, and we don't need to thread the
     // context through at all.
     fn stack_to_ssa(&mut self) -> bool {
+        if self.depth > 100 {
+            println!("Hit the depth limit, something went wrong");
+            // println!("{:?}:{} @ {}", op, payload, self.ip);
+            // println!("Previous path: {:#?}", self.queue);
+            // let instr = self.instructions[self.ip];
+            // let op = instr.op_code;
+            // let payload = instr.payload_size.to_usize();
+            // println!("{:?}:{} @ {}", op, payload, self.ip);
+            // println!("Previous path: {:#?}", self.queue);
+
+            let mut ips = HashSet::new();
+
+            // let mut cycle = None;
+
+            for (idx, v) in self.queue.iter().enumerate() {
+                if !ips.insert(*v) {
+                    println!("Found a cycle at index: {} - {:?}", idx, v);
+                    // cycle = Some(idx);
+                    // break;
+                }
+            }
+
+            println!("{:#?}", self.queue);
+
+            println!("{}", std::backtrace::Backtrace::force_capture());
+
+            // if let Some(cycle) = cycle {
+            //     println!("Path up to cycle:");
+            //     for item in self.queue.iter().take(cycle) {
+            //         println!("{:?}", item);
+            //     }
+            // }
+
+            panic!();
+        }
+
         self.depth += 1;
         while self.ip < self.instructions.len() {
+            if let Some(last) = self.if_bound {
+                // Have to tell if the if statement converged, and to continue
+                // going from there
+                if self.ip == last {
+                    println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
+                    let instr = self.instructions[self.ip];
+                    let op = instr.op_code;
+                    let payload = instr.payload_size.to_usize();
+                    println!("{:?}:{} @ {}", op, payload, self.ip);
+                    println!("length: {}", self.instructions.len());
+
+                    self.depth -= 1;
+                    return false;
+                }
+            }
+
+            if let Some(last) = self.if_stack.last().copied() {
+                assert!(self.ip > last);
+            }
+
             let instr = self.instructions[self.ip];
             let op = instr.op_code;
             let payload = instr.payload_size.to_usize();
 
             println!("{:?}:{} @ {}", op, payload, self.ip);
+
+            // if self.queue.len() == 10000 {
+            //     self.queue.pop_front();
+            // }
+
+            // self.queue.push_back((op, self.ip, payload));
 
             // if !self.visited.insert(self.ip) {
             //     panic!("Already visited this instruction",);
@@ -1538,7 +1616,7 @@ impl FunctionTranslator<'_> {
                             false_instr.to_usize(),
                         );
 
-                        self.push(res, InferredType::Any);
+                        // self.push(res, InferredType::Any);
                     } else {
                         let last_ref = self.shadow_stack.last().unwrap().into_value();
 
@@ -1555,7 +1633,7 @@ impl FunctionTranslator<'_> {
                                 false_instr.to_usize(),
                             );
 
-                            self.push(res, InferredType::Any);
+                            // self.push(res, InferredType::Any);
                         } else {
                             // TODO: Type inference here! Change which function is called!
                             let (test, typ) = self.shadow_pop();
@@ -1584,9 +1662,12 @@ impl FunctionTranslator<'_> {
                                 false_instr.to_usize(),
                             );
 
-                            self.push(res, InferredType::Any);
+                            // self.push(res, InferredType::Any);
                         }
                     }
+
+                    // self.depth -= 1;
+                    // return false;
                 }
                 OpCode::JMP => {
                     // println!("Jumping from {} -> {}", self.ip, payload);
@@ -1745,14 +1826,16 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::TRUE => {
                     let constant = SteelVal::BoolV(true);
-                    let value = self.create_i128(encode(constant));
+                    // let value = self.create_i128(encode(constant));
+                    let value = self.encode_true();
                     self.ip += 1;
                     // self.advance_ip();
                     self.push(value, InferredType::Bool);
                 }
                 OpCode::FALSE => {
                     let constant = SteelVal::BoolV(false);
-                    let value = self.create_i128(encode(constant));
+                    // let value = self.create_i128(encode(constant));
+                    let value = self.encode_false();
                     self.ip += 1;
                     // self.advance_ip();
                     self.push(value, InferredType::Any);
@@ -1877,9 +1960,9 @@ impl FunctionTranslator<'_> {
                         self.push(v, InferredType::Any)
                     }
 
-                    self.ip = self.instructions.len() + 1;
-
                     self.check_deopt();
+
+                    self.ip = self.instructions.len() + 1;
 
                     // println!("------------------------> Returning");
 
@@ -1921,7 +2004,7 @@ impl FunctionTranslator<'_> {
                     let global = self._globals.get(function_index);
 
                     match global.cloned() {
-                        Some(SteelVal::FuncV(f)) => {
+                        Some(SteelVal::FuncV(f)) if false => {
                             // Attempt the other call
                             self.ip += 1;
                             let arity = self.instructions[self.ip].payload_size.to_usize();
@@ -2000,7 +2083,7 @@ impl FunctionTranslator<'_> {
                             }
                         }
 
-                        Some(SteelVal::MutFunc(f)) => {
+                        Some(SteelVal::MutFunc(f)) if false => {
                             // Attempt the other call
                             self.ip += 1;
                             let arity = self.instructions[self.ip].payload_size.to_usize();
@@ -3992,6 +4075,27 @@ impl FunctionTranslator<'_> {
 
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(result, then_block, &[], else_block, &[]);
+
+        // Emit the return for the else block
+        self.builder.switch_to_block(else_block);
+        self.builder.seal_block(else_block);
+        self.builder.ins().return_(&[]);
+
+        self.builder.switch_to_block(then_block);
+        self.builder.seal_block(then_block);
+
+        // todo!()
+    }
+
+    fn check_deopt_working(&mut self) {
+        let result = self.check_deopt_ptr_load();
+
+        let then_block = self.builder.create_block();
+        let else_block = self.builder.create_block();
         let merge_block = self.builder.create_block();
         self.builder
             .append_block_param(merge_block, Type::int(8).unwrap());
@@ -4478,15 +4582,18 @@ impl FunctionTranslator<'_> {
     fn get_const(&mut self, op1: OpCode, payload: usize) -> (Value, InferredType) {
         match op1 {
             OpCode::LOADINT0 => (
-                self.create_i128(encode(SteelVal::INT_ZERO)),
+                // self.create_i128(encode(SteelVal::INT_ZERO)),
+                self.encode_integer(0),
                 InferredType::Int,
             ),
             OpCode::LOADINT1 => (
-                self.create_i128(encode(SteelVal::INT_ONE)),
+                // self.create_i128(encode(SteelVal::INT_ONE)),
+                self.encode_integer(1),
                 InferredType::Int,
             ),
             OpCode::LOADINT2 => (
-                self.create_i128(encode(SteelVal::INT_TWO)),
+                // self.create_i128(encode(SteelVal::INT_TWO)),
+                self.encode_integer(2),
                 InferredType::Int,
             ),
             OpCode::PUSHCONST => {
@@ -4499,9 +4606,9 @@ impl FunctionTranslator<'_> {
                 let constant = self.constants.get_value(payload);
 
                 match &constant {
-                    SteelVal::BoolV(_) => (self.create_i128(encode(constant)), InferredType::Bool),
-                    SteelVal::IntV(_) => (self.create_i128(encode(constant)), InferredType::Int),
-                    SteelVal::CharV(_) => (self.create_i128(encode(constant)), InferredType::Char),
+                    // SteelVal::BoolV(_) => (self.create_i128(encode(constant)), InferredType::Bool),
+                    // SteelVal::IntV(_) => (self.create_i128(encode(constant)), InferredType::Int),
+                    // SteelVal::CharV(_) => (self.create_i128(encode(constant)), InferredType::Char),
                     _ => (self.push_const_index(payload), InferredType::Any),
                 }
             }
@@ -4514,9 +4621,25 @@ impl FunctionTranslator<'_> {
 
     fn call_func_or_immediate(&mut self, op1: OpCode, payload: usize) -> Value {
         match op1 {
-            OpCode::LOADINT0 => self.create_i128(encode(SteelVal::INT_ZERO)),
-            OpCode::LOADINT1 => self.create_i128(encode(SteelVal::INT_ONE)),
-            OpCode::LOADINT2 => self.create_i128(encode(SteelVal::INT_TWO)),
+            // OpCode::LOADINT0 => self.create_i128(encode(SteelVal::INT_ZERO)),
+            // OpCode::LOADINT1 => self.create_i128(encode(SteelVal::INT_ONE)),
+            // OpCode::LOADINT2 => self.create_i128(encode(SteelVal::INT_TWO)),
+            OpCode::LOADINT0 =>
+            // self.create_i128(encode(SteelVal::INT_ZERO)),
+            {
+                self.encode_integer(0)
+            }
+            OpCode::LOADINT1 =>
+            // self.create_i128(encode(SteelVal::INT_ONE)),
+            {
+                self.encode_integer(1)
+            }
+            OpCode::LOADINT2 =>
+            // self.create_i128(encode(SteelVal::INT_TWO)),
+            {
+                self.encode_integer(2)
+            }
+
             OpCode::PUSHCONST => {
                 // Attempt to inline the constant, if it is something that can be inlined.
                 // Assuming we know the type of it, we can get really fancy here since
@@ -4562,6 +4685,27 @@ impl FunctionTranslator<'_> {
         self.builder.ins().iconcat(tag, value)
     }
 
+    fn encode_true(&mut self) -> Value {
+        let res = self.builder.ins().iconst(Type::int(64).unwrap(), 1);
+        let boolean = self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+        boolean
+    }
+
+    fn encode_false(&mut self) -> Value {
+        let res = self.builder.ins().iconst(Type::int(64).unwrap(), 0);
+        let boolean = self.encode_value(discriminant(&SteelVal::BoolV(false)) as i64, res);
+        boolean
+    }
+
+    fn encode_integer(&mut self, integer: i64) -> Value {
+        let res = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), integer as i64);
+        let integer = self.encode_value(discriminant(&SteelVal::IntV(0)) as i64, res);
+        integer
+    }
+
     // Remove the tag from a value to get to the underlying type
     fn unbox_value(&mut self, value: Value) -> Value {
         let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
@@ -4581,10 +4725,57 @@ impl FunctionTranslator<'_> {
         else_start: usize,
     ) -> Value {
         println!("Visiting if @ {} - depth: {}", self.ip, self.depth);
+        println!("Existing if bound: {:?}", self.if_bound);
+
+        let mut else_offset = None;
+
+        let last_bound = self.if_bound;
+        let mut saved_then_bound = None;
+
+        if matches!(
+            self.instructions[else_start - 1].op_code,
+            OpCode::JMP
+                | OpCode::POPJMP
+                | OpCode::POPPURE
+                | OpCode::TCOJMP
+                | OpCode::SELFTAILCALLNOARITY
+                | OpCode::TAILCALLNOARITY
+                | OpCode::CALLGLOBALTAIL
+                | OpCode::CALLPRIMITIVETAIL
+                | OpCode::CALLGLOBALTAILNOARITY
+                | OpCode::TAILCALL
+        ) {
+            self.if_bound = Some(else_start - 1);
+            saved_then_bound = self.if_bound;
+        }
+
+        else_offset = Some(self.instructions[else_start - 1].payload_size.to_usize());
+
+        // for (idx, instr) in self.instructions[else_start..].iter().enumerate() {
+        //     if instr.op_code == OpCode::JMP {
+        //         else_offset = Some(idx + self.ip);
+        //         break;
+        //     }
+
+        //     if instr.op_code == OpCode::POPJMP {
+        //         break;
+        //     }
+
+        //     if instr.op_code == OpCode::POPPURE {
+        //         break;
+        //     }
+        // }
+
+        println!("Then bound: {:?}", self.if_bound);
+        println!("Else bound: {:?}", else_offset);
+
+        // Have to stop before we get here
+        // self.if_stack.push(else_start);
+
+        // println!("If stack: {:?}", self.if_stack);
 
         let start = self.ip;
-
-        let mut out_of_bounds = false;
+        let depth = self.depth;
 
         // if self.visited.insert(self.ip) {
         // }
@@ -4611,7 +4802,6 @@ impl FunctionTranslator<'_> {
             .brif(condition_value, then_block, &[], else_block, &[]);
 
         self.builder.switch_to_block(then_block);
-        self.builder.seal_block(then_block);
 
         // Update with the proper return value
         // let mut then_return = self
@@ -4630,35 +4820,69 @@ impl FunctionTranslator<'_> {
         // let cloned_stack = self.cloned_stack;
         // let tco = self.tco;
 
+        self.if_stack.push(start);
+
         self.stack_to_ssa();
+
+        self.if_stack.pop();
+
+        self.if_bound = last_bound;
+
+        assert_eq!(self.depth, depth);
 
         println!("---------- then done ----------");
 
-        out_of_bounds = self.ip > self.instructions.len();
+        let then_ip = self.ip;
 
-        // println!("Done on then");
-        // println!("tco: {}", self.tco);
+        let then_out_of_bounds = self.ip > self.instructions.len();
+
+        println!(
+            "ip, instructions len: {} - {}",
+            self.ip,
+            self.instructions.len()
+        );
+
+        /*
+
+        TODO: Insert a guard to see where the then expression
+        finishes. If the then expression finishes in bounds,
+        i.e. hits a JMP where the JMP isn't quite the end,
+        then we also want to check the else branch, and see where
+        that finishes.
+
+        We have two cases:
+
+        Then and Else both stop at a JMP. In theory they'll converge
+        onto the same spot. We create a merge block, and then continue
+        generating code from there.
+
+        Then returns, but else does not. Swap back to else, finish
+        generating instructions.
+
+        Same but the opposite.
+
+        Both converge, no need for merge block.
+
+        */
 
         // println!("Stack after then branch: {:?}", self.stack);
 
         // Unwrap or... must have been a tail call?
-        let then_return = BlockArg::Value(
-            // TODO: Replace this stack pop with the right one
-            self.maybe_shadow_pop()
-                .map(|x| {
-                    // assert!(!x.spilled);
-                    let value = x.0;
-                    self.value_to_local_map.remove(&value);
-                    value
-                })
-                .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
-        );
+
+        let then_return = if then_out_of_bounds {
+            BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
+        } else {
+            // BlockArg::Value(self.create_i128(encode(SteelVal::Void)))
+            BlockArg::Value(self.shadow_pop().0)
+        };
+
+        let then_stack = self.shadow_stack.clone();
+        let then_let_stack = self.let_var_stack.clone();
 
         // Jump to the merge block, passing it the block return value.
         self.builder.ins().jump(merge_block, &[then_return]);
 
         self.builder.switch_to_block(else_block);
-        self.builder.seal_block(else_block);
 
         // TODO: Update with the proper return value
         // let mut else_return; = self
@@ -4668,13 +4892,18 @@ impl FunctionTranslator<'_> {
 
         println!("if: {} - Setting ip to else: {}", start, else_start);
 
+        self.if_stack.push(else_start - 1);
+
         self.ip = else_start;
+
+        self.if_stack.pop();
 
         self.tco = false;
         self.let_var_stack = let_stack;
         self.shadow_stack = frozen_stack;
-        // self.cloned_stack = cloned_stack;
-        // let token_return_value = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
+
+        // Set the if bound for the else case as well
+        self.if_bound = else_offset;
 
         self.stack_to_ssa();
 
@@ -4686,55 +4915,132 @@ impl FunctionTranslator<'_> {
             self.instructions.len()
         );
 
-        out_of_bounds &= self.ip > self.instructions.len();
+        assert_eq!(self.depth, depth);
 
-        // if self.tco {
-        //     // println!("Getting here");
-        //     // Set the return value to be the
-        //     // tail called return value?
-        //     self.ip = self.instructions.len() + 1;
+        let else_out_of_bounds = self.ip > self.instructions.len();
 
-        //     // Switch to the merge block for subsequent statements.
-        //     self.builder.switch_to_block(merge_block);
+        dbg!(then_out_of_bounds);
+        dbg!(else_out_of_bounds);
+        dbg!(self.ip);
+        dbg!(self.instructions.len());
 
-        //     // We've now seen all the predecessors of the merge block.
-        //     self.builder.seal_block(merge_block);
+        // Returned, therefore we don't need to do anything.
 
-        //     let phi = self.builder.block_params(merge_block)[0];
+        let else_return = if else_out_of_bounds {
+            BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
+        } else {
+            // BlockArg::Value(self.create_i128(encode(SteelVal::Void)))
+            BlockArg::Value(self.shadow_pop().0)
+            // BlockArg::Value(
+            //     self.maybe_shadow_pop()
+            //         .map(|x| {
+            //             // assert!(!x.spilled);
+            //             let value = x.0;
+            //             self.value_to_local_map.remove(&value);
+            //             value
+            //         })
+            //         // .unwrap(),
+            //         .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
+            // )
+        };
 
-        //     return phi;
-        // }
+        let phi = match (then_out_of_bounds, else_out_of_bounds) {
+            (true, true) => {
+                // No merge block necessary.
 
-        // let else_return = self.stack.pop().unwrap().0;
-        let else_return = BlockArg::Value(
-            self.maybe_shadow_pop()
-                .map(|x| {
-                    // assert!(!x.spilled);
-                    let value = x.0;
-                    self.value_to_local_map.remove(&value);
-                    value
-                })
-                // .unwrap(),
-                .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
-            // self.create_i128(encode(SteelVal::Void)),
-        );
+                // Jump to the merge block, passing it the block return value.
+                self.builder.ins().jump(merge_block, &[else_return]);
 
-        // Jump to the merge block, passing it the block return value.
-        self.builder.ins().jump(merge_block, &[else_return]);
+                // Switch to the merge block for subsequent statements.
+                self.builder.switch_to_block(merge_block);
 
-        // Switch to the merge block for subsequent statements.
-        self.builder.switch_to_block(merge_block);
+                // We've now seen all the predecessors of the merge block.
+                self.builder.seal_block(merge_block);
 
-        // We've now seen all the predecessors of the merge block.
-        self.builder.seal_block(merge_block);
+                // Read the value of the if-else by reading the merge block
+                // parameter.
+                let phi = self.builder.block_params(merge_block)[0];
 
-        // Read the value of the if-else by reading the merge block
-        // parameter.
-        let phi = self.builder.block_params(merge_block)[0];
+                phi
+            }
+            (true, false) => {
+                // Jump to the merge block, passing it the block return value.
+                self.builder.ins().jump(merge_block, &[else_return]);
 
-        if out_of_bounds {
-            println!("Both resulted in a tail call")
-        }
+                // Switch to merge block, continue on.
+                self.builder.switch_to_block(merge_block);
+                self.if_bound = last_bound;
+
+                self.ip = else_offset.unwrap();
+
+                let phi = self.builder.block_params(merge_block)[0];
+
+                self.push(phi, InferredType::Any);
+
+                self.stack_to_ssa();
+
+                self.if_bound = last_bound;
+
+                self.create_i128(encode(SteelVal::Void))
+            }
+            (false, true) => {
+                // Jump to the merge block, passing it the block return value.
+                self.builder.ins().jump(merge_block, &[else_return]);
+                // Switch to merge block, continue on.
+                self.builder.switch_to_block(merge_block);
+                self.if_bound = last_bound;
+
+                dbg!(else_start);
+
+                self.ip = saved_then_bound.unwrap();
+                self.shadow_stack = then_stack;
+                self.let_var_stack = then_let_stack;
+
+                let phi = self.builder.block_params(merge_block)[0];
+
+                self.push(phi, InferredType::Any);
+
+                self.stack_to_ssa();
+
+                self.if_bound = last_bound;
+
+                self.create_i128(encode(SteelVal::Void))
+            }
+            (false, false) => {
+                // Pop the values - merge the result of the calls?
+                // println!("Getting here");
+
+                // Switch to merge block, pop off value, return
+                // the value.
+
+                // Jump to the merge block, passing it the block return value.
+                self.builder.ins().jump(merge_block, &[else_return]);
+
+                // Switch to the merge block for subsequent statements.
+                self.builder.switch_to_block(merge_block);
+
+                // We've now seen all the predecessors of the merge block.
+                self.builder.seal_block(merge_block);
+
+                self.if_bound = last_bound;
+                self.ip = else_offset.unwrap();
+
+                let phi = self.builder.block_params(merge_block)[0];
+
+                self.push(phi, InferredType::Any);
+
+                self.stack_to_ssa();
+
+                // Read the value of the if-else by reading the merge block
+                // parameter.
+
+                phi
+            }
+        };
+
+        self.builder.seal_block(then_block);
+        self.builder.seal_block(else_block);
+        // self.builder.seal_block(merge_block);
 
         phi
     }
