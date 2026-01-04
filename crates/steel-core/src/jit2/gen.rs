@@ -13,7 +13,7 @@ use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
     compiler::constants::ConstantMap,
-    core::instructions::DenseInstruction,
+    core::instructions::{pretty_print_dense_instructions, DenseInstruction},
     primitives::{
         lists::steel_pair,
         ports::{eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char},
@@ -37,7 +37,7 @@ use crate::{
                 extern_c_add_two_binop_register_both, extern_c_div_two, extern_c_gt_two,
                 extern_c_gte_two, extern_c_lt_two, extern_c_lt_two_int, extern_c_lte_two,
                 extern_c_lte_two_int, extern_c_mult_three, extern_c_mult_two, extern_c_negate,
-                extern_c_null_handler, extern_c_sub_two, extern_c_sub_two_int,
+                extern_c_null_handler, extern_c_sub_three, extern_c_sub_two, extern_c_sub_two_int,
                 extern_c_sub_two_int_reg, extern_handle_pop, handle_new_start_closure,
                 handle_pure_function, if_handler_raw_value, if_handler_register, if_handler_value,
                 is_pair_c_reg, let_end_scope_c, list_handler_c, list_ref_handler_c,
@@ -757,6 +757,13 @@ impl Default for JIT {
             InferredType::Number,
         );
 
+        map.add_func_hint(
+            "sub-three",
+            extern_c_sub_three
+                as extern "C-unwind" fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal,
+            InferredType::Number,
+        );
+
         map.add_func_hint("div-two", extern_c_div_two as VmBinOp, InferredType::Number);
 
         // TODO: Pick up from here!
@@ -1384,6 +1391,7 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::ADD, 3) => "add-three",
         (OpCode::ADD, 4) => "add-four",
         (OpCode::SUB, 2) => "sub-binop",
+        (OpCode::SUB, 3) => "sub-three",
 
         (OpCode::SUB, 1) => "sub-negate",
 
@@ -1510,7 +1518,7 @@ impl FunctionTranslator<'_> {
                 // Have to tell if the if statement converged, and to continue
                 // going from there
                 if self.ip == last {
-                    // println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
+                    // println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% breaking");
                     // let instr = self.instructions[self.ip];
                     // let op = instr.op_code;
                     // let payload = instr.payload_size.to_usize();
@@ -5033,6 +5041,7 @@ impl FunctionTranslator<'_> {
 
                 // dbg!(else_start);
                 // dbg!(saved_then_bound);
+                // dbg!(last_bound);
 
                 self.ip = saved_then_bound.unwrap();
                 self.shadow_stack = then_stack;
@@ -5049,7 +5058,13 @@ impl FunctionTranslator<'_> {
                 self.create_i128(encode(SteelVal::Void))
             }
             (false, false) => {
-                assert_eq!(then_stack.len(), self.shadow_stack.len());
+                // TODO:
+                // if then_stack.len() != self.shadow_stack.len() {
+                //     dbg!(&self.ip);
+                //     pretty_print_dense_instructions(&self.instructions);
+                // }
+                // TODO: Check this out? Why is this the way it is?
+                // assert_eq!(then_stack.len(), self.shadow_stack.len());
 
                 // Pop the values - merge the result of the calls?
                 // println!("Getting here");

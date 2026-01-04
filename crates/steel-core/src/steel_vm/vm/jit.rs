@@ -1740,6 +1740,30 @@ pub(crate) extern "C-unwind" fn extern_c_mult_three(
     }
 }
 
+pub(crate) extern "C-unwind" fn extern_c_sub_three(
+    ctx: *mut VmCore,
+    a: SteelVal,
+    b: SteelVal,
+    c: SteelVal,
+) -> SteelVal {
+    // println!("Calling add with: {} - {}", a, b);
+
+    // let a = ManuallyDrop::new(a);
+    // let b = ManuallyDrop::new(b);
+    match subtract_primitive(&[a, b, c]) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
 pub(crate) extern "C-unwind" fn extern_c_add_four(
     ctx: *mut VmCore,
     a: SteelVal,

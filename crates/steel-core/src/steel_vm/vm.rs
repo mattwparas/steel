@@ -2611,7 +2611,7 @@ impl<'a> VmCore<'a> {
                     // }
 
                     if let Some(res) = self.result.take() {
-                        println!("Found result: {:?}", res);
+                        // println!("Found result: {:?}", res);
 
                         return res;
                     }
