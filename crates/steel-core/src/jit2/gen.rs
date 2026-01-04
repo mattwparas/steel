@@ -1926,14 +1926,16 @@ impl FunctionTranslator<'_> {
                 // to the entry block. We're going to loop there
                 // instead.
                 OpCode::TCOJMP => {
-                    // TODO: Make this act like the self tail call no arity
-                    // self.translate_tco_jmp(payload);
-
-                    let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
+                    // TODO: Make this act like the self tail call no arity!
+                    // Figure out why this isn't working quite right!
+                    self.translate_tco_jmp(payload);
+                    // let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
 
                     self.ip = self.instructions.len() + 1;
 
                     self.depth -= 1;
+
+                    self.check_deopt();
 
                     return false;
                 }

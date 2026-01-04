@@ -4850,7 +4850,7 @@ macro_rules! make_self_tail_call_no_arity {
             ) {
                 let this = unsafe { &mut *ctx };
                 this.ip = 0;
-                this.is_native = false;
+                // this.is_native = false;
 
                 $(
                     this.thread.stack[this.sp + $i] = $typ;
