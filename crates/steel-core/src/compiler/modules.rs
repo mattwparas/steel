@@ -123,7 +123,8 @@ declare_builtins!(
     "#%private/steel/control" => "../scheme/modules/parameters.scm",
     "#%private/steel/reader" => "../scheme/modules/reader.scm",
     "#%private/steel/stdlib" => "../scheme/stdlib.scm",
-    "#%private/steel/match" => "../scheme/modules/match.scm"
+    "#%private/steel/match" => "../scheme/modules/match.scm",
+    "#%private/steel/sort" => "../scheme/modules/sort.scm"
 );
 
 create_prelude!(
@@ -134,6 +135,7 @@ create_prelude!(
     "#%private/steel/ports",
     "#%private/steel/reader",
     "#%private/steel/match",
+    "#%private/steel/sort",
     for_syntax "#%private/steel/control",
     for_syntax "#%private/steel/contract"
 );
@@ -1702,7 +1704,18 @@ impl CompiledModule {
         });
 
         builtin_definitions.append(&mut provide_definitions);
+
+        let module = self.name.as_os_str().to_str().unwrap().to_owned();
+
+        // Introduce a call to set the current module context?
+        builtin_definitions.push(expr_list!(
+            ExprKind::atom("#%prim.#%push-module-context"),
+            ExprKind::string_lit(module)
+        ));
+
         builtin_definitions.append(&mut exprs);
+
+        builtin_definitions.push(expr_list!(ExprKind::atom("#%prim.#%pop-module-context"),));
 
         // provide_definitions.append(&mut builtin_definitions);
         // provide_definitions.append(&mut exprs);
@@ -2945,6 +2958,7 @@ impl<'a> ModuleBuilder<'a> {
         atom: &ExprKind,
         require_object: &mut RequireObjectBuilder,
     ) -> Result<()> {
+        log::info!("Parsing require object from: {:?}", self.name);
         match atom {
             ExprKind::Atom(Atom {
                 syn:
@@ -2960,12 +2974,8 @@ impl<'a> ModuleBuilder<'a> {
 
                 // Try this?
                 if let Some(lib) = BUILT_INS.iter().cloned().find(|x| x.0 == s.as_str()) {
-                    // self.built_ins.push(PathBuf::from(lib.0));
-
                     require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
-
                     return Ok(());
-                    // continue;
                 }
 
                 if self.custom_builtins.contains_key(s.as_str()) {
@@ -3023,7 +3033,6 @@ impl<'a> ModuleBuilder<'a> {
                         //
                         // If it doesn't exist, we should iterate through the search directories and attempt to find
                         // a matching path there.
-
                         for dir in self.search_dirs {
                             let mut dir = dir.clone();
                             dir.push(s.as_str());

@@ -1,0 +1,22 @@
+(struct thing (x))
+(define port (open-output-string))
+
+(define set (hashset (cons 0 0) (thing 1) (box 2) (box-strong 3) void eval (into-sum) port 'sym))
+
+(assert! (hashset-contains? set (cons 0 0)))
+(assert! (hashset-contains? set (thing 1)))
+(assert! (hashset-contains? set (box 2)))
+(assert! (hashset-contains? set (box-strong 3)))
+(assert! (hashset-contains? set void))
+(assert! (hashset-contains? set eval))
+(assert! (hashset-contains? set (into-sum)))
+(assert! (hashset-contains? set port))
+(assert! (hashset-contains? set 'sym))
+
+(assert! (not (hashset-contains? set (cons 0 1))))
+(assert! (not (hashset-contains? set (thing 0))))
+(assert! (not (hashset-contains? set (box 0))))
+(assert! (not (hashset-contains? set load)))
+(assert! (not (hashset-contains? set (into-count))))
+(assert! (not (hashset-contains? set (open-output-string))))
+(assert! (not (hashset-contains? set "sym")))

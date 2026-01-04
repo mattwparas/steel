@@ -175,15 +175,18 @@ If the last element is not a list, an improper list will be returned
 ### **apply**
 Applies the given `function` with arguments as the contents of the `list`.
 
-(apply function lst) -> any?
+(apply proc arg1 ... lst) -> any?
 
-* function : function?
-* list: list?
+* proc : function?
+* arg1 : any/c
+* list : list?
 
 #### Examples
+
 ```scheme
 > (apply + (list 1 2 3 4)) ;; => 10
 > (apply list (list 1 2 3 4)) ;; => '(1 2 3 4)
+> (apply list 1 2 (list 3 4)) ;; => '(1 2 3 4)
 ```
 ### **arithmetic-shift**
 Performs a bitwise arithmetic shift using the given 2 numbers
@@ -226,6 +229,54 @@ Returns the arctangent, or inverse tangent, of a value; output is in radians.
 > (atan 0) ;; => 0
 > (atan 0.5) ;; => 0.46364760900080615
 > (atan 2) ;; => 1.1071487177940906
+```
+### **bitwise-and**
+Performs a bitwise and using the given numbers
+
+(bitwise-and n ...) -> integer?
+
+* n : integer?
+
+#### Examples
+```scheme
+> (bitwise-and 1 2) ;; => 0
+> (bitwise-and -32 -1) ;; => -32
+```
+### **bitwise-ior**
+Performs a bitwise ior using the given numbers
+
+(bitwise-ior n ...) -> integer?
+
+* n : integer?
+
+#### Examples
+```scheme
+> (bitwise-ior 1 2) ;; => 3
+> (bitwise-ior -32 1) ;; => -31
+```
+### **bitwise-not**
+Performs a bitwise not using the given numbers
+
+(bitwise-not n ...) -> integer?
+
+* n : integer?
+
+#### Examples
+```scheme
+> (bitwise-not 5) ;; => -6
+> (bitwise-not -1) ;; => 0
+```
+### **bitwise-xor**
+Performs a bitwise xor using the given numbers
+
+(bitwise-xor n ...) -> integer?
+
+* n : integer?
+
+#### Examples
+```scheme
+> (bitwise-xor 1 5) ;; => 4
+> (bitwise-xor -32 -1) ;; => 31
 ```
 ### **bool?**
 Alias for `boolean?`. Returns true if the value is a boolean.
@@ -694,6 +745,41 @@ Returns `#t` if the characters are monotonically decreasing according to their c
  > (char>? #\c #\b #\a) ;; => #t
  > (char>? #\c #\b #\b) ;; => #f
  ```
+### **child-stderr**
+Get a handle to the stderr handle of the child process. The process
+must have been started with the `with-stderr-piped` option for this
+to be available, otherwise stderr will be inherited. This will return
+false if the handle has already been consumed.
+
+(child-stderr subprocess) -> (or input-port? #false)
+
+subprocess : ChildProcess?
+### **child-stdin**
+Get a handle to the stdin handle of the child process. The process
+must have been started with the `with-stdin-piped` option for this
+to be available, otherwise stdin will be inherited. This will return
+false if the handle has already been consumed.
+
+(child-stdout subprocess) -> (or input-port? #false)
+
+subprocess : ChildProcess?
+### **child-stdout**
+Get a handle to the stdout handle of the child process. The process
+must have been started with the `with-stdout-piped` option for this
+to be available, otherwise stdout will be inherited. This will return
+false if the handle has already been consumed.
+
+(child-stdout subprocess) -> (or output-port? #false)
+
+subprocess : ChildProcess?
+
+```scheme
+(define handle (~> (command "/bin/ls" '())
+                   with-stdout-piped
+                   spawn-process
+                   unwrap-ok))
+(read-port-to-string (child-stdout handle)) ;; The resulting string
+```
 ### **close-input-port**
 Close an input port. If the port is a file, the file will be closed.
 
@@ -706,6 +792,18 @@ Close an output port. If the port is a file, the file will be closed.
 Close a port. If the port is a file, the file will be closed.
 
 (close-port port?) -> void
+### **command**
+Create a `CommandBuilder` from a command and a list of arguments. Used to spawn
+a subprocess.
+
+(command cmd args) -> CommandBuilder?
+
+* cmd : string?
+* args : (listof string?)
+
+```scheme
+> (spawn-process (command "echo" (list "hello" "world")))
+```
 ### **command-line**
 Returns the command line passed to this process,
 including the command name as first argument.
@@ -1298,7 +1396,7 @@ Each key must have a val, so the total number of arguments must be even.
 
 (hash key val ...) -> hash?
 
-* key : hashable?
+* key : any/c
 * val : any/c
 
 Note: the keys must be hashable.
@@ -1307,6 +1405,30 @@ Note: the keys must be hashable.
 ```scheme
 > (hash 'a 10 'b 20)
 => '#hash((a . 10) (b . 20))
+```
+### **hash->list**
+Returns a list of the key-value pairs of a given hash map.
+
+(hash->list map) -> (listof (cons/c any/c any/c))
+
+* map : hash?
+
+#### Examples
+
+```scheme
+> (hash->list (hash 'a 10 'b 20)) ;; => '((a . 10) (b . 20))
+```
+### **hash->vector**
+Returns a list of the key-value pairs of a given hash map.
+
+(hash->vector map) -> (vectorof (cons/c any/c any/c))
+
+* map : hash?
+
+#### Examples
+
+```scheme
+> (hash->vector (hash 'a 10 'b 20)) ;; => '#((a . 10) (b . 20))
 ```
 ### **hash-clear**
 Clears the entries out of the existing hashmap.
@@ -1322,13 +1444,25 @@ to the hashmap.
 > (hash-clear (hash 'a 10 'b 20))
 => '#hash()
 ```
+### **hash-code**
+Gets the hash code for the given value;
+
+(hash-code v) -> integer?
+
+* v : any/c
+
+#### Examples
+```scheme
+(hash-code 10) ;; => 16689870864682149525
+(hash-code "hello world") ;; => 12361891819228967546
+```
 ### **hash-contains?**
 Checks whether the given map contains the given key. Key must be hashable.
 
 (hash-contains? map key) -> bool?
 
 * map : hash?
-* key : hashable?
+* key : any/c
 
 #### Example
 
@@ -1367,7 +1501,7 @@ so the old hash map is still accessible.
 ### **hash-keys->list**
 Returns the keys of the given hash map as a list.
 
-(hash-keys->list map) -> (listof hashable?)
+(hash-keys->list map) -> (listof any/c)
 
 * map : hash?
 
@@ -1380,7 +1514,7 @@ Returns the keys of the given hash map as a list.
 ### **hash-keys->vector**
 Returns the keys of the given hash map as an immutable vector
 
-(hash-keys->vector map) -> (vectorof hashable?)
+(hash-keys->vector map) -> (vectorof any/c)
 
 * map: hash?
 
@@ -1743,6 +1877,12 @@ Checks if a path is a file.
 > (is-file? "logs") ;; => #false
 > (is-file? "logs/today.json") ;; => #true
 ```
+### **kill**
+Terminate the subprocess.
+
+(subprocess-kill subprocess)
+
+subprocess : ChildProcess?
 ### **last**
 Returns the last element in the list. Takes time proportional to the length of the list.
 
@@ -2403,6 +2543,8 @@ Checks if the given real number is positive.
 > (positive? 1) ;; => #t
 > (positive? -1) ;; => #f
 ```
+### **process-wait**
+Alias of `wait`.
 ### **push**
 Appends an element to the given vector.
 
@@ -2751,6 +2893,10 @@ error[E11]: Generic
 1 │ (second '())
   │  ^^^^^^ second: index out of bounds - list did not have an element in the second position: []
 ```
+### **set-current-dir!**
+Alias of `with-current-dir`.
+### **set-env-var!**
+Alias of `with-env-var`.
 ### **set-tls!**
 Set the value in the the thread local storage. Only this thread will see the updates associated
 with this TLS.
@@ -2798,6 +2944,19 @@ func : (-> any?) ;; Function with no arguments, returns anything
 
 ```scheme
 (define thread (spawn-native-thread (lambda () (displayln "Hello world!"))))
+```
+### **spawn-process**
+Spawn the given process. Returns a result indicating whether the process was
+able to be spawned.
+
+(spawn-process process) -> (Result? ChildProcess?)
+
+* process : CommandBuilder?
+
+```scheme
+> (require "steel/result")
+> (define spawned (spawn-process (command "/bin/ls" '()))) ;; => (Ok #<steel::primitives::process::ChildProcess>)
+> (define child (unwrap-ok spawned))
 ```
 ### **split-many**
 Splits a string given a separator pattern into a list of strings.
@@ -3283,6 +3442,8 @@ Returns true if the value is a string.
 > (string? 'foo)
 #false
 ```
+### **subprocess-kill**
+Alias of `kill`.
 ### **substring**
 Creates a substring slicing the characters between two indices.
 
@@ -3773,6 +3934,20 @@ Returns true if the value is `void`.
 > (void? 42)
 #false
 ```
+### **wait**
+Wait for the subprocess to finish. Returns a result with the status code
+of the awaited subprocess.
+
+(wait process) -> (Result? int?)
+
+* process : ChildProcess?
+
+```scheme
+> (~> (command "echo" (list "hello"))
+      spawn-process
+      unwrap-ok
+      wait)
+```
 ### **weak-box-value**
 Returns the value contained in the weak box.
 If the garbage collector has proven that the previous content
@@ -3785,6 +3960,161 @@ then default-value (which defaults to #f) is returned.
 (set! value #f) ;; Wipe out the previous value
 (#%gc-collect)
 (weak-box-value value) ;; => #false
+```
+### **with-cleared-env-vars**
+Removes all environment variables for the child.
+
+(with-cleared-env-vars process) -> CommandBuilder?
+
+* process - CommandBuilder?
+
+```scheme
+> (define pb (command "echo" (list "hello")))
+> (~> (command "echo" (list "hello"))
+      (with-cleared-env-vars "FOO")
+      spawn-process
+      unwrap-ok
+      wait)
+```
+### **with-current-dir**
+Sets the current directory for the child. `set-current-dir!` is an alias.
+
+(with-current-dir process dir) -> CommandBuilder?
+
+* process - CommandBuilder?
+* dir - string?
+
+```scheme
+> (define pb (command "echo" (list "hello")))
+> (with-current-dir pb "/home/foo")
+> (~> (command "echo" (list "hello"))
+      (with-current-dir "/home/foo")
+      spawn-process
+      unwrap-ok
+      wait)
+```
+### **with-env-var**
+Sets an environment variable for the child. `set-env-var!` is an alias.
+
+(with-env-var process key value) -> CommandBuilder?
+
+* process - CommandBuilder?
+* key - string?
+* value - string?
+
+```scheme
+> (define pb (command "echo" (list "hello")))
+> (~> (command "echo" (list "hello"))
+      (with-env-var "FOO" "BAR")
+      spawn-process
+      unwrap-ok
+      wait)
+```
+### **with-stderr**
+Redirect stderr from the process to the given port
+
+(with-stderr process port) -> CommandBuilder?
+
+* process : CommandBuilder?
+* port : (and output-port? file-port?)
+
+```scheme
+> (define output (open-output-file "test.txt"))
+> (~> (command "echo" (list "hello"))
+      (with-stderr output)
+      spawn-process
+      unwrap-ok
+      wait)
+```
+### **with-stderr-piped**
+Constructs a pipe to be arranged to connect to stderr.
+
+(with-stderr-piped process) -> CommandBuilder?
+
+* process : CommandBuilder?
+
+```scheme
+> (~> (command "echo" (list "hello"))
+      with-stderr-piped
+      spawn-process
+      unwrap-ok
+      wait)
+```
+### **with-stdin**
+Redirect stdin from the process to the given port
+
+(with-stdin process port) -> CommandBuilder?
+
+* process : CommandBuilder?
+* port : (and input-port? file-port?)
+
+```scheme
+> (define output (open-input-file "test.txt"))
+> (~> (command "echo" (list "hello"))
+      (with-stdin output)
+      spawn-process
+      unwrap-ok
+      wait)
+```
+### **with-stdin-piped**
+Constructs a pipe to be arranged to connect to stdin.
+
+(with-stdin-piped process) -> CommandBuilder?
+
+* process : CommandBuilder?
+
+```scheme
+> (~> (command "echo" (list "hello"))
+      with-stdin-piped
+      spawn-process
+      unwrap-ok
+      wait)
+```
+### **with-stdout**
+Redirect stdout from the process to the given port
+
+(with-stdout process port) -> CommandBuilder?
+
+* process : CommandBuilder?
+* port : (and output-port? file-port?)
+
+```scheme
+> (define output (open-output-file "test.txt"))
+> (~> (command "echo" (list "hello"))
+      (with-stdout output)
+      spawn-process
+      unwrap-ok
+      wait)
+```
+### **with-stdout-piped**
+Constructs a pipe to be arranged to connect to stdout.
+
+(with-stdout-piped process) -> CommandBuilder?
+
+* process : CommandBuilder?
+
+```scheme
+> (~> (command "echo" (list "hello"))
+      with-stdout-piped
+      spawn-process
+      unwrap-ok
+      wait)
+```
+### **without-env-var**
+Removes an environment variable for the child.
+
+(with-env-var process key) -> CommandBuilder?
+
+* process - CommandBuilder?
+* key - string?
+
+```scheme
+> (define pb (command "echo" (list "hello")))
+> (~> (command "echo" (list "hello"))
+      (without-env-var "FOO")
+      spawn-process
+      unwrap-ok
+      wait)
 ```
 ### **would-block-object?**
 Returns `#t` if the value is an EOF object.
@@ -3830,6 +4160,8 @@ Create a zipping iterator
 ### **%iterator?**
 ### **%keyword-hash**
 ### **=**
+### **ChildProcess?**
+### **CommandBuilder?**
 ### **Engine::add-module**
 ### **Engine::clone**
 ### **Engine::modules->list**
@@ -3874,12 +4206,10 @@ Create a zipping iterator
 ### **channels-sender**
 ### **channels/new**
 ### **char?**
-### **child-stderr**
-### **child-stdin**
-### **child-stdout**
-### **command**
+### **command-builder?**
 ### **continuation?**
 ### **current-function-span**
+### **current-module**
 ### **current-os!**
 ### **current-thread-id**
 ### **dump-profiler**
@@ -3931,7 +4261,6 @@ Create a zipping iterator
 ### **into-vector**
 ### **iter-next!**
 ### **join!**
-### **kill**
 ### **list->vector**
 ### **list-chunks**
 ### **list-contains**
@@ -3973,13 +4302,10 @@ Create a zipping iterator
 ### **read-to-string**
 ### **run!**
 ### **set-box!**
-### **set-current-dir!**
-### **set-env-var!**
-### **set-piped-stdout!**
+### **set-stdout-piped!**
 ### **set-strong-box!**
 ### **set-test-mode!**
 ### **span-file-id**
-### **spawn-process**
 ### **stdout**
 ### **stdout-simple-displayln**
 ### **steel-home-location**
@@ -3989,6 +4315,7 @@ Create a zipping iterator
 ### **string-push**
 ### **struct->list**
 ### **struct?**
+### **subprocess?**
 ### **syntax->datum**
 ### **syntax-e**
 ### **syntax-loc**
@@ -4010,7 +4337,6 @@ Create a zipping iterator
 ### **value->iterator**
 ### **value->string**
 ### **vector-push!**
-### **wait**
 ### **wait->stdout**
 ### **which**
 ### **will-execute**

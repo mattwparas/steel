@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::fs::OpenOptions;
+use std::hash::Hash;
 use std::io;
 use std::io::prelude::*;
 use std::io::Cursor;
@@ -33,6 +34,20 @@ pub struct SteelPort {
     // TODO: Convert this to be a GcMut but with exclusive locks instead?
     // pub(crate) port: GcMut<SteelPortRepr>,
     pub(crate) port: GcLock<SteelPortRepr>,
+}
+
+impl PartialEq for SteelPort {
+    fn eq(&self, other: &Self) -> bool {
+        Gc::ptr_eq(&self.port, &other.port)
+    }
+}
+
+impl Eq for SteelPort {}
+
+impl Hash for SteelPort {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        Gc::as_ptr(&self.port).hash(state);
+    }
 }
 
 impl std::fmt::Display for SteelPort {
@@ -326,6 +341,30 @@ macro_rules! port_read_str_fn {
 }
 
 impl SteelPortRepr {
+    pub fn take(&mut self) -> Self {
+        std::mem::replace(self, SteelPortRepr::Closed)
+    }
+
+    pub fn as_stdio(self) -> std::result::Result<std::process::Stdio, Self> {
+        match self {
+            SteelPortRepr::FileInput(_, peekable) => {
+                let guard = peekable.inner.get_ref().try_clone().unwrap();
+                Ok(guard.into())
+            }
+            SteelPortRepr::FileOutput(_, buf_writer) => {
+                let guard = buf_writer.get_ref().try_clone().unwrap();
+                Ok(guard.into())
+            }
+            SteelPortRepr::StdOutput(_) => Ok(std::io::stdout().into()),
+            SteelPortRepr::StdError(_) => Ok(std::io::stderr().into()),
+            SteelPortRepr::ChildStdOutput(peekable) => Ok(peekable.inner.into_inner().into()),
+            SteelPortRepr::ChildStdError(peekable) => Ok(peekable.inner.into_inner().into()),
+            SteelPortRepr::ChildStdInput(buf_writer) => Ok(buf_writer.into_inner().unwrap().into()),
+            SteelPortRepr::Closed => todo!(),
+            _ => Err(self),
+        }
+    }
+
     pub fn read_line(&mut self) -> Result<(usize, String)> {
         match self {
             SteelPortRepr::FileInput(_, br) => port_read_str_fn!(br.inner, read_line),

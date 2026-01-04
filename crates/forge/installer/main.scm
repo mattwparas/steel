@@ -10,7 +10,7 @@
 
   (define version-width (string-length "Version"))
 
-  (displayln "Listing packages from: " *STEEL_HOME*)
+  (displayln "Listing packages from:" *STEEL_HOME*)
   (displayln)
 
   (display "Package")
@@ -29,7 +29,7 @@
               (display (make-string (- package-name-width
                                        (string-length (symbol->string package-name)))
                                     #\SPACE))
-              (display " ")
+              (display "  ")
               (displayln (hash-ref package 'version)))
             (hash-values->list index)))
 
@@ -66,7 +66,10 @@
   (define force (list? (member "--force" args)))
   (define args (filter (lambda (x) (not (equal? "--force" x))) args))
 
-  (define cogs-to-install (if (empty? args) (list (current-directory)) args))
+  (define cogs-to-install
+    (if (empty? args)
+        (list (current-directory))
+        args))
   (transduce cogs-to-install
              (flat-mapping parse-cog)
              (into-for-each (lambda (x) (check-install-package index x force)))))
@@ -79,18 +82,16 @@
         (displayln "Package is not currently installed.")
         (install-package-and-log cog-to-install))))
 
-(define (install-package-from-git index git-url args #:sha [*sha* void])
+(define (install-package-from-git index git-url #:force [force #f] #:sha [*sha* void])
+
+  (displayln "Installing package from git with args: " force)
+
   ;; First, install the source to a temporary location.#:sha [*sha* void]
   (define package-spec (download-cog-to-sources-and-parse-module void git-url #:sha *sha*))
 
-  ; (define force (member "--force" args))
-
-  ; (displayln args)
-  ; (displayln package-spec)
-
-  ; (if force
-  (install-package-and-log package-spec)
-  (install-package-if-not-installed index package-spec))
+  (if force
+      (install-package-and-log package-spec force)
+      (install-package-if-not-installed index package-spec)))
 
 ;; TODO: Move this to `installer/package.scm`
 (define (install-package-from-pkg-index index package args)
@@ -108,7 +109,10 @@
       (install-package-if-not-installed index package-spec)))
 
 (define (uninstall-package-from-index index package)
-  (define pkg (if (symbol? package) package (string->symbol package)))
+  (define pkg
+    (if (symbol? package)
+        package
+        (string->symbol package)))
   (unless (hash-contains? index pkg)
     (displayln "Package not found:" package)
     (return! void))
@@ -222,7 +226,9 @@ Commands:
 (define (get-command-line-args)
   (define args (command-line))
   ;; Running as a program, vs embedded elsewhere?
-  (if (ends-with? (car args) "steel") (drop args 2) (drop args 1)))
+  (if (ends-with? (car args) "steel")
+      (drop args 2)
+      (drop args 1)))
 
 (provide main)
 (define (main)
@@ -272,20 +278,16 @@ Commands:
 
       [(equal? '("pkg" "install" "--git") (take command-line-args 3))
 
-       (displayln command-line-args)
-       (displayln (list-ref command-line-args 3))
-       (displayln (drop command-line-args 4))
-
        (define *sha*
-         (when
-           (equal?
-             '("--rev") (~> command-line-args (drop 4) (take 1)))
+         (when (equal? '("--rev") (~> command-line-args (drop 4) (take 1)))
            (~> command-line-args (drop 5) (car))))
+
+       (define force (list? (member "--force" command-line-args)))
 
        ;; Install using a git url
        (install-package-from-git package-index
                                  (list-ref command-line-args 3)
-                                 (drop command-line-args 3)
+                                 #:force force
                                  #:sha *sha*)]
 
       ;; Install package from remote

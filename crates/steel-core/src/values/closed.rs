@@ -729,13 +729,15 @@ pub fn will_execute(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     // and then otherwise drain the vector and put them in when found.
     if let SteelVal::Pair(pair) = ctx
         .thread
-        .enter_safepoint(|_| loop {
-            if let Some(value) = executor.find_next() {
-                return Ok(SteelVal::Pair(Gc::new(value)));
-            } else {
-                // Control frequency here, but for when there is no throughput,
-                // we want to at least poll a bit
-                executor.block_until_incoming();
+        .enter_safepoint(|_| -> Result<SteelVal, SteelErr> {
+            loop {
+                if let Some(value) = executor.find_next() {
+                    return Ok(SteelVal::Pair(Gc::new(value)));
+                } else {
+                    // Control frequency here, but for when there is no throughput,
+                    // we want to at least poll a bit
+                    executor.block_until_incoming();
+                }
             }
         })
         .unwrap()
@@ -2461,7 +2463,8 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
                 }
             }
 
-            ContinuationMark::Open(continuation) => {
+            ContinuationMark::Open(_) => {
+                /*
                 for value in &continuation.current_stack_values {
                     self.push_back(value.clone());
                 }
@@ -2469,6 +2472,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for MarkAndSweepContext<'a> {
                 for value in &continuation.current_frame.function.captures {
                     self.push_back(value.clone());
                 }
+                */
             }
         }
     }
@@ -2689,7 +2693,8 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
                 }
             }
 
-            ContinuationMark::Open(continuation) => {
+            ContinuationMark::Open(_) => {
+                /*
                 for value in &continuation.current_stack_values {
                     self.save(value.clone());
                     self.push_back(value);
@@ -2699,6 +2704,7 @@ impl<'a> BreadthFirstSearchSteelValReferenceVisitor2<'a> for MarkAndSweepContext
                     self.save(value.clone());
                     self.push_back(value);
                 }
+                */
             }
         }
     }

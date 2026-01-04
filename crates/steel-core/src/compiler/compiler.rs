@@ -695,6 +695,14 @@ impl Compiler {
         self.compile_raw_program(exprs, None)
     }
 
+    pub fn compile_executable_from_expressions_from_path(
+        &mut self,
+        exprs: Vec<ExprKind>,
+        path: Option<PathBuf>,
+    ) -> Result<RawProgramWithSymbols> {
+        self.compile_raw_program(exprs, path)
+    }
+
     pub fn compile_executable<E: AsRef<str> + Into<Cow<'static, str>>>(
         &mut self,
         expr_str: E,

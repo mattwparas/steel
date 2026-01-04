@@ -1,5 +1,8 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use crate::rvals::SteelHashMap;
 use crate::stop;
+use crate::values::lists::Pair;
 use crate::values::HashMap;
 use crate::{core::utils::declare_const_ref_functions, gc::Gc};
 use crate::{
@@ -9,6 +12,7 @@ use crate::{
 
 use crate::primitives::vectors::vec_construct_iter_normal;
 
+use num_bigint::BigInt;
 use steel_derive::function;
 
 declare_const_ref_functions!(
@@ -30,6 +34,8 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
         .register_native_fn_definition(HASH_TRY_GET_DEFINITION)
         .register_native_fn_definition(HASH_LENGTH_DEFINITION)
         .register_native_fn_definition(HASH_CONTAINS_DEFINITION)
+        .register_native_fn_definition(HASH_TO_LIST_DEFINITION)
+        .register_native_fn_definition(HASH_TO_VECTOR_DEFINITION)
         .register_native_fn_definition(KEYS_TO_LIST_DEFINITION)
         .register_native_fn_definition(KEYS_TO_VECTOR_DEFINITION)
         .register_native_fn_definition(VALUES_TO_LIST_DEFINITION)
@@ -37,8 +43,34 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
         .register_native_fn_definition(CLEAR_DEFINITION)
         .register_native_fn_definition(HM_EMPTY_DEFINITION)
         .register_native_fn_definition(HM_UNION_DEFINITION)
-        .register_native_fn_definition(HASH_REMOVE_DEFINITION);
+        .register_native_fn_definition(HASH_REMOVE_DEFINITION)
+        .register_native_fn_definition(HASH_CODE_DEFINITION);
     module
+}
+
+/// Gets the hash code for the given value;
+///
+/// (hash-code v) -> integer?
+///
+/// * v : any/c
+///
+/// # Examples
+/// ```scheme
+/// (hash-code 10) ;; => 16689870864682149525
+/// (hash-code "hello world") ;; => 12361891819228967546
+/// ```
+#[steel_derive::function(name = "hash-code", constant = false)]
+pub fn hash_code(arg: &SteelVal) -> Result<SteelVal> {
+    let mut hasher = DefaultHasher::new();
+
+    arg.hash(&mut hasher);
+    let value = hasher.finish();
+
+    if let Ok(v) = isize::try_from(value) {
+        Ok(SteelVal::IntV(v))
+    } else {
+        Ok(SteelVal::BigNum(Gc::new(BigInt::from(value))))
+    }
 }
 
 /// Creates an immutable hash table with each given `key` mapped to the following `val`.
@@ -46,7 +78,7 @@ pub(crate) fn hashmap_module() -> BuiltInModule {
 ///
 /// (hash key val ...) -> hash?
 ///
-/// * key : hashable?
+/// * key : any/c
 /// * val : any/c
 ///
 /// Note: the keys must be hashable.
@@ -65,11 +97,7 @@ pub fn hm_construct(args: &[SteelVal]) -> Result<SteelVal> {
     loop {
         match (arg_iter.next(), arg_iter.next()) {
             (Some(key), Some(value)) => {
-                if key.is_hashable() {
-                    hm.insert(key, value);
-                } else {
-                    stop!(TypeMismatch => "hash key not hashable!: {}", key);
-                }
+                hm.insert(key, value);
             }
             (None, None) => break,
             _ => {
@@ -89,11 +117,7 @@ pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
     loop {
         match (arg_iter.next(), arg_iter.next()) {
             (Some(key), Some(value)) => {
-                if key.is_hashable() {
-                    hm.insert(key, value);
-                } else {
-                    stop!(TypeMismatch => "hash key not hashable!: {}", key);
-                }
+                hm.insert(key, value);
             }
             (None, None) => break,
             _ => {
@@ -121,25 +145,21 @@ pub fn hm_construct_keywords(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[function(name = "hash-remove")]
 pub fn hash_remove(map: &mut SteelVal, key: SteelVal) -> Result<SteelVal> {
-    if key.is_hashable() {
-        if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
-            match Gc::get_mut(m) {
-                Some(m) => {
-                    m.remove(&key);
-                    Ok(std::mem::replace(map, SteelVal::Void))
-                }
-                None => {
-                    let mut m = m.unwrap();
-                    m.remove(&key);
-
-                    Ok(SteelVal::HashMapV(Gc::new(m).into()))
-                }
+    if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
+        match Gc::get_mut(m) {
+            Some(m) => {
+                m.remove(&key);
+                Ok(std::mem::replace(map, SteelVal::Void))
             }
-        } else {
-            stop!(TypeMismatch => "hash-remove expects a hash map, found: {:?}", map);
+            None => {
+                let mut m = m.unwrap();
+                m.remove(&key);
+
+                Ok(SteelVal::HashMapV(Gc::new(m).into()))
+            }
         }
     } else {
-        stop!(TypeMismatch => "hash key not hashable: {:?}", key)
+        stop!(TypeMismatch => "hash-remove expects a hash map, found: {:?}", map);
     }
 }
 
@@ -164,22 +184,18 @@ pub fn hash_insert(
     key: &mut SteelVal,
     value: &mut SteelVal,
 ) -> Result<SteelVal> {
-    if key.is_hashable() {
-        let key = std::mem::take(key);
-        let value = std::mem::take(value);
-        if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
-            match Gc::get_mut(m) {
-                Some(m) => {
-                    m.insert(key, value);
-                    Ok(std::mem::replace(map, SteelVal::Void))
-                }
-                None => Ok(SteelVal::HashMapV(Gc::new(m.update(key, value)).into())),
+    let key = std::mem::take(key);
+    let value = std::mem::take(value);
+    if let SteelVal::HashMapV(SteelHashMap(ref mut m)) = map {
+        match Gc::get_mut(m) {
+            Some(m) => {
+                m.insert(key, value);
+                Ok(std::mem::replace(map, SteelVal::Void))
             }
-        } else {
-            stop!(TypeMismatch => "hash-insert expects a hash map, found: {:?}", map);
+            None => Ok(SteelVal::HashMapV(Gc::new(m.update(key, value)).into())),
         }
     } else {
-        stop!(TypeMismatch => "hash key not hashable: {:?}", key)
+        stop!(TypeMismatch => "hash-insert expects a hash map, found: {:?}", map);
     }
 }
 
@@ -197,13 +213,9 @@ pub fn hash_insert(
 /// ```
 #[function(name = "hash-ref")]
 pub fn hash_ref(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result<SteelVal> {
-    if key.is_hashable() {
-        match map.get(key) {
-            Some(value) => Ok(value.clone()),
-            None => stop!(Generic => "key not found in hash map: {} - map: {:?}", key, map),
-        }
-    } else {
-        stop!(TypeMismatch => "key not hashable: {}", key)
+    match map.get(key) {
+        Some(value) => Ok(value.clone()),
+        None => stop!(Generic => "key not found in hash map: {} - map: {:?}", key, map),
     }
 }
 
@@ -249,7 +261,7 @@ pub fn hash_length(map: &Gc<HashMap<SteelVal, SteelVal>>) -> usize {
 /// (hash-contains? map key) -> bool?
 ///
 /// * map : hash?
-/// * key : hashable?
+/// * key : any/c
 ///
 /// # Example
 ///
@@ -259,16 +271,33 @@ pub fn hash_length(map: &Gc<HashMap<SteelVal, SteelVal>>) -> usize {
 /// ```
 #[function(name = "hash-contains?")]
 pub fn hash_contains(map: &Gc<HashMap<SteelVal, SteelVal>>, key: &SteelVal) -> Result<SteelVal> {
-    if key.is_hashable() {
-        Ok(SteelVal::BoolV(map.contains_key(key)))
-    } else {
-        stop!(TypeMismatch => "hash key not hashable!: {}", key);
-    }
+    Ok(SteelVal::BoolV(map.contains_key(key)))
+}
+
+/// Returns a list of the key-value pairs of a given hash map.
+///
+/// (hash->list map) -> (listof (cons/c any/c any/c))
+///
+/// * map : hash?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (hash->list (hash 'a 10 'b 20)) ;; => '((a . 10) (b . 20))
+/// ```
+#[function(name = "hash->list")]
+pub fn hash_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+    Ok(SteelVal::ListV(
+        hashmap
+            .iter()
+            .map(|(key, val)| SteelVal::Pair(Gc::new(Pair::cons(key.clone(), val.clone()))))
+            .collect(),
+    ))
 }
 
 /// Returns the keys of the given hash map as a list.
 ///
-/// (hash-keys->list map) -> (listof hashable?)
+/// (hash-keys->list map) -> (listof any/c)
 ///
 /// * map : hash?
 ///
@@ -300,9 +329,28 @@ pub fn values_to_list(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<Steel
     Ok(SteelVal::ListV(hashmap.values().cloned().collect()))
 }
 
+/// Returns a list of the key-value pairs of a given hash map.
+///
+/// (hash->vector map) -> (vectorof (cons/c any/c any/c))
+///
+/// * map : hash?
+///
+/// # Examples
+///
+/// ```scheme
+/// > (hash->vector (hash 'a 10 'b 20)) ;; => '#((a . 10) (b . 20))
+/// ```
+#[function(name = "hash->vector")]
+pub fn hash_to_vector(hashmap: &Gc<HashMap<SteelVal, SteelVal>>) -> Result<SteelVal> {
+    vec_construct_iter_normal(
+        hashmap
+            .iter()
+            .map(|(key, val)| SteelVal::Pair(Gc::new(Pair::cons(key.clone(), val.clone())))),
+    )
+}
 /// Returns the keys of the given hash map as an immutable vector
 ///
-/// (hash-keys->vector map) -> (vectorof hashable?)
+/// (hash-keys->vector map) -> (vectorof any/c)
 ///
 /// * map: hash?
 ///

@@ -4,7 +4,7 @@ use crate::{
     gc::{
         shared::{
             MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
-            ScopedWriteContainer, ShareableMut,
+            ScopedWriteContainer, ShareableMut, StandardShared,
         },
         unsafe_erased_pointers::{OpaqueReference, TemporaryMutableView, TemporaryReadonlyView},
         Gc, GcMut,
@@ -2089,104 +2089,51 @@ fn slow_path_eq_lists(
 
 impl Hash for SteelVal {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
         match self {
-            BoolV(b) => {
-                state.write_u8(0);
-                b.hash(state)
-            }
-            NumV(n) => {
-                state.write_u8(1);
-                n.to_string().hash(state)
-            }
-            IntV(i) => {
-                state.write_u8(2);
-                i.hash(state)
-            }
-            Rational(f) => {
-                state.write_u8(3);
-                f.hash(state)
-            }
-            BigNum(n) => {
-                state.write_u8(4);
-                n.hash(state)
-            }
-            BigRational(f) => {
-                state.write_u8(5);
-                f.hash(state)
-            }
-            Complex(x) => {
-                state.write_u8(6);
-                x.hash(state)
-            }
-            CharV(c) => {
-                state.write_u8(7);
-                c.hash(state)
-            }
-            ListV(l) => {
-                state.write_u8(8);
-                l.hash(state)
-            }
-            CustomStruct(s) => {
-                state.write_u8(9);
-                s.hash(state)
-            }
-            VectorV(v) => {
-                state.write_u8(10);
-                v.hash(state)
-            }
-            v @ Void => {
-                state.write_u8(11);
-                v.hash(state)
-            }
-            StringV(s) => {
-                state.write_u8(12);
-                s.hash(state)
-            }
-            FuncV(s) => {
-                state.write_u8(13);
-                (*s as *const FunctionSignature).hash(state)
-            }
-            SymbolV(sym) => {
-                state.write_u8(14);
-                sym.hash(state);
-            }
-            Closure(b) => {
-                state.write_u8(15);
-                b.hash(state)
-            }
-            HashMapV(hm) => {
-                state.write_u8(16);
-                hm.hash(state)
-            }
-            IterV(s) => {
-                state.write_u8(17);
-                s.hash(state)
-            }
-            HashSetV(hs) => {
-                state.write_u8(18);
-                hs.hash(state)
-            }
-            SyntaxObject(s) => {
-                state.write_u8(19);
-                s.raw.hash(state)
-            }
-            Pair(p) => {
-                state.write_u8(20);
-                (**p).hash(state)
-            }
-            ByteVector(v) => {
-                state.write_u8(21);
-                (*v).hash(state)
-            }
+            Closure(b) => b.hash(state),
+            BoolV(b) => b.hash(state),
+            NumV(n) => n.to_string().hash(state),
+            IntV(i) => i.hash(state),
+            Rational(f) => f.hash(state),
+            CharV(c) => c.hash(state),
+            VectorV(v) => v.hash(state),
+            Void => {}
+            StringV(s) => s.hash(state),
+            FuncV(s) => s.hash(state),
+            SymbolV(sym) => sym.hash(state),
             #[cfg(feature = "custom-hash")]
             Custom(v) => match v.read().try_as_dyn_hash() {
-                Some(x) => {
-                    state.write_u8(22);
-                    x.dyn_hash(state);
-                }
-                _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
+                Some(x) => x.dyn_hash(state),
+                _ => Gc::as_ptr(v).hash(state),
             },
-            _ => unimplemented!("Attempted to hash unsupported value: {self:?}"),
+            #[cfg(not(feature = "custom-hash"))]
+            Custom(v) => Gc::as_ptr(v).hash(state),
+            HashMapV(hm) => hm.hash(state),
+            HashSetV(hs) => hs.hash(state),
+            CustomStruct(s) => s.hash(state),
+            PortV(port) => port.hash(state),
+            IterV(s) => s.hash(state),
+            ReducerV(r) => r.hash(state),
+            FutureFunc(fun) => crate::gc::Shared::as_ptr(fun).hash(state),
+            FutureV(f) => Gc::as_ptr(f).hash(state),
+            StreamV(s) => Gc::as_ptr(s).hash(state),
+            BoxedFunction(fun) => Gc::as_ptr(fun).hash(state),
+            ContinuationFunction(cont) => StandardShared::as_ptr(&cont.inner).hash(state),
+            ListV(l) => l.hash(state),
+            Pair(p) => (**p).hash(state),
+            MutFunc(fun) => fun.hash(state),
+            BuiltIn(fun) => fun.hash(state),
+            MutableVector(vec) => vec.get().hash(state),
+            BoxedIterator(iter) => Gc::as_ptr(iter).hash(state),
+            SyntaxObject(s) => s.raw.hash(state),
+            Boxed(val) => val.read().hash(state),
+            HeapAllocated(v) => v.get().hash(state),
+            Reference(v) => Gc::as_ptr(v).hash(state),
+            BigNum(n) => n.hash(state),
+            BigRational(f) => f.hash(state),
+            Complex(x) => x.hash(state),
+            ByteVector(v) => (*v).hash(state),
         }
     }
 }
@@ -2203,16 +2150,6 @@ impl SteelVal {
     #[inline(always)]
     pub fn is_future(&self) -> bool {
         matches!(self, SteelVal::FutureV(_))
-    }
-
-    pub fn is_hashable(&self) -> bool {
-        match self {
-            BoolV(_) | IntV(_) | CharV(_) | VectorV(_) | StringV(_) | SymbolV(_) | HashMapV(_)
-            | Closure(_) | ListV(_) | FuncV(_) | CustomStruct(_) => true,
-            #[cfg(feature = "custom-hash")]
-            Custom(v) => v.read().try_as_dyn_hash().is_some(),
-            _ => false,
-        }
     }
 
     pub fn is_function(&self) -> bool {

@@ -51,6 +51,7 @@
             - [steel/time](builtins/steel_time.md)
             - [steel/transducers](builtins/steel_transducers.md)
             - [steel/vectors](builtins/steel_vectors.md)
+            - [steel/tcp](builtins/steel_tcp.md)
         - [Stdlib](reference/stdlib.md)
             - [steel/async](stdlib/steel_async.md)
             - [steel/iterators](stdlib/steel_iterators.md)

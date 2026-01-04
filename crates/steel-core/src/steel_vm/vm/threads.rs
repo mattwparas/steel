@@ -817,18 +817,18 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     .into_steelval()
     .unwrap();
 
-    // Store for the shared runtime
-    // NOTE: WE need to acquire a lock on the heap
-    // for this to work.
-    ctx.thread
-        .synchronizer
-        .threads
-        .lock()
-        .unwrap()
-        .push(ThreadContext {
-            ctx: weak_ctx,
-            handle: value.clone(),
-        });
+    ctx.thread.enter_safepoint(|thread| {
+        // Store for the shared runtime
+        thread
+            .synchronizer
+            .threads
+            .lock()
+            .unwrap()
+            .push(ThreadContext {
+                ctx: weak_ctx.clone(),
+                handle: value.clone(),
+            });
+    });
 
     log::debug!(target: "threads", "Time to spawn thread: {:?}", thread_time.elapsed());
 

@@ -47,7 +47,7 @@ Checks whether the given map contains the given key. Key must be hashable.
 (hash-contains? map key) -> bool?
 
 * map : hash?
-* key : hashable?
+* key : any/c
 
 #### Example
 
@@ -343,7 +343,7 @@ Checks whether the given map contains the given key. Key must be hashable.
 (hash-contains? map key) -> bool?
 
 * map : hash?
-* key : hashable?
+* key : any/c
 
 #### Example
 

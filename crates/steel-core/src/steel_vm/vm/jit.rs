@@ -9,6 +9,7 @@ use crate::{
     gc::Gc,
     primitives::{
         lists::{cdr_no_check, cons, list_ref},
+        numbers::add_two,
         vectors::{mut_vec_set, steel_mut_vec_set},
     },
     rvals::Result,
@@ -656,7 +657,7 @@ pub extern "C-unwind" fn vector_set_handler_register_two(
 pub extern "C-unwind" fn box_handler_c(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     let this = unsafe { &mut *ctx };
 
-    let allocated_var = this.thread.heap.lock().unwrap().allocate(
+    let allocated_var = this.thread.heap.lock().allocate(
         arg,
         &this.thread.stack,
         this.thread.stack_frames.iter().map(|x| x.function.as_ref()),

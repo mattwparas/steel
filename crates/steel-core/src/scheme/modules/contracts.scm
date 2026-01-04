@@ -446,6 +446,7 @@
 
 (provide contract?
          listof
+         cons/c
          hashof
          non-empty-listof
          </c
@@ -470,6 +471,10 @@
               [(list? lst) (loop pred lst)]
               [else #f]))
           (list 'listof (contract-or-procedure-name pred))))
+
+(define (cons/c car-pred cdr-pred)
+  (make/c (λ (pair) (and (pair? pair) (car-pred (car pair)) (cdr-pred (cdr pair))))
+          (list 'cons/c (contract-or-procedure-name car-pred) (contract-or-procedure-name cdr-pred))))
 
 (define (hashof key-pred value-pred)
   (make/c

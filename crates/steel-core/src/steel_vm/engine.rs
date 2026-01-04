@@ -235,10 +235,11 @@ impl Engine {
     pub fn enter_safepoint<T, F: FnMut() -> T>(&mut self, mut thunk: F) -> T {
         let mut res = None;
 
-        self.virtual_machine.enter_safepoint(|_| {
-            res = Some((thunk)());
-            Ok(SteelVal::Void)
-        });
+        self.virtual_machine
+            .enter_safepoint(|_| -> Result<SteelVal> {
+                res = Some((thunk)());
+                Ok(SteelVal::Void)
+            });
 
         res.unwrap()
     }
@@ -514,8 +515,8 @@ impl Engine {
             .deep_clone();
         engine.virtual_machine.compiler.write().constant_map = constant_map;
 
-        let heap_copy = Arc::new(Mutex::new(
-            engine.virtual_machine.heap.lock().unwrap().clone(),
+        let heap_copy = Arc::new(parking_lot::Mutex::new(
+            engine.virtual_machine.heap.lock().clone(),
         ));
 
         engine.virtual_machine.heap = heap_copy;
@@ -539,8 +540,8 @@ impl Engine {
             .deep_clone();
         engine.virtual_machine.compiler.write().constant_map = constant_map;
 
-        let heap_copy = Arc::new(Mutex::new(
-            engine.virtual_machine.heap.lock().unwrap().clone(),
+        let heap_copy = Arc::new(parking_lot::Mutex::new(
+            engine.virtual_machine.heap.lock().clone(),
         ));
 
         engine.virtual_machine.heap = heap_copy;
@@ -1821,6 +1822,10 @@ impl Engine {
             .free_list
             .should_collect()
         {
+            let mut heap_lock = self
+                .virtual_machine
+                .enter_safepoint(|thread| thread.heap.lock_arc());
+
             #[cfg(feature = "sync")]
             self.virtual_machine.with_locked_env(|ctx, env| {
                 #[cfg(feature = "sync")]
@@ -1830,7 +1835,7 @@ impl Engine {
                         env.0.as_mut_slice(),
                         // .unwrap(),
                         &mut ctx.compiler.write().symbol_map,
-                        &mut ctx.heap.lock().unwrap(),
+                        &mut heap_lock,
                     );
                 }
 
@@ -1839,7 +1844,7 @@ impl Engine {
                     GlobalSlotRecycler::free_shadowed_rooted_values(
                         &mut ctx.global_env.bindings_vec,
                         &mut ctx.compiler.write().symbol_map,
-                        &mut ctx.heap.lock().unwrap(),
+                        &mut heap_lock,
                     );
                 }
 
@@ -1871,7 +1876,7 @@ impl Engine {
                         // &mut env.0.as_mut_slice(),
                         // .unwrap(),
                         &mut ctx.compiler.write().symbol_map,
-                        &mut ctx.heap.lock().unwrap(),
+                        &mut heap_lock,
                     );
                 }
 
@@ -1880,7 +1885,7 @@ impl Engine {
                     GlobalSlotRecycler::free_shadowed_rooted_values(
                         &mut ctx.global_env.bindings_vec,
                         &mut ctx.compiler.write().symbol_map,
-                        &mut ctx.heap.lock().unwrap(),
+                        &mut heap_lock,
                     );
                 }
 

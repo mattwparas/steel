@@ -5,7 +5,7 @@ Each key must have a val, so the total number of arguments must be even.
 
 (hash key val ...) -> hash?
 
-* key : hashable?
+* key : any/c
 * val : any/c
 
 Note: the keys must be hashable.
@@ -14,6 +14,30 @@ Note: the keys must be hashable.
 ```scheme
 > (hash 'a 10 'b 20)
 => '#hash((a . 10) (b . 20))
+```
+### **hash->list**
+Returns a list of the key-value pairs of a given hash map.
+
+(hash->list map) -> (listof (cons/c any/c any/c))
+
+* map : hash?
+
+#### Examples
+
+```scheme
+> (hash->list (hash 'a 10 'b 20)) ;; => '((a . 10) (b . 20))
+```
+### **hash->vector**
+Returns a list of the key-value pairs of a given hash map.
+
+(hash->vector map) -> (vectorof (cons/c any/c any/c))
+
+* map : hash?
+
+#### Examples
+
+```scheme
+> (hash->vector (hash 'a 10 'b 20)) ;; => '#((a . 10) (b . 20))
 ```
 ### **hash-clear**
 Clears the entries out of the existing hashmap.
@@ -29,13 +53,25 @@ to the hashmap.
 > (hash-clear (hash 'a 10 'b 20))
 => '#hash()
 ```
+### **hash-code**
+Gets the hash code for the given value;
+
+(hash-code v) -> integer?
+
+* v : any/c
+
+#### Examples
+```scheme
+(hash-code 10) ;; => 16689870864682149525
+(hash-code "hello world") ;; => 12361891819228967546
+```
 ### **hash-contains?**
 Checks whether the given map contains the given key. Key must be hashable.
 
 (hash-contains? map key) -> bool?
 
 * map : hash?
-* key : hashable?
+* key : any/c
 
 #### Example
 
@@ -74,7 +110,7 @@ so the old hash map is still accessible.
 ### **hash-keys->list**
 Returns the keys of the given hash map as a list.
 
-(hash-keys->list map) -> (listof hashable?)
+(hash-keys->list map) -> (listof any/c)
 
 * map : hash?
 
@@ -87,7 +123,7 @@ Returns the keys of the given hash map as a list.
 ### **hash-keys->vector**
 Returns the keys of the given hash map as an immutable vector
 
-(hash-keys->vector map) -> (vectorof hashable?)
+(hash-keys->vector map) -> (vectorof any/c)
 
 * map: hash?
 

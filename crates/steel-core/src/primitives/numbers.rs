@@ -1,3 +1,4 @@
+use crate::gc::Gc;
 use crate::rvals::{IntoSteelVal, Result, SteelComplex, SteelVal};
 use crate::{steelerr, stop, throw};
 use num_bigint::BigInt;
@@ -5,7 +6,7 @@ use num_integer::Integer;
 use num_rational::{BigRational, Ratio, Rational32};
 use num_traits::{pow::Pow, CheckedAdd, CheckedMul, Euclid, One, Signed, ToPrimitive, Zero};
 use std::cmp::Ordering;
-use std::ops::Neg;
+use std::ops::{BitAnd, BitOr, BitXor, Neg};
 
 /// Checks if the given value is a number
 ///
@@ -2006,11 +2007,19 @@ fn log(args: &[SteelVal]) -> Result<SteelVal> {
 
     match (first, &base) {
         (SteelVal::IntV(1), _) => Ok(SteelVal::IntV(0)),
-        (SteelVal::IntV(_) | SteelVal::NumV(_), SteelVal::IntV(1)) => {
-            steelerr!(Generic => "log: divide by zero with args: {} and {}", first, base)
+        (SteelVal::IntV(val), SteelVal::IntV(base)) if *val < 0 || *base < 0 => {
+            steelerr!(Generic => "log: negative values not yet supported")
+        }
+        (SteelVal::IntV(0), SteelVal::IntV(_) | SteelVal::NumV(_)) => {
+            steelerr!(Generic => "log: division by zero (log {} {})", first, base)
+        }
+        (SteelVal::IntV(_) | SteelVal::NumV(_), SteelVal::IntV(0 | 1)) => {
+            steelerr!(Generic => "log: division by zero (log {} {})", first, base)
         }
         (SteelVal::IntV(arg), SteelVal::NumV(n)) => Ok(SteelVal::NumV((*arg as f64).log(*n))),
-        (SteelVal::IntV(arg), SteelVal::IntV(base)) => Ok(SteelVal::IntV(arg.ilog(*base) as isize)),
+        (SteelVal::IntV(arg), SteelVal::IntV(base)) => {
+            Ok(SteelVal::NumV((*arg as f64).log(*base as f64)))
+        }
         (SteelVal::NumV(arg), SteelVal::NumV(n)) => Ok(SteelVal::NumV(arg.log(*n))),
         (SteelVal::NumV(arg), SteelVal::IntV(base)) => Ok(SteelVal::NumV(arg.log(*base as f64))),
         // TODO: Support BigNum, Rational, and BigRational.
@@ -2084,6 +2093,124 @@ pub fn arithmetic_shift(args: &[SteelVal]) -> Result<SteelVal> {
             }
         }
         _ => stop!(TypeMismatch => "arithmetic-shift expected 2 integers"),
+    }
+}
+
+/// Performs a bitwise xor using the given numbers
+///
+/// (bitwise-xor n ...) -> integer?
+///
+/// * n : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (bitwise-xor 1 5) ;; => 4
+/// > (bitwise-xor -32 -1) ;; => 31
+/// ```
+#[steel_derive::native(name = "bitwise-xor", constant = true, arity = "AtLeast(1)")]
+pub fn bitwise_xor(args: &[SteelVal]) -> Result<SteelVal> {
+    let mut accum = if let SteelVal::IntV(i) = &args[0] {
+        *i
+    } else {
+        stop!(TypeMismatch => "bitwise-xor expects an exact integer");
+    };
+
+    if args.len() == 1 {
+        return Ok(args[0].clone());
+    }
+
+    for value in &args[1..] {
+        if let SteelVal::IntV(v) = value {
+            accum = accum.bitxor(v);
+        }
+    }
+
+    Ok(SteelVal::IntV(accum))
+}
+
+/// Performs a bitwise ior using the given numbers
+///
+/// (bitwise-ior n ...) -> integer?
+///
+/// * n : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (bitwise-ior 1 2) ;; => 3
+/// > (bitwise-ior -32 1) ;; => -31
+/// ```
+#[steel_derive::native(name = "bitwise-ior", constant = true, arity = "AtLeast(1)")]
+pub fn bitwise_ior(args: &[SteelVal]) -> Result<SteelVal> {
+    let mut accum = if let SteelVal::IntV(i) = &args[0] {
+        *i
+    } else {
+        stop!(TypeMismatch => "bitwise-ior expects an exact integer");
+    };
+
+    if args.len() == 1 {
+        return Ok(args[0].clone());
+    }
+
+    for value in &args[1..] {
+        if let SteelVal::IntV(v) = value {
+            accum = accum.bitor(v);
+        }
+    }
+
+    Ok(SteelVal::IntV(accum))
+}
+
+/// Performs a bitwise and using the given numbers
+///
+/// (bitwise-and n ...) -> integer?
+///
+/// * n : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (bitwise-and 1 2) ;; => 0
+/// > (bitwise-and -32 -1) ;; => -32
+/// ```
+#[steel_derive::native(name = "bitwise-and", constant = true, arity = "AtLeast(1)")]
+pub fn bitwise_and(args: &[SteelVal]) -> Result<SteelVal> {
+    let mut accum = if let SteelVal::IntV(i) = &args[0] {
+        *i
+    } else {
+        stop!(TypeMismatch => "bitwise-and expects an exact integer");
+    };
+
+    if args.len() == 1 {
+        return Ok(args[0].clone());
+    }
+
+    for value in &args[1..] {
+        if let SteelVal::IntV(v) = value {
+            accum = accum.bitand(v);
+        }
+    }
+
+    Ok(SteelVal::IntV(accum))
+}
+
+/// Performs a bitwise not using the given numbers
+///
+/// (bitwise-not n ...) -> integer?
+///
+/// * n : integer?
+///
+/// # Examples
+/// ```scheme
+/// > (bitwise-not 5) ;; => -6
+/// > (bitwise-not -1) ;; => 0
+/// ```
+#[steel_derive::native(name = "bitwise-not", constant = true, arity = "Exact(1)")]
+pub fn bitwise_not(args: &[SteelVal]) -> Result<SteelVal> {
+    match &args[0] {
+        SteelVal::IntV(i) => Ok(SteelVal::IntV(!i)),
+        SteelVal::BigNum(i) => Ok(SteelVal::BigNum(Gc::new(!i.as_ref()))),
+        _ => {
+            stop!(TypeMismatch => "bitwise-not expects an exact integer");
+        }
     }
 }
 
@@ -2408,6 +2535,100 @@ pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
             add_complex(x, &SteelComplex::new(y.clone(), SteelVal::IntV(0)))
         }
         (l, r) => stop!(TypeMismatch => "+ expected all numbers, found: {} and {}", l, r),
+    }
+}
+
+pub fn add_two_fallible(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
+    match (x, y) {
+        // Simple integer case. Probably very common.
+        (SteelVal::IntV(x), SteelVal::IntV(y)) => match x.checked_add(y) {
+            Some(res) => res.into_steelval(),
+            None => {
+                let mut res = BigInt::from(*x);
+                res += *y;
+                res.into_steelval()
+            }
+        },
+        // Cases that return an `f64`.
+        (SteelVal::NumV(x), SteelVal::NumV(y)) => (x + y).into_steelval(),
+        (SteelVal::NumV(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::NumV(x)) => {
+            (x + *y as f64).into_steelval()
+        }
+        (SteelVal::NumV(x), SteelVal::BigNum(y)) | (SteelVal::BigNum(y), SteelVal::NumV(x)) => {
+            (x + y.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::NumV(x), SteelVal::Rational(y)) | (SteelVal::Rational(y), SteelVal::NumV(x)) => {
+            (x + y.to_f64().unwrap()).into_steelval()
+        }
+        (SteelVal::NumV(x), SteelVal::BigRational(y))
+        | (SteelVal::BigRational(y), SteelVal::NumV(x)) => {
+            (x + y.to_f64().unwrap()).into_steelval()
+        }
+        // Cases that interact with `Rational`.
+        (SteelVal::Rational(x), SteelVal::Rational(y)) => (x + y).into_steelval(),
+        (SteelVal::Rational(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::Rational(x)) => {
+            match i32::try_from(*y) {
+                Ok(y) => match x.checked_add(&Rational32::new(y, 1)) {
+                    Some(res) => res.into_steelval(),
+                    None => {
+                        let res =
+                            BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()))
+                                + BigInt::from(y);
+                        res.into_steelval()
+                    }
+                },
+                Err(_) => {
+                    let res = BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()))
+                        + BigInt::from(*y);
+                    res.into_steelval()
+                }
+            }
+        }
+        (SteelVal::Rational(x), SteelVal::BigNum(y))
+        | (SteelVal::BigNum(y), SteelVal::Rational(x)) => {
+            let res =
+                BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom())) + y.as_ref();
+            res.into_steelval()
+        }
+        // Cases that interact with `BigRational`. For the sake of performance, hopefully not too
+        // common.
+        (SteelVal::BigRational(x), SteelVal::BigRational(y)) => {
+            (x.as_ref() + y.as_ref()).into_steelval()
+        }
+        (SteelVal::BigRational(x), SteelVal::Rational(y))
+        | (SteelVal::Rational(y), SteelVal::BigRational(x)) => {
+            let res =
+                x.as_ref() + BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
+            res.into_steelval()
+        }
+        (SteelVal::BigRational(x), SteelVal::IntV(y))
+        | (SteelVal::IntV(y), SteelVal::BigRational(x)) => {
+            (x.as_ref() + BigInt::from(*y)).into_steelval()
+        }
+        (SteelVal::BigRational(x), SteelVal::BigNum(y))
+        | (SteelVal::BigNum(y), SteelVal::BigRational(x)) => {
+            (x.as_ref() + y.as_ref()).into_steelval()
+        }
+        // Remaining cases that interact with `BigNum`. Probably not too common.
+        (SteelVal::BigNum(x), SteelVal::BigNum(y)) => {
+            let mut res = x.as_ref().clone();
+            res += y.as_ref();
+            res.into_steelval()
+        }
+        (SteelVal::BigNum(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::BigNum(x)) => {
+            let mut res = x.as_ref().clone();
+            res += *y;
+            res.into_steelval()
+        }
+        // Complex numbers
+        (SteelVal::Complex(x), SteelVal::Complex(y)) => add_complex(x, y),
+        (SteelVal::Complex(x), y) | (y, SteelVal::Complex(x)) => {
+            debug_assert!(realp(y));
+            add_complex(x, &SteelComplex::new(y.clone(), SteelVal::IntV(0)))
+        }
+        (l, r) => {
+            stop!(TypeMismatch => "+ expects numbers, found: {:?} and {:?}", l, r);
+        }
     }
 }
 

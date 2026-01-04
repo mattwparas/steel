@@ -67,11 +67,13 @@ macro_rules! test_harness_failure {
 }
 
 test_harness_success_sync! {
-    native_threads
+    native_threads,
+    gc_deadlock
 }
 
 test_harness_success! {
     abc_problem,
+    apply,
     apply_more_complex,
     babbage_problem,
     balanced_brackets,
@@ -87,6 +89,7 @@ test_harness_success! {
     complex_lets,
     constant_eval_set,
     curried,
+    contracts,
     define_normal,
     defmacro,
     delim_control,
@@ -104,6 +107,7 @@ test_harness_success! {
     generic_transducer,
     generic_transducer_with_different_functions,
     hailstone,
+    hash,
     heap_sort,
     help,
     html_table,
