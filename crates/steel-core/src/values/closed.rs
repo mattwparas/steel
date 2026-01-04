@@ -1235,6 +1235,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
             forward: Some(forward_sender),
             #[cfg(feature = "sync")]
             backward: Some(backward_receiver),
+            should_run_weak: true,
         };
 
         res.grow();
