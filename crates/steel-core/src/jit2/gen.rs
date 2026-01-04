@@ -4877,19 +4877,19 @@ impl FunctionTranslator<'_> {
         // Unwrap or... must have been a tail call?
 
         let then_return = if then_out_of_bounds {
-            // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
+            BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
 
-            BlockArg::Value(
-                self.maybe_shadow_pop()
-                    .map(|x| {
-                        // assert!(!x.spilled);
-                        let value = x.0;
-                        self.value_to_local_map.remove(&value);
-                        value
-                    })
-                    // .unwrap(),
-                    .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
-            )
+            // BlockArg::Value(
+            //     self.maybe_shadow_pop()
+            //         .map(|x| {
+            //             // assert!(!x.spilled);
+            //             let value = x.0;
+            //             self.value_to_local_map.remove(&value);
+            //             value
+            //         })
+            //         // .unwrap(),
+            //         .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
+            // )
         } else {
             // BlockArg::Value(self.create_i128(encode(SteelVal::Void)))
             BlockArg::Value(self.shadow_pop().0)
@@ -4949,19 +4949,19 @@ impl FunctionTranslator<'_> {
 
         // Returned, therefore we don't need to do anything.
         let else_return = if else_out_of_bounds {
-            // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
+            BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
 
-            BlockArg::Value(
-                self.maybe_shadow_pop()
-                    .map(|x| {
-                        // assert!(!x.spilled);
-                        let value = x.0;
-                        self.value_to_local_map.remove(&value);
-                        value
-                    })
-                    // .unwrap(),
-                    .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
-            )
+            // BlockArg::Value(
+            //     self.maybe_shadow_pop()
+            //         .map(|x| {
+            //             // assert!(!x.spilled);
+            //             let value = x.0;
+            //             self.value_to_local_map.remove(&value);
+            //             value
+            //         })
+            //         // .unwrap(),
+            //         .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
+            // )
         } else {
             // BlockArg::Value(self.create_i128(encode(SteelVal::Void)))
             BlockArg::Value(self.shadow_pop().0)
