@@ -106,8 +106,10 @@
   (vector a b c d e f g h i tx ty tz))
 
 (define (tfo-a tfo)
+  (stdout-simple-displayln tfo)
   (vector-ref tfo 0))
 (define (tfo-a-set! tfo val)
+  (stdout-simple-displayln "setting tfo-a: " val)
   (vector-set! tfo 0 val))
 (define (tfo-b tfo)
   (vector-ref tfo 1))

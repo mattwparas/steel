@@ -945,6 +945,8 @@ pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> R
 
     let guard = &mut (unsafe { &(*vec.inner.as_ptr()) }.write()).value;
 
+    println!("Setting value: {}", value);
+
     if let Some(v) = guard.get_mut(i) {
         *v = value;
     } else {
