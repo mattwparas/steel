@@ -1973,6 +1973,8 @@ impl FunctionTranslator<'_> {
 
                         self.push(v, InferredType::Any);
                     } else {
+                        // @matt: 1/3/26
+                        // TODO: There is a bug with this function!
                         let name = "call-global-tail-spilled";
 
                         // TODO: We need to spill the local variables here!
