@@ -43,7 +43,7 @@ pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> 
 
     let name = func.id.to_string();
 
-    inspect_impl(ctx, &[SteelVal::Closure(Gc::new(func.clone()))]);
+    // inspect_impl(ctx, &[SteelVal::Closure(Gc::new(func.clone()))]);
 
     // let mut inner = func.unwrap();
     let fn_pointer = ctx.thread.jit.lock().unwrap().compile_bytecode(
@@ -2119,7 +2119,6 @@ fn new_callglobal_tail_handler_deopt_test(
     match handle_global_tail_call_deopt_with_args(ctx, func, args) {
         Ok(v) => {
             if !should_yield {
-                println!("Handling return value from call global tail: {}", v);
                 extern_handle_pop(ctx, v);
                 ctx.is_native = false;
                 return SteelVal::Void;
@@ -2168,6 +2167,12 @@ pub extern "C-unwind" fn callglobal_tail_handler_deopt_spilled(
 
     match handle_global_tail_call_deopt_spilled(ctx, func, arity) {
         Ok(v) => {
+            if !should_yield {
+                extern_handle_pop(ctx, v);
+                ctx.is_native = false;
+                return SteelVal::Void;
+            }
+
             return v;
         }
         Err(e) => {
@@ -2344,17 +2349,17 @@ fn handle_global_function_call_with_args(
                     (func)(ctx);
 
                     if ctx.is_native {
-                        if ctx.pop_count != pop_count {
-                            println!("---------------------------------------------");
-                            println!("Calling at ip: {}", fallback);
-                            inspect_impl(ctx, &[SteelVal::Closure(closure)]);
+                        // if ctx.pop_count != pop_count {
+                        //     println!("---------------------------------------------");
+                        //     println!("Calling at ip: {}", fallback);
+                        //     inspect_impl(ctx, &[SteelVal::Closure(closure)]);
 
-                            // let last_func =
-                            //     ctx.thread.stack_frames.last().unwrap().function.clone();
+                        //     // let last_func =
+                        //     //     ctx.thread.stack_frames.last().unwrap().function.clone();
 
-                            // println!("Ended within at ip: {}", ctx.ip);
-                            // inspect_impl(ctx, &[SteelVal::Closure(last_func)]);
-                        }
+                        //     // println!("Ended within at ip: {}", ctx.ip);
+                        //     // inspect_impl(ctx, &[SteelVal::Closure(last_func)]);
+                        // }
 
                         debug_assert_eq!(ctx.pop_count, pop_count);
                         debug_assert_eq!(ctx.thread.stack_frames.len(), depth);

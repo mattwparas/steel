@@ -13,7 +13,7 @@ use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
     compiler::constants::ConstantMap,
-    core::instructions::{pretty_print_dense_instructions, DenseInstruction},
+    core::instructions::DenseInstruction,
     primitives::{
         lists::steel_pair,
         ports::{eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char},
@@ -985,7 +985,7 @@ impl JIT {
         constants: &ConstantMap,
         _function_context: Option<usize>,
     ) -> Result<(), String> {
-        println!("----- Compiling function ----");
+        // println!("----- Compiling function ----");
 
         // pretty_print_dense_instructions(bytecode);
 
@@ -1510,12 +1510,12 @@ impl FunctionTranslator<'_> {
                 // Have to tell if the if statement converged, and to continue
                 // going from there
                 if self.ip == last {
-                    println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
-                    let instr = self.instructions[self.ip];
-                    let op = instr.op_code;
-                    let payload = instr.payload_size.to_usize();
-                    println!("{:?}:{} @ {}", op, payload, self.ip);
-                    println!("length: {}", self.instructions.len());
+                    // println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
+                    // let instr = self.instructions[self.ip];
+                    // let op = instr.op_code;
+                    // let payload = instr.payload_size.to_usize();
+                    // println!("{:?}:{} @ {}", op, payload, self.ip);
+                    // println!("length: {}", self.instructions.len());
 
                     self.depth -= 1;
                     return false;
@@ -1530,7 +1530,7 @@ impl FunctionTranslator<'_> {
             let op = instr.op_code;
             let payload = instr.payload_size.to_usize();
 
-            println!("{:?}:{} @ {}", op, payload, self.ip);
+            // println!("{:?}:{} @ {}", op, payload, self.ip);
 
             // if self.queue.len() == 10000 {
             //     self.queue.pop_front();
@@ -1629,11 +1629,7 @@ impl FunctionTranslator<'_> {
 
                         let test_bool = self.call_test_handler_register(test.into_index());
 
-                        let res = self.translate_if_else_value(
-                            test_bool,
-                            true_instr,
-                            false_instr.to_usize(),
-                        );
+                        self.translate_if_else_value(test_bool, true_instr, false_instr.to_usize());
 
                         // self.push(res, InferredType::Any);
                     } else {
@@ -1646,7 +1642,7 @@ impl FunctionTranslator<'_> {
                             // Explicitly want the unboxed value here
                             let test_bool = last_ref.value;
 
-                            let res = self.translate_if_else_value(
+                            self.translate_if_else_value(
                                 test_bool,
                                 true_instr,
                                 false_instr.to_usize(),
@@ -1675,7 +1671,7 @@ impl FunctionTranslator<'_> {
                                 _ => self.call_test_handler(test),
                             };
 
-                            let res = self.translate_if_else_value(
+                            self.translate_if_else_value(
                                 test_bool,
                                 true_instr,
                                 false_instr.to_usize(),
@@ -2284,8 +2280,8 @@ impl FunctionTranslator<'_> {
                     let register_r = self.shadow_stack.pop().unwrap().into_index();
                     let register_l = self.shadow_stack.pop().unwrap().into_index();
 
-                    dbg!(self.local_to_value_map.get(&register_r));
-                    dbg!(self.local_to_value_map.get(&register_l));
+                    // dbg!(self.local_to_value_map.get(&register_r));
+                    // dbg!(self.local_to_value_map.get(&register_l));
 
                     let register_r = self.builder.ins().iconst(types::I64, register_r as i64);
                     let register_l = self.builder.ins().iconst(types::I64, register_l as i64);
@@ -2994,12 +2990,12 @@ impl FunctionTranslator<'_> {
             .unwrap()
             .to_vec();
 
-        dbg!(args);
+        // dbg!(args);
 
         // attempt to move forward with it
         let additional_args = self.split_off(arity);
 
-        dbg!(&additional_args);
+        // dbg!(&additional_args);
 
         // let f = crate::primitives::ports::read_char_single
         //     as fn(SteelVal) -> Result<SteelVal, crate::SteelErr>;
@@ -3847,7 +3843,7 @@ impl FunctionTranslator<'_> {
         function_index: usize,
         tail: bool,
     ) -> Value {
-        println!("--------------------Call global tail spilled---------------------");
+        // println!("--------------------Call global tail spilled---------------------");
 
         let local_callee = self.get_local_callee(name);
 
@@ -3880,7 +3876,7 @@ impl FunctionTranslator<'_> {
         //     .drain(self.stack.len() - arity..)
         //     .collect::<Vec<_>>();
 
-        let args_off_the_stack = self.split_off(arity);
+        // let args_off_the_stack = self.split_off(arity);
 
         // self.maybe_patch_from_stack(&mut args_off_the_stack);
 
@@ -3890,7 +3886,7 @@ impl FunctionTranslator<'_> {
         //     }
         // }
 
-        assert_eq!(args_off_the_stack.len(), arity);
+        // assert_eq!(args_off_the_stack.len(), arity);
 
         // arg_values.extend(args_off_the_stack.iter().map(|x| x.value));
 
@@ -4752,10 +4748,10 @@ impl FunctionTranslator<'_> {
         then_start: usize,
         else_start: usize,
     ) -> Value {
-        println!("Visiting if @ {} - depth: {}", self.ip, self.depth);
-        println!("Existing if bound: {:?}", self.if_bound);
+        // println!("Visiting if @ {} - depth: {}", self.ip, self.depth);
+        // println!("Existing if bound: {:?}", self.if_bound);
 
-        let mut else_offset = None;
+        // let mut else_offset;
 
         let last_bound = self.if_bound;
         let mut saved_then_bound = None;
@@ -4775,10 +4771,10 @@ impl FunctionTranslator<'_> {
             saved_then_bound = self.if_bound;
         }
 
-        else_offset = Some(self.instructions[else_start - 1].payload_size.to_usize());
+        let else_offset = Some(self.instructions[else_start - 1].payload_size.to_usize());
 
-        println!("Then bound: {:?}", self.if_bound);
-        println!("Else bound: {:?}", else_offset);
+        // println!("Then bound: {:?}", self.if_bound);
+        // println!("Else bound: {:?}", else_offset);
 
         // Have to stop before we get here
         // self.if_stack.push(else_start);
@@ -4820,7 +4816,7 @@ impl FunctionTranslator<'_> {
         //     .ins()
         //     .iconst(codegen::ir::Type::int(128).unwrap(), 1);
 
-        println!("if: {} - setting ip to then: {}", start, then_start);
+        // println!("if: {} - setting ip to then: {}", start, then_start);
 
         // Set the ip to the right spot:
         self.ip = then_start;
@@ -4841,17 +4837,17 @@ impl FunctionTranslator<'_> {
 
         assert_eq!(self.depth, depth);
 
-        println!("---------- then done ----------");
+        // println!("---------- then done ----------");
 
-        let then_ip = self.ip;
+        // let then_ip = self.ip;
 
         let then_out_of_bounds = self.ip > self.instructions.len();
 
-        println!(
-            "ip, instructions len: {} - {}",
-            self.ip,
-            self.instructions.len()
-        );
+        // println!(
+        //     "ip, instructions len: {} - {}",
+        //     self.ip,
+        //     self.instructions.len()
+        // );
 
         /*
 
@@ -4913,7 +4909,7 @@ impl FunctionTranslator<'_> {
         //     .ins()
         //     .iconst(codegen::ir::Type::int(8).unwrap(), 128);
 
-        println!("if: {} - Setting ip to else: {}", start, else_start);
+        // println!("if: {} - Setting ip to else: {}", start, else_start);
 
         self.if_stack.push(else_start - 1);
 
@@ -4930,26 +4926,26 @@ impl FunctionTranslator<'_> {
 
         self.stack_to_ssa();
 
-        println!("---------- else done ----------");
+        // println!("---------- else done ----------");
 
         // if let Some(else_offset) = else_offset {
         //     assert_eq!(self.ip, else_offset)
         // }
 
-        println!(
-            "ip after else: {} - instructions length: {}",
-            self.ip,
-            self.instructions.len()
-        );
+        // println!(
+        //     "ip after else: {} - instructions length: {}",
+        //     self.ip,
+        //     self.instructions.len()
+        // );
 
         assert_eq!(self.depth, depth);
 
         let else_out_of_bounds = self.ip > self.instructions.len();
 
-        dbg!(then_out_of_bounds);
-        dbg!(else_out_of_bounds);
-        dbg!(self.ip);
-        dbg!(self.instructions.len());
+        // dbg!(then_out_of_bounds);
+        // dbg!(else_out_of_bounds);
+        // dbg!(self.ip);
+        // dbg!(self.instructions.len());
 
         // Returned, therefore we don't need to do anything.
         let else_return = if else_out_of_bounds {
@@ -5009,10 +5005,10 @@ impl FunctionTranslator<'_> {
                 self.builder.switch_to_block(merge_block);
                 self.if_bound = last_bound;
 
-                dbg!(self.if_bound);
+                // dbg!(self.if_bound);
 
-                dbg!(&self.shadow_stack);
-                dbg!(&then_stack);
+                // dbg!(&self.shadow_stack);
+                // dbg!(&then_stack);
 
                 self.ip = else_offset.unwrap();
 
@@ -5033,8 +5029,8 @@ impl FunctionTranslator<'_> {
                 self.builder.switch_to_block(merge_block);
                 self.if_bound = last_bound;
 
-                dbg!(else_start);
-                dbg!(saved_then_bound);
+                // dbg!(else_start);
+                // dbg!(saved_then_bound);
 
                 self.ip = saved_then_bound.unwrap();
                 self.shadow_stack = then_stack;
