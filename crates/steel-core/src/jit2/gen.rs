@@ -32,11 +32,12 @@ use crate::{
                 cdr_handler_mut_reg_no_check, cdr_handler_reg, cdr_handler_reg_no_check,
                 cdr_handler_value, check_callable, check_callable_spill, check_callable_tail,
                 check_callable_value, check_callable_value_tail, cons_handler_value, drop_value,
-                eq_reg_1, eq_reg_2, eq_value, equal_binop, extern_c_add_three, extern_c_add_two,
-                extern_c_add_two_binop_register, extern_c_add_two_binop_register_both,
-                extern_c_div_two, extern_c_gt_two, extern_c_gte_two, extern_c_lt_two,
-                extern_c_lt_two_int, extern_c_lte_two, extern_c_lte_two_int, extern_c_mult_two,
-                extern_c_negate, extern_c_null_handler, extern_c_sub_two, extern_c_sub_two_int,
+                eq_reg_1, eq_reg_2, eq_value, equal_binop, extern_c_add_four, extern_c_add_three,
+                extern_c_add_two, extern_c_add_two_binop_register,
+                extern_c_add_two_binop_register_both, extern_c_div_two, extern_c_gt_two,
+                extern_c_gte_two, extern_c_lt_two, extern_c_lt_two_int, extern_c_lte_two,
+                extern_c_lte_two_int, extern_c_mult_three, extern_c_mult_two, extern_c_negate,
+                extern_c_null_handler, extern_c_sub_two, extern_c_sub_two_int,
                 extern_c_sub_two_int_reg, extern_handle_pop, handle_new_start_closure,
                 handle_pure_function, if_handler_raw_value, if_handler_register, if_handler_value,
                 is_pair_c_reg, let_end_scope_c, list_handler_c, list_ref_handler_c,
@@ -668,6 +669,19 @@ impl Default for JIT {
         );
 
         map.add_func_hint(
+            "add-four",
+            extern_c_add_four
+                as extern "C-unwind" fn(
+                    *mut VmCore,
+                    SteelVal,
+                    SteelVal,
+                    SteelVal,
+                    SteelVal,
+                ) -> SteelVal,
+            InferredType::Number,
+        );
+
+        map.add_func_hint(
             "add-binop-reg",
             extern_c_add_two_binop_register
                 as extern "C-unwind" fn(*mut VmCore, usize, SteelVal) -> SteelVal,
@@ -735,6 +749,14 @@ impl Default for JIT {
             extern_c_mult_two as VmBinOp,
             InferredType::Number,
         );
+
+        map.add_func_hint(
+            "mult-three",
+            extern_c_mult_three
+                as extern "C-unwind" fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal,
+            InferredType::Number,
+        );
+
         map.add_func_hint("div-two", extern_c_div_two as VmBinOp, InferredType::Number);
 
         // TODO: Pick up from here!
@@ -1360,6 +1382,7 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
 
         (OpCode::ADD, 2) => "add-binop",
         (OpCode::ADD, 3) => "add-three",
+        (OpCode::ADD, 4) => "add-four",
         (OpCode::SUB, 2) => "sub-binop",
 
         (OpCode::SUB, 1) => "sub-negate",
@@ -1369,6 +1392,7 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::GT, 2) => "gt-binop",
         (OpCode::GTE, 2) => "gte-binop",
         (OpCode::MUL, 2) => "mult-two",
+        (OpCode::MUL, 3) => "mult-three",
         (OpCode::DIV, 2) => "div-two",
         (OpCode::PUSH, _) => "push-global-value",
 
@@ -1450,41 +1474,35 @@ impl FunctionTranslator<'_> {
     // into a function pointer, and we don't need to thread the
     // context through at all.
     fn stack_to_ssa(&mut self) -> bool {
-        if self.depth > 100 {
-            println!("Hit the depth limit, something went wrong");
-            // println!("{:?}:{} @ {}", op, payload, self.ip);
-            // println!("Previous path: {:#?}", self.queue);
-            // let instr = self.instructions[self.ip];
-            // let op = instr.op_code;
-            // let payload = instr.payload_size.to_usize();
-            // println!("{:?}:{} @ {}", op, payload, self.ip);
-            // println!("Previous path: {:#?}", self.queue);
+        // if self.depth > 100 {
+        //     println!("Hit the depth limit, something went wrong");
+        //     // println!("{:?}:{} @ {}", op, payload, self.ip);
+        //     // println!("Previous path: {:#?}", self.queue);
+        //     // let instr = self.instructions[self.ip];
+        //     // let op = instr.op_code;
+        //     // let payload = instr.payload_size.to_usize();
+        //     // println!("{:?}:{} @ {}", op, payload, self.ip);
+        //     // println!("Previous path: {:#?}", self.queue);
 
-            let mut ips = HashSet::new();
-
-            // let mut cycle = None;
-
-            for (idx, v) in self.queue.iter().enumerate() {
-                if !ips.insert(*v) {
-                    println!("Found a cycle at index: {} - {:?}", idx, v);
-                    // cycle = Some(idx);
-                    // break;
-                }
-            }
-
-            println!("{:#?}", self.queue);
-
-            println!("{}", std::backtrace::Backtrace::force_capture());
-
-            // if let Some(cycle) = cycle {
-            //     println!("Path up to cycle:");
-            //     for item in self.queue.iter().take(cycle) {
-            //         println!("{:?}", item);
-            //     }
-            // }
-
-            panic!();
-        }
+        //     let mut ips = HashSet::new();
+        //     // let mut cycle = None;
+        //     for (idx, v) in self.queue.iter().enumerate() {
+        //         if !ips.insert(*v) {
+        //             println!("Found a cycle at index: {} - {:?}", idx, v);
+        //             // cycle = Some(idx);
+        //             // break;
+        //         }
+        //     }
+        //     println!("{:#?}", self.queue);
+        //     println!("{}", std::backtrace::Backtrace::force_capture());
+        //     // if let Some(cycle) = cycle {
+        //     //     println!("Path up to cycle:");
+        //     //     for item in self.queue.iter().take(cycle) {
+        //     //         println!("{:?}", item);
+        //     //     }
+        //     // }
+        //     panic!();
+        // }
 
         self.depth += 1;
         while self.ip < self.instructions.len() {
@@ -1520,9 +1538,9 @@ impl FunctionTranslator<'_> {
 
             // self.queue.push_back((op, self.ip, payload));
 
-            // if !self.visited.insert(self.ip) {
-            //     panic!("Already visited this instruction",);
-            // }
+            if !self.visited.insert(self.ip) {
+                panic!("Already visited this instruction",);
+            }
 
             match op {
                 OpCode::LOADINT1POP | OpCode::BINOPADDTAIL => {
@@ -1539,7 +1557,8 @@ impl FunctionTranslator<'_> {
                 // OpCode::CALLPRIMITIVE => {
                 //     todo!("{:?}", op);
                 // }
-                OpCode::POPJMP | OpCode::POPPURE => {
+                // OpCode::POPJMP | OpCode::POPPURE => {
+                OpCode::POPPURE => {
                     self.maybe_check_last();
                     let (value, _) = self.shadow_pop();
                     self.spill_cloned_stack();
@@ -1669,7 +1688,7 @@ impl FunctionTranslator<'_> {
                     // self.depth -= 1;
                     // return false;
                 }
-                OpCode::JMP => {
+                OpCode::JMP | OpCode::POPJMP => {
                     // println!("Jumping from {} -> {}", self.ip, payload);
                     assert!(payload > self.ip);
                     self.ip = payload;
@@ -1912,9 +1931,9 @@ impl FunctionTranslator<'_> {
                 // instead.
                 OpCode::TCOJMP => {
                     // TODO: Make this act like the self tail call no arity
-                    self.translate_tco_jmp(payload);
+                    // self.translate_tco_jmp(payload);
 
-                    // let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
+                    let _ = self.translate_tco_jmp_no_arity_loop_no_spill(payload);
 
                     self.ip = self.instructions.len() + 1;
 
@@ -4741,37 +4760,20 @@ impl FunctionTranslator<'_> {
 
         if matches!(
             self.instructions[else_start - 1].op_code,
-            OpCode::JMP
-                | OpCode::POPJMP
-                | OpCode::POPPURE
-                | OpCode::TCOJMP
-                | OpCode::SELFTAILCALLNOARITY
-                | OpCode::TAILCALLNOARITY
-                | OpCode::CALLGLOBALTAIL
-                | OpCode::CALLPRIMITIVETAIL
-                | OpCode::CALLGLOBALTAILNOARITY
-                | OpCode::TAILCALL
+            OpCode::JMP | OpCode::POPJMP // | OpCode::POPPURE
+                                         // | OpCode::TCOJMP
+                                         // | OpCode::SELFTAILCALLNOARITY
+                                         // | OpCode::TAILCALLNOARITY
+                                         // | OpCode::CALLGLOBALTAIL
+                                         // | OpCode::CALLPRIMITIVETAIL
+                                         // | OpCode::CALLGLOBALTAILNOARITY
+                                         // | OpCode::TAILCALL
         ) {
             self.if_bound = Some(else_start - 1);
             saved_then_bound = self.if_bound;
         }
 
         else_offset = Some(self.instructions[else_start - 1].payload_size.to_usize());
-
-        // for (idx, instr) in self.instructions[else_start..].iter().enumerate() {
-        //     if instr.op_code == OpCode::JMP {
-        //         else_offset = Some(idx + self.ip);
-        //         break;
-        //     }
-
-        //     if instr.op_code == OpCode::POPJMP {
-        //         break;
-        //     }
-
-        //     if instr.op_code == OpCode::POPPURE {
-        //         break;
-        //     }
-        // }
 
         println!("Then bound: {:?}", self.if_bound);
         println!("Else bound: {:?}", else_offset);
@@ -4877,7 +4879,19 @@ impl FunctionTranslator<'_> {
         // Unwrap or... must have been a tail call?
 
         let then_return = if then_out_of_bounds {
-            BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
+            // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
+
+            BlockArg::Value(
+                self.maybe_shadow_pop()
+                    .map(|x| {
+                        // assert!(!x.spilled);
+                        let value = x.0;
+                        self.value_to_local_map.remove(&value);
+                        value
+                    })
+                    // .unwrap(),
+                    .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
+            )
         } else {
             // BlockArg::Value(self.create_i128(encode(SteelVal::Void)))
             BlockArg::Value(self.shadow_pop().0)
@@ -4916,6 +4930,10 @@ impl FunctionTranslator<'_> {
 
         println!("---------- else done ----------");
 
+        // if let Some(else_offset) = else_offset {
+        //     assert_eq!(self.ip, else_offset)
+        // }
+
         println!(
             "ip after else: {} - instructions length: {}",
             self.ip,
@@ -4932,9 +4950,20 @@ impl FunctionTranslator<'_> {
         dbg!(self.instructions.len());
 
         // Returned, therefore we don't need to do anything.
-
         let else_return = if else_out_of_bounds {
-            BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
+            // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
+
+            BlockArg::Value(
+                self.maybe_shadow_pop()
+                    .map(|x| {
+                        // assert!(!x.spilled);
+                        let value = x.0;
+                        self.value_to_local_map.remove(&value);
+                        value
+                    })
+                    // .unwrap(),
+                    .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
+            )
         } else {
             // BlockArg::Value(self.create_i128(encode(SteelVal::Void)))
             BlockArg::Value(self.shadow_pop().0)
@@ -4978,6 +5007,11 @@ impl FunctionTranslator<'_> {
                 self.builder.switch_to_block(merge_block);
                 self.if_bound = last_bound;
 
+                dbg!(self.if_bound);
+
+                dbg!(&self.shadow_stack);
+                dbg!(&then_stack);
+
                 self.ip = else_offset.unwrap();
 
                 let phi = self.builder.block_params(merge_block)[0];
@@ -4998,6 +5032,7 @@ impl FunctionTranslator<'_> {
                 self.if_bound = last_bound;
 
                 dbg!(else_start);
+                dbg!(saved_then_bound);
 
                 self.ip = saved_then_bound.unwrap();
                 self.shadow_stack = then_stack;
@@ -5014,6 +5049,8 @@ impl FunctionTranslator<'_> {
                 self.create_i128(encode(SteelVal::Void))
             }
             (false, false) => {
+                assert_eq!(then_stack.len(), self.shadow_stack.len());
+
                 // Pop the values - merge the result of the calls?
                 // println!("Getting here");
 
@@ -5030,6 +5067,9 @@ impl FunctionTranslator<'_> {
                 self.builder.seal_block(merge_block);
 
                 self.if_bound = last_bound;
+
+                assert_eq!(self.ip, else_offset.unwrap());
+
                 self.ip = else_offset.unwrap();
 
                 let phi = self.builder.block_params(merge_block)[0];
@@ -5037,6 +5077,8 @@ impl FunctionTranslator<'_> {
                 self.push(phi, InferredType::Any);
 
                 self.stack_to_ssa();
+
+                self.if_bound = last_bound;
 
                 // Read the value of the if-else by reading the merge block
                 // parameter.

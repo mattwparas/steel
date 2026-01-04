@@ -20,6 +20,10 @@ use super::*;
 
 pub const TRAMPOLINE: bool = true;
 
+fn should_trampoline(ctx: &mut VmCore) -> bool {
+    TRAMPOLINE && ctx.thread.stack_frames.len() < 100
+}
+
 pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> ByteCodeLambda {
     if func
         .body_exp
@@ -1502,7 +1506,7 @@ pub(crate) extern "C-unwind" fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> 
 
 #[allow(improper_ctypes_definitions)]
 pub(crate) extern "C-unwind" fn extern_handle_pop(ctx: *mut VmCore, value: SteelVal) {
-    // println!("Calling pop from jit");
+    // println!("Calling pop from jit: {}", value);
     unsafe {
         let this = &mut *ctx;
         let res = this.handle_pop_pure_value(value);
@@ -1699,6 +1703,58 @@ pub(crate) extern "C-unwind" fn extern_c_add_three(
     // let a = ManuallyDrop::new(a);
     // let b = ManuallyDrop::new(b);
     match add_two(&a, &b).and_then(|x| add_two(&x, &c)) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
+pub(crate) extern "C-unwind" fn extern_c_mult_three(
+    ctx: *mut VmCore,
+    a: SteelVal,
+    b: SteelVal,
+    c: SteelVal,
+) -> SteelVal {
+    // println!("Calling add with: {} - {}", a, b);
+
+    // let a = ManuallyDrop::new(a);
+    // let b = ManuallyDrop::new(b);
+    match multiply_primitive(&[a, b, c]) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                let guard = &mut *ctx;
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
+pub(crate) extern "C-unwind" fn extern_c_add_four(
+    ctx: *mut VmCore,
+    a: SteelVal,
+    b: SteelVal,
+    c: SteelVal,
+    d: SteelVal,
+) -> SteelVal {
+    // println!("Calling add with: {} - {}", a, b);
+
+    // let a = ManuallyDrop::new(a);
+    // let b = ManuallyDrop::new(b);
+    match add_two(&a, &b)
+        .and_then(|x| add_two(&x, &c))
+        .and_then(|x| add_two(&x, &d))
+    {
         Ok(v) => v,
         Err(e) => {
             unsafe {
@@ -2063,7 +2119,7 @@ fn new_callglobal_tail_handler_deopt_test(
     match handle_global_tail_call_deopt_with_args(ctx, func, args) {
         Ok(v) => {
             if !should_yield {
-                // println!("Handling the return value to yield");
+                println!("Handling return value from call global tail: {}", v);
                 extern_handle_pop(ctx, v);
                 ctx.is_native = false;
                 return SteelVal::Void;
@@ -2092,7 +2148,7 @@ pub extern "C-unwind" fn callglobal_tail_handler_deopt_spilled(
     let ctx = unsafe { &mut *ctx };
     let func = ctx.thread.global_env.repl_lookup_idx(index);
     let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
+        SteelVal::Closure(c) if c.0.super_instructions.is_some() && should_trampoline(ctx) => false,
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
         | SteelVal::BuiltIn(_)
@@ -2254,6 +2310,7 @@ fn handle_global_function_call_with_args(
     stack_func: SteelVal,
     args: &mut [SteelVal],
 ) -> Result<SteelVal> {
+    let fallback = ctx.ip;
     match stack_func {
         // TODO: @Matt - add safepoint handling for every spot where relevant
         SteelVal::FuncV(func) => ctx
@@ -2273,7 +2330,7 @@ fn handle_global_function_call_with_args(
                     .push(std::mem::replace(val, SteelVal::Void));
             }
 
-            if TRAMPOLINE {
+            if should_trampoline(ctx) {
                 // We're going to de-opt in this case - unless we intend to do some fun inlining business
                 if let Some(func) = closure.0.super_instructions.as_ref().copied() {
                     let pop_count = ctx.pop_count;
@@ -2281,20 +2338,23 @@ fn handle_global_function_call_with_args(
 
                     // inspect_impl(ctx, &[SteelVal::Closure(closure.clone())]);
 
-                    ctx.handle_function_call_closure_jit(closure, arity)
+                    ctx.handle_function_call_closure_jit(closure.clone(), arity)
                         .unwrap();
 
                     (func)(ctx);
 
                     if ctx.is_native {
-                        // if ctx.pop_count != pop_count {
-                        // println!("---------------------------------------------");
+                        if ctx.pop_count != pop_count {
+                            println!("---------------------------------------------");
+                            println!("Calling at ip: {}", fallback);
+                            inspect_impl(ctx, &[SteelVal::Closure(closure)]);
 
-                        // let last_func =
-                        //     ctx.thread.stack_frames.last().unwrap().function.clone();
+                            // let last_func =
+                            //     ctx.thread.stack_frames.last().unwrap().function.clone();
 
-                        // inspect_impl(ctx, &[SteelVal::Closure(last_func)]);
-                        // }
+                            // println!("Ended within at ip: {}", ctx.ip);
+                            // inspect_impl(ctx, &[SteelVal::Closure(last_func)]);
+                        }
 
                         debug_assert_eq!(ctx.pop_count, pop_count);
                         debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
@@ -2355,82 +2415,6 @@ fn handle_global_function_call_with_args(
         }
     }
 }
-
-// #[inline(always)]
-// fn handle_global_function_call_with_args_no_arity(
-//     ctx: &mut VmCore,
-//     stack_func: SteelVal,
-//     mut args: SmallVec<[SteelVal; 5]>,
-// ) -> Result<SteelVal> {
-//     match stack_func {
-//         SteelVal::FuncV(func) => func(&args).map_err(|x| x.set_span_if_none(ctx.current_span())),
-//         SteelVal::BoxedFunction(func) => {
-//             func.func()(&args).map_err(|x| x.set_span_if_none(ctx.current_span()))
-//         }
-//         SteelVal::MutFunc(func) => {
-//             func(&mut args).map_err(|x| x.set_span_if_none(ctx.current_span()))
-//         }
-//         SteelVal::Closure(closure) => {
-//             // Just put them all on the stack
-//             ctx.thread.stack.extend(args.into_iter());
-
-//             if TRAMPOLINE {
-//                 if let Some(func) = closure.0.super_instructions.as_ref().copied() {
-//                     let pop_count = ctx.pop_count;
-//                     let depth = ctx.thread.stack_frames.len();
-
-//                     // Just call handle_function_call_closure_jit
-//                     // But then just directly invoke the super instruction
-//                     // and snag the return type. That way we don't have
-//                     // to yield right away, but we can instead
-//                     // just jump in to calling the function.
-
-//                     // dbg!(&ctx.thread.stack);
-
-//                     // println!("Calling trampoline: {}", depth);
-
-//                     // Install the function, so that way we can just trampoline
-//                     // without needing to spill the stack
-//                     ctx.handle_function_call_closure_jit_no_arity(closure)
-//                         .unwrap();
-
-//                     (func)(ctx);
-
-//                     if ctx.is_native {
-//                         debug_assert_eq!(ctx.pop_count, pop_count);
-//                         debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
-
-//                         // Don't deopt?
-//                         Ok(ctx.thread.stack.pop().unwrap())
-//                     } else {
-//                         Ok(SteelVal::Void)
-//                     }
-//                 } else {
-//                     // We're going to de-opt in this case - unless we intend to do some fun inlining business
-//                     ctx.handle_function_call_closure_jit_no_arity(closure)?;
-//                     Ok(SteelVal::Void)
-//                 }
-//             } else {
-//                 ctx.handle_function_call_closure_jit_no_arity(closure)?;
-//                 Ok(SteelVal::Void)
-//             }
-//         }
-
-//         // This is probably no good here anyway
-//         SteelVal::ContinuationFunction(cc) => {
-//             ctx.call_continuation(cc)?;
-//             Ok(SteelVal::Void)
-//         }
-//         SteelVal::BuiltIn(f) => {
-//             ctx.call_builtin_func(f, args.len())?;
-//             Ok(SteelVal::Void)
-//         }
-//         _ => {
-//             cold();
-//             stop!(BadSyntax => format!("Function application not a procedure or function type not supported: {}", stack_func); ctx.current_span());
-//         }
-//     }
-// }
 
 #[inline(always)]
 pub(crate) extern "C-unwind" fn should_continue(ctx: *mut VmCore) -> bool {
@@ -2795,9 +2779,10 @@ pub(crate) extern "C-unwind" fn should_spill_value(_: *mut VmCore, func: SteelVa
 pub(crate) extern "C-unwind" fn check_callable_spill(ctx: *mut VmCore, lookup_index: usize) -> u8 {
     unsafe {
         let this = &mut *ctx;
+        let tr = should_trampoline(this);
         let func = &this.thread.global_env.roots()[lookup_index];
 
-        if TRAMPOLINE {
+        if tr {
             if let SteelVal::Closure(c) = func {
                 if c.0.super_instructions.as_ref().is_some() {
                     return 2;
@@ -2827,11 +2812,12 @@ pub(crate) extern "C-unwind" fn check_callable(ctx: *mut VmCore, lookup_index: u
     // We'll want to spill the stack otherwise.
     unsafe {
         let this = &mut *ctx;
+        let tr = should_trampoline(this);
         let func = &this.thread.global_env.roots()[lookup_index];
 
         // println!("Checking callable: {}", func);
 
-        if TRAMPOLINE {
+        if tr {
             if let SteelVal::Closure(c) = func {
                 if c.0.super_instructions.as_ref().is_some() {
                     return true;
@@ -2871,14 +2857,14 @@ pub(crate) extern "C-unwind" fn check_callable_tail(ctx: *mut VmCore, lookup_ind
 }
 
 #[allow(improper_ctypes_definitions)]
-pub(crate) extern "C-unwind" fn check_callable_value(_: *mut VmCore, func: SteelVal) -> bool {
+pub(crate) extern "C-unwind" fn check_callable_value(ctx: *mut VmCore, func: SteelVal) -> bool {
     // println!("Checking callablue value:: {}", func);
 
     // Check that the function we're calling is in fact something callable via native code.
     // We'll want to spill the stack otherwise.
     let func = ManuallyDrop::new(func);
 
-    if TRAMPOLINE {
+    if should_trampoline(unsafe { &mut *ctx }) {
         if let SteelVal::Closure(c) = &*func {
             if c.0.super_instructions.as_ref().is_some() {
                 return true;
@@ -3664,7 +3650,7 @@ macro_rules! make_primitive_mut_function_deopt {
                 fallback_ip: usize,
                 $($typ: SteelVal),*
             ) -> SteelVal {
-                match unsafe { (func)(&mut [$($typ),*]) } {
+                match (func)(&mut [$($typ),*]) {
                     Ok(v) => v,
                     Err(e) => {
                         unsafe {
@@ -3924,7 +3910,7 @@ macro_rules! make_call_global_function_deopt_no_arity {
                 // Deopt -> Meaning, check the return value if we're done - so we just
                 // will eventually check the stashed error.
                 let should_yield = match &func {
-                    SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
+                    SteelVal::Closure(c) if c.0.super_instructions.is_some() && should_trampoline(ctx) => false,
                     SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) | SteelVal::CustomStruct(_) => true,
                     _ => false,
                 };
@@ -3963,7 +3949,7 @@ macro_rules! make_call_global_function_deopt_no_arity {
                                 ctx.thread.stack.push($typ);
                             )*
 
-                            if TRAMPOLINE {
+                            if should_trampoline(ctx) {
                                 if let Some(func) = closure.0.super_instructions.as_ref().copied() {
                                     let pop_count = ctx.pop_count;
                                     let depth = ctx.thread.stack_frames.len();
@@ -4102,7 +4088,7 @@ pub extern "C-unwind" fn call_global_function_deopt_no_arity_spilled(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
+        SteelVal::Closure(c) if c.0.super_instructions.is_some() && should_trampoline(ctx) => false,
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
         | SteelVal::BuiltIn(_)
@@ -4138,7 +4124,7 @@ pub extern "C-unwind" fn call_global_function_deopt_no_arity_spilled(
             SteelVal::Closure(closure) => {
                 // TODO: Consider reserving the amount?
 
-                if TRAMPOLINE {
+                if should_trampoline(ctx) {
                     if let Some(func) = closure.0.super_instructions.as_ref().copied() {
                         let pop_count = ctx.pop_count;
                         let depth = ctx.thread.stack_frames.len();
@@ -4216,7 +4202,7 @@ pub extern "C-unwind" fn call_global_function_deopt_spilled(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
+        SteelVal::Closure(c) if c.0.super_instructions.is_some() && should_trampoline(ctx) => false,
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
         | SteelVal::BuiltIn(_)
@@ -4252,7 +4238,7 @@ pub extern "C-unwind" fn call_global_function_deopt_spilled(
             SteelVal::Closure(closure) => {
                 // TODO: Consider reserving the amount?
 
-                if TRAMPOLINE {
+                if should_trampoline(ctx) {
                     if let Some(func) = closure.0.super_instructions.as_ref().copied() {
                         let pop_count = ctx.pop_count;
                         let depth = ctx.thread.stack_frames.len();
@@ -4330,7 +4316,7 @@ fn call_global_function_deopt(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     match &func {
-        SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => {
+        SteelVal::Closure(c) if c.0.super_instructions.is_some() && should_trampoline(ctx) => {
             ctx.ip = fallback_ip;
         }
         SteelVal::Closure(_)
@@ -4370,7 +4356,7 @@ fn call_function_deopt(
     // Deopt -> Meaning, check the return value if we're done - so we just
     // will eventually check the stashed error.
     let should_yield = match &func {
-        SteelVal::Closure(c) if c.0.super_instructions.is_some() && TRAMPOLINE => false,
+        SteelVal::Closure(c) if c.0.super_instructions.is_some() && should_trampoline(ctx) => false,
         SteelVal::Closure(_)
         | SteelVal::ContinuationFunction(_)
         | SteelVal::BuiltIn(_)
