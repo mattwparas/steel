@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use cranelift::{
-    codegen::ir::{ArgumentPurpose, BlockArg, FuncRef, GlobalValue, Type},
+    codegen::ir::{ArgumentPurpose, BlockArg, FuncRef, GlobalValue, StackSlot, Type},
     prelude::*,
 };
 use cranelift_jit::{JITBuilder, JITModule};
@@ -1009,7 +1009,7 @@ impl JIT {
         let pointer = self.module.target_config().pointer_type();
 
         let mut param = AbiParam::new(pointer);
-        param.purpose = ArgumentPurpose::VMContext;
+        // param.purpose = ArgumentPurpose::VMContext;
 
         self.ctx.func.signature.params.push(param);
 
@@ -1018,7 +1018,7 @@ impl JIT {
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
 
-        let vm_context = builder.create_global_value(GlobalValueData::VMContext);
+        // let vm_context = builder.create_global_value(GlobalValueData::VMContext);
 
         // Create the entry block, to start emitting code in.
         let entry_block = builder.create_block();
@@ -1029,6 +1029,16 @@ impl JIT {
         let contains_tail_call = bytecode
             .iter()
             .any(|x| matches!(x.op_code, OpCode::TCOJMP | OpCode::SELFTAILCALLNOARITY));
+
+        let vm_context = builder.create_sized_stack_slot(StackSlotData {
+            kind: StackSlotKind::ExplicitSlot,
+            size: pointer.bits(),
+            align_shift: 8,
+        });
+
+        let vmctx_param = builder.block_params(entry_block)[0];
+
+        builder.ins().stack_store(vmctx_param, vm_context, 0);
 
         // TODO: Scan the bytecode
         // let variables = declare_variables(int, pointer, &mut builder, &params, entry_block);
@@ -1356,7 +1366,8 @@ struct FunctionTranslator<'a> {
 
     if_stack: Vec<usize>,
 
-    vm_context: GlobalValue,
+    // vm_context: GlobalValue,
+    vm_context: StackSlot,
     // generators: LazyInstructionGenerators,
 }
 
@@ -5276,7 +5287,9 @@ impl FunctionTranslator<'_> {
 
         let ptr_type = self.module.target_config().pointer_type();
 
-        self.builder.ins().global_value(ptr_type, self.vm_context)
+        self.builder.ins().stack_load(ptr_type, self.vm_context, 0)
+
+        // self.builder.ins().global_value(ptr_type, self.vm_context)
     }
 
     fn call_function_returns_value_args(&mut self, name: &str, args: &[Value]) -> Value {
