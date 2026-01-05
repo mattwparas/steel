@@ -140,6 +140,15 @@ jobs:
           command: test
           args: --all
 
+      # We also want to test the JIT stuff as well
+      - uses: actions-rs/cargo@v1
+        env:
+          STEEL_HOME: ${{ env.STEEL_HOME }}
+          STEEL_JIT: 1
+        with:
+          command: test
+          args: --all
+
       - name: Install shared libraries
         env:
           STEEL_HOME: ${{ env.STEEL_HOME }}
