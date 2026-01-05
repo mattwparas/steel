@@ -411,7 +411,7 @@ pub struct SteelThread {
     pub(crate) safepoints_enabled: bool,
 
     #[cfg(feature = "jit2")]
-    pub(crate) jit: Arc<Mutex<crate::jit2::gen::JIT>>,
+    pub(crate) jit: Arc<Mutex<crate::jit2::cgen::JIT>>,
 
     pub(crate) module_context: Vec<SteelString>,
 }
@@ -789,7 +789,7 @@ impl SteelThread {
             safepoints_enabled: false,
 
             #[cfg(feature = "jit2")]
-            jit: Arc::new(Mutex::new(crate::jit2::gen::JIT::default())),
+            jit: Arc::new(Mutex::new(crate::jit2::cgen::JIT::default())),
             module_context: Vec::new(),
             // delayed_dropper: DelayedDropper::new(),
         }

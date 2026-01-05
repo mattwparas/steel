@@ -2524,7 +2524,7 @@ macro_rules! make_call_global_function_tail_deopt {
         pub struct CallGlobalTailFunctionDefinitions;
 
         impl CallGlobalTailFunctionDefinitions {
-            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
                     map.add_func(
                         stringify!($name),
@@ -2662,7 +2662,7 @@ macro_rules! make_list_handlers {
         pub struct ListHandlerDefinitions;
 
         impl ListHandlerDefinitions {
-            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
                     map.add_func(
                         stringify!($name),
@@ -2732,7 +2732,7 @@ macro_rules! debug_stack_handlers {
         pub struct DebugStackDefinitions;
 
         impl DebugStackDefinitions {
-            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
                     map.add_func(
                         stringify!($name),
@@ -3087,7 +3087,7 @@ macro_rules! make_primitive_function_deopt {
         pub struct CallPrimitiveDefinitions;
 
         impl CallPrimitiveDefinitions {
-            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
                     map.add_func(
                         stringify!($name),
@@ -3227,7 +3227,7 @@ macro_rules! make_primitive_register_function_fixed_arity_deopt {
         pub struct CallRegisterPrimitiveFixedDefinitions;
 
         impl CallRegisterPrimitiveFixedDefinitions {
-            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
                     map.add_func(
                         stringify!($name),
@@ -3639,7 +3639,7 @@ macro_rules! make_primitive_function_fixed_arity_deopt {
         pub struct CallPrimitiveFixedDefinitions;
 
         impl CallPrimitiveFixedDefinitions {
-            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
                     map.add_func(
                         stringify!($name),
@@ -3720,7 +3720,7 @@ macro_rules! make_primitive_mut_function_deopt {
         pub struct CallPrimitiveMutDefinitions;
 
         impl CallPrimitiveMutDefinitions {
-            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
                     map.add_func(
                         stringify!($name),
@@ -3791,7 +3791,7 @@ macro_rules! make_call_global_function_deopt {
         pub struct CallGlobalFunctionDefinitions;
 
         impl CallGlobalFunctionDefinitions {
-            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
                     map.add_func(
                         stringify!($name),
@@ -3851,7 +3851,7 @@ macro_rules! make_call_function_deopt {
         pub struct CallFunctionDefinitions;
 
         impl CallFunctionDefinitions {
-            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
                     map.add_func(
                         stringify!($name),
@@ -3911,7 +3911,7 @@ macro_rules! make_call_function_tail_deopt {
         pub struct CallFunctionTailDefinitions;
 
         impl CallFunctionTailDefinitions {
-            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
                     map.add_func(
                         stringify!($name),
@@ -3971,7 +3971,7 @@ macro_rules! make_call_global_function_deopt_no_arity {
         pub struct CallGlobalNoArityFunctionDefinitions;
 
         impl CallGlobalNoArityFunctionDefinitions {
-            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
                     map.add_func(
                         stringify!($name),
@@ -4837,7 +4837,7 @@ macro_rules! make_self_tail_call_no_arity {
 
         #[allow(unused)]
         impl CallSelfTailCallNoArityDefinitions {
-            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
                     map.add_func(
                         stringify!($name),
@@ -4946,7 +4946,7 @@ macro_rules! make_self_tail_call_no_arity_loop {
         pub struct CallSelfTailCallNoArityLoopDefinitions;
 
         impl CallSelfTailCallNoArityLoopDefinitions {
-            pub fn register(map: &mut crate::jit2::gen::FunctionMap) {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
                     map.add_func(
                         stringify!($name),
