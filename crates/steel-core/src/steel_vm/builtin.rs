@@ -183,22 +183,6 @@ pub enum BuiltInFunctionType {
     Context(BuiltInSignature),
 }
 
-enum FixedVariantFunction {
-    One(fn(SteelVal) -> Result<SteelVal>),
-    Two(fn(SteelVal, SteelVal) -> Result<SteelVal>),
-}
-
-pub struct Foo {
-    variants: &'static [(&'static str, FixedVariantFunction)],
-}
-
-static TEST: Foo = Foo {
-    variants: &[(
-        "foo",
-        FixedVariantFunction::One(crate::primitives::ports::read_char_single),
-    )],
-};
-
 pub struct NativeFunctionDefinition {
     pub name: &'static str,
     pub aliases: &'static [&'static str],

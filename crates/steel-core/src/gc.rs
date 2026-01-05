@@ -1,7 +1,6 @@
 use crate::gc::shared::GcLock;
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
-use crate::stop;
 
 #[cfg(not(feature = "sync"))]
 use std::cell::RefCell;

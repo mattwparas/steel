@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use cranelift::{
     codegen::ir::{BlockArg, FuncRef, Type},
     prelude::*,

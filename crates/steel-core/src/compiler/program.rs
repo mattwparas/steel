@@ -726,6 +726,7 @@ pub fn flatten_equal_const(instructions: &mut [Instruction]) {
     }
 }
 
+#[allow(unused)]
 pub fn inline_num_operations(instructions: &mut [Instruction]) {
     for i in 0..instructions.len() - 1 {
         let push = instructions.get(i);

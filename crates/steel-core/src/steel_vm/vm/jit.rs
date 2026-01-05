@@ -1,4 +1,4 @@
-#![allow(improper_ctypes_definitions)]
+#![allow(improper_ctypes_definitions, unused)]
 
 use std::mem::ManuallyDrop;
 

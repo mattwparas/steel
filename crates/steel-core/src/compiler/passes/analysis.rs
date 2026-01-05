@@ -3,7 +3,7 @@ use std::collections::{hash_map, HashMap, HashSet};
 use crate::{
     compiler::{
         modules::{MANGLER_PREFIX, MODULE_PREFIX},
-        program::{PRIM_SETBOX, PRIM_UNBOX, SETBOX, UNBOX},
+        program::{SETBOX, UNBOX},
     },
     parser::ast::List,
     values::HashMap as ImmutableHashMap,
