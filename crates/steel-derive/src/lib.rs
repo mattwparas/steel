@@ -244,7 +244,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                 quote! {}
             };
 
-            let gen = quote! {
+            let generated = quote! {
                 impl #prefix::rvals::Custom for #name {
                     #equality_impl
                 }
@@ -263,7 +263,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                 }
             };
 
-            gen.into()
+            generated.into()
         }
         Data::Enum(e) => {
             let mut names = Vec::new();
@@ -457,7 +457,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                 quote! {}
             };
 
-            let gen = quote! {
+            let generated = quote! {
                 impl #prefix::rvals::Custom for #name {
                     #equality_impl
 
@@ -478,7 +478,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
                 }
             };
 
-            gen.into()
+            generated.into()
         }
         _ => {
             let output = quote! {};
