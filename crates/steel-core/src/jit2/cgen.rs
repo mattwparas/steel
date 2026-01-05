@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use cranelift::{
-    codegen::ir::{BlockArg, FuncRef, Type},
+    codegen::ir::{ArgumentPurpose, BlockArg, FuncRef, GlobalValue, Type},
     prelude::*,
 };
 use cranelift_jit::{JITBuilder, JITModule};
@@ -1007,12 +1007,18 @@ impl JIT {
 
         // Set up pointer type to be the first argument.
         let pointer = self.module.target_config().pointer_type();
-        self.ctx.func.signature.params.push(AbiParam::new(pointer));
+
+        let mut param = AbiParam::new(pointer);
+        param.purpose = ArgumentPurpose::VMContext;
+
+        self.ctx.func.signature.params.push(param);
 
         // dbg!(&self.ctx.func.signature);
 
         // Create the builder to build a function.
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+
+        let vm_context = builder.create_global_value(GlobalValueData::VMContext);
 
         // Create the entry block, to start emitting code in.
         let entry_block = builder.create_block();
@@ -1025,7 +1031,13 @@ impl JIT {
             .any(|x| matches!(x.op_code, OpCode::TCOJMP | OpCode::SELFTAILCALLNOARITY));
 
         // TODO: Scan the bytecode
-        let variables = declare_variables(int, pointer, &mut builder, &params, entry_block);
+        // let variables = declare_variables(int, pointer, &mut builder, &params, entry_block);
+
+        // let vm_context = builder.create_global_value(GlobalValueData::VMContext);
+
+        let variables = Default::default();
+
+        // builder.ins().set_pinned_reg(addr)
 
         let fake_entry_block = if contains_tail_call {
             let fake_entry = builder.create_block();
@@ -1069,6 +1081,7 @@ impl JIT {
             queue: VecDeque::new(),
             if_stack: Vec::new(),
             if_bound: None,
+            vm_context,
             // cloned_stack: false,
             // generators: Default::default(),
         };
@@ -1342,6 +1355,8 @@ struct FunctionTranslator<'a> {
     if_bound: Option<usize>,
 
     if_stack: Vec<usize>,
+
+    vm_context: GlobalValue,
     // generators: LazyInstructionGenerators,
 }
 
@@ -5253,9 +5268,15 @@ impl FunctionTranslator<'_> {
     }
 
     fn get_ctx(&mut self) -> Value {
-        let variable = self.variables.get("vm-ctx").expect("variable not defined");
-        let ctx = self.builder.use_var(*variable);
-        ctx
+        // let variable = self.variables.get("vm-ctx").expect("variable not defined");
+        // let ctx = self.builder.use_var(*variable);
+        // ctx
+
+        // self.builder.ins().vmctx();
+
+        let ptr_type = self.module.target_config().pointer_type();
+
+        self.builder.ins().global_value(ptr_type, self.vm_context)
     }
 
     fn call_function_returns_value_args(&mut self, name: &str, args: &[Value]) -> Value {
@@ -5291,11 +5312,11 @@ fn declare_variables(
     let mut index = 0;
 
     // Leave the first one in place to pass the context in.
-    {
-        let ctx = builder.block_params(entry_block)[0];
-        let var = declare_variable(pointer, builder, &mut variables, &mut index, "vm-ctx");
-        builder.def_var(var, ctx);
-    }
+    // {
+    //     let ctx = builder.block_params(entry_block)[0];
+    //     let var = declare_variable(pointer, builder, &mut variables, &mut index, "vm-ctx");
+    //     builder.def_var(var, ctx);
+    // }
 
     for (i, name) in params.iter().enumerate() {
         let val = builder.block_params(entry_block)[i + 1];
