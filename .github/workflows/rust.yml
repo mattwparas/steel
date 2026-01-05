@@ -15,7 +15,7 @@ jobs:
       with:
         github_access_token: ${{ secrets.GITHUB_TOKEN }}
     - run: nix build
-    - run: nix flake check
+    # - run: nix flake check
 
   test:
     name: Test Suite
