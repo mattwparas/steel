@@ -5315,7 +5315,9 @@ impl FunctionTranslator<'_> {
 
     fn get_signature(&self, name: &str) -> Signature {
         let mut sig = self.intrinsics.get_signature(name, &self.module);
-        sig.call_conv = CallConv::SystemV;
+        if cfg!(target_os = "windows") {
+            sig.call_conv = CallConv::SystemV;
+        }
         sig
     }
 
