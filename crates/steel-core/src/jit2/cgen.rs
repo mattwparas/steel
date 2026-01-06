@@ -2118,7 +2118,7 @@ impl FunctionTranslator<'_> {
                     let global = self._globals.get(function_index);
 
                     match global.cloned() {
-                        Some(SteelVal::FuncV(f)) if false => {
+                        Some(SteelVal::FuncV(f)) => {
                             // Attempt the other call
                             self.ip += 1;
                             let arity = self.instructions[self.ip].payload_size.to_usize();
@@ -2194,7 +2194,7 @@ impl FunctionTranslator<'_> {
                             }
                         }
 
-                        Some(SteelVal::MutFunc(f)) if false => {
+                        Some(SteelVal::MutFunc(f)) => {
                             // Attempt the other call
                             self.ip += 1;
                             let arity = self.instructions[self.ip].payload_size.to_usize();
