@@ -2351,11 +2351,6 @@ fn handle_global_function_call_with_args(
     }
 }
 
-#[inline(always)]
-pub(crate) extern "sysv64-unwind" fn should_continue(ctx: *mut VmCore) -> bool {
-    dbg!(unsafe { &mut *ctx }.is_native)
-}
-
 #[cross_platform_fn]
 fn push_to_vm_stack(ctx: *mut VmCore, value: SteelVal) {
     // println!("Pushing to vm stack cloned: {}", value);
@@ -2920,83 +2915,6 @@ fn check_callable_value_tail(_: *mut VmCore, func: SteelVal) -> bool {
             | SteelVal::BuiltIn(_)
             | SteelVal::CustomStruct(_)
     )
-}
-
-// Directly call and get the result of the next function
-// TODO: Directly call the function since we know that its going to be hanging around.
-// Which means we can generate two different forms of the function, and we don't need
-// to emit a pop on it since its going to be within itself?
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn trampoline(
-    ctx: *mut VmCore,
-    arity: usize,
-    lookup_index: usize,
-) -> SteelVal {
-    unsafe {
-        let this = &mut *ctx;
-        let func = this.thread.global_env.repl_lookup_idx(lookup_index);
-        // println!("Calling trampoline");
-        // Builtins can yield control in a funky way.
-        if let SteelVal::Closure(c) = func {
-            if let Some(func) = c.0.super_instructions.as_ref().copied() {
-                // Just call handle_function_call_closure_jit
-                // But then just directly invoke the super instruction
-                // and snag the return type. That way we don't have
-                // to yield right away, but we can instead
-                // just jump in to calling the function.
-
-                // Install the function, so that way we can just trampoline
-                // without needing to spill the stack
-                this.handle_function_call_closure_jit(c, arity).unwrap();
-
-                (func)(this);
-
-                // Don't deopt?
-                this.thread.stack.pop().unwrap()
-            } else {
-                panic!();
-            }
-        } else {
-            panic!();
-        }
-    }
-}
-
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn trampoline_no_arity(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-) -> SteelVal {
-    unsafe {
-        let this = &mut *ctx;
-        let func = this.thread.global_env.repl_lookup_idx(lookup_index);
-        // println!("Calling trampoline");
-        // Builtins can yield control in a funky way.
-        if let SteelVal::Closure(c) = func {
-            if let Some(func) = c.0.super_instructions.as_ref().copied() {
-                // Just call handle_function_call_closure_jit
-                // But then just directly invoke the super instruction
-                // and snag the return type. That way we don't have
-                // to yield right away, but we can instead
-                // just jump in to calling the function.
-
-                // Install the function, so that way we can just trampoline
-                // without needing to spill the stack
-                this.handle_function_call_closure_jit_no_arity(c).unwrap();
-
-                (func)(this);
-
-                dbg!(this.is_native);
-
-                // Don't deopt?
-                this.thread.stack.pop().unwrap()
-            } else {
-                panic!();
-            }
-        } else {
-            panic!();
-        }
-    }
 }
 
 macro_rules! make_primitive_function_deopt {
