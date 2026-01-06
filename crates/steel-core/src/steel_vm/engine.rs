@@ -371,7 +371,7 @@ impl<'a> LifetimeGuard<'a> {
     ) -> Self {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
-            std::any::TypeId::of::<EXT>()
+            core::any::TypeId::of::<EXT>()
         );
 
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
@@ -391,7 +391,7 @@ impl<'a> LifetimeGuard<'a> {
     ) -> Self {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
-            std::any::TypeId::of::<EXT>()
+            core::any::TypeId::of::<EXT>()
         );
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_rw_object::<T, EXT>(
             obj,
@@ -1085,7 +1085,7 @@ impl Engine {
 
     //         // Could fail here
     //         let parsed: Vec<ExprKind> = Parser::new(source, Some(id))
-    //             .collect::<std::result::Result<_, _>>()
+    //             .collect::<core::result::Result<_, _>>()
     //             .unwrap();
 
     //         asts.push(parsed.clone());
@@ -1289,7 +1289,7 @@ impl Engine {
     ) -> LifetimeGuard<'a> {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
-            std::any::TypeId::of::<EXT>()
+            core::any::TypeId::of::<EXT>()
         );
 
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
@@ -1310,7 +1310,7 @@ impl Engine {
     ) -> LifetimeGuard<'a> {
         assert_eq!(
             crate::gc::unsafe_erased_pointers::type_id::<T>(),
-            std::any::TypeId::of::<EXT>()
+            core::any::TypeId::of::<EXT>()
         );
 
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_rw_object::<T, EXT>(
@@ -1950,7 +1950,7 @@ impl Engine {
     }
 
     pub fn emit_ast(expr: &str) -> Result<Vec<ExprKind>> {
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
             Parser::new(expr, SourceId::none()).collect();
         Ok(parsed?)
     }
@@ -2242,8 +2242,8 @@ impl Engine {
 // #[cfg(test)]
 // mod on_progress_tests {
 //     use super::*;
-//     use std::cell::Cell;
-//     use std::rc::Rc;
+//     use core::cell::Cell;
+//     use alloc::rc::Rc;
 
 //     // TODO: At the moment the on progress business is turned off
 

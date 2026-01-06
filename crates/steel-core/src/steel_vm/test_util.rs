@@ -1,6 +1,6 @@
 use super::engine::Engine;
 use crate::stdlib::PRELUDE;
-use std::borrow::Cow;
+use alloc::borrow::Cow;
 
 #[test]
 fn prelude_parses() {

@@ -4,9 +4,9 @@ use super::{ast::*, interner::InternedString};
 use crate::parser::parser::Parser;
 use crate::parser::span::Span;
 // use super::
+use alloc::sync::Arc;
+use core::convert::TryFrom;
 use proptest::prelude::*;
-use std::convert::TryFrom;
-use std::sync::Arc;
 use steel_parser::parser::SourceId;
 use steel_parser::tokens::{IntLiteral, RealLiteral};
 

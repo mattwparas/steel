@@ -1,7 +1,7 @@
 // use crate::gc::Gc;
 // use crate::rvals::{Result, SteelVal};
 // use std::collections::HashMap;
-// use std::fmt;
+// use core::fmt;
 
 // use crate::parser::ast::IteratorExtensions;
 
