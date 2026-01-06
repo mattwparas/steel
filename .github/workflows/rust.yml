@@ -88,6 +88,7 @@ jobs:
         os: [ 
               { os: ubuntu-latest, arch: x86_64-unknown-linux-gnu }, 
               { os: macos-latest, arch: aarch64-apple-darwin },
+              { os: windows-latest, arch: x86_64-pc-windows-msvc }
             ]
     runs-on: ${{ matrix.os.os }}
     # It seems that occasionally things get stuck. Not sure why since I'm unable to
@@ -155,71 +156,6 @@ jobs:
           cd cogs/
           cargo run -- install.scm ../contrib/slack
 
-
-  sync-build-no-jit:
-    name: Test Suite (sync)
-    strategy:
-      matrix:
-        os: [ 
-              { os: windows-latest, arch: x86_64-pc-windows-msvc }
-            ]
-    runs-on: ${{ matrix.os.os }}
-    # It seems that occasionally things get stuck. Not sure why since I'm unable to
-    # reproduce locally. But this stops the jobs from running for 6 hours.
-    timeout-minutes: 45
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
-      - name: Set the STEEL_HOME environment variable
-        run: echo STEEL_HOME=${PWD}/.steel-sync >> $GITHUB_ENV 
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: "build"
-
-      - name: Build
-        run: cargo build --verbose
-        
-      - name: Install steel dylib installer and package manager
-        env:
-          STEEL_HOME: ${{ env.STEEL_HOME }}
-        # run: mkdir -p $STEEL_HOME/native && cd crates/cargo-steel-lib && cargo install --path .
-        run: cargo install --path crates/cargo-steel-lib --force && cargo install --path crates/forge --force
-
-      - name: Install cogs
-        env:
-          STEEL_HOME: ${{ env.STEEL_HOME }}
-        run: |
-          echo $STEEL_HOME
-          mkdir -p .steel/cogs
-          cd cogs/
-          cargo run -- install.scm
-
-      - uses: actions-rs/cargo@v1
-        env:
-          STEEL_HOME: ${{ env.STEEL_HOME }}
-        with:
-          command: test
-          args: --all
-
-      - name: Install shared libraries
-        env:
-          STEEL_HOME: ${{ env.STEEL_HOME }}
-        run: |
-          cd cogs/
-          cargo run -- install.scm ../contrib/slack
-          
 
   # redox-build:
   #   name: redox build
