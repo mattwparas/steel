@@ -67,10 +67,10 @@ triomphe = { version = "0.1.14", optional = true }
 abi_stable = { version = "0.11.2", optional = true }
 async-ffi = { version = "0.5.0", features = ["abi_stable"], optional = true }
 # Cranelift JIT
-cranelift = { version = "0.125.4", optional = true }
-cranelift-module = { version = "0.125.4", optional = true }
-cranelift-jit = { version = "0.125.4", optional = true }
-cranelift-native = { version = "0.125.4", optional = true }
+cranelift = { version = "0.119", optional = true }
+cranelift-module = { version = "0.119", optional = true }
+cranelift-jit = { version = "0.119", optional = true }
+cranelift-native = { version = "0.119", optional = true }
 
 anyhow = { version = "1", optional = true }
 

@@ -1,17 +1,15 @@
 #![allow(unused)]
 #![allow(improper_ctypes_definitions)]
+#![allow(unpredictable_function_pointer_comparisons)]
 
 use cranelift::{
-    codegen::ir::{ArgumentPurpose, BlockArg, FuncRef, GlobalValue, StackSlot, Type},
+    codegen::ir::{ArgumentPurpose, FuncRef, GlobalValue, StackSlot, Type},
     prelude::{isa::CallConv, *},
 };
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module};
+use std::collections::{HashMap, VecDeque};
 use std::{collections::HashSet, slice};
-use std::{
-    collections::{HashMap, VecDeque},
-    ptr::fn_addr_eq,
-};
 use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
@@ -59,9 +57,8 @@ use crate::{
                 CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
                 CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
                 CallPrimitiveDefinitions, CallPrimitiveFixedDefinitions,
-                CallPrimitiveMutDefinitions, CallRegisterPrimitiveFixedDefinitions,
-                CallSelfTailCallNoArityDefinitions, CallSelfTailCallNoArityLoopDefinitions,
-                ListHandlerDefinitions,
+                CallPrimitiveMutDefinitions, CallSelfTailCallNoArityDefinitions,
+                CallSelfTailCallNoArityLoopDefinitions, ListHandlerDefinitions,
             },
             VmCore,
         },
@@ -519,7 +516,7 @@ impl Default for JIT {
 
         CallPrimitiveFixedDefinitions::register(&mut map);
 
-        CallRegisterPrimitiveFixedDefinitions::register(&mut map);
+        // CallRegisterPrimitiveFixedDefinitions::register(&mut map);
 
         // DebugStackDefinitions::register(&mut map);
 
@@ -2135,38 +2132,35 @@ impl FunctionTranslator<'_> {
                             // be able to define the specialized versions of that function.
                             //
                             // Skipping lots of type checks is good.
-                            if fn_addr_eq(
-                                f,
-                                crate::primitives::strings::steel_char_equals as FunctionSignature,
-                            ) && arity == 2
+                            if f == crate::primitives::strings::steel_char_equals
+                                as FunctionSignature
+                                && arity == 2
                                 && false
                             {
                                 self.char_equals(arity);
-                            } else if fn_addr_eq(f, steel_read_char as FunctionSignature)
+                            }
+                            /*
+                            else if f == steel_read_char as FunctionSignature
                                 && arity == 1
                                 && false
                             {
                                 self.read_char(arity);
-                            } else if fn_addr_eq(f, steel_eof_objectp as FunctionSignature)
+                            }
+                            */
+                            else if f == steel_eof_objectp as FunctionSignature
                                 && arity == 1
                                 && false
                             {
                                 // Encode the object... Any others we can encode in this way?
                                 self.eof_object(1)
-                            } else if fn_addr_eq(f, steel_mut_vec_set as FunctionSignature)
+                            } else if f == steel_mut_vec_set as FunctionSignature
                                 && arity == 3
                                 && false
                             {
                                 self.vector_set()
-                            } else if fn_addr_eq(f, steel_eq as FunctionSignature)
-                                && arity == 2
-                                && false
-                            {
+                            } else if f == steel_eq as FunctionSignature && arity == 2 && false {
                                 self.eq()
-                            } else if fn_addr_eq(f, steel_pair as FunctionSignature)
-                                && arity == 1
-                                && false
-                            {
+                            } else if f == steel_pair as FunctionSignature && arity == 1 && false {
                                 self.is_pair()
                             } else {
                                 if let Some(name) = name {
@@ -3036,6 +3030,7 @@ impl FunctionTranslator<'_> {
         }
     }
 
+    /*
     fn read_char(&mut self, arity: usize) {
         let test_stack = self
             .shadow_stack
@@ -3077,6 +3072,7 @@ impl FunctionTranslator<'_> {
         self.ip += 1;
         self.check_deopt();
     }
+    */
 
     fn char_equals(&mut self, arity: usize) {
         let name = CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
@@ -4216,7 +4212,8 @@ impl FunctionTranslator<'_> {
             .brif(result, then_block, &[], else_block, &[]);
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
-        let then_return = BlockArg::Value(self.builder.ins().iconst(Type::int(8).unwrap(), 1));
+        // let then_return = BlockArg::Value(self.builder.ins().iconst(Type::int(8).unwrap(), 1));
+        let then_return = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
 
         // Just... translate instructions?
         self.stack_to_ssa();
@@ -4964,7 +4961,8 @@ impl FunctionTranslator<'_> {
         // Unwrap or... must have been a tail call?
 
         let then_return = if then_out_of_bounds {
-            BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
+            // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
+            self.create_i128(encode(SteelVal::IntV(12345)))
 
             // BlockArg::Value(
             //     self.maybe_shadow_pop()
@@ -4979,7 +4977,8 @@ impl FunctionTranslator<'_> {
             // )
         } else {
             // BlockArg::Value(self.create_i128(encode(SteelVal::Void)))
-            BlockArg::Value(self.shadow_pop().0)
+            // BlockArg::Value(self.shadow_pop().0)
+            self.shadow_pop().0
         };
 
         let then_stack = self.shadow_stack.clone();
@@ -5036,7 +5035,8 @@ impl FunctionTranslator<'_> {
 
         // Returned, therefore we don't need to do anything.
         let else_return = if else_out_of_bounds {
-            BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
+            // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
+            self.create_i128(encode(SteelVal::IntV(12345)))
 
             // BlockArg::Value(
             //     self.maybe_shadow_pop()
@@ -5051,7 +5051,8 @@ impl FunctionTranslator<'_> {
             // )
         } else {
             // BlockArg::Value(self.create_i128(encode(SteelVal::Void)))
-            BlockArg::Value(self.shadow_pop().0)
+            // BlockArg::Value(self.shadow_pop().0)
+            self.shadow_pop().0
             // BlockArg::Value(
             //     self.maybe_shadow_pop()
             //         .map(|x| {
@@ -5367,46 +5368,46 @@ impl FunctionTranslator<'_> {
 // TODO: When setting up special functions, we'll
 // do a different thing to create a function that we want
 // that looks more like fn(&mut VmCore, args: &[SteelVal])
-fn declare_variables(
-    int: types::Type,
-    pointer: types::Type,
-    builder: &mut FunctionBuilder,
-    params: &[String],
-    entry_block: Block,
-) -> HashMap<String, Variable> {
-    let mut variables = HashMap::new();
-    let mut index = 0;
+// fn declare_variables(
+//     int: types::Type,
+//     pointer: types::Type,
+//     builder: &mut FunctionBuilder,
+//     params: &[String],
+//     entry_block: Block,
+// ) -> HashMap<String, Variable> {
+//     let mut variables = HashMap::new();
+//     let mut index = 0;
 
-    // Leave the first one in place to pass the context in.
-    // {
-    //     let ctx = builder.block_params(entry_block)[0];
-    //     let var = declare_variable(pointer, builder, &mut variables, &mut index, "vm-ctx");
-    //     builder.def_var(var, ctx);
-    // }
+//     // Leave the first one in place to pass the context in.
+//     // {
+//     //     let ctx = builder.block_params(entry_block)[0];
+//     //     let var = declare_variable(pointer, builder, &mut variables, &mut index, "vm-ctx");
+//     //     builder.def_var(var, ctx);
+//     // }
 
-    for (i, name) in params.iter().enumerate() {
-        let val = builder.block_params(entry_block)[i + 1];
-        let var = declare_variable(int, builder, &mut variables, &mut index, name);
-        builder.def_var(var, val);
-    }
+//     for (i, name) in params.iter().enumerate() {
+//         let val = builder.block_params(entry_block)[i + 1];
+//         let var = declare_variable(int, builder, &mut variables, &mut index, name);
+//         builder.def_var(var, val);
+//     }
 
-    variables
-}
+//     variables
+// }
 
-/// Declare a single variable declaration.
-fn declare_variable(
-    int: types::Type,
-    builder: &mut FunctionBuilder,
-    variables: &mut HashMap<String, Variable>,
-    index: &mut usize,
-    name: &str,
-) -> Variable {
-    if !variables.contains_key(name) {
-        let variable = builder.declare_var(int);
-        variables.insert(name.into(), variable.clone());
-        *index += 1;
-        variable
-    } else {
-        variables.get(name).unwrap().clone()
-    }
-}
+// Declare a single variable declaration.
+// fn declare_variable(
+//     int: types::Type,
+//     builder: &mut FunctionBuilder,
+//     variables: &mut HashMap<String, Variable>,
+//     index: &mut usize,
+//     name: &str,
+// ) -> Variable {
+//     if !variables.contains_key(name) {
+//         let variable = builder.declare_var(int);
+//         variables.insert(name.into(), variable.clone());
+//         *index += 1;
+//         variable
+//     } else {
+//         variables.get(name).unwrap().clone()
+//     }
+// }

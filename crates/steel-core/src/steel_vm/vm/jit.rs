@@ -3076,6 +3076,8 @@ macro_rules! reg_stack_iter {
     };
 }
 
+/*
+
 // TODO: How to ensure that we can call a function
 // that uses a mutable reference if its not called
 // with a mutable value? is there a fallback in that case
@@ -3175,6 +3177,7 @@ macro_rules! make_primitive_register_function_fixed_arity_deopt {
         )*
     };
 }
+
 
 // Register allocation. Use the stack as register where possible,
 // and we'll generate functions for each of these. We're making calls
@@ -3516,6 +3519,8 @@ make_primitive_register_function_fixed_arity_deopt! {
     (primitive_register_function22210; (r0,r1,r2,r3) {s0}, [2, 2, 2, 1, 0]),
     (primitive_register_function22220; (r0,r1,r2,r3) {s0}, [2, 2, 2, 2, 0])
 }
+
+*/
 
 macro_rules! make_primitive_function_fixed_arity_deopt {
     ($(($name:tt, $($typ:ident),*)),*) => {
@@ -4042,24 +4047,43 @@ macro_rules! make_call_global_function_deopt_no_arity {
                             Ok(SteelVal::Void)
                         }
                         SteelVal::BuiltIn(f) => {
-                            let args: [SteelVal; _] = [$($typ),*];
-                            let len = args.len();
+                            // let args: [SteelVal; _] = [$($typ),*];
+                            // let len = args.len();
 
-                            for arg in args {
-                                ctx.thread.stack.push(arg);
-                            }
+                            let mut len = 0;
+
+                            $(
+                                ctx.thread.stack.push($typ);
+                                len += 1;
+                            )*;
+
+                            // for arg in args {
+                            //     ctx.thread.stack.push(arg);
+                            // }
 
                             ctx.call_builtin_func(f, len)?;
                             Ok(SteelVal::Void)
                         }
                         SteelVal::CustomStruct(s) => {
-                            let args: [SteelVal; _] = [$($typ),*];
-                            let len = args.len();
-                            for val in args {
+                            // let args: [SteelVal; _] = [$($typ),*];
+                            // let len = args.len();
+
+                            let mut len = 0;
+
+                            $(
                                 ctx.thread
                                     .stack
-                                    .push(val);
-                            }
+                                    .push($typ);
+
+                                len += 1;
+                            )*;
+
+
+                            // for val in args {
+                            //     ctx.thread
+                            //         .stack
+                            //         .push(val);
+                            // }
 
                             ctx.call_custom_struct(&s, len)?;
 
