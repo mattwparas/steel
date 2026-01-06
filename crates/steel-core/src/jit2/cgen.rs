@@ -2672,35 +2672,37 @@ impl FunctionTranslator<'_> {
 
                 // TODO: This should pretty much be able to be inlined entirely?
                 OpCode::NOT => {
-                    // let last = self.shadow_stack.last().unwrap().into_value();
+                    let last = self.shadow_stack.last().unwrap().into_value();
 
-                    // if last.inferred_type == InferredType::UnboxedBool {
-                    //     let test = last.value;
-                    //     let test = self.builder.ins().uextend(types::I64, test);
-                    //     self.shadow_stack.pop();
-                    //     let value = self.builder.ins().icmp_imm(IntCC::Equal, test, 0);
-                    //     self.push(value, InferredType::UnboxedBool);
-                    //     self.ip += 2;
-                    // } else {
-                    //     let (test, _) = self.shadow_pop();
-                    //     // If this matches SteelVal::BoolV(false)
-                    //     // exactly, then we're done.
-                    //     let false_value = self.create_i128(encode(SteelVal::BoolV(false)));
+                    if last.inferred_type == InferredType::UnboxedBool {
+                        let test = last.value;
+                        let test = self.builder.ins().uextend(types::I64, test);
+                        self.shadow_stack.pop();
+                        let value = self.builder.ins().icmp_imm(IntCC::Equal, test, 0);
+                        self.push(value, InferredType::UnboxedBool);
+                        self.ip += 2;
+                    } else if last.inferred_type == InferredType::Bool {
+                        let (test, _) = self.shadow_pop();
+                        // If this matches SteelVal::BoolV(false)
+                        // exactly, then we're done.
+                        let false_value = self.create_i128(encode(SteelVal::BoolV(false)));
 
-                    //     let comparison = self.builder.ins().icmp(IntCC::Equal, test, false_value);
-                    //     let res = self.builder.ins().uextend(types::I64, comparison);
-                    //     let boolean =
-                    //         self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
-                    //     self.push(boolean, InferredType::Bool);
-                    //     self.ip += 2;
-                    // }
+                        let comparison = self.builder.ins().icmp(IntCC::Equal, test, false_value);
+                        let res = self.builder.ins().uextend(types::I64, comparison);
+                        let boolean =
+                            self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+                        self.push(boolean, InferredType::Bool);
+                        self.ip += 2;
+                    } else {
+                        self.func_ret_val(op, 1, 2, InferredType::Bool);
+                    }
 
                     // let res = self.builder.ins().uextend(types::I64, comparison);
                     // let boolean =
                     //     self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
 
                     // Do the thing.
-                    self.func_ret_val(op, 1, 2, InferredType::Bool);
+                    // self.func_ret_val(op, 1, 2, InferredType::Bool);
                 }
                 OpCode::Apply => todo!(),
                 OpCode::LOADINT0POP => todo!(),
