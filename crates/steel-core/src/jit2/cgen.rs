@@ -351,7 +351,7 @@ macro_rules! abi {
         {
             #[cfg(target_os = "windows")]
             {
-                $func as extern "sysv64" $($tokens)*
+                $func as extern "sysv64-unwind" $($tokens)*
             }
 
             #[cfg(not(target_os = "windows"))]
