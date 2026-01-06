@@ -1,4 +1,5 @@
 #![allow(unused)]
+#![allow(improper_ctypes_definitions)]
 
 use cranelift::{
     codegen::ir::{ArgumentPurpose, BlockArg, FuncRef, GlobalValue, StackSlot, Type},
@@ -61,7 +62,7 @@ use crate::{
                 CallPrimitiveDefinitions, CallPrimitiveFixedDefinitions,
                 CallPrimitiveMutDefinitions, CallRegisterPrimitiveFixedDefinitions,
                 CallSelfTailCallNoArityDefinitions, CallSelfTailCallNoArityLoopDefinitions,
-                DebugStackDefinitions, ListHandlerDefinitions,
+                ListHandlerDefinitions,
             },
             VmCore,
         },
@@ -166,6 +167,7 @@ pub trait FunctionToCranelift2 {
 
 macro_rules! register_function_pointers_return {
     ($($typ:ident),*) => {
+        #[cfg(target_os = "windows")]
         impl<RET, $($typ),*> FunctionToCranelift for extern "sysv64-unwind" fn(*mut VmCore, $($typ),*) -> RET {
             fn to_cranelift(&self, module: &JITModule) -> Signature {
                 let mut sig = module.make_signature();
@@ -192,7 +194,60 @@ macro_rules! register_function_pointers_return {
             }
         }
 
+
+        #[cfg(not(target_os = "windows"))]
+        impl<RET, $($typ),*> FunctionToCranelift for extern "C-unwind" fn(*mut VmCore, $($typ),*) -> RET {
+            fn to_cranelift(&self, module: &JITModule) -> Signature {
+                let mut sig = module.make_signature();
+
+                // VmCore pointer
+                sig.params
+                    .push(AbiParam::new(module.target_config().pointer_type()));
+
+                $(
+                    sig.params.push(AbiParam::new(type_to_ir_type::<$typ>()));
+                )*
+
+                let return_size = std::mem::size_of::<RET>();
+
+                if return_size != 0 {
+                    sig.returns.push(AbiParam::new(type_to_ir_type::<RET>()));
+                }
+
+                sig
+            }
+
+            fn as_pointer(&self) -> *const u8 {
+                *self as _
+            }
+        }
+
+        #[cfg(target_os = "windows")]
         impl<RET, $($typ),*> FunctionToCranelift2 for extern "sysv64-unwind" fn($($typ),*) -> RET {
+            fn to_cranelift(&self, module: &JITModule) -> Signature {
+                let mut sig = module.make_signature();
+
+                $(
+                    sig.params.push(AbiParam::new(type_to_ir_type::<$typ>()));
+                )*
+
+                let return_size = std::mem::size_of::<RET>();
+
+                if return_size != 0 {
+                    sig.returns.push(AbiParam::new(type_to_ir_type::<RET>()));
+                }
+
+                sig
+            }
+
+            fn as_pointer(&self) -> *const u8 {
+                *self as _
+            }
+        }
+
+
+        #[cfg(not(target_os = "windows"))]
+        impl<RET, $($typ),*> FunctionToCranelift2 for extern "C-unwind" fn($($typ),*) -> RET {
             fn to_cranelift(&self, module: &JITModule) -> Signature {
                 let mut sig = module.make_signature();
 
@@ -237,11 +292,6 @@ register_function_pointers_return!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, 
 
 fn type_to_ir_type<T>() -> Type {
     Type::int(std::mem::size_of::<T>() as u16 * 8).unwrap()
-}
-
-extern "sysv64-unwind" fn print_value(left: i8, right: i8) -> bool {
-    println!("{} - {}", left, right);
-    true
 }
 
 // Build table mapping the function signatures
@@ -297,6 +347,22 @@ impl PrimitiveTable {
     }
 }
 
+macro_rules! abi {
+    ($func:ident as $($tokens:tt)*) => {
+        {
+            #[cfg(target_os = "windows")]
+            {
+                $func as extern "sysv64" $($tokens)*
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                $func as extern "C-unwind" $($tokens)*
+            }
+        }
+    };
+}
+
 impl Default for JIT {
     fn default() -> Self {
         let mut flag_builder = settings::builder();
@@ -335,124 +401,108 @@ impl Default for JIT {
 
         map.add_func(
             "pair?",
-            is_pair_c_reg as extern "sysv64-unwind" fn(*mut VmCore, usize) -> SteelVal,
-        );
-
-        map.add_func2(
-            "#%print-value",
-            print_value as extern "sysv64-unwind" fn(i8, i8) -> bool,
+            abi! { is_pair_c_reg as fn(*mut VmCore, usize) -> SteelVal },
         );
 
         map.add_func(
             "if-branch",
-            if_handler_value as extern "sysv64-unwind" fn(*mut VmCore) -> bool,
+            abi! { if_handler_value as fn(*mut VmCore) -> bool },
         );
 
         map.add_func(
             "if-branch-value",
-            if_handler_raw_value as extern "sysv64-unwind" fn(*mut VmCore, i128) -> bool,
+            abi! { if_handler_raw_value as fn(*mut VmCore, i128) -> bool },
         );
 
         map.add_func(
             "if-branch-register",
-            if_handler_register as extern "sysv64-unwind" fn(*mut VmCore, u64) -> bool,
+            abi! { if_handler_register as fn(*mut VmCore, u64) -> bool },
         );
 
         map.add_func(
             "not-value",
-            not_handler_raw_value as extern "sysv64-unwind" fn(*mut VmCore, SteelVal) -> SteelVal,
+            abi! { not_handler_raw_value as fn(*mut VmCore, SteelVal) -> SteelVal },
         );
 
         map.add_func(
             "call-global",
-            callglobal_handler_deopt_c as extern "sysv64-unwind" fn(*mut VmCore) -> u8,
+            abi! { callglobal_handler_deopt_c as fn(*mut VmCore) -> u8 },
         );
 
         map.add_func(
             "call-global-tail-spilled",
-            callglobal_tail_handler_deopt_spilled
-                as extern "sysv64-unwind" fn(*mut VmCore, usize, usize, usize) -> SteelVal,
+            abi! { callglobal_tail_handler_deopt_spilled as fn(*mut VmCore, usize, usize, usize) -> SteelVal },
         );
 
         map.add_func(
             "call-global-no-arity-spilled",
-            call_global_function_deopt_no_arity_spilled
-                as extern "sysv64-unwind" fn(*mut VmCore, usize, usize, usize) -> SteelVal,
+            abi! { call_global_function_deopt_no_arity_spilled as fn(*mut VmCore, usize, usize, usize) -> SteelVal },
         );
 
         map.add_func(
             "call-global-spilled",
-            call_global_function_deopt_spilled
-                as extern "sysv64-unwind" fn(*mut VmCore, usize, usize, usize) -> SteelVal,
+            abi! { call_global_function_deopt_spilled as fn(*mut VmCore, usize, usize, usize) -> SteelVal },
         );
 
         map.add_func(
             "list-handler-spilled",
-            list_handler_c as extern "sysv64-unwind" fn(*mut VmCore, usize) -> SteelVal,
+            abi! { list_handler_c as fn(*mut VmCore, usize) -> SteelVal },
         );
 
         map.add_func(
             "vec-handler-spilled",
-            vec_handler_c as extern "sysv64-unwind" fn(*mut VmCore, usize) -> SteelVal,
+            abi! { vec_handler_c as fn(*mut VmCore, usize) -> SteelVal },
         );
 
         // Value functions:
         map.add_func(
             "num-equal-value",
-            num_equal_value
-                as extern "sysv64-unwind" fn(*mut VmCore, SteelVal, SteelVal) -> SteelVal,
+            abi! { num_equal_value as fn(*mut VmCore, SteelVal, SteelVal) -> SteelVal },
         );
 
         map.add_func2(
             "num-equal-int",
-            num_equal_int as extern "sysv64-unwind" fn(SteelVal, SteelVal) -> SteelVal,
+            abi! { num_equal_int as fn(SteelVal, SteelVal) -> SteelVal },
         );
 
         map.add_func(
             "equal-binop",
-            equal_binop as extern "sysv64-unwind" fn(*mut VmCore, SteelVal, SteelVal) -> SteelVal,
-        );
-
-        map.add_func(
-            "vm-should-continue?",
-            should_continue as extern "sysv64-unwind" fn(*mut VmCore) -> bool,
+            abi! { equal_binop as fn(*mut VmCore, SteelVal, SteelVal) -> SteelVal },
         );
 
         map.add_func(
             "num-equal-value-unboxed",
-            num_equal_value_unboxed as extern "sysv64-unwind" fn(*mut VmCore, i128, i128) -> bool,
+            abi! { num_equal_value_unboxed as fn(*mut VmCore, i128, i128) -> bool },
         );
 
         map.add_func(
             "let-end-scope-c",
-            let_end_scope_c as extern "sysv64-unwind" fn(*mut VmCore, usize),
+            abi! { let_end_scope_c as fn(*mut VmCore, usize) },
         );
 
         map.add_func(
             "drop-value",
-            drop_value as extern "sysv64-unwind" fn(*mut VmCore, SteelVal),
+            abi! { drop_value as fn(*mut VmCore, SteelVal) },
         );
 
         map.add_func(
             "pop-from-stack",
-            pop_value as extern "sysv64-unwind" fn(*mut VmCore) -> SteelVal,
+            abi! { pop_value as fn(*mut VmCore) -> SteelVal },
         );
 
         map.add_func(
             "handle-pop!",
-            extern_handle_pop as extern "sysv64-unwind" fn(*mut VmCore, SteelVal),
+            abi! { extern_handle_pop as fn(*mut VmCore, SteelVal) },
         );
 
         map.add_func(
             "new-closure",
-            handle_new_start_closure
-                as extern "sysv64-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
+            abi! {handle_new_start_closure as fn(*mut VmCore, usize, usize) -> SteelVal },
         );
 
         map.add_func(
             "pure-func",
-            handle_pure_function
-                as extern "sysv64-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
+            abi! { handle_pure_function as fn(*mut VmCore, usize, usize) -> SteelVal },
         );
 
         CallGlobalFunctionDefinitions::register(&mut map);
@@ -472,98 +522,90 @@ impl Default for JIT {
 
         CallRegisterPrimitiveFixedDefinitions::register(&mut map);
 
-        DebugStackDefinitions::register(&mut map);
-
-        map.add_func(
-            "trampoline",
-            trampoline as extern "sysv64-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
-        );
-
-        map.add_func(
-            "trampoline-no-arity",
-            trampoline_no_arity as extern "sysv64-unwind" fn(*mut VmCore, usize) -> SteelVal,
-        );
+        // DebugStackDefinitions::register(&mut map);
 
         map.add_func(
             "push-global-value",
-            push_global as extern "sysv64-unwind" fn(ctx: *mut VmCore, index: usize) -> SteelVal,
+            abi! { push_global as fn(ctx: *mut VmCore, index: usize) -> SteelVal },
         );
 
         // Check if the function at the global location is in fact the right one.
         map.add_func(
             "check-callable",
-            check_callable as extern "sysv64-unwind" fn(ctx: *mut VmCore, index: usize) -> bool,
+            abi! { check_callable as fn(ctx: *mut VmCore, index: usize) -> bool },
         );
 
         map.add_func(
             "should-spill",
-            should_spill as extern "sysv64-unwind" fn(ctx: *mut VmCore, index: usize) -> bool,
+            abi! { should_spill as fn(ctx: *mut VmCore, index: usize) -> bool },
         );
 
         map.add_func(
             "should-spill-value",
-            should_spill_value
-                as extern "sysv64-unwind" fn(ctx: *mut VmCore, value: SteelVal) -> bool,
-        );
-
-        map.add_func(
-            "check-callable-spill",
-            check_callable_spill as extern "sysv64-unwind" fn(ctx: *mut VmCore, index: usize) -> u8,
+            abi! { should_spill_value as fn(ctx: *mut VmCore, value: SteelVal) -> bool },
         );
 
         map.add_func(
             "check-callable-tail",
-            check_callable_tail
-                as extern "sysv64-unwind" fn(ctx: *mut VmCore, index: usize) -> bool,
+            abi! { check_callable_tail as fn(ctx: *mut VmCore, index: usize) -> bool },
         );
 
         map.add_func(
             "check-callable-value",
-            check_callable_value
-                as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: SteelVal) -> bool,
+            abi! { check_callable_value as fn(ctx: *mut VmCore, func: SteelVal) -> bool },
         );
 
         map.add_func(
             "check-callable-tail-value",
-            check_callable_value_tail
-                as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: SteelVal) -> bool,
+            abi! { check_callable_value_tail as fn(ctx: *mut VmCore, func: SteelVal) -> bool },
         );
 
         map.add_func(
             "push-to-vm-stack",
-            push_to_vm_stack as extern "sysv64-unwind" fn(ctx: *mut VmCore, value: SteelVal),
+            abi! { push_to_vm_stack as fn(ctx: *mut VmCore, value: SteelVal) },
         );
 
         map.add_func(
             "push-to-vm-stack-let-var",
-            push_to_vm_stack_let_var
-                as extern "sysv64-unwind" fn(ctx: *mut VmCore, value: SteelVal),
+            abi! { push_to_vm_stack_let_var as fn(ctx: *mut VmCore, value: SteelVal) },
         );
 
         map.add_func(
             "push-to-vm-stack-function-spill",
-            _push_to_vm_stack_function_spill
-                as extern "sysv64-unwind" fn(ctx: *mut VmCore, value: SteelVal),
+            abi! { _push_to_vm_stack_function_spill as fn(ctx: *mut VmCore, value: SteelVal) },
         );
 
         map.add_func(
             "push-to-vm-stack-2",
-            push_to_vm_stack_two
-                as extern "sysv64-unwind" fn(ctx: *mut VmCore, value: SteelVal, value2: SteelVal),
+            abi! { push_to_vm_stack_two as fn(ctx: *mut VmCore, value: SteelVal, value2: SteelVal) },
         );
 
-        #[allow(improper_ctypes_definitions)]
+        #[cfg(target_os = "windows")]
         type Vm01 = extern "sysv64-unwind" fn(*mut VmCore) -> SteelVal;
 
-        #[allow(improper_ctypes_definitions)]
+        #[cfg(not(target_os = "windows"))]
+        type Vm01 = extern "C-unwind" fn(*mut VmCore) -> SteelVal;
+
+        #[cfg(target_os = "windows")]
         type Vm02 = extern "sysv64-unwind" fn(*mut VmCore, SteelVal) -> SteelVal;
+        #[cfg(not(target_os = "windows"))]
+        type Vm02 = extern "C-unwind" fn(*mut VmCore, SteelVal) -> SteelVal;
 
         #[allow(improper_ctypes_definitions)]
+        #[cfg(target_os = "windows")]
         type VmBinOp =
             extern "sysv64-unwind" fn(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal;
 
+        #[cfg(not(target_os = "windows"))]
         #[allow(improper_ctypes_definitions)]
+        type VmBinOp = extern "C-unwind" fn(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal;
+
+        #[allow(improper_ctypes_definitions)]
+        #[cfg(target_os = "windows")]
         type BinOp = extern "sysv64-unwind" fn(a: SteelVal, b: SteelVal) -> SteelVal;
+        #[allow(improper_ctypes_definitions)]
+        #[cfg(not(target_os = "windows"))]
+        type BinOp = extern "C-unwind" fn(a: SteelVal, b: SteelVal) -> SteelVal;
 
         // TODO: Add type checked variants as well which can allow
         // passing through unboxed values on the stack
@@ -572,33 +614,32 @@ impl Default for JIT {
 
         map.add_func(
             "cdr-reg",
-            cdr_handler_reg as extern "sysv64-unwind" fn(*mut VmCore, usize) -> SteelVal,
+            abi! { cdr_handler_reg as fn(*mut VmCore, usize) -> SteelVal },
         );
         map.add_func(
             "cdr-mut-reg",
-            cdr_handler_mut_reg as extern "sysv64-unwind" fn(*mut VmCore, usize) -> SteelVal,
+            abi! { cdr_handler_mut_reg as fn(*mut VmCore, usize) -> SteelVal },
         );
 
         map.add_func(
             "cdr-reg-no-check",
-            cdr_handler_reg_no_check as extern "sysv64-unwind" fn(*mut VmCore, usize) -> SteelVal,
+            abi! { cdr_handler_reg_no_check as fn(*mut VmCore, usize) -> SteelVal },
         );
         map.add_func(
             "cdr-mut-reg-no-check",
-            cdr_handler_mut_reg_no_check
-                as extern "sysv64-unwind" fn(*mut VmCore, usize) -> SteelVal,
+            abi! { cdr_handler_mut_reg_no_check as fn(*mut VmCore, usize) -> SteelVal },
         );
 
         map.add_func("cons-handler-value", cons_handler_value as VmBinOp);
 
         map.add_func(
             "car-reg",
-            car_handler_reg as extern "sysv64-unwind" fn(*mut VmCore, usize) -> SteelVal,
+            abi! { car_handler_reg as fn(*mut VmCore, usize) -> SteelVal },
         );
 
         map.add_func(
             "car-reg-unchecked",
-            car_handler_reg_no_check as extern "sysv64-unwind" fn(*mut VmCore, usize) -> SteelVal,
+            abi! { car_handler_reg_no_check as fn(*mut VmCore, usize) -> SteelVal },
         );
 
         // TODO: Add type checked variants as well which can allow
@@ -611,69 +652,68 @@ impl Default for JIT {
 
         map.add_func(
             "vector-ref-reg-1",
-            vector_ref_handler_register
-                as extern "sysv64-unwind" fn(*mut VmCore, u16, SteelVal) -> SteelVal,
+            abi! { vector_ref_handler_register as fn(*mut VmCore, u16, SteelVal) -> SteelVal },
         );
 
         map.add_func(
             "vector-ref-reg-2",
-            vector_ref_handler_register_two
-                as extern "sysv64-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
+            abi! { vector_ref_handler_register_two as fn(*mut VmCore, usize, usize) -> SteelVal },
         );
 
         map.add_func(
             "vector-set-args",
-            vector_set_handler_stack
-                as extern "sysv64-unwind" fn(
+            abi! { vector_set_handler_stack
+                as fn(
                     ctx: *mut VmCore,
                     SteelVal,
                     SteelVal,
                     SteelVal,
-                ) -> SteelVal,
+                ) -> SteelVal
+            },
         );
 
         map.add_func(
             "vector-set-reg-1",
-            vector_set_handler_register_one
-                as extern "sysv64-unwind" fn(
-                    ctx: *mut VmCore,
-                    usize,
-                    SteelVal,
-                    SteelVal,
-                ) -> SteelVal,
+            abi! { vector_set_handler_register_one
+            as fn(
+                ctx: *mut VmCore,
+                usize,
+                SteelVal,
+                SteelVal,
+            ) -> SteelVal },
         );
 
         map.add_func(
             "vector-set-reg-2",
-            vector_set_handler_register_two
-                as extern "sysv64-unwind" fn(ctx: *mut VmCore, usize, usize, SteelVal) -> SteelVal,
+            abi! { vector_set_handler_register_two
+            as fn(ctx: *mut VmCore, usize, usize, SteelVal) -> SteelVal },
         );
 
         map.add_func(
             "vector-set-reg-3",
-            vector_set_handler_register_three
-                as extern "sysv64-unwind" fn(ctx: *mut VmCore, usize, usize, usize) -> SteelVal,
+            abi! { vector_set_handler_register_three
+            as fn(ctx: *mut VmCore, usize, usize, usize) -> SteelVal },
         );
 
         map.add_func(
             "eq?-reg-2",
-            eq_reg_2 as extern "sysv64-unwind" fn(ctx: *mut VmCore, usize, usize) -> bool,
+            abi! { eq_reg_2 as fn(ctx: *mut VmCore, usize, usize) -> bool },
         );
 
         map.add_func(
             "eq?-reg-1",
-            eq_reg_1 as extern "sysv64-unwind" fn(ctx: *mut VmCore, usize, SteelVal) -> bool,
+            abi! { eq_reg_1 as fn(ctx: *mut VmCore, usize, SteelVal) -> bool },
         );
 
         map.add_func2(
             "eq?-args",
-            eq_value as extern "sysv64-unwind" fn(SteelVal, SteelVal) -> bool,
+            abi! { eq_value as fn(SteelVal, SteelVal) -> bool },
         );
 
         map.add_func("push-const", push_const_value_c as Vm01);
         map.add_func(
             "push-const-index",
-            push_const_value_index_c as extern "sysv64-unwind" fn(*mut VmCore, usize) -> SteelVal,
+            abi! { push_const_value_index_c as fn(*mut VmCore, usize) -> SteelVal },
         );
 
         map.add_func_hint(
@@ -684,35 +724,35 @@ impl Default for JIT {
 
         map.add_func_hint(
             "add-three",
-            extern_c_add_three
-                as extern "sysv64-unwind" fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal,
+            abi! { extern_c_add_three
+            as fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal },
             InferredType::Number,
         );
 
         map.add_func_hint(
             "add-four",
-            extern_c_add_four
-                as extern "sysv64-unwind" fn(
-                    *mut VmCore,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                    SteelVal,
-                ) -> SteelVal,
+            abi! { extern_c_add_four
+            as fn(
+                *mut VmCore,
+                SteelVal,
+                SteelVal,
+                SteelVal,
+                SteelVal,
+            ) -> SteelVal },
             InferredType::Number,
         );
 
         map.add_func_hint(
             "add-binop-reg",
-            extern_c_add_two_binop_register
-                as extern "sysv64-unwind" fn(*mut VmCore, usize, SteelVal) -> SteelVal,
+            abi! { extern_c_add_two_binop_register
+            as  fn(*mut VmCore, usize, SteelVal) -> SteelVal },
             InferredType::Number,
         );
 
         map.add_func_hint(
             "add-binop-reg-2",
-            extern_c_add_two_binop_register_both
-                as extern "sysv64-unwind" fn(*mut VmCore, usize, usize) -> SteelVal,
+            abi! { extern_c_add_two_binop_register_both
+            as fn(*mut VmCore, usize, usize) -> SteelVal },
             InferredType::Number,
         );
 
@@ -724,7 +764,7 @@ impl Default for JIT {
 
         map.add_func_hint(
             "sub-negate",
-            extern_c_negate as extern "sysv64-unwind" fn(ctx: *mut VmCore, a: SteelVal) -> SteelVal,
+            abi! { extern_c_negate as fn(ctx: *mut VmCore, a: SteelVal) -> SteelVal },
             InferredType::Number,
         );
 
@@ -736,8 +776,8 @@ impl Default for JIT {
 
         map.add_func_hint(
             "sub-binop-int-reg",
-            extern_c_sub_two_int_reg
-                as extern "sysv64-unwind" fn(*mut VmCore, usize, SteelVal) -> SteelVal,
+            abi! { extern_c_sub_two_int_reg
+            as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
             InferredType::Number,
         );
 
@@ -759,7 +799,7 @@ impl Default for JIT {
 
         map.add_func_hint2(
             "null-handler",
-            extern_c_null_handler as extern "sysv64-unwind" fn(a: SteelVal) -> SteelVal,
+            abi! { extern_c_null_handler as fn(a: SteelVal) -> SteelVal },
             InferredType::Bool,
         );
 
@@ -773,15 +813,15 @@ impl Default for JIT {
 
         map.add_func_hint(
             "mult-three",
-            extern_c_mult_three
-                as extern "sysv64-unwind" fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal,
+            abi! { extern_c_mult_three
+            as fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal },
             InferredType::Number,
         );
 
         map.add_func_hint(
             "sub-three",
-            extern_c_sub_three
-                as extern "sysv64-unwind" fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal,
+            abi! { extern_c_sub_three
+            as fn(*mut VmCore, SteelVal, SteelVal, SteelVal) -> SteelVal },
             InferredType::Number,
         );
 
@@ -794,19 +834,19 @@ impl Default for JIT {
         map.add_func("read-local-3", read_local_3_value_c as Vm01);
         map.add_func(
             "set-local-any",
-            set_local_any_c as extern "sysv64-unwind" fn(*mut VmCore, usize, SteelVal) -> SteelVal,
+            abi! { set_local_any_c as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
         );
 
         map.add_func(
             "read-local-any",
-            read_local_any_value_c
-                as extern "sysv64-unwind" fn(ctx: *mut VmCore, lookup_index: usize) -> SteelVal,
+            abi! { read_local_any_value_c
+            as fn(ctx: *mut VmCore, lookup_index: usize) -> SteelVal },
         );
 
         map.add_func(
             "read-captured",
-            read_captured_c
-                as extern "sysv64-unwind" fn(ctx: *mut VmCore, index: usize) -> SteelVal,
+            abi! { read_captured_c
+            as fn(ctx: *mut VmCore, index: usize) -> SteelVal },
         );
 
         map.add_func("move-read-local-0", move_read_local_0_value_c as Vm01);
@@ -816,28 +856,28 @@ impl Default for JIT {
 
         map.add_func(
             "move-read-local-any",
-            move_read_local_any_value_c
-                as extern "sysv64-unwind" fn(ctx: *mut VmCore, lookup_index: usize) -> SteelVal,
+            abi! { move_read_local_any_value_c
+            as fn(ctx: *mut VmCore, lookup_index: usize) -> SteelVal },
         );
 
         map.add_func(
             "self-tail-call",
-            self_tail_call_handler as extern "sysv64-unwind" fn(*mut VmCore, usize),
+            abi! { self_tail_call_handler as fn(*mut VmCore, usize) },
         );
 
         map.add_func(
             "self-tail-call-loop",
-            self_tail_call_handler_loop as extern "sysv64-unwind" fn(*mut VmCore, usize),
+            abi! { self_tail_call_handler_loop as fn(*mut VmCore, usize) },
         );
 
         map.add_func(
             "tco-jump",
-            tcojmp_handler as extern "sysv64-unwind" fn(*mut VmCore, usize),
+            abi! { tcojmp_handler as fn(*mut VmCore, usize) },
         );
 
         map.add_func(
             "set-handler",
-            set_handler_c as extern "sysv64-unwind" fn(*mut VmCore, usize, SteelVal) -> SteelVal,
+            abi! { set_handler_c as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
         );
 
         let function_map = OwnedFunctionMap {
@@ -4067,16 +4107,6 @@ impl FunctionTranslator<'_> {
         let ctx = self.get_ctx();
         let call = self.builder.ins().call(local_callee, &[ctx, callable]);
         let result = self.builder.inst_results(call)[0];
-        return result;
-    }
-
-    fn _check_call_spill(&mut self, index: Value) -> Value {
-        let name = "check-callable-spill";
-        let local_callee = self.get_local_callee(name);
-        let ctx = self.get_ctx();
-        let call = self.builder.ins().call(local_callee, &[ctx, index]);
-        let result = self.builder.inst_results(call)[0];
-
         return result;
     }
 

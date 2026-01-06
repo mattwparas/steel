@@ -2,6 +2,7 @@
 
 use std::mem::ManuallyDrop;
 
+use steel_derive::cross_platform_fn;
 use steel_gen::opcode::{MAX_OPCODE_SIZE, OPCODES_ARRAY};
 
 use super::VmCore;
@@ -203,7 +204,14 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
 
 pub static C_HANDLERS: [OpHandlerC; MAX_OPCODE_SIZE] = initialize_handlers();
 
+// Windows: "sysv64-unwind"
+// Everything else: "C-unwind"
+
+#[cfg(target_os = "windows")]
 pub type OpHandlerC = extern "sysv64-unwind" fn(*mut VmCore) -> bool;
+
+#[cfg(not(target_os = "windows"))]
+pub type OpHandlerC = extern "C-unwind" fn(*mut VmCore) -> bool;
 
 const fn initialize_handlers() -> [OpHandlerC; MAX_OPCODE_SIZE] {
     let mut ops = [unhandled_handler_impl_c as _; MAX_OPCODE_SIZE];
@@ -300,12 +308,8 @@ const fn initialize_handlers() -> [OpHandlerC; MAX_OPCODE_SIZE] {
     ops
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn set_handler_c(
-    ctx: *mut VmCore,
-    index: usize,
-    value_to_assign: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn set_handler_c(ctx: *mut VmCore, index: usize, value_to_assign: SteelVal) -> SteelVal {
     let this = unsafe { &mut *ctx };
     let value = if this.thread.safepoints_enabled {
         #[cfg(feature = "sync")]
@@ -326,24 +330,19 @@ pub extern "sysv64-unwind" fn set_handler_c(
     value
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn drop_value(ctx: *mut VmCore, arg: SteelVal) {
+#[cross_platform_fn]
+fn drop_value(ctx: *mut VmCore, arg: SteelVal) {
     unsafe { &mut *ctx }.ip += 1;
     drop(arg);
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn pop_value(ctx: *mut VmCore) -> SteelVal {
-    // println!("Popping value from vm stack for patching");
-    // println!(
-    //     "Stack at this point: {:?}",
-    //     unsafe { &mut *ctx }.thread.stack
-    // );
+#[cross_platform_fn]
+fn pop_value(ctx: *mut VmCore) -> SteelVal {
     unsafe { &mut *ctx }.thread.stack.pop().unwrap()
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn car_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
+#[cross_platform_fn]
+fn car_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     unsafe { &mut *ctx }.ip += 2;
     match car(&arg) {
         Ok(v) => v,
@@ -359,8 +358,8 @@ pub extern "sysv64-unwind" fn car_handler_value(ctx: *mut VmCore, arg: SteelVal)
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn car_handler_reg(ctx: *mut VmCore, reg: usize) -> SteelVal {
+#[cross_platform_fn]
+fn car_handler_reg(ctx: *mut VmCore, reg: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
     guard.ip += 2;
 
@@ -381,20 +380,16 @@ pub extern "sysv64-unwind" fn car_handler_reg(ctx: *mut VmCore, reg: usize) -> S
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn car_handler_reg_no_check(ctx: *mut VmCore, reg: usize) -> SteelVal {
+#[cross_platform_fn]
+fn car_handler_reg_no_check(ctx: *mut VmCore, reg: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
     let offset = guard.get_offset();
     let arg = &guard.thread.stack[offset + reg];
     unsafe { crate::primitives::lists::unchecked_car(&arg) }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn list_ref_handler_c(
-    ctx: *mut VmCore,
-    list: SteelVal,
-    index: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn list_ref_handler_c(ctx: *mut VmCore, list: SteelVal, index: SteelVal) -> SteelVal {
     fn inner_list_ref(list: SteelVal, index: SteelVal) -> Result<SteelVal> {
         if let SteelVal::ListV(l) = list {
             if let SteelVal::IntV(i) = index {
@@ -421,20 +416,16 @@ pub extern "sysv64-unwind" fn list_ref_handler_c(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn is_pair_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
+#[cross_platform_fn]
+fn is_pair_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
     let offset = guard.get_offset();
     let value = &guard.thread.stack[offset + register];
     SteelVal::BoolV(crate::primitives::lists::pair(value))
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn vector_ref_handler_c(
-    ctx: *mut VmCore,
-    vec: SteelVal,
-    index: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn vector_ref_handler_c(ctx: *mut VmCore, vec: SteelVal, index: SteelVal) -> SteelVal {
     match vec_ref(&vec, &index) {
         Ok(v) => v,
         Err(e) => {
@@ -449,12 +440,8 @@ pub extern "sysv64-unwind" fn vector_ref_handler_c(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn vector_ref_handler_register(
-    ctx: *mut VmCore,
-    vec_reg: u16,
-    index: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn vector_ref_handler_register(ctx: *mut VmCore, vec_reg: u16, index: SteelVal) -> SteelVal {
     let guard = unsafe { &mut *ctx };
 
     let offset = guard.get_offset();
@@ -471,12 +458,8 @@ pub extern "sysv64-unwind" fn vector_ref_handler_register(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn vector_ref_handler_register_two(
-    ctx: *mut VmCore,
-    vec_reg: usize,
-    index: usize,
-) -> SteelVal {
+#[cross_platform_fn]
+fn vector_ref_handler_register_two(ctx: *mut VmCore, vec_reg: usize, index: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
 
     let offset = guard.get_offset();
@@ -494,9 +477,8 @@ pub extern "sysv64-unwind" fn vector_ref_handler_register_two(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn eq_reg_2(ctx: *mut VmCore, left: usize, right: usize) -> bool {
-    // println!("calling eq reg 2");
+#[cross_platform_fn]
+fn eq_reg_2(ctx: *mut VmCore, left: usize, right: usize) -> bool {
     let guard = unsafe { &mut *ctx };
     let offset = guard.get_offset();
     let l = &guard.thread.stack[left + offset];
@@ -505,24 +487,21 @@ pub extern "sysv64-unwind" fn eq_reg_2(ctx: *mut VmCore, left: usize, right: usi
     l.ptr_eq(r)
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn eq_reg_1(ctx: *mut VmCore, left: usize, right: SteelVal) -> bool {
-    // println!("calling eq reg 1");
+#[cross_platform_fn]
+fn eq_reg_1(ctx: *mut VmCore, left: usize, right: SteelVal) -> bool {
     let guard = unsafe { &mut *ctx };
     let offset = guard.get_offset();
     let l = &guard.thread.stack[left + offset];
-
     l.ptr_eq(&right)
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn eq_value(left: SteelVal, right: SteelVal) -> bool {
-    // println!("calling eq value");
+#[cross_platform_fn]
+fn eq_value(left: SteelVal, right: SteelVal) -> bool {
     left.ptr_eq(&right)
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn vector_set_handler_stack(
+#[cross_platform_fn]
+fn vector_set_handler_stack(
     ctx: *mut VmCore,
     vec_reg: SteelVal,
     index: SteelVal,
@@ -540,8 +519,8 @@ pub extern "sysv64-unwind" fn vector_set_handler_stack(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn vector_set_handler_register_one(
+#[cross_platform_fn]
+fn vector_set_handler_register_one(
     ctx: *mut VmCore,
     vec_reg: usize,
     index: SteelVal,
@@ -577,8 +556,8 @@ pub extern "sysv64-unwind" fn vector_set_handler_register_one(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn vector_set_handler_register_three(
+#[cross_platform_fn]
+fn vector_set_handler_register_three(
     ctx: *mut VmCore,
     vec_reg: usize,
     index: usize,
@@ -615,8 +594,8 @@ pub extern "sysv64-unwind" fn vector_set_handler_register_three(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn vector_set_handler_register_two(
+#[cross_platform_fn]
+fn vector_set_handler_register_two(
     ctx: *mut VmCore,
     vec_reg: usize,
     index: usize,
@@ -653,8 +632,8 @@ pub extern "sysv64-unwind" fn vector_set_handler_register_two(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn box_handler_c(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
+#[cross_platform_fn]
+fn box_handler_c(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     let this = unsafe { &mut *ctx };
 
     let allocated_var = this.thread.heap.lock().allocate(
@@ -669,8 +648,8 @@ pub extern "sysv64-unwind" fn box_handler_c(ctx: *mut VmCore, arg: SteelVal) -> 
     SteelVal::HeapAllocated(allocated_var)
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn unbox_handler_c(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
+#[cross_platform_fn]
+fn unbox_handler_c(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     let this = unsafe { &mut *ctx };
 
     if let SteelVal::HeapAllocated(h) = arg {
@@ -684,12 +663,8 @@ pub extern "sysv64-unwind" fn unbox_handler_c(ctx: *mut VmCore, arg: SteelVal) -
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn setbox_handler_c(
-    ctx: *mut VmCore,
-    arg: SteelVal,
-    value: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn setbox_handler_c(ctx: *mut VmCore, arg: SteelVal, value: SteelVal) -> SteelVal {
     let this = unsafe { &mut *ctx };
 
     if let SteelVal::HeapAllocated(h) = arg {
@@ -703,12 +678,8 @@ pub extern "sysv64-unwind" fn setbox_handler_c(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn cons_handler_value(
-    ctx: *mut VmCore,
-    mut arg: SteelVal,
-    mut arg2: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn cons_handler_value(ctx: *mut VmCore, mut arg: SteelVal, mut arg2: SteelVal) -> SteelVal {
     // let mut arg = ManuallyDrop::new(arg);
     // let mut arg2 = ManuallyDrop::new(arg2);
 
@@ -736,8 +707,8 @@ pub extern "sysv64-unwind" fn cons_handler_value(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn cdr_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
+#[cross_platform_fn]
+fn cdr_handler_value(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     unsafe { &mut *ctx }.ip += 2;
     let mut arg = arg;
 
@@ -755,8 +726,8 @@ pub extern "sysv64-unwind" fn cdr_handler_value(ctx: *mut VmCore, arg: SteelVal)
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn cdr_handler_reg(ctx: *mut VmCore, arg: usize) -> SteelVal {
+#[cross_platform_fn]
+fn cdr_handler_reg(ctx: *mut VmCore, arg: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
 
     let offset = guard.get_offset();
@@ -773,8 +744,8 @@ pub extern "sysv64-unwind" fn cdr_handler_reg(ctx: *mut VmCore, arg: usize) -> S
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn cdr_handler_mut_reg(ctx: *mut VmCore, arg: usize) -> SteelVal {
+#[cross_platform_fn]
+fn cdr_handler_mut_reg(ctx: *mut VmCore, arg: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
 
     let offset = guard.get_offset();
@@ -794,8 +765,8 @@ pub extern "sysv64-unwind" fn cdr_handler_mut_reg(ctx: *mut VmCore, arg: usize) 
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn cdr_handler_reg_no_check(ctx: *mut VmCore, arg: usize) -> SteelVal {
+#[cross_platform_fn]
+fn cdr_handler_reg_no_check(ctx: *mut VmCore, arg: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
 
     let offset = guard.get_offset();
@@ -804,11 +775,8 @@ pub extern "sysv64-unwind" fn cdr_handler_reg_no_check(ctx: *mut VmCore, arg: us
     unsafe { cdr_no_check(&mut arg) }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn cdr_handler_mut_reg_no_check(
-    ctx: *mut VmCore,
-    arg: usize,
-) -> SteelVal {
+#[cross_platform_fn]
+fn cdr_handler_mut_reg_no_check(ctx: *mut VmCore, arg: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
 
     let offset = guard.get_offset();
@@ -819,7 +787,13 @@ pub extern "sysv64-unwind" fn cdr_handler_mut_reg_no_check(
 
 macro_rules! extern_c {
     ($func:expr, $name:tt) => {
+        #[cfg(target_os = "windows")]
         extern "sysv64-unwind" fn $name(ctx: *mut VmCore) -> bool {
+            unsafe { $func(&mut *ctx).is_ok() }
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        extern "C-unwind" fn $name(ctx: *mut VmCore) -> bool {
             unsafe { $func(&mut *ctx).is_ok() }
         }
     };
@@ -1504,12 +1478,13 @@ fn loadint2_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     Ok(())
 }
 
-pub(crate) extern "sysv64-unwind" fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> u8 {
+#[cross_platform_fn]
+fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> u8 {
     unsafe { callglobal_handler_deopt(&mut *ctx) }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn extern_handle_pop(ctx: *mut VmCore, value: SteelVal) {
+#[cross_platform_fn]
+fn extern_handle_pop(ctx: *mut VmCore, value: SteelVal) {
     // println!("Calling pop from jit: {}", value);
     unsafe {
         let this = &mut *ctx;
@@ -1542,12 +1517,8 @@ fn callglobal_handler_deopt(ctx: &mut VmCore) -> u8 {
 }
 
 // Equality... via the usual scheme? Otherwise this is gonna be an issue?
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn num_equal_value(
-    ctx: *mut VmCore,
-    left: SteelVal,
-    right: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn num_equal_value(ctx: *mut VmCore, left: SteelVal, right: SteelVal) -> SteelVal {
     // println!("GETTING TO NUM EQUAL VALUE: {} - {}", left, right,);
     let guard = unsafe { &mut *ctx };
 
@@ -1562,12 +1533,8 @@ pub(crate) extern "sysv64-unwind" fn num_equal_value(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn num_equal_int(
-    // _: *mut VmCore,
-    left: SteelVal,
-    right: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn num_equal_int(left: SteelVal, right: SteelVal) -> SteelVal {
     // println!("GETTING TO NUM EQUAL VALUE: {} - {}", left, right,);
     // unsafe { &mut *ctx }.ip += 2;
 
@@ -1580,22 +1547,13 @@ pub(crate) extern "sysv64-unwind" fn num_equal_int(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn equal_binop(
-    _ctx: *mut VmCore,
-    left: SteelVal,
-    right: SteelVal,
-) -> SteelVal {
-    // println!("Calling equal binop: {} - {}", left, right);
-
+#[cross_platform_fn]
+fn equal_binop(_ctx: *mut VmCore, left: SteelVal, right: SteelVal) -> SteelVal {
     SteelVal::BoolV(left == right)
 }
 
-pub(crate) extern "sysv64-unwind" fn num_equal_value_unboxed(
-    _ctx: *mut VmCore,
-    left: i128,
-    right: i128,
-) -> bool {
+#[cross_platform_fn]
+fn num_equal_value_unboxed(_ctx: *mut VmCore, left: i128, right: i128) -> bool {
     // println!("Calling num equal value");
 
     unsafe {
@@ -1611,16 +1569,8 @@ pub(crate) extern "sysv64-unwind" fn num_equal_value_unboxed(
 
 macro_rules! extern_binop {
     ($name:tt, $func:tt) => {
-        #[allow(improper_ctypes_definitions)]
-        pub(crate) extern "sysv64-unwind" fn $name(
-            _ctx: *mut VmCore,
-            a: SteelVal,
-            b: SteelVal,
-        ) -> SteelVal {
-            // println!("Calling with args: {} - {}", a, b);
-            // unsafe { println!("Current stack: {:#?}", (&mut *ctx).thread.stack) };
-
-            // unsafe { (&mut *ctx).ip += 2 };
+        #[cross_platform_fn]
+        fn $name(_ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
             $func(&[a, b]).unwrap()
         }
     };
@@ -1672,12 +1622,8 @@ impl<'a> VmCore<'a> {
 
 // Set up these for doing each of the handlers
 // extern_binop!(extern_c_add_two, add_primitive);
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn extern_c_add_two(
-    ctx: *mut VmCore,
-    a: SteelVal,
-    b: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn extern_c_add_two(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
     // println!("Calling add with: {} - {}", a, b);
 
     // let a = ManuallyDrop::new(a);
@@ -1696,12 +1642,8 @@ pub(crate) extern "sysv64-unwind" fn extern_c_add_two(
     }
 }
 
-pub(crate) extern "sysv64-unwind" fn extern_c_add_three(
-    ctx: *mut VmCore,
-    a: SteelVal,
-    b: SteelVal,
-    c: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn extern_c_add_three(ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
     // println!("Calling add with: {} - {}", a, b);
 
     // let a = ManuallyDrop::new(a);
@@ -1720,12 +1662,8 @@ pub(crate) extern "sysv64-unwind" fn extern_c_add_three(
     }
 }
 
-pub(crate) extern "sysv64-unwind" fn extern_c_mult_three(
-    ctx: *mut VmCore,
-    a: SteelVal,
-    b: SteelVal,
-    c: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn extern_c_mult_three(ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
     // println!("Calling add with: {} - {}", a, b);
 
     // let a = ManuallyDrop::new(a);
@@ -1744,12 +1682,8 @@ pub(crate) extern "sysv64-unwind" fn extern_c_mult_three(
     }
 }
 
-pub(crate) extern "sysv64-unwind" fn extern_c_sub_three(
-    ctx: *mut VmCore,
-    a: SteelVal,
-    b: SteelVal,
-    c: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn extern_c_sub_three(ctx: *mut VmCore, a: SteelVal, b: SteelVal, c: SteelVal) -> SteelVal {
     // println!("Calling add with: {} - {}", a, b);
 
     // let a = ManuallyDrop::new(a);
@@ -1768,7 +1702,8 @@ pub(crate) extern "sysv64-unwind" fn extern_c_sub_three(
     }
 }
 
-pub(crate) extern "sysv64-unwind" fn extern_c_add_four(
+#[cross_platform_fn]
+fn extern_c_add_four(
     ctx: *mut VmCore,
     a: SteelVal,
     b: SteelVal,
@@ -1796,12 +1731,8 @@ pub(crate) extern "sysv64-unwind" fn extern_c_add_four(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn extern_c_add_two_binop_register(
-    ctx: *mut VmCore,
-    reg: usize,
-    b: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn extern_c_add_two_binop_register(ctx: *mut VmCore, reg: usize, b: SteelVal) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
     let offset = ctx.get_offset();
     let a = &ctx.thread.stack[reg + offset];
@@ -1816,12 +1747,8 @@ pub(crate) extern "sysv64-unwind" fn extern_c_add_two_binop_register(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn extern_c_add_two_binop_register_both(
-    ctx: *mut VmCore,
-    reg1: usize,
-    reg2: usize,
-) -> SteelVal {
+#[cross_platform_fn]
+fn extern_c_add_two_binop_register_both(ctx: *mut VmCore, reg1: usize, reg2: usize) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
     let offset = ctx.get_offset();
     let a = &ctx.thread.stack[reg1 + offset];
@@ -1855,12 +1782,8 @@ pub(crate) extern "sysv64-unwind" fn extern_c_add_two_binop_register_both(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn extern_c_sub_two_int_reg(
-    ctx: *mut VmCore,
-    reg: usize,
-    b: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn extern_c_sub_two_int_reg(ctx: *mut VmCore, reg: usize, b: SteelVal) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
     // let a = ManuallyDrop::new(a);
     let rhs = if let SteelVal::IntV(i) = b {
@@ -1889,8 +1812,8 @@ pub(crate) extern "sysv64-unwind" fn extern_c_sub_two_int_reg(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn extern_c_sub_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
+#[cross_platform_fn]
+fn extern_c_sub_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
     // let a = ManuallyDrop::new(a);
     let rhs = if let SteelVal::IntV(i) = b {
         i
@@ -1915,8 +1838,8 @@ pub(crate) extern "sysv64-unwind" fn extern_c_sub_two_int(a: SteelVal, b: SteelV
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn extern_c_negate(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
+#[cross_platform_fn]
+fn extern_c_negate(ctx: *mut VmCore, arg: SteelVal) -> SteelVal {
     match crate::primitives::numbers::negate(&arg) {
         Ok(v) => v,
         Err(e) => {
@@ -1935,12 +1858,8 @@ extern_binop!(extern_c_sub_two, subtract_primitive);
 // extern_binop!(extern_c_lt_two, lt_primitive);
 // extern_binop!(extern_c_lte_two, lte_primitive);
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn extern_c_lte_two(
-    _ctx: *mut VmCore,
-    a: SteelVal,
-    b: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn extern_c_lte_two(_ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
     // println!("lte two - {} <= {}", a, b);
 
     // let a = ManuallyDrop::new(a);
@@ -1948,12 +1867,8 @@ pub(crate) extern "sysv64-unwind" fn extern_c_lte_two(
     SteelVal::BoolV(a <= b)
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn extern_c_lt_two(
-    _ctx: *mut VmCore,
-    a: SteelVal,
-    b: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn extern_c_lt_two(_ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
     // println!("lte two - {} <= {}", a, b);
 
     // let a = ManuallyDrop::new(a);
@@ -1961,20 +1876,20 @@ pub(crate) extern "sysv64-unwind" fn extern_c_lt_two(
     SteelVal::BoolV(a < b)
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn extern_c_lte_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
+#[cross_platform_fn]
+fn extern_c_lte_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
     assert!(matches!(b, SteelVal::IntV(_)));
     SteelVal::BoolV(a <= b)
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn extern_c_lt_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
+#[cross_platform_fn]
+fn extern_c_lt_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
     assert!(matches!(b, SteelVal::IntV(_)));
     SteelVal::BoolV(a < b)
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn extern_c_null_handler(a: SteelVal) -> SteelVal {
+#[cross_platform_fn]
+fn extern_c_null_handler(a: SteelVal) -> SteelVal {
     let result = match a {
         SteelVal::ListV(l) => l.is_empty(),
         SteelVal::VectorV(v) => v.is_empty(),
@@ -1994,89 +1909,76 @@ extern_binop!(extern_c_gte_two, gte_primitive);
 extern_binop!(extern_c_mult_two, multiply_primitive);
 extern_binop!(extern_c_div_two, divide_primitive);
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn push_const_value_c(ctx: *mut VmCore) -> SteelVal {
+#[cross_platform_fn]
+fn push_const_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).get_const() }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn push_const_value_index_c(
-    ctx: *mut VmCore,
-    index: usize,
-) -> SteelVal {
+#[cross_platform_fn]
+fn push_const_value_index_c(ctx: *mut VmCore, index: usize) -> SteelVal {
     unsafe { (&mut *ctx).get_const_index(index) }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn move_read_local_0_value_c(ctx: *mut VmCore) -> SteelVal {
+#[cross_platform_fn]
+fn move_read_local_0_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).move_local_value(0) }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn move_read_local_1_value_c(ctx: *mut VmCore) -> SteelVal {
+#[cross_platform_fn]
+fn move_read_local_1_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).move_local_value(1) }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn move_read_local_2_value_c(ctx: *mut VmCore) -> SteelVal {
+#[cross_platform_fn]
+fn move_read_local_2_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).move_local_value(2) }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn move_read_local_3_value_c(ctx: *mut VmCore) -> SteelVal {
+#[cross_platform_fn]
+fn move_read_local_3_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).move_local_value(3) }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn move_read_local_any_value_c(
-    ctx: *mut VmCore,
-    offset: usize,
-) -> SteelVal {
+#[cross_platform_fn]
+fn move_read_local_any_value_c(ctx: *mut VmCore, offset: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
     guard.move_local_value(offset)
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn read_local_0_value_c(ctx: *mut VmCore) -> SteelVal {
+#[cross_platform_fn]
+fn read_local_0_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).get_local_value(0) }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn read_local_1_value_c(ctx: *mut VmCore) -> SteelVal {
+#[cross_platform_fn]
+fn read_local_1_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).get_local_value(1) }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn read_local_2_value_c(ctx: *mut VmCore) -> SteelVal {
+#[cross_platform_fn]
+fn read_local_2_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).get_local_value(2) }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn read_local_3_value_c(ctx: *mut VmCore) -> SteelVal {
+#[cross_platform_fn]
+fn read_local_3_value_c(ctx: *mut VmCore) -> SteelVal {
     unsafe { (&mut *ctx).get_local_value(3) }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn read_local_any_value_c(
-    ctx: *mut VmCore,
-    offset: usize,
-) -> SteelVal {
+#[cross_platform_fn]
+fn read_local_any_value_c(ctx: *mut VmCore, offset: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
     guard.get_local_value(offset)
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn set_local_any_c(
-    ctx: *mut VmCore,
-    offset: usize,
-    value: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn set_local_any_c(ctx: *mut VmCore, offset: usize, value: SteelVal) -> SteelVal {
     let guard = unsafe { &mut *ctx };
     guard.handle_set_local_value(offset, value)
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn read_captured_c(ctx: *mut VmCore, index: usize) -> SteelVal {
+#[cross_platform_fn]
+fn read_captured_c(ctx: *mut VmCore, index: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
 
     guard
@@ -2090,8 +1992,8 @@ pub(crate) extern "sysv64-unwind" fn read_captured_c(ctx: *mut VmCore, index: us
 }
 
 // Read the global value at the registered index
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn push_global(ctx: *mut VmCore, index: usize) -> SteelVal {
+#[cross_platform_fn]
+fn push_global(ctx: *mut VmCore, index: usize) -> SteelVal {
     unsafe {
         let this = &mut *ctx;
         this.thread.global_env.repl_lookup_idx(index)
@@ -2165,8 +2067,8 @@ fn new_callglobal_tail_handler_deopt_test(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn callglobal_tail_handler_deopt_spilled(
+#[cross_platform_fn]
+fn callglobal_tail_handler_deopt_spilled(
     ctx: *mut VmCore,
     index: usize,
     fallback_ip: usize,
@@ -2454,27 +2356,24 @@ pub(crate) extern "sysv64-unwind" fn should_continue(ctx: *mut VmCore) -> bool {
     dbg!(unsafe { &mut *ctx }.is_native)
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn push_to_vm_stack(ctx: *mut VmCore, value: SteelVal) {
+#[cross_platform_fn]
+fn push_to_vm_stack(ctx: *mut VmCore, value: SteelVal) {
     // println!("Pushing to vm stack cloned: {}", value);
     unsafe {
         (&mut *ctx).thread.stack.push(value);
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn _push_to_vm_stack_function_spill(
-    ctx: *mut VmCore,
-    value: SteelVal,
-) {
+#[cross_platform_fn]
+fn _push_to_vm_stack_function_spill(ctx: *mut VmCore, value: SteelVal) {
     // println!("Pushing to vm stack in function call spill: {}", value);
     unsafe {
         (&mut *ctx).thread.stack.push(value);
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn push_to_vm_stack_let_var(ctx: *mut VmCore, value: SteelVal) {
+#[cross_platform_fn]
+fn push_to_vm_stack_let_var(ctx: *mut VmCore, value: SteelVal) {
     // println!("Pushing to vm stack in spill: {}", value);
     // println!(
     //     "stack before pushing: {:#?}",
@@ -2485,12 +2384,8 @@ pub(crate) extern "sysv64-unwind" fn push_to_vm_stack_let_var(ctx: *mut VmCore, 
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn push_to_vm_stack_two(
-    ctx: *mut VmCore,
-    value: SteelVal,
-    value2: SteelVal,
-) {
+#[cross_platform_fn]
+fn push_to_vm_stack_two(ctx: *mut VmCore, value: SteelVal, value2: SteelVal) {
     unsafe {
         let guard = &mut *ctx;
         guard.thread.stack.reserve_exact(2);
@@ -2505,7 +2400,9 @@ pub(crate) extern "sysv64-unwind" fn push_to_vm_stack_two(
 //
 // We could have it so that we don't remove the last value?
 // Or pass in the
-pub(crate) extern "sysv64-unwind" fn let_end_scope_c(ctx: *mut VmCore, beginning_scope: usize) {
+
+#[cross_platform_fn]
+fn let_end_scope_c(ctx: *mut VmCore, beginning_scope: usize) {
     let ctx = unsafe { &mut *ctx };
     let offset = ctx.get_offset();
 
@@ -2529,9 +2426,17 @@ macro_rules! make_call_global_function_tail_deopt {
         impl CallGlobalTailFunctionDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
+                    #[cfg(target_os = "windows")]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
                 )*
             }
@@ -2556,9 +2461,8 @@ macro_rules! make_call_global_function_tail_deopt {
         }
 
         $(
-
-            #[allow(improper_ctypes_definitions)]
-            pub(crate) extern "sysv64-unwind" fn $name(
+            #[cross_platform_fn]
+            fn $name(
                 ctx: *mut VmCore,
                 lookup_index: usize,
                 fallback_ip: usize,
@@ -2566,7 +2470,6 @@ macro_rules! make_call_global_function_tail_deopt {
             ) -> SteelVal {
                 unsafe { new_callglobal_tail_handler_deopt_test(&mut *ctx, lookup_index, fallback_ip, &mut [$($typ), *]) }
             }
-
         )*
     };
 }
@@ -2667,9 +2570,17 @@ macro_rules! make_list_handlers {
         impl ListHandlerDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
+                    #[cfg(target_os = "windows")]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(*mut VmCore, $($typ: SteelVal),*) -> SteelVal
+                    );
+
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(*mut VmCore, $($typ: SteelVal),*) -> SteelVal
                     );
                 )*
             }
@@ -2694,14 +2605,11 @@ macro_rules! make_list_handlers {
         }
 
         $(
-
-            #[allow(improper_ctypes_definitions)]
-            pub(crate) extern "sysv64-unwind" fn $name(
+            #[cross_platform_fn]
+            fn $name(
                 _: *mut VmCore,
                 $($typ: SteelVal),*
             ) -> SteelVal {
-                // unsafe { new_callglobal_tail_handler_deopt_test(&mut *ctx, lookup_index, fallback_ip, &mut [$($typ), *]) }
-
                 SteelVal::ListV(vec![$($typ),*].into())
             }
 
@@ -2729,6 +2637,7 @@ make_list_handlers!(
     (make_list_16, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)
 );
 
+/*
 macro_rules! debug_stack_handlers {
     ($(($name:tt, $($typ:ident),*)),*) => {
 
@@ -2818,16 +2727,18 @@ debug_stack_handlers!(
     )
 );
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn list_handler_c(ctx: *mut VmCore<'_>, payload: usize) -> SteelVal {
+*/
+
+#[cross_platform_fn]
+fn list_handler_c(ctx: *mut VmCore<'_>, payload: usize) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
     let last_index = ctx.thread.stack.len() - payload;
     let remaining = ctx.thread.stack.split_off(last_index);
     SteelVal::ListV(remaining.into())
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn vec_handler_c(ctx: *mut VmCore<'_>, payload: usize) -> SteelVal {
+#[cross_platform_fn]
+fn vec_handler_c(ctx: *mut VmCore<'_>, payload: usize) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
 
     let len = payload / 2;
@@ -2863,7 +2774,8 @@ pub extern "sysv64-unwind" fn vec_handler_c(ctx: *mut VmCore<'_>, payload: usize
 
 // Note: This should only get called with a closure, so we are safe to only
 // check against those.
-pub(crate) extern "sysv64-unwind" fn should_spill(ctx: *mut VmCore, lookup_index: usize) -> bool {
+#[cross_platform_fn]
+fn should_spill(ctx: *mut VmCore, lookup_index: usize) -> bool {
     unsafe {
         let this = &mut *ctx;
         // let func = &this.thread.global_env.roots()[lookup_index];
@@ -2873,8 +2785,8 @@ pub(crate) extern "sysv64-unwind" fn should_spill(ctx: *mut VmCore, lookup_index
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn should_spill_value(_: *mut VmCore, func: SteelVal) -> bool {
+#[cross_platform_fn]
+fn should_spill_value(_: *mut VmCore, func: SteelVal) -> bool {
     // println!("Checking if this value should be spilled!: {}", func);
     let func = ManuallyDrop::new(func);
     // matches!(&*func, SteelVal::Closure(_))
@@ -2885,10 +2797,8 @@ pub(crate) extern "sysv64-unwind" fn should_spill_value(_: *mut VmCore, func: St
 // 0 -> No good
 // 1 -> Spill
 // 2 -> Call and Spill
-pub(crate) extern "sysv64-unwind" fn check_callable_spill(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-) -> u8 {
+#[cross_platform_fn]
+fn check_callable_spill(ctx: *mut VmCore, lookup_index: usize) -> u8 {
     unsafe {
         let this = &mut *ctx;
         let tr = should_trampoline(this);
@@ -2919,7 +2829,8 @@ pub(crate) extern "sysv64-unwind" fn check_callable_spill(
 
 // Just check if this thing is callable. If its not, just spill everything up to the args
 // to the stack, and otherwise don't continue?
-pub(crate) extern "sysv64-unwind" fn check_callable(ctx: *mut VmCore, lookup_index: usize) -> bool {
+#[cross_platform_fn]
+fn check_callable(ctx: *mut VmCore, lookup_index: usize) -> bool {
     // Check that the function we're calling is in fact something callable via native code.
     // We'll want to spill the stack otherwise.
     unsafe {
@@ -2948,10 +2859,8 @@ pub(crate) extern "sysv64-unwind" fn check_callable(ctx: *mut VmCore, lookup_ind
     }
 }
 
-pub(crate) extern "sysv64-unwind" fn check_callable_tail(
-    ctx: *mut VmCore,
-    lookup_index: usize,
-) -> bool {
+#[cross_platform_fn]
+fn check_callable_tail(ctx: *mut VmCore, lookup_index: usize) -> bool {
     // Check that the function we're calling is in fact something callable via native code.
     // We'll want to spill the stack otherwise.
     unsafe {
@@ -2971,11 +2880,8 @@ pub(crate) extern "sysv64-unwind" fn check_callable_tail(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn check_callable_value(
-    ctx: *mut VmCore,
-    func: SteelVal,
-) -> bool {
+#[cross_platform_fn]
+fn check_callable_value(ctx: *mut VmCore, func: SteelVal) -> bool {
     // println!("Checking callablue value:: {}", func);
 
     // Check that the function we're calling is in fact something callable via native code.
@@ -3000,11 +2906,8 @@ pub(crate) extern "sysv64-unwind" fn check_callable_value(
     )
 }
 
-#[allow(improper_ctypes_definitions)]
-pub(crate) extern "sysv64-unwind" fn check_callable_value_tail(
-    _: *mut VmCore,
-    func: SteelVal,
-) -> bool {
+#[cross_platform_fn]
+fn check_callable_value_tail(_: *mut VmCore, func: SteelVal) -> bool {
     // Check that the function we're calling is in fact something callable via native code.
     // We'll want to spill the stack otherwise.
     let func = ManuallyDrop::new(func);
@@ -3104,9 +3007,17 @@ macro_rules! make_primitive_function_deopt {
         impl CallPrimitiveDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
+                    #[cfg(target_os = "windows")]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: fn(&[SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, func: fn(&[SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
                 )*
             }
@@ -3131,8 +3042,34 @@ macro_rules! make_primitive_function_deopt {
         }
 
         $(
+            #[cfg(target_os  = "windows")]
             #[allow(improper_ctypes_definitions)]
             pub(crate) extern "sysv64-unwind" fn $name(
+                ctx: *mut VmCore,
+                func: fn(&[SteelVal]) -> Result<SteelVal>,
+                fallback_ip: usize,
+                $($typ: SteelVal),*
+            ) -> SteelVal {
+
+                let guard = unsafe { &mut *ctx };
+
+                match guard.thread.enter_safepoint_once(move |_: &SteelThread| (func)(&[$($typ),*])) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        unsafe {
+                            let guard = &mut *ctx;
+                            guard.ip = fallback_ip;
+                            guard.result = Some(Err(e.set_span_if_none(guard.current_span())));
+                            guard.is_native = false;
+                            SteelVal::Void
+                        }
+                    }
+                }
+            }
+
+            #[cfg(not(target_os  = "windows"))]
+            #[allow(improper_ctypes_definitions)]
+            pub(crate) extern "C-unwind" fn $name(
                 ctx: *mut VmCore,
                 func: fn(&[SteelVal]) -> Result<SteelVal>,
                 fallback_ip: usize,
@@ -3244,9 +3181,22 @@ macro_rules! make_primitive_register_function_fixed_arity_deopt {
         impl CallRegisterPrimitiveFixedDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
+                    #[cfg(target_os = "windows")]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore,
+                            func: fn($(kind!($typ)),*) -> Result<SteelVal>,
+                            fallback_ip: usize,
+                            $($regname: usize,)*
+                            $($stackname: SteelVal),*
+                        ) -> SteelVal
+                    );
+
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore,
                             func: fn($(kind!($typ)),*) -> Result<SteelVal>,
                             fallback_ip: usize,
                             $($regname: usize,)*
@@ -3270,7 +3220,8 @@ macro_rules! make_primitive_register_function_fixed_arity_deopt {
 
 
         $(
-            pub(crate) extern "sysv64-unwind" fn $name(
+            #[cross_platform_fn]
+            fn $name(
                 ctx: *mut VmCore,
                 func: fn($(kind!($typ)),*) -> Result<SteelVal>,
                 fallback_ip: usize,
@@ -3656,9 +3607,17 @@ macro_rules! make_primitive_function_fixed_arity_deopt {
         impl CallPrimitiveFixedDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
+                    #[cfg(target_os = "windows")]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: fn($($typ: SteelVal),*) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, func: fn($($typ: SteelVal),*) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
                 )*
             }
@@ -3683,8 +3642,8 @@ macro_rules! make_primitive_function_fixed_arity_deopt {
         }
 
         $(
-            #[allow(improper_ctypes_definitions)]
-            pub(crate) extern "sysv64-unwind" fn $name(
+            #[cross_platform_fn]
+            fn $name(
                 ctx: *mut VmCore,
                 func: fn($($typ: SteelVal),*) -> Result<SteelVal>,
                 fallback_ip: usize,
@@ -3737,10 +3696,18 @@ macro_rules! make_primitive_mut_function_deopt {
         impl CallPrimitiveMutDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
+                    #[cfg(target_os = "windows")]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: fn(&mut [SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, func: fn(&mut [SteelVal]) -> Result<SteelVal>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+
                 )*
             }
 
@@ -3764,8 +3731,8 @@ macro_rules! make_primitive_mut_function_deopt {
         }
 
         $(
-            #[allow(improper_ctypes_definitions)]
-            pub(crate) extern "sysv64-unwind" fn $name(
+            #[cross_platform_fn]
+            fn $name(
                 ctx: *mut VmCore,
                 func: fn(&mut [SteelVal]) -> Result<SteelVal>,
                 fallback_ip: usize,
@@ -3808,9 +3775,16 @@ macro_rules! make_call_global_function_deopt {
         impl CallGlobalFunctionDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
+                    #[cfg(target_os = "windows")]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
                 )*
             }
@@ -3835,8 +3809,8 @@ macro_rules! make_call_global_function_deopt {
         }
 
         $(
-            #[allow(improper_ctypes_definitions)]
-            pub(crate) extern "sysv64-unwind" fn $name(
+            #[cross_platform_fn]
+            fn $name(
                 ctx: *mut VmCore,
                 lookup_index: usize,
                 fallback_ip: usize,
@@ -3868,9 +3842,17 @@ macro_rules! make_call_function_deopt {
         impl CallFunctionDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
+                    #[cfg(target_os = "windows")]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
                 )*
             }
@@ -3895,8 +3877,8 @@ macro_rules! make_call_function_deopt {
         }
 
         $(
-            #[allow(improper_ctypes_definitions)]
-            pub(crate) extern "sysv64-unwind" fn $name(
+            #[cross_platform_fn]
+            fn $name(
                 ctx: *mut VmCore,
                 func: SteelVal,
                 fallback_ip: usize,
@@ -3928,9 +3910,17 @@ macro_rules! make_call_function_tail_deopt {
         impl CallFunctionTailDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
+                    #[cfg(target_os = "windows")]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, func: SteelVal, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
                 )*
             }
@@ -3955,8 +3945,8 @@ macro_rules! make_call_function_tail_deopt {
         }
 
         $(
-            #[allow(improper_ctypes_definitions)]
-            pub(crate) extern "sysv64-unwind" fn $name(
+            #[cross_platform_fn]
+            fn $name(
                 ctx: *mut VmCore,
                 func: SteelVal,
                 fallback_ip: usize,
@@ -3988,9 +3978,17 @@ macro_rules! make_call_global_function_deopt_no_arity {
         impl CallGlobalNoArityFunctionDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
+                    #[cfg(target_os = "windows")]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, lookup_index: usize, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
                     );
                 )*
             }
@@ -4015,9 +4013,8 @@ macro_rules! make_call_global_function_deopt_no_arity {
         }
 
         $(
-
-            #[allow(improper_ctypes_definitions)]
-            pub(crate) extern "sysv64-unwind" fn $name(
+            #[cross_platform_fn]
+            fn $name(
                 ctx: *mut VmCore,
                 lookup_index: usize,
                 fallback_ip: usize,
@@ -4167,7 +4164,6 @@ macro_rules! make_call_global_function_deopt_no_arity {
                     }
                 }
             }
-
         )*
     };
 }
@@ -4194,8 +4190,8 @@ make_call_global_function_deopt_no_arity!(
     )
 );
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn call_global_function_deopt_no_arity_spilled(
+#[cross_platform_fn]
+fn call_global_function_deopt_no_arity_spilled(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
@@ -4308,8 +4304,8 @@ pub extern "sysv64-unwind" fn call_global_function_deopt_no_arity_spilled(
     }
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn call_global_function_deopt_spilled(
+#[cross_platform_fn]
+fn call_global_function_deopt_spilled(
     ctx: *mut VmCore,
     lookup_index: usize,
     fallback_ip: usize,
@@ -4702,26 +4698,27 @@ fn pop_test(ctx: &mut VmCore) -> bool {
     test.is_truthy()
 }
 
-pub(crate) extern "sysv64-unwind" fn if_handler_raw_value(_: *mut VmCore, value: i128) -> bool {
+#[cross_platform_fn]
+fn if_handler_raw_value(_ctx: *mut VmCore, value: i128) -> bool {
     let test: SteelVal = unsafe { std::mem::transmute(value) };
     test.is_truthy()
 }
 
-pub(crate) extern "sysv64-unwind" fn if_handler_register(ctx: *mut VmCore, index: u64) -> bool {
+#[cross_platform_fn]
+fn if_handler_register(ctx: *mut VmCore, index: u64) -> bool {
     let ctx = unsafe { &mut *ctx };
     let offset = ctx.get_offset();
     ctx.thread.stack[index as usize + offset].is_truthy()
 }
 
-pub(crate) extern "sysv64-unwind" fn not_handler_raw_value(
-    _: *mut VmCore,
-    value: SteelVal,
-) -> SteelVal {
+#[cross_platform_fn]
+fn not_handler_raw_value(_ctx: *mut VmCore, value: SteelVal) -> SteelVal {
     SteelVal::BoolV(!value.is_truthy())
 }
 
 // Pop the value off?
-pub(crate) extern "sysv64-unwind" fn if_handler_value(raw_ctx: *mut VmCore) -> bool {
+#[cross_platform_fn]
+fn if_handler_value(raw_ctx: *mut VmCore) -> bool {
     let ctx = unsafe { &mut *raw_ctx };
 
     let test = ctx.thread.stack.pop().unwrap();
@@ -4750,7 +4747,8 @@ fn if_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     Ok(())
 }
 
-pub(crate) extern "sysv64-unwind" fn tcojmp_handler(ctx: *mut VmCore, current_arity: usize) {
+#[cross_platform_fn]
+fn tcojmp_handler(ctx: *mut VmCore, current_arity: usize) {
     // println!("Calling self tail call");
     let this = unsafe { &mut *ctx };
     debug_assert!(this.is_native);
@@ -4823,7 +4821,8 @@ fn tco_jmp_handler_multi_arity(mut current_arity: usize, this: &mut VmCore<'_>) 
 }
 
 // Tail call back into the native code on the thing?
-pub(crate) extern "sysv64-unwind" fn self_tail_call_handler(ctx: *mut VmCore, arity: usize) {
+#[cross_platform_fn]
+fn self_tail_call_handler(ctx: *mut VmCore, arity: usize) {
     println!("Calling self tail call");
     let this = unsafe { &mut *ctx };
     this.ip = 0;
@@ -4835,7 +4834,8 @@ pub(crate) extern "sysv64-unwind" fn self_tail_call_handler(ctx: *mut VmCore, ar
     let _ = this.thread.stack.drain(this.sp..back);
 }
 
-pub(crate) extern "sysv64-unwind" fn self_tail_call_handler_loop(ctx: *mut VmCore, arity: usize) {
+#[cross_platform_fn]
+fn self_tail_call_handler_loop(ctx: *mut VmCore, arity: usize) {
     // println!("Calling self tail call loop");
     let this = unsafe { &mut *ctx };
     // this.ip = 0;
@@ -4857,9 +4857,16 @@ macro_rules! make_self_tail_call_no_arity {
         impl CallSelfTailCallNoArityDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
+                    #[cfg(target_os = "windows")]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, arity: usize, $($typ: SteelVal),*)
+                    );
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, arity: usize, $($typ: SteelVal),*)
                     );
                 )*
             }
@@ -4884,9 +4891,8 @@ macro_rules! make_self_tail_call_no_arity {
         }
 
         $(
-
-            #[allow(improper_ctypes_definitions)]
-            pub(crate) extern "sysv64-unwind" fn $name(
+            #[cross_platform_fn]
+            fn $name(
                 ctx: *mut VmCore,
                 arity: usize,
                 $($typ: SteelVal),*
@@ -4901,7 +4907,6 @@ macro_rules! make_self_tail_call_no_arity {
 
                 this.thread.stack.truncate(this.sp + arity);
             }
-
         )*
     };
 }
@@ -4966,9 +4971,16 @@ macro_rules! make_self_tail_call_no_arity_loop {
         impl CallSelfTailCallNoArityLoopDefinitions {
             pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
                 $(
+                    #[cfg(target_os = "windows")]
                     map.add_func(
                         stringify!($name),
                         $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, arity: u16, $($typ: SteelVal),*)
+                    );
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore, arity: u16, $($typ: SteelVal),*)
                     );
                 )*
             }
@@ -4993,9 +5005,8 @@ macro_rules! make_self_tail_call_no_arity_loop {
         }
 
         $(
-
-            #[allow(improper_ctypes_definitions)]
-            pub(crate) extern "sysv64-unwind" fn $name(
+            #[cross_platform_fn]
+            fn $name(
                 ctx: *mut VmCore,
                 arity: u16,
                 $($typ: SteelVal),*
@@ -5014,7 +5025,6 @@ macro_rules! make_self_tail_call_no_arity_loop {
 
                 this.thread.stack.truncate(this.sp + arity as usize);
             }
-
         )*
     };
 }
@@ -5172,11 +5182,8 @@ fn handle_multi_arity(
     Ok(())
 }
 
-pub extern "sysv64-unwind" fn handle_pure_function(
-    ctx: *mut VmCore,
-    ip: usize,
-    offset: usize,
-) -> SteelVal {
+#[cross_platform_fn]
+fn handle_pure_function(ctx: *mut VmCore, ip: usize, offset: usize) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
     ctx.ip = ip;
 
@@ -5352,12 +5359,8 @@ pub extern "sysv64-unwind" fn handle_pure_function(
     res
 }
 
-#[allow(improper_ctypes_definitions)]
-pub extern "sysv64-unwind" fn handle_new_start_closure(
-    ctx: *mut VmCore,
-    ip: usize,
-    offset: usize,
-) -> SteelVal {
+#[cross_platform_fn]
+fn handle_new_start_closure(ctx: *mut VmCore, ip: usize, offset: usize) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
     ctx.ip = ip;
 

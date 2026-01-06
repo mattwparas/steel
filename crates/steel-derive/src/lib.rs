@@ -14,6 +14,24 @@ use syn::{
     TypeReference,
 };
 
+#[proc_macro_attribute]
+pub fn cross_platform_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    // Parse the input function
+    let input = parse_macro_input!(item as ItemFn);
+
+    let expanded = quote! {
+        #[cfg(target_os = "windows")]
+        #[allow(improper_ctypes_definitions)]
+        pub extern "sysv64-unwind" #input
+
+        #[cfg(not(target_os = "windows"))]
+        #[allow(improper_ctypes_definitions)]
+        pub extern "C-unwind" #input
+    };
+
+    TokenStream::from(expanded)
+}
+
 #[proc_macro]
 pub fn steel_quote(input: TokenStream) -> TokenStream {
     let token_iter = proc_macro2::TokenStream::from(input).into_iter();
