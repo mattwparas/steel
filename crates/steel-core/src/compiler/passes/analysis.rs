@@ -3254,6 +3254,7 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
 struct LiftClosuresToGlobalScope<'a> {
     analysis: &'a Analysis,
     lifted_functions: Vec<ExprKind>,
+    found_funcs: Vec<InternedString>,
 }
 
 impl<'a> LiftClosuresToGlobalScope<'a> {
@@ -3261,6 +3262,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
         Self {
             analysis,
             lifted_functions: Vec::new(),
+            found_funcs: Vec::new(),
         }
     }
 
@@ -3277,6 +3279,8 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
             let mut original_func_names = Vec::new();
             let mut captured_vars_set = Vec::new();
+
+            let mut found_escape_checkers = Vec::new();
 
             for (variable, expression) in l.bindings.iter_mut() {
                 if let ExprKind::LambdaFunction(_) = expression {
@@ -3321,6 +3325,10 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                                     let name = ident.atom_identifier().unwrap();
 
                                                     if original_func_name == *name {
+                                                        found_escape_checker = Some(
+                                                            CheckIdentifierOnlyOccursInUnboxCallPosition::new(original_func_name)
+                                                        );
+
                                                         original_func_names
                                                             .push(original_func_name);
                                                     }
@@ -3329,13 +3337,29 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                         }
                                     }
                                 }
+
+                                if let Some(ec) = found_escape_checker {
+                                    found_escape_checkers.push(ec);
+                                }
                             }
                         }
                     }
                 }
             }
 
+            for mut escape_checker in found_escape_checkers {
+                if escape_checker.check_let(l) {
+                    return;
+                }
+            }
+
             let mut outer_inner_indexes = Vec::new();
+
+            // for name in &original_func_names {
+            //     println!("Original func names: {}", name);
+            // }
+
+            self.found_funcs.extend(original_func_names.iter().copied());
 
             // Inner let:
             for (inner_index, (variable, expression)) in l.bindings.iter_mut().enumerate() {
@@ -3430,7 +3454,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                                         // free variable as a
                                                         // result of this, then we can't necessarily do this?
                                                         for i in &captured_vars_set {
-                                                            if original_func_names.contains(i) {
+                                                            if self.found_funcs.contains(i) {
                                                                 continue;
                                                             }
 
@@ -3457,7 +3481,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                                     // site for the remaining expressions within
                                                     // the function.
 
-                                                    let func_names = original_func_names.clone();
+                                                    let func_names = self.found_funcs.clone();
                                                     let captured_values = captured_vars_set.clone();
                                                     let find_call_sites =
                                                         MutateCallSitesNonGlobal::new(
@@ -3630,9 +3654,24 @@ struct CheckIdentifierOnlyOccursInUnboxCallPosition {
 }
 
 impl CheckIdentifierOnlyOccursInUnboxCallPosition {
+    fn new(unbox_var: InternedString) -> Self {
+        Self {
+            unbox_var,
+            escapes: false,
+        }
+    }
+
     fn check(&mut self, expr: &ExprKind) -> bool {
         self.escapes = false;
         self.visit(expr);
+        let res = self.escapes;
+        self.escapes = false;
+        res
+    }
+
+    fn check_let(&mut self, expr: &Let) -> bool {
+        self.escapes = false;
+        self.visit_let(expr);
         let res = self.escapes;
         self.escapes = false;
         res
@@ -3651,6 +3690,10 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => {
+                // We've hit something like (unbox <foo>)
+                // but we need to make sure that this only happens in the call
+                // position, meaning if we hit the identifier in any other way,
+                // then we've escaped.
                 if let Some(ExprKind::List(il)) = l.first() {
                     if il.first_ident().copied() == Some(*UNBOX) {
                         if il.second_ident().copied() == Some(self.unbox_var) {
@@ -3661,6 +3704,22 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                             }
 
                             return;
+                        }
+                    }
+                }
+
+                if let Some(rest) = l.args.get(1..) {
+                    for arg in rest {
+                        if let ExprKind::List(l) = arg {
+                            if let Some(ExprKind::List(il)) = l.first() {
+                                if il.first_ident().copied() == Some(*UNBOX) {
+                                    if il.second_ident().copied() == Some(self.unbox_var) {
+                                        println!("Found value that escapes: {}", self.unbox_var);
+                                        self.escapes = true;
+                                        return;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -6061,6 +6120,7 @@ impl<'a> SemanticAnalysis<'a> {
         let mut lifter = LiftClosuresToGlobalScope::new(&self.analysis);
         for expr in self.exprs.iter_mut() {
             lifter.visit(expr);
+            lifter.found_funcs.clear();
         }
 
         lifter.lifted_functions.append(&mut self.exprs);
