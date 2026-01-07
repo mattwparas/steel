@@ -1615,6 +1615,12 @@ impl FunctionTranslator<'_> {
             }
 
             if let Some(last) = self.if_stack.last().copied() {
+                if self.ip <= last {
+                    dbg!(self.ip);
+                    dbg!(last);
+                    pretty_print_dense_instructions(&self.instructions);
+                }
+
                 assert!(self.ip > last);
             }
 
@@ -3152,7 +3158,7 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ && false {
+        if payload < self.arity as _ {
             match op {
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
@@ -3234,7 +3240,7 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ && false {
+        if payload < self.arity as _ {
             match op {
                 OpCode::READLOCAL => MaybeStackValue::Register(payload),
                 OpCode::MOVEREADLOCAL => MaybeStackValue::MutRegister(payload),
@@ -3413,7 +3419,7 @@ impl FunctionTranslator<'_> {
         let ctx = self.get_ctx();
 
         // Advance to the next thing
-        self.ip += 1;
+        // self.ip += 1;
 
         let register = self.builder.ins().iconst(types::I64, register as i64);
 
