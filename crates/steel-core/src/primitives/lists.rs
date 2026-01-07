@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::hint::unreachable_unchecked;
 
 use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::{
@@ -416,7 +417,7 @@ pub fn is_empty(list: &SteelVal) -> bool {
 /// > (pair? '()) ;; => #false
 /// ```
 #[steel_derive::function(name = "pair?")]
-fn pair(list: &SteelVal) -> bool {
+pub fn pair(list: &SteelVal) -> bool {
     match list {
         SteelVal::ListV(l) => !l.is_empty(),
         SteelVal::Pair(_) => true,
@@ -547,10 +548,11 @@ fn length(list: &List<SteelVal>) -> usize {
 /// ```
 #[steel_derive::function(name = "reverse", constant = true)]
 fn reverse(arg: &mut SteelVal) -> Result<SteelVal> {
-    if let SteelVal::ListV(l) = std::mem::replace(arg, SteelVal::Void) {
+    let replaced = std::mem::replace(arg, SteelVal::Void);
+    if let SteelVal::ListV(l) = replaced {
         Ok(SteelVal::ListV(l.reverse()))
     } else {
-        stop!(TypeMismatch => "reverse expects a list")
+        stop!(TypeMismatch => "reverse expects a list, found: {}", replaced)
     }
 }
 
@@ -614,6 +616,14 @@ pub(crate) fn car(list: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+pub(crate) unsafe fn unchecked_car(list: &SteelVal) -> SteelVal {
+    match list {
+        SteelVal::ListV(l) => l.car().unwrap_unchecked(),
+        SteelVal::Pair(p) => p.car(),
+        _ => unsafe { unreachable_unchecked() },
+    }
+}
+
 // Optimistic check to see if the rest is null before making an allocation
 #[steel_derive::native(name = "cdr-null?", constant = true, arity = "Exact(1)")]
 fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
@@ -665,6 +675,20 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
         arg => {
             stop!(TypeMismatch => format!("cdr expects a list, found: {}", arg))
         }
+    }
+}
+
+pub(crate) unsafe fn cdr_no_check(arg: &mut SteelVal) -> SteelVal {
+    match std::mem::replace(arg, SteelVal::Void) {
+        SteelVal::ListV(mut l) => {
+            l.rest_mut();
+            SteelVal::ListV(l)
+        }
+
+        SteelVal::Pair(p) => p.cdr(),
+        _ => unsafe {
+            unreachable_unchecked();
+        },
     }
 }
 

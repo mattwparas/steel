@@ -117,6 +117,10 @@ impl<'a> CodeGenerator<'a> {
     }
 
     fn specialize_immediate(&self, l: &List) -> Option<OpCode> {
+        if cfg!(feature = "jit2") {
+            return None;
+        }
+
         if l.args.len() == 3 {
             let function = l.first()?;
 
@@ -139,6 +143,10 @@ impl<'a> CodeGenerator<'a> {
     }
 
     fn should_specialize_call(&self, l: &List) -> Option<OpCode> {
+        if cfg!(feature = "jit2") {
+            return None;
+        }
+
         if l.args.len() == 3 {
             let function = l.first()?;
 
@@ -877,7 +885,10 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
             self.visit(expr)?;
             // For the JIT -> push the last instruction to the internal scope
             // TODO: Rename from BEGINSCOPE to something like MARKLETVAR
-            // self.push(LabeledInstruction::builder(OpCode::LetVar));
+
+            if cfg!(feature = "jit2") {
+                self.push(LabeledInstruction::builder(OpCode::LetVar));
+            }
         }
 
         let mut heap_allocated_arguments = info

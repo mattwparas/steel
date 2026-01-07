@@ -13,6 +13,7 @@ use std::process::ChildStdout;
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use crate::gc::shared::GcLock;
 use crate::gc::shared::ShareableMut;
 use crate::gc::Gc;
 use crate::gc::GcMut;
@@ -24,13 +25,15 @@ use crate::SteelVal;
 thread_local! {
     // TODO: This needs to be per engine, not global, and functions should accept the port they use
     // Probably by boxing up the port that gets used
-    pub static DEFAULT_OUTPUT_PORT: GcMut<SteelPort> = Gc::new_mut(SteelPort { port: Gc::new_mut(SteelPortRepr::StdOutput(io::stdout())) } );
+    pub static DEFAULT_OUTPUT_PORT: GcMut<SteelPort> = Gc::new_mut(SteelPort { port: Gc::new_lock(SteelPortRepr::StdOutput(io::stdout())) } );
     pub static CAPTURED_OUTPUT_PORT: GcMut<BufWriter<Vec<u8>>> = Gc::new_mut(BufWriter::new(Vec::new()));
 }
 
 #[derive(Debug, Clone)]
 pub struct SteelPort {
-    pub(crate) port: GcMut<SteelPortRepr>,
+    // TODO: Convert this to be a GcMut but with exclusive locks instead?
+    // pub(crate) port: GcMut<SteelPortRepr>,
+    pub(crate) port: GcLock<SteelPortRepr>,
 }
 
 impl PartialEq for SteelPort {
@@ -311,19 +314,19 @@ impl SteelPort {
     pub fn from_sendable_port(value: SendablePort) -> Self {
         match value {
             SendablePort::StdInput(s) => SteelPort {
-                port: Gc::new_mut(SteelPortRepr::StdInput(Peekable::new(s))),
+                port: Gc::new_lock(SteelPortRepr::StdInput(Peekable::new(s))),
             },
             SendablePort::StdOutput(s) => SteelPort {
-                port: Gc::new_mut(SteelPortRepr::StdOutput(s)),
+                port: Gc::new_lock(SteelPortRepr::StdOutput(s)),
             },
             SendablePort::StdError(s) => SteelPort {
-                port: Gc::new_mut(SteelPortRepr::StdError(s)),
+                port: Gc::new_lock(SteelPortRepr::StdError(s)),
             },
             SendablePort::Closed => SteelPort {
-                port: Gc::new_mut(SteelPortRepr::Closed),
+                port: Gc::new_lock(SteelPortRepr::Closed),
             },
             SendablePort::BoxDynWriter(w) => SteelPort {
-                port: Gc::new_mut(SteelPortRepr::DynWriter(w)),
+                port: Gc::new_lock(SteelPortRepr::DynWriter(w)),
             },
         }
     }
@@ -621,7 +624,7 @@ impl SteelPort {
         let file = OpenOptions::new().read(true).open(path)?;
 
         Ok(SteelPort {
-            port: Gc::new_mut(SteelPortRepr::FileInput(
+            port: Gc::new_lock(SteelPortRepr::FileInput(
                 path.to_string(),
                 Peekable::new(BufReader::new(file)),
             )),
@@ -636,7 +639,7 @@ impl SteelPort {
             .open(path)?;
 
         Ok(SteelPort {
-            port: Gc::new_mut(SteelPortRepr::FileOutput(
+            port: Gc::new_lock(SteelPortRepr::FileOutput(
                 path.to_string(),
                 BufWriter::new(file),
             )),
@@ -650,7 +653,7 @@ impl SteelPort {
         let file = open_options.open(path)?;
 
         Ok(SteelPort {
-            port: Gc::new_mut(SteelPortRepr::FileOutput(
+            port: Gc::new_lock(SteelPortRepr::FileOutput(
                 path.to_string(),
                 BufWriter::new(file),
             )),
@@ -659,7 +662,7 @@ impl SteelPort {
 
     pub fn new_input_port_string(string: String) -> SteelPort {
         SteelPort {
-            port: Gc::new_mut(SteelPortRepr::StringInput(Peekable::new(Cursor::new(
+            port: Gc::new_lock(SteelPortRepr::StringInput(Peekable::new(Cursor::new(
                 string.into_bytes(),
             )))),
         }
@@ -667,13 +670,13 @@ impl SteelPort {
 
     pub fn new_input_port_bytevector(vec: Vec<u8>) -> SteelPort {
         SteelPort {
-            port: Gc::new_mut(SteelPortRepr::StringInput(Peekable::new(Cursor::new(vec)))),
+            port: Gc::new_lock(SteelPortRepr::StringInput(Peekable::new(Cursor::new(vec)))),
         }
     }
 
     pub fn new_output_port_string() -> SteelPort {
         SteelPort {
-            port: Gc::new_mut(SteelPortRepr::StringOutput(Vec::new())),
+            port: Gc::new_lock(SteelPortRepr::StringOutput(Vec::new())),
         }
     }
 
@@ -761,7 +764,7 @@ impl SteelPort {
 
     pub fn default_current_input_port() -> Self {
         SteelPort {
-            port: Gc::new_mut(SteelPortRepr::StdInput(Peekable::new(io::stdin()))),
+            port: Gc::new_lock(SteelPortRepr::StdInput(Peekable::new(io::stdin()))),
         }
     }
 
@@ -769,13 +772,13 @@ impl SteelPort {
         if cfg!(test) {
             // Write out to thread safe port
             SteelPort {
-                port: Gc::new_mut(SteelPortRepr::DynWriter(Arc::new(Mutex::new(
+                port: Gc::new_lock(SteelPortRepr::DynWriter(Arc::new(Mutex::new(
                     BufWriter::new(Vec::new()),
                 )))),
             }
         } else {
             SteelPort {
-                port: Gc::new_mut(SteelPortRepr::StdOutput(io::stdout())),
+                port: Gc::new_lock(SteelPortRepr::StdOutput(io::stdout())),
             }
         }
     }
@@ -784,13 +787,13 @@ impl SteelPort {
         if cfg!(test) {
             // Write out to thread safe port
             SteelPort {
-                port: Gc::new_mut(SteelPortRepr::DynWriter(Arc::new(Mutex::new(
+                port: Gc::new_lock(SteelPortRepr::DynWriter(Arc::new(Mutex::new(
                     BufWriter::new(Vec::new()),
                 )))),
             }
         } else {
             SteelPort {
-                port: Gc::new_mut(SteelPortRepr::StdError(io::stderr())),
+                port: Gc::new_lock(SteelPortRepr::StdError(io::stderr())),
             }
         }
     }

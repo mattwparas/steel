@@ -19,6 +19,11 @@
 ; (define (map3 func lst)
 ;   (reverse (map2 func '() lst)))
 
+;; Candidates for jit compilation:
+;; pair? -> could be lowered directly to machine code
+;; not could also be lowered directly to machine code
+;; eq? -> Should have a dedicated handler
+
 (define (deriv a)
   (cond
     ;; TODO: Add a pass from the reader to intern the result! That way it matches

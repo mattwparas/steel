@@ -30,8 +30,6 @@ use log::{debug, log_enabled};
 
 use super::{compiler::DebruijnIndicesInterner, map::SymbolMap};
 
-const _TILE_SUPER_INSTRUCTIONS: bool = true;
-
 /// Evaluates an atom expression in given environment.
 fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
     match &t.ty {
@@ -50,6 +48,10 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
 
 // Call global if -> merge with if, when possible
 pub fn merge_call_global_if(instructions: &mut [Instruction]) {
+    if cfg!(feature = "jit2") {
+        return;
+    }
+
     if instructions.len() < 3 {
         return;
     }
@@ -193,6 +195,10 @@ pub fn specialize_constants(instructions: &mut [Instruction]) -> Result<()> {
 // (READLOCAL0, CALLGLOBAL): 1200919
 // (READLOCAL1, CALLGLOBAL): 1088780
 pub fn specialize_call_global_local(instructions: &mut [Instruction]) {
+    if cfg!(feature = "jit2") {
+        return;
+    }
+
     if instructions.is_empty() {
         return;
     }
@@ -260,6 +266,10 @@ pub fn specialize_call_global_local(instructions: &mut [Instruction]) {
 }
 
 pub fn unbox_function_call(instructions: &mut [Instruction]) {
+    if cfg!(feature = "jit2") {
+        return;
+    }
+
     if instructions.is_empty() {
         return;
     }
@@ -348,7 +358,15 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 let index = *index;
                 let func_op = *func_op;
 
+                #[cfg(feature = "jit2")]
+                let mut builtin = false;
+
                 if let TokenType::Identifier(ident) = ident.ty {
+                    #[cfg(feature = "jit2")]
+                    {
+                        builtin = ident.resolve().starts_with("#%prim.");
+                    }
+
                     match ident {
                         _ if ident == *PRIM_CONS_SYMBOL && arity == 2 => {
                             if let Some(x) = instructions.get_mut(i) {
@@ -403,7 +421,6 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                                 continue;
                             }
                         }
-
                         _ if ident == *PRIM_LIST_REF && arity == 2 => {
                             if let Some(x) = instructions.get_mut(i) {
                                 x.op_code = OpCode::LISTREF;
@@ -454,7 +471,17 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                 // TODO:
                 if let Some(x) = instructions.get_mut(i) {
                     if func_op == OpCode::FUNC {
-                        x.op_code = OpCode::CALLGLOBAL;
+                        #[cfg(feature = "jit2")]
+                        if builtin {
+                            x.op_code = OpCode::CALLPRIMITIVE;
+                        } else {
+                            x.op_code = OpCode::CALLGLOBAL;
+                        }
+
+                        #[cfg(not(feature = "jit2"))]
+                        {
+                            x.op_code = OpCode::CALLGLOBAL;
+                        }
                     } else {
                         x.op_code = OpCode::CALLGLOBALNOARITY;
                     }
@@ -466,6 +493,15 @@ pub fn convert_call_globals(instructions: &mut [Instruction]) {
                     // x.op_code = OpCode::Arity;
                     x.payload_size = u24::from_usize(arity);
                 }
+
+                // #[cfg(feature = "jit2")]
+                // if let Some(x) = instructions.get_mut(i) {
+                //     if builtin {
+                //         if func_op == OpCode::FUNC {
+                //             x.op_code = OpCode::CALLPRIMITIVE;
+                //         }
+                //     }
+                // }
             }
             (
                 Some(Instruction {
@@ -599,6 +635,9 @@ define_primitive_symbols! {
     (PRIM_EQUAL, EQUAL) => "equal?",
     (PRIM_NUM_EQUAL, NUM_EQUAL) => "=",
     (PRIM_LTE, LTE) => "<=",
+    (PRIM_GTE, GTE) => ">=",
+    (PRIM_LT, LT) => "<",
+    (PRIM_GT, GT) => ">",
     (PRIM_CAR, CAR_SYMBOL) => "car",
     (PRIM_CDR, CDR_SYMBOL) => "cdr",
     (PRIM_NOT, NOT_SYMBOL) => "not",
@@ -668,6 +707,9 @@ define_symbols! {
 }
 
 pub fn flatten_equal_const(instructions: &mut [Instruction]) {
+    if cfg!(feature = "jit2") {
+        return;
+    }
     for i in 0..instructions.len() {
         let push_const = instructions.get(i);
         let equal = instructions.get(i + 1);
@@ -684,6 +726,7 @@ pub fn flatten_equal_const(instructions: &mut [Instruction]) {
     }
 }
 
+#[allow(unused)]
 pub fn inline_num_operations(instructions: &mut [Instruction]) {
     for i in 0..instructions.len() - 1 {
         let push = instructions.get(i);
@@ -696,6 +739,7 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
                     | OpCode::CALLGLOBAL
                     | OpCode::CALLGLOBALTAIL
                     | OpCode::CALLGLOBALNOARITY
+                    | OpCode::CALLPRIMITIVE
                     | OpCode::CALLGLOBALTAILNOARITY,
                 ..
             }),
@@ -714,10 +758,14 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
             let payload_size = payload_size.to_u32();
 
             let replaced = match *ident {
+                #[cfg(not(feature = "jit2"))]
                 x if x == *PRIM_PLUS && payload_size == 2 && *op == OpCode::TAILCALL => {
                     Some(OpCode::BINOPADDTAIL)
                 }
+
+                #[cfg(not(feature = "jit2"))]
                 x if x == *PRIM_PLUS && payload_size == 2 => Some(OpCode::BINOPADD),
+
                 x if x == *PRIM_PLUS && payload_size > 0 => Some(OpCode::ADD),
                 // x if x == *PRIM_MINUS && *payload_size == 2 => Some(OpCode::BINOPSUB),
                 x if x == *PRIM_MINUS && payload_size > 0 => Some(OpCode::SUB),
@@ -727,6 +775,9 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
                 x if x == *PRIM_EQUAL && payload_size == 2 => Some(OpCode::EQUAL2),
                 x if x == *PRIM_EQUAL && payload_size > 0 => Some(OpCode::EQUAL),
                 x if x == *PRIM_LTE && payload_size > 0 => Some(OpCode::LTE),
+                x if x == *PRIM_GTE && payload_size > 0 => Some(OpCode::GTE),
+                x if x == *PRIM_GT && payload_size > 0 => Some(OpCode::GT),
+                x if x == *PRIM_LT && payload_size > 0 => Some(OpCode::LT),
                 _ => None,
             };
 
@@ -745,79 +796,11 @@ pub fn inline_num_operations(instructions: &mut [Instruction]) {
     }
 }
 
-pub const fn sequence_to_opcode(pattern: &[(OpCode, usize)]) -> &'static [steel_gen::Pattern] {
-    match pattern {
-        &[(OpCode::MOVEREADLOCAL, _)] => &[steel_gen::Pattern::Single(OpCode::MOVEREADLOCAL)],
-        _ => todo!(),
-    }
-}
-
-#[allow(unused)]
-pub fn tile_super_instructions(instructions: &mut [Instruction]) {
-    #[cfg(feature = "dynamic")]
-    {
-        pub fn tile<const N: usize>(instructions: &mut [Instruction]) {
-            // let mut list: List<(usize, OpCode)> = List::new();
-
-            let mut buffer = [(OpCode::VOID, 0); N];
-
-            let mut pattern_buffer = Vec::with_capacity(N);
-
-            // Cell::from_mut()
-
-            if N > instructions.len() {
-                return;
-            }
-
-            for i in 0..instructions.len() - N {
-                for j in 0..N {
-                    buffer[j] = (
-                        instructions[i + j].op_code,
-                        instructions[i + j].payload_size,
-                    );
-                }
-
-                // If this is a candidate to match the pattern, let's try to apply it!
-                if let Some(op_code) = steel_gen::opcode::sequence_to_opcode(&buffer) {
-                    // Check if this pattern genuinely matches one of the code gen'd ones
-                    steel_gen::Pattern::from_opcodes_with_buffer(&buffer, &mut pattern_buffer);
-
-                    if crate::steel_vm::vm::pattern_exists(&pattern_buffer) {
-                        // log::debug!(target: "super-instructions", "Applying tiling for: {:?}", op_code);
-
-                        // println!("Applying tiling for: {:?}", op_code);
-                        // println!("{:?}", pattern_buffer);
-
-                        instructions[i].op_code = op_code;
-
-                        continue;
-                    }
-                }
-            }
-
-            // for (index, op) in list {
-            //     instructions[index].op_code = op;
-            // }
-        }
-
-        // Super instruction tiling here!
-
-        if _TILE_SUPER_INSTRUCTIONS {
-            tile::<11>(instructions);
-            tile::<10>(instructions);
-            tile::<9>(instructions);
-            tile::<8>(instructions);
-            tile::<7>(instructions);
-            tile::<6>(instructions);
-            tile::<5>(instructions);
-            tile::<4>(instructions);
-            tile::<3>(instructions);
-            tile::<2>(instructions);
-        }
-    }
-}
-
 pub fn merge_conditions_with_if(instructions: &mut [Instruction]) {
+    if cfg!(feature = "jit2") {
+        return;
+    }
+
     for i in 0..instructions.len() - 1 {
         let condition = instructions.get(i);
         let guard = instructions.get(i + 2);
@@ -1209,7 +1192,6 @@ impl RawProgramWithSymbols {
             specialize_read_local(instructions);
             merge_conditions_with_if(instructions);
             specialize_constants(instructions).unwrap();
-            tile_super_instructions(instructions);
         }
 
         self

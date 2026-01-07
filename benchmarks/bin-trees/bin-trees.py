@@ -1,4 +1,5 @@
 import sys
+import time
 
 
 def make_tree(depth):
@@ -19,6 +20,7 @@ min_depth = 4
 max_depth = max(min_depth + 2, 12)
 stretch_depth = max_depth + 1
 
+start = time.time()
 print(
     "stretch tree of depth %d\t check:" % stretch_depth,
     check_tree(make_tree(stretch_depth)),
@@ -38,3 +40,5 @@ for depth in range(min_depth, stretch_depth, 2):
     iterations //= 4
 
 print("long lived tree of depth %d\t check:" % max_depth, check_tree(long_lived_tree))
+end = time.time()
+print(end - start)

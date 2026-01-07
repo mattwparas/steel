@@ -1338,6 +1338,37 @@ pub fn lte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     })))
 }
 
+#[inline(always)]
+pub fn lt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "expected at least one argument");
+    }
+
+    Ok(SteelVal::BoolV(args.windows(2).all(|x| {
+        x[0].partial_cmp(&x[1])
+            .map(|x| x == Ordering::Less)
+            .unwrap_or(false)
+    })))
+}
+
+#[inline(always)]
+pub fn gt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "expected at least one argument");
+    }
+
+    Ok(SteelVal::BoolV(args.windows(2).all(|x| {
+        x[0].partial_cmp(&x[1])
+            .map(|x| x == Ordering::Greater)
+            .unwrap_or(false)
+    })))
+}
+
+#[steel_derive::function(name = "eq?")]
+pub fn eq(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(left.ptr_eq(&right)))
+}
+
 fn equality_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/equality");
     module
@@ -1351,12 +1382,7 @@ fn equality_module() -> BuiltInModule {
                 |a: &SteelVal, b: &SteelVal| a.ptr_eq(b)
             )),
         )
-        .register_value(
-            "eq?",
-            SteelVal::FuncV(ensure_tonicity_two!(
-                |a: &SteelVal, b: &SteelVal| a.ptr_eq(b)
-            )),
-        )
+        .register_native_fn_definition(EQ_DEFINITION)
         .register_native_fn_definition(NUMBER_EQUALITY_DEFINITION);
 
     // TODO: Replace this with just numeric equality!
@@ -2182,6 +2208,12 @@ fn meta_module() -> BuiltInModule {
     // TODO: Remove
     #[cfg(feature = "dylibs")]
     module.register_native_fn_definition(crate::steel_vm::dylib::LOAD_MODULE_DEFINITION);
+
+    #[cfg(feature = "jit2")]
+    module.register_native_fn_definition(super::vm::jit::JIT_COMPILE_DEFINITION);
+
+    #[cfg(feature = "jit2")]
+    module.register_native_fn_definition(super::vm::jit::JIT_COMPILE_TWO_DEFINITION);
 
     module
 }

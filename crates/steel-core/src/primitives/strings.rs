@@ -1049,6 +1049,18 @@ pub fn char_equals(rest: RestArgsIter<char>) -> Result<SteelVal> {
     monotonic!(rest, |ch1: &_, ch2: &_| ch1 == ch2)
 }
 
+// TODO:
+// Have checks for the type of the arguments each, so we can
+// pass a function like: `char`, `char`, and skip all sorts of checks.
+//
+// Those checks can basically be done inline entirely.
+pub fn char_equals_binop(l: SteelVal, r: SteelVal) -> Result<SteelVal> {
+    use crate::rvals::FromSteelVal;
+    let l = char::from_steelval(&l)?;
+    let r = char::from_steelval(&r)?;
+    Ok(SteelVal::BoolV(l == r))
+}
+
 /// Checks if all characters are equal, in a case-insensitive fashion
 /// (i.e. as if char-foldcase was applied to the arguments).
 ///

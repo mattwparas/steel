@@ -55,6 +55,8 @@ enum SteelSubcommand {
         expanded: Option<bool>,
         #[arg(long)]
         pretty: Option<bool>,
+        #[arg(long)]
+        require: Option<bool>,
     },
 
     /// Enter the repl with the given file loaded.
@@ -257,6 +259,7 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
                     default_file: Some(path),
                     expanded,
                     pretty,
+                    require,
                 }),
             ..
         } => {
@@ -264,9 +267,19 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
 
             let expanded = expanded.unwrap_or(true);
             let pretty = pretty.unwrap_or(true);
+            let require = require.unwrap_or(false);
 
             let res = match (expanded, pretty) {
-                (true, true) => vm.emit_fully_expanded_ast_to_string(&contents, Some(path.clone())),
+                (true, true) => {
+                    if require {
+                        vm.emit_fully_expanded_ast_to_string(
+                            &format!("(require \"{}\")", path.to_str().unwrap()),
+                            None,
+                        )
+                    } else {
+                        vm.emit_fully_expanded_ast_to_string(&contents, Some(path.clone()))
+                    }
+                }
                 (true, false) => vm
                     .emit_fully_expanded_ast(&contents, Some(path.clone()))
                     .map(|ast| format!("{:#?}", ast)),

@@ -505,7 +505,7 @@ impl ChildProcess {
     pub fn stdout(&mut self) -> Option<SteelVal> {
         let stdout = self.child.as_mut().and_then(|x| x.stdout.take()).map(|x| {
             SteelVal::PortV(SteelPort {
-                port: Gc::new_mut(SteelPortRepr::ChildStdOutput(Peekable::new(
+                port: Gc::new_lock(SteelPortRepr::ChildStdOutput(Peekable::new(
                     BufReader::new(x),
                 ))),
             })
@@ -517,7 +517,7 @@ impl ChildProcess {
     pub fn stderr(&mut self) -> Option<SteelVal> {
         let stdout = self.child.as_mut().and_then(|x| x.stderr.take()).map(|x| {
             SteelVal::PortV(SteelPort {
-                port: Gc::new_mut(SteelPortRepr::ChildStdError(Peekable::new(BufReader::new(
+                port: Gc::new_lock(SteelPortRepr::ChildStdError(Peekable::new(BufReader::new(
                     x,
                 )))),
             })
@@ -529,7 +529,7 @@ impl ChildProcess {
     pub fn stdin(&mut self) -> Option<SteelVal> {
         let stdout = self.child.as_mut().and_then(|x| x.stdin.take()).map(|x| {
             SteelVal::PortV(SteelPort {
-                port: Gc::new_mut(SteelPortRepr::ChildStdInput(BufWriter::new(x))),
+                port: Gc::new_lock(SteelPortRepr::ChildStdInput(BufWriter::new(x))),
             })
         });
 

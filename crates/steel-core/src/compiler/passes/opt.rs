@@ -1,5 +1,6 @@
 use steel_parser::{
     ast::{Atom, ExprKind},
+    interner::InternedString,
     parser::SyntaxObject,
     tokens::TokenType,
 };
@@ -18,6 +19,11 @@ impl SingleExprOptimizer {
         for expr in exprs {
             FlipNotCondition.visit(expr);
             PruneConstantIfBranches.visit(expr);
+            RemoveLetsBoundToOtherLocalVars {
+                scope: Vec::new(),
+                args: Vec::new(),
+            }
+            .visit(expr);
         }
     }
 }
@@ -108,5 +114,97 @@ impl VisitorMutRefUnit for PruneConstantIfBranches {
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
         }
+    }
+}
+
+pub struct RemoveLetsBoundToOtherLocalVars {
+    // Variables that are in scope. The RHS has
+    // to be something that is local, otherwise
+    // we're capturing a global reference and we
+    // need that to be constant.
+    args: Vec<InternedString>,
+    scope: Vec<Vec<(InternedString, Option<InternedString>)>>,
+}
+
+impl VisitorMutRefUnit for RemoveLetsBoundToOtherLocalVars {
+    fn visit_lambda_function(&mut self, lambda_function: &mut steel_parser::ast::LambdaFunction) {
+        for var in &mut lambda_function.args {
+            if let Some(ident) = var.atom_identifier() {
+                self.args.push(*ident);
+            }
+        }
+
+        // println!(
+        //     "Bound: {:#?}",
+        //     self.args.iter().map(|x| x.resolve()).collect::<Vec<_>>()
+        // );
+
+        self.visit(&mut lambda_function.body);
+
+        self.args
+            .truncate(self.args.len() - lambda_function.args.len());
+    }
+
+    fn visit_atom(&mut self, a: &mut Atom) {
+        if let Some(ident) = a.ident().copied() {
+            // Go through each scope
+            for scope in self.scope.iter().rev() {
+                if let Some(r) = scope
+                    .iter()
+                    .find_map(|x| if x.0 == ident { Some(x.1) } else { None })
+                {
+                    if let Some(r) = r {
+                        *a.ident_mut().unwrap() = r;
+                    }
+
+                    break;
+                } else {
+                    continue;
+                }
+            }
+        }
+    }
+
+    fn visit_let(&mut self, l: &mut steel_parser::ast::Let) {
+        let mut bound = Vec::new();
+
+        for (ident, expr) in l.bindings.iter_mut() {
+            // (let ((a b))
+            //     ;; Replace all usages of a with b?
+            //     ;; Remove it afterwards
+            // )
+            self.visit(expr);
+            if let Some(left) = ident.atom_identifier() {
+                let rhs = expr.atom_identifier().copied();
+
+                if let Some(rhs) = rhs {
+                    if !self.args.contains(&rhs) {
+                        // println!("Found unbound ref: {} -> {}", left, rhs);
+                        bound.push((*left, None));
+                        continue;
+                    }
+                }
+
+                bound.push((*left, rhs));
+            }
+        }
+
+        self.scope.push(bound);
+        self.visit(&mut l.body_expr);
+        let bound = self.scope.pop().unwrap();
+
+        if bound.is_empty() {
+            return;
+        }
+
+        l.bindings.retain(|(ident, expr)| {
+            if ident.atom_identifier().is_some() && expr.atom_identifier().is_some() {
+                if self.args.contains(expr.atom_identifier().unwrap()) {
+                    return false;
+                }
+            }
+
+            true
+        });
     }
 }

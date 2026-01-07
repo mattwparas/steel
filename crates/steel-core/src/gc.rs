@@ -1,6 +1,6 @@
+use crate::gc::shared::GcLock;
 use crate::rerrs::SteelErr;
 use crate::rvals::SteelVal;
-use crate::stop;
 
 #[cfg(not(feature = "sync"))]
 use std::cell::RefCell;
@@ -80,8 +80,19 @@ pub mod shared {
     #[cfg(all(feature = "sync", feature = "triomphe"))]
     pub type SharedMut<T> = triomphe::Arc<RwLock<T>>;
 
+    // #[cfg(all(feature = "sync", feature = "triomphe"))]
+    // pub type Shared<T> = biased_rc::BiasedRc<T>;
+    // #[cfg(all(feature = "sync", feature = "triomphe"))]
+    // pub type SharedMut<T> = biased_rc::BiasedRc<RwLock<T>>;
+
     #[cfg(feature = "sync")]
     pub type GcMut<T> = Gc<RwLock<T>>;
+
+    #[cfg(feature = "sync")]
+    pub type GcLock<T> = Gc<parking_lot::Mutex<T>>;
+
+    #[cfg(not(feature = "sync"))]
+    pub type GcLock<T> = Gc<RefCell<T>>;
 
     #[cfg(feature = "sync")]
     pub type WeakSharedMut<T> = std::sync::Weak<RwLock<T>>;
@@ -396,22 +407,52 @@ pub mod shared {
             Gc::deref(self).try_lock()
         }
     }
+
+    impl<T> ShareableMut<T> for Gc<parking_lot::Mutex<T>> {
+        type ShareableRead<'a>
+            = parking_lot::MutexGuard<'a, T>
+        where
+            T: 'a;
+        type ShareableWrite<'a>
+            = parking_lot::MutexGuard<'a, T>
+        where
+            T: 'a;
+        type TryReadResult<'a>
+            = Option<parking_lot::MutexGuard<'a, T>>
+        where
+            T: 'a;
+        type TryWriteResult<'a>
+            = Option<parking_lot::MutexGuard<'a, T>>
+        where
+            T: 'a;
+
+        fn read<'a>(&'a self) -> Self::ShareableRead<'a> {
+            Gc::deref(self).lock()
+        }
+
+        fn write<'a>(&'a self) -> Self::ShareableWrite<'a> {
+            Gc::deref(self).lock()
+        }
+
+        fn try_read<'a>(&'a self) -> Self::TryReadResult<'a> {
+            Gc::deref(self).try_lock()
+        }
+
+        fn try_write<'a>(&'a self) -> Self::TryWriteResult<'a> {
+            Gc::deref(self).try_lock()
+        }
+    }
 }
 
 // TODO: Consider triomphe for a drop in replacement of Arc
-
-/// Used for automatic detection of ref cycle
-pub enum MaybeWeak<T: Clone> {
-    StrongRef(Gc<T>),
-    WeakRef(Gc<T>),
-}
 
 /// This is simply a newtype around the `Rc` type
 /// When enabled, this allows for complete sandboxing of data types
 /// It does not expose the full functionality of the `Rc` type
 /// but it does allow for some
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
-pub struct Gc<T: ?Sized>(pub(crate) Shared<T>);
+// pub struct Gc<T: ?Sized>(pub(crate) Shared<T>);
+pub struct Gc<T: ?Sized + 'static>(pub(crate) Shared<T>);
 
 impl<T: ?Sized> Pointer for Gc<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -462,6 +503,16 @@ impl<T> Gc<T> {
         Gc::new(RwLock::new(val))
     }
 
+    pub fn new_lock(val: T) -> GcLock<T> {
+        #[cfg(not(feature = "sync"))]
+        {
+            Gc::new(RefCell::new(val))
+        }
+
+        #[cfg(feature = "sync")]
+        Gc::new(parking_lot::Mutex::new(val))
+    }
+
     pub fn try_new(val: T) -> Result<Gc<T>, SteelErr> {
         let mem: usize = OBJECT_COUNT.fetch_add(1, Ordering::SeqCst);
         if mem > MAXIMUM_OBJECTS {
@@ -492,8 +543,6 @@ impl<T> Gc<T> {
 }
 
 impl<T: ?Sized> Gc<T> {
-    // in order to fully sandbox, I have to check the memory limit
-
     pub fn get_mut(&mut self) -> Option<&mut T> {
         Shared::get_mut(&mut self.0)
     }

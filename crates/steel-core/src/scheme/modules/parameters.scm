@@ -5,6 +5,8 @@
          make-parameter
          continuation?)
 
+(require-builtin steel/base)
+
 ;;;;;; Parameters ;;;;;
 
 ; (struct Parameter (getter value)

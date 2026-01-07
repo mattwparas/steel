@@ -130,14 +130,14 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
 #[function(name = "stdin")]
 pub fn open_stdin() -> SteelVal {
     SteelVal::PortV(SteelPort {
-        port: Gc::new_mut(SteelPortRepr::StdInput(Peekable::new(std::io::stdin()))),
+        port: Gc::new_lock(SteelPortRepr::StdInput(Peekable::new(std::io::stdin()))),
     })
 }
 
 #[function(name = "stdout")]
 pub fn open_stdout() -> SteelVal {
     SteelVal::PortV(SteelPort {
-        port: Gc::new_mut(SteelPortRepr::StdOutput(std::io::stdout())),
+        port: Gc::new_lock(SteelPortRepr::StdOutput(std::io::stdout())),
     })
 }
 
@@ -593,6 +593,10 @@ pub fn eof_objectp(value: &SteelVal) -> bool {
     }
 }
 
+pub fn eof_objectp_jit(value: SteelVal) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(eof_objectp(&value)))
+}
+
 /// Returns an EOF object.
 ///
 /// (eof-object) -> eof-object?
@@ -755,6 +759,33 @@ pub fn read_char(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
             Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
         }
         crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+    }
+}
+
+pub fn read_char_single(port: SteelVal) -> Result<SteelVal> {
+    if let SteelVal::PortV(port) = port {
+        match port.read_char()? {
+            crate::values::port::MaybeBlocking::Nonblocking(c) => {
+                Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
+            }
+            crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+        }
+    } else {
+        stop!(TypeMismatch => "...")
+    }
+}
+
+// Can we assume there isn't a check here? Just skip the port itself?
+pub fn read_char_single_ref(port: &SteelVal) -> Result<SteelVal> {
+    if let SteelVal::PortV(port) = port {
+        match port.read_char()? {
+            crate::values::port::MaybeBlocking::Nonblocking(c) => {
+                Ok(c.map(SteelVal::CharV).unwrap_or_else(eof))
+            }
+            crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
+        }
+    } else {
+        stop!(TypeMismatch => "...")
     }
 }
 

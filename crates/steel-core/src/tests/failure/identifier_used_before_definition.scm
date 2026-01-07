@@ -1,3 +1,3 @@
 (define n 10)
 (range n m)
-(define m 20)
+(define m (#%black-box 20))

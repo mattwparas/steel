@@ -6,4 +6,6 @@ function fibonacci(n)
     end
 end
 
-fibonacci(28)
+nClock = os.clock()
+fibonacci(35)
+print("Elapsed time is:", os.clock() - nClock)
