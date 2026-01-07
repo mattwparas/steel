@@ -1029,7 +1029,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     }
 
     fn grow_by(&mut self, amount: usize) {
-        let now = std::time::Instant::now();
+        // let now = std::time::Instant::now();
         // Can probably make this a lot bigger
         let current = self.elements.len().max(amount);
 
@@ -1037,9 +1037,9 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
         self.elements.reserve(current);
 
-        log::debug!(target: "gc", "Time to extend the heap vec -> {:?}", now.elapsed());
+        log::debug!(target: "gc", "Time to extend the heap vec");
 
-        let now = std::time::Instant::now();
+        // let now = std::time::Instant::now();
 
         // Can we pre allocate this somewhere else? Incrementally allocate the values?
         // So basically we can have the elements be allocated vs not, and just have them
@@ -1051,7 +1051,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
             .take(current),
         );
 
-        log::debug!(target: "gc", "Growing the heap by: {} -> {:?}", current, now.elapsed());
+        log::debug!(target: "gc", "Growing the heap by: {}", current);
 
         self.alloc_count += current;
         self.grow_count += 1;
@@ -1272,7 +1272,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
     }
 
     fn grow(&mut self) {
-        let now = std::time::Instant::now();
+        // let now = std::time::Instant::now();
         // Can probably make this a lot bigger
         let current = self.elements.len().max(Self::EXTEND_CHUNK);
 
@@ -1280,9 +1280,9 @@ impl<T: HeapAble + 'static> FreeList<T> {
 
         self.elements.reserve(current);
 
-        log::debug!(target: "gc", "Time to extend the heap vec -> {:?}", now.elapsed());
+        log::debug!(target: "gc", "Time to extend the heap vec");
 
-        let now = std::time::Instant::now();
+        // let now = std::time::Instant::now();
 
         // Can we pre allocate this somewhere else? Incrementally allocate the values?
         // So basically we can have the elements be allocated vs not, and just have them
@@ -1294,7 +1294,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
             .take(current),
         );
 
-        log::debug!(target: "gc", "Growing the heap by: {} -> {:?}", current, now.elapsed());
+        log::debug!(target: "gc", "Growing the heap by: {}", current);
 
         self.alloc_count += current;
         self.grow_count += 1;
@@ -1676,13 +1676,13 @@ impl Heap {
         force: bool,
     ) {
         if self.memory_free_list.percent_full() > 0.95 || force {
-            let now = std::time::Instant::now();
+            // let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "SteelVal gc invocation");
             self.memory_free_list.weak_collection();
 
             log::debug!(target: "gc", "Memory size post weak collection: {}", self.memory_free_list.percent_full());
-            log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
+            // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.memory_free_list.percent_full() > 0.95 || force {
                 // New generation
@@ -1718,7 +1718,7 @@ impl Heap {
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.memory_free_list.percent_full());
 
-                log::debug!(target: "gc", "---- TOTAL GC TIME: {:?} ----", now.elapsed());
+                // log::debug!(target: "gc", "---- TOTAL GC TIME: {:?} ----", now.elapsed());
             }
         }
     }
@@ -1768,12 +1768,13 @@ impl Heap {
         }
 
         if self.vector_free_list.percent_full() > 0.95 || force {
-            let now = std::time::Instant::now();
+            // let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
             self.vector_free_list.weak_collection();
             self.vector_free_list.calculate_slots_reachable();
-            log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
+            // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
+            // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.vector_free_list.percent_full() > 0.95 || force {
                 self.vector_free_list.mark_all_unreachable();
@@ -1808,7 +1809,7 @@ impl Heap {
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.vector_free_list.percent_full());
 
-                log::debug!(target: "gc", "---- TOTAL VECTOR GC TIME: {:?} ----", now.elapsed());
+                // log::debug!(target: "gc", "---- TOTAL VECTOR GC TIME: {:?} ----", now.elapsed());
             }
         }
     }
@@ -1831,12 +1832,13 @@ impl Heap {
         }
 
         if self.vector_free_list.percent_full() > 0.95 {
-            let now = std::time::Instant::now();
+            // let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
             self.vector_free_list.weak_collection();
             self.vector_free_list.calculate_slots_reachable();
-            log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
+            // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
+            // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.vector_free_list.percent_full() > 0.95 {
                 self.vector_free_list.mark_all_unreachable();
@@ -1870,7 +1872,7 @@ impl Heap {
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.vector_free_list.percent_full());
 
-                log::debug!(target: "gc", "---- TOTAL VECTOR GC TIME: {:?} ----", now.elapsed());
+                // log::debug!(target: "gc", "---- TOTAL VECTOR GC TIME: {:?} ----", now.elapsed());
             }
         }
 
@@ -1897,7 +1899,7 @@ impl Heap {
             synchronizer,
         );
 
-        // #[cfg(feature = "profiling")]
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         #[cfg(feature = "sync")]
@@ -1910,7 +1912,7 @@ impl Heap {
             ROOTS.with(|x| x.borrow_mut().increment_generation());
         }
 
-        // #[cfg(feature = "profiling")]
+        #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
 
         synchronizer.resume_threads();
@@ -1933,7 +1935,7 @@ impl Heap {
     ) -> MarkAndSweepStats {
         log::debug!(target: "gc", "Marking the heap");
 
-        // #[cfg(feature = "profiling")]
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         let mut context = MarkAndSweepContext {
@@ -2008,7 +2010,7 @@ impl Heap {
             context.stats
         };
 
-        log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
+        // log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
         count
     }
 }
