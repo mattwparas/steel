@@ -2038,7 +2038,23 @@ impl Engine {
 
     pub fn update_value(&mut self, name: &str, value: SteelVal) -> Option<&mut Self> {
         let idx = self.virtual_machine.compiler.read().get_idx(name)?;
-        self.virtual_machine.global_env.repl_set_idx(idx, value);
+
+        let _ = self
+            .virtual_machine
+            .enter_safepoint(|thread| thread.heap.lock_arc());
+
+        #[cfg(feature = "sync")]
+        {
+            self.virtual_machine
+                .with_locked_env(|_, env| env.set_idx(idx, value));
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            self.virtual_machine
+                .with_locked_env(|this| this.global_env.repl_set_idx(index, value_to_assign))?;
+        }
+
         Some(self)
     }
 
