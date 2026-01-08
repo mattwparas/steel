@@ -2052,7 +2052,8 @@ impl Engine {
         #[cfg(not(feature = "sync"))]
         {
             self.virtual_machine
-                .with_locked_env(|this| this.global_env.repl_set_idx(index, value_to_assign))?;
+                .with_locked_env(|this| this.global_env.repl_set_idx(index, value_to_assign))
+                .ok()?;
         }
 
         Some(self)
