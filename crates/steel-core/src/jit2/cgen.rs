@@ -1256,7 +1256,7 @@ impl StackValue {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum ConstantValue {
     Int(isize),
     Bool(bool),
@@ -1322,7 +1322,7 @@ impl ConstantValue {
 //
 // We'll also want constants to be encoded in the value as well, like we have
 // below.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(u8)]
 enum MaybeStackValue {
     Value(StackValue),
