@@ -33,6 +33,21 @@
           packages = {
             default = self'.packages.steel;
             steel = pkgs.callPackage ./nix/package.nix { };
+
+            steel-forge = pkgs.callPackage ./nix/package.nix {
+              includeInterpreter = false;
+              includeLSP = false;
+            };
+
+            steel-interpreter = pkgs.callPackage ./nix/package.nix {
+              includeForge = false;
+              includeLSP = false;
+            };
+
+            steel-language-server = pkgs.callPackage ./nix/package.nix {
+              includeForge = false;
+              includeInterpreter = false;
+            };
           };
 
           treefmt = {

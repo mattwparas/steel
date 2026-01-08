@@ -10,12 +10,16 @@
   sqlite,
   zlib,
 
+  includeInterpreter ? true,
   includeLSP ? true,
   includeForge ? true,
 }:
 let
   manifest = lib.importTOML ../Cargo.toml;
 in
+assert lib.assertMsg (
+  includeInterpreter || includeLSP || includeForge
+) "At least one of includeInterpreter, includeLSP, or includeForge must be enabled";
 rustPlatform.buildRustPackage {
   pname = "steel";
   inherit (manifest.workspace.package) version;
@@ -28,40 +32,45 @@ rustPlatform.buildRustPackage {
   cargoLock.lockFile = ../Cargo.lock;
 
   nativeBuildInputs = [
-    curl
-    makeBinaryWrapper
     pkg-config
     rustPlatform.bindgenHook
-  ];
+    makeBinaryWrapper
+  ]
+  ++ lib.optionals includeForge [ curl ];
 
   buildInputs = [
+    zlib
+  ]
+  ++ lib.optionals includeForge [
     curl
     libgit2
-    oniguruma
     openssl
+  ]
+  ++ lib.optionals includeInterpreter [
+    oniguruma
     sqlite
-    zlib
   ];
 
   postPatch = ''
     rm .cargo/config.toml
   '';
 
-  cargoBuildFlags =
-    [
-      "--package"
-      "steel-interpreter"
-      "--package"
-      "cargo-steel-lib"
-    ]
-    ++ lib.optionals includeLSP [
-      "--package"
-      "steel-language-server"
-    ]
-    ++ lib.optionals includeForge [
-      "--package"
-      "steel-forge"
-    ];
+  cargoBuildFlags = [
+    "--package"
+    "cargo-steel-lib"
+  ]
+  ++ lib.optionals includeInterpreter [
+    "--package"
+    "steel-interpreter"
+  ]
+  ++ lib.optionals includeLSP [
+    "--package"
+    "steel-language-server"
+  ]
+  ++ lib.optionals includeForge [
+    "--package"
+    "steel-forge"
+  ];
 
   doCheck = false;
 
@@ -79,25 +88,48 @@ rustPlatform.buildRustPackage {
     rm -rf $out/lib/steel/bin
   '';
 
-  postFixup = ''
-    wrapProgram $out/bin/steel --set-default STEEL_HOME "$out/lib/steel"
-  '';
+  postFixup =
+    lib.optionalString includeInterpreter ''
+      wrapProgram $out/bin/steel --set-default STEEL_HOME "$out/lib/steel"
+    ''
+    + lib.optionalString includeForge ''
+      wrapProgram $out/bin/forge --set-default STEEL_HOME "$out/lib/steel"
+    ''
+    + lib.optionalString includeLSP ''
+      wrapProgram $out/bin/steel-language-server --set-default STEEL_HOME "$out/lib/steel"
+    ''
+    + ''
+      wrapProgram $out/bin/cargo-steel-lib --set-default STEEL_HOME "$out/lib/steel"
+    '';
 
-  env = {
-    OPENSSL_NO_VENDOR = true;
-    RUSTONIG_SYSTEM_LIBONIG = true;
-    STEEL_HOME = "${placeholder "out"}/lib/steel";
-  };
+  env =
+    lib.optionalAttrs includeForge { OPENSSL_NO_VENDOR = true; }
+    // lib.optionalAttrs includeInterpreter { RUSTONIG_SYSTEM_LIBONIG = true; }
+    // {
+      STEEL_HOME = "${placeholder "out"}/lib/steel";
+    };
 
   meta = {
-    description = "Embedded scheme interpreter in Rust";
+    description =
+      if includeInterpreter then
+        "Embedded scheme interpreter in Rust"
+      else if includeLSP then
+        "Steel language server"
+      else
+        "Package manager for Steel";
     homepage = "https://github.com/mattwparas/steel";
     license = with lib.licenses; [
       asl20
       mit
     ];
     maintainers = with lib.maintainers; [ HeitorAugustoLN ];
-    mainProgram = "steel";
+    mainProgram =
+      if includeInterpreter then
+        "steel"
+      else if includeLSP then
+        "steel-language-server"
+      else
+        "forge";
     platforms = lib.platforms.unix;
     sourceProvenance = [ lib.sourceTypes.fromSource ];
   };
