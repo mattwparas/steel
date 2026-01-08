@@ -785,7 +785,7 @@ impl SteelThread {
 
             // Only incur the cost of the actual safepoint behavior
             // if multiple threads are enabled
-            safepoints_enabled: false,
+            safepoints_enabled: true,
 
             #[cfg(feature = "jit2")]
             jit: Arc::new(Mutex::new(crate::jit2::cgen::JIT::default())),
