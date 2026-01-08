@@ -976,7 +976,7 @@ impl JIT {
         constants: &ConstantMap,
         function_index: Option<usize>,
     ) -> Result<*const u8, String> {
-        self.ctx.set_disasm(true);
+        // self.ctx.set_disasm(true);
 
         let (params, stmts) = (Default::default(), instructions);
 
@@ -1011,8 +1011,14 @@ impl JIT {
                 e.to_string()
             })?;
 
+        // let asm = self.ctx.compiled_code().map(|x| x.vcode.as_ref()).flatten();
+        // if let Some(asm) = asm {
+        //     println!("{}", asm);
+        // }
+
         self.module.clear_context(&mut self.ctx);
         self.module.finalize_definitions().unwrap();
+
         let code = self.module.get_finalized_function(id);
 
         Ok(code)
@@ -1173,7 +1179,7 @@ impl JIT {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 pub enum InferredType {
     // Could be either an i64 or a big int
     Int,
@@ -1224,7 +1230,7 @@ pub enum InferredType {
 //     }
 // }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct StackValue {
     value: Value,
     inferred_type: InferredType,
@@ -1250,11 +1256,12 @@ impl StackValue {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConstantValue {
     Int(isize),
     Bool(bool),
     Char(char),
+
     Float(f64),
 
     // HeapConstant
@@ -1315,7 +1322,7 @@ impl ConstantValue {
 //
 // We'll also want constants to be encoded in the value as well, like we have
 // below.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 enum MaybeStackValue {
     Value(StackValue),
@@ -2129,15 +2136,8 @@ impl FunctionTranslator<'_> {
                             self.ip += 1;
                             let arity = self.instructions[self.ip].payload_size.to_usize();
 
-                            let name = CallPrimitiveDefinitions::arity_to_name(arity);
+                            // Install lots of lookups for this stuff
 
-                            // TODO: Introduce some global lookup for function pointers,
-                            // so that this can be entirely abstracted.
-                            //
-                            // The general idea here being: define a function, but also
-                            // be able to define the specialized versions of that function.
-                            //
-                            // Skipping lots of type checks is good.
                             if f == crate::primitives::strings::steel_char_equals
                                 as FunctionSignature
                                 && arity == 2
@@ -2158,7 +2158,7 @@ impl FunctionTranslator<'_> {
                                 && false
                             {
                                 // Encode the object... Any others we can encode in this way?
-                                self.eof_object(1)
+                                self.eof_object()
                             } else if f == steel_mut_vec_set as FunctionSignature
                                 && arity == 3
                                 && false
@@ -2169,6 +2169,8 @@ impl FunctionTranslator<'_> {
                             } else if f == steel_pair as FunctionSignature && arity == 1 && false {
                                 self.is_pair()
                             } else {
+                                let name = CallPrimitiveDefinitions::arity_to_name(arity);
+
                                 if let Some(name) = name {
                                     // attempt to move forward with it
                                     let additional_args = self.split_off(arity);
@@ -2802,8 +2804,8 @@ impl FunctionTranslator<'_> {
     // to work with anything where every argument is just by value.
     //
     // Then, we can specialize as needed.
-    fn eof_object(&mut self, arity: usize) {
-        let name = CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
+    fn eof_object(&mut self) {
+        let name = CallPrimitiveFixedDefinitions::arity_to_name(1).unwrap();
         let additional_args = self.split_off(1);
 
         let fallback_ip = self
@@ -3167,7 +3169,26 @@ impl FunctionTranslator<'_> {
                 OpCode::MOVEREADLOCAL0
                 | OpCode::MOVEREADLOCAL1
                 | OpCode::MOVEREADLOCAL2
-                | OpCode::MOVEREADLOCAL3 => MaybeStackValue::MutRegister(payload),
+                | OpCode::MOVEREADLOCAL3 => {
+                    for index in 0..self.shadow_stack.len() {
+                        let item = self.shadow_stack.get_mut(index).unwrap();
+
+                        match item {
+                            MaybeStackValue::Register(i) if *i == payload => {
+                                let (value, typ) = self.immutable_register_to_value(payload);
+
+                                self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                                    value,
+                                    inferred_type: typ,
+                                    spilled: false,
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    MaybeStackValue::MutRegister(payload)
+                }
                 _ => panic!(),
             }
         } else {
@@ -3241,9 +3262,30 @@ impl FunctionTranslator<'_> {
         }
 
         if payload < self.arity as _ {
+            //
             match op {
                 OpCode::READLOCAL => MaybeStackValue::Register(payload),
-                OpCode::MOVEREADLOCAL => MaybeStackValue::MutRegister(payload),
+                OpCode::MOVEREADLOCAL => {
+                    // Check existing stack, and see if we need to spill any existing ones:
+                    for index in 0..self.shadow_stack.len() {
+                        let item = self.shadow_stack.get_mut(index).unwrap();
+
+                        match item {
+                            MaybeStackValue::Register(i) if *i == payload => {
+                                let (value, typ) = self.immutable_register_to_value(payload);
+
+                                self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                                    value,
+                                    inferred_type: typ,
+                                    spilled: false,
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    MaybeStackValue::MutRegister(payload)
+                }
                 _ => panic!(),
             }
         } else {
@@ -4435,6 +4477,8 @@ impl FunctionTranslator<'_> {
         }
     }
 
+    // TODO: The issue seems to be that values are coming in out of order?
+    // We should split off and generate the values in reverse order I believe.
     fn mut_register_to_value(&mut self, p: usize) -> (Value, InferredType) {
         let (value, _) = match p {
             0 => self.read_local_fixed_no_spill(OpCode::MOVEREADLOCAL0, p),
