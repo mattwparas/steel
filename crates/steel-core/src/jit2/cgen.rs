@@ -2137,7 +2137,6 @@ impl FunctionTranslator<'_> {
                             let arity = self.instructions[self.ip].payload_size.to_usize();
 
                             // Install lots of lookups for this stuff
-
                             if f == crate::primitives::strings::steel_char_equals
                                 as FunctionSignature
                                 && arity == 2
@@ -2844,6 +2843,7 @@ impl FunctionTranslator<'_> {
             // of an if statement, we should encode the type checking
             // through.
             Value(stack_value) => {
+                // TODO: Still need to invoke drop on this thing though!
                 self.shadow_stack.pop();
                 // If we've already inferrred this type as a pair,
                 // we can skip the code generation for checking the tags
