@@ -1369,6 +1369,14 @@ impl MaybeStackValue {
             panic!()
         }
     }
+
+    fn as_value(self) -> Option<StackValue> {
+        if let Self::Value(v) = self {
+            Some(v)
+        } else {
+            None
+        }
+    }
 }
 
 /// A collection of state used for translating from toy-language AST nodes
@@ -1738,14 +1746,16 @@ impl FunctionTranslator<'_> {
 
                         // self.push(res, InferredType::Any);
                     } else {
-                        let last_ref = self.shadow_stack.last().unwrap().into_value();
+                        let last_ref = self.shadow_stack.last().and_then(|x| x.as_value());
 
-                        if last_ref.inferred_type == InferredType::UnboxedBool {
+                        if last_ref.map(|x| x.inferred_type) == Some(InferredType::UnboxedBool) {
                             let false_instr = self.instructions[self.ip].payload_size;
                             let true_instr = self.ip + 1;
 
                             // Explicitly want the unboxed value here
-                            let test_bool = last_ref.value;
+                            let test_bool = last_ref.unwrap().value;
+
+                            self.shadow_stack.pop();
 
                             self.translate_if_else_value(
                                 test_bool,
@@ -2679,16 +2689,16 @@ impl FunctionTranslator<'_> {
 
                 // TODO: This should pretty much be able to be inlined entirely?
                 OpCode::NOT => {
-                    let last = self.shadow_stack.last().unwrap().into_value();
+                    let last_ref = self.shadow_stack.last().and_then(|x| x.as_value());
 
-                    if last.inferred_type == InferredType::UnboxedBool {
-                        let test = last.value;
+                    if last_ref.map(|x| x.inferred_type) == Some(InferredType::UnboxedBool) {
+                        let test = last_ref.unwrap().value;
                         let test = self.builder.ins().uextend(types::I64, test);
                         self.shadow_stack.pop();
                         let value = self.builder.ins().icmp_imm(IntCC::Equal, test, 0);
                         self.push(value, InferredType::UnboxedBool);
                         self.ip += 2;
-                    } else if last.inferred_type == InferredType::Bool {
+                    } else if last_ref.map(|x| x.inferred_type) == Some(InferredType::Bool) {
                         let (test, _) = self.shadow_pop();
                         // If this matches SteelVal::BoolV(false)
                         // exactly, then we're done.
