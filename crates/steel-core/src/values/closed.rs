@@ -1790,11 +1790,17 @@ impl Heap {
                     synchronizer,
                 );
 
-                self.vector_free_list.alloc_count =
-                    self.vector_free_list.elements.len() - stats.vector_reached_count;
+                self.vector_free_list.alloc_count = self
+                    .vector_free_list
+                    .elements
+                    .len()
+                    .saturating_sub(stats.vector_reached_count);
 
-                self.memory_free_list.alloc_count =
-                    self.memory_free_list.elements.len() - stats.memory_reached_count;
+                self.memory_free_list.alloc_count = self
+                    .memory_free_list
+                    .elements
+                    .len()
+                    .saturating_sub(stats.memory_reached_count);
 
                 // if !self.vector_free_list.has_sufficient_memory_pressure() {
                 // if self.vector_free_list.percent_full() > 0.75 {
