@@ -792,10 +792,26 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     // Make sure that this thread is certainly registered with the current system,
     // and otherwise we can install the runtime system to associate with living threads
     // with something.
-    steel_rc::register_thread();
 
-    // let handle = std::thread::spawn(move || {
+    #[cfg(all(feature = "sync", feature = "biased"))]
+    {
+        steel_rc::register_thread();
+    }
+
+    #[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
     let handle = steel_rc::with_explicit_merge(move || {
+        let constant_map = thread.compiler.read().constant_map.clone();
+
+        // TODO: We have to use the `execute` function in vm.rs - this sets up
+        // the proper dynamic wind stuff that is built in. Otherwise, it seems
+        // like we're not getting it installed correctly, and things are dying
+        thread
+            .call_function(constant_map, func, Vec::new())
+            .map_err(|e| e.to_string())
+    });
+
+    #[cfg(all(feature = "sync", feature = "triomphe", not(feature = "biased")))]
+    let handle = std::thread::spawn(move || {
         let constant_map = thread.compiler.read().constant_map.clone();
 
         // TODO: We have to use the `execute` function in vm.rs - this sets up

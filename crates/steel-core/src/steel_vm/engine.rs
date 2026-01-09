@@ -81,6 +81,8 @@ use steel_parser::{
     parser::{SourceId, SyntaxObject},
     tokens::{IntLiteral, TokenType},
 };
+
+#[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
 use steel_rc::QueueHandle;
 
 use crate::parser::ast::IteratorExtensions;
@@ -1126,7 +1128,11 @@ impl Engine {
     /// assert!(vm.run("(+ 1 2 3").is_err()); // + is a free identifier
     /// ```
     pub fn new_raw() -> Self {
-        steel_rc::register_thread();
+        #[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
+        {
+            steel_rc::register_thread();
+        }
+
         let sources = Sources::new();
         let modules = ModuleContainer::default();
 
@@ -1426,7 +1432,10 @@ impl Engine {
     /// vm.run(r#"(+ 1 2 3)"#).unwrap();
     /// ```
     pub fn new() -> Self {
-        steel_rc::register_thread();
+        #[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
+        {
+            steel_rc::register_thread();
+        }
         let mut engine = fresh_kernel_image(false);
 
         {
