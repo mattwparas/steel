@@ -19,6 +19,7 @@ pub fn process_module() -> BuiltInModule {
         .register_native_fn_definition(COMMAND_DEFINITION)
         .register_native_fn_definition(CURRENT_DIR_DEFINITION)
         .register_native_fn_definition(STDOUT_PIPED_DEFINITION)
+        .register_native_fn_definition(STDOUT_PIPED_OTHER_DEFINITION)
         .register_native_fn_definition(SPAWN_PROCESS_DEFINITION)
         .register_native_fn_definition(WAIT_DEFINITION)
         .register_fn("wait->stdout", ChildProcess::wait_with_stdout)
@@ -171,6 +172,14 @@ pub fn clear_env_var(builder: SteelVal) -> Result<SteelVal, SteelErr> {
 // TODO: @matt - add ways to override stdout, stderr, stdin, with ports
 #[function(name = "set-stdout-piped!")]
 pub fn stdout_piped(builder: SteelVal) -> Result<SteelVal, SteelErr> {
+    let mut guard = CommandBuilder::as_mut_ref(&builder)?;
+    guard.stdout_piped();
+    drop(guard);
+    Ok(builder)
+}
+
+#[function(name = "set-piped-stdout!")]
+pub fn stdout_piped_other(builder: SteelVal) -> Result<SteelVal, SteelErr> {
     let mut guard = CommandBuilder::as_mut_ref(&builder)?;
     guard.stdout_piped();
     drop(guard);
