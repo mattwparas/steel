@@ -61,7 +61,7 @@ termimad = { version = "0.31.1", optional = true }
 
 triomphe = { version = "0.1.14", optional = true }
 
-# biased-rc = { path = "../../../biased-rc" }
+steel-rc = { path = "../steel-rc", optional = true }
 
 # FFI for dylibs
 abi_stable = { version = "0.11.2", optional = true }
@@ -154,7 +154,7 @@ triomphe = ["dep:triomphe"]
 op-code-profiling = []
 imbl = ["dep:imbl"]
 custom-hash = []
-# biased-rc = ["dep:biased-rc"]
+biased = ["dep:steel-rc"]
 
 
 ffi-format = []
