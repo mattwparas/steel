@@ -6,9 +6,9 @@ use std::marker::PhantomData;
 use std::mem::{ManuallyDrop, MaybeUninit};
 use std::ops::Deref;
 use std::pin::Pin;
-use std::ptr::{NonNull, drop_in_place};
-use std::sync::LazyLock;
+use std::ptr::{drop_in_place, NonNull};
 use std::sync::atomic::AtomicU32;
+use std::sync::LazyLock;
 use std::thread::JoinHandle;
 use std::{cell::Cell, sync::atomic::Ordering};
 
@@ -540,7 +540,11 @@ impl<T: ?Sized> RcBox<T> {
                     let meta = &self.rcword;
                     let old = meta.shared.load(Ordering::Relaxed);
                     std::sync::atomic::fence(Ordering::Acquire);
-                    if old.get_counter() != 0 { false } else { true }
+                    if old.get_counter() != 0 {
+                        false
+                    } else {
+                        true
+                    }
                 } else {
                     false
                 }
