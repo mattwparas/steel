@@ -1738,6 +1738,7 @@ impl Engine {
         &mut self,
         exprs: E,
     ) -> Result<Vec<SteelVal>> {
+        #[cfg(feature = "biased")]
         QueueHandle::register_thread();
 
         let program = self.with_sources_guard(|| {

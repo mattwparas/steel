@@ -793,12 +793,12 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     // and otherwise we can install the runtime system to associate with living threads
     // with something.
 
-    #[cfg(all(feature = "sync", feature = "biased"))]
+    #[cfg(feature = "biased")]
     {
         steel_rc::register_thread();
     }
 
-    #[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
+    #[cfg(feature = "biased")]
     let handle = steel_rc::with_explicit_merge(move || {
         let constant_map = thread.compiler.read().constant_map.clone();
 
@@ -810,7 +810,7 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
             .map_err(|e| e.to_string())
     });
 
-    #[cfg(all(feature = "sync", feature = "triomphe", not(feature = "biased")))]
+    #[cfg(not(feature = "biased"))]
     let handle = std::thread::spawn(move || {
         let constant_map = thread.compiler.read().constant_map.clone();
 
