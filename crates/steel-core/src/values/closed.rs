@@ -980,18 +980,20 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     const EXTEND_CHUNK: usize = 256 * 100;
 
     fn new() -> Self {
-        #[cfg(feature = "sync")]
-        let (forward_sender, backward_receiver) = spawn_background_dropper();
+        // #[cfg(feature = "sync")]
+        // let (forward_sender, backward_receiver) = spawn_background_dropper();
 
         let mut res = FreeList {
             elements: Vec::new(),
             cursor: 0,
             alloc_count: 0,
             grow_count: 0,
-            #[cfg(feature = "sync")]
-            forward: Some(forward_sender),
-            #[cfg(feature = "sync")]
-            backward: Some(backward_receiver),
+            // #[cfg(feature = "sync")]
+            // forward: Some(forward_sender),
+            // #[cfg(feature = "sync")]
+            // backward: Some(backward_receiver),
+            forward: None,
+            backward: None,
             should_run_weak: true,
         };
 
@@ -1675,6 +1677,11 @@ impl Heap {
         synchronizer: &mut Synchronizer,
         force: bool,
     ) {
+        #[cfg(feature = "biased")]
+        {
+            steel_rc::QueueHandle::run_explicit_merge();
+        }
+
         if self.memory_free_list.percent_full() > 0.95 || force {
             // let now = std::time::Instant::now();
             // Attempt a weak collection
@@ -1758,6 +1765,11 @@ impl Heap {
         synchronizer: &'a mut Synchronizer,
         force: bool,
     ) {
+        #[cfg(feature = "biased")]
+        {
+            steel_rc::QueueHandle::run_explicit_merge();
+        }
+
         if self.vector_free_list.percent_full() > 0.50 && self.vector_free_list.should_run_weak {
             log::debug!(target: "gc", "Running weak collection because the vector free list is 50% full");
             self.vector_free_list.weak_collection();
@@ -1829,6 +1841,11 @@ impl Heap {
         tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<Vec<SteelVal>> {
+        #[cfg(feature = "biased")]
+        {
+            steel_rc::QueueHandle::run_explicit_merge();
+        }
+
         if self.vector_free_list.percent_full() > 0.50 && self.vector_free_list.should_run_weak {
             self.vector_free_list.weak_collection();
 
