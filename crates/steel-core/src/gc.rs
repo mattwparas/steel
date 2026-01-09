@@ -70,20 +70,20 @@ pub mod shared {
     #[cfg(not(feature = "sync"))]
     pub type StandardSharedMut<T> = std::rc::Rc<RefCell<T>>;
 
-    #[cfg(all(feature = "sync", not(feature = "triomphe")))]
+    #[cfg(all(feature = "sync", not(feature = "triomphe"), not(feature = "biased")))]
     pub type Shared<T> = Arc<T>;
-    #[cfg(all(feature = "sync", not(feature = "triomphe")))]
+    #[cfg(all(feature = "sync", not(feature = "triomphe"), not(feature = "biased")))]
     pub type SharedMut<T> = Arc<RwLock<T>>;
 
-    #[cfg(all(feature = "sync", feature = "triomphe"))]
+    #[cfg(all(feature = "sync", feature = "triomphe", not(feature = "biased")))]
     pub type Shared<T> = triomphe::Arc<T>;
-    #[cfg(all(feature = "sync", feature = "triomphe"))]
+    #[cfg(all(feature = "sync", feature = "triomphe", not(feature = "biased")))]
     pub type SharedMut<T> = triomphe::Arc<RwLock<T>>;
 
-    // #[cfg(all(feature = "sync", feature = "triomphe"))]
-    // pub type Shared<T> = biased_rc::BiasedRc<T>;
-    // #[cfg(all(feature = "sync", feature = "triomphe"))]
-    // pub type SharedMut<T> = biased_rc::BiasedRc<RwLock<T>>;
+    #[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
+    pub type Shared<T> = steel_rc::BiasedRc<T>;
+    #[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
+    pub type SharedMut<T> = steel_rc::BiasedRc<RwLock<T>>;
 
     #[cfg(feature = "sync")]
     pub type GcMut<T> = Gc<RwLock<T>>;

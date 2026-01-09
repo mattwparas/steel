@@ -68,7 +68,6 @@ use std::{
 };
 
 use crate::values::HashMap as ImmutableHashMap;
-// use biased_rc::TypeMap;
 use lasso::ThreadedRodeo;
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::{
@@ -82,6 +81,7 @@ use steel_parser::{
     parser::{SourceId, SyntaxObject},
     tokens::{IntLiteral, TokenType},
 };
+use steel_rc::QueueHandle;
 
 use crate::parser::ast::IteratorExtensions;
 
@@ -1126,7 +1126,7 @@ impl Engine {
     /// assert!(vm.run("(+ 1 2 3").is_err()); // + is a free identifier
     /// ```
     pub fn new_raw() -> Self {
-        // biased_rc::register_thread();
+        steel_rc::register_thread();
         let sources = Sources::new();
         let modules = ModuleContainer::default();
 
@@ -1426,7 +1426,7 @@ impl Engine {
     /// vm.run(r#"(+ 1 2 3)"#).unwrap();
     /// ```
     pub fn new() -> Self {
-        // biased_rc::register_thread();
+        steel_rc::register_thread();
         let mut engine = fresh_kernel_image(false);
 
         {
@@ -1729,6 +1729,8 @@ impl Engine {
         &mut self,
         exprs: E,
     ) -> Result<Vec<SteelVal>> {
+        QueueHandle::register_thread();
+
         let program = self.with_sources_guard(|| {
             self.virtual_machine
                 .compiler

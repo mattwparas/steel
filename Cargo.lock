@@ -3917,6 +3917,7 @@ dependencies = [
  "steel-gen",
  "steel-parser",
  "steel-quickscope",
+ "steel-rc",
  "strsim",
  "termimad",
  "triomphe",
@@ -4029,6 +4030,14 @@ version = "0.2.0"
 dependencies = [
  "indexmap 2.12.0",
  "smallvec",
+]
+
+[[package]]
+name = "steel-rc"
+version = "0.7.0"
+dependencies = [
+ "parking_lot",
+ "rustc-hash",
 ]
 
 [[package]]

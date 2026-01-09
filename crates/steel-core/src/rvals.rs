@@ -1805,11 +1805,17 @@ impl From<Arc<String>> for SteelString {
     }
 }
 
-#[cfg(all(feature = "sync", feature = "triomphe"))]
+#[cfg(all(feature = "sync", feature = "triomphe", not(feature = "biased")))]
 impl From<std::sync::Arc<String>> for SteelString {
     fn from(value: Arc<String>) -> Self {
         SteelString(Gc(triomphe::Arc::new((*value).clone())))
-        // SteelString(Gc(biased_rc::BiasedRc::new((*value).clone())))
+    }
+}
+
+#[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
+impl From<std::sync::Arc<String>> for SteelString {
+    fn from(value: Arc<String>) -> Self {
+        SteelString(Gc(steel_rc::BiasedRc::new((*value).clone())))
     }
 }
 
