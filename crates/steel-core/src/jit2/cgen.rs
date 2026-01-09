@@ -1006,7 +1006,7 @@ impl JIT {
 
         if let Err(e) = cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
             // println!("{:#?}", self.ctx.func);
-            println!("{:#?}", e);
+            // println!("{:#?}", e);
             self.module.clear_context(&mut self.ctx);
             return Err(format!("errors: {:#?}", e));
         }
@@ -1014,7 +1014,7 @@ impl JIT {
         self.module
             .define_function(id, &mut self.ctx)
             .map_err(|e| {
-                println!("error in defining function");
+                // println!("error in defining function: {:?}", e);
                 e.to_string()
             })?;
 
