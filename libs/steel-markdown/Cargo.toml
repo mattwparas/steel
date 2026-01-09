@@ -15,11 +15,7 @@ crate-type = ["cdylib"]
 [dependencies]
 # steel-core = { path = "../../crates/steel-core", version = "0.6.0", features = ["dylibs"] }
 steel-core = { workspace = true }
-
-# When developing
-# steel-core = { version = "0.6.0", features = ["dylibs"] }
-
-pulldown-cmark = "0.11.2"
-abi_stable = "0.11.1"
+pulldown-cmark = "0.13.0"
+abi_stable = "0.11.2"
 # For doing syntax highlighting!
 syntect = "5.2.0"

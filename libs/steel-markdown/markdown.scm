@@ -29,6 +29,7 @@
                           tag-image?
                           tag->heading
                           tag->code-block
+                          tag->end-code-block
                           code-block-indented?
                           code-block-fenced?
                           code-block->fenced
@@ -137,10 +138,8 @@
   (if (event-end? event)
       (begin
         (define event-start-tag (event->end-tag event))
-        (define event-code-block (tag->code-block event-start-tag))
-        (if (and event-code-block (code-block-fenced? event-code-block))
-            (code-block->fenced event-code-block)
-            #f))
+        (define event-code-block (tag->end-code-block event-start-tag))
+        (if event-code-block #t #f))
       #f))
 
 ;; TODO: Add more languages, and make this mapping... make a bit more sense.
