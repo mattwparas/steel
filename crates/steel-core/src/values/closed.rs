@@ -980,18 +980,20 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     const EXTEND_CHUNK: usize = 256 * 100;
 
     fn new() -> Self {
-        #[cfg(feature = "sync")]
-        let (forward_sender, backward_receiver) = spawn_background_dropper();
+        // #[cfg(feature = "sync")]
+        // let (forward_sender, backward_receiver) = spawn_background_dropper();
 
         let mut res = FreeList {
             elements: Vec::new(),
             cursor: 0,
             alloc_count: 0,
             grow_count: 0,
-            #[cfg(feature = "sync")]
-            forward: Some(forward_sender),
-            #[cfg(feature = "sync")]
-            backward: Some(backward_receiver),
+            // #[cfg(feature = "sync")]
+            // forward: Some(forward_sender),
+            // #[cfg(feature = "sync")]
+            // backward: Some(backward_receiver),
+            forward: None,
+            backward: None,
             should_run_weak: true,
         };
 
