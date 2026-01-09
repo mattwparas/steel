@@ -30,6 +30,7 @@ thread_local! {
 }
 
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct SteelPort {
     // TODO: Convert this to be a GcMut but with exclusive locks instead?
     // pub(crate) port: GcMut<SteelPortRepr>,

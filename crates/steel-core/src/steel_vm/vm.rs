@@ -1464,6 +1464,7 @@ impl Continuation {
 }
 
 #[derive(Clone, Debug)]
+#[repr(C)]
 pub struct Continuation {
     // TODO: This _might_ need to be a weak reference. We'll see!
     pub(crate) inner: StandardSharedMut<ContinuationMark>,

@@ -337,6 +337,11 @@ fn drop_value(ctx: *mut VmCore, arg: SteelVal) {
 }
 
 #[cross_platform_fn]
+fn drop_one(arg: SteelVal) {
+    drop(arg);
+}
+
+#[cross_platform_fn]
 fn pop_value(ctx: *mut VmCore) -> SteelVal {
     unsafe { &mut *ctx }.thread.stack.pop().unwrap()
 }
@@ -422,6 +427,11 @@ fn is_pair_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
     let offset = guard.get_offset();
     let value = &guard.thread.stack[offset + register];
     SteelVal::BoolV(crate::primitives::lists::pair(value))
+}
+
+#[cross_platform_fn]
+fn is_pair_value(value: SteelVal) -> SteelVal {
+    SteelVal::BoolV(crate::primitives::lists::pair(&value))
 }
 
 #[cross_platform_fn]

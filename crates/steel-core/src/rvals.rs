@@ -1228,9 +1228,11 @@ pub fn into_serializable_value(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(transparent)]
 pub struct SteelMutableVector(pub(crate) Gc<RefCell<Vec<SteelVal>>>);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[repr(transparent)]
 pub struct SteelVector(pub(crate) Gc<Vector<SteelVal>>);
 
 impl FromIterator<SteelVal> for SteelVector {
@@ -1255,6 +1257,7 @@ impl From<Gc<Vector<SteelVal>>> for SteelVector {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[repr(transparent)]
 pub struct SteelHashMap(pub(crate) Gc<HashMap<SteelVal, SteelVal>>);
 
 #[cfg(feature = "imbl")]
@@ -1284,6 +1287,7 @@ impl From<Gc<HashMap<SteelVal, SteelVal>>> for SteelHashMap {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+#[repr(transparent)]
 pub struct SteelHashSet(pub(crate) Gc<HashSet<SteelVal>>);
 
 #[cfg(feature = "imbl")]

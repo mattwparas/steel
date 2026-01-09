@@ -32,16 +32,16 @@ use crate::{
                 car_handler_reg_no_check, car_handler_value, cdr_handler_mut_reg,
                 cdr_handler_mut_reg_no_check, cdr_handler_reg, cdr_handler_reg_no_check,
                 cdr_handler_value, check_callable, check_callable_spill, check_callable_tail,
-                check_callable_value, check_callable_value_tail, cons_handler_value, drop_value,
-                eq_reg_1, eq_reg_2, eq_value, equal_binop, extern_c_add_four, extern_c_add_three,
-                extern_c_add_two, extern_c_add_two_binop_register,
+                check_callable_value, check_callable_value_tail, cons_handler_value, drop_one,
+                drop_value, eq_reg_1, eq_reg_2, eq_value, equal_binop, extern_c_add_four,
+                extern_c_add_three, extern_c_add_two, extern_c_add_two_binop_register,
                 extern_c_add_two_binop_register_both, extern_c_div_two, extern_c_gt_two,
                 extern_c_gte_two, extern_c_lt_two, extern_c_lt_two_int, extern_c_lte_two,
                 extern_c_lte_two_int, extern_c_mult_three, extern_c_mult_two, extern_c_negate,
                 extern_c_null_handler, extern_c_sub_three, extern_c_sub_two, extern_c_sub_two_int,
                 extern_c_sub_two_int_reg, extern_handle_pop, handle_new_start_closure,
                 handle_pure_function, if_handler_raw_value, if_handler_register, if_handler_value,
-                is_pair_c_reg, let_end_scope_c, list_handler_c, list_ref_handler_c,
+                is_pair_c_reg, is_pair_value, let_end_scope_c, list_handler_c, list_ref_handler_c,
                 move_read_local_0_value_c, move_read_local_1_value_c, move_read_local_2_value_c,
                 move_read_local_3_value_c, move_read_local_any_value_c, not_handler_raw_value,
                 num_equal_int, num_equal_value, num_equal_value_unboxed, pop_value,
@@ -400,6 +400,11 @@ impl Default for JIT {
             abi! { is_pair_c_reg as fn(*mut VmCore, usize) -> SteelVal },
         );
 
+        map.add_func2(
+            "pair?-value",
+            abi! { is_pair_value as fn(SteelVal) -> SteelVal },
+        );
+
         map.add_func(
             "if-branch",
             abi! { if_handler_value as fn(*mut VmCore) -> bool },
@@ -480,6 +485,8 @@ impl Default for JIT {
             "drop-value",
             abi! { drop_value as fn(*mut VmCore, SteelVal) },
         );
+
+        map.add_func2("drop-one", abi! { drop_one as fn(SteelVal) });
 
         map.add_func(
             "pop-from-stack",
@@ -2150,7 +2157,6 @@ impl FunctionTranslator<'_> {
                             if f == crate::primitives::strings::steel_char_equals
                                 as FunctionSignature
                                 && arity == 2
-                                && false
                             {
                                 self.char_equals(arity);
                             }
@@ -2162,20 +2168,14 @@ impl FunctionTranslator<'_> {
                                 self.read_char(arity);
                             }
                             */
-                            else if f == steel_eof_objectp as FunctionSignature
-                                && arity == 1
-                                && false
-                            {
+                            else if f == steel_eof_objectp as FunctionSignature && arity == 1 {
                                 // Encode the object... Any others we can encode in this way?
                                 self.eof_object()
-                            } else if f == steel_mut_vec_set as FunctionSignature
-                                && arity == 3
-                                && false
-                            {
+                            } else if f == steel_mut_vec_set as FunctionSignature && arity == 3 {
                                 self.vector_set()
-                            } else if f == steel_eq as FunctionSignature && arity == 2 && false {
+                            } else if f == steel_eq as FunctionSignature && arity == 2 {
                                 self.eq()
-                            } else if f == steel_pair as FunctionSignature && arity == 1 && false {
+                            } else if f == steel_pair as FunctionSignature && arity == 1 {
                                 self.is_pair()
                             } else {
                                 let name = CallPrimitiveDefinitions::arity_to_name(arity);
@@ -2841,6 +2841,40 @@ impl FunctionTranslator<'_> {
         todo!()
     }
 
+    /*
+    fn drop_biased_rc(&mut self, value: Value) {
+        // First, we need to get the pointer to the box,
+        // load it, and then we'll inline the calls for decrement.
+        //
+        // That will also mean we'll need to add the thread id
+        // as an argument to the JIT. For now we're not going to do that
+        // while I figure out if we can even do this thing properly.
+
+        let local_count =
+            self.builder
+                .ins()
+                .load(Type::int(32).unwrap(), MemFlags::trusted(), value, 64);
+
+        let one = self.builder.ins().iconst(Type::int(32).unwrap(), 1);
+
+        let sub_one = self.builder.ins().isub(local_count, one);
+
+        self.builder
+            .ins()
+            .store(MemFlags::trusted(), sub_one, value, 64);
+
+        // Then we need to check if its greater than 0:
+
+        self.builder.ins().icmp_imm(Cond, sub_one, 0)
+    }
+    */
+
+    // TODO: Replace this with a more sophisticated implementation that doesn't necessarily
+    // need the call if we have something like that
+    fn drop_value(&mut self, value: Value) {
+        self.call_function_args_no_context("drop-one", &[value]);
+    }
+
     // do the thing:
     fn is_pair(&mut self) {
         use MaybeStackValue::*;
@@ -2852,7 +2886,7 @@ impl FunctionTranslator<'_> {
             // branching - if this is used in the test position
             // of an if statement, we should encode the type checking
             // through.
-            Value(stack_value) => {
+            Value(stack_value) if false => {
                 // TODO: Still need to invoke drop on this thing though!
                 self.shadow_stack.pop();
                 // If we've already inferrred this type as a pair,
@@ -2868,6 +2902,8 @@ impl FunctionTranslator<'_> {
 
                         self.push(boolean, InferredType::Bool);
                         self.ip += 1;
+
+                        self.drop_value(stack_value.value);
 
                         return;
                     }
@@ -2896,6 +2932,8 @@ impl FunctionTranslator<'_> {
 
                 self.push(comparison, InferredType::UnboxedBool);
 
+                self.drop_value(value);
+
                 self.ip += 1;
             }
             MutRegister(p) | Register(p) => {
@@ -2910,8 +2948,11 @@ impl FunctionTranslator<'_> {
             // Depending on what the constant is, we can do this evaluation here
             // Constant(constant_value) => todo!(),
             _ => {
-                todo!();
-                // Fall back to checking is pair
+                // TODO: Check the inferred type here as well, maybe do unboxed bools
+                let (value, inferred_type) = self.shadow_pop();
+                let res = self.call_function_returns_value_args_no_context("pair?-value", &[value]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
             }
         }
     }
@@ -5424,6 +5465,11 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &args);
         let result = self.builder.inst_results(call)[0];
         result
+    }
+
+    fn call_function_args_no_context(&mut self, name: &str, args: &[Value]) {
+        let local_callee = self.get_local_callee(name);
+        let _ = self.builder.ins().call(local_callee, &args);
     }
 }
 
