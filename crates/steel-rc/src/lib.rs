@@ -392,7 +392,9 @@ impl<T: ?Sized> RcBox<T> {
     }
 
     pub fn fast_decrement(&self) -> DecrementAction {
-        self.rcword.biased_counter.update(|x| x - 1);
+        let count = self.rcword.biased_counter.get();
+        self.rcword.biased_counter.set(count - 1);
+
         if self.rcword.biased_counter.get() > 0 {
             return DecrementAction::DoNothing;
         }
