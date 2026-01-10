@@ -1701,6 +1701,22 @@ impl<'a> VmCore<'a> {
         })
     }
 
+    #[cfg(feature = "sync")]
+    pub(crate) fn steel_function_to_arc_rust_function(
+        &self,
+        func: SteelVal,
+    ) -> Arc<dyn Fn(&[SteelVal]) -> Result<SteelVal> + Send + Sync + 'static> {
+        let thread = self.make_thread();
+        let rooted = func.as_rooted();
+
+        Arc::new(move |args: &[SteelVal]| {
+            let func = rooted.value();
+            let mut guard = thread.lock().unwrap();
+            let mut args = args.to_vec();
+            guard.call_fn_from_mut_slice(func.clone(), &mut args)
+        })
+    }
+
     // Copy the thread of execution. This just blindly copies the thread, and closes
     // the continuations found.
     // TODO: Add this thread to the parent VM thread handler -> this is necessary
