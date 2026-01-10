@@ -2049,6 +2049,30 @@ pub fn struct_to_list(value: &UserDefinedStruct) -> Result<SteelVal> {
     }
 }
 
+#[cfg(feature = "sync")]
+#[steel_derive::context(name = "#%closure->boxed-function", arity = "Exact(1)")]
+pub fn closure_to_boxed_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn function_to_ffi_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        let function = args[0].clone();
+
+        if function.is_function() {
+            let function = ctx.steel_function_to_arc_rust_function(function);
+
+            Ok(SteelVal::BoxedFunction(crate::gc::Gc::new(
+                crate::values::functions::BoxedDynFunction {
+                    function,
+                    name: None,
+                    arity: None,
+                },
+            )))
+        } else {
+            stop!(TypeMismatch => "#%closure->boxed-function expected a function, found: {}", function);
+        }
+    }
+
+    Some(function_to_ffi_impl(ctx, args))
+}
+
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
@@ -2214,6 +2238,9 @@ fn meta_module() -> BuiltInModule {
 
     #[cfg(feature = "jit2")]
     module.register_native_fn_definition(super::vm::jit::JIT_COMPILE_TWO_DEFINITION);
+
+    #[cfg(feature = "sync")]
+    module.register_native_fn_definition(CLOSURE_TO_BOXED_FUNCTION_DEFINITION);
 
     module
 }
