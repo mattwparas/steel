@@ -2473,7 +2473,14 @@ pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
             (x + y.to_f64().unwrap()).into_steelval()
         }
         // Cases that interact with `Rational`.
-        (SteelVal::Rational(x), SteelVal::Rational(y)) => (x + y).into_steelval(),
+        (SteelVal::Rational(x), SteelVal::Rational(y)) => match x.checked_add(y) {
+            Some(val) => val.into_steelval(),
+            None => {
+                let mut res = BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()));
+                res += BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
+                res.into_steelval()
+            }
+        },
         (SteelVal::Rational(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::Rational(x)) => {
             match i32::try_from(*y) {
                 Ok(y) => match x.checked_add(&Rational32::new(y, 1)) {
@@ -2565,7 +2572,14 @@ pub fn add_two_fallible(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
             (x + y.to_f64().unwrap()).into_steelval()
         }
         // Cases that interact with `Rational`.
-        (SteelVal::Rational(x), SteelVal::Rational(y)) => (x + y).into_steelval(),
+        (SteelVal::Rational(x), SteelVal::Rational(y)) => match x.checked_add(y) {
+            Some(val) => val.into_steelval(),
+            None => {
+                let mut res = BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()));
+                res += BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
+                res.into_steelval()
+            }
+        },
         (SteelVal::Rational(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::Rational(x)) => {
             match i32::try_from(*y) {
                 Ok(y) => match x.checked_add(&Rational32::new(y, 1)) {
