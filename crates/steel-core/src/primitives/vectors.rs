@@ -1338,10 +1338,10 @@ pub fn vec_car(args: &[SteelVal]) -> Result<SteelVal> {
             let mut vec = v.0.unwrap();
             match vec.pop_front() {
                 Some(val) => Ok(val),
-                None => stop!(ContractViolation => "car expects a non-empty list"),
+                None => stop!(ContractViolation => "pop-front expects a non-empty vector"),
             }
         }
-        other => stop!(TypeMismatch => "car expects a list, given: {}", other),
+        other => stop!(TypeMismatch => "pop-front expects a vector, given: {}", other),
     }
 }
 
@@ -1362,13 +1362,13 @@ pub fn vec_cdr(args: &[SteelVal]) -> Result<SteelVal> {
         SteelVal::VectorV(v) => {
             let mut vec = v.0.unwrap();
             if vec.is_empty() {
-                stop!(ContractViolation => "cdr expects a non-empty list");
+                stop!(ContractViolation => "vec-rest expects a non-empty vector");
             } else {
                 vec.pop_front();
                 Ok(SteelVal::VectorV(Gc::new(vec).into()))
             }
         }
-        other => stop!(TypeMismatch => "cdr expects a list, given: {}", other),
+        other => stop!(TypeMismatch => "vec-rest expects a vector, given: {}", other),
     }
 }
 
