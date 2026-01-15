@@ -4,12 +4,17 @@
 
 use cranelift::{
     codegen::ir::{ArgumentPurpose, FuncRef, GlobalValue, StackSlot, Type},
+    frontend::Switch,
     prelude::{isa::CallConv, *},
 };
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module};
-use std::collections::{HashMap, VecDeque};
 use std::{collections::HashSet, slice};
+use std::{
+    collections::{HashMap, VecDeque},
+    mem::ManuallyDrop,
+};
+use steel_derive::cross_platform_fn;
 use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
@@ -24,44 +29,7 @@ use crate::{
     rvals::FunctionSignature,
     steel_vm::{
         primitives::steel_eq,
-        vm::{
-            jit::{
-                _push_to_vm_stack_function_spill, box_handler_c,
-                call_global_function_deopt_no_arity_spilled, call_global_function_deopt_spilled,
-                callglobal_handler_deopt_c, callglobal_tail_handler_deopt_spilled, car_handler_reg,
-                car_handler_reg_no_check, car_handler_value, cdr_handler_mut_reg,
-                cdr_handler_mut_reg_no_check, cdr_handler_reg, cdr_handler_reg_no_check,
-                cdr_handler_value, check_callable, check_callable_spill, check_callable_tail,
-                check_callable_value, check_callable_value_tail, cons_handler_value, drop_one,
-                drop_value, eq_reg_1, eq_reg_2, eq_value, equal_binop, extern_c_add_four,
-                extern_c_add_three, extern_c_add_two, extern_c_add_two_binop_register,
-                extern_c_add_two_binop_register_both, extern_c_div_two, extern_c_gt_two,
-                extern_c_gte_two, extern_c_lt_two, extern_c_lt_two_int, extern_c_lte_two,
-                extern_c_lte_two_int, extern_c_mult_three, extern_c_mult_two, extern_c_negate,
-                extern_c_null_handler, extern_c_sub_three, extern_c_sub_two, extern_c_sub_two_int,
-                extern_c_sub_two_int_reg, extern_handle_pop, handle_new_start_closure,
-                handle_pure_function, if_handler_raw_value, if_handler_register, if_handler_value,
-                is_pair_c_reg, is_pair_value, let_end_scope_c, list_handler_c, list_ref_handler_c,
-                move_read_local_0_value_c, move_read_local_1_value_c, move_read_local_2_value_c,
-                move_read_local_3_value_c, move_read_local_any_value_c, not_handler_raw_value,
-                num_equal_int, num_equal_value, num_equal_value_unboxed, pop_value,
-                push_const_value_c, push_const_value_index_c, push_global, push_to_vm_stack,
-                push_to_vm_stack_let_var, push_to_vm_stack_two, read_captured_c,
-                read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
-                read_local_3_value_c, read_local_any_value_c, self_tail_call_handler,
-                self_tail_call_handler_loop, set_handler_c, set_local_any_c, setbox_handler_c,
-                should_spill, should_spill_value, tcojmp_handler, unbox_handler_c, vec_handler_c,
-                vector_ref_handler_c, vector_ref_handler_register, vector_ref_handler_register_two,
-                vector_set_handler_register_one, vector_set_handler_register_three,
-                vector_set_handler_register_two, vector_set_handler_stack, CallFunctionDefinitions,
-                CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
-                CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
-                CallPrimitiveDefinitions, CallPrimitiveFixedDefinitions,
-                CallPrimitiveMutDefinitions, CallSelfTailCallNoArityDefinitions,
-                CallSelfTailCallNoArityLoopDefinitions, ListHandlerDefinitions,
-            },
-            VmCore,
-        },
+        vm::{jit::*, VmCore},
     },
     SteelVal,
 };
@@ -359,6 +327,34 @@ macro_rules! abi {
     };
 }
 
+#[cross_platform_fn]
+fn debug_count(value: i32) {
+    println!("Count: {}", value);
+}
+
+#[cross_platform_fn]
+fn debug_int(value: i64) {
+    println!("Value: {}", value);
+}
+
+#[cross_platform_fn]
+fn debug_value(value: SteelVal) {
+    let mut value = ManuallyDrop::new(value);
+
+    if let SteelVal::ListV(l) = &mut *value {
+        println!("Found a list");
+        println!("{:?}", l.inner_ptr_mut().0.get_box().rcword);
+        println!("{:?}", l);
+    }
+
+    // println!("Value: {}", &*value);
+}
+
+#[cross_platform_fn]
+fn debug_tag(value: i8) {
+    println!("Tag: {}", value);
+}
+
 impl Default for JIT {
     fn default() -> Self {
         let mut flag_builder = settings::builder();
@@ -394,6 +390,11 @@ impl Default for JIT {
             builder: &mut builder,
             return_type_hints: HashMap::new(),
         };
+
+        map.add_func2("#%debug-steel-value", abi! { debug_value as fn(SteelVal) });
+        map.add_func2("#%debug-value", abi! { debug_int as fn(i64) });
+        map.add_func2("#%debug-count", abi! { debug_count as fn(i32) });
+        map.add_func2("#%debug-tag", abi! { debug_tag as fn(i8) });
 
         map.add_func(
             "pair?",
@@ -487,6 +488,11 @@ impl Default for JIT {
         );
 
         map.add_func2("drop-one", abi! { drop_one as fn(SteelVal) });
+
+        map.add_func2(
+            "drop-value-post-fast-dec",
+            abi! { drop_value_post_fast_decrement as fn(SteelVal) },
+        );
 
         map.add_func(
             "pop-from-stack",
@@ -1006,7 +1012,7 @@ impl JIT {
 
         if let Err(e) = cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
             // println!("{:#?}", self.ctx.func);
-            // println!("{:#?}", e);
+            println!("{:#?}", e);
             self.module.clear_context(&mut self.ctx);
             return Err(format!("errors: {:#?}", e));
         }
@@ -1221,6 +1227,8 @@ pub enum InferredType {
     Function,
 
     Char,
+
+    String,
 }
 
 // #[derive(Debug, Clone, Copy)]
@@ -2841,8 +2849,113 @@ impl FunctionTranslator<'_> {
         todo!()
     }
 
-    /*
-    fn drop_biased_rc(&mut self, value: Value) {
+    fn drop_tagged_value(&mut self, value: Value) {
+        let tag = self.get_tag(value);
+        let mut switch = Switch::new();
+
+        let rc_block = self.builder.create_block();
+        let non_rc_block = self.builder.create_block();
+        let no_drop = self.builder.create_block();
+
+        // Resulting path of execution
+        let merge_block = self.builder.create_block();
+
+        // Closure
+        switch.set_entry(0, rc_block);
+        // bool
+        switch.set_entry(1, no_drop);
+        // float
+        switch.set_entry(2, no_drop);
+        // int
+        switch.set_entry(3, no_drop);
+        // ratio
+        switch.set_entry(4, no_drop);
+        // char
+        switch.set_entry(5, no_drop);
+        // Vector
+        switch.set_entry(6, rc_block);
+        // Void
+        switch.set_entry(7, no_drop);
+        // String
+        switch.set_entry(8, rc_block);
+        // function pointer
+        switch.set_entry(9, no_drop);
+        // Symbols
+        switch.set_entry(10, rc_block);
+        // Custom
+        switch.set_entry(11, rc_block);
+        // Hash map
+        switch.set_entry(12, rc_block);
+        // Hash set
+        switch.set_entry(13, rc_block);
+        // struct
+        switch.set_entry(14, rc_block);
+        // port
+        switch.set_entry(15, rc_block);
+        // iter
+        switch.set_entry(16, rc_block);
+        // reducer
+        switch.set_entry(17, rc_block);
+        // Async function pointer, boxed
+        switch.set_entry(18, rc_block);
+        // Boxed future result
+        switch.set_entry(19, rc_block);
+        // Stream
+        switch.set_entry(20, rc_block);
+        // boxed function
+        switch.set_entry(21, rc_block);
+        // Continuation, standard rc
+        switch.set_entry(22, non_rc_block);
+        // List
+        switch.set_entry(23, rc_block);
+        // Pair
+        switch.set_entry(24, rc_block);
+        // Mut function signature
+        switch.set_entry(25, no_drop);
+        // builtin function signature
+        switch.set_entry(26, no_drop);
+        // Heap ref vector
+        switch.set_entry(27, non_rc_block);
+        // boxed iterator
+        switch.set_entry(28, rc_block);
+        // Syntax object
+        switch.set_entry(29, rc_block);
+        // Boxed value
+        switch.set_entry(30, rc_block);
+        // Heap ref value
+        switch.set_entry(31, non_rc_block);
+        // opaque reference
+        switch.set_entry(32, rc_block);
+        // Big num
+        switch.set_entry(33, rc_block);
+        // big rational
+        switch.set_entry(34, rc_block);
+        // Complex
+        switch.set_entry(35, rc_block);
+        // byte vector
+        switch.set_entry(36, rc_block);
+
+        switch.emit(&mut self.builder, tag, non_rc_block);
+
+        self.builder.switch_to_block(rc_block);
+        self.builder.seal_block(rc_block);
+        self.drop_biased_rc(value);
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(non_rc_block);
+        self.builder.seal_block(non_rc_block);
+        self.drop_value(value);
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(no_drop);
+        self.builder.seal_block(no_drop);
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(merge_block);
+        self.builder.seal_block(merge_block);
+    }
+
+    fn drop_biased_rc(&mut self, tagged_value: Value) {
         // First, we need to get the pointer to the box,
         // load it, and then we'll inline the calls for decrement.
         //
@@ -2850,24 +2963,68 @@ impl FunctionTranslator<'_> {
         // as an argument to the JIT. For now we're not going to do that
         // while I figure out if we can even do this thing properly.
 
+        // let test = self.encode_integer(12345);
+        // let unboxed = self.unbox_value_to_pointer(test);
+        // self.call_function_args_no_context("#%debug-value", &[unboxed]);
+
+        // self.call_function_args_no_context("#%debug-steel-value", &[tagged_value]);
+
+        let value = self.unbox_value_to_pointer(tagged_value);
+        let tag = self.get_tag(tagged_value);
+
         let local_count =
             self.builder
                 .ins()
-                .load(Type::int(32).unwrap(), MemFlags::trusted(), value, 64);
+                .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
 
         let one = self.builder.ins().iconst(Type::int(32).unwrap(), 1);
 
         let sub_one = self.builder.ins().isub(local_count, one);
 
-        self.builder
-            .ins()
-            .store(MemFlags::trusted(), sub_one, value, 64);
+        self.call_function_args_no_context("#%debug-count", &[local_count]);
+        self.call_function_args_no_context("#%debug-count", &[sub_one]);
+        self.call_function_args_no_context("#%debug-tag", &[tag]);
+
+        println!("{:?}", self.builder.func.dfg.value_type(sub_one));
+
+        self.builder.ins().store(MemFlags::new(), sub_one, value, 8);
+
+        // self.call_function_args_no_context("#%debug-steel-value", &[tagged_value]);
+
+        let yes_drop = self.builder.create_block();
+        let merge_block = self.builder.create_block();
+
+        let updated_count =
+            self.builder
+                .ins()
+                .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+
+        self.call_function_args_no_context("#%debug-count", &[updated_count]);
+        // self.call_function_args_no_context("#%debug-steel-value", &[tagged_value]);
 
         // Then we need to check if its greater than 0:
 
-        self.builder.ins().icmp_imm(Cond, sub_one, 0)
+        let should_continue = self
+            .builder
+            .ins()
+            .icmp_imm(IntCC::SignedGreaterThan, sub_one, 0);
+
+        // Merge block because we need to jump back and continue
+        self.builder
+            .ins()
+            .brif(should_continue, merge_block, &[], yes_drop, &[]);
+
+        self.builder.switch_to_block(yes_drop);
+        self.builder.seal_block(yes_drop);
+
+        // Drop the value after we've determined that we can inline the drop function.
+        self.call_function_args_no_context("drop-value-post-fast-dec", &[tagged_value]);
+
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(merge_block);
+        self.builder.seal_block(merge_block);
     }
-    */
 
     // TODO: Replace this with a more sophisticated implementation that doesn't necessarily
     // need the call if we have something like that
@@ -2886,7 +3043,7 @@ impl FunctionTranslator<'_> {
             // branching - if this is used in the test position
             // of an if statement, we should encode the type checking
             // through.
-            Value(stack_value) if false => {
+            Value(stack_value) => {
                 // TODO: Still need to invoke drop on this thing though!
                 self.shadow_stack.pop();
                 // If we've already inferrred this type as a pair,
@@ -2894,7 +3051,7 @@ impl FunctionTranslator<'_> {
                 // and actually invoking the function since we know
                 // it will be a pair.
                 match stack_value.inferred_type {
-                    InferredType::List | InferredType::Pair | InferredType::ListOrPair => {
+                    InferredType::List | InferredType::Pair | InferredType::ListOrPair if false => {
                         let res = self.builder.ins().iconst(types::I64, 1);
 
                         let boolean =
@@ -2903,10 +3060,13 @@ impl FunctionTranslator<'_> {
                         self.push(boolean, InferredType::Bool);
                         self.ip += 1;
 
-                        self.drop_value(stack_value.value);
+                        self.drop_tagged_value(stack_value.value);
+
+                        // self.drop_value(stack_value.value);
 
                         return;
                     }
+
                     _ => {}
                 }
 
@@ -2932,7 +3092,9 @@ impl FunctionTranslator<'_> {
 
                 self.push(comparison, InferredType::UnboxedBool);
 
-                self.drop_value(value);
+                // self.drop_value(value);
+
+                self.drop_tagged_value(value);
 
                 self.ip += 1;
             }
@@ -3157,7 +3319,7 @@ impl FunctionTranslator<'_> {
 
         let all_chars = additional_args.iter().all(|x| x.1 == InferredType::Char);
 
-        if all_chars {
+        if all_chars && false {
             // println!("Found all characters, applying equality");
             // Just... compare for equality?
 
@@ -4922,6 +5084,12 @@ impl FunctionTranslator<'_> {
         let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
         let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
         encoded_rhs
+    }
+
+    fn unbox_value_to_pointer(&mut self, value: Value) -> Value {
+        let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
+        let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
+        self.builder.ins().ireduce(types::I64, encoded_rhs)
     }
 
     fn get_tag(&mut self, value: Value) -> Value {

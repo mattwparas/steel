@@ -77,13 +77,15 @@ impl PartialEq for ThreadId {
 // Okay, now that this appears to be working, we
 // need to shrink this down as much as possible.
 #[repr(C)]
+#[derive(Debug)]
 pub struct RcWord {
-    // thread_id: AtomicOptionThreadId,
     thread_id: Cell<Option<ThreadId>>,
     biased_counter: Cell<u32>,
     shared: SharedPacked,
 }
 
+#[derive(Debug)]
+#[repr(transparent)]
 pub struct SharedPacked(AtomicU32);
 
 impl SharedPacked {
@@ -281,7 +283,7 @@ impl SharedPacked {
 
 #[repr(C)]
 pub struct RcBox<T: ?Sized> {
-    rcword: RcWord,
+    pub rcword: RcWord,
     data: T,
 }
 
@@ -391,27 +393,10 @@ impl<T: ?Sized> RcBox<T> {
         }
     }
 
-    pub fn fast_decrement(&self) -> DecrementAction {
-        self.rcword.biased_counter.update(|x| x - 1);
-        if self.rcword.biased_counter.get() > 0 {
-            return DecrementAction::DoNothing;
-        }
-
+    // TODO: @Matt
+    // Call this in the fast path for drop after the drop action is called.
+    pub fn fast_decrement_drop_impl(&self) -> DecrementAction {
         let mut new;
-
-        // loop {
-        //     let old = self.rcword.shared.load(Ordering::Relaxed);
-        //     new = old;
-        //     new.set_merged(true);
-        //     if self
-        //         .rcword
-        //         .shared
-        //         .compare_exchange(old, new, Ordering::AcqRel, Ordering::Relaxed)
-        //         .is_ok()
-        //     {
-        //         break;
-        //     }
-        // }
 
         let mut old = self.rcword.shared.load(Ordering::Relaxed);
 
@@ -435,11 +420,18 @@ impl<T: ?Sized> RcBox<T> {
         if new.get_counter() == 0 {
             DecrementAction::Deallocate
         } else {
-            // self.rcword.thread_id.store(None, Ordering::Relaxed);
             self.rcword.thread_id.set(None);
-
             DecrementAction::DoNothing
         }
+    }
+
+    pub fn fast_decrement(&self) -> DecrementAction {
+        self.rcword.biased_counter.update(|x| x - 1);
+        if self.rcword.biased_counter.get() > 0 {
+            return DecrementAction::DoNothing;
+        }
+
+        self.fast_decrement_drop_impl()
     }
 
     pub fn slow_decrement(&self) -> DecrementAction {
@@ -1015,9 +1007,25 @@ fn set_ptr_value<T: ?Sized, U>(mut meta_ptr: *const T, addr_ptr: *mut U) -> *mut
     meta_ptr as *mut T
 }
 
+#[repr(C)]
 pub struct BiasedRc<T: ?Sized + 'static> {
     ptr: NonNull<RcBox<T>>,
     phantom2: PhantomData<T>,
+}
+
+impl<T: ?Sized + 'static> BiasedRc<T> {
+    pub fn fast_decrement_post_ref_count_dec(&mut self) {
+        match self.get_box().fast_decrement_drop_impl() {
+            DecrementAction::DoNothing => {}
+            DecrementAction::Queue => {
+                // Enqueue the value
+                QueueHandle::enqueue(self);
+            }
+            DecrementAction::Deallocate => {
+                unsafe { self.drop_contents_and_maybe_box() };
+            }
+        }
+    }
 }
 
 impl<T: ?Sized + Clone> BiasedRc<T> {
@@ -1049,7 +1057,7 @@ impl<T: ?Sized> BiasedRc<T> {
     }
 
     #[inline(always)]
-    fn get_box(&self) -> &RcBox<T> {
+    pub fn get_box(&self) -> &RcBox<T> {
         unsafe { &(*self.ptr.as_ptr()) }
     }
 

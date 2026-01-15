@@ -342,6 +342,122 @@ fn drop_one(arg: SteelVal) {
 }
 
 #[cross_platform_fn]
+fn drop_value_post_fast_decrement(mut arg: SteelVal) {
+    println!("Calling drop value post fast decrement");
+    use SteelVal::*;
+    // let mut arg = ManuallyDrop::new(arg);
+
+    // println!("Calling: {:?}", &arg);
+
+    match &mut arg {
+        Closure(gc) => {
+            // Fast decrement
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        VectorV(v) => {
+            v.0 .0.fast_decrement_post_ref_count_dec();
+        }
+
+        StringV(s) => {
+            s.0 .0.fast_decrement_post_ref_count_dec();
+        }
+
+        SymbolV(s) => {
+            s.0 .0.fast_decrement_post_ref_count_dec();
+        }
+
+        Custom(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        HashMapV(hm) => {
+            hm.0 .0.fast_decrement_post_ref_count_dec();
+        }
+
+        HashSetV(hs) => {
+            hs.0 .0.fast_decrement_post_ref_count_dec();
+        }
+
+        CustomStruct(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        PortV(gc) => {
+            gc.port.0.fast_decrement_post_ref_count_dec();
+        }
+
+        IterV(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        ReducerV(r) => {
+            r.0.fast_decrement_post_ref_count_dec();
+        }
+
+        StreamV(s) => {
+            s.0.fast_decrement_post_ref_count_dec();
+        }
+
+        BoxedFunction(f) => {
+            f.0.fast_decrement_post_ref_count_dec();
+        }
+
+        FutureFunc(f) => {
+            f.fast_decrement_post_ref_count_dec();
+        }
+
+        FutureV(v) => {
+            v.0.fast_decrement_post_ref_count_dec();
+        }
+
+        BoxedIterator(i) => {
+            i.0.fast_decrement_post_ref_count_dec();
+        }
+
+        SyntaxObject(s) => {
+            s.0.fast_decrement_post_ref_count_dec();
+        }
+
+        Reference(r) => {
+            r.0.fast_decrement_post_ref_count_dec();
+        }
+
+        ListV(l) => {
+            l.inner_ptr_mut().0.fast_decrement_post_ref_count_dec();
+        }
+
+        Pair(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        Boxed(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        BigNum(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        BigRational(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        Complex(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        ByteVector(bv) => {
+            bv.vec.0.fast_decrement_post_ref_count_dec();
+        }
+
+        _ => {
+            panic!("Calling fast decrement post ref count on a non pointer value");
+        }
+    };
+}
+
+#[cross_platform_fn]
 fn pop_value(ctx: *mut VmCore) -> SteelVal {
     unsafe { &mut *ctx }.thread.stack.pop().unwrap()
 }
