@@ -2981,11 +2981,11 @@ impl FunctionTranslator<'_> {
 
         let sub_one = self.builder.ins().isub(local_count, one);
 
-        self.call_function_args_no_context("#%debug-count", &[local_count]);
-        self.call_function_args_no_context("#%debug-count", &[sub_one]);
-        self.call_function_args_no_context("#%debug-tag", &[tag]);
+        // self.call_function_args_no_context("#%debug-count", &[local_count]);
+        // self.call_function_args_no_context("#%debug-count", &[sub_one]);
+        // self.call_function_args_no_context("#%debug-tag", &[tag]);
 
-        println!("{:?}", self.builder.func.dfg.value_type(sub_one));
+        // println!("{:?}", self.builder.func.dfg.value_type(sub_one));
 
         self.builder.ins().store(MemFlags::new(), sub_one, value, 8);
 
@@ -2999,7 +2999,7 @@ impl FunctionTranslator<'_> {
                 .ins()
                 .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
 
-        self.call_function_args_no_context("#%debug-count", &[updated_count]);
+        // self.call_function_args_no_context("#%debug-count", &[updated_count]);
         // self.call_function_args_no_context("#%debug-steel-value", &[tagged_value]);
 
         // Then we need to check if its greater than 0:

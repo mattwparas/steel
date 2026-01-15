@@ -343,7 +343,7 @@ fn drop_one(arg: SteelVal) {
 
 #[cross_platform_fn]
 fn drop_value_post_fast_decrement(mut arg: SteelVal) {
-    println!("Calling drop value post fast decrement");
+    // println!("Calling drop value post fast decrement");
     use SteelVal::*;
     // let mut arg = ManuallyDrop::new(arg);
 
