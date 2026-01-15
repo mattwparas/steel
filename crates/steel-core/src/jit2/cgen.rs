@@ -3090,7 +3090,14 @@ impl FunctionTranslator<'_> {
                 // let boolean = self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
                 // self.push(boolean, InferredType::Bool);
 
-                self.push(comparison, InferredType::UnboxedBool);
+                // self.push(comparison, InferredType::UnboxedBool);
+
+                // self.push(self.encode_value(tag, value))
+
+                let boolean =
+                    self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, comparison);
+
+                self.push(boolean, InferredType::Bool);
 
                 // self.drop_value(value);
 
