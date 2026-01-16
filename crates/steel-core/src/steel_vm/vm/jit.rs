@@ -551,6 +551,19 @@ fn is_pair_value(value: SteelVal) -> SteelVal {
 }
 
 #[cross_platform_fn]
+fn is_empty_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let value = &guard.thread.stack[offset + register];
+    SteelVal::BoolV(crate::primitives::lists::is_empty(value))
+}
+
+#[cross_platform_fn]
+fn is_empty_value(value: SteelVal) -> SteelVal {
+    SteelVal::BoolV(crate::primitives::lists::is_empty(&value))
+}
+
+#[cross_platform_fn]
 fn vector_ref_handler_c(ctx: *mut VmCore, vec: SteelVal, index: SteelVal) -> SteelVal {
     match vec_ref(&vec, &index) {
         Ok(v) => v,

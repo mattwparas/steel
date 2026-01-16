@@ -21,7 +21,7 @@ use crate::{
     compiler::constants::ConstantMap,
     core::instructions::{pretty_print_dense_instructions, DenseInstruction},
     primitives::{
-        lists::steel_pair,
+        lists::{steel_is_empty, steel_pair},
         ports::{eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char},
         strings::{char_equals_binop, steel_char_equals},
         vectors::steel_mut_vec_set,
@@ -404,6 +404,16 @@ impl Default for JIT {
         map.add_func2(
             "pair?-value",
             abi! { is_pair_value as fn(SteelVal) -> SteelVal },
+        );
+
+        map.add_func(
+            "empty?",
+            abi! { is_empty_c_reg as fn(*mut VmCore, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "empty?-value",
+            abi! { is_empty_value as fn(SteelVal) -> SteelVal },
         );
 
         map.add_func(
@@ -1770,6 +1780,8 @@ impl FunctionTranslator<'_> {
                             // Explicitly want the unboxed value here
                             let test_bool = last_ref.unwrap().value;
 
+                            // dbg!(self.builder.func.dfg.value_type(test_bool));
+
                             self.shadow_stack.pop();
 
                             self.translate_if_else_value(
@@ -2185,6 +2197,8 @@ impl FunctionTranslator<'_> {
                                 self.eq()
                             } else if f == steel_pair as FunctionSignature && arity == 1 {
                                 self.is_pair()
+                            } else if f == steel_is_empty as FunctionSignature && arity == 1 {
+                                self.is_empty()
                             } else {
                                 let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
@@ -2701,7 +2715,7 @@ impl FunctionTranslator<'_> {
 
                     if last_ref.map(|x| x.inferred_type) == Some(InferredType::UnboxedBool) {
                         let test = last_ref.unwrap().value;
-                        let test = self.builder.ins().uextend(types::I64, test);
+                        // let test = self.builder.ins().uextend(types::I64, test);
                         self.shadow_stack.pop();
                         let value = self.builder.ins().icmp_imm(IntCC::Equal, test, 0);
                         self.push(value, InferredType::UnboxedBool);
@@ -3032,6 +3046,108 @@ impl FunctionTranslator<'_> {
         self.call_function_args_no_context("drop-one", &[value]);
     }
 
+    fn is_empty(&mut self) {
+        use MaybeStackValue::*;
+
+        let last = self.shadow_stack.last().unwrap().clone();
+
+        match last {
+            // TODO: Encode the result of the evaluation into the
+            // branching - if this is used in the test position
+            // of an if statement, we should encode the type checking
+            // through.
+            Value(stack_value) if false => {
+                self.shadow_stack.pop();
+                // If we've already inferrred this type as a pair,
+                // we can skip the code generation for checking the tags
+                // and actually invoking the function since we know
+                // it will be a pair.
+                // match stack_value.inferred_type {
+                //     InferredType::List | InferredType::Pair | InferredType::ListOrPair if false => {
+                //         let res = self.builder.ins().iconst(types::I64, 1);
+                //         let boolean =
+                //             self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+                //         // TODO: Also - we'll need to check the length of the list!
+                //         // this should be able to be done inline as well, we just have to load
+                //         // the index of the list.
+                //         self.push(boolean, InferredType::Bool);
+                //         self.ip += 1;
+                //         self.drop_tagged_value(stack_value.value);
+                //         return;
+                //     }
+                //     _ => {}
+                // }
+
+                let value = stack_value.as_steelval(self);
+                // Encode this manually:
+                let tag = self.get_tag(value);
+                let list_tag = self.tag(23);
+
+                // Compare these tags:
+                // TODO: Also - we'll need to check the length of the list!
+                // this should be able to be done inline as well, we just have to load
+                // the index of the list.
+                let is_list = self.builder.ins().icmp(IntCC::Equal, tag, list_tag);
+
+                let pair_block = self.builder.create_block();
+                let not_pair_block = self.builder.create_block();
+                let merge_block = self.builder.create_block();
+                self.builder.append_block_param(merge_block, types::I8);
+
+                self.builder
+                    .ins()
+                    .brif(is_list, pair_block, &[], not_pair_block, &[]);
+
+                self.builder.switch_to_block(pair_block);
+                self.builder.seal_block(pair_block);
+
+                let value = self.unbox_value_to_pointer(value);
+                let length = self
+                    .builder
+                    .ins()
+                    .load(types::I64, MemFlags::new(), value, 16);
+
+                let is_empty = self.builder.ins().icmp_imm(IntCC::Equal, length, 0);
+                self.builder.ins().jump(merge_block, &[is_empty]);
+
+                self.builder.switch_to_block(not_pair_block);
+                self.builder.seal_block(not_pair_block);
+
+                let false_value = self.builder.ins().iconst(types::I8, 0);
+                self.builder.ins().jump(merge_block, &[false_value]);
+
+                self.builder.switch_to_block(merge_block);
+                let result = self.builder.block_params(merge_block)[0];
+                self.push(result, InferredType::UnboxedBool);
+
+                // self.push(comparison, InferredType::UnboxedBool);
+
+                self.drop_tagged_value(value);
+
+                self.ip += 1;
+            }
+            MutRegister(p) | Register(p) => {
+                let register = self.register_index(p);
+                self.shadow_stack.pop();
+                let res = self.call_function_returns_value_args("empty?", &[register]);
+
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+
+            // Depending on what the constant is, we can do this evaluation here
+            // Constant(constant_value) => todo!(),
+            _ => {
+                // TODO: Check the inferred type here as well, maybe do unboxed bools
+                let (value, inferred_type) = self.shadow_pop();
+                let res =
+                    self.call_function_returns_value_args_no_context("empty?-value", &[value]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+        }
+    }
+
     // do the thing:
     fn is_pair(&mut self) {
         use MaybeStackValue::*;
@@ -3057,12 +3173,13 @@ impl FunctionTranslator<'_> {
                         let boolean =
                             self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
 
+                        // TODO: Also - we'll need to check the length of the list!
+                        // this should be able to be done inline as well, we just have to load
+                        // the index of the list.
                         self.push(boolean, InferredType::Bool);
                         self.ip += 1;
 
                         self.drop_tagged_value(stack_value.value);
-
-                        // self.drop_value(stack_value.value);
 
                         return;
                     }
@@ -3077,29 +3194,66 @@ impl FunctionTranslator<'_> {
 
                 // TODO: Encode these tags in a better way besides manually
                 // doing this here
-                let pair_tag = self.tag(24);
-                let list_tag = self.tag(23);
+                // let pair_tag = self.tag(24);
+                // let list_tag = self.tag(23);
 
                 // Compare these tags:
-                let is_list = self.builder.ins().icmp(IntCC::Equal, tag, list_tag);
-                let is_pair = self.builder.ins().icmp(IntCC::Equal, tag, pair_tag);
+                // TODO: Also - we'll need to check the length of the list!
+                // this should be able to be done inline as well, we just have to load
+                // the index of the list.
+                // let is_list = self.builder.ins().icmp(IntCC::Equal, tag, list_tag);
+                // let is_pair = self.builder.ins().icmp(IntCC::Equal, tag, pair_tag);
+                // let comparison = self.builder.ins().bor(is_list, is_pair);
 
-                let comparison = self.builder.ins().bor(is_list, is_pair);
+                let mut switch = Switch::new();
+                let pair_block = self.builder.create_block();
+                let list_block = self.builder.create_block();
+                let else_block = self.builder.create_block();
+                let merge_block = self.builder.create_block();
+                self.builder.append_block_param(merge_block, types::I8);
 
-                // let res = self.builder.ins().uextend(types::I64, comparison);
-                // let boolean = self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
-                // self.push(boolean, InferredType::Bool);
+                switch.set_entry(23, list_block);
+                switch.set_entry(24, pair_block);
 
-                // self.push(comparison, InferredType::UnboxedBool);
+                switch.emit(&mut self.builder, tag, else_block);
+                {
+                    // Is a pair
+                    self.builder.switch_to_block(pair_block);
+                    self.builder.seal_block(pair_block);
+                    let true_val = self.builder.ins().iconst(types::I8, 1);
+                    self.builder.ins().jump(merge_block, &[true_val]);
+                }
 
-                // self.push(self.encode_value(tag, value))
+                {
+                    // Is a list
+                    self.builder.switch_to_block(list_block);
+                    self.builder.seal_block(list_block);
 
-                let boolean =
-                    self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, comparison);
+                    let value = self.unbox_value_to_pointer(value);
+                    let length = self
+                        .builder
+                        .ins()
+                        .load(types::I64, MemFlags::new(), value, 16);
 
-                self.push(boolean, InferredType::Bool);
+                    let not_empty = self.builder.ins().icmp_imm(IntCC::NotEqual, length, 0);
 
-                // self.drop_value(value);
+                    self.builder.ins().jump(merge_block, &[not_empty]);
+                }
+
+                {
+                    // Else case, not a list or pair
+                    self.builder.switch_to_block(else_block);
+                    self.builder.seal_block(else_block);
+                    let false_val = self.builder.ins().iconst(types::I8, 0);
+                    self.builder.ins().jump(merge_block, &[false_val]);
+                }
+
+                {
+                    self.builder.switch_to_block(merge_block);
+                    self.builder.seal_block(merge_block);
+                    let result = self.builder.block_params(merge_block)[0];
+                    self.push(result, InferredType::UnboxedBool);
+                }
 
                 self.drop_tagged_value(value);
 

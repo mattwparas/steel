@@ -60,8 +60,10 @@
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 (define (lst->vector l)
-  (let* ([n (length l)] [v (make-vector n)])
-    (let loop ([l l] [i 0])
+  (let* ([n (length l)]
+         [v (make-vector n)])
+    (let loop ([l l]
+               [i 0])
       (if (pair? l)
           (begin
             (vector-set! v i (car l))
@@ -69,8 +71,11 @@
           v))))
 
 (define (vector->lst v)
-  (let loop ([l '()] [i (- (vector-length v) 1)])
-    (if (< i 0) l (loop (cons (vector-ref v i) l) (- i 1)))))
+  (let loop ([l '()]
+             [i (- (vector-length v) 1)])
+    (if (< i 0)
+        l
+        (loop (cons (vector-ref v i) l) (- i 1)))))
 
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -98,13 +103,19 @@
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 (define (push-frame frame env)
-  (if (null? frame) env (cons (cons (car env) frame) (cdr env))))
+  (if (null? frame)
+      env
+      (cons (cons (car env) frame) (cdr env))))
 
 (define (lookup-var name env)
-  (let loop1 ([chain (car env)] [up 0])
+  (let loop1 ([chain (car env)]
+              [up 0])
     (if (null? chain)
         name
-        (let loop2 ([chain chain] [up up] [frame (cdr chain)] [over 1])
+        (let loop2 ([chain chain]
+                    [up up]
+                    [frame (cdr chain)]
+                    [over 1])
           (cond
             [(null? frame) (loop1 (car chain) (+ up 1))]
             [(eq? (car frame) name) (cons up over)]
@@ -128,7 +139,9 @@
     (scheme-error "Variable name can not be a syntactic keyword" x)))
 
 (define (shape form n)
-  (let loop ([form form] [n n] [l form])
+  (let loop ([form form]
+             [n n]
+             [l form])
     (cond
       [(<= n 0)]
       [(pair? l) (loop form (- n 1) (cdr l))]
@@ -195,7 +208,9 @@
       (comp-quasiquotation l level env)))
 
 (define (unquote-splicing? x)
-  (if (pair? x) (if (eq? (car x) 'unquote-splicing) #t #f) #f))
+  (if (pair? x)
+      (if (eq? (car x) 'unquote-splicing) #t #f)
+      #f))
 
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -220,8 +235,11 @@
   (shape expr 3)
   (let ([parms (cadr expr)])
     (let ([frame (parms->frame parms)])
-      (let ([nb-vars (length frame)] [code (comp-body (cddr expr) (push-frame frame env))])
-        (if (rest-param? parms) (gen-lambda-rest nb-vars code) (gen-lambda nb-vars code))))))
+      (let ([nb-vars (length frame)]
+            [code (comp-body (cddr expr) (push-frame frame env))])
+        (if (rest-param? parms)
+            (gen-lambda-rest nb-vars code)
+            (gen-lambda nb-vars code))))))
 
 (define (parms->frame parms)
   (cond
@@ -268,27 +286,34 @@
         (scheme-error "Body must contain at least one evaluable expression")))
 
   (define (letrec-defines* vars vals body env)
-    (if (null? vars) (comp-sequence body env) (comp-letrec-aux vars vals body env)))
+    (if (null? vars)
+        (comp-sequence body env)
+        (comp-letrec-aux vars vals body env)))
 
   (letrec-defines '() '() body env))
 
 (define (definition-name expr)
   (shape expr 3)
   (let ([pattern (cadr expr)])
-    (let ([name (if (pair? pattern) (car pattern) pattern)])
+    (let ([name (if (pair? pattern)
+                    (car pattern)
+                    pattern)])
       (unless (symbol? name)
         (scheme-error "Identifier expected" name))
       name)))
 
 (define (definition-value expr)
   (let ([pattern (cadr expr)])
-    (if (pair? pattern) (cons 'lambda (cons (cdr pattern) (cddr expr))) (caddr expr))))
+    (if (pair? pattern)
+        (cons 'lambda (cons (cdr pattern) (cddr expr)))
+        (caddr expr))))
 
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 (define (comp-if expr env)
   (shape expr 3)
-  (let ([code1 (scheme-comp (cadr expr) env)] [code2 (scheme-comp (caddr expr) env)])
+  (let ([code1 (scheme-comp (cadr expr) env)]
+        [code2 (scheme-comp (caddr expr) env)])
     (if (pair? (cdddr expr))
         (gen-if code1 code2 (scheme-comp (cadddr expr) env))
         (gen-when code1 code2))))
@@ -322,20 +347,32 @@
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 (define (comp-and expr env)
-  (let ([rest (cdr expr)]) (if (pair? rest) (comp-and-aux rest env) (gen-cst #t))))
+  (let ([rest (cdr expr)])
+    (if (pair? rest)
+        (comp-and-aux rest env)
+        (gen-cst #t))))
 
 (define (comp-and-aux l env)
-  (let ([code (scheme-comp (car l) env)] [rest (cdr l)])
-    (if (pair? rest) (gen-and code (comp-and-aux rest env)) code)))
+  (let ([code (scheme-comp (car l) env)]
+        [rest (cdr l)])
+    (if (pair? rest)
+        (gen-and code (comp-and-aux rest env))
+        code)))
 
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 (define (comp-or expr env)
-  (let ([rest (cdr expr)]) (if (pair? rest) (comp-or-aux rest env) (gen-cst #f))))
+  (let ([rest (cdr expr)])
+    (if (pair? rest)
+        (comp-or-aux rest env)
+        (gen-cst #f))))
 
 (define (comp-or-aux l env)
-  (let ([code (scheme-comp (car l) env)] [rest (cdr l)])
-    (if (pair? rest) (gen-or code (comp-or-aux rest env)) code)))
+  (let ([code (scheme-comp (car l) env)]
+        [rest (cdr l)])
+    (if (pair? rest)
+        (gen-or code (comp-or-aux rest env))
+        code)))
 
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -408,7 +445,9 @@
       (comp-body body env)))
 
 (define (comp-vals l env)
-  (if (pair? l) (cons (scheme-comp (car l) env) (comp-vals (cdr l) env)) '()))
+  (if (pair? l)
+      (cons (scheme-comp (car l) env) (comp-vals (cdr l) env))
+      '()))
 
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -417,17 +456,23 @@
   (comp-sequence (cdr expr) env))
 
 (define (comp-sequence exprs env)
-  (if (pair? exprs) (comp-sequence-aux exprs env) (gen-cst '())))
+  (if (pair? exprs)
+      (comp-sequence-aux exprs env)
+      (gen-cst '())))
 
 (define (comp-sequence-aux exprs env)
-  (let ([code (scheme-comp (car exprs) env)] [rest (cdr exprs)])
-    (if (pair? rest) (gen-sequence code (comp-sequence-aux rest env)) code)))
+  (let ([code (scheme-comp (car exprs) env)]
+        [rest (cdr exprs)])
+    (if (pair? rest)
+        (gen-sequence code (comp-sequence-aux rest env))
+        code)))
 
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 (define (comp-do expr env)
   (shape expr 3)
-  (let ([bindings (cadr expr)] [exit (caddr expr)])
+  (let ([bindings (cadr expr)]
+        [exit (caddr expr)])
     (shape exit 1)
     (let* ([vars (bindings->vars bindings)]
            [new-env1 (push-frame '(#f) env)]
@@ -445,7 +490,9 @@
 (define (bindings->steps bindings)
   (if (pair? bindings)
       (let ([binding (car bindings)])
-        (cons (if (pair? (cddr binding)) (caddr binding) (car binding))
+        (cons (if (pair? (cddr binding))
+                  (caddr binding)
+                  (car binding))
               (bindings->steps (cdr bindings))))
       '()))
 
@@ -454,7 +501,9 @@
 (define (comp-define expr env)
   (shape expr 3)
   (let ([pattern (cadr expr)])
-    (let ([x (if (pair? pattern) (car pattern) pattern)])
+    (let ([x (if (pair? pattern)
+                 (car pattern)
+                 pattern)])
       (variable x)
       (gen-sequence (gen-var-set (lookup-var x env)
                                  (scheme-comp (if (pair? pattern)
@@ -476,7 +525,9 @@
 ;;------------------------------------------------------------------------------
 
 (define (gen-var-ref var)
-  (if (pair? var) (gen-rte-ref (car var) (cdr var)) (gen-glo-ref (scheme-global-var var))))
+  (if (pair? var)
+      (gen-rte-ref (car var) (cdr var))
+      (gen-glo-ref (scheme-global-var var))))
 
 (define (gen-rte-ref up over)
   (case up
@@ -534,7 +585,9 @@
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 (define (gen-var-set var code)
-  (if (pair? var) (gen-rte-set (car var) (cdr var) code) (gen-glo-set (scheme-global-var var) code)))
+  (if (pair? var)
+      (gen-rte-set (car var) (cdr var) code)
+      (gen-glo-set (scheme-global-var var) code)))
 
 (define (gen-rte-set up over code)
   (case up
@@ -595,7 +648,10 @@
         (vector-set! x 1 a)
         (vector-set! x 2 b)
         (vector-set! x 3 c)
-        (let loop ([n nb-vars] [x x] [i 4] [l d])
+        (let loop ([n nb-vars]
+                   [x x]
+                   [i 4]
+                   [l d])
           (if (< i n)
               (begin
                 (vector-set! x i (car l))
@@ -631,7 +687,10 @@
         (vector-set! x 1 a)
         (vector-set! x 2 b)
         (vector-set! x 3 c)
-        (let loop ([n nb-vars] [x x] [i 4] [l d])
+        (let loop ([n nb-vars]
+                   [x x]
+                   [i 4]
+                   [l d])
           (when (<= i n)
             (vector-set! x i (car l))
             (loop n x (+ i 1) (cdr l))))
@@ -647,25 +706,43 @@
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 (define (gen-when code1 code2)
-  (lambda (rte) (if (code1 rte) (code2 rte) '())))
+  (lambda (rte)
+    (if (code1 rte)
+        (code2 rte)
+        '())))
 
 (define (gen-if code1 code2 code3)
-  (lambda (rte) (if (code1 rte) (code2 rte) (code3 rte))))
+  (lambda (rte)
+    (if (code1 rte)
+        (code2 rte)
+        (code3 rte))))
 
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 (define (gen-cond-send code1 code2 code3)
-  (lambda (rte) (let ([temp (code1 rte)]) (if temp ((code2 rte) temp) (code3 rte)))))
+  (lambda (rte)
+    (let ([temp (code1 rte)])
+      (if temp
+          ((code2 rte) temp)
+          (code3 rte)))))
 
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 (define (gen-and code1 code2)
-  (lambda (rte) (let ([temp (code1 rte)]) (if temp (code2 rte) temp))))
+  (lambda (rte)
+    (let ([temp (code1 rte)])
+      (if temp
+          (code2 rte)
+          temp))))
 
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
 (define (gen-or code1 code2)
-  (lambda (rte) (let ([temp (code1 rte)]) (if temp temp (code2 rte)))))
+  (lambda (rte)
+    (let ([temp (code1 rte)])
+      (if temp
+          temp
+          (code2 rte)))))
 
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -673,7 +750,10 @@
   (lambda (rte) (code2 rte (code1 rte))))
 
 (define (gen-case-clause datums code1 code2)
-  (lambda (rte key) (if (memv key datums) (code1 rte) (code2 rte key))))
+  (lambda (rte key)
+    (if (memv key datums)
+        (code1 rte)
+        (code2 rte key))))
 
 (define (gen-case-else code)
   (lambda (rte key) (code rte)))
@@ -713,7 +793,9 @@
   (lambda (rte)
     (let ([x (make-vector (+ nb-vals 1))])
       (vector-set! x 0 rte)
-      (let loop ([x x] [i 1] [l vals])
+      (let loop ([x x]
+                 [i 1]
+                 [l vals])
         (when (pair? l)
           (vector-set! x i ((car l) x))
           (loop x (+ i 1) (cdr l))))
@@ -749,7 +831,9 @@
 (define (gen-combination-n oper args)
   (lambda (rte)
     (define (evaluate l rte)
-      (if (pair? l) (cons ((car l) rte) (evaluate (cdr l) rte)) '()))
+      (if (pair? l)
+          (cons ((car l) rte) (evaluate (cdr l) rte))
+          '()))
     (apply (oper rte) (evaluate args rte))))
 
 ;; - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1014,10 +1098,14 @@
      (define (sort-list obj pred)
 
        (define (loop l)
-         (if (and (pair? l) (pair? (cdr l))) (split l '() '()) l))
+         (if (and (pair? l) (pair? (cdr l)))
+             (split l '() '())
+             l))
 
        (define (split l one two)
-         (if (pair? l) (split (cdr l) two (cons (car l) one)) (merge (loop one) (loop two))))
+         (if (pair? l)
+             (split (cdr l) two (cons (car l) one))
+             (merge (loop one) (loop two))))
 
        (define (merge one two)
          (cond
