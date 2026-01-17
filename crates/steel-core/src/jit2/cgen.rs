@@ -504,6 +504,11 @@ impl Default for JIT {
             abi! { drop_value_post_fast_decrement as fn(SteelVal) },
         );
 
+        map.add_func2(
+            "drop-value-slow-dec",
+            abi! { drop_value_slow_decrement as fn(SteelVal) },
+        );
+
         map.add_func(
             "pop-from-stack",
             abi! { pop_value as fn(*mut VmCore) -> SteelVal },
@@ -2874,80 +2879,17 @@ impl FunctionTranslator<'_> {
         // Resulting path of execution
         let merge_block = self.builder.create_block();
 
-        // Closure
-        switch.set_entry(0, rc_block);
-        // bool
-        switch.set_entry(1, no_drop);
-        // float
-        switch.set_entry(2, no_drop);
-        // int
-        switch.set_entry(3, no_drop);
-        // ratio
-        switch.set_entry(4, no_drop);
-        // char
-        switch.set_entry(5, no_drop);
-        // Vector
-        switch.set_entry(6, rc_block);
-        // Void
-        switch.set_entry(7, no_drop);
-        // String
-        switch.set_entry(8, rc_block);
-        // function pointer
-        switch.set_entry(9, no_drop);
-        // Symbols
-        switch.set_entry(10, rc_block);
-        // Custom
-        switch.set_entry(11, rc_block);
-        // Hash map
-        switch.set_entry(12, rc_block);
-        // Hash set
-        switch.set_entry(13, rc_block);
-        // struct
-        switch.set_entry(14, rc_block);
-        // port
-        switch.set_entry(15, rc_block);
-        // iter
-        switch.set_entry(16, rc_block);
-        // reducer
-        switch.set_entry(17, rc_block);
-        // Async function pointer, boxed
-        switch.set_entry(18, rc_block);
-        // Boxed future result
-        switch.set_entry(19, rc_block);
-        // Stream
-        switch.set_entry(20, rc_block);
-        // boxed function
-        switch.set_entry(21, rc_block);
-        // Continuation, standard rc
-        switch.set_entry(22, non_rc_block);
-        // List
-        switch.set_entry(23, rc_block);
-        // Pair
-        switch.set_entry(24, rc_block);
-        // Mut function signature
-        switch.set_entry(25, no_drop);
-        // builtin function signature
-        switch.set_entry(26, no_drop);
-        // Heap ref vector
-        switch.set_entry(27, non_rc_block);
-        // boxed iterator
-        switch.set_entry(28, rc_block);
-        // Syntax object
-        switch.set_entry(29, rc_block);
-        // Boxed value
-        switch.set_entry(30, rc_block);
-        // Heap ref value
-        switch.set_entry(31, non_rc_block);
-        // opaque reference
-        switch.set_entry(32, rc_block);
-        // Big num
-        switch.set_entry(33, rc_block);
-        // big rational
-        switch.set_entry(34, rc_block);
-        // Complex
-        switch.set_entry(35, rc_block);
-        // byte vector
-        switch.set_entry(36, rc_block);
+        for tag in SteelVal::SPECIAL_RC_TAGS {
+            switch.set_entry(tag as _, rc_block);
+        }
+
+        for tag in SteelVal::UNBOXED_TAGS {
+            switch.set_entry(tag as _, no_drop);
+        }
+
+        for tag in SteelVal::STANDARD_RC_TAGS {
+            switch.set_entry(tag as _, non_rc_block);
+        }
 
         switch.emit(&mut self.builder, tag, non_rc_block);
 
@@ -3212,8 +3154,8 @@ impl FunctionTranslator<'_> {
                 let merge_block = self.builder.create_block();
                 self.builder.append_block_param(merge_block, types::I8);
 
-                switch.set_entry(23, list_block);
-                switch.set_entry(24, pair_block);
+                switch.set_entry(SteelVal::LIST_TAG as _, list_block);
+                switch.set_entry(SteelVal::PAIR_TAG as _, pair_block);
 
                 switch.emit(&mut self.builder, tag, else_block);
                 {

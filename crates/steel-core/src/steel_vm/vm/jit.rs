@@ -342,14 +342,12 @@ fn drop_one(arg: SteelVal) {
 }
 
 #[cross_platform_fn]
-fn drop_value_post_fast_decrement(mut arg: SteelVal) {
-    // println!("Calling drop value post fast decrement");
+fn drop_value_post_fast_decrement(arg: SteelVal) {
     use SteelVal::*;
-    // let mut arg = ManuallyDrop::new(arg);
 
-    // println!("Calling: {:?}", &arg);
+    let mut arg = ManuallyDrop::new(arg);
 
-    match &mut arg {
+    match &mut *arg {
         Closure(gc) => {
             // Fast decrement
             gc.0.fast_decrement_post_ref_count_dec();
@@ -457,6 +455,119 @@ fn drop_value_post_fast_decrement(mut arg: SteelVal) {
     };
 }
 
+#[cross_platform_fn]
+fn drop_value_slow_decrement(arg: SteelVal) {
+    use SteelVal::*;
+
+    let mut arg = ManuallyDrop::new(arg);
+
+    match &mut *arg {
+        Closure(gc) => {
+            // Fast decrement
+            gc.0.raw_slow_decrement();
+        }
+
+        VectorV(v) => {
+            v.0 .0.raw_slow_decrement();
+        }
+
+        StringV(s) => {
+            s.0 .0.raw_slow_decrement();
+        }
+
+        SymbolV(s) => {
+            s.0 .0.raw_slow_decrement();
+        }
+
+        Custom(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        HashMapV(hm) => {
+            hm.0 .0.raw_slow_decrement();
+        }
+
+        HashSetV(hs) => {
+            hs.0 .0.raw_slow_decrement();
+        }
+
+        CustomStruct(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        PortV(gc) => {
+            gc.port.0.raw_slow_decrement();
+        }
+
+        IterV(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        ReducerV(r) => {
+            r.0.raw_slow_decrement();
+        }
+
+        StreamV(s) => {
+            s.0.raw_slow_decrement();
+        }
+
+        BoxedFunction(f) => {
+            f.0.raw_slow_decrement();
+        }
+
+        FutureFunc(f) => {
+            f.raw_slow_decrement();
+        }
+
+        FutureV(v) => {
+            v.0.raw_slow_decrement();
+        }
+
+        BoxedIterator(i) => {
+            i.0.raw_slow_decrement();
+        }
+
+        SyntaxObject(s) => {
+            s.0.raw_slow_decrement();
+        }
+
+        Reference(r) => {
+            r.0.raw_slow_decrement();
+        }
+
+        ListV(l) => {
+            l.inner_ptr_mut().0.raw_slow_decrement();
+        }
+
+        Pair(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        Boxed(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        BigNum(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        BigRational(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        Complex(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        ByteVector(bv) => {
+            bv.vec.0.raw_slow_decrement();
+        }
+
+        _ => {
+            panic!("Calling fast decrement post ref count on a non pointer value");
+        }
+    };
+}
 #[cross_platform_fn]
 fn pop_value(ctx: *mut VmCore) -> SteelVal {
     unsafe { &mut *ctx }.thread.stack.pop().unwrap()

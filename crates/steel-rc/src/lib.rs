@@ -42,7 +42,7 @@ const SENTINEL: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(usize::MAX) 
 /// [`as_u64()`]: std::thread::ThreadId::as_u64
 #[derive(Debug, Clone, Copy, Hash, Eq)]
 #[repr(transparent)]
-pub(crate) struct ThreadId(pub(crate) NonZeroUsize);
+pub struct ThreadId(pub(crate) NonZeroUsize);
 
 impl ThreadId {
     /// Creates a new `ThreadId` for the given raw id.
@@ -53,7 +53,7 @@ impl ThreadId {
 
     /// Gets the id for the thread that invokes it.
     #[inline]
-    pub(crate) fn current_thread() -> Self {
+    pub fn current_thread() -> Self {
         Self::new(
             THREAD_MARKER
                 .try_with(|x| x as *const _ as usize)
@@ -1014,6 +1014,19 @@ pub struct BiasedRc<T: ?Sized + 'static> {
 }
 
 impl<T: ?Sized + 'static> BiasedRc<T> {
+    pub fn raw_slow_decrement(&mut self) {
+        match self.get_box().slow_decrement() {
+            DecrementAction::DoNothing => {}
+            DecrementAction::Queue => {
+                // Enqueue the value
+                QueueHandle::enqueue(self);
+            }
+            DecrementAction::Deallocate => {
+                unsafe { self.drop_contents_and_maybe_box() };
+            }
+        }
+    }
+
     pub fn fast_decrement_post_ref_count_dec(&mut self) {
         match self.get_box().fast_decrement_drop_impl() {
             DecrementAction::DoNothing => {}

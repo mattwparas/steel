@@ -1621,6 +1621,8 @@ impl<'a> VmContext for VmCore<'a> {
 #[repr(C)]
 pub struct VmCore<'a> {
     pub(crate) is_native: bool,
+    #[cfg(feature = "biased")]
+    pub(crate) thread_id: Option<steel_rc::ThreadId>,
     pub(crate) ip: usize,
     pub(crate) sp: usize,
     pub(crate) thread: &'a mut SteelThread,
@@ -1648,6 +1650,8 @@ impl<'a> VmCore<'a> {
     ) -> VmCore<'a> {
         VmCore {
             instructions,
+            #[cfg(feature = "biased")]
+            thread_id: Some(steel_rc::ThreadId::current_thread()),
             constants,
             ip: 0,
             sp: 0,
@@ -1673,6 +1677,8 @@ impl<'a> VmCore<'a> {
 
         Ok(VmCore {
             instructions,
+            #[cfg(feature = "biased")]
+            thread_id: Some(steel_rc::ThreadId::current_thread()),
             constants,
             ip: 0,
             sp: 0,
@@ -2573,6 +2579,11 @@ impl<'a> VmCore<'a> {
 
                     // #[cfg(debug_assertions)]
                     // let stack_count = self.thread.stack_frames.len();
+
+                    #[cfg(feature = "biased")]
+                    {
+                        self.thread_id = Some(steel_rc::ThreadId::current_thread());
+                    }
 
                     self.thread
                         .stack_frames

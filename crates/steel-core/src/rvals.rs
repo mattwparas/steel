@@ -2400,6 +2400,89 @@ impl SteelVal {
     pub const INT_ZERO: SteelVal = SteelVal::IntV(0);
     pub const INT_ONE: SteelVal = SteelVal::IntV(1);
     pub const INT_TWO: SteelVal = SteelVal::IntV(2);
+
+    pub const CLOSURE_TAG: u8 = 0;
+    pub const BOOL_TAG: u8 = 1;
+    pub const FLOAT_TAG: u8 = 2;
+    pub const INT_TAG: u8 = 3;
+    pub const RATIO_TAG: u8 = 4;
+    pub const CHAR_TAG: u8 = 5;
+    pub const VECTOR_TAG: u8 = 6;
+    pub const VOID_TAG: u8 = 7;
+    pub const STRING_TAG: u8 = 8;
+    pub const FUNCTION_POINTER_TAG: u8 = 9;
+    pub const SYMBOL_TAG: u8 = 10;
+    pub const CUSTOM_TAG: u8 = 11;
+    pub const HASHMAP_TAG: u8 = 12;
+    pub const HASHSET_TAG: u8 = 13;
+    pub const STRUCT_TAG: u8 = 14;
+    pub const PORT_TAG: u8 = 15;
+    pub const ITER_TAG: u8 = 16;
+    pub const REDUCER_TAG: u8 = 17;
+    pub const ASYNC_FUNCTION_POINTER_TAG: u8 = 18;
+    pub const BOXED_FUTURE_TAG: u8 = 19;
+    pub const STREAM_TAG: u8 = 20;
+    pub const BOXED_FUNCTION_TAG: u8 = 21;
+    pub const CONTINUATION_TAG: u8 = 22;
+    pub const LIST_TAG: u8 = 23;
+    pub const PAIR_TAG: u8 = 24;
+    pub const MUT_FUNCTION_TAG: u8 = 25;
+    pub const BUILTIN_FUNCTION_TAG: u8 = 26;
+    pub const HEAP_REF_VECTOR_TAG: u8 = 27;
+    pub const BOXED_ITERATOR_TAG: u8 = 28;
+    pub const SYNTAX_OBJECT_TAG: u8 = 29;
+    pub const BOXED_VALUE_TAG: u8 = 30;
+    pub const HEAP_REF_VALUE_TAG: u8 = 31;
+    pub const OPAQUE_TAG: u8 = 32;
+    pub const BIG_NUM_TAG: u8 = 33;
+    pub const BIG_RATIONAL_TAG: u8 = 34;
+    pub const COMPLEX_TAG: u8 = 35;
+    pub const BYTEVECTOR_TAG: u8 = 36;
+
+    pub const SPECIAL_RC_TAGS: [u8; 24] = [
+        SteelVal::CLOSURE_TAG,
+        SteelVal::VECTOR_TAG,
+        SteelVal::STRING_TAG,
+        SteelVal::SYMBOL_TAG,
+        SteelVal::CUSTOM_TAG,
+        SteelVal::HASHMAP_TAG,
+        SteelVal::HASHSET_TAG,
+        SteelVal::STRUCT_TAG,
+        SteelVal::PORT_TAG,
+        SteelVal::ITER_TAG,
+        SteelVal::REDUCER_TAG,
+        SteelVal::ASYNC_FUNCTION_POINTER_TAG,
+        SteelVal::BOXED_FUTURE_TAG,
+        SteelVal::STREAM_TAG,
+        SteelVal::LIST_TAG,
+        SteelVal::PAIR_TAG,
+        SteelVal::BOXED_ITERATOR_TAG,
+        SteelVal::SYNTAX_OBJECT_TAG,
+        SteelVal::BOXED_VALUE_TAG,
+        SteelVal::OPAQUE_TAG,
+        SteelVal::BIG_NUM_TAG,
+        SteelVal::BIG_RATIONAL_TAG,
+        SteelVal::COMPLEX_TAG,
+        SteelVal::BYTEVECTOR_TAG,
+    ];
+
+    pub const STANDARD_RC_TAGS: [u8; 3] = [
+        Self::CONTINUATION_TAG,
+        Self::HEAP_REF_VECTOR_TAG,
+        Self::HEAP_REF_VALUE_TAG,
+    ];
+
+    pub const UNBOXED_TAGS: [u8; 9] = [
+        Self::BOOL_TAG,
+        Self::FLOAT_TAG,
+        Self::INT_TAG,
+        Self::RATIO_TAG,
+        Self::CHAR_TAG,
+        Self::VOID_TAG,
+        Self::MUT_FUNCTION_TAG,
+        Self::FUNCTION_POINTER_TAG,
+        Self::BUILTIN_FUNCTION_TAG,
+    ];
 }
 
 impl Eq for SteelVal {}
