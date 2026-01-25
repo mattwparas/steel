@@ -125,8 +125,9 @@ fn finish_or_interrupt(vm: &mut Engine, line: String) {
             }
             _ => {
                 print!("{} ", "=>".bright_blue().bold());
-                vm.call_function_by_name_with_args("println", vec![value])
-                    .unwrap();
+                if let Err(e) = vm.call_function_by_name_with_args("println", vec![value]) {
+                    vm.raise_error(e);
+                }
             }
         }
     }

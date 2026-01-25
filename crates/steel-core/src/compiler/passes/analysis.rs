@@ -1,7 +1,10 @@
 use std::collections::{hash_map, HashMap, HashSet};
 
 use crate::{
-    compiler::modules::{MANGLER_PREFIX, MODULE_PREFIX},
+    compiler::{
+        modules::{MANGLER_PREFIX, MODULE_PREFIX},
+        program::{SETBOX, UNBOX},
+    },
     parser::ast::List,
     values::HashMap as ImmutableHashMap,
 };
@@ -1408,8 +1411,6 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
             // dbg!(name.resolve());
             // dbg!(self.scope.keys().map(|x| x.resolve()).collect::<Vec<_>>());
 
-            // println!("Removing: {}", name.resolve());
-
             let scoped_info = self.info.scope.remove(name).unwrap();
 
             if let Some(id) = &scoped_info.last_used {
@@ -1734,6 +1735,7 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
 
     fn visit_set(&mut self, s: &'a crate::parser::ast::Set) {
         let name = s.variable.atom_identifier();
+
         // let id = s.variable.atom_syntax_object().map(|x| x.syntax_object_id);
 
         if let Some(info) = s
@@ -1768,8 +1770,10 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                     var.set_bang = true;
                     // scope_info.mutated = true;
                 } else {
-                    // scope_info.mutated = false;
+                    // println!("Unable to find in info: {}", s);
                 }
+            } else {
+                // println!("Unable to find name in scope: {}", name);
             }
         }
 
@@ -2336,6 +2340,50 @@ where
     fn visit_quote(&mut self, _quote: &mut Quote) {}
 }
 
+struct FindCallSitesManyDepth<'a, F> {
+    analysis: &'a Analysis,
+    map: HashMap<InternedString, F>,
+    depth: usize,
+}
+
+impl<'a, F> VisitorMutRefUnit for FindCallSitesManyDepth<'a, F>
+where
+    F: FnMut(&Analysis, &mut List),
+{
+    fn visit_list(&mut self, l: &mut List) {
+        if self.depth == 0 {
+            return;
+        }
+
+        if let Some(name) = l.first_ident() {
+            // Creates a value that ends up mapping to the new thing?
+            // if let Some(semantic_info) = self.analysis.get(l.args[0].atom_syntax_object().unwrap())
+            // {
+            //     if semantic_info.kind == IdentifierStatus::Global {
+            if let Some(func) = self.map.get_mut(name) {
+                (func)(self.analysis, l);
+                self.depth -= 1;
+            }
+            //     }
+            // }
+
+            for arg in &mut l.args {
+                self.visit(arg);
+            }
+
+            return;
+        }
+
+        for arg in &mut l.args {
+            self.visit(arg);
+        }
+    }
+
+    // TODO: This shouldn't visit at all
+    #[inline]
+    fn visit_quote(&mut self, _quote: &mut Quote) {}
+}
+
 #[derive(Default)]
 struct FunctionSizeEstimator {
     count: usize,
@@ -2543,6 +2591,67 @@ where
                 }
 
                 unreachable!()
+            }
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
+    }
+}
+
+struct MutateCallSitesNonGlobal<'a, F> {
+    name: String,
+    analysis: &'a Analysis,
+    func: F,
+}
+
+impl<'a, F> MutateCallSitesNonGlobal<'a, F> {
+    pub fn new(name: String, analysis: &'a Analysis, func: F) -> Self {
+        Self {
+            name,
+            analysis,
+            func,
+        }
+    }
+}
+
+impl<'a, F> VisitorMutRefUnit for MutateCallSitesNonGlobal<'a, F>
+where
+    F: FnMut(&Analysis, &mut ExprKind),
+{
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            list @ ExprKind::List(_) => {
+                if let ExprKind::List(l) = list {
+                    self.visit_list(l);
+                }
+
+                if let ExprKind::List(l) = &list {
+                    if let Some(name) = l.first_ident() {
+                        if name.resolve() == self.name {
+                            // At this point, call out to the user given function - if we do in fact mutate
+                            // where the value points to, we should return a full node that needs to be visited
+                            (self.func)(self.analysis, list);
+
+                            // TODO: Analysis should maybe be re run here - mutations might invalidate the analysis
+                            // This might make it worth rerunning the analysis
+
+                            return;
+                        }
+                    }
+                }
+
+                // unreachable!()
             }
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
@@ -3142,6 +3251,350 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
     }
 }
 
+struct LiftClosuresToGlobalScope<'a> {
+    analysis: &'a Analysis,
+    lifted_functions: Vec<ExprKind>,
+    found_funcs: Vec<InternedString>,
+}
+
+impl<'a> LiftClosuresToGlobalScope<'a> {
+    pub fn new(analysis: &'a Analysis) -> Self {
+        Self {
+            analysis,
+            lifted_functions: Vec::new(),
+            found_funcs: Vec::new(),
+        }
+    }
+
+    fn perform_closure_lifting(&mut self, ol: &mut Let) {
+        let mut changed = false;
+        let mut replacers = Vec::new();
+
+        let mut local_functions = Vec::new();
+
+        if let ExprKind::Let(l) = &mut ol.body_expr {
+            // Collect each of the bindings that might be potentially
+            // lifted and captured, before we figure out what the things
+            // that we need to remove are.
+
+            let mut original_func_names = Vec::new();
+            let mut captured_vars_set = Vec::new();
+
+            let mut found_escape_checkers = Vec::new();
+
+            for (variable, expression) in l.bindings.iter_mut() {
+                if let ExprKind::LambdaFunction(_) = expression {
+                    if let ExprKind::LambdaFunction(r) = expression {
+                        let var = variable.atom_syntax_object().unwrap();
+                        let info = self.analysis.get(var).unwrap();
+
+                        let function_info = self.analysis.get_function_info(r).unwrap();
+
+                        // This is a lambda function. the temporary binding is only used once.
+                        if !function_info.captured_vars().is_empty() && info.usage_count == 1 {
+                            let function_name = variable.atom_identifier().unwrap();
+
+                            for var in function_info.captured_vars() {
+                                if !captured_vars_set.contains(&var.0) {
+                                    captured_vars_set.push(var.0);
+                                }
+                            }
+
+                            if let ExprKind::Begin(b) = &mut l.body_expr {
+                                let mut found_escape_checker: Option<
+                                    CheckIdentifierOnlyOccursInUnboxCallPosition,
+                                > = None;
+
+                                for expr in b.exprs.iter_mut() {
+                                    if let Some(found_escape_checker) = &mut found_escape_checker {
+                                        if found_escape_checker.check(expr) {
+                                            // println!("Function escapes, returning...");
+                                            return;
+                                        }
+                                    }
+
+                                    if let ExprKind::List(l) = expr {
+                                        if l.first_ident().copied() == Some(*SETBOX) {
+                                            if l.third_ident() == Some(function_name) {
+                                                // original loop name:
+                                                let original_func_name =
+                                                    l.second_ident().unwrap().clone();
+
+                                                // Check that the original func name appeared in the outer lets
+                                                for (ident, _) in ol.bindings.iter() {
+                                                    let name = ident.atom_identifier().unwrap();
+
+                                                    if original_func_name == *name {
+                                                        found_escape_checker = Some(
+                                                            CheckIdentifierOnlyOccursInUnboxCallPosition::new(original_func_name)
+                                                        );
+
+                                                        original_func_names
+                                                            .push(original_func_name);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if let Some(ec) = found_escape_checker {
+                                    found_escape_checkers.push(ec);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            for mut escape_checker in found_escape_checkers {
+                if escape_checker.check_let(l) {
+                    return;
+                }
+            }
+
+            let mut outer_inner_indexes = Vec::new();
+
+            // for name in &original_func_names {
+            //     println!("Original func names: {}", name);
+            // }
+
+            self.found_funcs.extend(original_func_names.iter().copied());
+
+            // Inner let:
+            for (inner_index, (variable, expression)) in l.bindings.iter_mut().enumerate() {
+                if let ExprKind::LambdaFunction(r) = expression {
+                    let var = variable.atom_syntax_object().unwrap();
+                    let info = self.analysis.get(var).unwrap();
+                    let id = r.syntax_object_id;
+
+                    let function_info = self.analysis.get_function_info(r).unwrap();
+
+                    // This is a lambda function. the temporary binding is only used once.
+                    if !function_info.captured_vars().is_empty() && info.usage_count == 1 {
+                        let function_name = variable.atom_identifier().unwrap();
+
+                        if let ExprKind::Begin(b) = &mut l.body_expr {
+                            let mut calculated_replacer = None;
+                            let mut index_to_remove = None;
+                            let mut callsite_modifier = None;
+
+                            let mut found_escape_checker: Option<
+                                CheckIdentifierOnlyOccursInUnboxCallPosition,
+                            > = None;
+
+                            for (index, expr) in b.exprs.iter_mut().enumerate() {
+                                if let Some(found_escape_checker) = &mut found_escape_checker {
+                                    if found_escape_checker.check(expr) {
+                                        return;
+                                    }
+                                }
+
+                                if let ExprKind::List(l) = expr {
+                                    if l.first_ident().copied() == Some(*SETBOX) {
+                                        if l.third_ident() == Some(function_name) {
+                                            // original loop name:
+                                            let original_func_name =
+                                                l.second_ident().unwrap().clone();
+
+                                            // Check that the original func name appeared in the outer lets
+                                            for (outer_index, (ident, _)) in
+                                                ol.bindings.iter().enumerate()
+                                            {
+                                                let name = ident.atom_identifier().unwrap();
+
+                                                if original_func_name == *name {
+                                                    outer_inner_indexes
+                                                        .push((outer_index, inner_index));
+
+                                                    let mut escape_checker = CheckIdentifierOnlyOccursInUnboxCallPosition {
+                                                        unbox_var: original_func_name, escapes: false,
+                                                    };
+
+                                                    // First, check the function:
+                                                    if escape_checker.check(expression) {
+                                                        return;
+                                                    }
+
+                                                    found_escape_checker = Some(escape_checker);
+                                                    index_to_remove = Some(index);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // If we've made it to this point, then we're good to go ahead and try:
+                            for (index, expr) in b.exprs.iter_mut().enumerate() {
+                                if let ExprKind::List(l) = expr {
+                                    if l.first_ident().copied() == Some(*SETBOX) {
+                                        if l.third_ident() == Some(function_name) {
+                                            // original loop name:
+                                            let original_func_name =
+                                                l.second_ident().unwrap().clone();
+
+                                            // Check that the original func name appeared in the outer lets
+                                            for (ident, _) in &ol.bindings {
+                                                let name = ident.atom_identifier().unwrap();
+
+                                                if original_func_name == *name {
+                                                    let name = format!("##closure-lifting-{}", id);
+
+                                                    // Replace these with a new name,
+                                                    // we're going to lift the expression out
+                                                    let mut replacer = ReplaceUnboxExpressions {
+                                                        unbox_var: original_func_name,
+                                                        ident: ExprKind::atom(name.clone()),
+                                                    };
+
+                                                    if let ExprKind::LambdaFunction(r) = expression
+                                                    {
+                                                        // Note: If the resulting function then has a
+                                                        // free variable as a
+                                                        // result of this, then we can't necessarily do this?
+                                                        for i in &captured_vars_set {
+                                                            if self.found_funcs.contains(i) {
+                                                                continue;
+                                                            }
+
+                                                            r.args.push(ExprKind::atom(*i));
+                                                        }
+                                                    } else {
+                                                        return;
+                                                    }
+
+                                                    replacer.visit(expression);
+
+                                                    // TODO: Modify the function to also have
+                                                    // the additional args.
+                                                    //
+                                                    // Also, we'll need to check that the function
+                                                    // does not escape in any way. If the function
+                                                    // escapes, then we'll have to bail out of this
+                                                    // lambda lifting since all the call sites cannot
+                                                    // be known. The easiest way for us to check if
+                                                    // the function escapes would be to just walk
+                                                    // the AST here and see if its in any position
+                                                    // that isn't just the callsite of a function,
+                                                    // or if its in any position that isn't the call
+                                                    // site for the remaining expressions within
+                                                    // the function.
+
+                                                    let func_names = self.found_funcs.clone();
+                                                    let captured_values = captured_vars_set.clone();
+                                                    let find_call_sites =
+                                                        MutateCallSitesNonGlobal::new(
+                                                            name,
+                                                            &self.analysis,
+                                                            move |_: &Analysis, expr: &mut ExprKind| {
+                                                                if let ExprKind::List(l) = expr {
+                                                                    for i in &captured_values {
+                                                                        if func_names.contains(i) {
+                                                                            continue;
+                                                                        }
+
+                                                                        // Note: the issue is here I believe.
+                                                                        // If we've now modified a call site
+                                                                        // for a function, then we're going
+                                                                        // to need to make sure that _this_
+                                                                        // function also has this variable
+                                                                        // available to it as well, since it could
+                                                                        // be free w.r.t the enclosing function.
+                                                                        l.args.push(
+                                                                            ExprKind::atom(*i),
+                                                                        );
+                                                                    }
+                                                                }
+                                                            },
+                                                        );
+
+                                                    // find_call_sites.visit(expression);
+                                                    calculated_replacer = Some(replacer);
+                                                    index_to_remove = Some(index);
+                                                    callsite_modifier = Some(find_call_sites);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if let Some(index_to_remove) = index_to_remove {
+                                b.exprs.remove(index_to_remove);
+                                let mut replacer = calculated_replacer.unwrap();
+                                let mut callsite_modifier = callsite_modifier.unwrap();
+
+                                for expr in b.exprs.iter_mut() {
+                                    replacer.visit(expr);
+                                    callsite_modifier.visit(expr);
+                                }
+
+                                for (_, expr) in &mut ol.bindings {
+                                    replacer.visit(expr);
+                                    callsite_modifier.visit(expr);
+                                }
+
+                                // for (_, expr) in &mut l.bindings {
+                                //     replacer.visit(expr);
+                                //     callsite_modifier.visit(expr);
+                                // }
+
+                                let mut dummy = ExprKind::integer_literal(-1, Span::default());
+                                std::mem::swap(expression, &mut dummy);
+                                let span = dummy.span();
+
+                                let define = ExprKind::Define(Box::new(Define::new(
+                                    replacer.ident.clone(),
+                                    dummy,
+                                    SyntaxObject::new(TokenType::Define, span),
+                                )));
+
+                                // Check that, if during the course of the action,
+                                // we've introduce a new free variable,
+                                // then we need to go and modify the callsites accordingly.
+
+                                local_functions.push(define);
+                                changed = true;
+
+                                replacers.push((replacer, callsite_modifier));
+                            }
+                        }
+                    }
+                }
+            }
+
+            if changed {
+                while let Some((outer, inner)) = outer_inner_indexes.pop() {
+                    ol.bindings.remove(outer);
+                    l.bindings.remove(inner);
+                }
+
+                for (replacer, callsite_modifier) in &mut replacers {
+                    for (_, expr) in &mut l.bindings {
+                        replacer.visit(expr);
+                        callsite_modifier.visit(expr);
+                    }
+                }
+            }
+        }
+
+        if changed {
+            for (mut replacer, mut callsite_modifier) in replacers {
+                // When does the call site modification happen?
+                // It should be pretty clear that we need to _not_ introduce
+                // new things to the callsite?
+                for expr in &mut local_functions {
+                    replacer.visit(expr);
+                    callsite_modifier.visit(expr);
+                }
+            }
+        }
+
+        self.lifted_functions.append(&mut local_functions);
+    }
+}
+
 // TODO: If its _not_ a pure function, we need to both assert that the function
 // does not escape, and then find the captured arguments, assert that those also
 // are immutable captures, and then modify the callsites to pass in those variables
@@ -3157,6 +3610,178 @@ impl<'a> LiftPureFunctionsToGlobalScope<'a> {
             analysis,
             lifted_functions: Vec::new(),
         }
+    }
+}
+
+struct ReplaceUnboxExpressions {
+    unbox_var: InternedString,
+    ident: ExprKind,
+}
+
+impl VisitorMutRefUnit for ReplaceUnboxExpressions {
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => {
+                if l.first_ident().copied() == Some(*UNBOX) {
+                    if l.second_ident().copied() == Some(self.unbox_var) {
+                        *expr = self.ident.clone();
+                        return;
+                    }
+                }
+
+                self.visit_list(l)
+            }
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
+    }
+}
+
+struct CheckIdentifierOnlyOccursInUnboxCallPosition {
+    unbox_var: InternedString,
+    escapes: bool,
+}
+
+impl CheckIdentifierOnlyOccursInUnboxCallPosition {
+    fn new(unbox_var: InternedString) -> Self {
+        Self {
+            unbox_var,
+            escapes: false,
+        }
+    }
+
+    fn check(&mut self, expr: &ExprKind) -> bool {
+        self.escapes = false;
+        self.visit(expr);
+        let res = self.escapes;
+        self.escapes = false;
+        res
+    }
+
+    fn check_let(&mut self, expr: &Let) -> bool {
+        self.escapes = false;
+        self.visit_let(expr);
+        let res = self.escapes;
+        self.escapes = false;
+        res
+    }
+}
+
+impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition {
+    fn visit(&mut self, expr: &'a ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => {
+                // We've hit something like (unbox <foo>)
+                // but we need to make sure that this only happens in the call
+                // position, meaning if we hit the identifier in any other way,
+                // then we've escaped.
+                if let Some(ExprKind::List(il)) = l.first() {
+                    if il.first_ident().copied() == Some(*UNBOX) {
+                        if il.second_ident().copied() == Some(self.unbox_var) {
+                            if let Some(rest) = l.args.get(1..) {
+                                for expr in rest {
+                                    self.visit(expr);
+                                }
+                            }
+
+                            return;
+                        }
+                    }
+                }
+
+                if let Some(rest) = l.args.get(1..) {
+                    for arg in rest {
+                        if let ExprKind::List(l) = arg {
+                            if let Some(ExprKind::List(il)) = l.first() {
+                                if il.first_ident().copied() == Some(*UNBOX) {
+                                    if il.second_ident().copied() == Some(self.unbox_var) {
+                                        println!("Found value that escapes: {}", self.unbox_var);
+                                        self.escapes = true;
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                self.visit_list(l)
+            }
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => self.visit_let(l),
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
+    }
+
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if let Some(identifier) = a.ident() {
+            if *identifier == self.unbox_var {
+                self.escapes = true;
+            }
+        }
+    }
+}
+
+impl<'a> VisitorMutRefUnit for LiftClosuresToGlobalScope<'a> {
+    fn visit_let(&mut self, ol: &mut Let) {
+        /* We're looking for a specific pattern:
+
+         (let ((outer 0))
+          (let ((<foo> (lambda (...))))
+               exprs ...
+
+               Assuming <foo> is not used anywhere else in this body,
+               then we can remove the (set! outer <foo>)
+               and simply assign (lambda (...))
+               to the original one since its not necessary anymore
+               for it to be there.
+
+               We can then find the call sites for <outer> and replace
+               them to have the right stuff. Also, we'll find the outer
+               call sites and fix them. If it escapes, then otherwise
+               we're cooked
+
+               (begin (set! outer <foo>)
+                    ...)
+
+               ))
+
+        */
+
+        // If we're at a nested let:
+        // Meaning:
+        //
+        // (let ((...)) (let ((...)) exprs ...))
+        self.perform_closure_lifting(ol);
+
+        // Check where we're at, visit the children:
+
+        ol.bindings.iter_mut().for_each(|x| {
+            self.visit(&mut x.0);
+            self.visit(&mut x.1)
+        });
+        self.visit(&mut ol.body_expr);
     }
 }
 
@@ -3375,6 +4000,7 @@ impl<'a> VisitorMutRefUnit for ReplaceSetOperationsWithBoxes<'a> {
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => {
                 if let Some(analysis) = self.analysis.get(&a.syn) {
+                    // Could also be captured?
                     if analysis.kind == IdentifierStatus::HeapAllocated {
                         let mut dummy = ExprKind::List(List::new(Vec::new()));
                         core::mem::swap(&mut dummy, expr);
@@ -4318,6 +4944,7 @@ impl<'a> SemanticAnalysis<'a> {
                                                 // its also not accessible at the top level.
                                                 if !analysis.set_bang
                                                     && name.resolve().starts_with("##")
+                                                    && !l.rest
                                                 {
                                                     map.insert(*name, l.args.len());
                                                 }
@@ -4337,7 +4964,10 @@ impl<'a> SemanticAnalysis<'a> {
                                     if let Some(analysis) = self.analysis.get(so) {
                                         // Its not set, so we're okay to do this, assuming
                                         // its also not accessible at the top level.
-                                        if !analysis.set_bang && name.resolve().starts_with("##") {
+                                        if !analysis.set_bang
+                                            && name.resolve().starts_with("##")
+                                            && !l.rest
+                                        {
                                             map.insert(*name, l.args.len());
                                         }
                                     }
@@ -4367,6 +4997,97 @@ impl<'a> SemanticAnalysis<'a> {
         Ok(())
     }
 
+    // Inline the function calls n times
+    pub fn recursively_inline_function_calls(&mut self, depth: usize) -> Result<(), SteelErr> {
+        let estimator = self.calculate_function_sizes();
+        let threshold = 75;
+
+        let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
+
+        // Only inline forwards, as to not run in to any issues with visibility
+        for expr in self.exprs.iter() {
+            match expr {
+                ExprKind::Define(d) => {
+                    let name = if let Some(name) = d.name.atom_syntax_object() {
+                        name
+                    } else {
+                        continue;
+                    };
+
+                    if let Some(analysis) = self.analysis.get(name) {
+                        if analysis.set_bang {
+                            continue;
+                        }
+                    }
+
+                    if let ExprKind::LambdaFunction(l) = &d.body {
+                        if let Some(count) = estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
+                        {
+                            if *count < threshold {
+                                let original_id = l.syntax_object_id;
+                                let l = l.clone();
+                                funcs.insert(
+                                    *d.name.atom_identifier().unwrap(),
+                                    Box::new(move |_: &Analysis, lst: &mut List| {
+                                        if lst.syntax_object_id > original_id {
+                                            lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                                        }
+                                    }),
+                                );
+                            }
+                        }
+                    }
+                }
+
+                ExprKind::Begin(b) => {
+                    for expr in b.exprs.iter() {
+                        if let ExprKind::Define(d) = expr {
+                            let name = if let Some(name) = d.name.atom_syntax_object() {
+                                name
+                            } else {
+                                continue;
+                            };
+
+                            if let Some(analysis) = self.analysis.get(name) {
+                                if analysis.set_bang {
+                                    continue;
+                                }
+                            }
+
+                            if let ExprKind::LambdaFunction(l) = &d.body {
+                                if let Some(count) =
+                                    estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
+                                {
+                                    if *count < threshold {
+                                        let original_id = l.syntax_object_id;
+                                        let l = l.clone();
+                                        funcs.insert(
+                                            *d.name.atom_identifier().unwrap(),
+                                            Box::new(move |_: &Analysis, lst: &mut List| {
+                                                if lst.syntax_object_id > original_id {
+                                                    lst.args[0] =
+                                                        ExprKind::LambdaFunction(l.clone());
+                                                }
+                                            }),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                _ => {}
+            }
+        }
+
+        self.find_call_sites_and_modify_with_many_depth(funcs, depth);
+
+        Ok(())
+    }
+
+    // TODO: Check the arity at the call site and make sure it matches before inlining!
+    // Otherwise, we're in trouble and we'll get weird compilation errors
     pub fn inline_function_calls(&mut self, size: Option<usize>) -> Result<(), SteelErr> {
         let estimator = self.calculate_function_sizes();
         let threshold = size.unwrap_or(50);
@@ -5107,6 +5828,26 @@ impl<'a> SemanticAnalysis<'a> {
         }
     }
 
+    pub fn find_call_sites_and_modify_with_many_depth<F>(
+        &mut self,
+        mapping: HashMap<InternedString, F>,
+        depth: usize,
+    ) where
+        F: FnMut(&Analysis, &mut List),
+    {
+        let mut find_call_sites = FindCallSitesManyDepth {
+            analysis: &self.analysis,
+            map: mapping,
+            depth,
+        };
+
+        for expr in self.exprs.iter_mut() {
+            // Reset the depth per expression
+            find_call_sites.depth = depth;
+            find_call_sites.visit(expr);
+        }
+    }
+
     pub fn find_call_sites_and_modify_with_many_mut<F>(
         &mut self,
         sets: HashSet<InternedString>,
@@ -5374,6 +6115,21 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         Ok(self)
+    }
+
+    pub fn lift_closures(&mut self) -> &mut Self {
+        let mut lifter = LiftClosuresToGlobalScope::new(&self.analysis);
+        for expr in self.exprs.iter_mut() {
+            lifter.visit(expr);
+            lifter.found_funcs.clear();
+        }
+
+        lifter.lifted_functions.append(&mut self.exprs);
+        *self.exprs = lifter.lifted_functions;
+
+        self.analysis.fresh_from_exprs(self.exprs);
+
+        self
     }
 
     // TODO: Right now this lifts and renames, but it does not handle

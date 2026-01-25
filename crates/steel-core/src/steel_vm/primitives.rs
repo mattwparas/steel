@@ -1338,6 +1338,37 @@ pub fn lte_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     })))
 }
 
+#[inline(always)]
+pub fn lt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "expected at least one argument");
+    }
+
+    Ok(SteelVal::BoolV(args.windows(2).all(|x| {
+        x[0].partial_cmp(&x[1])
+            .map(|x| x == Ordering::Less)
+            .unwrap_or(false)
+    })))
+}
+
+#[inline(always)]
+pub fn gt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
+    if args.is_empty() {
+        stop!(ArityMismatch => "expected at least one argument");
+    }
+
+    Ok(SteelVal::BoolV(args.windows(2).all(|x| {
+        x[0].partial_cmp(&x[1])
+            .map(|x| x == Ordering::Greater)
+            .unwrap_or(false)
+    })))
+}
+
+#[steel_derive::function(name = "eq?")]
+pub fn eq(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(left.ptr_eq(&right)))
+}
+
 fn equality_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/equality");
     module
@@ -1351,12 +1382,7 @@ fn equality_module() -> BuiltInModule {
                 |a: &SteelVal, b: &SteelVal| a.ptr_eq(b)
             )),
         )
-        .register_value(
-            "eq?",
-            SteelVal::FuncV(ensure_tonicity_two!(
-                |a: &SteelVal, b: &SteelVal| a.ptr_eq(b)
-            )),
-        )
+        .register_native_fn_definition(EQ_DEFINITION)
         .register_native_fn_definition(NUMBER_EQUALITY_DEFINITION);
 
     // TODO: Replace this with just numeric equality!
@@ -1365,131 +1391,131 @@ fn equality_module() -> BuiltInModule {
     module
 }
 
+fn ensure_real(x: &SteelVal) -> Result<&SteelVal> {
+    realp(x).then_some(x).ok_or_else(|| {
+        SteelErr::new(
+            ErrorKind::TypeMismatch,
+            format!("expected real numbers, found: {}", x),
+        )
+    })
+}
+
+fn ord_internal(
+    args: &[SteelVal],
+    ordering_f: impl Fn(Option<Ordering>) -> bool,
+) -> Result<SteelVal> {
+    match args {
+        [x] => {
+            ensure_real(x)?;
+            Ok(SteelVal::BoolV(true))
+        }
+        [x, rest @ ..] => {
+            let mut left = ensure_real(x)?;
+            for r in rest {
+                let right = ensure_real(r)?;
+                if !ordering_f(left.partial_cmp(right)) {
+                    return Ok(SteelVal::BoolV(false));
+                }
+                left = right;
+            }
+            Ok(SteelVal::BoolV(true))
+        }
+        _ => stop!(ArityMismatch => "expected at least one argument"),
+    }
+}
+
+/// Compares real numbers to check if any number is greater than the subsequent.
+///
+/// (> x . rest) -> bool?
+///
+/// * x : real? - The first real number to compare.
+/// * rest : real? - The rest of the numbers to compare.
+///
+/// # Examples
+/// ```scheme
+/// > (> 1) ;; => #t
+/// > (> 3 2) ;; => #t
+/// > (> 1 1) ;; => #f
+/// > (> 3/2 1.5) ;; => #f
+/// > (> 3/2 1.4) ;; => #t
+/// > (> 3 4/2 1) ;; #t
+/// ```
+#[steel_derive::native(name = ">", arity = "AtLeast(1)")]
+pub fn greater_than(args: &[SteelVal]) -> Result<SteelVal> {
+    ord_internal(args, |o| matches!(o, Some(Ordering::Greater)))
+}
+
+/// Compares real numbers to check if any number is greater than or equal than the subsequent.
+///
+/// (>= x . rest) -> bool?
+///
+/// * x : real? - The first real number to compare.
+/// * rest : real? - The rest of the numbers to compare.
+///
+/// # Examples
+/// ```scheme
+/// > (>= 1) ;; => #t
+/// > (>= 3 2) ;; => #t
+/// > (>= 2 3) ;; => #f
+/// > (>= 3/2 1.5) ;; => #t
+/// > (>= 3/2 1.4) ;; => #t
+/// > (>= 2 4/2 1) ;; #t
+/// ```
+#[steel_derive::native(name = ">=", arity = "AtLeast(1)")]
+pub fn greater_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
+    ord_internal(args, |o| {
+        matches!(o, Some(Ordering::Greater | Ordering::Equal))
+    })
+}
+
+/// Compares real numbers to check if any number is less than the subsequent.
+///
+/// (< x . rest) -> bool?
+///
+/// * x : real? - The first real number to compare.
+/// * rest : real? - The rest of the numbers to compare.
+///
+/// # Examples
+/// ```scheme
+/// > (< 1) ;; => #t
+/// > (< 3 2) ;; => #f
+/// > (< 2 3) ;; => #t
+/// > (< 3/2 1.5) ;; => #f
+/// > (< 2.5 3/2) ;; => #t
+/// > (< 2 5/2 3) ;; #t
+/// ```
+#[steel_derive::native(name = "<", arity = "AtLeast(1)")]
+pub fn less_than(args: &[SteelVal]) -> Result<SteelVal> {
+    ord_internal(args, |o| matches!(o, Some(Ordering::Less)))
+}
+
+/// Compares real numbers to check if any number is less than or equal than the subsequent.
+///
+/// (<= x . rest) -> bool?
+///
+/// * x : real? - The first real number to compare.
+/// * rest : real? - The rest of the numbers to compare.
+///
+/// # Examples
+/// ```scheme
+/// > (<= 1) ;; => #t
+/// > (<= 3 2) ;; => #f
+/// > (<= 2 3) ;; => #t
+/// > (<= 3/2 1.5) ;; => #t
+/// > (<= 2.5 3/2) ;; => #f
+/// > (<= 2 6/2 3) ;; #t
+/// ```
+#[steel_derive::native(name = "<=", arity = "AtLeast(1)")]
+fn less_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
+    ord_internal(args, |o| {
+        matches!(o, Some(Ordering::Less | Ordering::Equal))
+    })
+}
+
 /// Real numbers ordering module.
 #[steel_derive::define_module(name = "steel/ord")]
 fn ord_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/ord");
-
-    fn ensure_real(x: &SteelVal) -> Result<&SteelVal> {
-        realp(x).then_some(x).ok_or_else(|| {
-            SteelErr::new(
-                ErrorKind::TypeMismatch,
-                format!("expected real numbers, found: {}", x),
-            )
-        })
-    }
-
-    fn ord_internal(
-        args: &[SteelVal],
-        ordering_f: impl Fn(Option<Ordering>) -> bool,
-    ) -> Result<SteelVal> {
-        match args {
-            [x] => {
-                ensure_real(x)?;
-                Ok(SteelVal::BoolV(true))
-            }
-            [x, rest @ ..] => {
-                let mut left = ensure_real(x)?;
-                for r in rest {
-                    let right = ensure_real(r)?;
-                    if !ordering_f(left.partial_cmp(right)) {
-                        return Ok(SteelVal::BoolV(false));
-                    }
-                    left = right;
-                }
-                Ok(SteelVal::BoolV(true))
-            }
-            _ => stop!(ArityMismatch => "expected at least one argument"),
-        }
-    }
-
-    /// Compares real numbers to check if any number is greater than the subsequent.
-    ///
-    /// (> x . rest) -> bool?
-    ///
-    /// * x : real? - The first real number to compare.
-    /// * rest : real? - The rest of the numbers to compare.
-    ///
-    /// # Examples
-    /// ```scheme
-    /// > (> 1) ;; => #t
-    /// > (> 3 2) ;; => #t
-    /// > (> 1 1) ;; => #f
-    /// > (> 3/2 1.5) ;; => #f
-    /// > (> 3/2 1.4) ;; => #t
-    /// > (> 3 4/2 1) ;; #t
-    /// ```
-    #[steel_derive::native(name = ">", arity = "AtLeast(1)")]
-    fn greater_than(args: &[SteelVal]) -> Result<SteelVal> {
-        ord_internal(args, |o| matches!(o, Some(Ordering::Greater)))
-    }
-
-    /// Compares real numbers to check if any number is greater than or equal than the subsequent.
-    ///
-    /// (>= x . rest) -> bool?
-    ///
-    /// * x : real? - The first real number to compare.
-    /// * rest : real? - The rest of the numbers to compare.
-    ///
-    /// # Examples
-    /// ```scheme
-    /// > (>= 1) ;; => #t
-    /// > (>= 3 2) ;; => #t
-    /// > (>= 2 3) ;; => #f
-    /// > (>= 3/2 1.5) ;; => #t
-    /// > (>= 3/2 1.4) ;; => #t
-    /// > (>= 2 4/2 1) ;; #t
-    /// ```
-    #[steel_derive::native(name = ">=", arity = "AtLeast(1)")]
-    fn greater_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
-        ord_internal(args, |o| {
-            matches!(o, Some(Ordering::Greater | Ordering::Equal))
-        })
-    }
-
-    /// Compares real numbers to check if any number is less than the subsequent.
-    ///
-    /// (< x . rest) -> bool?
-    ///
-    /// * x : real? - The first real number to compare.
-    /// * rest : real? - The rest of the numbers to compare.
-    ///
-    /// # Examples
-    /// ```scheme
-    /// > (< 1) ;; => #t
-    /// > (< 3 2) ;; => #f
-    /// > (< 2 3) ;; => #t
-    /// > (< 3/2 1.5) ;; => #f
-    /// > (< 2.5 3/2) ;; => #t
-    /// > (< 2 5/2 3) ;; #t
-    /// ```
-    #[steel_derive::native(name = "<", arity = "AtLeast(1)")]
-    fn less_than(args: &[SteelVal]) -> Result<SteelVal> {
-        ord_internal(args, |o| matches!(o, Some(Ordering::Less)))
-    }
-
-    /// Compares real numbers to check if any number is less than or equal than the subsequent.
-    ///
-    /// (<= x . rest) -> bool?
-    ///
-    /// * x : real? - The first real number to compare.
-    /// * rest : real? - The rest of the numbers to compare.
-    ///
-    /// # Examples
-    /// ```scheme
-    /// > (<= 1) ;; => #t
-    /// > (<= 3 2) ;; => #f
-    /// > (<= 2 3) ;; => #t
-    /// > (<= 3/2 1.5) ;; => #t
-    /// > (<= 2.5 3/2) ;; => #f
-    /// > (<= 2 6/2 3) ;; #t
-    /// ```
-    #[steel_derive::native(name = "<=", arity = "AtLeast(1)")]
-    fn less_than_equal(args: &[SteelVal]) -> Result<SteelVal> {
-        ord_internal(args, |o| {
-            matches!(o, Some(Ordering::Less | Ordering::Equal))
-        })
-    }
 
     module
         .register_native_fn_definition(GREATER_THAN_DEFINITION)
@@ -2023,6 +2049,30 @@ pub fn struct_to_list(value: &UserDefinedStruct) -> Result<SteelVal> {
     }
 }
 
+#[cfg(feature = "sync")]
+#[steel_derive::context(name = "#%closure->boxed-function", arity = "Exact(1)")]
+pub fn closure_to_boxed_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn function_to_ffi_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        let function = args[0].clone();
+
+        if function.is_function() {
+            let function = ctx.steel_function_to_arc_rust_function(function);
+
+            Ok(SteelVal::BoxedFunction(crate::gc::Gc::new(
+                crate::values::functions::BoxedDynFunction {
+                    function,
+                    name: None,
+                    arity: None,
+                },
+            )))
+        } else {
+            stop!(TypeMismatch => "#%closure->boxed-function expected a function, found: {}", function);
+        }
+    }
+
+    Some(function_to_ffi_impl(ctx, args))
+}
+
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
@@ -2182,6 +2232,15 @@ fn meta_module() -> BuiltInModule {
     // TODO: Remove
     #[cfg(feature = "dylibs")]
     module.register_native_fn_definition(crate::steel_vm::dylib::LOAD_MODULE_DEFINITION);
+
+    #[cfg(feature = "jit2")]
+    module.register_native_fn_definition(super::vm::jit::JIT_COMPILE_DEFINITION);
+
+    #[cfg(feature = "jit2")]
+    module.register_native_fn_definition(super::vm::jit::JIT_COMPILE_TWO_DEFINITION);
+
+    #[cfg(feature = "sync")]
+    module.register_native_fn_definition(CLOSURE_TO_BOXED_FUNCTION_DEFINITION);
 
     module
 }

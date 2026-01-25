@@ -256,6 +256,7 @@ impl IntoSteelVal for char {
 }
 
 impl FromSteelVal for char {
+    #[inline(always)]
     fn from_steelval(val: &SteelVal) -> Result<Self, SteelErr> {
         if let SteelVal::CharV(c) = val {
             Ok(*c)

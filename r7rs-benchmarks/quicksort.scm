@@ -48,11 +48,17 @@
     ;; Then, we can lift to the top level since we won't
     ;; need to do any boxing at all.
     (define (uploop i)
-      (let ([i (+ i 1)]) (if (and (< i right) (less? (vector-ref v i) mid)) (uploop i) i)))
+      (let ([i (+ i 1)])
+        (if (and (< i right) (less? (vector-ref v i) mid))
+            (uploop i)
+            i)))
 
     ;; Same goes for down here
     (define (downloop j)
-      (let ([j (- j 1)]) (if (and (> j left) (less? mid (vector-ref v j))) (downloop j) j)))
+      (let ([j (- j 1)])
+        (if (and (> j left) (less? mid (vector-ref v j)))
+            (downloop j)
+            j)))
 
     ;; Then, we should also implement a pass that does:
     ;; (vector-set! v j (vector-ref v i)) => (vector-swap v j i)
@@ -125,11 +131,17 @@
                       [p2 (- p2 (* k2 m2))]
                       [ignore2 (vector-set! seed 1 (vector-ref seed 2))]
                       [ignore4 (vector-set! seed 4 (vector-ref seed 5))])
-                  (let ([p1 (if (< p1 0.0) (+ p1 m1) p1)]
-                        [p2 (if (< p2 0.0) (+ p2 m2) p2)])
+                  (let ([p1 (if (< p1 0.0)
+                                (+ p1 m1)
+                                p1)]
+                        [p2 (if (< p2 0.0)
+                                (+ p2 m2)
+                                p2)])
                     (vector-set! seed 2 p1)
                     (vector-set! seed 5 p2)
-                    (if (<= p1 p2) (* norm (+ (- p1 p2) m1)) (* norm (- p1 p2))))))))))
+                    (if (<= p1 p2)
+                        (* norm (+ (- p1 p2) m1))
+                        (* norm (- p1 p2))))))))))
 
   (set! seed-ref (lambda () (vector->list seed)))
 

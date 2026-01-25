@@ -1328,7 +1328,7 @@ pub enum TypeKind {
 }
 
 /// A value as represented in the runtime.
-#[derive(Clone)]
+#[repr(C, u8)]
 pub enum SteelVal {
     /// Represents a bytecode closure.
     Closure(Gc<ByteCodeLambda>),
@@ -1410,6 +1410,53 @@ pub enum SteelVal {
     Complex(Gc<SteelComplex>),
     // Byte vectors
     ByteVector(SteelByteVector),
+}
+
+impl Clone for SteelVal {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        match self {
+            Closure(gc) => Self::Closure(Gc::clone(gc)),
+            BoolV(b) => Self::BoolV(*b),
+            NumV(n) => Self::NumV(*n),
+            IntV(i) => Self::IntV(*i),
+            Rational(ratio) => Self::Rational(*ratio),
+            CharV(c) => Self::CharV(*c),
+            VectorV(steel_vector) => Self::VectorV(steel_vector.clone()),
+            Void => Self::Void,
+            StringV(steel_string) => Self::StringV(steel_string.clone()),
+            FuncV(f) => Self::FuncV(*f),
+            SymbolV(steel_string) => Self::SymbolV(steel_string.clone()),
+            SteelVal::Custom(gc) => SteelVal::Custom(gc.clone()),
+            HashMapV(steel_hash_map) => SteelVal::HashMapV(steel_hash_map.clone()),
+            HashSetV(steel_hash_set) => SteelVal::HashSetV(steel_hash_set.clone()),
+            CustomStruct(gc) => SteelVal::CustomStruct(gc.clone()),
+            PortV(steel_port) => SteelVal::PortV(steel_port.clone()),
+            IterV(gc) => SteelVal::IterV(gc.clone()),
+            ReducerV(gc) => SteelVal::ReducerV(gc.clone()),
+            FutureFunc(f) => SteelVal::FutureFunc(f.clone()),
+            FutureV(gc) => SteelVal::FutureV(gc.clone()),
+            StreamV(gc) => SteelVal::StreamV(gc.clone()),
+            BoxedFunction(gc) => SteelVal::BoxedFunction(gc.clone()),
+            ContinuationFunction(continuation) => {
+                SteelVal::ContinuationFunction(continuation.clone())
+            }
+            ListV(generic_list) => SteelVal::ListV(generic_list.clone()),
+            SteelVal::Pair(gc) => SteelVal::Pair(gc.clone()),
+            MutFunc(f) => SteelVal::MutFunc(*f),
+            BuiltIn(f) => SteelVal::BuiltIn(*f),
+            MutableVector(heap_ref) => SteelVal::MutableVector(heap_ref.clone()),
+            BoxedIterator(gc) => SteelVal::BoxedIterator(gc.clone()),
+            SteelVal::SyntaxObject(gc) => SteelVal::SyntaxObject(gc.clone()),
+            Boxed(gc) => SteelVal::Boxed(gc.clone()),
+            HeapAllocated(heap_ref) => SteelVal::HeapAllocated(heap_ref.clone()),
+            Reference(gc) => SteelVal::Reference(gc.clone()),
+            BigNum(gc) => SteelVal::BigNum(gc.clone()),
+            SteelVal::BigRational(gc) => SteelVal::BigRational(gc.clone()),
+            Complex(gc) => SteelVal::Complex(gc.clone()),
+            ByteVector(steel_byte_vector) => SteelVal::ByteVector(steel_byte_vector.clone()),
+        }
+    }
 }
 
 impl Default for SteelVal {
@@ -1580,7 +1627,7 @@ impl SteelVal {
     // TODO: Re-evaluate this - should this be buffered?
     pub fn new_dyn_writer_port(port: impl Write + Send + Sync + 'static) -> SteelVal {
         SteelVal::PortV(SteelPort {
-            port: Gc::new_mut(SteelPortRepr::DynWriter(Arc::new(Mutex::new(port)))),
+            port: Gc::new_lock(SteelPortRepr::DynWriter(Arc::new(Mutex::new(port)))),
         })
     }
 
@@ -1758,10 +1805,17 @@ impl From<Arc<String>> for SteelString {
     }
 }
 
-#[cfg(all(feature = "sync", feature = "triomphe"))]
-impl From<alloc::sync::Arc<String>> for SteelString {
+#[cfg(all(feature = "sync", feature = "triomphe", not(feature = "biased")))]
+impl From<Arc<String>> for SteelString {
     fn from(value: Arc<String>) -> Self {
         SteelString(Gc(triomphe::Arc::new((*value).clone())))
+    }
+}
+
+#[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
+impl From<std::sync::Arc<String>> for SteelString {
+    fn from(value: Arc<String>) -> Self {
+        SteelString(Gc(steel_rc::BiasedRc::new((*value).clone())))
     }
 }
 
@@ -2368,6 +2422,7 @@ fn bignum_float_equality(bigint: &Gc<BigInt>, float: f64) -> bool {
     }
 }
 
+#[inline(always)]
 #[steel_derive::function(name = "=", constant = true)]
 pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     let result = match (left, right) {

@@ -921,7 +921,7 @@ pub fn mut_vec_to_list(
 /// ```
 #[steel_derive::function(name = "mut-vec-len")]
 pub fn mut_vec_length(vec: &HeapRef<Vec<SteelVal>>) -> SteelVal {
-    SteelVal::IntV(vec.get().len() as isize)
+    SteelVal::IntV(vec.inner.upgrade().unwrap().read().value.len() as isize)
 }
 
 /// Sets the value at a specified index in a mutable vector.
@@ -941,15 +941,15 @@ pub fn mut_vec_length(vec: &HeapRef<Vec<SteelVal>>) -> SteelVal {
 #[steel_derive::function(name = "vector-set!")]
 pub fn mut_vec_set(vec: &HeapRef<Vec<SteelVal>>, i: usize, value: SteelVal) -> Result<SteelVal> {
     let ptr = vec.strong_ptr();
-
     let guard = &mut ptr.write().value;
 
-    if i >= guard.len() {
+    // let guard = &mut (unsafe { &(*vec.inner.as_ptr()) }.write()).value;
+
+    if let Some(v) = guard.get_mut(i) {
+        *v = value;
+    } else {
         stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
     }
-
-    // Update the vector position
-    guard[i] = value;
 
     Ok(SteelVal::Void)
 }
@@ -1200,6 +1200,7 @@ pub fn vec_append(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (vector-ref B 2) ;; => 25
 /// ```
 #[steel_derive::function(name = "vector-ref", constant = true)]
+#[inline(always)]
 pub fn vec_ref(vec: &SteelVal, idx: &SteelVal) -> Result<SteelVal> {
     // First, ensure the index is a valid non-negative integer
     if let SteelVal::IntV(i) = idx {
@@ -1214,14 +1215,22 @@ pub fn vec_ref(vec: &SteelVal, idx: &SteelVal) -> Result<SteelVal> {
             SteelVal::MutableVector(v) => {
                 // TODO: If we move this into a context aware function,
                 // then we can avoid the lookup cost since we won't be in a safepoint.
+
                 let ptr = v.strong_ptr();
                 let guard = &ptr.read().value;
+
+                // TODO: Not sure if we can really do this. When entering vec_ref
+                // its possible the values are frozen.
+                // let guard = &(unsafe { &(*v.inner.as_ptr()) }.read()).value;
 
                 if idx_usize >= guard.len() {
                     stop!(Generic => "index out of bounds, index given: {:?}, length of vector: {:?}", i, guard.len());
                 }
 
+                // match &guard[idx_usize] {
+                //     SteelVal::IntV(v) => Ok(SteelVal::IntV(*v)),
                 Ok(guard[idx_usize].clone())
+                // }
             }
 
             SteelVal::VectorV(v) => {
@@ -1329,10 +1338,10 @@ pub fn vec_car(args: &[SteelVal]) -> Result<SteelVal> {
             let mut vec = v.0.unwrap();
             match vec.pop_front() {
                 Some(val) => Ok(val),
-                None => stop!(ContractViolation => "car expects a non-empty list"),
+                None => stop!(ContractViolation => "pop-front expects a non-empty vector"),
             }
         }
-        other => stop!(TypeMismatch => "car expects a list, given: {}", other),
+        other => stop!(TypeMismatch => "pop-front expects a vector, given: {}", other),
     }
 }
 
@@ -1353,13 +1362,13 @@ pub fn vec_cdr(args: &[SteelVal]) -> Result<SteelVal> {
         SteelVal::VectorV(v) => {
             let mut vec = v.0.unwrap();
             if vec.is_empty() {
-                stop!(ContractViolation => "cdr expects a non-empty list");
+                stop!(ContractViolation => "vec-rest expects a non-empty vector");
             } else {
                 vec.pop_front();
                 Ok(SteelVal::VectorV(Gc::new(vec).into()))
             }
         }
-        other => stop!(TypeMismatch => "cdr expects a list, given: {}", other),
+        other => stop!(TypeMismatch => "vec-rest expects a vector, given: {}", other),
     }
 }
 

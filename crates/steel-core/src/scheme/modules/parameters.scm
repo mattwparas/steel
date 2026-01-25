@@ -5,6 +5,8 @@
          make-parameter
          continuation?)
 
+(require-builtin steel/base)
+
 ;;;;;; Parameters ;;;;;
 
 ; (struct Parameter (getter value)
@@ -183,10 +185,16 @@
   (lambda (x y)
     (let ([lx (length x)]
           [ly (length y)])
-      (let loop ([x (if (> lx ly) (list-tail x (- lx ly)) x)]
-                 [y (if (> ly lx) (list-tail y (- ly lx)) y)])
+      (let loop ([x (if (> lx ly)
+                        (list-tail x (- lx ly))
+                        x)]
+                 [y (if (> ly lx)
+                        (list-tail y (- ly lx))
+                        y)])
 
-        (if (equal? x y) x (loop (cdr x) (cdr y)))))))
+        (if (equal? x y)
+            x
+            (loop (cdr x) (cdr y)))))))
 
 (define do-wind
   (lambda (new)

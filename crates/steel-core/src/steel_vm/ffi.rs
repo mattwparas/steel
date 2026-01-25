@@ -1585,11 +1585,11 @@ impl IntoSteelVal for FFIValue {
             Self::ByteVector(b) => Ok(SteelVal::ByteVector(SteelByteVector::new(b.into()))),
 
             Self::DynWriter(d) => Ok(SteelVal::PortV(SteelPort {
-                port: Gc::new_mut(d.into_port()),
+                port: Gc::new_lock(d.into_port()),
             })),
 
             Self::DynReader(d) => Ok(SteelVal::PortV(SteelPort {
-                port: Gc::new_mut(d.into_port()),
+                port: Gc::new_lock(d.into_port()),
             })),
         }
     }

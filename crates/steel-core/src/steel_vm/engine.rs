@@ -82,6 +82,9 @@ use steel_parser::{
     tokens::{IntLiteral, TokenType},
 };
 
+#[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
+use steel_rc::QueueHandle;
+
 use crate::parser::ast::IteratorExtensions;
 
 thread_local! {
@@ -243,6 +246,12 @@ impl Engine {
         res.unwrap()
     }
 }
+
+// impl Drop for Engine {
+//     fn drop(&mut self) {
+//         TypeMap::run_explicit_merge();
+//     }
+// }
 
 impl Clone for Engine {
     fn clone(&self) -> Self {
@@ -1119,6 +1128,11 @@ impl Engine {
     /// assert!(vm.run("(+ 1 2 3").is_err()); // + is a free identifier
     /// ```
     pub fn new_raw() -> Self {
+        #[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
+        {
+            steel_rc::register_thread();
+        }
+
         let sources = Sources::new();
         let modules = ModuleContainer::default();
 
@@ -1418,6 +1432,10 @@ impl Engine {
     /// vm.run(r#"(+ 1 2 3)"#).unwrap();
     /// ```
     pub fn new() -> Self {
+        #[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
+        {
+            steel_rc::register_thread();
+        }
         let mut engine = fresh_kernel_image(false);
 
         {
@@ -1720,6 +1738,9 @@ impl Engine {
         &mut self,
         exprs: E,
     ) -> Result<Vec<SteelVal>> {
+        #[cfg(feature = "biased")]
+        QueueHandle::register_thread();
+
         let program = self.with_sources_guard(|| {
             self.virtual_machine
                 .compiler
@@ -2029,7 +2050,24 @@ impl Engine {
 
     pub fn update_value(&mut self, name: &str, value: SteelVal) -> Option<&mut Self> {
         let idx = self.virtual_machine.compiler.read().get_idx(name)?;
-        self.virtual_machine.global_env.repl_set_idx(idx, value);
+
+        let _ = self
+            .virtual_machine
+            .enter_safepoint(|thread| thread.heap.lock_arc());
+
+        #[cfg(feature = "sync")]
+        {
+            self.virtual_machine
+                .with_locked_env(|_, env| env.set_idx(idx, value));
+        }
+
+        #[cfg(not(feature = "sync"))]
+        {
+            self.virtual_machine
+                .with_locked_env(|this| this.global_env.repl_set_idx(idx, value))
+                .ok()?;
+        }
+
         Some(self)
     }
 

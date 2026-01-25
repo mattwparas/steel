@@ -15,8 +15,6 @@ pub mod gc;
 mod containers;
 mod conversions;
 
-// #[cfg(feature = "jit")]
-// pub mod jit;
 pub mod parser;
 pub mod steel_vm;
 
@@ -32,3 +30,6 @@ pub use steel_derive::steel_quote;
 pub use values::LambdaMetadataTable;
 pub use values::RootToken;
 pub use values::RootedSteelVal;
+
+#[cfg(feature = "jit2")]
+pub mod jit2;

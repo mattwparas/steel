@@ -10,7 +10,6 @@ use crate::{
     primitives::vectors::vec_construct_iter,
     rerrs::{ErrorKind, SteelErr},
     rvals::{Result, SteelVal},
-    stop,
     values::transducers::{Reducer, Transducers},
 };
 

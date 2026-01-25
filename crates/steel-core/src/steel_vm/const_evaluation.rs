@@ -893,19 +893,125 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     }
 
     // TODO come back to this
-    fn visit_let(&mut self, l: Box<crate::parser::ast::Let>) -> Self::Output {
-        // panic!("---------------------------Visiting let!--------------------");
+    fn visit_let(&mut self, mut l: Box<crate::parser::ast::Let>) -> Self::Output {
+        let bindings = std::mem::take(&mut l.bindings);
 
-        // let mut visited_bindings = Vec::new();
+        let mut new_env = ConstantEnv::new_subexpression(Rc::downgrade(&self.bindings));
 
-        // for (binding, expr) in l.bindings {
-        //     visited_bindings.push((self.visit(binding)?, self.visit(expr)?));
-        // }
+        let args: Vec<_> = bindings
+            .iter()
+            .map(|x| self.visit(x.1.clone()))
+            .collect::<Result<_>>()?;
 
-        // l.bindings = visited_bindings;
-        // l.body_expr = self.visit(l.body_expr)?;
+        for (var, arg) in bindings.iter().map(|x| x.0.clone()).zip(args.iter()) {
+            let identifier = var.atom_identifier_or_else(
+                    throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); l.location.span),
+                )?;
+            if let Some(c) = self.to_constant(arg) {
+                new_env.bind(identifier, c);
+            } else {
+                new_env.bind_non_constant(identifier);
+            }
+        }
 
-        Ok(ExprKind::Let(l))
+        let parent = Rc::clone(&self.bindings);
+        self.bindings = Rc::new(RefCell::new(new_env));
+
+        let mut body = ExprKind::empty();
+
+        std::mem::swap(&mut l.body_expr, &mut body);
+
+        let output = self.visit(body)?;
+
+        // Find which variables and arguments are actually used in the body of the function
+        let mut actually_used_variables = smallvec::SmallVec::<[_; 8]>::new();
+        let mut actually_used_arguments = smallvec::SmallVec::<[_; 8]>::new();
+
+        let mut non_constant_arguments = Vec::new();
+
+        let span = l.location.span;
+
+        let mut indices_to_retain = Vec::new();
+
+        for (index, (var, arg)) in bindings
+            .iter()
+            .map(|x| x.0.clone())
+            .zip(args.iter())
+            .enumerate()
+        {
+            let identifier = var.atom_identifier_or_else(
+                    throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); span),
+                )?;
+
+            // If the argument/variable is used internally, keep it
+            // Also, if the argument is _not_ a constant
+            if self.bindings.borrow().used_bindings.contains(identifier) {
+                // if self.to_constant(arg).is_none() {
+                // println!("FOUND ARGUMENT: {}", identifier);
+                actually_used_variables.push(var.clone());
+                actually_used_arguments.push(arg.clone());
+                // }
+
+                indices_to_retain.push(index);
+            } else if self.to_constant(arg).is_none() {
+                // actually_used_variables.push(var.clone());
+                // println!("Found a non constant argument: {}", arg);
+                non_constant_arguments.push(arg.clone());
+
+                indices_to_retain.push(index);
+            }
+        }
+
+        // Found no arguments are there are no non constant arguments
+        // TODO: @Matt 12/30/23 - this is causing a miscompilation - actually used
+        // arguments is found to be empty.
+        if actually_used_arguments.is_empty()
+            && non_constant_arguments.is_empty()
+            && !self.scope_contains_define
+        {
+            // println!("Found no used arguments or non constant arguments, returning the body");
+            // println!("Output: {}", output);
+
+            // Unwind the recursion before we bail out
+            self.bindings = parent;
+
+            self.changed = true;
+            return Ok(output);
+        }
+
+        self.bindings = parent;
+
+        l.body_expr = output;
+
+        // l.bindings = if !self.scope_contains_define {
+        //     bindings
+        //         .into_iter()
+        //         .filter(|x| self.to_constant(&x.1).is_none())
+        //         .collect()
+        // } else {
+        //     bindings
+        // };
+
+        l.bindings = bindings
+            .into_iter()
+            .enumerate()
+            .filter(|x| indices_to_retain.contains(&x.0))
+            .map(|x| x.1)
+            .collect();
+
+        // let values = l
+        //     .bindings
+        //     .iter()
+        //     .filter(|x| self.to_constant(&x.1).is_none())
+        //     .collect::<Vec<_>>();
+
+        // println!("{:?} - {:?}", non_constant_arguments, values);
+
+        let res = ExprKind::Let(l);
+
+        // println!("-----> {}", res.to_pretty(60));
+
+        Ok(res)
     }
 
     fn visit_vector(&mut self, v: crate::parser::ast::Vector) -> Self::Output {

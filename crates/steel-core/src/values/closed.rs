@@ -265,6 +265,7 @@ impl BreadthFirstSearchSteelValVisitor for GlobalSlotRecycler {
                 // If this instruction touches this global variable,
                 // then we want to mark it as possibly referenced here.
                 OpCode::CALLGLOBAL
+                | OpCode::CALLPRIMITIVE
                 | OpCode::PUSH
                 | OpCode::CALLGLOBALTAIL
                 | OpCode::CALLGLOBALNOARITY
@@ -856,6 +857,8 @@ struct FreeList<T: HeapAble> {
     forward: Option<Sender<Vec<HeapElement<T>>>>,
     #[cfg(feature = "sync")]
     backward: Option<Receiver<Vec<HeapElement<T>>>>,
+
+    should_run_weak: bool,
 }
 
 impl<T: HeapAble> Clone for FreeList<T> {
@@ -881,6 +884,8 @@ impl<T: HeapAble> Clone for FreeList<T> {
             forward: None,
             #[cfg(feature = "sync")]
             backward: None,
+
+            should_run_weak: self.should_run_weak,
         }
     }
 }
@@ -975,21 +980,24 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     const EXTEND_CHUNK: usize = 256 * 100;
 
     fn new() -> Self {
-        #[cfg(feature = "sync")]
-        let (forward_sender, backward_receiver) = spawn_background_dropper();
+        // #[cfg(feature = "sync")]
+        // let (forward_sender, backward_receiver) = spawn_background_dropper();
 
         let mut res = FreeList {
             elements: Vec::new(),
             cursor: 0,
             alloc_count: 0,
             grow_count: 0,
-            #[cfg(feature = "sync")]
-            forward: Some(forward_sender),
-            #[cfg(feature = "sync")]
-            backward: Some(backward_receiver),
+            // #[cfg(feature = "sync")]
+            // forward: Some(forward_sender),
+            // #[cfg(feature = "sync")]
+            // backward: Some(backward_receiver),
+            forward: None,
+            backward: None,
+            should_run_weak: true,
         };
 
-        res.grow();
+        res.grow_by(256);
 
         res
     }
@@ -1022,18 +1030,18 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         self.alloc_count == 0
     }
 
-    fn grow(&mut self) {
-        let now = std::time::Instant::now();
+    fn grow_by(&mut self, amount: usize) {
+        // let now = std::time::Instant::now();
         // Can probably make this a lot bigger
-        let current = self.elements.len().max(Self::EXTEND_CHUNK);
+        let current = self.elements.len().max(amount);
 
         self.cursor = self.elements.len();
 
         self.elements.reserve(current);
 
-        log::debug!(target: "gc", "Time to extend the heap vec -> {:?}", now.elapsed());
+        log::debug!(target: "gc", "Time to extend the heap vec");
 
-        let now = std::time::Instant::now();
+        // let now = std::time::Instant::now();
 
         // Can we pre allocate this somewhere else? Incrementally allocate the values?
         // So basically we can have the elements be allocated vs not, and just have them
@@ -1045,7 +1053,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
             .take(current),
         );
 
-        log::debug!(target: "gc", "Growing the heap by: {} -> {:?}", current, now.elapsed());
+        log::debug!(target: "gc", "Growing the heap by: {}", current);
 
         self.alloc_count += current;
         self.grow_count += 1;
@@ -1054,6 +1062,10 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         {
             assert!(!self.elements[self.cursor].read().is_reachable());
         }
+    }
+
+    fn grow(&mut self) {
+        self.grow_by(Self::EXTEND_CHUNK);
     }
 
     // Extend the heap
@@ -1146,6 +1158,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
                 if guard.reachable {
                     guard.reachable = false;
+                    // Reset the values as well?
                     amount_dropped += 1;
                 }
             }
@@ -1224,6 +1237,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
             forward: Some(forward_sender),
             #[cfg(feature = "sync")]
             backward: Some(backward_receiver),
+            should_run_weak: true,
         };
 
         res.grow();
@@ -1260,7 +1274,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
     }
 
     fn grow(&mut self) {
-        let now = std::time::Instant::now();
+        // let now = std::time::Instant::now();
         // Can probably make this a lot bigger
         let current = self.elements.len().max(Self::EXTEND_CHUNK);
 
@@ -1268,9 +1282,9 @@ impl<T: HeapAble + 'static> FreeList<T> {
 
         self.elements.reserve(current);
 
-        log::debug!(target: "gc", "Time to extend the heap vec -> {:?}", now.elapsed());
+        log::debug!(target: "gc", "Time to extend the heap vec");
 
-        let now = std::time::Instant::now();
+        // let now = std::time::Instant::now();
 
         // Can we pre allocate this somewhere else? Incrementally allocate the values?
         // So basically we can have the elements be allocated vs not, and just have them
@@ -1282,7 +1296,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
             .take(current),
         );
 
-        log::debug!(target: "gc", "Growing the heap by: {} -> {:?}", current, now.elapsed());
+        log::debug!(target: "gc", "Growing the heap by: {}", current);
 
         self.alloc_count += current;
         self.grow_count += 1;
@@ -1453,6 +1467,14 @@ impl FreeList<Vec<SteelVal>> {
 
         // Check that this fits:
         heap_guard.value.clear();
+
+        if let (_, Some(size)) = value.size_hint() {
+            let capacity = heap_guard.value.capacity();
+            heap_guard
+                .value
+                .reserve_exact(size.saturating_sub(capacity));
+        }
+
         for v in value {
             heap_guard.value.push(v);
         }
@@ -1504,6 +1526,21 @@ impl FreeList<Vec<SteelVal>> {
         // assert!(!self.elements[self.cursor].read().is_reachable());
 
         HeapRef { inner: weak_ptr }
+    }
+
+    fn calculate_slots_reachable(&self) -> usize {
+        let mut amount = 0;
+        for element in &self.elements {
+            let mut guard = element.write();
+            if guard.is_reachable() {
+                amount += guard.value.len()
+            } else {
+                // Eagerly clear the value if its not reachable
+                guard.value.clear();
+            }
+        }
+
+        amount
     }
 }
 
@@ -1640,14 +1677,19 @@ impl Heap {
         synchronizer: &mut Synchronizer,
         force: bool,
     ) {
+        #[cfg(feature = "biased")]
+        {
+            steel_rc::QueueHandle::run_explicit_merge();
+        }
+
         if self.memory_free_list.percent_full() > 0.95 || force {
-            let now = std::time::Instant::now();
+            // let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "SteelVal gc invocation");
             self.memory_free_list.weak_collection();
 
             log::debug!(target: "gc", "Memory size post weak collection: {}", self.memory_free_list.percent_full());
-            log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
+            // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.memory_free_list.percent_full() > 0.95 || force {
                 // New generation
@@ -1683,7 +1725,7 @@ impl Heap {
 
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.memory_free_list.percent_full());
 
-                log::debug!(target: "gc", "---- TOTAL GC TIME: {:?} ----", now.elapsed());
+                // log::debug!(target: "gc", "---- TOTAL GC TIME: {:?} ----", now.elapsed());
             }
         }
     }
@@ -1723,12 +1765,28 @@ impl Heap {
         synchronizer: &'a mut Synchronizer,
         force: bool,
     ) {
+        #[cfg(feature = "biased")]
+        {
+            steel_rc::QueueHandle::run_explicit_merge();
+        }
+
+        if self.vector_free_list.percent_full() > 0.50 && self.vector_free_list.should_run_weak {
+            log::debug!(target: "gc", "Running weak collection because the vector free list is 50% full");
+            self.vector_free_list.weak_collection();
+
+            if self.vector_free_list.percent_full() > 0.30 {
+                self.vector_free_list.should_run_weak = false;
+            }
+        }
+
         if self.vector_free_list.percent_full() > 0.95 || force {
-            let now = std::time::Instant::now();
+            // let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
             self.vector_free_list.weak_collection();
-            log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
+            self.vector_free_list.calculate_slots_reachable();
+            // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
+            // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.vector_free_list.percent_full() > 0.95 || force {
                 self.vector_free_list.mark_all_unreachable();
@@ -1744,12 +1802,19 @@ impl Heap {
                     synchronizer,
                 );
 
-                self.vector_free_list.alloc_count =
-                    self.vector_free_list.elements.len() - stats.vector_reached_count;
+                self.vector_free_list.alloc_count = self
+                    .vector_free_list
+                    .elements
+                    .len()
+                    .saturating_sub(stats.vector_reached_count);
 
-                self.memory_free_list.alloc_count =
-                    self.memory_free_list.elements.len() - stats.memory_reached_count;
+                self.memory_free_list.alloc_count = self
+                    .memory_free_list
+                    .elements
+                    .len()
+                    .saturating_sub(stats.memory_reached_count);
 
+                // if !self.vector_free_list.has_sufficient_memory_pressure() {
                 // if self.vector_free_list.percent_full() > 0.75 {
                 if self.vector_free_list.grow_count > RESET_LIMIT {
                     // Compact the free list.
@@ -1758,9 +1823,11 @@ impl Heap {
                     self.vector_free_list.grow();
                 }
 
+                self.vector_free_list.should_run_weak = true;
+
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.vector_free_list.percent_full());
 
-                log::debug!(target: "gc", "---- TOTAL VECTOR GC TIME: {:?} ----", now.elapsed());
+                // log::debug!(target: "gc", "---- TOTAL VECTOR GC TIME: {:?} ----", now.elapsed());
             }
         }
     }
@@ -1774,12 +1841,27 @@ impl Heap {
         tls: &'a [SteelVal],
         synchronizer: &'a mut Synchronizer,
     ) -> HeapRef<Vec<SteelVal>> {
+        #[cfg(feature = "biased")]
+        {
+            steel_rc::QueueHandle::run_explicit_merge();
+        }
+
+        if self.vector_free_list.percent_full() > 0.50 && self.vector_free_list.should_run_weak {
+            self.vector_free_list.weak_collection();
+
+            if self.vector_free_list.percent_full() > 0.30 {
+                self.vector_free_list.should_run_weak = false;
+            }
+        }
+
         if self.vector_free_list.percent_full() > 0.95 {
-            let now = std::time::Instant::now();
+            // let now = std::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
             self.vector_free_list.weak_collection();
-            log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
+            self.vector_free_list.calculate_slots_reachable();
+            // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
+            // log::debug!(target: "gc", "Weak collection time: {:?}", now.elapsed());
 
             if self.vector_free_list.percent_full() > 0.95 {
                 self.vector_free_list.mark_all_unreachable();
@@ -1809,9 +1891,11 @@ impl Heap {
                     self.vector_free_list.grow();
                 }
 
+                self.vector_free_list.should_run_weak = true;
+
                 log::debug!(target: "gc", "Memory size post mark and sweep: {}", self.vector_free_list.percent_full());
 
-                log::debug!(target: "gc", "---- TOTAL VECTOR GC TIME: {:?} ----", now.elapsed());
+                // log::debug!(target: "gc", "---- TOTAL VECTOR GC TIME: {:?} ----", now.elapsed());
             }
         }
 
@@ -1838,7 +1922,7 @@ impl Heap {
             synchronizer,
         );
 
-        // #[cfg(feature = "profiling")]
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         #[cfg(feature = "sync")]
@@ -1851,7 +1935,7 @@ impl Heap {
             ROOTS.with(|x| x.borrow_mut().increment_generation());
         }
 
-        // #[cfg(feature = "profiling")]
+        #[cfg(feature = "profiling")]
         log::debug!(target: "gc", "Sweep: Time taken: {:?}", now.elapsed());
 
         synchronizer.resume_threads();
@@ -1874,7 +1958,7 @@ impl Heap {
     ) -> MarkAndSweepStats {
         log::debug!(target: "gc", "Marking the heap");
 
-        // #[cfg(feature = "profiling")]
+        #[cfg(feature = "profiling")]
         let now = std::time::Instant::now();
 
         let mut context = MarkAndSweepContext {
@@ -1949,7 +2033,7 @@ impl Heap {
             context.stats
         };
 
-        log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
+        // log::debug!(target: "gc", "Mark: Time taken: {:?}", now.elapsed());
         count
     }
 }
@@ -2062,6 +2146,7 @@ impl HeapAble for SteelVal {
         SteelVal::Void
     }
 }
+
 impl HeapAble for Vec<SteelVal> {
     fn empty() -> Self {
         Self::new()
@@ -2155,6 +2240,15 @@ pub struct HeapAllocated<T: Clone + core::fmt::Debug + PartialEq + Eq> {
     pub(crate) finalizer: bool,
     pub(crate) value: T,
 }
+
+// // Use atomic bools, and then store the value
+// // as a Cell?
+// pub struct Foo<T: Clone + std::fmt::Debug + PartialEq + Eq> {
+//     pub(crate) reachable: AtomicBool,
+//     pub(crate) finalizer: AtomicBool,
+//     pub(crate) value: T,
+// }
+// type TestThing = hybrid_rc::Arc<String>;
 
 #[test]
 fn check_size_of_heap_allocated_value() {

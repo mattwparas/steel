@@ -1,3 +1,6 @@
+use std::cmp::Ordering;
+use std::hint::unreachable_unchecked;
+
 use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::{
     gc::Gc,
@@ -87,9 +90,119 @@ pub fn list_module() -> BuiltInModule {
         .register_native_fn_definition(CHUNKS_DEFINITION)
         .register_native_fn_definition(MEMBER_DEFINITION)
         .register_native_fn_definition(MEMQ_DEFINITION)
-        .register_native_fn_definition(LIST_CONTAINS_DEFINITION);
+        .register_native_fn_definition(LIST_CONTAINS_DEFINITION)
+        .register_native_fn_definition(LIST_SORT_DEFINITION);
 
     module
+}
+
+#[steel_derive::function(name = "#%list-sort")]
+pub fn list_sort(value: &List<SteelVal>, func: SteelVal) -> Result<SteelVal> {
+    let mut values = value.iter().cloned().collect::<Vec<_>>();
+
+    let mut error = None;
+
+    match func {
+        SteelVal::FuncV(f) => {
+            values.sort_by(|x, y| {
+                if error.is_some() {
+                    return Ordering::Equal;
+                }
+
+                let res = f(&[x.clone(), y.clone()]);
+
+                match res {
+                    Ok(SteelVal::BoolV(b)) => {
+                        if b {
+                            Ordering::Less
+                        } else {
+                            Ordering::Greater
+                        }
+                    }
+
+                    Ok(v) => {
+                        error = Some(throw!(TypeMismatch => "sort expects a function that returns a boolean, found: {}", v)());
+                        Ordering::Equal
+                    },
+
+                    Err(e) => {
+                        error = Some(e);
+                        Ordering::Equal
+                    }
+                }
+            });
+        }
+
+        SteelVal::MutFunc(f) => {
+            values.sort_by(|x, y| {
+                if error.is_some() {
+                    return Ordering::Equal;
+                }
+
+                let res = f(&mut [x.clone(), y.clone()]);
+
+                match res {
+                    Ok(SteelVal::BoolV(b)) => {
+                        if b {
+                            Ordering::Less
+                        } else {
+                            Ordering::Greater
+                        }
+                    }
+
+                    Ok(v) => {
+                        error = Some(throw!(TypeMismatch => "sort expects a function that returns a boolean, found: {}", v)());
+                        Ordering::Equal
+                    },
+
+                    Err(e) => {
+                        error = Some(e);
+                        Ordering::Equal
+                    }
+                }
+            });
+        }
+
+        SteelVal::BoxedFunction(f) => {
+            values.sort_by(|x, y| {
+                if error.is_some() {
+                    return Ordering::Equal;
+                }
+
+                let res = (f.func())(&[x.clone(), y.clone()]);
+
+                match res {
+                    Ok(SteelVal::BoolV(b)) => {
+                        if b {
+                            Ordering::Less
+                        } else {
+                            Ordering::Greater
+                        }
+                    }
+
+                    Ok(v) => {
+                        error = Some(throw!(TypeMismatch => "sort expects a function that returns a boolean, found: {}", v)());
+                        Ordering::Equal
+                    },
+
+                    Err(e) => {
+                        error = Some(e);
+                        Ordering::Equal
+                    }
+                }
+            });
+        }
+
+        _ => {
+            stop!(TypeMismatch => "#%list-sort expects a native function that doesn't require the context, found: {}", func);
+        }
+    }
+
+    if let Some(error) = error {
+        Err(error)
+    } else {
+        Ok(SteelVal::ListV(values.into()))
+    }
 }
 
 /// Return the first tail of the list, where the car is `equal?` to the given obj.
@@ -304,7 +417,7 @@ pub fn is_empty(list: &SteelVal) -> bool {
 /// > (pair? '()) ;; => #false
 /// ```
 #[steel_derive::function(name = "pair?")]
-fn pair(list: &SteelVal) -> bool {
+pub fn pair(list: &SteelVal) -> bool {
     match list {
         SteelVal::ListV(l) => !l.is_empty(),
         SteelVal::Pair(_) => true,
@@ -435,10 +548,11 @@ fn length(list: &List<SteelVal>) -> usize {
 /// ```
 #[steel_derive::function(name = "reverse", constant = true)]
 fn reverse(arg: &mut SteelVal) -> Result<SteelVal> {
-    if let SteelVal::ListV(l) = core::mem::replace(arg, SteelVal::Void) {
+    let replaced = core::mem::replace(arg, SteelVal::Void);
+    if let SteelVal::ListV(l) = replaced {
         Ok(SteelVal::ListV(l.reverse()))
     } else {
-        stop!(TypeMismatch => "reverse expects a list")
+        stop!(TypeMismatch => "reverse expects a list, found: {}", replaced)
     }
 }
 
@@ -502,6 +616,14 @@ pub(crate) fn car(list: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+pub(crate) unsafe fn unchecked_car(list: &SteelVal) -> SteelVal {
+    match list {
+        SteelVal::ListV(l) => l.car().unwrap_unchecked(),
+        SteelVal::Pair(p) => p.car(),
+        _ => unsafe { unreachable_unchecked() },
+    }
+}
+
 // Optimistic check to see if the rest is null before making an allocation
 #[steel_derive::native(name = "cdr-null?", constant = true, arity = "Exact(1)")]
 fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
@@ -553,6 +675,20 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
         arg => {
             stop!(TypeMismatch => format!("cdr expects a list, found: {}", arg))
         }
+    }
+}
+
+pub(crate) unsafe fn cdr_no_check(arg: &mut SteelVal) -> SteelVal {
+    match std::mem::replace(arg, SteelVal::Void) {
+        SteelVal::ListV(mut l) => {
+            l.rest_mut();
+            SteelVal::ListV(l)
+        }
+
+        SteelVal::Pair(p) => p.cdr(),
+        _ => unsafe {
+            unreachable_unchecked();
+        },
     }
 }
 

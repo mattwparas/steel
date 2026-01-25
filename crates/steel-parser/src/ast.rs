@@ -1296,6 +1296,21 @@ impl List {
         }
     }
 
+    pub fn third_ident(&self) -> Option<&InternedString> {
+        if let Some(ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Identifier(s),
+                    ..
+                },
+        })) = self.args.get(2)
+        {
+            Some(s)
+        } else {
+            None
+        }
+    }
+
     pub fn is_anonymous_function_call(&self) -> bool {
         matches!(self.args.first(), Some(ExprKind::LambdaFunction(_)))
     }

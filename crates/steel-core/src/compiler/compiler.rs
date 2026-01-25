@@ -167,7 +167,8 @@ impl DebruijnIndicesInterner {
                 }
                 (
                     Instruction {
-                        op_code: OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY,
+                        op_code:
+                            OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY | OpCode::CALLPRIMITIVE,
                         contents:
                             Some(Expr::Atom(SyntaxObject {
                                 ty: TokenType::Identifier(s),
@@ -320,7 +321,7 @@ impl DebruijnIndicesInterner {
                     }
                 }
                 Instruction {
-                    op_code: OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY,
+                    op_code: OpCode::CALLGLOBAL | OpCode::CALLGLOBALNOARITY | OpCode::CALLPRIMITIVE,
                     contents:
                         Some(Expr::Atom(SyntaxObject {
                             ty: TokenType::Identifier(s),
@@ -1226,6 +1227,10 @@ impl Compiler {
         semantic.populate_captures();
         semantic.populate_captures();
 
+        if std::env::var("STEEL_DEBUG_AST").is_ok() {
+            steel_parser::ast::AstTools::pretty_print(&semantic.exprs);
+        }
+
         semantic.replace_mutable_captured_variables_with_boxes();
 
         log::debug!(target: "expansion-phase", "Expanding multiple arity functions");
@@ -1275,17 +1280,64 @@ impl Compiler {
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
 
+        if std::env::var("STEEL_CLOSURE_LIFTING").is_ok() {
+            semantic.lift_closures();
+        }
+
+        // self.shadowed_variable_renamer
+        //     .rename_shadowed_variables(&mut semantic.exprs, false);
+
+        // analysis.fresh_from_exprs(&expanded_statements);
+        // semantic.analysis.fresh_from_exprs(&semantic.exprs);
+
+        // semantic.fresh
+
+        // TODO: Configure inlining function size
+
+        // Loop unrolling. That is probably what we need?
+        // Inlining?
+        if std::env::var("STEEL_INLINE").is_ok() {
+            semantic.inline_function_calls(Some(75))?;
+            semantic.refresh_variables();
+            let mut analysis = semantic.into_analysis();
+            self.shadowed_variable_renamer
+                .rename_shadowed_variables(&mut expanded_statements, false);
+            analysis.fresh_from_exprs(&expanded_statements);
+            analysis.populate_captures(&expanded_statements);
+            // Do this again
+            semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+            semantic.replace_anonymous_function_calls_with_plain_lets();
+        }
+
+        if std::env::var("STEEL_INLINE_RECURSIVE").is_ok() {
+            semantic.recursively_inline_function_calls(8)?;
+            semantic.refresh_variables();
+            let mut analysis = semantic.into_analysis();
+            self.shadowed_variable_renamer
+                .rename_shadowed_variables(&mut expanded_statements, false);
+            analysis.fresh_from_exprs(&expanded_statements);
+            analysis.populate_captures(&expanded_statements);
+            // Do this again
+            semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+            semantic.replace_anonymous_function_calls_with_plain_lets();
+        }
+
         self.analysis = semantic.into_analysis();
 
         // We don't want to leave this allocate memory just hanging around, but leave enough for
         // interactive usages
         self.analysis.shrink_capacity();
 
+        // Run const analysis one more time:
+
+        let mut expanded_statements =
+            self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;
+
         SingleExprOptimizer::run(&mut expanded_statements);
 
-        if std::env::var("STEEL_DEBUG_AST").is_ok() {
-            steel_parser::ast::AstTools::pretty_print_log(&expanded_statements);
-        }
+        // if std::env::var("STEEL_DEBUG_AST").is_ok() {
+        //     steel_parser::ast::AstTools::pretty_print_log(&expanded_statements);
+        // }
 
         Ok(expanded_statements)
 
@@ -1416,15 +1468,15 @@ impl Compiler {
             // TODO
             // Cut this off at 10 iterations no matter what
             OptLevel::Three => {
-                // for _ in 0..10 {
-                expanded_statements = manager.run(expanded_statements)?;
+                for _ in 0..3 {
+                    expanded_statements = manager.run(expanded_statements)?;
 
-                // if !manager.changed {
-                //     break;
-                // }
+                    // if !manager.changed {
+                    //     break;
+                    // }
 
-                // manager.changed = false;
-                // }
+                    // manager.changed = false;
+                }
             }
             OptLevel::Two => {
                 expanded_statements = ConstantEvaluatorManager::new(

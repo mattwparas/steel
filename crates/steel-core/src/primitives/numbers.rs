@@ -298,17 +298,17 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 #[inline(always)]
-fn add_primitive_no_check(args: &[SteelVal]) -> Result<SteelVal> {
+pub(crate) fn add_primitive_no_check(args: &[SteelVal]) -> Result<SteelVal> {
     match args {
-        [] => 0.into_steelval(),
-        [x] => x.clone().into_steelval(),
+        [] => Ok(SteelVal::IntV(0)),
+        [x] => Ok(x.clone()),
         [x, y] => add_two(x, y),
         [x, y, zs @ ..] => {
             let mut res = add_two(x, y)?;
             for z in zs {
                 res = add_two(&res, z)?;
             }
-            res.into_steelval()
+            Ok(res)
         }
     }
 }
@@ -329,15 +329,15 @@ fn add_primitive_no_check(args: &[SteelVal]) -> Result<SteelVal> {
 pub fn add_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     ensure_args_are_numbers("+", args)?;
     match args {
-        [] => 0.into_steelval(),
-        [x] => x.clone().into_steelval(),
+        [] => Ok(SteelVal::IntV(0)),
+        [x] => Ok(x.clone()),
         [x, y] => add_two(x, y),
         [x, y, zs @ ..] => {
             let mut res = add_two(x, y)?;
             for z in zs {
                 res = add_two(&res, z)?;
             }
-            res.into_steelval()
+            Ok(res)
         }
     }
 }
@@ -2421,7 +2421,7 @@ fn complex_reciprocal(c: &SteelComplex) -> Result<SteelVal> {
 /// # Precondition
 /// `value` must be a number.
 #[inline(always)]
-fn negate(value: &SteelVal) -> Result<SteelVal> {
+pub(crate) fn negate(value: &SteelVal) -> Result<SteelVal> {
     match value {
         SteelVal::NumV(x) => (-x).into_steelval(),
         SteelVal::IntV(x) => match x.checked_neg() {
@@ -2450,7 +2450,7 @@ pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
     match (x, y) {
         // Simple integer case. Probably very common.
         (SteelVal::IntV(x), SteelVal::IntV(y)) => match x.checked_add(y) {
-            Some(res) => res.into_steelval(),
+            Some(res) => Ok(SteelVal::IntV(res)),
             None => {
                 let mut res = BigInt::from(*x);
                 res += *y;
@@ -2473,7 +2473,14 @@ pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
             (x + y.to_f64().unwrap()).into_steelval()
         }
         // Cases that interact with `Rational`.
-        (SteelVal::Rational(x), SteelVal::Rational(y)) => (x + y).into_steelval(),
+        (SteelVal::Rational(x), SteelVal::Rational(y)) => match x.checked_add(y) {
+            Some(val) => val.into_steelval(),
+            None => {
+                let mut res = BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()));
+                res += BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
+                res.into_steelval()
+            }
+        },
         (SteelVal::Rational(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::Rational(x)) => {
             match i32::try_from(*y) {
                 Ok(y) => match x.checked_add(&Rational32::new(y, 1)) {
@@ -2534,7 +2541,7 @@ pub fn add_two(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
             debug_assert!(realp(y));
             add_complex(x, &SteelComplex::new(y.clone(), SteelVal::IntV(0)))
         }
-        _ => unreachable!(),
+        (l, r) => stop!(TypeMismatch => "+ expected all numbers, found: {} and {}", l, r),
     }
 }
 
@@ -2565,7 +2572,14 @@ pub fn add_two_fallible(x: &SteelVal, y: &SteelVal) -> Result<SteelVal> {
             (x + y.to_f64().unwrap()).into_steelval()
         }
         // Cases that interact with `Rational`.
-        (SteelVal::Rational(x), SteelVal::Rational(y)) => (x + y).into_steelval(),
+        (SteelVal::Rational(x), SteelVal::Rational(y)) => match x.checked_add(y) {
+            Some(val) => val.into_steelval(),
+            None => {
+                let mut res = BigRational::new(BigInt::from(*x.numer()), BigInt::from(*x.denom()));
+                res += BigRational::new(BigInt::from(*y.numer()), BigInt::from(*y.denom()));
+                res.into_steelval()
+            }
+        },
         (SteelVal::Rational(x), SteelVal::IntV(y)) | (SteelVal::IntV(y), SteelVal::Rational(x)) => {
             match i32::try_from(*y) {
                 Ok(y) => match x.checked_add(&Rational32::new(y, 1)) {

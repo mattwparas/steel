@@ -78,7 +78,7 @@
 ;; otherwise returns the trimmed word
 (define (get-next-word!)
   (define line (read-line-from-port *corpus-port*))
-  (if (symbol? line)
+  (if (or (eof-object? line) (symbol? line))
       #f
       (trim line)))
 

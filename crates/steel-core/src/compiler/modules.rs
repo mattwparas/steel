@@ -123,7 +123,8 @@ declare_builtins!(
     "#%private/steel/control" => "../scheme/modules/parameters.scm",
     "#%private/steel/reader" => "../scheme/modules/reader.scm",
     "#%private/steel/stdlib" => "../scheme/stdlib.scm",
-    "#%private/steel/match" => "../scheme/modules/match.scm"
+    "#%private/steel/match" => "../scheme/modules/match.scm",
+    "#%private/steel/sort" => "../scheme/modules/sort.scm"
 );
 
 create_prelude!(
@@ -134,6 +135,7 @@ create_prelude!(
     "#%private/steel/ports",
     "#%private/steel/reader",
     "#%private/steel/match",
+    "#%private/steel/sort",
     for_syntax "#%private/steel/control",
     for_syntax "#%private/steel/contract"
 );
@@ -1934,7 +1936,7 @@ impl DependencyGraph {
 #[derive(Clone)]
 #[allow(unused)]
 pub(crate) struct CompiledModuleCache {
-    cache_dir: Arc<PathBuf>,
+    cache_dir: Option<Arc<PathBuf>>,
     compiled_modules: crate::HashMap<PathBuf, CompiledModule>,
 }
 
@@ -1947,20 +1949,22 @@ pub(crate) struct CompiledModuleCache {
 #[allow(unused)]
 impl CompiledModuleCache {
     fn cache_module(&mut self, key: &PathBuf, module: &CompiledModule) {
-        let key = Self::create_key(&self.cache_dir, key);
+        if let Some(cache_dir) = &self.cache_dir {
+            let key = Self::create_key(&cache_dir, key);
 
-        if key.exists() {
-            return;
-        }
+            if key.exists() {
+                return;
+            }
 
-        let encoded = bincode::serialize(&module).unwrap();
-        log::info!("Writing to key: {:?}", key);
-        let parent = key.parent().unwrap();
-        if !parent.exists() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        if !key.exists() {
-            std::fs::write(key, encoded).unwrap();
+            let encoded = bincode::serialize(&module).unwrap();
+            log::info!("Writing to key: {:?}", key);
+            let parent = key.parent().unwrap();
+            if !parent.exists() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            if !key.exists() {
+                std::fs::write(key, encoded).unwrap();
+            }
         }
     }
 
@@ -2048,44 +2052,50 @@ impl CompiledModuleCache {
         }
 
         let now = std::time::Instant::now();
-        let key = Self::create_key(&self.cache_dir, path);
 
-        if let Some(value) = drain_module(&key) {
+        if let Some(cache_dir) = &self.cache_dir {
+            let key = Self::create_key(cache_dir, path);
+
+            if let Some(value) = drain_module(&key) {
+                self.compiled_modules.insert(path.to_owned(), value);
+                return Some(());
+            }
+
+            // Check the cache first, otherwise
+            // kick off loading the background values:
+
+            let contents = std::fs::read(&key).ok()?;
+            let mut value: CompiledModule = bincode::deserialize(&contents).unwrap();
+
+            value.emitted = false;
+            value.cached_prefix = path_to_prefix_name(value.name.to_path_buf()).into();
+
+            for downstream in value
+                .downstream
+                .iter()
+                .chain(value.downstream_builtins.iter())
+            {
+                enqueue_module(Self::create_key(&cache_dir, downstream));
+            }
+
+            log::info!("Downstream: {:?}", value.downstream);
+            log::info!("Downstream builtins: {:?}", value.downstream_builtins);
+
             self.compiled_modules.insert(path.to_owned(), value);
-            return Some(());
+
+            log::info!(
+                "Successfully read cached module: {:?} - {:?}",
+                path,
+                now.elapsed()
+            );
+
+            Some(())
+        } else {
+            None
         }
-
-        // Check the cache first, otherwise
-        // kick off loading the background values:
-
-        let contents = std::fs::read(&key).ok()?;
-        let mut value: CompiledModule = bincode::deserialize(&contents).unwrap();
-
-        value.emitted = false;
-        value.cached_prefix = path_to_prefix_name(value.name.to_path_buf()).into();
-
-        for downstream in value
-            .downstream
-            .iter()
-            .chain(value.downstream_builtins.iter())
-        {
-            enqueue_module(Self::create_key(&self.cache_dir, downstream));
-        }
-
-        log::info!("Downstream: {:?}", value.downstream);
-        log::info!("Downstream builtins: {:?}", value.downstream_builtins);
-
-        self.compiled_modules.insert(path.to_owned(), value);
-
-        log::info!(
-            "Successfully read cached module: {:?} - {:?}",
-            path,
-            now.elapsed()
-        );
-
-        Some(())
     }
 
+    #[cfg(not(target_family = "wasm"))]
     pub fn new(compiled_modules: crate::HashMap<PathBuf, CompiledModule>) -> Self {
         let home = PathBuf::from(steel_home().unwrap());
 
@@ -2096,7 +2106,15 @@ impl CompiledModuleCache {
         }
 
         Self {
-            cache_dir,
+            cache_dir: Some(cache_dir),
+            compiled_modules,
+        }
+    }
+
+    #[cfg(target_family = "wasm")]
+    pub fn new(compiled_modules: crate::HashMap<PathBuf, CompiledModule>) -> Self {
+        Self {
+            cache_dir: None,
             compiled_modules,
         }
     }

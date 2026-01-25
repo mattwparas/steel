@@ -112,7 +112,7 @@
 
 (check-equal? "or true on the first, second not true" #t (or (= 2 2) (< 2 1)))
 
-(check-equal? "memq with lists" '(b c) (or (memq 'b '(a b c)) (/ 3 0)))
+(check-equal? "memq with lists" '(b c) (or (memq 'b '(a b c)) (error "shouldn't get here")))
 
 (check-equal? "basic let"
               6
