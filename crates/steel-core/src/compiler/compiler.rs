@@ -26,7 +26,8 @@ use crate::{
     parser::parser::Sources,
 };
 
-use std::{borrow::Cow, iter::Iterator};
+use alloc::borrow::Cow;
+use core::iter::Iterator;
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,

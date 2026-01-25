@@ -86,10 +86,11 @@ use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
+use alloc::borrow::Cow;
 use compact_str::CompactString;
+use core::cmp::Ordering;
 use once_cell::sync::Lazy;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
-use std::{borrow::Cow, cmp::Ordering};
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
 
 #[cfg(not(target_family = "wasm"))]

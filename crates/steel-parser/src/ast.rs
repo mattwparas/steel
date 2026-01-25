@@ -3,7 +3,8 @@ use crate::{
     tokens::{NumberLiteral, ParenMod, RealLiteral, TokenType},
 };
 
-use std::{convert::TryFrom, fmt::Write, sync::Arc};
+use alloc::sync::Arc;
+use core::{convert::TryFrom, fmt::Write};
 
 use crate::tokens::IntLiteral;
 use core::fmt;

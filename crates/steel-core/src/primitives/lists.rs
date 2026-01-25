@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use core::cmp::Ordering;
 use std::hint::unreachable_unchecked;
 
 use crate::rvals::{IntoSteelVal, Result, SteelVal};
@@ -679,7 +679,7 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
 }
 
 pub(crate) unsafe fn cdr_no_check(arg: &mut SteelVal) -> SteelVal {
-    match std::mem::replace(arg, SteelVal::Void) {
+    match core::mem::replace(arg, SteelVal::Void) {
         SteelVal::ListV(mut l) => {
             l.rest_mut();
             SteelVal::ListV(l)

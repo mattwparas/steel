@@ -54,11 +54,12 @@ use crate::{
 };
 use alloc::sync::Arc;
 use core::hash::Hash;
+use core::{cell::RefCell, iter::Iterator};
+use std::collections::HashMap;
 use std::io::Read as _;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
-use std::{cell::RefCell, collections::HashMap, iter::Iterator};
 
 use super::engine::EngineId;
 
@@ -4608,7 +4609,7 @@ impl<'a> VmCore<'a> {
         assert!(old_index < self.thread.stack.len());
 
         // Modify the stack and change the value to the new one
-        let old_value = std::mem::replace(&mut self.thread.stack[old_index], value_to_set);
+        let old_value = core::mem::replace(&mut self.thread.stack[old_index], value_to_set);
 
         self.thread.stack.push(old_value);
         self.ip += 1;
@@ -4625,7 +4626,7 @@ impl<'a> VmCore<'a> {
         assert!(old_index < self.thread.stack.len());
 
         // Modify the stack and change the value to the new one
-        let old_value = std::mem::replace(&mut self.thread.stack[old_index], value_to_set);
+        let old_value = core::mem::replace(&mut self.thread.stack[old_index], value_to_set);
 
         self.ip += 1;
 

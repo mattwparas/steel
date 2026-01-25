@@ -1,4 +1,5 @@
-use std::{borrow::Cow, cell::RefCell, sync::Arc};
+use alloc::{borrow::Cow, sync::Arc};
+use core::cell::RefCell;
 
 use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadContainer};
 

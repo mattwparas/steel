@@ -14,7 +14,7 @@ use crate::{
 };
 
 use crate::values::HashMap;
-use std::{cell::RefCell, convert::TryInto};
+use core::{cell::RefCell, convert::TryInto};
 use std::{iter::Fuse, rc::Rc};
 
 /// An iterator adaptor that alternates elements from two iterators until both

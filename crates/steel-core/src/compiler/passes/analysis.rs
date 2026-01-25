@@ -3541,7 +3541,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                 // }
 
                                 let mut dummy = ExprKind::integer_literal(-1, Span::default());
-                                std::mem::swap(expression, &mut dummy);
+                                core::mem::swap(expression, &mut dummy);
                                 let span = dummy.span();
 
                                 let define = ExprKind::Define(Box::new(Define::new(

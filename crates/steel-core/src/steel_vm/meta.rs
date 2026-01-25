@@ -3,7 +3,9 @@
 // pub type BuiltInSignature = fn(Vec<SteelVal>, &mut dyn VmContext) -> Result<SteelVal>;`
 
 use alloc::borrow::Cow;
-use std::{cell::RefCell, convert::TryFrom, io::Write, rc::Rc};
+use alloc::rc::Rc;
+use core::{cell::RefCell, convert::TryFrom};
+use std::io::Write;
 
 use crate::gc::shared::ShareableMut;
 use crate::parser::tryfrom_visitor::TryFromExprKindForSteelVal;

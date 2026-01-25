@@ -1,6 +1,7 @@
 #![allow(unused)]
 
-use std::{cell::RefCell, future::Future, marker::PhantomData, ops::DerefMut, rc::Rc, sync::Arc};
+use alloc::{rc::Rc, sync::Arc};
+use core::{cell::RefCell, future::Future, marker::PhantomData, ops::DerefMut};
 
 use super::{
     builtin::{Arity, FunctionSignatureMetadata},

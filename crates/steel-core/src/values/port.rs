@@ -342,10 +342,10 @@ macro_rules! port_read_str_fn {
 
 impl SteelPortRepr {
     pub fn take(&mut self) -> Self {
-        std::mem::replace(self, SteelPortRepr::Closed)
+        core::mem::replace(self, SteelPortRepr::Closed)
     }
 
-    pub fn as_stdio(self) -> std::result::Result<std::process::Stdio, Self> {
+    pub fn as_stdio(self) -> core::result::Result<std::process::Stdio, Self> {
         match self {
             SteelPortRepr::FileInput(_, peekable) => {
                 let guard = peekable.inner.get_ref().try_clone().unwrap();

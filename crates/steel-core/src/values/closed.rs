@@ -1,4 +1,5 @@
-use std::{cell::RefCell, collections::HashSet};
+use core::cell::RefCell;
+use std::collections::HashSet;
 
 #[cfg(feature = "sync")]
 use std::{sync::Arc, thread::JoinHandle};
@@ -2243,7 +2244,7 @@ pub struct HeapAllocated<T: Clone + core::fmt::Debug + PartialEq + Eq> {
 
 // // Use atomic bools, and then store the value
 // // as a Cell?
-// pub struct Foo<T: Clone + std::fmt::Debug + PartialEq + Eq> {
+// pub struct Foo<T: Clone + core::fmt::Debug + PartialEq + Eq> {
 //     pub(crate) reachable: AtomicBool,
 //     pub(crate) finalizer: AtomicBool,
 //     pub(crate) value: T,

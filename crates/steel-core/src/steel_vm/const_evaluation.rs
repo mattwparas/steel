@@ -894,7 +894,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
     // TODO come back to this
     fn visit_let(&mut self, mut l: Box<crate::parser::ast::Let>) -> Self::Output {
-        let bindings = std::mem::take(&mut l.bindings);
+        let bindings = core::mem::take(&mut l.bindings);
 
         let mut new_env = ConstantEnv::new_subexpression(Rc::downgrade(&self.bindings));
 
@@ -919,7 +919,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         let mut body = ExprKind::empty();
 
-        std::mem::swap(&mut l.body_expr, &mut body);
+        core::mem::swap(&mut l.body_expr, &mut body);
 
         let output = self.visit(body)?;
 

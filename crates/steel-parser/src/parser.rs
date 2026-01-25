@@ -1,10 +1,7 @@
-use std::{
-    borrow::Cow,
-    path::PathBuf,
-    rc::Rc,
-    result,
-    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
-};
+use alloc::{borrow::Cow, rc::Rc};
+use core::result;
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 

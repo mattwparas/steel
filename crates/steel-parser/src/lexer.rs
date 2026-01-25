@@ -4,12 +4,12 @@ use crate::tokens::{IntLiteral, Token, TokenLike, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
 use alloc::borrow::Cow;
 use alloc::sync::Arc;
+use core::char;
 use core::iter::Iterator;
 use core::ops::Range;
+use core::{iter::Peekable, str::Chars};
 use num_bigint::BigInt;
 use smallvec::{smallvec, SmallVec};
-use std::char;
-use std::{iter::Peekable, str::Chars};
 
 pub const INFINITY: &str = "+inf.0";
 pub const NEG_INFINITY: &str = "-inf.0";
