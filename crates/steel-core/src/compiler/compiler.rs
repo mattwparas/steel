@@ -378,7 +378,7 @@ impl DebruijnIndicesInterner {
                     {
                         let location = self.flat_defines.get(s).unwrap();
                         if let DefineKind::Flat = location.kind {
-                            if i < location.location.1 && s.resolve().starts_with(MANGLER_PREFIX) {
+                            if (index, i) < location.location {
                                 let formatted = if s.resolve().starts_with(MANGLER_PREFIX) {
                                     s.resolve()
                                         .split_once(MANGLER_SEPARATOR)
