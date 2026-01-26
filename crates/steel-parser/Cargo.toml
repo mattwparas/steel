@@ -22,5 +22,9 @@ smallvec = "1.13"
 compact_str = "0.8.0"
 log = "0.4.17"
 
+[features]
+default = ["std"]
+std = []
+
 [dev-dependencies]
 pretty_assertions = "1.4" # Only used by unit tests.

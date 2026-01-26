@@ -124,7 +124,8 @@ criterion = "0.5.1"
 
 [features]
 # TODO: Deprecate the modules feature flag, it no longer does anything
-default = ["modules"]
+default = ["std", "modules"]
+std = []
 modules = []
 jit = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit"]
 sandbox = []
