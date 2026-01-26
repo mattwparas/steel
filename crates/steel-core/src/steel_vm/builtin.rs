@@ -1,4 +1,5 @@
-use std::{borrow::Cow, cell::RefCell, sync::Arc};
+use alloc::{borrow::Cow, sync::Arc};
+use core::cell::RefCell;
 
 use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadContainer};
 
@@ -101,7 +102,7 @@ pub enum Arity {
 }
 
 impl Custom for Arity {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         Some(Ok(match self {
             Arity::Exact(a) => format!("(Arity::Exact {a})"),
             Arity::AtLeast(a) => format!("(Arity::AtLeast {a})"),
@@ -112,7 +113,7 @@ impl Custom for Arity {
 }
 
 impl Custom for FunctionSignatureMetadata {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         Some(Ok(format!(
             "(FunctionSignatureMetadata #:name {} #:arity {:?} #:const? {})",
             self.name, self.arity, self.is_const
@@ -308,7 +309,7 @@ impl BuiltInModuleRepr {
     }
 
     pub fn with_module(&mut self, module: BuiltInModule) {
-        // self.values = std::mem::take(&mut self.values).union(module.module.read().values.clone());
+        // self.values = core::mem::take(&mut self.values).union(module.module.read().values.clone());
 
         self.values.extend(
             module
@@ -322,7 +323,7 @@ impl BuiltInModuleRepr {
         // TODO: This almost assuredly, is not necessary, right? We could instead just use
         // the global metadata table and get rid of the vast majority of this information.
         // self.fn_ptr_table =
-        //     std::mem::take(&mut self.fn_ptr_table).union(module.module.read().fn_ptr_table.clone());
+        //     core::mem::take(&mut self.fn_ptr_table).union(module.module.read().fn_ptr_table.clone());
 
         self.fn_ptr_table.extend(
             module
@@ -562,8 +563,8 @@ impl BuiltInModule {
         Shared::clone(&self.module.read().name)
     }
 
-    // pub fn documentation(&self) -> std::cell::Ref<'_, InternalDocumentation> {
-    //     std::cell::Ref::map(self.module.read(), |x| x.docs.as_ref())
+    // pub fn documentation(&self) -> core::cell::Ref<'_, InternalDocumentation> {
+    //     core::cell::Ref::map(self.module.read(), |x| x.docs.as_ref())
     // }
 
     pub fn documentation(&self) -> MappedScopedReadContainer<'_, InternalDocumentation> {
@@ -619,7 +620,7 @@ impl BuiltInModule {
             BuiltInFunctionType::Context(value) => SteelVal::BuiltIn(value),
         };
 
-        let names = std::iter::once(definition.name).chain(definition.aliases.iter().cloned());
+        let names = core::iter::once(definition.name).chain(definition.aliases.iter().cloned());
 
         for name in names {
             self.register_value(name, steel_val.clone());
@@ -829,8 +830,8 @@ impl<'a> MarkdownDoc<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for MarkdownDoc<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Display for MarkdownDoc<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         #[cfg(feature = "markdown")]
         return write!(f, "{}", termimad::text(&self.0));
 
@@ -839,8 +840,8 @@ impl<'a> std::fmt::Display for MarkdownDoc<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for Documentation<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Display for Documentation<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Documentation::Function(d) => write!(f, "{d}"),
             Documentation::Module(d) => write!(f, "{d}"),
@@ -859,8 +860,8 @@ impl<'a> Documentation<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for DocTemplate<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Display for DocTemplate<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f)?;
         writeln!(f, "{}", self.signature)?;
         writeln!(f)?;
@@ -884,8 +885,8 @@ impl<'a> std::fmt::Display for DocTemplate<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for ValueDoc<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Display for ValueDoc<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f)?;
         writeln!(f, "{}", self.name)?;
         writeln!(f)?;
@@ -893,8 +894,8 @@ impl<'a> std::fmt::Display for ValueDoc<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for ModuleDoc<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Display for ModuleDoc<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f)?;
         writeln!(f, "{}", self.name)?;
         writeln!(f)?;
@@ -934,7 +935,7 @@ pub(crate) fn find_closest_match<'a>(
         .into_iter()
         .map(|candidate| (strsim::normalized_levenshtein(target, candidate), candidate))
         .filter(|(sim, _)| *sim > 0.8)
-        // The key must be converted to a type that implements std::cmp::Ord.
+        // The key must be converted to a type that implements core::cmp::Ord.
         .max_by_key(|(sim, _)| (*sim * 100.0) as usize)
         .map(|(_, s)| s)
 }

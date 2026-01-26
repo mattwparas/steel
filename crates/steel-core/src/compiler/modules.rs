@@ -351,7 +351,7 @@ impl ModuleManager {
 
         module_builder.collect_provides()?;
 
-        let mut ast = std::mem::take(&mut module_builder.source_ast);
+        let mut ast = core::mem::take(&mut module_builder.source_ast);
 
         let mut require_defines = Vec::new();
 
@@ -551,7 +551,7 @@ impl ModuleManager {
 
         let mut mangled_asts = Vec::with_capacity(ast.len());
 
-        let require_objects = std::mem::take(&mut module_builder.require_objects);
+        let require_objects = core::mem::take(&mut module_builder.require_objects);
         drop(module_builder);
 
         // TODO: Move this to the lower level as well
@@ -1693,7 +1693,7 @@ impl CompiledModule {
         exprs.retain_mut(|expr| {
             if let ExprKind::Define(d) = expr {
                 if is_a_builtin_definition(d) {
-                    builtin_definitions.push(std::mem::take(expr));
+                    builtin_definitions.push(core::mem::take(expr));
                     false
                 } else {
                     true
@@ -2140,7 +2140,7 @@ impl CompiledModuleCache {
     }
 }
 
-// impl std::ops::Deref for CompiledModuleCache {
+// impl core::ops::Deref for CompiledModuleCache {
 //     type Target = crate::HashMap<PathBuf, CompiledModule>;
 
 //     fn deref(&self) -> &Self::Target {
@@ -2148,7 +2148,7 @@ impl CompiledModuleCache {
 //     }
 // }
 
-// impl std::ops::DerefMut for CompiledModuleCache {
+// impl core::ops::DerefMut for CompiledModuleCache {
 //     fn deref_mut(&mut self) -> &mut Self::Target {
 //         &mut self.compiled_modules
 //     }
@@ -2287,7 +2287,7 @@ impl<'a> ModuleBuilder<'a> {
         self.visited.insert(self.name.clone());
 
         if self.main {
-            let exprs = std::mem::take(&mut self.source_ast);
+            let exprs = core::mem::take(&mut self.source_ast);
             self.source_ast = exprs
                 .into_iter()
                 .filter(|x| {
@@ -2506,8 +2506,8 @@ impl<'a> ModuleBuilder<'a> {
 
     // TODO: This should run again on itself, probably
     fn compile_module(&mut self) -> Result<ExprKind> {
-        let mut ast = std::mem::take(&mut self.source_ast);
-        let mut provides = std::mem::take(&mut self.provides);
+        let mut ast = core::mem::take(&mut self.source_ast);
+        let mut provides = core::mem::take(&mut self.provides);
         // Clone the requires... I suppose
         let requires = self.require_objects.clone();
 
@@ -2706,8 +2706,8 @@ impl<'a> ModuleBuilder<'a> {
 
             self.collect_provides()?;
 
-            provides = std::mem::take(&mut self.provides);
-            ast = std::mem::take(&mut self.source_ast);
+            provides = core::mem::take(&mut self.provides);
+            ast = core::mem::take(&mut self.source_ast);
         }
 
         // Put the mangled asts at the top
@@ -2732,7 +2732,7 @@ impl<'a> ModuleBuilder<'a> {
                 .iter()
                 .map(|x| *x.atom_identifier().unwrap())
                 .collect(),
-            // std::mem::take(&mut self.macro_map),
+            // core::mem::take(&mut self.macro_map),
             self.macro_map.clone(),
             mangled_asts,
             downstream,
@@ -2793,7 +2793,7 @@ impl<'a> ModuleBuilder<'a> {
         // Probably don't have more than 128 macros in a module, but who knows?
         // let mut macro_indices = SmallVec::<[usize; 128]>::new();
 
-        // let exprs = std::mem::take(&mut self.source_ast);
+        // let exprs = core::mem::take(&mut self.source_ast);
 
         let mut error = None;
 
@@ -2806,7 +2806,7 @@ impl<'a> ModuleBuilder<'a> {
                     SyntaxObject::default(TokenType::Begin),
                 )));
 
-                std::mem::swap(expr, &mut taken_expr);
+                core::mem::swap(expr, &mut taken_expr);
 
                 if let ExprKind::Macro(m) = taken_expr {
                     match SteelMacro::parse_from_ast_macro(m) {
@@ -2894,7 +2894,7 @@ impl<'a> ModuleBuilder<'a> {
         // let now = std::time::Instant::now();
 
         let mut non_provides = Vec::with_capacity(self.source_ast.len());
-        let exprs = std::mem::take(&mut self.source_ast);
+        let exprs = core::mem::take(&mut self.source_ast);
 
         fn walk(
             module_builder: &mut ModuleBuilder,
@@ -2911,7 +2911,7 @@ impl<'a> ModuleBuilder<'a> {
                                 }
 
                                 // Swap out the value inside the list
-                                let args = std::mem::take(&mut l.args);
+                                let args = core::mem::take(&mut l.args);
 
                                 let filtered =
                                     module_builder.filter_out_for_syntax_provides(args)?;
@@ -2925,7 +2925,7 @@ impl<'a> ModuleBuilder<'a> {
                         }
                     }
                     ExprKind::Begin(b) => {
-                        let exprs = std::mem::take(&mut b.exprs);
+                        let exprs = core::mem::take(&mut b.exprs);
 
                         // Reserve capacity for these to be moved to the top level
                         non_provides.reserve(exprs.len());
@@ -3237,7 +3237,7 @@ impl<'a> ModuleBuilder<'a> {
         // unimplemented!()
 
         let mut exprs_without_requires = Vec::new();
-        let exprs = std::mem::take(&mut self.source_ast);
+        let exprs = core::mem::take(&mut self.source_ast);
 
         let home = STEEL_HOME
             .clone()
@@ -3417,7 +3417,7 @@ impl<'a> ModuleBuilder<'a> {
         let parsed = Parser::new_from_source(&input, self.name.clone(), Some(id))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
-            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+            .collect::<core::result::Result<Vec<_>, ParseError>>()?;
 
         self.source_ast = parsed;
 
@@ -3448,7 +3448,7 @@ impl<'a> ModuleBuilder<'a> {
         let mut expressions = Parser::new(PRELUDE_STRING, SourceId::none())
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
-            .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+            .collect::<core::result::Result<Vec<_>, ParseError>>()?;
 
         let id = self.sources.add_source(exprs, Some(self.name.clone()));
 
@@ -3462,7 +3462,7 @@ impl<'a> ModuleBuilder<'a> {
             let mut parsed = Parser::new_from_source(exprs, self.name.clone(), Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
-                .collect::<std::result::Result<Vec<_>, ParseError>>()?;
+                .collect::<core::result::Result<Vec<_>, ParseError>>()?;
 
             expressions.append(&mut parsed);
 
