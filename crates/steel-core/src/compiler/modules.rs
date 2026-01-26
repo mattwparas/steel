@@ -222,6 +222,8 @@ pub(crate) struct ModuleManager {
     rollback_metadata: crate::HashMap<PathBuf, SystemTime>,
     // #[serde(skip_serializing, skip_deserializing)]
     module_resolvers: Vec<Arc<dyn SourceModuleResolver>>,
+
+    prelude_string: Cow<'static, str>,
 }
 
 pub trait SourceModuleResolver: Send + Sync {
@@ -241,13 +243,14 @@ impl ModuleManager {
             custom_builtins: HashMap::new(),
             rollback_metadata: crate::HashMap::new(),
             module_resolvers: Vec::new(),
+            prelude_string: Cow::Borrowed(PRELUDE_STRING),
         }
     }
 
     pub fn add_builtin_module(&mut self, module_name: String, mut text: String) {
         // Custom external builtins should be loaded with the prelude first, otherwise
         // they'll need to handle a bunch of imports
-        text.insert_str(0, PRELUDE_STRING);
+        text.insert_str(0, &self.prelude_string);
 
         self.custom_builtins.insert(module_name, text);
     }
@@ -262,6 +265,14 @@ impl ModuleManager {
 
     pub(crate) fn default() -> Self {
         Self::new(crate::HashMap::default(), crate::HashMap::default())
+    }
+
+    pub fn set_prelude_string(&mut self, prelude_string: Cow<'static, str>) {
+        self.prelude_string = prelude_string;
+    }
+
+    pub fn use_default_prelude_string(&mut self) {
+        self.prelude_string = Cow::Borrowed(PRELUDE_STRING);
     }
 
     pub(crate) fn register_module_resolver(
@@ -296,6 +307,7 @@ impl ModuleManager {
             &self.custom_builtins,
             &[],
             &self.module_resolvers,
+            &self.prelude_string,
         )?;
 
         module_builder.compile()?;
@@ -345,6 +357,7 @@ impl ModuleManager {
             &self.custom_builtins,
             search_dirs,
             &self.module_resolvers,
+            &self.prelude_string,
         )?;
 
         let mut module_statements = module_builder.compile()?;
@@ -1614,7 +1627,7 @@ impl CompiledModule {
         name_mangler.mangle_vars(&mut right);
         // name_unmangler.unmangle_vars(&mut provides);
 
-        let mut hash_body = vec![ExprKind::ident("hash")];
+        let mut hash_body = vec![ExprKind::ident("%proto-hash%")];
 
         // We can put the module name in there, but that doesn't help us get the docs out...
         // Probably need to just store the docs directly in the module itself as well?
@@ -2175,6 +2188,7 @@ struct ModuleBuilder<'a> {
     custom_builtins: &'a HashMap<String, String>,
     search_dirs: &'a [PathBuf],
     module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
+    prelude_string: &'a str,
 }
 
 pub struct RequiredModuleMacros {
@@ -2201,6 +2215,7 @@ impl<'a> ModuleBuilder<'a> {
         custom_builtins: &'a HashMap<String, String>,
         search_dirs: &'a [PathBuf],
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
+        prelude_string: &'a str,
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
         // change the path to not always be required
@@ -2235,6 +2250,7 @@ impl<'a> ModuleBuilder<'a> {
             custom_builtins,
             search_dirs,
             module_resolvers,
+            prelude_string,
         })
     }
 
@@ -2343,7 +2359,7 @@ impl<'a> ModuleBuilder<'a> {
                             .find_map(|x| x.resolve(module.to_str().unwrap()))
                             // Insert the prelude
                             .map(|mut x| {
-                                x.insert_str(0, PRELUDE_STRING);
+                                x.insert_str(0, self.prelude_string);
                                 x
                             })
                             .map(Cow::Owned)
@@ -2364,6 +2380,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.global_macro_map,
                     self.custom_builtins,
                     self.module_resolvers,
+                    self.prelude_string,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -2473,6 +2490,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.custom_builtins,
                     self.search_dirs,
                     self.module_resolvers,
+                    self.prelude_string,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -3313,6 +3331,7 @@ impl<'a> ModuleBuilder<'a> {
         global_macro_map: &'a FxHashMap<InternedString, SteelMacro>,
         custom_builtins: &'a HashMap<String, String>,
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
+        prelude_string: &'a str,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -3327,6 +3346,7 @@ impl<'a> ModuleBuilder<'a> {
             &[],
             module_resolvers,
             false,
+            prelude_string,
         )
         .parse_builtin(input)
     }
@@ -3343,6 +3363,7 @@ impl<'a> ModuleBuilder<'a> {
         custom_builtins: &'a HashMap<String, String>,
         search_dirs: &'a [PathBuf],
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
+        prelude_string: &'a str,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -3357,6 +3378,7 @@ impl<'a> ModuleBuilder<'a> {
             search_dirs,
             module_resolvers,
             true,
+            prelude_string,
         )
         .parse_from_path()
     }
@@ -3374,6 +3396,7 @@ impl<'a> ModuleBuilder<'a> {
         search_dirs: &'a [PathBuf],
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
         canonicalize: bool,
+        prelude_string: &'a str,
     ) -> Self {
         // println!("New module found: {:?}", name);
 
@@ -3403,6 +3426,7 @@ impl<'a> ModuleBuilder<'a> {
             custom_builtins,
             search_dirs,
             module_resolvers,
+            prelude_string,
         }
     }
 
@@ -3445,7 +3469,7 @@ impl<'a> ModuleBuilder<'a> {
 
         file.read_to_string(&mut exprs)?;
 
-        let mut expressions = Parser::new(PRELUDE_STRING, SourceId::none())
+        let mut expressions = Parser::new(self.prelude_string, SourceId::none())
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect::<std::result::Result<Vec<_>, ParseError>>()?;

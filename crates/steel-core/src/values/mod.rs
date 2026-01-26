@@ -46,7 +46,23 @@ mod im_shims {
     pub type HashMapConsumingIter<K, V> = im::hashmap::ConsumingIter<(K, V)>;
 }
 
-#[cfg(all(feature = "sync", feature = "imbl"))]
+#[cfg(all(feature = "sync", feature = "imbl", not(feature = "biased")))]
+mod im_shims {
+
+    use std::hash::RandomState;
+
+    use imbl::shared_ptr::DefaultSharedPtr;
+
+    pub type Vector<T> = imbl::Vector<T>;
+    pub type HashMap<K, V, S = RandomState> = imbl::GenericHashMap<K, V, S, DefaultSharedPtr>;
+    pub type HashSet<K, S = RandomState> = imbl::GenericHashSet<K, S, DefaultSharedPtr>;
+
+    pub type VectorConsumingIter<T> = imbl::vector::ConsumingIter<T, DefaultSharedPtr>;
+    pub type HashSetConsumingIter<T> = imbl::hashset::ConsumingIter<T, DefaultSharedPtr>;
+    pub type HashMapConsumingIter<K, V> = imbl::hashmap::ConsumingIter<(K, V), DefaultSharedPtr>;
+}
+
+#[cfg(all(feature = "sync", feature = "imbl", feature = "biased"))]
 mod im_shims {
 
     use std::hash::RandomState;
