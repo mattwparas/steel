@@ -25,6 +25,18 @@ Steel uses a combination of reference counting and a mark and sweep garbage coll
 6. Heap allocated boxes are weak references to a reference counted pointer living in the heap. Thus, even memory managed by the garbage collector is also reference counted. This means that unboxing a mutable memory location requires two pointer jumps - first the weak pointer to the heap, then the strong pointer to the underlying value.
     - A nice consequence of this is that we can perform fast collections for unreachable values managed by the heap without having to perform a mark and sweep.
 
+## Reference counting implementation
+
+Steel contains four modes: standard `Rc`, standard `Arc`, `triomphe::Arc`, or an implementation of biased reference counting `steel_rc::BiasedRc`.
+
+The biased reference counting implementation is the default for the interpreter, but needs to be opted into itself when embedding steel directly
+with the `"biased"` feature.
+
+The biased reference counting implementation will mark each object with the thread that created it. When performing operations, it will first check if its on
+the thread that created it - if so, it will perform normal reference count operations. Otherwise, it will use atomic operations. There is some merging of the two
+counts that needs to happen which requires runtime support, which means that this doesn't necessarily scale arbitrarily as a standalone reference count operation.
+When a new thread is created, steel will register that thread with the runtime, and at regular intervals will merge reference counts as needed.
+
 ## Reference counting optimizations
 
 One consequence of using reference counted variables is that there will be a non trivial amount of time spent performing reference count operations on values coming and going from the stack. The steel compiler and vm performs a few optimizations to reduce the reference counting thrash, and also to improve the usage of the functional data structures built in.

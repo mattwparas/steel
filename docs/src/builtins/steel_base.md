@@ -4302,6 +4302,7 @@ Create a zipping iterator
 ### **read-to-string**
 ### **run!**
 ### **set-box!**
+### **set-piped-stdout!**
 ### **set-stdout-piped!**
 ### **set-strong-box!**
 ### **set-test-mode!**
