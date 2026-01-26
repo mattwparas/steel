@@ -499,12 +499,7 @@ impl BuiltInModuleRepr {
             .collect::<Vec<_>>();
 
         defines.push(ExprKind::List(crate::parser::ast::List::new(vec![
-            ExprKind::atom(*MODULE_GET),
-            ExprKind::atom(*VOID_MODULE),
-            ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
-                ExprKind::atom(*VOID),
-                SyntaxObject::default(TokenType::Quote),
-            ))),
+            ExprKind::atom("#%void"),
         ])));
 
         let res = ExprKind::Begin(Box::new(crate::parser::ast::Begin::new(
