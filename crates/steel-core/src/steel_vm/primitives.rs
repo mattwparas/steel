@@ -551,6 +551,8 @@ pub fn bootstrap_globals(engine: &mut Engine) {
 
     engine.register_value("#%box", SteelVal::BuiltIn(make_mutable_box));
 
+    engine.register_fn("#%void", || SteelVal::Void);
+
     for definition in &[
         PUSH_MODULE_CONTEXT_DEFINITION,
         POP_MODULE_CONTEXT_DEFINITION,
@@ -580,6 +582,8 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     engine.register_fn("%#maybe-module-get", BuiltInModule::try_get);
 
     engine.register_fn("load-from-module!", BuiltInModule::get);
+
+    engine.register_fn("#%void", || SteelVal::Void);
 
     // Registering values in modules
     engine.register_fn("#%module", BuiltInModule::new::<String>);
