@@ -47,7 +47,7 @@ use crate::{
         AsRefMutSteelVal, AsRefSteelVal as _, FromSteelVal, IntoSteelVal, MaybeSendSyncStatic,
         Result, SteelString, SteelVal,
     },
-    steel_vm::register_fn::RegisterFn,
+    steel_vm::{primitives::bootstrap_globals, register_fn::RegisterFn},
     stop, throw,
     values::{
         closed::GlobalSlotRecycler,
@@ -1148,6 +1148,64 @@ impl Engine {
             dylibs: DylibContainers::new(),
             id: EngineId::new(),
         }
+    }
+
+    pub fn set_prelude_string(&mut self, prelude_string: Cow<'static, str>) {
+        self.virtual_machine
+            .compiler
+            .write()
+            .module_manager
+            .set_prelude_string(prelude_string);
+    }
+
+    pub fn with_default_prelude_string(&mut self) {
+        self.virtual_machine
+            .compiler
+            .write()
+            .module_manager
+            .use_default_prelude_string();
+    }
+
+    /// Instantiates a raw engine instance. Includes no primitives or prelude, and does not
+    /// allow for kernel level macro expansion.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # extern crate steel;
+    /// # use steel::steel_vm::engine::Engine;
+    /// let mut vm = Engine::new_raw_no_kernel();
+    /// assert!(vm.run("(+ 1 2 3").is_err()); // + is a free identifier
+    /// ```
+    pub fn new_raw_no_kernel() -> Self {
+        #[cfg(all(feature = "sync", feature = "biased", not(feature = "triomphe")))]
+        {
+            steel_rc::register_thread();
+        }
+
+        let sources = Sources::new();
+        let modules = ModuleContainer::default();
+
+        let compiler = Arc::new(RwLock::new(Compiler::default_without_kernel(
+            sources,
+            modules.clone(),
+        )));
+
+        let mut engine = Engine {
+            virtual_machine: SteelThread::new(compiler),
+            modules,
+            #[cfg(feature = "dylibs")]
+            dylibs: DylibContainers::new(),
+            id: EngineId::new(),
+        };
+
+        bootstrap_globals(&mut engine);
+
+        // Set the prelude string to be completely empty,
+        // so we'll have to get that working yet.
+        engine.set_prelude_string(Cow::Borrowed(""));
+
+        engine
     }
 
     pub fn report_engine_stats(&self) -> EngineStatistics {
@@ -2638,4 +2696,18 @@ fn test_steel_quote_macro() {
     .unwrap();
 
     println!("{}", expanded);
+}
+
+#[test]
+fn test_raw_engine() {
+    let mut engine = Engine::new_raw_no_kernel();
+    engine.register_steel_module(
+        "in-memory".to_owned(),
+        "(provide foo) (define (foo) 10)".to_owned(),
+    );
+
+    engine.run(r#"(require "in-memory")"#).unwrap();
+    let res = engine.run("(foo)").unwrap();
+
+    assert_eq!(res[0], SteelVal::IntV(10));
 }

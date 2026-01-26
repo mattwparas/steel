@@ -499,6 +499,79 @@ fn render_as_md(text: String) {
     println!("{}", text);
 }
 
+pub fn bootstrap_globals(engine: &mut Engine) {
+    engine.register_value("std::env::args", SteelVal::ListV(List::new()));
+
+    engine.register_fn("##__module-get", BuiltInModule::get);
+    engine.register_fn("%module-get%", BuiltInModule::get);
+    engine.register_fn("%#maybe-module-get", BuiltInModule::try_get);
+
+    engine.register_fn("load-from-module!", BuiltInModule::get);
+
+    // Registering values in modules
+    engine.register_fn("#%module", BuiltInModule::new::<String>);
+    engine.register_fn(
+        "#%module-add",
+        |module: &mut BuiltInModule, name: SteelString, value: SteelVal| {
+            module.register_value(&name, value);
+        },
+    );
+
+    engine.register_fn(
+        "#%module-add-doc",
+        |module: &mut BuiltInModule, name: SteelString, value: String| {
+            module.register_doc(
+                Cow::Owned(name.as_str().to_string()),
+                super::builtin::Documentation::Markdown(MarkdownDoc(value.into())),
+            );
+        },
+    );
+
+    engine.register_fn("%doc?", BuiltInModule::get_doc);
+    engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
+    engine.register_fn("%module/lookup-function", BuiltInModule::search);
+    engine.register_fn("%string->render-markdown", render_as_md);
+    engine.register_fn(
+        "%module-bound-identifiers->list",
+        BuiltInModule::bound_identifiers,
+    );
+
+    // TODO: Provide a better version of this that is able to
+    // reject anything larger than a certain amount. At this point
+    // if the user attempts to type proto hash they could build something
+    // large.
+    engine.register_value("%proto-hash%", HM_CONSTRUCT);
+    engine.register_value("%proto-hash-insert%", HM_INSERT);
+    engine.register_value("%proto-hash-get%", HM_GET);
+    engine.register_value("error!", ControlOperations::error());
+
+    engine.register_value("error", ControlOperations::error());
+
+    engine.register_value("#%error", ControlOperations::error());
+
+    engine.register_value("#%box", SteelVal::BuiltIn(make_mutable_box));
+
+    for definition in &[
+        PUSH_MODULE_CONTEXT_DEFINITION,
+        POP_MODULE_CONTEXT_DEFINITION,
+        GET_MODULE_CONTEXT_DEFINITION,
+        SET_BOX_DEFINITION,
+        UNBOX_DEFINITION,
+    ] {
+        let steel_val = match definition.func {
+            BuiltInFunctionType::Reference(value) => SteelVal::FuncV(value),
+            BuiltInFunctionType::Mutable(value) => SteelVal::MutFunc(value),
+            BuiltInFunctionType::Context(value) => SteelVal::BuiltIn(value),
+        };
+
+        let names = std::iter::once(definition.name).chain(definition.aliases.iter().cloned());
+
+        for name in names {
+            engine.register_value(&format!("#%prim.{}", name), steel_val.clone());
+        }
+    }
+}
+
 pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     engine.register_value("std::env::args", SteelVal::ListV(List::new()));
 

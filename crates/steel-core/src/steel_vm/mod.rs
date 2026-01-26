@@ -22,5 +22,7 @@ mod tests;
 pub(crate) mod transducers;
 pub(crate) mod vm;
 
+pub mod interrupt;
+
 pub use vm::ThreadStateController;
 pub use vm::{mutex_lock, mutex_unlock};
