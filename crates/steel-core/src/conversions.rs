@@ -236,7 +236,7 @@ impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for HashMap<K, V> {
     }
 }
 
-impl<K: FromSteelVal + Eq + std::hash::Hash, V: FromSteelVal> FromSteelVal for HashMap<K, V> {
+impl<K: FromSteelVal + Eq + core::hash::Hash, V: FromSteelVal> FromSteelVal for HashMap<K, V> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         // todo!()
         if let SteelVal::HashMapV(hm) = val {
@@ -302,7 +302,7 @@ impl<K: IntoSteelVal> IntoSteelVal for HashSet<K> {
     }
 }
 
-impl<K: FromSteelVal + Eq + std::hash::Hash> FromSteelVal for HashSet<K> {
+impl<K: FromSteelVal + Eq + core::hash::Hash> FromSteelVal for HashSet<K> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::HashSetV(hs) = val {
             let mut h = HashSet::new();

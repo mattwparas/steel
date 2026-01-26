@@ -33,7 +33,7 @@ pub fn copy_recursively(source: impl AsRef<Path>, destination: impl AsRef<Path>)
 }
 
 impl Custom for PathBuf {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         Some(Ok(format!("#<Path:{:?}>", self)))
     }
 }

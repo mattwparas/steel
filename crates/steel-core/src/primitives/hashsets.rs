@@ -68,7 +68,7 @@ pub fn hs_insert(hashset: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
         match Gc::get_mut(hs) {
             Some(m) => {
                 m.insert(value);
-                Ok(std::mem::replace(hashset, SteelVal::Void))
+                Ok(core::mem::replace(hashset, SteelVal::Void))
             }
 
             None => Ok(SteelVal::HashSetV(SteelHashSet(Gc::new(hs.update(value))))),
@@ -201,7 +201,7 @@ pub fn hashset_clear(hashset: &mut SteelVal) -> Result<SteelVal> {
         match Gc::get_mut(hs) {
             Some(m) => {
                 m.clear();
-                Ok(std::mem::replace(hashset, SteelVal::Void))
+                Ok(core::mem::replace(hashset, SteelVal::Void))
             }
             None => Ok(SteelVal::HashSetV(Gc::new(HashSet::new()).into())),
         }

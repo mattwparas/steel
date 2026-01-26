@@ -166,7 +166,7 @@ impl<'a> ConstantEvaluatorManager<'a> {
 
             collector.visit(&expr);
 
-            let expr_level_set_idents = std::mem::take(&mut collector.expr_level_set_idents);
+            let expr_level_set_idents = core::mem::take(&mut collector.expr_level_set_idents);
 
             // println!("Length of expr level sets!: {:?}", expr_level_set_idents);
 
@@ -413,7 +413,7 @@ impl<'a> ConstantEvaluator<'a> {
         func: ExprKind,
         // evaluated_func: &SteelVal,
         mut raw_args: Vec<ExprKind>,
-    ) -> std::result::Result<ExprKind, crate::SteelErr> {
+    ) -> core::result::Result<ExprKind, crate::SteelErr> {
         if let Some(new_token) = steelval_to_atom(&output) {
             let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));
             // debug!(
@@ -534,7 +534,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
     // TODO remove constants from the begins
     fn visit_begin(&mut self, mut begin: Box<crate::parser::ast::Begin>) -> Self::Output {
         for expr in begin.exprs.iter_mut() {
-            *expr = self.visit(std::mem::take(expr))?;
+            *expr = self.visit(core::mem::take(expr))?;
         }
 
         Ok(ExprKind::Begin(begin))
@@ -894,7 +894,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
     // TODO come back to this
     fn visit_let(&mut self, mut l: Box<crate::parser::ast::Let>) -> Self::Output {
-        let bindings = std::mem::take(&mut l.bindings);
+        let bindings = core::mem::take(&mut l.bindings);
 
         let mut new_env = ConstantEnv::new_subexpression(Rc::downgrade(&self.bindings));
 
@@ -919,7 +919,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         let mut body = ExprKind::empty();
 
-        std::mem::swap(&mut l.body_expr, &mut body);
+        core::mem::swap(&mut l.body_expr, &mut body);
 
         let output = self.visit(body)?;
 

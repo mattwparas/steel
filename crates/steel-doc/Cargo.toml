@@ -10,7 +10,14 @@ description = "Document generation for steel"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-steel-core = { workspace = true }
+steel-core = { path = "../steel-core", version = "0.7.0", features = [
+  "dylibs",
+  "markdown",
+  "sync",
+  "rooted-instructions",
+  "imbl",
+  "biased"
+] }
 
 [package.metadata.dist]
 dist = false
