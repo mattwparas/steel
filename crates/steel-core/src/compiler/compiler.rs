@@ -63,12 +63,13 @@ use crate::values::HashMap as ImmutableHashMap;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum DefineKind {
     Flat,
     Closure,
 }
 
+#[derive(Debug)]
 struct FlatDefineLocation {
     kind: DefineKind,
     location: (usize, usize),
@@ -341,6 +342,17 @@ impl DebruijnIndicesInterner {
                         })),
                     ..
                 } => {
+                    // if s.resolve().ends_with("function") {
+                    //     println!("---------------------");
+                    //     println!("Depth: {}", depth);
+                    //     for (flat_define, location) in &self.flat_defines {
+                    //         println!("Flat define: {} - {:?}", flat_define, location);
+                    //     }
+                    //     for second_pass_define in &self.second_pass_defines {
+                    //         println!("second pass define: {}", second_pass_define);
+                    //     }
+                    // }
+
                     if self.flat_defines.get(s).is_some()
                         && self.second_pass_defines.get(s).is_none()
                         && depth == 0
@@ -358,6 +370,28 @@ impl DebruijnIndicesInterner {
                             "Cannot reference an identifier before its definition: {formatted}"
                         );
                         stop!(FreeIdentifier => message; *span);
+                    }
+
+                    if self.flat_defines.get(s).is_some()
+                        && self.second_pass_defines.get(s).is_some()
+                        && depth == 0
+                    {
+                        let location = self.flat_defines.get(s).unwrap();
+                        if let DefineKind::Flat = location.kind {
+                            if i < location.location.1 && s.resolve().starts_with(MANGLER_PREFIX) {
+                                let formatted = if s.resolve().starts_with(MANGLER_PREFIX) {
+                                    s.resolve()
+                                        .split_once(MANGLER_SEPARATOR)
+                                        .map(|x| x.1)
+                                        .unwrap_or(s.resolve())
+                                } else {
+                                    s.resolve()
+                                };
+
+                                let message = format!("Cannot reference an identifier before its definition: {formatted}");
+                                stop!(FreeIdentifier => message; *span);
+                            }
+                        }
                     }
 
                     let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
