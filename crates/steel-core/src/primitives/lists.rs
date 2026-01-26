@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use core::cmp::Ordering;
 use std::hint::unreachable_unchecked;
 
 use crate::rvals::{IntoSteelVal, Result, SteelVal};
@@ -439,7 +439,7 @@ pub fn pair(list: &SteelVal) -> bool {
 /// ```
 #[steel_derive::function(name = "cons", arity = "Exact(2)")]
 pub fn cons(arg: &mut SteelVal, arg2: &mut SteelVal) -> Result<SteelVal> {
-    match (std::mem::replace(arg, SteelVal::Void), arg2) {
+    match (core::mem::replace(arg, SteelVal::Void), arg2) {
         (left, SteelVal::ListV(right)) => {
             right.cons_mut(left);
 
@@ -548,7 +548,7 @@ fn length(list: &List<SteelVal>) -> usize {
 /// ```
 #[steel_derive::function(name = "reverse", constant = true)]
 fn reverse(arg: &mut SteelVal) -> Result<SteelVal> {
-    let replaced = std::mem::replace(arg, SteelVal::Void);
+    let replaced = core::mem::replace(arg, SteelVal::Void);
     if let SteelVal::ListV(l) = replaced {
         Ok(SteelVal::ListV(l.reverse()))
     } else {
@@ -659,7 +659,7 @@ fn cdr_is_null(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "cdr", constant = true)]
 pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
-    match std::mem::replace(arg, SteelVal::Void) {
+    match core::mem::replace(arg, SteelVal::Void) {
         SteelVal::ListV(mut l) => {
             if l.is_empty() {
                 stop!(Generic => "cdr expects a non empty list");
@@ -679,7 +679,7 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
 }
 
 pub(crate) unsafe fn cdr_no_check(arg: &mut SteelVal) -> SteelVal {
-    match std::mem::replace(arg, SteelVal::Void) {
+    match core::mem::replace(arg, SteelVal::Void) {
         SteelVal::ListV(mut l) => {
             l.rest_mut();
             SteelVal::ListV(l)
@@ -711,7 +711,7 @@ pub(crate) unsafe fn cdr_no_check(arg: &mut SteelVal) -> SteelVal {
 /// ```
 #[steel_derive::function(name = "rest", constant = true, arity = "Exact(1)")]
 fn rest(arg: &mut SteelVal) -> Result<SteelVal> {
-    if let SteelVal::ListV(mut l) = std::mem::replace(arg, SteelVal::Void) {
+    if let SteelVal::ListV(mut l) = core::mem::replace(arg, SteelVal::Void) {
         if l.is_empty() {
             stop!(Generic => "rest expects a non empty list");
         }

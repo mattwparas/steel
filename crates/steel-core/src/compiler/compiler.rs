@@ -26,7 +26,8 @@ use crate::{
     parser::parser::Sources,
 };
 
-use std::{borrow::Cow, iter::Iterator};
+use alloc::borrow::Cow;
+use core::iter::Iterator;
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -62,12 +63,13 @@ use crate::values::HashMap as ImmutableHashMap;
 #[cfg(feature = "profiling")]
 use std::time::Instant;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum DefineKind {
     Flat,
     Closure,
 }
 
+#[derive(Debug)]
 struct FlatDefineLocation {
     kind: DefineKind,
     location: (usize, usize),
@@ -357,6 +359,28 @@ impl DebruijnIndicesInterner {
                             "Cannot reference an identifier before its definition: {formatted}"
                         );
                         stop!(FreeIdentifier => message; *span);
+                    }
+
+                    if self.flat_defines.get(s).is_some()
+                        && self.second_pass_defines.get(s).is_some()
+                        && depth == 0
+                    {
+                        let location = self.flat_defines.get(s).unwrap();
+                        if let DefineKind::Flat = location.kind {
+                            if (index, i) < location.location {
+                                let formatted = if s.resolve().starts_with(MANGLER_PREFIX) {
+                                    s.resolve()
+                                        .split_once(MANGLER_SEPARATOR)
+                                        .map(|x| x.1)
+                                        .unwrap_or(s.resolve())
+                                } else {
+                                    s.resolve()
+                                };
+
+                                let message = format!("Cannot reference an identifier before its definition: {formatted}");
+                                stop!(FreeIdentifier => message; *span);
+                            }
+                        }
                     }
 
                     let idx = symbol_map.get(s).map_err(|e| e.set_span(*span))?;
@@ -716,7 +740,7 @@ impl Compiler {
         let id = self.sources.add_source(expr_str.clone(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = path
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
             .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
@@ -746,7 +770,7 @@ impl Compiler {
         let id = self.sources.add_source(expr_str.clone(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> = path
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
             .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
@@ -772,7 +796,7 @@ impl Compiler {
         let id = self.sources.add_source(expr_str.to_string(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
             Parser::new(expr_str, Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
@@ -791,7 +815,7 @@ impl Compiler {
         let id = self.sources.add_source(expr_str.to_string(), path.clone());
 
         // Could fail here
-        let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+        let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
             Parser::new(expr_str, Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
@@ -852,7 +876,7 @@ impl Compiler {
         // let mut index_buffer = Vec::new();
 
         let analysis = {
-            let mut analysis = std::mem::take(&mut self.analysis);
+            let mut analysis = core::mem::take(&mut self.analysis);
 
             analysis.fresh_from_exprs(&expanded_statements);
             analysis.populate_captures_twice(&expanded_statements);
@@ -981,7 +1005,7 @@ impl Compiler {
 
         let mut expanded_statements = filter_provides(expanded_statements);
 
-        let mut analysis = std::mem::take(&mut self.analysis);
+        let mut analysis = core::mem::take(&mut self.analysis);
         analysis.fresh_from_exprs(&expanded_statements);
         analysis.populate_captures(&expanded_statements);
 
@@ -1166,7 +1190,7 @@ impl Compiler {
         // let mut expanded_statements =
         //     self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
-        let mut analysis = std::mem::take(&mut self.analysis);
+        let mut analysis = core::mem::take(&mut self.analysis);
 
         // Pre populate the analysis here
         analysis.fresh_from_exprs(&expanded_statements);
@@ -1512,7 +1536,7 @@ fn filter_provides(expanded_statements: Vec<ExprKind>) -> Vec<ExprKind> {
         .into_iter()
         .filter_map(|expr| match expr {
             ExprKind::Begin(mut b) => {
-                let exprs = std::mem::take(&mut b.exprs);
+                let exprs = core::mem::take(&mut b.exprs);
                 b.exprs = exprs
                     .into_iter()
                     .filter_map(|e| match e {

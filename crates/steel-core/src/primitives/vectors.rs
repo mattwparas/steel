@@ -52,7 +52,7 @@ fn immutable_vector_rest(vector: &mut SteelVal) -> Result<SteelVal> {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
             Some(v) => {
                 v.pop_front();
-                Ok(std::mem::replace(vector, SteelVal::Void))
+                Ok(core::mem::replace(vector, SteelVal::Void))
             }
             None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
                 let mut v = v.unwrap();
@@ -326,7 +326,7 @@ fn make_immutable_vector(mut rest: RestArgsIter<'_, &SteelVal>) -> Result<SteelV
 
     let fill = rest.next().transpose()?.unwrap_or(&SteelVal::Void);
 
-    let vector: Vector<_> = std::iter::repeat(())
+    let vector: Vector<_> = core::iter::repeat(())
         .map(|_| fill.clone())
         .take(len as usize)
         .collect();
@@ -352,7 +352,7 @@ fn immutable_vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<Steel
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
             Some(v) => {
                 v.push_back(value);
-                Ok(std::mem::replace(vector, SteelVal::Void))
+                Ok(core::mem::replace(vector, SteelVal::Void))
             }
             None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
                 let mut v = v.unwrap();
@@ -374,7 +374,7 @@ fn vector_push(vector: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
             Some(v) => {
                 v.push_back(value);
-                Ok(std::mem::replace(vector, SteelVal::Void))
+                Ok(core::mem::replace(vector, SteelVal::Void))
             }
             None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
                 let mut v = v.unwrap();
@@ -412,7 +412,7 @@ fn immutable_vector_push_front(vector: &mut SteelVal, value: SteelVal) -> Result
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
             Some(v) => {
                 v.push_front(value);
-                Ok(std::mem::replace(vector, SteelVal::Void))
+                Ok(core::mem::replace(vector, SteelVal::Void))
             }
             None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
                 let mut v = v.unwrap();
@@ -454,7 +454,7 @@ fn immutable_vector_set(vector: &mut SteelVal, index: usize, value: SteelVal) ->
                 }
 
                 v.set(index, value);
-                Ok(std::mem::replace(vector, SteelVal::Void))
+                Ok(core::mem::replace(vector, SteelVal::Void))
             }
             None => Ok(SteelVal::VectorV(SteelVector(Gc::new({
                 if index > v.len() {
@@ -483,7 +483,7 @@ fn immutable_vector_pop_back(vector: &mut SteelVal) -> Result<SteelVal> {
 
                 match back {
                     Some(back) => {
-                        let vector = std::mem::replace(vector, SteelVal::Void);
+                        let vector = core::mem::replace(vector, SteelVal::Void);
                         Ok(SteelVal::Pair(Gc::new(Pair {
                             car: back,
                             cdr: vector,
@@ -530,7 +530,7 @@ fn immutable_vector_take(vector: &mut SteelVal, count: usize) -> Result<SteelVal
         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
             Some(v) => {
                 v.truncate(count);
-                Ok(std::mem::replace(vector, SteelVal::Void))
+                Ok(core::mem::replace(vector, SteelVal::Void))
             }
             None => Ok(SteelVal::VectorV(SteelVector(Gc::new(v.take(count))))),
         },
@@ -547,7 +547,7 @@ fn immutable_vector_take(vector: &mut SteelVal, count: usize) -> Result<SteelVal
 //         SteelVal::VectorV(SteelVector(v)) => match Gc::get_mut(v) {
 //             Some(v) => {
 //                 v.truncate(v.len() - count);
-//                 Ok(std::mem::replace(vector, SteelVal::Void))
+//                 Ok(core::mem::replace(vector, SteelVal::Void))
 //             }
 //             None => Ok(SteelVal::VectorV(SteelVector(Gc::new(
 //                 v.take(v.len() - count),
@@ -582,7 +582,7 @@ fn immutable_vector_drop(vector: &mut SteelVal, count: usize) -> Result<SteelVal
                 }
 
                 // v.truncate(count);
-                Ok(std::mem::replace(vector, SteelVal::Void))
+                Ok(core::mem::replace(vector, SteelVal::Void))
             }
             None => Ok(SteelVal::VectorV(SteelVector(Gc::new(v.skip(count))))),
         },
@@ -603,7 +603,7 @@ fn immutable_vector_drop(vector: &mut SteelVal, count: usize) -> Result<SteelVal
 //                 }
 
 //                 // v.truncate(count);
-//                 Ok(std::mem::replace(vector, SteelVal::Void))
+//                 Ok(core::mem::replace(vector, SteelVal::Void))
 //             }
 //             None => Ok(SteelVal::VectorV(SteelVector(Gc::new(v.take(count))))),
 //         },
@@ -725,11 +725,11 @@ pub fn make_vector(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVa
     fn make_vector_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
         match &args {
             &[SteelVal::IntV(i)] if *i >= 0 => Ok(ctx
-                .make_mutable_vector_iter(std::iter::repeat(SteelVal::IntV(0)).take(*i as usize))),
+                .make_mutable_vector_iter(core::iter::repeat(SteelVal::IntV(0)).take(*i as usize))),
             &[SteelVal::IntV(i), initial_value] if *i >= 0 => {
                 // Ok(ctx.make_mutable_vector(vec![initial_value.clone(); *i as usize]))
                 Ok(ctx.make_mutable_vector_iter(
-                    std::iter::repeat(initial_value.clone()).take(*i as usize),
+                    core::iter::repeat(initial_value.clone()).take(*i as usize),
                 ))
             }
             _ => {
@@ -1485,7 +1485,7 @@ mod vector_prim_tests {
     use im::vector;
 
     #[cfg(all(feature = "sync", feature = "imbl"))]
-    use imbl::vector;
+    use steel_imbl::generic_vector as vector;
 
     #[test]
     fn vec_construct_test() {

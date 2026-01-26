@@ -236,7 +236,7 @@ impl<K: IntoSteelVal, V: IntoSteelVal> IntoSteelVal for HashMap<K, V> {
     }
 }
 
-impl<K: FromSteelVal + Eq + std::hash::Hash, V: FromSteelVal> FromSteelVal for HashMap<K, V> {
+impl<K: FromSteelVal + Eq + core::hash::Hash, V: FromSteelVal> FromSteelVal for HashMap<K, V> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         // todo!()
         if let SteelVal::HashMapV(hm) = val {
@@ -302,7 +302,7 @@ impl<K: IntoSteelVal> IntoSteelVal for HashSet<K> {
     }
 }
 
-impl<K: FromSteelVal + Eq + std::hash::Hash> FromSteelVal for HashSet<K> {
+impl<K: FromSteelVal + Eq + core::hash::Hash> FromSteelVal for HashSet<K> {
     fn from_steelval(val: &SteelVal) -> Result<Self> {
         if let SteelVal::HashSetV(hs) = val {
             let mut h = HashSet::new();
@@ -356,13 +356,13 @@ mod conversion_tests {
     use im::hashset;
 
     #[cfg(all(feature = "sync", feature = "imbl"))]
-    use imbl::vector;
+    use steel_imbl::generic_vector as vector;
 
     #[cfg(all(feature = "sync", feature = "imbl"))]
-    use imbl::hashmap;
+    use steel_imbl::generic_hashmap as hashmap;
 
     #[cfg(all(feature = "sync", feature = "imbl"))]
-    use imbl::hashset;
+    use steel_imbl::generic_hashset as hashset;
 
     #[test]
     fn vec_into_list() {

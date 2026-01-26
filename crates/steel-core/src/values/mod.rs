@@ -67,13 +67,63 @@ mod im_shims {
 
     use std::hash::RandomState;
 
-    use imbl::shared_ptr::DefaultSharedPtr;
+    use crate::gc::Gc;
+    use steel_imbl::shared_ptr::PointerFamily;
 
-    pub type Vector<T> = imbl::Vector<T>;
-    pub type HashMap<K, V, S = RandomState> = imbl::GenericHashMap<K, V, S, DefaultSharedPtr>;
-    pub type HashSet<K, S = RandomState> = imbl::GenericHashSet<K, S, DefaultSharedPtr>;
+    const CHUNK_SIZE: usize = 64;
 
-    pub type VectorConsumingIter<T> = imbl::vector::ConsumingIter<T, DefaultSharedPtr>;
-    pub type HashSetConsumingIter<T> = imbl::hashset::ConsumingIter<T, DefaultSharedPtr>;
-    pub type HashMapConsumingIter<K, V> = imbl::hashmap::ConsumingIter<(K, V), DefaultSharedPtr>;
+    pub struct GcPointerType;
+
+    impl PointerFamily for GcPointerType {
+        type Pointer<T: 'static> = Gc<T>;
+
+        fn new<T: 'static>(value: T) -> Self::Pointer<T> {
+            Gc::new(value)
+        }
+
+        fn strong_count<T: 'static>(this: &Self::Pointer<T>) -> usize {
+            Gc::strong_count(this)
+        }
+
+        fn try_unwrap<T: 'static>(this: Self::Pointer<T>) -> Result<T, Self::Pointer<T>> {
+            Gc::try_unwrap(this)
+        }
+
+        fn get_mut<T: 'static>(this: &mut Self::Pointer<T>) -> Option<&mut T> {
+            Gc::get_mut(this)
+        }
+
+        fn ptr_eq<T: 'static>(this: &Self::Pointer<T>, other: &Self::Pointer<T>) -> bool {
+            Gc::ptr_eq(this, other)
+        }
+
+        fn make_mut<T: Clone + 'static>(ptr: &mut Self::Pointer<T>) -> &mut T {
+            Gc::make_mut(ptr)
+        }
+
+        fn clone<T: 'static>(ptr: &Self::Pointer<T>) -> Self::Pointer<T> {
+            Gc::clone(ptr)
+        }
+
+        fn as_ptr<T: 'static>(this: &Self::Pointer<T>) -> *const T {
+            Gc::as_ptr(this)
+        }
+
+        fn into_raw<T: 'static>(this: Self::Pointer<T>) -> *const T {
+            Gc::into_raw(this)
+        }
+
+        unsafe fn from_raw<T: 'static>(this: *const T) -> Self::Pointer<T> {
+            Gc::from_raw(this)
+        }
+    }
+
+    pub type Vector<T> = steel_imbl::GenericVector<T, GcPointerType, CHUNK_SIZE>;
+    pub type HashMap<K, V, S = RandomState> = steel_imbl::GenericHashMap<K, V, S, GcPointerType>;
+    pub type HashSet<K, S = RandomState> = steel_imbl::GenericHashSet<K, S, GcPointerType>;
+
+    pub type VectorConsumingIter<T> =
+        steel_imbl::vector::ConsumingIter<T, GcPointerType, CHUNK_SIZE>;
+    pub type HashSetConsumingIter<T> = steel_imbl::hashset::ConsumingIter<T, GcPointerType>;
+    pub type HashMapConsumingIter<K, V> = steel_imbl::hashmap::ConsumingIter<(K, V), GcPointerType>;
 }

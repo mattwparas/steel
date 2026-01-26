@@ -52,9 +52,9 @@ impl VisitorMutRefUnit for FlipNotCondition {
     // with the inner and re order the then/else statement
     fn visit_if(&mut self, f: &mut steel_parser::ast::If) {
         if let Some(not_target_expr) = not_expr_target(&mut f.test_expr) {
-            let inner = std::mem::replace(not_target_expr, ExprKind::empty());
+            let inner = core::mem::replace(not_target_expr, ExprKind::empty());
             f.test_expr = inner;
-            std::mem::swap(&mut f.then_expr, &mut f.else_expr);
+            core::mem::swap(&mut f.then_expr, &mut f.else_expr);
         }
 
         self.visit(&mut f.test_expr);
@@ -94,7 +94,7 @@ impl VisitorMutRefUnit for PruneConstantIfBranches {
         match expr {
             ExprKind::If(f) => {
                 if expr_is_truthy(&f.test_expr) {
-                    *expr = std::mem::replace(&mut f.then_expr, ExprKind::empty());
+                    *expr = core::mem::replace(&mut f.then_expr, ExprKind::empty());
                     self.visit(expr);
                 } else {
                     self.visit_if(f)
