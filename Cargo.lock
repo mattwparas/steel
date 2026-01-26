@@ -3952,6 +3952,8 @@ dependencies = [
 [[package]]
 name = "steel-imbl"
 version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9b5c1fabb255a0ca555aa2972d261ac7e4b68b9228094a3be6d187cc132a42d"
 dependencies = [
  "bitmaps 3.2.1",
  "imbl-sized-chunks",
