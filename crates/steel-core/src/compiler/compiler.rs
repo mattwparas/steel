@@ -342,17 +342,6 @@ impl DebruijnIndicesInterner {
                         })),
                     ..
                 } => {
-                    // if s.resolve().ends_with("function") {
-                    //     println!("---------------------");
-                    //     println!("Depth: {}", depth);
-                    //     for (flat_define, location) in &self.flat_defines {
-                    //         println!("Flat define: {} - {:?}", flat_define, location);
-                    //     }
-                    //     for second_pass_define in &self.second_pass_defines {
-                    //         println!("second pass define: {}", second_pass_define);
-                    //     }
-                    // }
-
                     if self.flat_defines.get(s).is_some()
                         && self.second_pass_defines.get(s).is_none()
                         && depth == 0
