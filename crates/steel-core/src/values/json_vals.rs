@@ -200,7 +200,7 @@ mod json_tests {
     use im::hashmap;
 
     #[cfg(all(feature = "sync", feature = "imbl"))]
-    use imbl::hashmap;
+    use steel_imbl::generic_hashmap as hashmap;
 
     #[test]
     fn test_string_to_jsexpr() {

@@ -2663,7 +2663,7 @@ mod or_else_tests {
     use im::vector;
 
     #[cfg(all(feature = "sync", feature = "imbl"))]
-    use imbl::vector;
+    use steel_imbl::generic_vector as vector;
 
     #[cfg(not(feature = "sync"))]
     use im_rc::vector;
