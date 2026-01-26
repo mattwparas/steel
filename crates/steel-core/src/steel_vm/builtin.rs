@@ -529,6 +529,10 @@ impl BuiltInModule {
         self.module.read().cached_expression()
     }
 
+    pub fn remove(&mut self, name: &str) {
+        self.module.write().values.remove(name);
+    }
+
     pub(crate) fn constant_funcs(
         &self,
     ) -> crate::values::HashMap<InternedString, SteelVal, FxBuildHasher> {
