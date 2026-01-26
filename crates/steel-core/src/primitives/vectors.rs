@@ -1485,7 +1485,7 @@ mod vector_prim_tests {
     use im::vector;
 
     #[cfg(all(feature = "sync", feature = "imbl"))]
-    use imbl::vector;
+    use steel_imbl::generic_vector as vector;
 
     #[test]
     fn vec_construct_test() {

@@ -356,13 +356,13 @@ mod conversion_tests {
     use im::hashset;
 
     #[cfg(all(feature = "sync", feature = "imbl"))]
-    use imbl::vector;
+    use steel_imbl::generic_vector as vector;
 
     #[cfg(all(feature = "sync", feature = "imbl"))]
-    use imbl::hashmap;
+    use steel_imbl::generic_hashmap as hashmap;
 
     #[cfg(all(feature = "sync", feature = "imbl"))]
-    use imbl::hashset;
+    use steel_imbl::generic_hashset as hashset;
 
     #[test]
     fn vec_into_list() {

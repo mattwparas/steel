@@ -823,7 +823,7 @@ pub static STATIC_VTABLE: Lazy<RwLock<VTable>> = Lazy::new(|| {
     let mut map = rustc_hash::FxHashMap::default();
 
     #[cfg(feature = "imbl")]
-    let result_options = Gc::new(imbl::hashmap! {
+    let result_options = Gc::new(steel_imbl::generic_hashmap! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
 
@@ -884,7 +884,7 @@ thread_local! {
         });
 
         #[cfg(all(feature = "sync", feature = "imbl"))]
-        let result_options = Gc::new(imbl::hashmap! {
+        let result_options = Gc::new(steel_imbl::generic_hashmap! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
         });
 
@@ -915,7 +915,7 @@ thread_local! {
 
 
     #[cfg(all(feature = "sync", feature = "imbl"))]
-    pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(imbl::hashmap! {
+    pub static STANDARD_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(steel_imbl::generic_hashmap! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
 
@@ -955,7 +955,7 @@ thread_local! {
     });
 
     #[cfg(all(feature = "sync", feature = "imbl"))]
-    pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(imbl::hashmap! {
+    pub static OPTION_OPTIONS: Gc<HashMap<SteelVal, SteelVal>> = Gc::new(steel_imbl::generic_hashmap! {
         SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
 
