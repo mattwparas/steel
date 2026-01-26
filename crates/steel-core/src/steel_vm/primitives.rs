@@ -549,10 +549,14 @@ pub fn bootstrap_globals(engine: &mut Engine) {
 
     engine.register_value("#%error", ControlOperations::error());
 
+    engine.register_value("#%box", SteelVal::BuiltIn(make_mutable_box));
+
     for definition in &[
         PUSH_MODULE_CONTEXT_DEFINITION,
         POP_MODULE_CONTEXT_DEFINITION,
         GET_MODULE_CONTEXT_DEFINITION,
+        SET_BOX_DEFINITION,
+        UNBOX_DEFINITION,
     ] {
         let steel_val = match definition.func {
             BuiltInFunctionType::Reference(value) => SteelVal::FuncV(value),
