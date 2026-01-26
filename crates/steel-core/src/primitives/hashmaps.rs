@@ -23,7 +23,7 @@ declare_const_ref_functions!(
 
 pub const HM_INSERT: SteelVal = SteelVal::MutFunc(steel_hash_insert);
 
-pub(crate) fn hashmap_module() -> BuiltInModule {
+pub fn hashmap_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/hash".to_string());
     module
         .register_native_fn_definition(HM_CONSTRUCT_DEFINITION)

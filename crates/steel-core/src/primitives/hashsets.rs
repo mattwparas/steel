@@ -6,7 +6,7 @@ use crate::values::HashSet;
 use crate::{gc::Gc, steel_vm::builtin::BuiltInModule};
 use crate::{stop, Vector};
 
-pub(crate) fn hashset_module() -> BuiltInModule {
+pub fn hashset_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/sets");
     module
         .register_native_fn_definition(HS_CONSTRUCT_DEFINITION)
