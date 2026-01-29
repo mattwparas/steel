@@ -8,6 +8,7 @@ mod env;
 pub mod core;
 pub mod compiler;
 pub mod primitives;
+pub mod time;
 #[macro_use]
 pub mod rerrs;
 pub mod rvals;

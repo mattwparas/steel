@@ -596,7 +596,7 @@ impl Kernel {
         environment: &str,
     ) -> Result<ExprKind> {
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
 
         let span = get_span(&expr);
 

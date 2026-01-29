@@ -226,7 +226,7 @@ pub fn closure_into_serializable(
 //     use crate::rvals::SerializableSteelVal;
 
 //     #[cfg(feature = "profiling")]
-//     let now = std::time::Instant::now();
+//     let now = crate::time::Instant::now();
 
 //     // Need a new:
 //     // Stack
@@ -766,7 +766,7 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     // We are now in a world in which we have to support safe points
     ctx.thread.safepoints_enabled = true;
 
-    let thread_time = std::time::Instant::now();
+    let thread_time = crate::time::Instant::now();
 
     // Do this here?
     let mut thread = ctx.thread.clone();

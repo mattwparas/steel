@@ -20,10 +20,12 @@ use crate::{
     rvals::IntoSteelVal,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, time::SystemTime};
+use std::collections::HashMap;
+
+use crate::time::SystemTime;
 
 #[cfg(feature = "profiling")]
-use std::time::Instant;
+use crate::time::Instant;
 
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
