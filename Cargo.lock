@@ -3896,7 +3896,6 @@ dependencies = [
  "parking_lot",
  "polling 3.11.0",
  "proptest",
- "rand 0.9.2",
  "rustc-hash",
  "serde",
  "serde_json",
