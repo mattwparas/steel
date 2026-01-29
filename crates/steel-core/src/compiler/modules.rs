@@ -31,11 +31,11 @@ use rustc_hash::{FxHashMap, FxHashSet};
 // use smallvec::SmallVec;
 use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
 
+use crate::path::PathBuf;
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     io::Read,
-    path::PathBuf,
     sync::Arc,
 };
 
@@ -142,9 +142,11 @@ create_prelude!(
 
 #[cfg(not(target_family = "wasm"))]
 pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
-    std::env::var("STEEL_SEARCH_PATHS")
-        .ok()
-        .map(|x| std::env::split_paths(x.as_str()).collect::<Vec<_>>())
+    std::env::var("STEEL_SEARCH_PATHS").ok().map(|x| {
+        std::env::split_paths(x.as_str())
+            .map(PathBuf::from)
+            .collect::<Vec<_>>()
+    })
 });
 
 pub fn steel_search_dirs() -> Vec<PathBuf> {
@@ -158,11 +160,11 @@ pub fn steel_search_dirs() -> Vec<PathBuf> {
 #[cfg(not(target_family = "wasm"))]
 pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
     std::env::var("STEEL_HOME").ok().or_else(|| {
-        let home = env_home::env_home_dir().map(|x| x.join(".steel"));
+        let home = env_home::env_home_dir().map(|x| PathBuf::from(x.join(".steel")));
 
         if let Some(home) = home {
             if home.exists() {
-                return Some(home.into_os_string().into_string().unwrap());
+                return Some(home.into_path().into_os_string().into_string().unwrap());
             }
 
             #[cfg(target_os = "windows")]
@@ -171,14 +173,14 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
                     eprintln!("Unable to create steel home directory {:?}: {}", home, e)
                 }
 
-                return Some(home.into_os_string().into_string().unwrap());
+                return Some(home.into_path().into_os_string().into_string().unwrap());
             }
         }
 
         #[cfg(not(target_os = "windows"))]
         {
             let bd = xdg::BaseDirectories::new();
-            let home = bd.data_home;
+            let home = bd.data_home.map(PathBuf::from);
 
             home.map(|mut x: PathBuf| {
                 x.push("steel");
@@ -193,7 +195,7 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
                     }
                 }
 
-                x.into_os_string().into_string().unwrap()
+                x.into_path().into_os_string().into_string().unwrap()
             })
         }
 
@@ -1718,7 +1720,7 @@ impl CompiledModule {
 
         builtin_definitions.append(&mut provide_definitions);
 
-        let module = self.name.as_os_str().to_str().unwrap().to_owned();
+        let module = self.name.as_path().as_os_str().to_str().unwrap().to_owned();
 
         // Introduce a call to set the current module context?
         builtin_definitions.push(expr_list!(
@@ -1890,7 +1892,9 @@ impl RequireObjectBuilder {
 }
 
 fn try_canonicalize(path: PathBuf) -> PathBuf {
-    std::fs::canonicalize(&path).unwrap_or_else(|_| path)
+    std::fs::canonicalize(&path)
+        .map(PathBuf::from)
+        .unwrap_or(path)
 }
 
 /*
@@ -2029,7 +2033,7 @@ impl CompiledModuleCache {
                                 Ok(mut value) => {
                                     value.emitted = false;
                                     value.cached_prefix =
-                                        path_to_prefix_name(value.name.to_path_buf()).into();
+                                        path_to_prefix_name(value.name.clone()).into();
 
                                     log::info!(
                                         "Successfully read cached module in background -> {:?}",
@@ -2081,7 +2085,7 @@ impl CompiledModuleCache {
             let mut value: CompiledModule = bincode::deserialize(&contents).unwrap();
 
             value.emitted = false;
-            value.cached_prefix = path_to_prefix_name(value.name.to_path_buf()).into();
+            value.cached_prefix = path_to_prefix_name(value.name.clone()).into();
 
             for downstream in value
                 .downstream
@@ -2223,9 +2227,9 @@ impl<'a> ModuleBuilder<'a> {
 
         #[cfg(not(target_family = "wasm"))]
         let name = if let Some(p) = name {
-            std::fs::canonicalize(p)?
+            PathBuf::from(std::fs::canonicalize(p)?)
         } else {
-            std::env::current_dir()?
+            PathBuf::from(std::env::current_dir()?)
         };
 
         #[cfg(target_family = "wasm")]
@@ -3438,7 +3442,7 @@ impl<'a> ModuleBuilder<'a> {
             .sources
             .add_source(input.clone(), Some(self.name.clone()));
 
-        let parsed = Parser::new_from_source(&input, self.name.clone(), Some(id))
+        let parsed = Parser::new_from_source(&input, self.name.to_parser_path(), Some(id))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect::<core::result::Result<Vec<_>, ParseError>>()?;
@@ -3483,7 +3487,7 @@ impl<'a> ModuleBuilder<'a> {
 
             let exprs = guard.get(id).unwrap();
 
-            let mut parsed = Parser::new_from_source(exprs, self.name.clone(), Some(id))
+            let mut parsed = Parser::new_from_source(exprs, self.name.to_parser_path(), Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
                 .collect::<core::result::Result<Vec<_>, ParseError>>()?;

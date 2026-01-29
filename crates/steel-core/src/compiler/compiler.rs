@@ -26,12 +26,10 @@ use crate::{
     parser::parser::Sources,
 };
 
+use crate::path::PathBuf;
 use alloc::borrow::Cow;
 use core::iter::Iterator;
-use std::{
-    collections::{HashMap, HashSet},
-    path::PathBuf,
-};
+use std::collections::{HashMap, HashSet};
 
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
@@ -742,7 +740,7 @@ impl Compiler {
         // Could fail here
         let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
-            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
+            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.to_parser_path(), Some(id)))
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
@@ -772,7 +770,7 @@ impl Compiler {
         // Could fail here
         let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
-            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.clone(), Some(id)))
+            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.to_parser_path(), Some(id)))
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))

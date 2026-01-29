@@ -1,3 +1,4 @@
+use crate::path::PathBuf;
 use crate::rvals::{
     self, AsRefMutSteelVal, AsRefSteelVal, Custom, IntoSteelVal, RestArgsIter, Result, SteelString,
     SteelVal,
@@ -5,7 +6,7 @@ use crate::rvals::{
 use crate::steel_vm::builtin::BuiltInModule;
 use crate::{steelerr, throw};
 use std::env::{current_dir, set_current_dir};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use std::fs::{self, DirEntry, Metadata, ReadDir};
 use std::io;
@@ -13,7 +14,7 @@ use std::io;
 fn get_extension_from_filename(filename: &str) -> Option<&str> {
     Path::new(filename)
         .extension()
-        .and_then(std::ffi::OsStr::to_str)
+        .and_then(crate::path::OsStr::to_str)
 }
 
 /// Copy files from source to destination recursively.
@@ -64,7 +65,7 @@ pub fn glob(pattern: SteelString, mut rest: RestArgsIter<'_, &SteelVal>) -> Resu
 pub fn glob_paths_next(paths: &SteelVal) -> Result<SteelVal> {
     let mut paths = glob::Paths::as_mut_ref(paths)?;
     match paths.next() {
-        Some(Ok(v)) => v.into_steelval(),
+        Some(Ok(v)) => PathBuf::from(v).into_steelval(),
         Some(Err(e)) => crate::stop!(Generic => "glob-iter-next!: {:?}", e),
         None => Ok(SteelVal::BoolV(false)),
     }
