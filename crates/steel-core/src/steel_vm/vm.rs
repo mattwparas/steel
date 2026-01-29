@@ -159,6 +159,60 @@ impl DehydratedStackTrace {
 pub struct StackFrameAttachments {
     pub(crate) handler: Option<SteelVal>,
     weak_continuation_mark: Option<WeakContinuation>,
+    namespace: Option<alloc::sync::Arc<Mutex<SteelNamespace>>>,
+}
+
+// Attempt to... figure out a namespace.
+// I'm guessing this isn't gonna work great but
+// its worth a try.
+#[derive(Clone)]
+pub struct SteelNamespace {
+    env: Env,
+    compiler: alloc::sync::Arc<RwLock<Compiler>>,
+}
+
+pub struct Namespace {
+    namespace: Arc<Mutex<SteelNamespace>>,
+}
+
+impl crate::rvals::Custom for Namespace {}
+
+impl SteelNamespace {
+    pub fn new(ctx: &mut VmCore) -> Self {
+        let guard = ctx.thread.compiler.read();
+        let sources = guard.sources.clone();
+        let builtin_modules = guard.builtin_modules.clone();
+
+        Self {
+            env: Env::root(),
+            compiler: alloc::sync::Arc::new(RwLock::new(Compiler::default_with_kernel(
+                sources,
+                builtin_modules,
+            ))),
+        }
+    }
+}
+
+#[steel_derive::context(name = "make-namespace", arity = "Exact(0)")]
+fn make_namespace(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(
+        Namespace {
+            namespace: Arc::new(Mutex::new(SteelNamespace::new(ctx))),
+        }
+        .into_steelval(),
+    )
+}
+
+impl std::fmt::Debug for Namespace {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "#<Namespace>")
+    }
+}
+
+impl std::fmt::Debug for SteelNamespace {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "#<Namespace>")
+    }
 }
 
 // This should be the go to thing for handling basically everything we need
@@ -168,13 +222,9 @@ pub struct StackFrameAttachments {
 #[derive(Debug, Clone)]
 pub struct StackFrame {
     sp: u32,
-
     pub(crate) function: Gc<ByteCodeLambda>,
-
     ip: u32,
-
     instructions: RootedInstructions,
-
     pub(crate) attachments: Option<Box<StackFrameAttachments>>,
 }
 
@@ -241,6 +291,7 @@ impl StackFrame {
                 self.attachments = Some(Box::new(StackFrameAttachments {
                     handler: None,
                     weak_continuation_mark: Some(WeakContinuation::from_strong(&continuation_mark)),
+                    namespace: None,
                 }))
             }
         }
@@ -277,6 +328,7 @@ impl StackFrame {
                 self.attachments = Some(Box::new(StackFrameAttachments {
                     handler: None,
                     weak_continuation_mark: Some(WeakContinuation::from_strong(continuation)),
+                    namespace: None,
                 }))
             }
         }
@@ -294,6 +346,7 @@ impl StackFrame {
                 self.attachments = Some(Box::new(StackFrameAttachments {
                     handler: Some(handler),
                     weak_continuation_mark: None,
+                    namespace: None,
                 }))
             }
         }
@@ -1239,9 +1292,11 @@ impl SteelThread {
 
                 return Err(e);
             } else {
-                for frame in &vm_instance.thread.stack_frames {
-                    Continuation::close_marks(&vm_instance, frame);
-                }
+                vm_instance.close_all_continuation_marks_by_value();
+
+                // for frame in &vm_instance.thread.stack_frames {
+                //     Continuation::close_marks(&mut vm_instance, frame);
+                // }
 
                 // Clean up
                 self.stack.clear();
@@ -1338,24 +1393,66 @@ impl ContinuationMark {
 
 impl Continuation {
     #[inline(always)]
-    pub fn close_marks(ctx: &VmCore<'_>, stack_frame: &StackFrame) -> bool {
-        // if let Some(cont_mark) = stack_frame
-        //     .weak_continuation_mark
-        //     .as_ref()
-        //     .and_then(|x| WeakShared::upgrade(&x.inner))
-        // {
+    pub fn close_marks(ctx: &mut VmCore<'_>, stack_frame: &StackFrame) -> bool {
+        if let Some(attachments) = stack_frame.attachments.as_ref() {
+            let mut ret = false;
 
-        if let Some(cont_mark) = stack_frame.attachments.as_ref().and_then(|x| {
-            x.weak_continuation_mark
+            if let Some(cont_mark) = attachments
+                .weak_continuation_mark
                 .as_ref()
                 .and_then(|x| WeakShared::upgrade(&x.inner))
-        }) {
-            cont_mark.write().close(ctx);
+            {
+                cont_mark.write().close(ctx);
+                ret = true;
+            }
 
-            return true;
+            if let Some(ns) = attachments.namespace.as_ref() {
+                println!("Found a namespace during continuation mark closing");
+            }
+
+            return ret;
         }
 
         false
+    }
+
+    pub fn close_marks_by_value(ctx: &mut VmCore<'_>, stack_frame: &StackFrame) -> bool {
+        if let Some(attachments) = stack_frame.attachments.as_ref() {
+            let mut ret = false;
+
+            if let Some(cont_mark) = attachments
+                .weak_continuation_mark
+                .as_ref()
+                .and_then(|x| WeakShared::upgrade(&x.inner))
+            {
+                cont_mark.write().close(ctx);
+                ret = true;
+            }
+
+            // When we're here, I want to update the existing
+            // namespace in order to get things to behave.
+            if let Some(ns) = attachments.namespace.as_ref() {
+                let mut guard = ns.lock().unwrap();
+                std::mem::swap(&mut ctx.thread.global_env, &mut guard.env);
+                std::mem::swap(&mut ctx.thread.compiler, &mut guard.compiler);
+            }
+
+            return ret;
+        }
+
+        false
+
+        // if let Some(cont_mark) = stack_frame.attachments.as_ref().and_then(|x| {
+        //     x.weak_continuation_mark
+        //         .as_ref()
+        //         .and_then(|x| WeakShared::upgrade(&x.inner))
+        // }) {
+        //     cont_mark.write().close(ctx);
+
+        //     return true;
+        // }
+
+        // false
     }
 
     pub fn set_state_from_continuation(ctx: &mut VmCore<'_>, this: Self) {
@@ -1688,7 +1785,7 @@ impl<'a> VmCore<'a> {
 
     #[cfg(feature = "sync")]
     pub fn steel_function_to_rust_function(
-        &self,
+        &mut self,
         func: SteelVal,
     ) -> Box<dyn Fn(&mut [SteelVal]) -> Result<SteelVal> + Send + Sync + 'static> {
         let thread = self.make_thread();
@@ -1704,7 +1801,7 @@ impl<'a> VmCore<'a> {
 
     #[cfg(feature = "sync")]
     pub(crate) fn steel_function_to_arc_rust_function(
-        &self,
+        &mut self,
         func: SteelVal,
     ) -> Arc<dyn Fn(&[SteelVal]) -> Result<SteelVal> + Send + Sync + 'static> {
         let thread = self.make_thread();
@@ -1723,7 +1820,7 @@ impl<'a> VmCore<'a> {
     // TODO: Add this thread to the parent VM thread handler -> this is necessary
     // for safepoints to work correctly
     #[cfg(feature = "sync")]
-    pub fn make_thread(&self) -> Arc<Mutex<SteelThread>> {
+    pub fn make_thread(&mut self) -> Arc<Mutex<SteelThread>> {
         let mut thread = self.thread.clone();
 
         let controller = ThreadStateController::default();
@@ -1758,10 +1855,13 @@ impl<'a> VmCore<'a> {
                 handle: value.clone(),
             });
 
-        for frame in &self.thread.stack_frames {
-            self.close_continuation_marks(frame);
-        }
-        self.close_continuation_marks(&self.thread.current_frame);
+        // for frame in &self.thread.stack_frames {
+        //     self.close_continuation_marks(frame);
+        // }
+
+        self.close_all_continuation_marks();
+
+        self.close_continuation_mark_current_frame();
 
         forked_thread
     }
@@ -3920,13 +4020,65 @@ impl<'a> VmCore<'a> {
     // stack will need to be instrumented with the point in time that we are at
     // with respect to the existing continuation.
     #[inline(always)]
-    fn close_continuation_marks(&self, last: &StackFrame) -> bool {
+    fn close_continuation_marks(&mut self, last: &StackFrame) -> bool {
         // TODO: @Matt - continuation marks should actually do something here
         // What we'd like: This marks the stack frame going out of scope. Since it is going out of scope,
         // the stack frame should check if there are marks here, specifying that we should grab
         // the values out of the existing frame, and "close" the open continuation. That way the continuation (if called)
         // does not need to actually copy the entire frame eagerly, but rather can do so lazily.
         Continuation::close_marks(self, last)
+    }
+
+    fn close_continuation_marks_by_value(&mut self, last: &StackFrame) -> bool {
+        // TODO: @Matt - continuation marks should actually do something here
+        // What we'd like: This marks the stack frame going out of scope. Since it is going out of scope,
+        // the stack frame should check if there are marks here, specifying that we should grab
+        // the values out of the existing frame, and "close" the open continuation. That way the continuation (if called)
+        // does not need to actually copy the entire frame eagerly, but rather can do so lazily.
+        Continuation::close_marks_by_value(self, &last)
+    }
+
+    fn close_continuation_mark_current_frame(&mut self) -> bool {
+        if let Some(attachments) = self.thread.current_frame.attachments.as_ref() {
+            let mut ret = false;
+
+            if let Some(cont_mark) = attachments
+                .weak_continuation_mark
+                .as_ref()
+                .and_then(|x| WeakShared::upgrade(&x.inner))
+            {
+                cont_mark.write().close(self);
+                ret = true;
+            }
+
+            if let Some(ns) = attachments.namespace.as_ref() {
+                println!("Found a namespace during continuation mark closing current frame");
+            }
+
+            return ret;
+        }
+
+        false
+    }
+
+    fn close_all_continuation_marks(&mut self) {
+        let frames = std::mem::take(&mut self.thread.stack_frames);
+
+        for frame in &frames {
+            Continuation::close_marks(self, frame);
+        }
+
+        self.thread.stack_frames = frames;
+    }
+
+    fn close_all_continuation_marks_by_value(&mut self) {
+        let frames = std::mem::take(&mut self.thread.stack_frames);
+
+        for frame in &frames {
+            Continuation::close_marks_by_value(self, frame);
+        }
+
+        self.thread.stack_frames = frames;
     }
 
     #[inline(always)]
@@ -3948,7 +4100,7 @@ impl<'a> VmCore<'a> {
 
             let rollback_index = last.sp;
 
-            self.close_continuation_marks(&last);
+            self.close_continuation_marks_by_value(&last);
 
             // println!("Stack at pop: {:#?}", self.thread.stack);
 
@@ -3980,7 +4132,7 @@ impl<'a> VmCore<'a> {
 
             let rollback_index = last
                 .map(|x| {
-                    self.close_continuation_marks(&x);
+                    self.close_continuation_marks_by_value(&x);
                     x.sp
                 })
                 .unwrap_or(0);
@@ -4013,7 +4165,7 @@ impl<'a> VmCore<'a> {
 
             let rollback_index = last.sp as _;
 
-            self.close_continuation_marks(&last);
+            self.close_continuation_marks_by_value(&last);
 
             let _ = self
                 .thread
@@ -4051,7 +4203,7 @@ impl<'a> VmCore<'a> {
 
             let rollback_index = last
                 .map(|x| {
-                    self.close_continuation_marks(&x);
+                    self.close_continuation_marks_by_value(&x);
                     x.sp
                 })
                 .unwrap_or(0);
@@ -5584,6 +5736,54 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
+fn eval_with_namespace_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+
+    let mut namespace = Namespace::as_mut_ref(&args[1])?;
+
+    let maybe_path = ctx
+        .thread
+        .module_context
+        .last()
+        .map(|x| x.as_str().to_owned())
+        .map(PathBuf::from);
+
+    // TODO: Provide a path / context from which to do this? Or grab it implicitly?
+    let res = ctx
+        .thread
+        .compiler
+        .write()
+        .compile_executable_from_expressions_from_path(vec![expr], maybe_path);
+
+    // Gc the sources, if possible
+    ctx.thread
+        .compiler
+        .write()
+        .gc_sources(ctx.thread.function_interner.spans.values());
+
+    match res {
+        Ok(program) => {
+            let result = program.build(
+                "eval-context".to_string(),
+                &mut namespace
+                    .namespace
+                    .lock()
+                    .unwrap()
+                    .compiler
+                    .as_ref()
+                    .write()
+                    .symbol_map,
+                // &mut ctx.thread.compiler.write().symbol_map,
+            )?;
+
+            eval_program_with_namespace(result, ctx, namespace.namespace.clone())?;
+
+            Ok(SteelVal::Void)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
 
@@ -5620,6 +5820,184 @@ fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result
         }
         Err(e) => Err(e),
     }
+}
+
+fn eval_program_with_namespace(
+    program: crate::compiler::program::Executable,
+    ctx: &mut VmCore,
+    namespace: Arc<Mutex<SteelNamespace>>,
+) -> Result<()> {
+    let current_instruction = ctx.instructions[ctx.ip - 1];
+
+    let tail_call = matches!(
+        current_instruction.op_code,
+        OpCode::TAILCALL | OpCode::CALLGLOBALTAIL | OpCode::CALLGLOBALTAILNOARITY
+    );
+
+    let Executable {
+        instructions,
+        spans,
+        ..
+    } = program;
+    let mut bytecode = Vec::new();
+    let mut new_spans = Vec::new();
+
+    // let mut global_offset = 0;
+
+    // Rewrite relative jumps at the top level into absolute jumps.
+    for (instr, span) in instructions.into_iter().zip(spans) {
+        let mut depth = 0;
+
+        let offset = bytecode.len();
+
+        new_spans.extend_from_slice(&span);
+        bytecode.extend_from_slice(&instr);
+
+        bytecode
+            .last_mut()
+            .ok_or_else(throw!(Generic => "Compilation error: empty expression"))?
+            .op_code = OpCode::POPSINGLE;
+
+        for instruction in &mut bytecode[offset..] {
+            match instruction {
+                DenseInstruction {
+                    op_code: OpCode::JMP | OpCode::IF,
+                    payload_size,
+                } => {
+                    if depth == 0 {
+                        *payload_size = *payload_size + u24::from_usize(offset);
+                    }
+                }
+                DenseInstruction {
+                    op_code: OpCode::BIND,
+                    payload_size,
+                } => {
+                    let mut compiler_guard = ctx.thread.compiler.write();
+                    if compiler_guard
+                        .symbol_map
+                        .free_list
+                        .recently_freed
+                        .contains(&payload_size.to_usize())
+                    {
+                        compiler_guard
+                            .symbol_map
+                            .free_list
+                            .recently_freed
+                            .remove(&payload_size.to_usize());
+                    }
+                }
+                DenseInstruction {
+                    op_code:
+                        OpCode::PUSH
+                        | OpCode::CALLGLOBAL
+                        | OpCode::CALLPRIMITIVE
+                        | OpCode::CALLGLOBALTAIL
+                        | OpCode::CALLGLOBALNOARITY
+                        | OpCode::CALLGLOBALTAILNOARITY,
+                    payload_size,
+                } => {
+                    if depth == 0 {
+                        let compiler_guard = ctx.thread.compiler.read();
+
+                        // TODO: Figure out how to make the recently freed list
+                        // move down in size. Eval is the only way that we could
+                        // reclaim these slots, so assuming there isn't any
+                        // eval, we'll want to make sure this goes down in size.
+                        if compiler_guard
+                            .symbol_map
+                            .free_list
+                            .recently_freed
+                            .contains(&payload_size.to_usize())
+                            && ctx
+                                .thread
+                                .global_env
+                                .repl_maybe_lookup_idx(payload_size.to_usize())
+                                == Some(SteelVal::Void)
+                        {
+                            stop!(Generic => "Free identifier: eval (maybe) referenced an identifier before it was bound");
+                        }
+                    }
+                }
+                DenseInstruction {
+                    op_code: OpCode::NEWSCLOSURE | OpCode::PUREFUNC,
+                    ..
+                } => {
+                    depth += 1;
+                }
+                DenseInstruction {
+                    op_code: OpCode::ECLOSURE,
+                    ..
+                } => {
+                    depth -= 1;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // TODO: Fix the unwrap here
+    if let Some(last) = bytecode.last_mut() {
+        last.op_code = OpCode::POPPURE;
+    } else {
+        // Push an op code void?
+        bytecode.push(DenseInstruction {
+            op_code: OpCode::VOID,
+            payload_size: crate::core::instructions::u24::from_u32(0),
+        });
+        bytecode.push(DenseInstruction {
+            op_code: OpCode::POPPURE,
+            payload_size: crate::core::instructions::u24::from_u32(0),
+        });
+    }
+
+    let function_id = crate::compiler::code_gen::fresh_function_id();
+    let function = Gc::new(ByteCodeLambda::new(
+        function_id as _,
+        StandardShared::from(bytecode),
+        0,
+        false,
+        CaptureVec::new(),
+    ));
+    ctx.thread
+        .function_interner
+        .spans
+        .insert(function_id as _, Shared::from(new_spans));
+
+    if tail_call {
+        ctx.new_handle_tail_call_closure(function, 0).unwrap();
+    } else {
+        ctx.ip -= 1;
+        ctx.handle_function_call_closure(function, 0).unwrap();
+    }
+
+    // Here we're going to install the namespace into the current
+    // execution environment. We do this by first swapping out
+    // the existing namespace, and then pushing that onto the stack
+    // frame under the attachments. When this stack frame is popped
+    // off, we'll check the marks and reinstall accordingly.
+    if let Some(last) = ctx.thread.stack_frames.last_mut() {
+        let mut guard = namespace.lock().unwrap();
+
+        std::mem::swap(&mut ctx.thread.global_env, &mut guard.env);
+        std::mem::swap(&mut ctx.thread.compiler, &mut guard.compiler);
+
+        drop(guard);
+
+        match &mut last.attachments {
+            Some(attachments) => {
+                attachments.namespace = Some(namespace);
+            }
+            None => {
+                last.attachments = Some(Box::new(StackFrameAttachments {
+                    handler: None,
+                    weak_continuation_mark: None,
+                    namespace: Some(namespace),
+                }))
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore) -> Result<()> {
@@ -5838,6 +6216,14 @@ fn pop_module_context(
 ) -> Option<Result<SteelVal>> {
     ctx.thread.module_context.pop();
     Some(Ok(SteelVal::Void))
+}
+
+#[steel_derive::context(name = "eval-with-namespace", arity = "Exact(2)")]
+fn eval_with_namespace(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    match eval_with_namespace_impl(ctx, args) {
+        Ok(_) => None,
+        Err(e) => Some(Err(e)),
+    }
 }
 
 #[steel_derive::context(name = "eval", arity = "Exact(1)")]

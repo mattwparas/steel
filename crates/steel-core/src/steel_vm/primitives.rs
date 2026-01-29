@@ -59,7 +59,8 @@ use crate::{
     steel_vm::{
         builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
         vm::{
-            threads::threading_module, GET_MODULE_CONTEXT_DEFINITION,
+            threads::threading_module, EVAL_WITH_NAMESPACE_DEFINITION,
+            GET_MODULE_CONTEXT_DEFINITION, MAKE_NAMESPACE_DEFINITION,
             POP_MODULE_CONTEXT_DEFINITION, PUSH_MODULE_CONTEXT_DEFINITION,
         },
     },
@@ -2302,7 +2303,10 @@ fn meta_module() -> BuiltInModule {
     module
         .register_native_fn_definition(WILL_EXECUTE_DEFINITION)
         .register_native_fn_definition(WILL_REGISTER_DEFINITION)
-        .register_native_fn_definition(MAKE_WILL_EXECUTOR_DEFINITION);
+        .register_native_fn_definition(MAKE_WILL_EXECUTOR_DEFINITION)
+        // EVAL WITH NAMESPACE STUFF
+        .register_native_fn_definition(MAKE_NAMESPACE_DEFINITION)
+        .register_native_fn_definition(EVAL_WITH_NAMESPACE_DEFINITION);
 
     #[cfg(not(feature = "dylibs"))]
     module.register_native_fn_definition(super::engine::LOAD_MODULE_NOOP_DEFINITION);
