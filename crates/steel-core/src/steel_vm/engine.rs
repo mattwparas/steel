@@ -12,6 +12,7 @@ use super::{ffi::FFIModule, ffi::FFIWrappedModule};
 #[cfg(feature = "dylibs")]
 use super::dylib::DylibContainers;
 
+use crate::path::PathBuf;
 use crate::{
     compiler::{
         compiler::{Compiler, SerializableCompiler},
@@ -59,7 +60,7 @@ use std::{
     borrow::Cow,
     cell::{Cell, RefCell},
     collections::{HashMap, HashSet},
-    path::{Path, PathBuf},
+    path::Path,
     rc::Rc,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},

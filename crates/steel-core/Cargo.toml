@@ -44,7 +44,7 @@ steel-parser = { path = "../steel-parser", version = "0.7.0" }
 steel-derive = { path = "../steel-derive", version = "0.6.0" }
 cargo-steel-lib = { path = "../cargo-steel-lib", version = "0.2.0", optional = true }
 chrono = { version = "0.4.23", default-features = false, features = ["std", "clock"] }
-env_home = "0.1.0"
+env_home = { version = "0.1.0", optional = true }
 weak-table = "0.3.2"
 # TODO: Consider whether rand needs to be here
 rand = "0.9.0"
@@ -99,10 +99,10 @@ ureq = { version = "3.0.12", optional = true }
 arc-swap = "1.7.1"
 
 md-5 = "0.10.6"
-glob = "0.3.2"
+glob = { version = "0.3.2", optional = true }
 
 # For helping discover the steel home location
-xdg = "3.0.0"
+xdg = { version = "3.0.0", optional = true }
 
 shared_vector = "0.4.4"
 
@@ -116,7 +116,7 @@ getrandom = { version = "0.3.1", features = ["wasm_js"] }
 polling = "3.10.0"
 
 [target.'cfg(not(any(target_family = "wasm", target_env = "newlib")))'.dependencies]
-which = "8.0.0"
+which = { version = "8.0.0", optional = true }
 
 [dev-dependencies]
 proptest = "1.1.0"
@@ -125,7 +125,7 @@ criterion = "0.5.1"
 [features]
 # TODO: Deprecate the modules feature flag, it no longer does anything
 default = ["std", "modules"]
-std = []
+std = ["dep:env_home", "dep:glob", "dep:xdg", "dep:which"]
 modules = []
 jit = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit"]
 sandbox = []

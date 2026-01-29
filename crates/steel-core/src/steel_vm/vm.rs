@@ -44,6 +44,7 @@ use crate::{
     values::transducers::Transducers,
 };
 
+use crate::path::PathBuf;
 use crate::{
     env::Env,
     gc::Gc,
@@ -57,7 +58,6 @@ use core::hash::Hash;
 use core::{cell::RefCell, iter::Iterator};
 use std::collections::HashMap;
 use std::io::Read as _;
-use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 
@@ -5793,7 +5793,7 @@ fn emit_expanded_file(path: String) {
 
     let contents = std::fs::read_to_string(&path).unwrap();
 
-    engine.expand_to_file(contents, std::path::PathBuf::from(path))
+    engine.expand_to_file(contents, PathBuf::from(path))
 }
 
 #[steel_derive::function(name = "load-expanded", arity = "Exact(1)")]
@@ -5910,7 +5910,7 @@ fn eval_file_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> R
         .thread
         .compiler
         .write()
-        .compile_executable(exprs, Some(std::path::PathBuf::from(path.as_str())));
+        .compile_executable(exprs, Some(PathBuf::from(path.as_str())));
 
     ctx.thread
         .compiler

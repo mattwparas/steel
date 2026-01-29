@@ -48,7 +48,7 @@ fn module_test() {
     file.read_to_string(&mut exprs).unwrap();
 
     evaluator
-        .compile_and_run_raw_program_with_path(exprs, path_buf)
+        .compile_and_run_raw_program_with_path(exprs, path_buf.into())
         .unwrap();
     test_line("(a 10)", &["127"], &mut evaluator);
     test_line("(b 20)", &["47"], &mut evaluator);
@@ -67,7 +67,7 @@ fn macro_provide_module_test() {
     file.read_to_string(&mut exprs).unwrap();
 
     evaluator
-        .compile_and_run_raw_program_with_path(exprs, path_buf)
+        .compile_and_run_raw_program_with_path(exprs, path_buf.into())
         .unwrap();
     test_line("bar", &["10"], &mut evaluator);
     test_line("baz", &["10"], &mut evaluator);
@@ -86,7 +86,7 @@ fn macro_provide_module_test_loading() {
     file.read_to_string(&mut exprs).unwrap();
 
     evaluator
-        .compile_and_run_raw_program_with_path(exprs, path_buf)
+        .compile_and_run_raw_program_with_path(exprs, path_buf.into())
         .unwrap();
     test_line("bar", &["10"], &mut evaluator);
     test_line("baz", &["10"], &mut evaluator);

@@ -1,6 +1,8 @@
 #![allow(unused)]
 
-use std::{env::current_dir, error::Error, io::BufWriter, path::PathBuf};
+use std::{env::current_dir, error::Error, io::BufWriter};
+
+use steel::path::PathBuf;
 
 use steel::compiler::modules::MANGLER_PREFIX;
 use steel::steel_vm::engine::Engine;
@@ -19,7 +21,7 @@ impl DocumentGenerator {
     pub fn new(output_dir: Option<PathBuf>) -> Self {
         let output_dir = output_dir.unwrap_or({
             // TODO: Come back and remove this unwrap
-            let mut current_dir = current_dir().unwrap();
+            let mut current_dir = PathBuf::from(current_dir().unwrap());
 
             current_dir.push("/docs");
 
@@ -126,7 +128,7 @@ pub fn walk_dir<W: Write>(
         let directory_contents = path.read_dir()?.collect::<Result<Vec<_>, _>>()?;
 
         for file in directory_contents {
-            let path = file.path();
+            let path = PathBuf::from(file.path());
             walk_dir(writer, path, vm)?;
         }
     } else if path.extension().and_then(|x| x.to_str()) == Some("scm")
