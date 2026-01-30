@@ -3,9 +3,13 @@
          call/cc
          call-with-current-continuation
          make-parameter
-         continuation?)
+         continuation?
+         with-capability
+         #%with-capabilities
+         #%wrap-with-capability)
 
 (require-builtin steel/base)
+(require-builtin steel/capabilities)
 
 ;;;;;; Parameters ;;;;;
 
@@ -289,3 +293,63 @@
       (set-tls! winders (cdr (get-tls winders)))
       (out)
       ans*)))
+
+;; We're going to check the
+(define ___CapabilityToken-options___
+  (hash (quote #:printer)
+        (λ (obj2 printer2) (simple-display "#<procedure>"))
+        (quote #:name)
+        (quote CapabilityToken)
+        (quote #:mutable)
+        #false
+        (quote #:fields)
+        (quote ())
+        (quote #:transparent)
+        #false))
+(define CapabilityToken (quote unintialized))
+(define struct:CapabilityToken (quote uninitialized))
+(define CapabilityToken? (quote uninitialized))
+(%plain-let
+ ((prototypes2 (make-struct-type (quote CapabilityToken) 0)))
+ (%plain-let
+  ((struct-type-descriptor3 (list-ref prototypes2 0)) (constructor-proto3 (list-ref prototypes2 1))
+                                                      (predicate-proto3 (list-ref prototypes2 2))
+                                                      (getter-proto3 (list-ref prototypes2 3))
+                                                      (getter-proto-list3 (list-ref prototypes2 4)))
+  (begin
+    (set! struct:CapabilityToken struct-type-descriptor3)
+    (#%vtable-update-entry! struct-type-descriptor3 0 ___CapabilityToken-options___)
+    (set! CapabilityToken constructor-proto3)
+    (set! CapabilityToken? predicate-proto3)
+    void)))
+
+(define capability-token (CapabilityToken))
+
+(#%set-capability-token! capability-token)
+
+; ;; Use this during macro expansion to make sure that things
+; ;; get wrapped in the proper capabilities
+(define-syntax with-capability
+  (syntax-rules ()
+    [(_ capability-expr guarded-expr)
+     ; (let ([evaluated-capability capability-expr])
+     (dynamic-wind (lambda () (#%push-capability capability-expr capability-token))
+                   (lambda () guarded-expr)
+                   (lambda () (#%pop-capability capability-token)))]))
+
+(define-syntax #%with-capabilities
+  (syntax-rules ()
+    [(_ guarded-expr capabilities ...)
+     (let ([evaluated-capabilities (list capabilities ...)])
+       (dynamic-wind
+        (lambda () (apply #%push-capabilities (cons capability-token evaluated-capabilities)))
+        (lambda () guarded-expr)
+        (lambda () (#%pop-n-capabilities capability-token (length evaluated-capabilities)))))]))
+
+;; Wrap the function with a given capability.
+;; At the moment, this does not attempt to specialize the arity, however
+;; we definitely should because otherwise this becomes rather slow
+(define (#%wrap-with-capability capability maybe-function)
+  (if (function? maybe-function)
+      (lambda args (with-capability capability (apply maybe-function args)))
+      maybe-function))

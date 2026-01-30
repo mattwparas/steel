@@ -755,7 +755,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
 pub struct Syntax {
     pub(crate) raw: Option<SteelVal>,
     pub(crate) syntax: SteelVal,
-    span: Span,
+    pub(crate) span: Span,
 }
 
 impl Syntax {

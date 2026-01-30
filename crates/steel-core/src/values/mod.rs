@@ -1,3 +1,4 @@
+pub(crate) mod capabilities;
 #[allow(dead_code)]
 pub(crate) mod closed;
 pub(crate) mod contracts;

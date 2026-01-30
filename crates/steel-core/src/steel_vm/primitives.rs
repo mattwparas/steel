@@ -64,6 +64,7 @@ use crate::{
         },
     },
     values::{
+        capabilities::capabilities_module,
         closed::{HeapRef, MAKE_WEAK_BOX_DEFINITION, WEAK_BOX_VALUE_DEFINITION},
         functions::{attach_contract_struct, get_contract, LambdaMetadataTable},
         lists::{List, SteelList},
@@ -295,6 +296,7 @@ define_modules! {
 
     STEEL_GIT_MODULE => git_module,
     STEEL_HASH_MODULE => hashes_module,
+    STEEL_CAPABILITIES_MODULE => capabilities_module,
 }
 
 #[cfg(all(feature = "dylibs", feature = "sync"))]
@@ -353,6 +355,8 @@ thread_local! {
 
     pub static GIT_MODULE: BuiltInModule = git_module();
     pub static HASHES_MODULE: BuiltInModule = hashes_module();
+
+    pub static CAPABILITIES_MODULE: BuiltInModule = capabilities_module();
 }
 
 #[cfg(not(feature = "sync"))]
@@ -683,6 +687,8 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
         engine.register_module(STEEL_MUTABLE_VECTOR_MODULE.clone());
         engine.register_module(STEEL_PRIVATE_READER_MODULE.clone());
         engine.register_module(STEEL_IMMUTABLE_VECTOR_MODULE.clone());
+
+        engine.register_module(STEEL_CAPABILITIES_MODULE.clone());
     }
 
     #[cfg(not(feature = "sync"))]
@@ -741,6 +747,7 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
         engine.register_module(PRIVATE_READER_MODULE.with(|x| x.clone()));
 
         engine.register_module(IMMUTABLE_VECTOR_MODULE.with(|x| x.clone()));
+        engine.register_module(CAPABILITIES_MODULE.with(|x| x.clone()));
     }
 }
 
