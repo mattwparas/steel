@@ -5,6 +5,7 @@ use std::{
     sync::OnceLock,
 };
 
+use glob::Pattern;
 use parking_lot::Mutex;
 
 use crate::{
@@ -29,8 +30,13 @@ pub fn capabilities_module() -> BuiltInModule {
         .register_native_fn_definition(PUSH_CAPABILITIES_DEFINITION)
         .register_fn("#%pop-n-capabilities", pop_n_capabilities)
         .register_fn("file-system-access", Capability::new_file_system)
+        .register_fn(
+            "without-file-system-access",
+            Capability::without_file_system,
+        )
         .register_fn("fs/write", || FileSystemAccessKind::Write)
         .register_fn("fs/read", || FileSystemAccessKind::Read)
+        .register_fn("fs/disallowed", || FileSystemAccessKind::Disallowed)
         .register_native_fn_definition(SET_TOKEN_DEFINITION);
 
     module
@@ -116,6 +122,9 @@ pub fn push_capability_unchecked(capability: &Capability) {
 
 pub fn push_capability_checked(capability: &Capability, token: SteelVal) -> Result<()> {
     check_token(&token)?;
+
+    println!("Pushing capability: {:?}", capability);
+
     CURRENT_CAPABILITIES.with(|x| x.borrow_mut().capabilities.lock().push(capability.clone()));
     Ok(())
 }
@@ -168,6 +177,8 @@ impl<'a> FileSystemAccessRequest<'a> {
 
             let capabilities = guard.capabilities.lock();
 
+            dbg!(&capabilities);
+
             if capabilities.is_empty() {
                 return Ok(());
             }
@@ -189,6 +200,9 @@ impl<'a> FileSystemAccessRequest<'a> {
                             (FileSystemAccessKind::Write, FileSystemAccessKind::Read) => {
                                 stop!(Generic => "This module has not been given
                             access to this kind of system resource!")
+                            }
+                            (_, FileSystemAccessKind::Disallowed) => {
+                                stop!(Generic => "This module has not been given access to this kind of system resource!")
                             }
                             (_, _) => {
                                 found_incompatibility = false;
@@ -225,29 +239,37 @@ impl Capability {
             resource: glob::Pattern::new(&resource).unwrap(),
         })
     }
+
+    pub fn without_file_system() -> Self {
+        Self::FileSystem(FileSystemCapability {
+            kind: FileSystemAccessKind::Disallowed,
+            resource: Pattern::default(),
+        })
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum FileSystemAccessKind {
     Read,
     Write,
+    Disallowed,
 }
 
 impl Custom for FileSystemAccessKind {}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct FileSystemCapability {
+pub struct FileSystemCapability {
     kind: FileSystemAccessKind,
     resource: glob::Pattern,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-struct DylibCapability;
+pub struct DylibCapability;
 
 impl Custom for Capability {}
 
 #[derive(Clone, PartialEq, Eq, Debug)]
-struct ProcessCapability {
+pub struct ProcessCapability {
     allowed_binary: String,
 }
 

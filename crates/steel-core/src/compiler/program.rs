@@ -652,6 +652,7 @@ define_symbols! {
     PROVIDE => "provide",
     FOR_SYNTAX => "for-syntax",
     PREFIX_IN => "prefix-in",
+    CAPABILITIES_IN => "capabilities-in",
     ONLY_IN => "only-in",
     DATUM_SYNTAX => "datum->syntax",
     SYNTAX_SPAN => "#%syntax-span",

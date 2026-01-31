@@ -53,7 +53,7 @@ use super::{
         begin::FlattenBegin,
         mangle::{collect_globals, NameMangler},
     },
-    program::{FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
+    program::{CAPABILITIES_IN, FOR_SYNTAX, ONLY_IN, PREFIX_IN, REQUIRE_IDENT_SPEC},
 };
 
 macro_rules! time {
@@ -224,6 +224,8 @@ pub(crate) struct ModuleManager {
     module_resolvers: Vec<Arc<dyn SourceModuleResolver>>,
 
     prelude_string: Cow<'static, str>,
+
+    compilation_stack: Vec<CapabilitySpec>,
 }
 
 pub trait SourceModuleResolver: Send + Sync {
@@ -244,6 +246,7 @@ impl ModuleManager {
             rollback_metadata: crate::HashMap::new(),
             module_resolvers: Vec::new(),
             prelude_string: Cow::Borrowed(PRELUDE_STRING),
+            compilation_stack: Vec::new(),
         }
     }
 
@@ -308,6 +311,7 @@ impl ModuleManager {
             &[],
             &self.module_resolvers,
             &self.prelude_string,
+            &mut self.compilation_stack,
         )?;
 
         module_builder.compile()?;
@@ -334,6 +338,7 @@ impl ModuleManager {
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
         self.visited.clear();
+        self.compilation_stack.clear();
 
         self.rollback_metadata = self.file_metadata.clone();
 
@@ -358,6 +363,7 @@ impl ModuleManager {
             search_dirs,
             &self.module_resolvers,
             &self.prelude_string,
+            &mut self.compilation_stack,
         )?;
 
         let mut module_statements = module_builder.compile()?;
@@ -437,7 +443,7 @@ impl ModuleManager {
                                             continue;
                                         }
 
-                                        let hash_get = expr_list![
+                                        let mut hash_get = expr_list![
                                             ExprKind::atom(*PROTO_HASH_GET),
                                             ExprKind::atom(
                                                 CompactString::new(MODULE_PREFIX)
@@ -448,6 +454,15 @@ impl ModuleManager {
                                                 SyntaxObject::default(TokenType::Quote)
                                             ))),
                                         ];
+
+                                        if let Some(capability) = &require_object.with_capabilities
+                                        {
+                                            hash_get = ExprKind::List(List::new(vec![
+                                                ExprKind::atom("#%wrap-with-capability"),
+                                                capability.clone(),
+                                                hash_get,
+                                            ]));
+                                        }
 
                                         let mut owned_name = name.clone();
 
@@ -507,7 +522,7 @@ impl ModuleManager {
                                 continue;
                             }
 
-                            let hash_get = expr_list![
+                            let mut hash_get = expr_list![
                                 ExprKind::atom(*PROTO_HASH_GET),
                                 ExprKind::atom(
                                     CompactString::new(MODULE_PREFIX) + &other_module_prefix
@@ -517,6 +532,14 @@ impl ModuleManager {
                                     SyntaxObject::default(TokenType::Quote)
                                 ))),
                             ];
+
+                            if let Some(capability) = &require_object.with_capabilities {
+                                hash_get = ExprKind::List(List::new(vec![
+                                    ExprKind::atom("#%wrap-with-capability"),
+                                    capability.clone(),
+                                    hash_get,
+                                ]));
+                            }
 
                             let mut owned_provide = provide.clone();
 
@@ -1236,6 +1259,7 @@ impl CompiledModule {
         &self,
         modules: &crate::HashMap<PathBuf, CompiledModule>,
         global_macro_map: &FxHashMap<InternedString, SteelMacro>,
+        compilation_stack: &[CapabilitySpec],
     ) -> Result<ExprKind> {
         let mut globals = collect_globals(&self.ast);
 
@@ -1319,7 +1343,7 @@ impl CompiledModule {
                                             continue;
                                         }
 
-                                        let hash_get = expr_list![
+                                        let mut hash_get = expr_list![
                                             ExprKind::atom(*PROTO_HASH_GET),
                                             ExprKind::atom(
                                                 CompactString::new(MODULE_PREFIX)
@@ -1330,6 +1354,15 @@ impl CompiledModule {
                                                 SyntaxObject::default(TokenType::Quote)
                                             ))),
                                         ];
+
+                                        if let Some(capability) = &require_object.with_capabilities
+                                        {
+                                            hash_get = ExprKind::List(List::new(vec![
+                                                ExprKind::atom("#%wrap-with-capability"),
+                                                capability.clone(),
+                                                hash_get,
+                                            ]));
+                                        }
 
                                         let mut owned_name = name.clone();
 
@@ -1490,18 +1523,28 @@ impl CompiledModule {
                             // have to mangle this differently
                             globals.insert(*provide_ident);
 
+                            let mut hash_get = expr_list![
+                                ExprKind::atom(*PROTO_HASH_GET),
+                                ExprKind::atom(
+                                    CompactString::new(MODULE_PREFIX) + &other_module_prefix
+                                ),
+                                ExprKind::Quote(Box::new(Quote::new(
+                                    raw_provide.clone(),
+                                    SyntaxObject::default(TokenType::Quote)
+                                )))
+                            ];
+
+                            if let Some(capability) = &require_object.with_capabilities {
+                                hash_get = ExprKind::List(List::new(vec![
+                                    ExprKind::atom("#%wrap-with-capability"),
+                                    capability.clone(),
+                                    hash_get,
+                                ]));
+                            }
+
                             let define = ExprKind::Define(Box::new(Define::new(
                                 ExprKind::atom(prefix.clone() + provide_ident.resolve()),
-                                expr_list![
-                                    ExprKind::atom(*PROTO_HASH_GET),
-                                    ExprKind::atom(
-                                        CompactString::new(MODULE_PREFIX) + &other_module_prefix
-                                    ),
-                                    ExprKind::Quote(Box::new(Quote::new(
-                                        raw_provide.clone(),
-                                        SyntaxObject::default(TokenType::Quote)
-                                    )))
-                                ],
+                                hash_get,
                                 SyntaxObject::default(TokenType::Define),
                             )));
 
@@ -1703,15 +1746,100 @@ impl CompiledModule {
 
         let mut builtin_definitions = Vec::new();
 
-        exprs.retain_mut(|expr| {
-            if let ExprKind::Define(d) = expr {
+        struct Accumulator<'a> {
+            prev: &'a PathBuf,
+            capabilities: Vec<&'a ExprKind>,
+        }
+
+        let result = compilation_stack
+            .iter()
+            .try_rfold(
+                Accumulator {
+                    prev: &self.name,
+                    capabilities: Vec::new(),
+                },
+                |mut acc, spec| {
+                    if let Some(capability_expr) = spec.capabilities.get(acc.prev) {
+                        acc.capabilities.push(capability_expr);
+
+                        Ok(Accumulator {
+                            prev: &spec.caller,
+                            capabilities: acc.capabilities,
+                        })
+                    } else {
+                        Err(())
+                    }
+                },
+            )
+            .map(|x| x.capabilities)
+            .unwrap_or_default();
+
+        let maybe_wrap_with_capabilities = |expr: &mut ExprKind| {
+            if result.is_empty() {
+                return;
+            }
+
+            let matching_span = expr.span();
+
+            let mut expressions: Vec<ExprKind> = result.iter().map(|x| (*x).clone()).collect();
+
+            expressions.insert(0, std::mem::take(expr));
+
+            let mut caller = ExprKind::ident("#%with-capabilities");
+
+            caller.atom_syntax_object_mut().unwrap().span = matching_span;
+
+            expressions.insert(0, caller);
+
+            *expr = ExprKind::List(List::new(expressions));
+        };
+
+        // exprs.retain_mut(|expr| {
+        //     if let ExprKind::Define(d) = expr {
+        //         if is_a_builtin_definition(d) {
+        //             builtin_definitions.push(core::mem::take(expr));
+        //             false
+        //         } else {
+        //             true
+        //         }
+        //     } else {
+        //         true
+        //     }
+        // });
+
+        exprs.retain_mut(|expr| match expr {
+            ExprKind::Define(d) => {
                 if is_a_builtin_definition(d) {
-                    builtin_definitions.push(core::mem::take(expr));
+                    builtin_definitions.push(std::mem::take(expr));
                     false
                 } else {
-                    true
+                    if let ExprKind::LambdaFunction(_) = d.body {
+                        true
+                    } else {
+                        maybe_wrap_with_capabilities(&mut d.body);
+                        true
+                    }
                 }
-            } else {
+            }
+            ExprKind::Begin(b) => {
+                for expr in b.exprs.iter_mut() {
+                    if let ExprKind::Define(d) = expr {
+                        if let ExprKind::LambdaFunction(_) = d.body {
+                            continue;
+                        } else {
+                            maybe_wrap_with_capabilities(&mut d.body);
+                            continue;
+                        }
+                    }
+
+                    maybe_wrap_with_capabilities(expr);
+                }
+
+                true
+            }
+            _ => {
+                maybe_wrap_with_capabilities(expr);
+
                 true
             }
         });
@@ -1829,6 +1957,7 @@ pub struct RequireObject {
     pub idents_to_import: Vec<MaybeRenamed>,
     pub prefix: Option<String>,
     pub span: Span,
+    with_capabilities: Option<ExprKind>,
 }
 
 impl RequireObject {
@@ -1871,6 +2000,7 @@ struct RequireObjectBuilder {
     // Built up prefix
     prefix: Option<String>,
     span: Span,
+    with_capabilities: Option<ExprKind>,
 }
 
 impl RequireObjectBuilder {
@@ -1885,6 +2015,7 @@ impl RequireObjectBuilder {
             idents_to_import: self.idents_to_import,
             prefix: self.prefix,
             span: self.span,
+            with_capabilities: self.with_capabilities,
         })
     }
 }
@@ -2189,6 +2320,17 @@ struct ModuleBuilder<'a> {
     search_dirs: &'a [PathBuf],
     module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
     prelude_string: &'a str,
+
+    compilation_stack: &'a mut Vec<CapabilitySpec>,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+struct CapabilitySpec {
+    // The calling module
+    caller: PathBuf,
+
+    // What capabilities did this module apply to the caller?
+    capabilities: HashMap<PathBuf, ExprKind>,
 }
 
 pub struct RequiredModuleMacros {
@@ -2216,6 +2358,7 @@ impl<'a> ModuleBuilder<'a> {
         search_dirs: &'a [PathBuf],
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
         prelude_string: &'a str,
+        compilation_stack: &'a mut Vec<CapabilitySpec>,
     ) -> Result<Self> {
         // TODO don't immediately canonicalize the path unless we _know_ its coming from a path
         // change the path to not always be required
@@ -2251,6 +2394,7 @@ impl<'a> ModuleBuilder<'a> {
             search_dirs,
             module_resolvers,
             prelude_string,
+            compilation_stack,
         })
     }
 
@@ -2301,6 +2445,22 @@ impl<'a> ModuleBuilder<'a> {
         }
 
         self.visited.insert(self.name.clone());
+
+        self.compilation_stack.push({
+            CapabilitySpec {
+                caller: self.name.clone(),
+                // Include a mapping of applied capabilities, if there are any.
+                capabilities: self
+                    .require_objects
+                    .iter()
+                    .filter_map(|x| {
+                        x.with_capabilities
+                            .clone()
+                            .map(|c| (x.path.get_path().into_owned(), c))
+                    })
+                    .collect(),
+            }
+        });
 
         if self.main {
             let exprs = core::mem::take(&mut self.source_ast);
@@ -2381,6 +2541,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.custom_builtins,
                     self.module_resolvers,
                     self.prelude_string,
+                    self.compilation_stack,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -2491,6 +2652,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.search_dirs,
                     self.module_resolvers,
                     self.prelude_string,
+                    self.compilation_stack,
                 )?;
 
                 // Walk the tree and compile any dependencies
@@ -2798,6 +2960,7 @@ impl<'a> ModuleBuilder<'a> {
         let result = module.to_top_level_module(
             &self.compiled_modules.compiled_modules,
             self.global_macro_map,
+            &self.compilation_stack,
         )?;
 
         self.compiled_modules
@@ -3158,6 +3321,18 @@ impl<'a> ModuleBuilder<'a> {
                         }
                     }
 
+                    Some(x) if *x == *CAPABILITIES_IN => {
+                        if l.args.len() != 3 {
+                            stop!(BadSyntax => "capabilities-in expects a capability expression to apply to a given file or module"; l.location);
+                        }
+
+                        let expression = l.args[1].clone();
+
+                        require_object.with_capabilities = Some(expression);
+
+                        self.parse_require_object_inner(home, r, &l.args[2], require_object)?;
+                    }
+
                     Some(x) if *x == *FOR_SYNTAX => {
                         // We're expecting something like (for-syntax "foo")
                         if l.args.len() != 2 {
@@ -3332,6 +3507,7 @@ impl<'a> ModuleBuilder<'a> {
         custom_builtins: &'a HashMap<String, String>,
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
         prelude_string: &'a str,
+        compilation_stack: &'a mut Vec<CapabilitySpec>,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -3347,6 +3523,7 @@ impl<'a> ModuleBuilder<'a> {
             module_resolvers,
             false,
             prelude_string,
+            compilation_stack,
         )
         .parse_builtin(input)
     }
@@ -3364,6 +3541,7 @@ impl<'a> ModuleBuilder<'a> {
         search_dirs: &'a [PathBuf],
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
         prelude_string: &'a str,
+        compilation_stack: &'a mut Vec<CapabilitySpec>,
     ) -> Result<Self> {
         ModuleBuilder::raw(
             name,
@@ -3379,6 +3557,7 @@ impl<'a> ModuleBuilder<'a> {
             module_resolvers,
             true,
             prelude_string,
+            compilation_stack,
         )
         .parse_from_path()
     }
@@ -3397,6 +3576,7 @@ impl<'a> ModuleBuilder<'a> {
         module_resolvers: &'a [Arc<dyn SourceModuleResolver>],
         canonicalize: bool,
         prelude_string: &'a str,
+        compilation_stack: &'a mut Vec<CapabilitySpec>,
     ) -> Self {
         // println!("New module found: {:?}", name);
 
@@ -3427,6 +3607,7 @@ impl<'a> ModuleBuilder<'a> {
             search_dirs,
             module_resolvers,
             prelude_string,
+            compilation_stack,
         }
     }
 

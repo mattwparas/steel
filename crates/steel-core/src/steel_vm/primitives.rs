@@ -399,6 +399,7 @@ pub fn prelude() -> BuiltInModule {
             .with_module(STEEL_TIME_MODULE.clone())
             .with_module(STEEL_THREADING_MODULE.clone())
             .with_module(STEEL_BYTEVECTOR_MODULE.clone())
+            .with_module(STEEL_CAPABILITIES_MODULE.clone())
     }
 
     #[cfg(not(feature = "sync"))]
@@ -430,6 +431,7 @@ pub fn prelude() -> BuiltInModule {
             .with_module(TIME_MODULE.with(|x| x.clone()))
             .with_module(THREADING_MODULE.with(|x| x.clone()))
             .with_module(BYTEVECTOR_MODULE.with(|x| x.clone()))
+            .with_module(CAPABILITIES_MODULE.with(|x| x.clone()))
     }
 }
 
@@ -864,6 +866,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/core/types)
     (require-builtin steel/threads)
     (require-builtin steel/bytevectors)
+    (require-builtin steel/capabilities)
 
     (require-builtin steel/hash as #%prim.)
     (require-builtin steel/sets as #%prim.)
@@ -891,6 +894,7 @@ pub static ALL_MODULES: &str = r#"
     (require-builtin steel/core/types as #%prim.)
     (require-builtin steel/threads as #%prim.)
     (require-builtin steel/bytevectors as #%prim.)
+    (require-builtin steel/capabilities as #%prim.)
 "#;
 
 pub static ALL_MODULES_RESERVED: &str = r#"
@@ -920,6 +924,7 @@ pub static ALL_MODULES_RESERVED: &str = r#"
     (require-builtin steel/core/types as #%prim.)
     (require-builtin steel/threads as #%prim.)
     (require-builtin steel/bytevectors as #%prim.)
+    (require-builtin steel/capabilities as #%prim.)
 "#;
 
 pub static SANDBOXED_MODULES: &str = r#"

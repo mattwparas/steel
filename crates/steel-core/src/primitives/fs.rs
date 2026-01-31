@@ -551,6 +551,8 @@ pub fn canonicalize_path(path: &SteelString) -> Result<SteelVal> {
 /// ```
 #[steel_derive::function(name = "read-dir")]
 pub fn read_dir(path: &SteelString) -> Result<SteelVal> {
+    crate::values::capabilities::check_read(path)?;
+
     let p = Path::new(path.as_ref());
     let iter = p.read_dir()?;
     Ok(SteelVal::ListV(
