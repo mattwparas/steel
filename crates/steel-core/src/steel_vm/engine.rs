@@ -2770,3 +2770,30 @@ fn test_ctx_func_registration() {
     engine.update_value("global-context", SteelVal::IntV(10));
     engine.run("(foo)").unwrap();
 }
+
+#[test]
+fn test_ctx_func_registration_multiple() {
+    let mut engine = Engine::new();
+
+    let mut module = BuiltInModule::new("test/module");
+    engine.register_value("global-context", SteelVal::StringV("Hello world!".into()));
+
+    module.register_fn_with_ctx("global-context", "foo", |implicit: SteelVal| {
+        println!("Called with implicit: {}", implicit);
+    });
+    module.register_fn_with_ctx(
+        "global-context",
+        "bar",
+        |implicit: SteelVal, arg: SteelVal| {
+            println!("Bar Called with implicit: {}", implicit);
+            println!("Bar Called with arg: {}", arg);
+        },
+    );
+
+    engine.register_module(module);
+
+    engine.run("(require-builtin test/module)").unwrap();
+    engine.run("(bar 10)").unwrap();
+    engine.update_value("global-context", SteelVal::IntV(10));
+    engine.run("(bar 100)").unwrap();
+}

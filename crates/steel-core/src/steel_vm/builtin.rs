@@ -272,7 +272,7 @@ pub fn register_context_functions(
                 .virtual_machine
                 .insert_binding(fresh_index, func.clone());
 
-            for i in 0..arity {
+            for i in 0..arity - 1 {
                 match i {
                     0 => {
                         instrs.push(DenseInstruction {
