@@ -118,7 +118,9 @@ impl<
         name: &'static str,
         func: FN,
     ) -> &mut Self {
-        self.register_fn(name, func)
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -182,6 +184,7 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper
         func: FN,
     ) -> &mut Self {
         self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -224,6 +227,7 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
         func: FN,
     ) -> &mut Self {
         self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -266,6 +270,7 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
         func: FN,
     ) -> &mut Self {
         self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -311,6 +316,7 @@ impl<
         func: FN,
     ) -> &mut Self {
         self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -359,6 +365,7 @@ impl<
         func: FN,
     ) -> &mut Self {
         self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -467,6 +474,7 @@ impl<
         func: FN,
     ) -> &mut Self {
         self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -581,6 +589,7 @@ impl<
         func: FN,
     ) -> &mut Self {
         self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -636,6 +645,7 @@ impl<
         func: FN,
     ) -> &mut Self {
         self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -732,6 +742,7 @@ impl<
         func: FN,
     ) -> &mut Self {
         self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -818,6 +829,7 @@ impl<
         func: FN,
     ) -> &mut Self {
         self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -1006,6 +1018,7 @@ impl<
         RegisterFn::<FN, MarkerWrapper7<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(
             self, name, func,
         );
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -1100,6 +1113,7 @@ impl<
         RegisterFn::<FN, MarkerWrapper8<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(
             self, name, func,
         );
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -1194,6 +1208,7 @@ impl<
         func: FN,
     ) -> &mut Self {
         RegisterFn::<FN, MarkerWrapper8<(SELF, ARG, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(self, name, func);
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -2351,6 +2366,7 @@ impl<
         func: FN,
     ) -> &mut Self {
         self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -2401,6 +2417,7 @@ impl<
         func: FN,
     ) -> &mut Self {
         self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -2444,6 +2461,7 @@ macro_rules! impl_register_fn {
                 func: FN,
             ) -> &mut Self {
                 self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
                 self
             }
 
@@ -2522,6 +2540,7 @@ macro_rules! impl_register_fn {
                 func: FN,
             ) -> &mut Self {
                 self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
                 self
             }
 

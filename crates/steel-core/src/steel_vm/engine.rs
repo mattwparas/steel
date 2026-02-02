@@ -48,7 +48,9 @@ use crate::{
         Result, SteelString, SteelVal,
     },
     steel_vm::{
-        builtin::register_context_functions, primitives::bootstrap_globals, register_fn::RegisterFn,
+        builtin::{generate_function, register_context_functions},
+        primitives::bootstrap_globals,
+        register_fn::RegisterFn,
     },
     stop, throw,
     values::{
@@ -434,6 +436,13 @@ impl RegisterValue for Engine {
     }
 
     fn supply_context_arg(&mut self, ctx: &'static str, name: &'static str) -> &mut Self {
+        if let Ok(existing) = self.extract_value(name) {
+            if let SteelVal::BoxedFunction(f) = &existing {
+                let func = generate_function(self, &SteelString::from(ctx), &existing, f);
+                self.register_value(name, func);
+            }
+        }
+
         self
     }
 }

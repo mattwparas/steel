@@ -216,12 +216,6 @@ pub fn register_context_functions(
     engine: &mut super::engine::Engine,
     context_functions: &mut std::collections::HashMap<Arc<str>, (SteelString, SteelVal)>,
 ) -> std::collections::HashMap<Arc<str>, SteelVal> {
-    static GENSYM: AtomicUsize = AtomicUsize::new(0);
-
-    fn fresh() -> String {
-        format!("###ctx-func{}", GENSYM.fetch_add(1, Ordering::Relaxed))
-    }
-
     let mut map = std::collections::HashMap::new();
 
     // Create function which fetches the global value, so that you don't have to reference it directly:
@@ -247,107 +241,123 @@ pub fn register_context_functions(
             // 5    TAILCALL       : 4      ;; foo
             // 6    POPPURE        : 3
 
-            let arity = f.arity.unwrap();
-
-            let mut instrs: Vec<DenseInstruction> = Vec::with_capacity(arity as usize + 4);
-
-            let idx = engine
-                .virtual_machine
-                .compiler
-                .read()
-                .symbol_map
-                .get(&InternedString::from(ctx.as_str()))
-                .unwrap();
-
-            // Push instruction
-            instrs.push(DenseInstruction {
-                op_code: OpCode::PUSH,
-                payload_size: u24::from_usize(idx),
-            });
-
-            let gensym = fresh();
-            let fresh_index = engine.virtual_machine.compiler.write().register(&gensym);
-
-            engine
-                .virtual_machine
-                .insert_binding(fresh_index, func.clone());
-
-            for i in 0..arity - 1 {
-                match i {
-                    0 => {
-                        instrs.push(DenseInstruction {
-                            op_code: OpCode::MOVEREADLOCAL0,
-                            payload_size: u24::from_usize(0),
-                        });
-                    }
-                    1 => {
-                        instrs.push(DenseInstruction {
-                            op_code: OpCode::MOVEREADLOCAL1,
-                            payload_size: u24::from_usize(1),
-                        });
-                    }
-
-                    2 => {
-                        instrs.push(DenseInstruction {
-                            op_code: OpCode::MOVEREADLOCAL2,
-                            payload_size: u24::from_usize(2),
-                        });
-                    }
-
-                    3 => {
-                        instrs.push(DenseInstruction {
-                            op_code: OpCode::MOVEREADLOCAL3,
-                            payload_size: u24::from_usize(3),
-                        });
-                    }
-
-                    _ => {
-                        instrs.push(DenseInstruction {
-                            op_code: OpCode::MOVEREADLOCAL,
-                            payload_size: u24::from_u32(i),
-                        });
-                    }
-                }
-            }
-
-            instrs.push(DenseInstruction {
-                op_code: OpCode::CALLGLOBALTAIL,
-                payload_size: u24::from_usize(fresh_index),
-            });
-            instrs.push(DenseInstruction {
-                op_code: OpCode::TAILCALL,
-                payload_size: u24::from_u32(arity),
-            });
-
-            instrs.push(DenseInstruction {
-                op_code: OpCode::POPPURE,
-                payload_size: u24::from_u32(0),
-            });
-
-            let lambda = ByteCodeLambda::new(
-                fresh_function_id() as _,
-                StandardShared::from(instrs),
-                arity.to_usize().unwrap() - 1,
-                false,
-                CaptureVec::new(),
-            );
-
-            let lambda = Gc::new(lambda);
-
-            // Now we generate a new closure, update the values
-            // in the map to have that thing.
-
-            engine
-                .virtual_machine
-                .function_interner
-                .pure_function_interner
-                .insert(lambda.id, Gc::clone(&lambda));
-
-            map.insert(Arc::clone(name), SteelVal::Closure(lambda));
+            let lambda = generate_function(engine, ctx, func, f);
+            map.insert(Arc::clone(name), lambda);
         }
     }
 
     map
+}
+
+pub(crate) fn generate_function(
+    engine: &mut super::engine::Engine,
+    ctx: &SteelString,
+    func: &SteelVal,
+    f: &Gc<BoxedDynFunction>,
+) -> SteelVal {
+    static GENSYM: AtomicUsize = AtomicUsize::new(0);
+
+    fn fresh() -> String {
+        format!("###ctx-func{}", GENSYM.fetch_add(1, Ordering::Relaxed))
+    }
+
+    let arity = f.arity.unwrap();
+
+    let mut instrs: Vec<DenseInstruction> = Vec::with_capacity(arity as usize + 4);
+
+    let idx = engine
+        .virtual_machine
+        .compiler
+        .read()
+        .symbol_map
+        .get(&InternedString::from(ctx.as_str()))
+        .unwrap();
+
+    // Push instruction
+    instrs.push(DenseInstruction {
+        op_code: OpCode::PUSH,
+        payload_size: u24::from_usize(idx),
+    });
+
+    let gensym = fresh();
+    let fresh_index = engine.virtual_machine.compiler.write().register(&gensym);
+
+    engine
+        .virtual_machine
+        .insert_binding(fresh_index, func.clone());
+
+    for i in 0..arity - 1 {
+        match i {
+            0 => {
+                instrs.push(DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL0,
+                    payload_size: u24::from_usize(0),
+                });
+            }
+            1 => {
+                instrs.push(DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL1,
+                    payload_size: u24::from_usize(1),
+                });
+            }
+
+            2 => {
+                instrs.push(DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL2,
+                    payload_size: u24::from_usize(2),
+                });
+            }
+
+            3 => {
+                instrs.push(DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL3,
+                    payload_size: u24::from_usize(3),
+                });
+            }
+
+            _ => {
+                instrs.push(DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL,
+                    payload_size: u24::from_u32(i),
+                });
+            }
+        }
+    }
+
+    instrs.push(DenseInstruction {
+        op_code: OpCode::CALLGLOBALTAIL,
+        payload_size: u24::from_usize(fresh_index),
+    });
+    instrs.push(DenseInstruction {
+        op_code: OpCode::TAILCALL,
+        payload_size: u24::from_u32(arity),
+    });
+
+    instrs.push(DenseInstruction {
+        op_code: OpCode::POPPURE,
+        payload_size: u24::from_u32(0),
+    });
+
+    let lambda = ByteCodeLambda::new(
+        fresh_function_id() as _,
+        StandardShared::from(instrs),
+        arity.to_usize().unwrap() - 1,
+        false,
+        CaptureVec::new(),
+    );
+
+    let lambda = Gc::new(lambda);
+
+    // Now we generate a new closure, update the values
+    // in the map to have that thing.
+
+    engine
+        .virtual_machine
+        .function_interner
+        .pure_function_interner
+        .insert(lambda.id, Gc::clone(&lambda));
+
+    SteelVal::Closure(lambda)
 }
 
 impl BuiltInModuleRepr {
