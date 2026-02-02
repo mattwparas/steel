@@ -141,6 +141,11 @@ impl RegisterValue for BuiltInModule {
         self.module.write().values.insert(name.into(), value);
         self
     }
+
+    fn supply_context_arg(&mut self, ctx: &'static str, name: &'static str) -> &mut Self {
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 pub static MODULE_GET: Lazy<InternedString> = Lazy::new(|| "%module-get%".into());

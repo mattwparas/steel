@@ -432,6 +432,10 @@ impl RegisterValue for Engine {
         self.virtual_machine.insert_binding(idx, value);
         self
     }
+
+    fn supply_context_arg(&mut self, ctx: &'static str, name: &'static str) -> &mut Self {
+        self
+    }
 }
 
 #[steel_derive::function(name = "#%get-dylib")]
@@ -2739,6 +2743,25 @@ fn test_ctx_func() {
     engine.register_value("global-context", SteelVal::StringV("Hello world!".into()));
 
     module.supply_context_arg("global-context", "foo");
+
+    engine.register_module(module);
+
+    engine.run("(require-builtin test/module)").unwrap();
+    engine.run("(foo)").unwrap();
+    engine.update_value("global-context", SteelVal::IntV(10));
+    engine.run("(foo)").unwrap();
+}
+
+#[test]
+fn test_ctx_func_registration() {
+    let mut engine = Engine::new();
+
+    let mut module = BuiltInModule::new("test/module");
+    engine.register_value("global-context", SteelVal::StringV("Hello world!".into()));
+
+    module.register_fn_with_ctx("global-context", "foo", |implicit: SteelVal| {
+        println!("Called with implicit: {}", implicit);
+    });
 
     engine.register_module(module);
 
