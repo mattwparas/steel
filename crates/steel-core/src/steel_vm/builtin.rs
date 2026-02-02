@@ -1,7 +1,14 @@
 use alloc::{borrow::Cow, sync::Arc};
 use core::cell::RefCell;
+use core::sync::atomic::{AtomicUsize, Ordering};
+use num_traits::ToPrimitive;
+use steel_gen::OpCode;
 
-use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadContainer};
+use crate::compiler::code_gen::fresh_function_id;
+use crate::core::instructions::{pretty_print_dense_instructions, u24, DenseInstruction};
+use crate::gc::shared::{
+    MappedScopedReadContainer, MutContainer, ScopedReadContainer, StandardShared,
+};
 
 // #[cfg(not(feature = "triomphe"))]
 // use crate::gc::shared::ShareableMut;
@@ -10,6 +17,8 @@ use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadConta
 use crate::gc::shared::ShareableMut;
 
 use crate::gc::{Shared, SharedMut};
+use crate::rvals::SteelString;
+use crate::values::functions::{ByteCodeLambda, CaptureVec};
 use crate::values::HashMap;
 use crate::{
     containers::RegisterValue,
@@ -66,6 +75,10 @@ pub(crate) struct BuiltInModuleRepr {
     // We don't need to generate this every time, just need to
     // clone it?
     generated_expression: SharedMut<Option<ExprKind>>,
+
+    // Create something that is (more or less) a generated expression
+    // that uses the context implicitly?
+    pub(crate) context_functions: std::collections::HashMap<Arc<str>, (SteelString, SteelVal)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -194,6 +207,144 @@ pub struct NativeFunctionDefinition {
     pub signature: Option<(&'static [TypeKind], TypeKind)>,
 }
 
+pub fn register_context_functions(
+    engine: &mut super::engine::Engine,
+    context_functions: &mut std::collections::HashMap<Arc<str>, (SteelString, SteelVal)>,
+) -> std::collections::HashMap<Arc<str>, SteelVal> {
+    static GENSYM: AtomicUsize = AtomicUsize::new(0);
+
+    fn fresh() -> String {
+        format!("###ctx-func{}", GENSYM.fetch_add(1, Ordering::Relaxed))
+    }
+
+    let mut map = std::collections::HashMap::new();
+
+    // Create function which fetches the global value, so that you don't have to reference it directly:
+
+    for (name, (ctx, func)) in context_functions.iter() {
+        if let SteelVal::BoxedFunction(f) = func {
+            // Construct a function, for the sake of it. We'll register a completely whack gensym,
+            // register it in the VM.
+            //
+            // in the global namespace, and then call that, with implicitly passing the VM context in.
+            // 0    PUSH           : 445    ;; test
+            // 1    CALLGLOBALTAIL : 385    ;; foo
+            // 2    TAILCALL       : 1      ;; foo
+            // 3    POPPURE        : 0
+
+            // with multiple args:
+
+            // 0    PUSH           : 445    ;; test
+            // 1    MOVEREADLOCAL0 : 0      ;; x
+            // 2    MOVEREADLOCAL1 : 1      ;; y
+            // 3    MOVEREADLOCAL2 : 2      ;; z
+            // 4    CALLGLOBALTAIL : 385    ;; foo
+            // 5    TAILCALL       : 4      ;; foo
+            // 6    POPPURE        : 3
+
+            let arity = f.arity.unwrap();
+
+            let mut instrs: Vec<DenseInstruction> = Vec::with_capacity(arity as usize + 4);
+
+            let idx = engine
+                .virtual_machine
+                .compiler
+                .read()
+                .symbol_map
+                .get(&InternedString::from(ctx.as_str()))
+                .unwrap();
+
+            // Push instruction
+            instrs.push(DenseInstruction {
+                op_code: OpCode::PUSH,
+                payload_size: u24::from_usize(idx),
+            });
+
+            let gensym = fresh();
+            let fresh_index = engine.virtual_machine.compiler.write().register(&gensym);
+
+            engine
+                .virtual_machine
+                .insert_binding(fresh_index, func.clone());
+
+            for i in 0..arity {
+                match i {
+                    0 => {
+                        instrs.push(DenseInstruction {
+                            op_code: OpCode::MOVEREADLOCAL0,
+                            payload_size: u24::from_usize(0),
+                        });
+                    }
+                    1 => {
+                        instrs.push(DenseInstruction {
+                            op_code: OpCode::MOVEREADLOCAL1,
+                            payload_size: u24::from_usize(1),
+                        });
+                    }
+
+                    2 => {
+                        instrs.push(DenseInstruction {
+                            op_code: OpCode::MOVEREADLOCAL2,
+                            payload_size: u24::from_usize(2),
+                        });
+                    }
+
+                    3 => {
+                        instrs.push(DenseInstruction {
+                            op_code: OpCode::MOVEREADLOCAL3,
+                            payload_size: u24::from_usize(3),
+                        });
+                    }
+
+                    _ => {
+                        instrs.push(DenseInstruction {
+                            op_code: OpCode::MOVEREADLOCAL,
+                            payload_size: u24::from_u32(i),
+                        });
+                    }
+                }
+            }
+
+            instrs.push(DenseInstruction {
+                op_code: OpCode::CALLGLOBALTAIL,
+                payload_size: u24::from_usize(fresh_index),
+            });
+            instrs.push(DenseInstruction {
+                op_code: OpCode::TAILCALL,
+                payload_size: u24::from_u32(arity),
+            });
+
+            instrs.push(DenseInstruction {
+                op_code: OpCode::POPPURE,
+                payload_size: u24::from_u32(0),
+            });
+
+            let lambda = ByteCodeLambda::new(
+                fresh_function_id() as _,
+                StandardShared::from(instrs),
+                arity.to_usize().unwrap() - 1,
+                false,
+                CaptureVec::new(),
+            );
+
+            let lambda = Gc::new(lambda);
+
+            // Now we generate a new closure, update the values
+            // in the map to have that thing.
+
+            engine
+                .virtual_machine
+                .function_interner
+                .pure_function_interner
+                .insert(lambda.id, Gc::clone(&lambda));
+
+            map.insert(Arc::clone(name), SteelVal::Closure(lambda));
+        }
+    }
+
+    map
+}
+
 impl BuiltInModuleRepr {
     pub fn new<T: Into<Shared<str>>>(name: T) -> Self {
         Self {
@@ -202,7 +353,15 @@ impl BuiltInModuleRepr {
             docs: Box::new(InternalDocumentation::new()),
             fn_ptr_table: std::collections::HashMap::new(),
             generated_expression: Shared::new(MutContainer::new(None)),
+            context_functions: Default::default(),
         }
+    }
+
+    pub(crate) fn mark_ctx(&mut self, ctx: &str, name: &str) {
+        let key = Arc::from(name);
+        let value = self.values.get(&key).unwrap().clone();
+        self.context_functions
+            .insert(Arc::from(name), (ctx.into(), value));
     }
 
     pub fn contains(&self, ident: &str) -> bool {
@@ -523,6 +682,11 @@ impl BuiltInModule {
         Self {
             module: Shared::new(MutContainer::new(BuiltInModuleRepr::new(name))),
         }
+    }
+
+    /// Automatically provide arguments to a function.
+    pub fn supply_context_arg(&mut self, context: &str, name: &str) {
+        self.module.write().mark_ctx(context, name);
     }
 
     pub(crate) fn cached_expression(&self) -> SharedMut<Option<ExprKind>> {
