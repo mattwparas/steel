@@ -44,7 +44,7 @@ pub struct Env {
     #[cfg(not(feature = "sync"))]
     pub(crate) bindings_vec: Vec<SteelVal>,
     #[cfg(feature = "sync")]
-    bindings: SharedVectorWrapper,
+    pub(crate) bindings: SharedVectorWrapper,
 }
 
 #[cfg(feature = "sync")]

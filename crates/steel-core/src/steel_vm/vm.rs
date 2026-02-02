@@ -1,3 +1,4 @@
+use crate::compiler::code_gen::fresh_function_id;
 use crate::compiler::compiler::Compiler;
 use crate::core::instructions::{pretty_print_dense_instructions, u24};
 use crate::env::SharedVectorWrapper;
@@ -31,6 +32,7 @@ use crate::values::functions::CaptureVec;
 use crate::values::functions::RootedInstructions;
 use crate::values::functions::SerializedLambda;
 use crate::values::lists::List;
+use crate::values::reachable::GlobalSlotReacher;
 use crate::values::structs::UserDefinedStruct;
 use crate::values::transducers::Reducer;
 use crate::{
@@ -171,6 +173,14 @@ pub struct SteelNamespace {
     compiler: alloc::sync::Arc<RwLock<Compiler>>,
 }
 
+// Represents a base level environment
+// More or less the kernel environment
+
+// (define foo bar)
+// (define ns (make-namespace))
+// (require "foo.scm") ;; instantiates a bunch of stuff
+//
+// (provide-module ns "foo.scm") ;; (require "foo.scm")
 pub struct Namespace {
     namespace: Arc<Mutex<SteelNamespace>>,
 }
@@ -191,6 +201,117 @@ impl SteelNamespace {
             ))),
         }
     }
+
+    pub fn require_module(&mut self, ctx: &mut VmCore, module: PathBuf) -> Option<()> {
+        let guard = ctx.thread.compiler.read();
+        let compiled_module = guard.module_manager.modules().get(&module)?;
+
+        // Modules:
+
+        let dependent_modules = compiled_module.dependent_modules();
+
+        let mut mapping = HashMap::new();
+
+        let primitives_to_map = ["%proto-hash-get%".into()];
+
+        for primitive in primitives_to_map {
+            let index = guard.symbol_map.get(&primitive).ok()?;
+            let value = ctx.thread.global_env.repl_maybe_lookup_idx(index)?;
+
+            // Register this module as well:
+            let new_index = self.compiler.write().symbol_map.add(&primitive);
+            SharedVectorWrapper::repl_define_idx(&mut self.env.bindings, new_index, value.clone());
+        }
+
+        for compiled_module in std::iter::once(compiled_module).chain(
+            dependent_modules
+                .iter()
+                .filter_map(|x| guard.module_manager.modules().get(x)),
+        ) {
+            // Add the module to the namespace
+            self.compiler.write().module_manager.modules_mut().insert(
+                compiled_module.name().to_path_buf(),
+                compiled_module.clone(),
+            );
+
+            let module_name: InternedString =
+                format!("__module-{}", compiled_module.prefix()).into();
+            let index = guard.symbol_map.get(&module_name).ok()?;
+            let value = ctx.thread.global_env.repl_maybe_lookup_idx(index)?;
+
+            // Register this module as well:
+            let new_index = self.compiler.write().symbol_map.add(&module_name);
+            SharedVectorWrapper::repl_define_idx(&mut self.env.bindings, new_index, value.clone());
+
+            if let SteelVal::HashMapV(h) = &value {
+                let mut roots = Vec::new();
+
+                for (_, value) in h.iter() {
+                    roots.push(value.clone());
+                }
+
+                // TODO: This needs to go past one depth. Right now its not going in
+                // to the next level, we need to keep going on the queue
+                // and keep a visited set of globals to not recur on them.
+                let reachable_globals =
+                    GlobalSlotReacher::find_reachable(ctx.thread.global_env.roots(), &mut roots);
+
+                for index in &reachable_globals {
+                    let name = guard.symbol_map.values()[*index];
+                    let idx = self.compiler.write().symbol_map.add(&name);
+                    mapping.insert(*index, idx);
+                }
+
+                for index in reachable_globals {
+                    let mut global = ctx.thread.global_env.repl_maybe_lookup_idx(index).unwrap();
+
+                    if let SteelVal::Closure(c) = &global {
+                        let mut c = c.unwrap();
+                        let mut new_body = Vec::with_capacity(c.body_exp().len());
+
+                        for instr in c.body_exp().iter() {
+                            let mut instr = *instr;
+
+                            match instr.op_code {
+                                // If this instruction touches this global variable,
+                                // then we want to mark it as possibly referenced here.
+                                OpCode::CALLGLOBAL
+                                | OpCode::CALLPRIMITIVE
+                                | OpCode::PUSH
+                                | OpCode::CALLGLOBALTAIL
+                                | OpCode::CALLGLOBALNOARITY
+                                | OpCode::CALLGLOBALTAILNOARITY => {
+                                    instr.payload_size = u24::from_usize(
+                                        *mapping.get(&instr.payload_size.to_usize()).unwrap(),
+                                    );
+                                }
+                                _ => {}
+                            }
+
+                            new_body.push(instr);
+                        }
+
+                        c.body_exp = Arc::from(new_body);
+
+                        c.id = fresh_function_id() as _;
+
+                        ctx.thread
+                            .function_interner
+                            .closure_interner
+                            .insert(c.id, c.clone());
+
+                        global = SteelVal::Closure(Gc::new(c));
+                    }
+
+                    let idx = mapping.get(&index).unwrap();
+
+                    SharedVectorWrapper::repl_define_idx(&mut self.env.bindings, *idx, global);
+                }
+            }
+        }
+
+        None
+    }
 }
 
 #[steel_derive::context(name = "make-namespace", arity = "Exact(0)")]
@@ -201,6 +322,24 @@ fn make_namespace(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal
         }
         .into_steelval(),
     )
+}
+
+#[steel_derive::context(name = "namespace-require", arity = "Exact(2)")]
+fn namespace_require(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn namespace_require_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        let namespace = Namespace::as_mut_ref(&args[0])?;
+        let path = String::from_steelval(&args[1])?;
+
+        namespace
+            .namespace
+            .lock()
+            .unwrap()
+            .require_module(ctx, PathBuf::from(path));
+
+        Ok(SteelVal::Void)
+    }
+
+    Some(namespace_require_impl(ctx, args))
 }
 
 impl std::fmt::Debug for Namespace {
@@ -5739,7 +5878,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
 fn eval_with_namespace_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
 
-    let mut namespace = Namespace::as_mut_ref(&args[1])?;
+    let namespace = Namespace::as_mut_ref(&args[1])?;
 
     let maybe_path = ctx
         .thread

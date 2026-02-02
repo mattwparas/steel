@@ -2279,8 +2279,8 @@ impl<T: Clone + core::fmt::Debug + PartialEq + Eq> HeapAllocated<T> {
 }
 
 pub struct MarkAndSweepContext<'a> {
-    queue: &'a mut Vec<SteelVal>,
-    stats: MarkAndSweepStats,
+    pub(crate) queue: &'a mut Vec<SteelVal>,
+    pub(crate) stats: MarkAndSweepStats,
 }
 
 impl<'a> MarkAndSweepContext<'a> {
@@ -2323,7 +2323,7 @@ impl<'a> MarkAndSweepContext<'a> {
 }
 
 #[derive(Debug, Clone, Default)]
-struct MarkAndSweepStats {
+pub(crate) struct MarkAndSweepStats {
     object_count: usize,
     memory_reached_count: usize,
     vector_reached_count: usize,
