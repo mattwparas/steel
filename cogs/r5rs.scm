@@ -46,7 +46,12 @@
 (check-equal? "eval catch exception" 100 (with-handler (lambda (err) 100) (eval `(+ 100 "foo"))))
 (check-equal? "basic eval" 100 (eval '(* 10 10)))
 
-(check-equal? "<= with rational numbers" (let* ([z (/ 3 2)]) (if (<= z 0) z (+ z 1))) (/ 5 2))
+(check-equal? "<= with rational numbers"
+              (let* ([z (/ 3 2)])
+                (if (<= z 0)
+                    z
+                    (+ z 1)))
+              (/ 5 2))
 
 (check-equal? "Parsing hex" #x0f 15)
 (check-equal? "Parsing octal" #o0777 511)
@@ -72,7 +77,11 @@
 
 (check-equal? "Branch with <" 'no (if (> 2 3) 'yes 'no))
 
-(check-equal? "Numeric operations with if" 1 (if (> 3 2) (- 3 2) (+ 3 2)))
+(check-equal? "Numeric operations with if"
+              1
+              (if (> 3 2)
+                  (- 3 2)
+                  (+ 3 2)))
 
 (check-equal? "Cond with >"
               'greater
@@ -536,11 +545,16 @@
 
 (check-equal? "map with multiple list arguments" '(5 7 9) (map + '(1 2 3) '(4 5 6)))
 
-(check-equal? "force and delay" 3 (force (delay (+ 1 2))))
+(check-equal? "force and delay"
+              3
+              (force (delay
+                       (+ 1 2))))
 
 (check-equal? "force and delay with local variable"
               '(3 3)
-              (let ([p (delay (+ 1 2))]) (list (force p) (force p))))
+              (let ([p (delay
+                         (+ 1 2))])
+                (list (force p) (force p))))
 
 (check-equal? "make-vector makes mutable vector with for each"
               '#(0 1 4 9 16)
@@ -630,7 +644,9 @@
                                                                          (set! c c0)
                                                                          'talk1))))
                                 (lambda () (add 'disconnect)))
-                  (if (< (length path) 4) (c 'talk2) (reverse path)))))
+                  (if (< (length path) 4)
+                      (c 'talk2)
+                      (reverse path)))))
 
 ; (check-equal 2
 ;              (let-syntax ([foo (syntax-rules :::
@@ -663,7 +679,10 @@
 (check-equal? "vector-ref with acos"
               13
               (vector-ref '#(1 1 2 3 5 8 13 21)
-                          (let ([i (round (* 2 (acos -1)))]) (if (inexact? i) (exact i) i))))
+                          (let ([i (round (* 2 (acos -1)))])
+                            (if (inexact? i)
+                                (exact i)
+                                i))))
 
 (check-equal? "vector-set! with mutable vector"
               #(0 ("Sue" "Sue") "Anna")
@@ -765,6 +784,11 @@
               (let ([vec (vector 1 2 3 4 5)])
                 (vector-copy! vec 3 vec 0 2)
                 vec))
+
+(check-equal? "petrofsky let test"
+              -1
+              (let - ([n (- 1)])
+                n))
 
 ;; -------------- Report ------------------
 

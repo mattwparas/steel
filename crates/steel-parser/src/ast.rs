@@ -2018,17 +2018,41 @@ where
 
     let define: ExprKind = Define::new(name.clone(), function, syn.clone()).into();
 
+    // Evaluate the application args first:
+
+    let mut fake_application_args = application_args
+        .iter()
+        .enumerate()
+        .map(|(x, _)| ExprKind::ident(&format!("###{}", x)))
+        .collect();
+
     let application: ExprKind = {
         let mut application = vec![name];
-        application.append(&mut application_args);
+        application.append(&mut fake_application_args);
         List::new(application).into()
     };
 
     let begin = ExprKind::Begin(Box::new(Begin::new(vec![define, application], syn.clone())));
 
+    let eval_application_args = ExprKind::Let(Box::new(Let::new(
+        application_args
+            .into_iter()
+            .enumerate()
+            .map(|x| (ExprKind::ident(&format!("###{}", x.0)), x.1))
+            .collect(),
+        begin,
+        syn.clone(),
+    )));
+
     // Wrap the whole thing inside of an empty function application, to create a new scope
 
-    Ok(List::new(vec![LambdaFunction::new(vec![], begin, syn).into()]).into())
+    Ok(List::new(vec![LambdaFunction::new(
+        vec![],
+        eval_application_args,
+        syn,
+    )
+    .into()])
+    .into())
 }
 
 #[inline]
