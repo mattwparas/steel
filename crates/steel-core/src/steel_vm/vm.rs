@@ -4626,6 +4626,7 @@ impl<'a> VmCore<'a> {
 
     // Set local value:
     // this thing needs to be spilled? Does this work properly?
+    #[cfg(feature = "jit2")]
     fn handle_set_local_value(&mut self, index: usize, value_to_set: SteelVal) -> SteelVal {
         let offset = self.get_offset();
         // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
