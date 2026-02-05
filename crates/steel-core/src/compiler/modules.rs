@@ -164,7 +164,7 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
 
         if let Some(home) = home {
             if home.exists() {
-                return Some(home.into_path().into_os_string().into_string().unwrap());
+                return Some(home.to_str().unwrap().to_owned());
             }
 
             #[cfg(target_os = "windows")]
@@ -173,7 +173,7 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
                     eprintln!("Unable to create steel home directory {:?}: {}", home, e)
                 }
 
-                return Some(home.into_path().into_os_string().into_string().unwrap());
+                return Some(home.to_str().unwrap().to_owned());
             }
         }
 
@@ -195,7 +195,7 @@ pub static STEEL_HOME: Lazy<Option<String>> = Lazy::new(|| {
                     }
                 }
 
-                x.into_path().into_os_string().into_string().unwrap()
+                x.to_str().unwrap().to_owned()
             })
         }
 
@@ -3489,7 +3489,7 @@ impl<'a> ModuleBuilder<'a> {
             .sources
             .add_source(input.clone(), Some(self.name.clone()));
 
-        let parsed = Parser::new_from_source(&input, self.name.to_parser_path(), Some(id))
+        let parsed = Parser::new_from_source(&input, self.name.to_path_buf(), Some(id))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
             .collect::<core::result::Result<Vec<_>, ParseError>>()?;
@@ -3534,7 +3534,7 @@ impl<'a> ModuleBuilder<'a> {
 
             let exprs = guard.get(id).unwrap();
 
-            let mut parsed = Parser::new_from_source(exprs, self.name.to_parser_path(), Some(id))
+            let mut parsed = Parser::new_from_source(exprs, self.name.to_path_buf(), Some(id))
                 .without_lowering()
                 .map(|x| x.and_then(lower_macro_and_require_definitions))
                 .collect::<core::result::Result<Vec<_>, ParseError>>()?;

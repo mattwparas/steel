@@ -740,7 +740,7 @@ impl Compiler {
         // Could fail here
         let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
-            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.to_parser_path(), Some(id)))
+            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.to_path_buf(), Some(id)))
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))
@@ -770,7 +770,7 @@ impl Compiler {
         // Could fail here
         let parsed: core::result::Result<Vec<ExprKind>, ParseError> = path
             .as_ref()
-            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.to_parser_path(), Some(id)))
+            .map(|p| Parser::new_from_source(expr_str.as_ref(), p.to_path_buf(), Some(id)))
             .unwrap_or_else(|| Parser::new(expr_str.as_ref(), Some(id)))
             .without_lowering()
             .map(|x| x.and_then(lower_macro_and_require_definitions))

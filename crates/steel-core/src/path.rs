@@ -1,247 +1,36 @@
 #![allow(dead_code)]
 
+#[cfg(not(feature = "std"))]
 use alloc::borrow::Cow;
 #[cfg(not(feature = "std"))]
 use alloc::borrow::ToOwned;
+#[cfg(not(feature = "std"))]
 use alloc::string::String;
+
+#[cfg(not(feature = "std"))]
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[cfg(feature = "std")]
 pub use std::ffi::OsStr;
-#[cfg(feature = "std")]
-pub const MAIN_SEPARATOR_STR: &str = std::path::MAIN_SEPARATOR_STR;
-#[cfg(feature = "std")]
-use std::{borrow::Borrow, ops::Deref};
-
-#[cfg(feature = "std")]
-#[derive(Clone, PartialEq, Eq, Hash, Default)]
-pub struct PathBuf(std::path::PathBuf);
 
 #[cfg(not(feature = "std"))]
 pub type OsStr = str;
+
+#[cfg(feature = "std")]
+pub const MAIN_SEPARATOR_STR: &str = std::path::MAIN_SEPARATOR_STR;
+
+#[cfg(not(feature = "std"))]
+pub const MAIN_SEPARATOR_STR: &str = "/";
+
+#[cfg(feature = "std")]
+pub type PathBuf = std::path::PathBuf;
 
 #[cfg(not(feature = "std"))]
 #[derive(Clone, PartialEq, Eq, Hash, Default)]
 pub struct PathBuf(String);
 
-#[cfg(feature = "std")]
-impl PathBuf {
-    #[inline]
-    pub fn into_parser_path(self) -> std::path::PathBuf {
-        self.into()
-    }
-
-    #[inline]
-    pub fn to_parser_path(&self) -> std::path::PathBuf {
-        self.clone().into()
-    }
-
-    #[inline]
-    pub fn new() -> Self {
-        Self(std::path::PathBuf::new())
-    }
-
-    #[inline]
-    pub fn as_path(&self) -> &std::path::Path {
-        &self.0
-    }
-
-    #[inline]
-    pub fn push(&mut self, segment: impl AsRef<std::path::Path>) {
-        self.0.push(segment);
-    }
-
-    #[inline]
-    pub fn join(&self, segment: impl AsRef<std::path::Path>) -> Self {
-        Self(self.0.join(segment))
-    }
-
-    #[inline]
-    pub fn to_path_buf(&self) -> std::path::PathBuf {
-        self.0.clone()
-    }
-
-    #[inline]
-    pub fn exists(&self) -> bool {
-        self.0.exists()
-    }
-
-    #[inline]
-    pub fn is_file(&self) -> bool {
-        self.0.is_file()
-    }
-
-    #[inline]
-    pub fn is_dir(&self) -> bool {
-        self.0.is_dir()
-    }
-
-    #[inline]
-    pub fn pop(&mut self) -> bool {
-        self.0.pop()
-    }
-
-    #[inline]
-    pub fn set_extension(&mut self, extension: impl AsRef<OsStr>) -> bool {
-        self.0.set_extension(extension)
-    }
-
-    #[inline]
-    pub fn into_path(self) -> std::path::PathBuf {
-        self.0
-    }
-
-    #[inline]
-    pub fn into_string(self) -> String {
-        self.0
-            .into_os_string()
-            .into_string()
-            .unwrap_or_else(|os| os.to_string_lossy().into_owned())
-    }
-
-    #[inline]
-    pub fn to_string_lossy(&self) -> Cow<'_, str> {
-        self.0.to_string_lossy()
-    }
-}
-
-#[cfg(feature = "std")]
-impl From<std::path::PathBuf> for PathBuf {
-    fn from(value: std::path::PathBuf) -> Self {
-        Self(value)
-    }
-}
-
-#[cfg(feature = "std")]
-impl From<&std::path::PathBuf> for PathBuf {
-    fn from(value: &std::path::PathBuf) -> Self {
-        Self(value.clone())
-    }
-}
-
-#[cfg(feature = "std")]
-impl From<&PathBuf> for PathBuf {
-    fn from(value: &PathBuf) -> Self {
-        value.clone()
-    }
-}
-
-#[cfg(feature = "std")]
-impl From<PathBuf> for std::path::PathBuf {
-    fn from(value: PathBuf) -> Self {
-        value.0
-    }
-}
-
-#[cfg(feature = "std")]
-impl From<&std::path::Path> for PathBuf {
-    fn from(value: &std::path::Path) -> Self {
-        Self(value.to_path_buf())
-    }
-}
-
-#[cfg(feature = "std")]
-impl From<String> for PathBuf {
-    fn from(value: String) -> Self {
-        Self(std::path::PathBuf::from(value))
-    }
-}
-
-#[cfg(feature = "std")]
-impl From<&str> for PathBuf {
-    fn from(value: &str) -> Self {
-        Self(std::path::PathBuf::from(value))
-    }
-}
-
-#[cfg(feature = "std")]
-impl AsRef<std::path::Path> for PathBuf {
-    fn as_ref(&self) -> &std::path::Path {
-        &self.0
-    }
-}
-
-#[cfg(feature = "std")]
-impl Deref for PathBuf {
-    type Target = std::path::Path;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-#[cfg(feature = "std")]
-impl Borrow<std::path::Path> for PathBuf {
-    fn borrow(&self) -> &std::path::Path {
-        &self.0
-    }
-}
-
-#[cfg(feature = "std")]
-impl Borrow<std::path::PathBuf> for PathBuf {
-    fn borrow(&self) -> &std::path::PathBuf {
-        &self.0
-    }
-}
-
-#[cfg(feature = "std")]
-impl<'a> core::iter::FromIterator<std::path::Component<'a>> for PathBuf {
-    fn from_iter<I: IntoIterator<Item = std::path::Component<'a>>>(iter: I) -> Self {
-        let mut path = std::path::PathBuf::new();
-        for component in iter {
-            path.push(component.as_os_str());
-        }
-        Self(path)
-    }
-}
-
-#[cfg(feature = "std")]
-impl core::fmt::Debug for PathBuf {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        core::fmt::Debug::fmt(&self.0, f)
-    }
-}
-
-#[cfg(feature = "std")]
-impl core::fmt::Display for PathBuf {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.0.to_string_lossy())
-    }
-}
-
-#[cfg(feature = "std")]
-impl Serialize for PathBuf {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(self.to_string_lossy().as_ref())
-    }
-}
-
-#[cfg(feature = "std")]
-impl<'de> Deserialize<'de> for PathBuf {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value = String::deserialize(deserializer)?;
-        Ok(Self(std::path::PathBuf::from(value)))
-    }
-}
-
 #[cfg(not(feature = "std"))]
 impl PathBuf {
-    #[inline]
-    pub fn into_parser_path(self) -> String {
-        self.0
-    }
-
-    #[inline]
-    pub fn to_parser_path(&self) -> String {
-        self.0.clone()
-    }
-
     #[inline]
     pub fn new() -> Self {
         Self(String::new())
@@ -249,6 +38,16 @@ impl PathBuf {
 
     #[inline]
     pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    #[inline]
+    pub fn as_os_str(&self) -> &OsStr {
+        self.0.as_str()
+    }
+
+    #[inline]
+    pub fn as_path(&self) -> &str {
         &self.0
     }
 
@@ -354,11 +153,6 @@ impl PathBuf {
     }
 
     #[inline]
-    pub fn into_string(self) -> String {
-        self.0
-    }
-
-    #[inline]
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
         Cow::Borrowed(&self.0)
     }
@@ -444,6 +238,8 @@ impl From<&PathBuf> for String {
     }
 }
 
+#[cfg(not(feature = "std"))]
+#[cfg(not(feature = "std"))]
 impl core::str::FromStr for PathBuf {
     type Err = core::convert::Infallible;
 
