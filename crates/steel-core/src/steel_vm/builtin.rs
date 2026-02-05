@@ -5,7 +5,7 @@ use num_traits::ToPrimitive;
 use steel_gen::OpCode;
 
 use crate::compiler::code_gen::fresh_function_id;
-use crate::core::instructions::{pretty_print_dense_instructions, u24, DenseInstruction};
+use crate::core::instructions::{u24, DenseInstruction};
 use crate::gc::shared::{
     MappedScopedReadContainer, MutContainer, ScopedReadContainer, StandardShared,
 };
