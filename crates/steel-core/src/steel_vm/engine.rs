@@ -2756,7 +2756,9 @@ fn test_ctx_func() {
 
     engine.register_module(module);
 
-    engine.run("(require-builtin test/module-ctx-func)").unwrap();
+    engine
+        .run("(require-builtin test/module-ctx-func)")
+        .unwrap();
     engine.run("(foo)").unwrap();
     engine.update_value("global-context", SteelVal::IntV(10));
     engine.run("(foo)").unwrap();
@@ -2775,7 +2777,9 @@ fn test_ctx_func_registration() {
 
     engine.register_module(module);
 
-    engine.run("(require-builtin test/module-ctx-func-registration)").unwrap();
+    engine
+        .run("(require-builtin test/module-ctx-func-registration)")
+        .unwrap();
     engine.run("(foo)").unwrap();
     engine.update_value("global-context", SteelVal::IntV(10));
     engine.run("(foo)").unwrap();
@@ -2802,7 +2806,9 @@ fn test_ctx_func_registration_multiple() {
 
     engine.register_module(module);
 
-    engine.run("(require-builtin test/module-ctx-func-registration-multiple)").unwrap();
+    engine
+        .run("(require-builtin test/module-ctx-func-registration-multiple)")
+        .unwrap();
     engine.run("(bar 10)").unwrap();
     engine.update_value("global-context", SteelVal::IntV(10));
     engine.run("(bar 100)").unwrap();
