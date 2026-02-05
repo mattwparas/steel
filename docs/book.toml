@@ -4,7 +4,7 @@ language = "en"
 src = "src"
 title = "The Steel Book"
 
-[preprocessor.pagetoc]
-[output.html]
-additional-css = ["theme/pagetoc.css"]
-additional-js  = ["theme/pagetoc.js"]
+# [preprocessor.pagetoc]
+# [output.html]
+# additional-css = ["theme/pagetoc.css"]
+# additional-js  = ["theme/pagetoc.js"]
