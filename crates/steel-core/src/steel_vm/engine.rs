@@ -2744,7 +2744,7 @@ fn test_raw_engine() {
 fn test_ctx_func() {
     let mut engine = Engine::new();
 
-    let mut module = BuiltInModule::new("test/module");
+    let mut module = BuiltInModule::new("test/module-ctx-func");
 
     module.register_fn("foo", |implicit: SteelVal| {
         println!("Called with implicit: {}", implicit);
@@ -2756,7 +2756,7 @@ fn test_ctx_func() {
 
     engine.register_module(module);
 
-    engine.run("(require-builtin test/module)").unwrap();
+    engine.run("(require-builtin test/module-ctx-func)").unwrap();
     engine.run("(foo)").unwrap();
     engine.update_value("global-context", SteelVal::IntV(10));
     engine.run("(foo)").unwrap();
@@ -2766,7 +2766,7 @@ fn test_ctx_func() {
 fn test_ctx_func_registration() {
     let mut engine = Engine::new();
 
-    let mut module = BuiltInModule::new("test/module");
+    let mut module = BuiltInModule::new("test/module-ctx-func-registration");
     engine.register_value("global-context", SteelVal::StringV("Hello world!".into()));
 
     module.register_fn_with_ctx("global-context", "foo", |implicit: SteelVal| {
@@ -2775,7 +2775,7 @@ fn test_ctx_func_registration() {
 
     engine.register_module(module);
 
-    engine.run("(require-builtin test/module)").unwrap();
+    engine.run("(require-builtin test/module-ctx-func-registration)").unwrap();
     engine.run("(foo)").unwrap();
     engine.update_value("global-context", SteelVal::IntV(10));
     engine.run("(foo)").unwrap();
@@ -2785,7 +2785,7 @@ fn test_ctx_func_registration() {
 fn test_ctx_func_registration_multiple() {
     let mut engine = Engine::new();
 
-    let mut module = BuiltInModule::new("test/module");
+    let mut module = BuiltInModule::new("test/module-ctx-func-registration-multiple");
     engine.register_value("global-context", SteelVal::StringV("Hello world!".into()));
 
     module.register_fn_with_ctx("global-context", "foo", |implicit: SteelVal| {
@@ -2802,7 +2802,7 @@ fn test_ctx_func_registration_multiple() {
 
     engine.register_module(module);
 
-    engine.run("(require-builtin test/module)").unwrap();
+    engine.run("(require-builtin test/module-ctx-func-registration-multiple)").unwrap();
     engine.run("(bar 10)").unwrap();
     engine.update_value("global-context", SteelVal::IntV(10));
     engine.run("(bar 100)").unwrap();
