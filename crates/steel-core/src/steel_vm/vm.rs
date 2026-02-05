@@ -63,6 +63,8 @@ use std::sync::Mutex;
 
 use super::engine::EngineId;
 
+#[cfg(feature = "profiling")]
+use crate::time::Instant;
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
@@ -70,8 +72,6 @@ use num_bigint::BigInt;
 use num_traits::CheckedSub;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
-#[cfg(feature = "profiling")]
-use std::time::Instant;
 use steel_parser::interner::InternedString;
 use threads::ThreadHandle;
 
@@ -539,7 +539,7 @@ impl Synchronizer {
                     continue;
                 }
 
-                let now = std::time::Instant::now();
+                let now = crate::time::Instant::now();
 
                 // TODO: Have to use a condvar
                 while now.elapsed().as_millis() < timeout_ms {
@@ -1940,17 +1940,26 @@ impl<'a> VmCore<'a> {
     }
 
     pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
+        let last = self.thread.stack_frames.len();
+
         DehydratedStackTrace::new(
             self.thread
                 .stack_frames
                 .iter()
-                .map(|x| {
+                .enumerate()
+                .map(|(index, x)| {
                     DehydratedCallContext::new(
                         self.thread
                             .function_interner
                             .spans
                             .get(&x.function.id)
-                            .and_then(|x| x.get(self.ip))
+                            .and_then(|x| {
+                                x.get(if index == last {
+                                    self.ip
+                                } else {
+                                    self.ip.saturating_sub(1)
+                                })
+                            })
                             .copied(),
                     )
                 })
@@ -2554,7 +2563,7 @@ impl<'a> VmCore<'a> {
 
             // println!("{:?}", self.instructions[self.ip]);
 
-            // let now = std::time::Instant::now();
+            // let now = crate::time::Instant::now();
 
             // TODO -> don't just copy the value from the instructions
             // We don't need to do that... Figure out a way to just take a reference to the value

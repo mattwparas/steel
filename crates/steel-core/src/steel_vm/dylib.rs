@@ -204,7 +204,7 @@ impl DylibContainers {
                         }
 
                         log::info!(target: "dylibs", "Loading dylib: {:?}", path);
-                        let now = std::time::Instant::now();
+                        let now = crate::time::Instant::now();
 
                         // Load the module in
                         let (container, max_enum) =

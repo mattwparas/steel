@@ -42,7 +42,7 @@ use std::{
 use crate::parser::expander::SteelMacro;
 use crate::stop;
 
-use std::time::SystemTime;
+use crate::time::SystemTime;
 
 use crate::parser::expand_visitor::{expand, extract_macro_defs};
 
@@ -59,7 +59,7 @@ use super::{
 macro_rules! time {
     ($label:expr, $e:expr) => {{
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
 
         let e = $e;
 
@@ -331,7 +331,7 @@ impl ModuleManager {
         path: Option<PathBuf>,
         builtin_modules: ModuleContainer,
         lifted_kernel_environments: &mut HashMap<String, KernelDefMacroSpec>,
-        lifted_macro_environments: &mut HashSet<PathBuf>,
+        lifted_macro_environments: &mut HashMap<PathBuf, HashSet<InternedString>>,
         search_dirs: &[PathBuf],
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
@@ -638,9 +638,11 @@ impl ModuleManager {
                 //
                 // TODO: Replicate this behavior over to builtin modules
 
+                let exclusions = HashSet::new();
+
                 // First expand the in scope macros
                 // These are macros
-                let mut expander = Expander::new(&in_scope_macros);
+                let mut expander = Expander::new(&in_scope_macros, &exclusions);
                 expander.expand(expr)?;
                 let changed = false;
 
@@ -820,7 +822,7 @@ impl ModuleManager {
             // do something like the two pass expansion
             global_macro_map.extend(in_scope_macros);
 
-            lifted_macro_environments.insert(module.name.clone());
+            lifted_macro_environments.insert(module.name.clone(), Default::default());
         }
 
         // Include the defines from the modules now imported
@@ -833,7 +835,18 @@ impl ModuleManager {
 
         time!("Top level macro evaluation time", {
             for expr in module_statements.iter_mut() {
-                expand(expr, global_macro_map)?;
+                let found_in_scope = expand(expr, global_macro_map)?;
+
+                for item in found_in_scope.iter() {
+                    global_macro_map.remove(item);
+
+                    for (_, shadowed_vars) in lifted_macro_environments.iter_mut() {
+                        // If this was recently shadowed, then we don't want it any more.
+                        shadowed_vars.insert(*item);
+                    }
+
+                    // Remove from the lifted macro env as well
+                }
             }
         });
 
@@ -2068,7 +2081,7 @@ impl CompiledModuleCache {
             BACKGROUND_DESERIALIZING.1.send(key).unwrap();
         }
 
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
 
         if let Some(cache_dir) = &self.cache_dir {
             let key = Self::create_key(cache_dir, path);
@@ -2195,6 +2208,7 @@ struct ModuleBuilder<'a> {
     prelude_string: &'a str,
 }
 
+#[derive(Debug)]
 pub struct RequiredModuleMacros {
     pub module_key: PathBuf,
     pub module_name: String,
@@ -2556,7 +2570,7 @@ impl<'a> ModuleBuilder<'a> {
 
         //         module.set_emitted(true);
 
-        //         let top_level_time = std::time::Instant::now();
+        //         let top_level_time = crate::time::Instant::now();
 
         //         let res = module.to_top_level_module(&modules, self.global_macro_map);
 
@@ -2578,7 +2592,15 @@ impl<'a> ModuleBuilder<'a> {
 
         if self.require_objects.is_empty() {
             for expr in ast.iter_mut() {
+                // println!("GETTING HERE: {}", expr);
+
+                // Remove from the local macros?
                 expand(expr, &self.macro_map)?;
+
+                // for item in found.iter() {
+                //     // Remove from the list?
+                //     Arc::make_mut(&mut self.macro_map).remove(item);
+                // }
 
                 expand_kernel_in_env(
                     expr,
@@ -2613,6 +2635,8 @@ impl<'a> ModuleBuilder<'a> {
 
         let mut required_macros = Vec::new();
 
+        let macro_map = Arc::make_mut(&mut self.macro_map);
+
         for require_object in self.require_objects.iter() {
             let require_for_syntax = require_object.path.get_path();
 
@@ -2639,6 +2663,26 @@ impl<'a> ModuleBuilder<'a> {
                 name_mangler,
                 module_name: module.name.to_str().unwrap().to_owned(),
             });
+
+            if require_object.idents_to_import.is_empty() {
+                if let Some(m) = self
+                    .compiled_modules
+                    .get(&require_object.path.get_path(), self.sources)
+                {
+                    for provide_expr in &m.provides {
+                        // TODO: Handle provide spec stuff!
+                        for provide in &provide_expr.list().unwrap().args[1..] {
+                            if let Some(ident) = provide.atom_identifier() {
+                                macro_map.remove(ident);
+                            }
+
+                            if let Some(list) = provide.list().and_then(|x| x.second_ident()) {
+                                macro_map.remove(list);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         let overlays = required_macros
@@ -2649,7 +2693,7 @@ impl<'a> ModuleBuilder<'a> {
             })
             .collect::<Vec<_>>();
 
-        let mut many_expander = ExpanderMany::new(&self.macro_map, overlays);
+        let mut many_expander = ExpanderMany::new(macro_map, overlays);
 
         for expr in ast.iter_mut() {
             many_expander.expand(expr)?;
@@ -2662,7 +2706,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.name.to_str().unwrap(),
             )?;
 
-            expand(expr, &self.macro_map)?;
+            expand(expr, &many_expander.map)?;
 
             for RequiredMacroMap {
                 changed,
@@ -2694,11 +2738,14 @@ impl<'a> ModuleBuilder<'a> {
             for expr in provides.iter_mut() {
                 // First expand the in scope macros
                 // These are macros
-                let mut expander = Expander::new(&req_macro.in_scope_macros);
+
+                let exclusions = HashSet::new();
+
+                let mut expander = Expander::new(&req_macro.in_scope_macros, &exclusions);
                 expander.expand(expr)?;
 
                 if expander.changed {
-                    expand(expr, &req_macro.module_macros)?
+                    expand(expr, &req_macro.module_macros)?;
                 }
             }
         }
@@ -2913,7 +2960,7 @@ impl<'a> ModuleBuilder<'a> {
     // I think these will already be collected for the macro, however I think for syntax should be found earlier
     // Otherwise the macro expansion will not be able to understand it
     fn collect_provides(&mut self) -> Result<()> {
-        // let now = std::time::Instant::now();
+        // let now = crate::time::Instant::now();
 
         let mut non_provides = Vec::with_capacity(self.source_ast.len());
         let exprs = core::mem::take(&mut self.source_ast);
@@ -3436,7 +3483,7 @@ impl<'a> ModuleBuilder<'a> {
 
     fn parse_builtin(mut self, input: Cow<'static, str>) -> Result<Self> {
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
 
         let id = self
             .sources

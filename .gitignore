@@ -2,7 +2,6 @@
 **/*.rs.bk
 /scratch
 docs/book
-docs/theme
 .vscode/
 /result
 .direnv/
