@@ -47,7 +47,11 @@ use crate::{
         AsRefMutSteelVal, AsRefSteelVal as _, FromSteelVal, IntoSteelVal, MaybeSendSyncStatic,
         Result, SteelString, SteelVal,
     },
-    steel_vm::{primitives::bootstrap_globals, register_fn::RegisterFn},
+    steel_vm::{
+        builtin::{generate_function, register_context_functions},
+        primitives::bootstrap_globals,
+        register_fn::RegisterFn,
+    },
     stop, throw,
     values::{
         closed::GlobalSlotRecycler,
@@ -428,6 +432,17 @@ impl RegisterValue for Engine {
     fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self {
         let idx = self.virtual_machine.compiler.write().register(name);
         self.virtual_machine.insert_binding(idx, value);
+        self
+    }
+
+    fn supply_context_arg(&mut self, ctx: &'static str, name: &'static str) -> &mut Self {
+        if let Ok(existing) = self.extract_value(name) {
+            if let SteelVal::BoxedFunction(f) = &existing {
+                let func = generate_function(self, &SteelString::from(ctx), &existing, f);
+                self.register_value(name, func);
+            }
+        }
+
         self
     }
 }
@@ -1579,6 +1594,18 @@ impl Engine {
 
     // Registers the given module into the virtual machine
     pub fn register_module(&mut self, module: BuiltInModule) -> &mut Self {
+        {
+            use crate::gc::ShareableMut;
+            let mut guard = module.module.write();
+            if !guard.context_functions.is_empty() {
+                let funcs = register_context_functions(self, &mut guard.context_functions);
+                // Overwrite the existing values, and then insert the module.
+                for (key, func) in funcs {
+                    guard.register_value(&key, func);
+                }
+            }
+        }
+
         // Add the module to the map
         self.modules.insert(module.name(), module.clone());
         // Register the actual module itself as a value to make the virtual machine capable of reading from it
@@ -2710,4 +2737,72 @@ fn test_raw_engine() {
     let res = engine.run("(foo)").unwrap();
 
     assert_eq!(res[0], SteelVal::IntV(10));
+}
+
+#[test]
+fn test_ctx_func() {
+    let mut engine = Engine::new();
+
+    let mut module = BuiltInModule::new("test/module");
+
+    module.register_fn("foo", |implicit: SteelVal| {
+        println!("Called with implicit: {}", implicit);
+    });
+
+    engine.register_value("global-context", SteelVal::StringV("Hello world!".into()));
+
+    module.supply_context_arg("global-context", "foo");
+
+    engine.register_module(module);
+
+    engine.run("(require-builtin test/module)").unwrap();
+    engine.run("(foo)").unwrap();
+    engine.update_value("global-context", SteelVal::IntV(10));
+    engine.run("(foo)").unwrap();
+}
+
+#[test]
+fn test_ctx_func_registration() {
+    let mut engine = Engine::new();
+
+    let mut module = BuiltInModule::new("test/module");
+    engine.register_value("global-context", SteelVal::StringV("Hello world!".into()));
+
+    module.register_fn_with_ctx("global-context", "foo", |implicit: SteelVal| {
+        println!("Called with implicit: {}", implicit);
+    });
+
+    engine.register_module(module);
+
+    engine.run("(require-builtin test/module)").unwrap();
+    engine.run("(foo)").unwrap();
+    engine.update_value("global-context", SteelVal::IntV(10));
+    engine.run("(foo)").unwrap();
+}
+
+#[test]
+fn test_ctx_func_registration_multiple() {
+    let mut engine = Engine::new();
+
+    let mut module = BuiltInModule::new("test/module");
+    engine.register_value("global-context", SteelVal::StringV("Hello world!".into()));
+
+    module.register_fn_with_ctx("global-context", "foo", |implicit: SteelVal| {
+        println!("Called with implicit: {}", implicit);
+    });
+    module.register_fn_with_ctx(
+        "global-context",
+        "bar",
+        |implicit: SteelVal, arg: SteelVal| {
+            println!("Bar Called with implicit: {}", implicit);
+            println!("Bar Called with arg: {}", arg);
+        },
+    );
+
+    engine.register_module(module);
+
+    engine.run("(require-builtin test/module)").unwrap();
+    engine.run("(bar 10)").unwrap();
+    engine.update_value("global-context", SteelVal::IntV(10));
+    engine.run("(bar 100)").unwrap();
 }
