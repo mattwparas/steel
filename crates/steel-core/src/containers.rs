@@ -14,4 +14,5 @@ mod private {
 /// used for RegisterFn
 pub(crate) trait RegisterValue: private::Sealed {
     fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self;
+    fn supply_context_arg(&mut self, ctx: &'static str, name: &'static str) -> &mut Self;
 }

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use quickscope::ScopeSet;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use smallvec::SmallVec;
@@ -83,20 +85,28 @@ pub fn extract_macro_defs(
     Ok(())
 }
 
-pub fn expand(expr: &mut ExprKind, map: &FxHashMap<InternedString, SteelMacro>) -> Result<()> {
+pub fn expand(
+    expr: &mut ExprKind,
+    map: &FxHashMap<InternedString, SteelMacro>,
+) -> Result<ScopeSet<InternedString, FxBuildHasher>> {
+    let exclusions = HashSet::new();
     let mut expander = Expander {
         depth: 0,
         map,
         changed: false,
         in_scope_values: ScopeSet::default(),
         source_id: SourceId::none(),
+        exclusions: &exclusions,
     };
-    expander.visit(expr)
+    expander.visit(expr)?;
+
+    Ok(expander.in_scope_values)
 }
 
 pub fn expand_with_source_id(
     expr: &mut ExprKind,
     map: &FxHashMap<InternedString, SteelMacro>,
+    exclusions: &HashSet<InternedString>,
     source_id: Option<SourceId>,
 ) -> Result<()> {
     let mut expander = Expander {
@@ -105,6 +115,7 @@ pub fn expand_with_source_id(
         changed: false,
         in_scope_values: ScopeSet::default(),
         source_id,
+        exclusions,
     };
 
     expander.visit(expr)
@@ -112,6 +123,7 @@ pub fn expand_with_source_id(
 
 pub struct Expander<'a> {
     map: &'a FxHashMap<InternedString, SteelMacro>,
+    exclusions: &'a HashSet<InternedString>,
     pub(crate) changed: bool,
     // We're going to actually check if the macro is in scope
     in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
@@ -119,6 +131,7 @@ pub struct Expander<'a> {
     depth: usize,
 }
 
+#[derive(Debug)]
 pub struct RequiredMacroMap<'a> {
     pub(crate) map: &'a mut RequiredModuleMacros,
     pub(crate) changed: bool,
@@ -126,19 +139,19 @@ pub struct RequiredMacroMap<'a> {
 
 pub struct ExpanderMany<'a> {
     // Base map, but then also we want to include _all_
-    map: &'a FxHashMap<InternedString, SteelMacro>,
+    pub(crate) map: &'a mut FxHashMap<InternedString, SteelMacro>,
 
     pub(crate) overlays: Vec<RequiredMacroMap<'a>>,
 
     // We're going to actually check if the macro is in scope
-    in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
+    pub(crate) in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
     source_id: Option<SourceId>,
     depth: usize,
 }
 
 impl<'a> ExpanderMany<'a> {
     pub fn new(
-        map: &'a FxHashMap<InternedString, SteelMacro>,
+        map: &'a mut FxHashMap<InternedString, SteelMacro>,
         overlays: Vec<RequiredMacroMap<'a>>,
     ) -> Self {
         Self {
@@ -151,18 +164,31 @@ impl<'a> ExpanderMany<'a> {
     }
 
     pub fn expand(&mut self, expr: &mut ExprKind) -> Result<()> {
-        self.visit(expr)
+        self.visit(expr)?;
+
+        // This isn't good! this is quadratic
+        for i in self.in_scope_values.iter() {
+            self.map.remove(i);
+        }
+
+        self.in_scope_values.clear_all();
+
+        Ok(())
     }
 }
 
 impl<'a> Expander<'a> {
-    pub fn new(map: &'a FxHashMap<InternedString, SteelMacro>) -> Self {
+    pub fn new(
+        map: &'a FxHashMap<InternedString, SteelMacro>,
+        exclusions: &'a HashSet<InternedString>,
+    ) -> Self {
         Self {
             map,
             changed: false,
             in_scope_values: ScopeSet::default(),
             source_id: SourceId::none(),
             depth: 0,
+            exclusions,
         }
     }
 
@@ -255,12 +281,41 @@ impl<'a> VisitorMutRef for Expander<'a> {
                             *expr = ExprKind::LambdaFunction(lambda);
 
                             return Ok(());
-
-                            // return self.visit_lambda_function(&mut lambda);
                         } else {
                             unreachable!()
                         }
                     }
+
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Define,
+                                ..
+                            },
+                    })) => {
+                        // self.in_scope_values.define(key);
+                        // todo!()
+
+                        // println!("Getting here: {}", l);
+
+                        match &l.args[1] {
+                            ExprKind::List(l) if l.first_ident().is_some() => {
+                                self.in_scope_values.define(*l.first_ident().unwrap());
+                            }
+
+                            ExprKind::Atom(a) if a.ident().is_some() => {
+                                self.in_scope_values.define(*a.ident().unwrap());
+                            }
+                            _ => {}
+                        }
+
+                        for expr in l.args[2..].iter_mut() {
+                            self.visit(expr)?;
+                        }
+
+                        return Ok(());
+                    }
+
                     Some(ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
@@ -269,47 +324,35 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 ..
                             },
                     })) => {
-                        // if s.resolve().ends_with("skip-compile") {
-                        //     println!("visiting {}", s.resolve());
-
-                        //     if let Some(overlay) = self.overlay.as_ref() {
-                        //         for key in overlay.keys() {
-                        //             println!("Overlay: {}", key.resolve());
-                        //         }
-                        //     }
-
-                        //     for key in self.map.keys() {
-                        //         println!("{}", key.resolve());
-                        //     }
-                        // }
-
                         // Interweave the macro expansion
                         if let Some(m) = self.map.get(s) {
-                            // If this macro has been overwritten by any local value, respect
-                            // the local binding and do not expand the macro
-                            if !self.in_scope_values.contains(s) && self.source_id.is_none()
-                                || self.source_id == m.location.source_id()
-                            {
-                                let span = *sp;
+                            if !self.exclusions.contains(s) {
+                                // If this macro has been overwritten by any local value, respect
+                                // the local binding and do not expand the macro
+                                if !self.in_scope_values.contains(s) && self.source_id.is_none()
+                                    || self.source_id == m.location.source_id()
+                                {
+                                    let span = *sp;
 
-                                let mut expanded = m.expand(
-                                    List::new_maybe_improper(
-                                        core::mem::take(&mut l.args),
-                                        l.improper,
-                                    ),
-                                    span,
-                                )?;
-                                self.changed = true;
+                                    let mut expanded = m.expand(
+                                        List::new_maybe_improper(
+                                            core::mem::take(&mut l.args),
+                                            l.improper,
+                                        ),
+                                        span,
+                                    )?;
+                                    self.changed = true;
 
-                                self.depth += 1;
+                                    self.depth += 1;
 
-                                self.visit(&mut expanded)?;
+                                    self.visit(&mut expanded)?;
 
-                                self.depth -= 1;
+                                    self.depth -= 1;
 
-                                *expr = expanded;
+                                    *expr = expanded;
 
-                                return Ok(());
+                                    return Ok(());
+                                }
                             }
 
                             // let expanded = m.expand(l.clone(), *sp)?;
@@ -521,6 +564,37 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                             unreachable!()
                         }
                     }
+
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Define,
+                                ..
+                            },
+                    })) => {
+                        // self.in_scope_values.define(key);
+                        // todo!()
+
+                        // println!("Getting here: {}", l);
+
+                        match &l.args[1] {
+                            ExprKind::List(l) if l.first_ident().is_some() => {
+                                self.in_scope_values.define(*l.first_ident().unwrap());
+                            }
+
+                            ExprKind::Atom(a) if a.ident().is_some() => {
+                                self.in_scope_values.define(*a.ident().unwrap());
+                            }
+                            _ => {}
+                        }
+
+                        for expr in l.args[2..].iter_mut() {
+                            self.visit(expr)?;
+                        }
+
+                        return Ok(());
+                    }
+
                     Some(ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
