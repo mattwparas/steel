@@ -47,3 +47,14 @@
 
 (define (test-compile2)
   (loop2 (func)))
+
+(define-syntax structure-test
+  (lambda (stx)
+    (syntax-case stx ()
+      [(kw (a b c))
+       (let ([datum (syntax->datum (syntax (a b c)))])
+         (if (and (pair? datum) (eq? (car datum) 'a) (eq? (cadr datum) 'b) (eq? (caddr datum) 'c))
+             (syntax (quote correct))
+             (syntax (quote wrong))))])))
+
+(assert! (equal? (structure-test (a b c)) 'correct))
