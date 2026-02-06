@@ -458,6 +458,10 @@
             (parameterize ([#%syntax-binding-kind binding-kind])
               (,generated-function-name index)))))
 
+     ; (stdout-simple-displayln fake-syntax-rules)
+     ; (stdout-simple-displayln expansion-func)
+     ; (stdout-simple-displayln generated-match-function)
+
      (eval expansion-func)
 
      generated-match-function]
@@ -465,18 +469,28 @@
     [(symbol? name-expr)
      ;; (lambda (x) ...)
      (define lambda-expr (list-ref stx 2))
-     (if (and (list? lambda-expr) (equal? (car lambda-expr) 'lambda))
-         (begin
+     (cond
+       [(and (list? lambda-expr) (equal? (car lambda-expr) 'lambda))
 
-           (define lowered-expression
-             (append (list 'define-syntax (cons name-expr (cadr lambda-expr))) (drop lambda-expr 2)))
+        (define lowered-expression
+          (append (list 'define-syntax (cons name-expr (cadr lambda-expr))) (drop lambda-expr 2)))
 
-           ;; (displayln lowered-expression)
+        (stdout-simple-displayln lowered-expression)
 
-           ;; Body exprs
-           (parse-def-syntax lowered-expression))
+        ;; Body exprs
+        (parse-def-syntax lowered-expression)]
 
-         (error "syntax-case expects a function"))]
+       [(and (list? lambda-expr) (equal? (car lambda-expr) 'syntax-rules))
+
+        (define lowered-expression
+          (append (list 'define-syntax (cons name-expr '(stx)))
+                  (list (append (list 'syntax-case 'stx '()) (drop lambda-expr 2)))))
+
+        ; (stdout-simple-displayln lowered-expression)
+
+        (parse-def-syntax lowered-expression)]
+
+       [else (error "syntax-case expects a function")])]
 
     [else (error "internal compilation error")]))
 

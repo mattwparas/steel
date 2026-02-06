@@ -58,3 +58,23 @@
              (syntax (quote wrong))))])))
 
 (assert! (equal? (structure-test (a b c)) 'correct))
+
+(define-syntax make-macro
+  (syntax-rules (foo bar baz)
+    [(_ name)
+     (define-syntax name
+       (syntax-rules (foo bar baz)
+         [(_) 100]))]))
+
+(define-syntax make-macro2
+  (syntax-rules ()
+    [(_ name)
+     (define-syntax (name stx)
+       (syntax-case stx (foo bar baz)
+         [(_) 10]))]))
+
+(make-macro foo)
+(make-macro2 bar)
+
+(assert! (equal? (foo) 100))
+(assert! (equal? (bar) 10))
