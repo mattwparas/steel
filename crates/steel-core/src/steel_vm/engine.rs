@@ -230,7 +230,6 @@ pub struct Engine {
     // TODO: Just put this, and all the other things,
     // inside the `SteelThread` - The compiler probably
     // still... needs to be shared, but thats fine.
-    // pub(crate) compiler: Arc<RwLock<Compiler>>,
     modules: ModuleContainer,
     #[cfg(feature = "dylibs")]
     dylibs: DylibContainers,
@@ -251,11 +250,12 @@ impl Engine {
     }
 }
 
-// impl Drop for Engine {
-//     fn drop(&mut self) {
-//         TypeMap::run_explicit_merge();
-//     }
-// }
+#[cfg(feature = "biased")]
+impl Drop for Engine {
+    fn drop(&mut self) {
+        steel_rc::QueueHandle::run_explicit_merge();
+    }
+}
 
 impl Clone for Engine {
     fn clone(&self) -> Self {
@@ -2765,7 +2765,7 @@ fn test_ctx_func() {
 fn test_ctx_func_registration() {
     let mut engine = Engine::new();
 
-    let mut module = BuiltInModule::new("test/module");
+    let mut module = BuiltInModule::new("test/module-func");
     engine.register_value("global-context", SteelVal::StringV("Hello world!".into()));
 
     module.register_fn_with_ctx("global-context", "foo", |implicit: SteelVal| {
@@ -2774,7 +2774,7 @@ fn test_ctx_func_registration() {
 
     engine.register_module(module);
 
-    engine.run("(require-builtin test/module)").unwrap();
+    engine.run("(require-builtin test/module-func)").unwrap();
     engine.run("(foo)").unwrap();
     engine.update_value("global-context", SteelVal::IntV(10));
     engine.run("(foo)").unwrap();
@@ -2784,7 +2784,7 @@ fn test_ctx_func_registration() {
 fn test_ctx_func_registration_multiple() {
     let mut engine = Engine::new();
 
-    let mut module = BuiltInModule::new("test/module");
+    let mut module = BuiltInModule::new("test/module-ctx");
     engine.register_value("global-context", SteelVal::StringV("Hello world!".into()));
 
     module.register_fn_with_ctx("global-context", "foo", |implicit: SteelVal| {
@@ -2801,7 +2801,7 @@ fn test_ctx_func_registration_multiple() {
 
     engine.register_module(module);
 
-    engine.run("(require-builtin test/module)").unwrap();
+    engine.run("(require-builtin test/module-ctx)").unwrap();
     engine.run("(bar 10)").unwrap();
     engine.update_value("global-context", SteelVal::IntV(10));
     engine.run("(bar 100)").unwrap();

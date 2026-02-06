@@ -4,6 +4,9 @@
 
 - [Steel](about/about.md)
     - [Features](about/features.md)
+    - [Creating values](about/values.md)
+    - [Definitions and expressions](about/define.md)
+    - [Collections](about/collections.md)
     - [Licensing](about/license.md)
 - [Getting Started](start/start.md)
     - [Online Playground](start/playground.md)
