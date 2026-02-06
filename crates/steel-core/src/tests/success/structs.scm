@@ -23,7 +23,7 @@
 
 (set-Baz-a! my-baz 50)
 
-(assert! (equal? (Baz-a my-baz)))
+(assert! (equal? (Baz-a my-baz) 50))
 
 (struct Callable (func) #:transparent #:prop:procedure 0)
 
