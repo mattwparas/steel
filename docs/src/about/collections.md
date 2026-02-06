@@ -43,7 +43,15 @@ You may often see the following syntax:
 '(10 20 30)
 ```
 
-This is a quoted list, which is special syntax where the values inside are not evaluated.
+This is a quoted list, which is special syntax where the values inside are not evaluated. Consider the following:
+
+```scheme
+(list 10 20 30) ;; => '(10 20 30)
+(list (+ 1 2) (+ 3 4)) ;; => '(3 7)
+'((+ 1 2) (+ 3 4)) ;; => '((+ 1 2) (+ 3 4))
+```
+
+The expressions in the last case are not evaluated, unless they are a constant. In which case, it evaluates to itself.
 
 ## Pairs
 
@@ -79,3 +87,43 @@ Improper vs proper in this context would mean that the underlying data structure
 a `list`. They both represent sequences, but an improper list will be a single element linked list, whereas
 a proper list uses a VList, which is an exponentially growing chain of linked vectors. In general, prefer to use
 normal lists when possible.
+
+
+## Vectors
+
+There are two kinds of vectors in Steel, immutable and mutable vectors. Immutable vectors are represented by RRB
+vectors, and have efficient implementations of functional updates. Mutation in place will be done when it can be.
+Mutable vectors are represented more or less by a garbage collected, mutex'd vector.
+
+### Immutable vectors
+
+Immutable vectors can be constructed using the `immutable-vector` function:
+
+```scheme
+(immutable-vector 10 20 30) ;; '#(10 20 30)
+```
+
+### Mutable vectors
+
+Mutable vectors can be constructed using the `vector` function:
+
+```scheme
+(vector 10 20 30)
+```
+
+## Hash Maps
+
+Hash maps are implemented using hash array mapped tries, which can perform efficient functional updates. Like the functional
+vectors, operations on these data structures will use functional updates where relevant.
+
+```scheme
+(hash 'a 10 'b 20) ;; '#hash((b . 20) (a . 10))
+```
+
+## Hash sets
+
+Hash sets are implemented on top of hash maps, and have similar underlying implementations. Construction is similar:
+
+```scheme
+(hashset 10 20 30 30 40) ;; (set 40 30 10 20)
+```
