@@ -23,7 +23,7 @@ There are two kinds of ways to define values, using the keyword `define`, or wit
 ```scheme
 (define x "hello world")
 
-(dispayln x) ;; prints "hello world"
+(displayln x) ;; prints "hello world"
 ```
 
 Defining functions can be done by having the right hand side be a `lambda` expression:
