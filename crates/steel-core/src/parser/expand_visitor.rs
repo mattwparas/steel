@@ -10,6 +10,7 @@ use steel_parser::parser::SourceId;
 use steel_parser::tokens::NumberLiteral;
 
 use crate::compiler::modules::RequiredModuleMacros;
+use crate::compiler::program::{LAMBDA, LAMBDA_SYMBOL, LET};
 use crate::parser::ast::ExprKind;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::span_visitor::get_span;
@@ -87,9 +88,25 @@ pub fn extract_macro_defs(
     Ok(())
 }
 
+#[derive(Copy, Clone)]
+pub enum GlobalMap<'a> {
+    Map(&'a FxHashMap<InternedString, usize>),
+    Set(&'a FxHashSet<InternedString>),
+}
+
+impl<'a> GlobalMap<'a> {
+    pub fn contains(&self, i: &InternedString) -> bool {
+        match self {
+            GlobalMap::Map(hash_map) => hash_map.contains_key(i),
+            GlobalMap::Set(hash_set) => hash_set.contains(i),
+        }
+    }
+}
+
 pub fn expand(
     expr: &mut ExprKind,
     map: &FxHashMap<InternedString, SteelMacro>,
+    globals: GlobalMap,
 ) -> Result<ScopeSet<InternedString, FxBuildHasher>> {
     let exclusions = HashSet::new();
     let mut expander = Expander {
@@ -99,6 +116,7 @@ pub fn expand(
         in_scope_values: ScopeSet::default(),
         source_id: SourceId::none(),
         exclusions: &exclusions,
+        globals,
     };
     expander.visit(expr)?;
 
@@ -110,6 +128,7 @@ pub fn expand_with_source_id(
     map: &FxHashMap<InternedString, SteelMacro>,
     exclusions: &HashSet<InternedString>,
     source_id: Option<SourceId>,
+    globals: GlobalMap,
 ) -> Result<()> {
     let mut expander = Expander {
         depth: 0,
@@ -118,6 +137,7 @@ pub fn expand_with_source_id(
         in_scope_values: ScopeSet::default(),
         source_id,
         exclusions,
+        globals,
     };
 
     expander.visit(expr)
@@ -126,6 +146,7 @@ pub fn expand_with_source_id(
 pub struct Expander<'a> {
     map: &'a FxHashMap<InternedString, SteelMacro>,
     exclusions: &'a HashSet<InternedString>,
+    globals: GlobalMap<'a>,
     pub(crate) changed: bool,
     // We're going to actually check if the macro is in scope
     in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
@@ -147,6 +168,8 @@ pub struct ExpanderMany<'a> {
 
     // We're going to actually check if the macro is in scope
     pub(crate) in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
+
+    pub(crate) globals: GlobalMap<'a>,
     source_id: Option<SourceId>,
     depth: usize,
 }
@@ -155,12 +178,14 @@ impl<'a> ExpanderMany<'a> {
     pub fn new(
         map: &'a mut FxHashMap<InternedString, SteelMacro>,
         overlays: Vec<RequiredMacroMap<'a>>,
+        globals: GlobalMap<'a>,
     ) -> Self {
         Self {
             map,
             overlays,
             in_scope_values: ScopeSet::default(),
             source_id: SourceId::none(),
+            globals,
             depth: 0,
         }
     }
@@ -183,6 +208,7 @@ impl<'a> Expander<'a> {
     pub fn new(
         map: &'a FxHashMap<InternedString, SteelMacro>,
         exclusions: &'a HashSet<InternedString>,
+        globals: GlobalMap<'a>,
     ) -> Self {
         Self {
             map,
@@ -191,6 +217,7 @@ impl<'a> Expander<'a> {
             source_id: SourceId::none(),
             depth: 0,
             exclusions,
+            globals,
         }
     }
 
@@ -281,6 +308,74 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 }
                             }
                         }
+                        return Ok(());
+                    }
+
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(i),
+                                ..
+                            },
+                    })) if *i == *LET => {
+                        self.in_scope_values.push_layer();
+                        if let Some(bindings) = l.args.get_mut(1) {
+                            if let ExprKind::List(l) = bindings {
+                                for arg in &mut l.args {
+                                    if let ExprKind::List(l) = arg {
+                                        if let Some(ident) = l.first_ident() {
+                                            self.in_scope_values.define(*ident);
+                                        }
+                                    }
+
+                                    if let ExprKind::List(l) = arg {
+                                        if let Some(expr) = l.args.get_mut(1) {
+                                            self.visit(expr)?;
+                                        }
+                                    }
+                                }
+                                if let Some(body) = l.args.get_mut(2) {
+                                    self.visit(body)?;
+                                }
+                            }
+                        }
+
+                        self.in_scope_values.pop_layer();
+
+                        return Ok(());
+                    }
+
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Let, ..
+                            },
+                    })) => {
+                        self.in_scope_values.push_layer();
+                        if let Some(bindings) = l.args.get_mut(1) {
+                            if let ExprKind::List(l) = bindings {
+                                for arg in &mut l.args {
+                                    if let ExprKind::List(l) = arg {
+                                        if let Some(ident) = l.first_ident() {
+                                            self.in_scope_values.define(*ident);
+                                        }
+                                    }
+
+                                    if let ExprKind::List(l) = arg {
+                                        if let Some(expr) = l.args.get_mut(1) {
+                                            self.visit(expr)?;
+                                        }
+                                    }
+                                }
+                                if let Some(body) = l.args.get_mut(2) {
+                                    self.visit(body)?;
+                                }
+                            }
+                        }
+
+                        self.in_scope_values.pop_layer();
+
+                        return Ok(());
                     }
 
                     Some(ExprKind::Atom(Atom {
@@ -295,6 +390,7 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 self.visit(arg)?;
                             }
                         }
+                        return Ok(());
                     }
 
                     // If we're in define-syntax, don't expand the list of the name
@@ -308,6 +404,7 @@ impl<'a> VisitorMutRef for Expander<'a> {
                         if let Some(arg) = l.args.get_mut(2) {
                             self.visit(arg)?;
                         }
+                        return Ok(());
                     }
 
                     Some(ExprKind::Atom(Atom {
@@ -320,6 +417,8 @@ impl<'a> VisitorMutRef for Expander<'a> {
                         if let Some(arg) = l.args.get_mut(2) {
                             self.visit(arg)?;
                         }
+
+                        return Ok(());
                     }
 
                     Some(ExprKind::Atom(
@@ -396,12 +495,16 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 {
                                     let span = *sp;
 
+                                    // println!("Expanding: {}", l);
+
                                     let mut expanded = m.expand(
                                         List::new_maybe_improper(
                                             core::mem::take(&mut l.args),
                                             l.improper,
                                         ),
                                         span,
+                                        &self.in_scope_values,
+                                        self.globals,
                                     )?;
                                     self.changed = true;
 
@@ -519,12 +622,24 @@ impl<'a> VisitorMutRef for Expander<'a> {
     }
 
     fn visit_let(&mut self, l: &mut super::ast::Let) -> Self::Output {
+        self.in_scope_values.push_layer();
+
+        for (binding, _) in l.bindings.iter_mut() {
+            if let Some(ident) = binding.atom_identifier() {
+                self.in_scope_values.define(*ident);
+            }
+        }
+
         for (binding, expr) in l.bindings.iter_mut() {
             self.visit(binding)?;
             self.visit(expr)?;
         }
 
-        self.visit(&mut l.body_expr)
+        self.visit(&mut l.body_expr)?;
+
+        self.in_scope_values.pop_layer();
+
+        Ok(())
     }
 
     fn visit_list(&mut self, _l: &mut List) -> Self::Output {
@@ -540,7 +655,7 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
     type Output = Result<()>;
 
     fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
-        // println!("expanding: {}", expr);
+        // println!("expanding: {:?}", expr);
 
         if self.depth > 512 {
             stop!(Generic => "macro expansion depth reached!");
@@ -559,31 +674,99 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
             ExprKind::List(l) => {
                 match l.first() {
                     // TODO: Come back to this?
-                    // Some(ExprKind::Atom(
-                    //     ident @ Atom {
-                    //         syn:
-                    //             SyntaxObject {
-                    //                 ty: TokenType::Identifier(s),
-                    //                 ..
-                    //             },
-                    //     },
-                    // )) if *s == *LAMBDA_SYMBOL || *s == *LAMBDA => {
-                    //     if let ExprKind::LambdaFunction(mut lambda) =
-                    //         parse_lambda(&ident.clone(), l.args.clone())?
-                    //     {
-                    //         self.visit_lambda_function(&mut lambda)?;
+                    Some(ExprKind::Atom(
+                        ident @ Atom {
+                            syn:
+                                SyntaxObject {
+                                    ty: TokenType::Identifier(s),
+                                    ..
+                                },
+                        },
+                    )) if *s == *LAMBDA_SYMBOL || *s == *LAMBDA => {
+                        if let ExprKind::LambdaFunction(mut lambda) =
+                            parse_lambda(ident.clone(), l.args.clone())?
+                        {
+                            self.visit_lambda_function(&mut lambda)?;
 
-                    //         *expr = ExprKind::LambdaFunction(lambda);
+                            *expr = ExprKind::LambdaFunction(lambda);
 
-                    //         return Ok(());
+                            return Ok(());
 
-                    //         // return self.visit_lambda_function(&mut lambda);
+                            // return self.visit_lambda_function(&mut lambda);
 
-                    //         // return self.visit_lambda_function(lambda);
-                    //     } else {
-                    //         unreachable!()
-                    //     }
-                    // }
+                            // return self.visit_lambda_function(lambda);
+                        } else {
+                            unreachable!()
+                        }
+                    }
+
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(i),
+                                ..
+                            },
+                    })) if *i == *LET => {
+                        self.in_scope_values.push_layer();
+                        if let Some(bindings) = l.args.get_mut(1) {
+                            if let ExprKind::List(l) = bindings {
+                                for arg in &mut l.args {
+                                    if let ExprKind::List(l) = arg {
+                                        if let Some(ident) = l.first_ident() {
+                                            self.in_scope_values.define(*ident);
+                                        }
+                                    }
+
+                                    if let ExprKind::List(l) = arg {
+                                        if let Some(expr) = l.args.get_mut(1) {
+                                            self.visit(expr)?;
+                                        }
+                                    }
+                                }
+                                if let Some(body) = l.args.get_mut(2) {
+                                    self.visit(body)?;
+                                }
+                            }
+                        }
+
+                        self.in_scope_values.pop_layer();
+
+                        return Ok(());
+                    }
+
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Let, ..
+                            },
+                    })) => {
+                        self.in_scope_values.push_layer();
+                        if let Some(bindings) = l.args.get_mut(1) {
+                            if let ExprKind::List(l) = bindings {
+                                for arg in &mut l.args {
+                                    if let ExprKind::List(l) = arg {
+                                        if let Some(ident) = l.first_ident() {
+                                            self.in_scope_values.define(*ident);
+                                        }
+                                    }
+
+                                    if let ExprKind::List(l) = arg {
+                                        if let Some(expr) = l.args.get_mut(1) {
+                                            self.visit(expr)?;
+                                        }
+                                    }
+                                }
+                                if let Some(body) = l.args.get_mut(2) {
+                                    self.visit(body)?;
+                                }
+                            }
+                        }
+
+                        self.in_scope_values.pop_layer();
+
+                        return Ok(());
+                    }
+
                     Some(ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
@@ -717,12 +900,16 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
 
                                 let span = *sp;
 
+                                // println!("Expanding many: {}", l);
+
                                 let mut expanded = m.expand(
                                     List::new_maybe_improper(
                                         core::mem::take(&mut l.args),
                                         l.improper,
                                     ),
                                     span,
+                                    &self.in_scope_values,
+                                    self.globals,
                                 )?;
 
                                 if let Some(index) = found_index {
@@ -842,12 +1029,24 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
     }
 
     fn visit_let(&mut self, l: &mut super::ast::Let) -> Self::Output {
+        self.in_scope_values.push_layer();
+
+        for (binding, _) in l.bindings.iter_mut() {
+            if let Some(ident) = binding.atom_identifier() {
+                self.in_scope_values.define(*ident);
+            }
+        }
+
         for (binding, expr) in l.bindings.iter_mut() {
             self.visit(binding)?;
             self.visit(expr)?;
         }
 
-        self.visit(&mut l.body_expr)
+        self.visit(&mut l.body_expr)?;
+
+        self.in_scope_values.pop_layer();
+
+        Ok(())
     }
 
     fn visit_list(&mut self, _l: &mut List) -> Self::Output {
@@ -1758,7 +1957,7 @@ mod expansion_tests {
         )
         .into();
 
-        expand(&mut input, &map).unwrap();
+        expand(&mut input, &map, GlobalMap::Set(&FxHashSet::default())).unwrap();
 
         assert_eq!(expected, input)
     }

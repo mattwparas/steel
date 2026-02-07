@@ -5,9 +5,9 @@
     [(_ name place)
      (begin
        (when (identifier? #'name)
-         (displayln "Found identifier for name:" #'name))
+         (displayln #'name))
        (when (identifier? #'place)
-         (displayln "Found identifier for place:" #'place))
+         (displayln #'place))
        (with-syntax ([baz #'10])
          #`(list name place #,foo #,bar baz)))]))
 

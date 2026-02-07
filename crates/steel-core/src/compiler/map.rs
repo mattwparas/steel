@@ -1,5 +1,6 @@
 use crate::throw;
 use crate::{parser::interner::InternedString, rvals::Result};
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -81,7 +82,7 @@ impl FreeList {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SymbolMap {
     values: Vec<InternedString>,
-    map: HashMap<InternedString, usize>,
+    map: FxHashMap<InternedString, usize>,
     // TODO:
     // This definitely does not need to be this way, and also it
     // can be locked during the entire duration of the compilation
@@ -99,7 +100,7 @@ impl SymbolMap {
     pub fn new() -> Self {
         SymbolMap {
             values: Vec::new(),
-            map: HashMap::new(),
+            map: FxHashMap::default(),
             free_list: FreeList {
                 threshold: 100,
                 multiplier: 2,
@@ -111,6 +112,10 @@ impl SymbolMap {
 
     pub fn values(&self) -> &Vec<InternedString> {
         &self.values
+    }
+
+    pub fn map(&self) -> &FxHashMap<InternedString, usize> {
+        &self.map
     }
 
     pub fn len(&self) -> usize {

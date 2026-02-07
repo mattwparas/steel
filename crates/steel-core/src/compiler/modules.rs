@@ -6,7 +6,8 @@ use crate::{
     parser::{
         ast::{Atom, Begin, Define, ExprKind, List, Quote},
         expand_visitor::{
-            expand_kernel_in_env, expand_kernel_in_env_with_change, ExpanderMany, RequiredMacroMap,
+            expand_kernel_in_env, expand_kernel_in_env_with_change, ExpanderMany, GlobalMap,
+            RequiredMacroMap,
         },
         interner::InternedString,
         kernel::Kernel,
@@ -331,6 +332,7 @@ impl ModuleManager {
         lifted_kernel_environments: &mut HashMap<String, KernelDefMacroSpec>,
         lifted_macro_environments: &mut HashMap<PathBuf, HashSet<InternedString>>,
         search_dirs: &[PathBuf],
+        global_map: &FxHashMap<InternedString, usize>,
     ) -> Result<Vec<ExprKind>> {
         // Wipe the visited set on entry
         self.visited.clear();
@@ -622,7 +624,11 @@ impl ModuleManager {
 
                 // First expand the in scope macros
                 // These are macros
-                let mut expander = Expander::new(&in_scope_macros, &exclusions);
+                let mut expander = Expander::new(
+                    &in_scope_macros,
+                    &exclusions,
+                    GlobalMap::Set(&name_mangler.globals),
+                );
                 expander.expand(expr)?;
                 let changed = false;
 
@@ -634,7 +640,7 @@ impl ModuleManager {
                     expand(
                         expr,
                         &module.macro_map,
-                        // source_id,
+                        GlobalMap::Set(&name_mangler.globals), // source_id,
                     )?;
 
                     // Expanding the kernel with only these macros...
@@ -672,7 +678,7 @@ impl ModuleManager {
 
         time!("Top level macro evaluation time", {
             for expr in module_statements.iter_mut() {
-                let found_in_scope = expand(expr, global_macro_map)?;
+                let found_in_scope = expand(expr, global_macro_map, GlobalMap::Map(global_map))?;
 
                 for item in found_in_scope.iter() {
                     global_macro_map.remove(item);
@@ -1401,7 +1407,11 @@ impl CompiledModule {
                                 provide.0 = l.get(1).unwrap().clone();
 
                                 let mut provide_expr = l.get(2).unwrap().clone();
-                                expand(&mut provide_expr, global_macro_map)?;
+                                expand(
+                                    &mut provide_expr,
+                                    global_macro_map,
+                                    GlobalMap::Set(&name_mangler.globals),
+                                )?;
 
                                 provide.1 = provide_expr;
 
@@ -2385,6 +2395,9 @@ impl<'a> ModuleBuilder<'a> {
 
         let loaded_syntax_transformers = prev_length != ast.len();
 
+        let globals = collect_globals(&ast);
+        let globals = GlobalMap::Set(&globals);
+
         // TODO: Revisit if caching is something we want here
         // if self.kernel.is_some() && !loaded_syntax_transformers {
         //     let modules = self.compiled_modules.compiled_modules.clone();
@@ -2418,7 +2431,7 @@ impl<'a> ModuleBuilder<'a> {
                 // println!("GETTING HERE: {}", expr);
 
                 // Remove from the local macros?
-                expand(expr, &self.macro_map)?;
+                expand(expr, &self.macro_map, globals)?;
 
                 // for item in found.iter() {
                 //     // Remove from the list?
@@ -2433,13 +2446,13 @@ impl<'a> ModuleBuilder<'a> {
                     self.name.to_str().unwrap(),
                 )?;
 
-                expand(expr, &self.macro_map)?;
+                expand(expr, &self.macro_map, globals)?;
             }
         }
 
         // TODO: Provides also need to have this kind of macro expansion as the above!
         for expr in provides.iter_mut() {
-            expand(expr, &self.macro_map)?;
+            expand(expr, &self.macro_map, globals)?;
             // .and_then(|x| {
             // expand_kernel(x, self.kernel.as_mut(), self.builtin_modules.clone())
             expand_kernel_in_env(
@@ -2516,7 +2529,7 @@ impl<'a> ModuleBuilder<'a> {
             })
             .collect::<Vec<_>>();
 
-        let mut many_expander = ExpanderMany::new(macro_map, overlays);
+        let mut many_expander = ExpanderMany::new(macro_map, overlays, globals);
 
         for expr in ast.iter_mut() {
             many_expander.expand(expr)?;
@@ -2529,7 +2542,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.name.to_str().unwrap(),
             )?;
 
-            expand(expr, &many_expander.map)?;
+            expand(expr, &many_expander.map, globals)?;
 
             for RequiredMacroMap {
                 changed,
@@ -2537,7 +2550,7 @@ impl<'a> ModuleBuilder<'a> {
             } in many_expander.overlays.iter_mut()
             {
                 if *changed {
-                    expand(expr, &req_macro.module_macros)?;
+                    expand(expr, &req_macro.module_macros, globals)?;
 
                     // Expanding the kernel with only these macros...
                     let local_changed = expand_kernel_in_env_with_change(
@@ -2564,11 +2577,11 @@ impl<'a> ModuleBuilder<'a> {
 
                 let exclusions = HashSet::new();
 
-                let mut expander = Expander::new(&req_macro.in_scope_macros, &exclusions);
+                let mut expander = Expander::new(&req_macro.in_scope_macros, &exclusions, globals);
                 expander.expand(expr)?;
 
                 if expander.changed {
-                    expand(expr, &req_macro.module_macros)?;
+                    expand(expr, &req_macro.module_macros, globals)?;
                 }
             }
         }

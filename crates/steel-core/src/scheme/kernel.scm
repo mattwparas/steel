@@ -425,11 +425,22 @@
   ;; Name of the function
   (define name-expr (list-ref stx 1))
 
+  ; (when (and (list? stx) (not (empty? stx)) (equal? (car stx) 'begin))
+  ;   (stdout-simple-displayln "Updating the stx to destructure the begin")
+  ;   (set! stx (cdr stx)))
+
   (cond
+
     [(list? name-expr)
+
+     ; (stdout-simple-displayln stx)
+     ; (stdout-simple-displayln "==============================")
 
      ;; Syntax case expr
      (define syntax-case-expr (last stx))
+
+     ; (stdout-simple-displayln syntax-case-expr)
+     ; (stdout-simple-displayln "--------------------------")
 
      (define body-exprs (all-but-last (drop stx 2)))
 
@@ -447,6 +458,8 @@
        `(define-syntax ,gensym-name
           (syntax-rules ,syntax-case-syntax
             ,@(drop syntax-case-expr 3))))
+
+     ; (stdout-simple-displayln fake-syntax-rules)
 
      ;; This needs to be eval'd right away so that we can actually
      ;; reference the values.
@@ -489,8 +502,24 @@
      (cond
        [(and (list? lambda-expr) (equal? (car lambda-expr) 'lambda))
 
+        ; (stdout-simple-displayln "We're under this case")
+        ; (stdout-simple-displayln lambda-expr)
+        ; (stdout-simple-displayln (drop lambda-expr 2))
+        ; (stdout-simple-displayln (cdar (drop lambda-expr 2)))
+
+        ;; TODO: @Matt clean this bad boy up
+        (define list-of-expressions
+          (if (and (= (length lambda-expr) 3)
+                   (list? (list-ref lambda-expr 2))
+                   (not (empty? (list-ref lambda-expr 2)))
+                   (equal? (car (list-ref lambda-expr 2)) 'begin))
+
+              (cdar (drop lambda-expr 2))
+
+              (drop lambda-expr 2)))
+
         (define lowered-expression
-          (append (list 'define-syntax (cons name-expr (cadr lambda-expr))) (drop lambda-expr 2)))
+          (append (list 'define-syntax (cons name-expr (cadr lambda-expr))) list-of-expressions))
 
         ;; Body exprs
         (parse-def-syntax lowered-expression)]
@@ -513,7 +542,13 @@
  (define-syntax expression)
  (define unwrapped (syntax->datum expression))
  ;; Just register a syntax transformer?
+ ; (stdout-simple-displayln "DEFINE SYNTAX START")
+ ; (stdout-simple-displayln unwrapped)
  (define func (parse-def-syntax unwrapped))
+ ; (define func
+ ;   (if (and (list? unwrapped) (not (empty? unwrapped)) (equal? (car unwrapped) 'begin))
+ ;       (parse-def-syntax (cdr unwrapped))
+ ;       (parse-def-syntax unwrapped)))
  (define name-expr (list-ref unwrapped 1))
  (define name
    (if (list? name-expr)
