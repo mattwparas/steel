@@ -462,8 +462,6 @@
           (syntax-rules ,syntax-case-syntax
             ,@(drop syntax-case-expr 3))))
 
-     ; (stdout-simple-displayln fake-syntax-rules)
-
      ;; This needs to be eval'd right away so that we can actually
      ;; reference the values.
      (eval fake-syntax-rules)

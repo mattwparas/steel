@@ -97,7 +97,7 @@ pub enum GlobalMap<'a> {
 impl<'a> GlobalMap<'a> {
     pub fn contains(&self, i: &InternedString) -> bool {
         match self {
-            GlobalMap::Map(hash_map) => hash_map.contains_key(i),
+            GlobalMap::Map(hash_map) => false,
             GlobalMap::Set(hash_set) => hash_set.contains(i),
         }
     }
