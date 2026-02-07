@@ -231,7 +231,6 @@ pub struct Engine {
     // TODO: Just put this, and all the other things,
     // inside the `SteelThread` - The compiler probably
     // still... needs to be shared, but thats fine.
-    // pub(crate) compiler: Arc<RwLock<Compiler>>,
     modules: ModuleContainer,
     #[cfg(feature = "dylibs")]
     dylibs: DylibContainers,
@@ -252,11 +251,12 @@ impl Engine {
     }
 }
 
-// impl Drop for Engine {
-//     fn drop(&mut self) {
-//         TypeMap::run_explicit_merge();
-//     }
-// }
+#[cfg(feature = "biased")]
+impl Drop for Engine {
+    fn drop(&mut self) {
+        steel_rc::QueueHandle::run_explicit_merge();
+    }
+}
 
 impl Clone for Engine {
     fn clone(&self) -> Self {
