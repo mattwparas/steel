@@ -35,7 +35,10 @@ use std::{
 
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use steel_parser::{ast::PROVIDE, span::Span};
+use steel_parser::{
+    ast::{AstTools, PROVIDE},
+    span::Span,
+};
 
 use crate::rvals::{Result, SteelVal};
 

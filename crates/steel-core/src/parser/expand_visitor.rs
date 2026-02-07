@@ -3,7 +3,9 @@ use std::collections::HashSet;
 use quickscope::ScopeSet;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use smallvec::SmallVec;
-use steel_parser::ast::{self, parse_lambda, Begin, QUOTE};
+use steel_parser::ast::{
+    self, parse_lambda, Begin, DEFINE_SYNTAX, QUOTE, SYNTAX_CASE, SYNTAX_RULES,
+};
 use steel_parser::parser::SourceId;
 use steel_parser::tokens::NumberLiteral;
 
@@ -201,8 +203,6 @@ impl<'a> VisitorMutRef for Expander<'a> {
     type Output = Result<()>;
 
     fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
-        // println!("expanding: {}", expr);
-
         if self.depth > 512 {
             stop!(Generic => "macro expansion depth reached!");
         }
@@ -260,6 +260,68 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 ..
                             },
                     })) if *i == *QUOTE => return Ok(()),
+
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(i),
+                                ..
+                            },
+                    })) if *i == *SYNTAX_CASE && !self.in_scope_values.contains(i) => {
+                        if let Some(args) = l.args.get_mut(3..) {
+                            for arg in args {
+                                if let ExprKind::List(l) = arg {
+                                    if let Some(rest) = l.args.get_mut(1..) {
+                                        for arg in rest {
+                                            self.visit(arg)?;
+                                        }
+                                    }
+                                } else {
+                                    self.visit(arg)?;
+                                }
+                            }
+                        }
+                    }
+
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(i),
+                                ..
+                            },
+                    })) if *i == *SYNTAX_RULES && !self.in_scope_values.contains(i) => {
+                        if let Some(args) = l.args.get_mut(2..) {
+                            for arg in args {
+                                self.visit(arg)?;
+                            }
+                        }
+                    }
+
+                    // If we're in define-syntax, don't expand the list of the name
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(i),
+                                ..
+                            },
+                    })) if *i == *DEFINE_SYNTAX && !self.in_scope_values.contains(i) => {
+                        if let Some(arg) = l.args.get_mut(2) {
+                            self.visit(arg)?;
+                        }
+                    }
+
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::DefineSyntax,
+                                ..
+                            },
+                    })) if !self.in_scope_values.contains(&DEFINE_SYNTAX) => {
+                        if let Some(arg) = l.args.get_mut(2) {
+                            self.visit(arg)?;
+                        }
+                    }
+
                     Some(ExprKind::Atom(
                         ident @ Atom {
                             syn:
@@ -562,6 +624,30 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                             // return self.visit_lambda_function(&mut lambda);
                         } else {
                             unreachable!()
+                        }
+                    }
+
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::Identifier(i),
+                                ..
+                            },
+                    })) if *i == *DEFINE_SYNTAX && !self.in_scope_values.contains(i) => {
+                        if let Some(arg) = l.args.get_mut(2) {
+                            self.visit(arg)?;
+                        }
+                    }
+
+                    Some(ExprKind::Atom(Atom {
+                        syn:
+                            SyntaxObject {
+                                ty: TokenType::DefineSyntax,
+                                ..
+                            },
+                    })) if !self.in_scope_values.contains(&DEFINE_SYNTAX) => {
+                        if let Some(arg) = l.args.get_mut(2) {
+                            self.visit(arg)?;
                         }
                     }
 
@@ -1345,7 +1431,54 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => {
                 {
-                    // todo!()
+                    if l.first()
+                        .map(|x| {
+                            if let ExprKind::Atom(Atom {
+                                syn:
+                                    SyntaxObject {
+                                        ty: TokenType::DefineSyntax,
+                                        ..
+                                    },
+                            }) = x
+                            {
+                                true
+                            } else {
+                                false
+                            }
+                        })
+                        .unwrap_or_default()
+                    {
+                        if let Some(arg) = l.args.get_mut(2) {
+                            self.visit(arg)?;
+                            return Ok(());
+                        }
+                    }
+
+                    if l.first()
+                        .map(|x| {
+                            if let ExprKind::Atom(Atom {
+                                syn:
+                                    SyntaxObject {
+                                        ty: TokenType::SyntaxRules,
+                                        ..
+                                    },
+                            }) = x
+                            {
+                                true
+                            } else {
+                                false
+                            }
+                        })
+                        .unwrap_or_default()
+                    {
+                        if let Some(args) = l.args.get_mut(2..) {
+                            for arg in args {
+                                self.visit(arg)?;
+                            }
+                            return Ok(());
+                        }
+                    }
+
                     if let Some(s) = l.first().and_then(|x| {
                         if let ExprKind::Atom(Atom {
                             syn:
@@ -1360,6 +1493,24 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                             None
                         }
                     }) {
+                        if s == *SYNTAX_CASE {
+                            if let Some(args) = l.args.get_mut(3..) {
+                                for arg in args {
+                                    if let ExprKind::List(l) = arg {
+                                        if let Some(rest) = l.args.get_mut(1..) {
+                                            for arg in rest {
+                                                self.visit(arg)?;
+                                            }
+                                        }
+                                    } else {
+                                        self.visit(arg)?;
+                                    }
+                                }
+
+                                return Ok(());
+                            }
+                        }
+
                         if let Some(map) = &mut self.map {
                             if map.contains_syntax_object_macro(
                                 &s,

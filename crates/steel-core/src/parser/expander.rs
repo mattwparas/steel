@@ -268,7 +268,7 @@ impl SteelMacro {
         }
 
         if let Some(ExprKind::Atom(a)) = expr.first() {
-            stop!(BadSyntax => format!("macro expansion unable to match case: {expr}"); a.syn.span);
+            stop!(BadSyntax => format!("macro expansion unable to match case for index: {expr}"); a.syn.span);
         } else {
             unreachable!()
         }

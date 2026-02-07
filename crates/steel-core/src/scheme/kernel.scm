@@ -65,6 +65,27 @@
     [(#%syntax-transformer-module provide name rest ...)
      (%proto-hash-insert% (#%syntax-transformer-module provide rest ...) 'name name)]))
 
+(define-syntax #%syntax-transformer-module-update
+  (syntax-rules (provide)
+
+    [(#%syntax-transformer-module name)
+     (define (datum->syntax name)
+       (%proto-hash%))]
+
+    [(#%syntax-transformer-module name (provide ids ...) funcs ...)
+     (define (datum->syntax name)
+       (let ()
+         (begin
+           funcs ...)
+         (hash-union name (#%syntax-transformer-module provide ids ...))))]
+
+    ;; Normal case
+    [(#%syntax-transformer-module provide name) (%proto-hash% 'name name)]
+
+    ;; Normal case
+    [(#%syntax-transformer-module provide name rest ...)
+     (%proto-hash-insert% (#%syntax-transformer-module provide rest ...) 'name name)]))
+
 ;; Loading macros via defmacro - there will be a pass where we lower anything with defmacro down to the kernel,
 ;; which will then load and register macros accordingly.
 (define-syntax defmacro
@@ -458,10 +479,6 @@
             (parameterize ([#%syntax-binding-kind binding-kind])
               (,generated-function-name index)))))
 
-     ; (stdout-simple-displayln fake-syntax-rules)
-     ; (stdout-simple-displayln expansion-func)
-     ; (stdout-simple-displayln generated-match-function)
-
      (eval expansion-func)
 
      generated-match-function]
@@ -475,18 +492,16 @@
         (define lowered-expression
           (append (list 'define-syntax (cons name-expr (cadr lambda-expr))) (drop lambda-expr 2)))
 
-        (stdout-simple-displayln lowered-expression)
-
         ;; Body exprs
         (parse-def-syntax lowered-expression)]
 
        [(and (list? lambda-expr) (equal? (car lambda-expr) 'syntax-rules))
 
+        (define rules (list-ref lambda-expr 1))
+
         (define lowered-expression
           (append (list 'define-syntax (cons name-expr '(stx)))
-                  (list (append (list 'syntax-case 'stx '()) (drop lambda-expr 2)))))
-
-        ; (stdout-simple-displayln lowered-expression)
+                  (list (append (list 'syntax-case 'stx rules) (drop lambda-expr 2)))))
 
         (parse-def-syntax lowered-expression)]
 
@@ -508,11 +523,13 @@
  ;; We'd like to
  (define env (or originating-file "default"))
  (if (equal? env "default")
-
      (begin
        (eval `(define ,name ,func))
        ;; Register into the top environment
        (register-macro-transformer! name env))
+
+     ; (define top-level-exists? (with-handler (lambda (_) #f) (eval 'top-level)))
+     ; (stdout-simple-displayln top-level-exists?)
 
      (with-handler (lambda (e1)
 

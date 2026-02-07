@@ -63,14 +63,14 @@
   (syntax-rules (foo bar baz)
     [(_ name)
      (define-syntax name
-       (syntax-rules (foo bar baz)
+       (syntax-rules ()
          [(_) 100]))]))
 
 (define-syntax make-macro2
   (syntax-rules ()
     [(_ name)
      (define-syntax (name stx)
-       (syntax-case stx (foo bar baz)
+       (syntax-case stx ()
          [(_) 10]))]))
 
 (make-macro foo)
@@ -78,3 +78,25 @@
 
 (assert! (equal? (foo) 100))
 (assert! (equal? (bar) 10))
+
+(define-syntax make-macro3
+  (syntax-rules (foo bar baz)
+    [(_ name)
+     (define-syntax name
+       (syntax-rules (foo bar baz)
+         [(_) 100]))]))
+
+;; TODO: Make a test case that has foo/bar
+;; in the pattern:
+(define-syntax make-macro4
+  (syntax-rules ()
+    [(_ name)
+     (define-syntax (name stx)
+       (syntax-case stx (foo bar baz)
+         [(_) 10]))]))
+
+(make-macro3 foo2)
+(make-macro4 bar2)
+
+(assert! (equal? (foo2) 100))
+(assert! (equal? (bar2) 10))

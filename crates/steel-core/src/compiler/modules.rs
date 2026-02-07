@@ -550,8 +550,6 @@ impl ModuleManager {
                                 SyntaxObject::default(TokenType::Define),
                             )));
 
-                            // println!("{}", define);
-
                             require_defines.push(define);
                         }
                         _ => {
@@ -604,22 +602,6 @@ impl ModuleManager {
                 }
             }
 
-            // TODO: This isn't right - only check if there are defmacro things
-            // that we need to lift - just check the values that are in the defmacros
-            // environment in the kernel
-            // if !kernel_macros_in_scope.is_empty() {
-            //     lifted_kernel_environments.insert(
-            //         module_name.clone(),
-            //         KernelDefMacroSpec {
-            //             env: module_name,
-            //             exported: None,
-            //             name_mangler: name_mangler.clone(),
-            //         },
-            //     );
-            // }
-
-            // let module_name = Cow::from(module.name.to_str().unwrap().to_string());
-
             for expr in ast.iter_mut() {
                 // @matt 12/8/2023
                 // The easiest thing to do here, is to go to the other module, and find
@@ -643,37 +625,6 @@ impl ModuleManager {
                 let mut expander = Expander::new(&in_scope_macros, &exclusions);
                 expander.expand(expr)?;
                 let changed = false;
-
-                // (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
-                //     first_round_expanded,
-                //     kernel.as_mut(),
-                //     // We don't need to expand those here
-                //     ModuleContainer::default(),
-                //     module.name.to_str().unwrap().to_string(),
-                //     &kernel_macros_in_scope,
-                // )?;
-
-                // If the kernel expander expanded into something - go ahead
-                // and expand all of the macros in this
-                // if changed || expander.changed {
-                // Expand here?
-                // first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
-
-                // Probably don't need this
-                // (first_round_expanded, changed) = expand_kernel_in_env_with_change(
-                //     first_round_expanded,
-                //     kernel.as_mut(),
-                //     ModuleContainer::default(),
-                //     module.name.to_str().unwrap().to_string(),
-                // )?;
-
-                // This is pretty suspect, and needs to be revisited - only the output of the
-                // macro expansion and not the whole thing needs to be mangled most likely.
-                // Otherwise, we'll run into weird stuff?
-                // if changed {
-                //     name_mangler.visit(&mut first_round_expanded);
-                // }
-                // }
 
                 if expander.changed || changed {
                     let _source_id = sources.get_source_id(&module.name).unwrap();
@@ -699,120 +650,8 @@ impl ModuleManager {
                     if changed {
                         name_mangler.visit(expr);
                     }
-
-                    // lifted_kernel_environments.insert(
-                    //     module_name.clone(),
-                    //     KernelDefMacroSpec {
-                    //         env: module_name,
-                    //         exported: None,
-                    //         name_mangler: name_mangler.clone(),
-                    //     },
-                    // );
-
-                    // Ok(fully_expanded)
                 }
-                // else {
-                //     Ok(first_round_expanded)
-                // }
             }
-
-            // ast = ast
-            //     .into_iter()
-            //     .map(|x| {
-            //         // @matt 12/8/2023
-            //         // The easiest thing to do here, is to go to the other module, and find
-            //         // what defmacros have been exposed on the require for syntax. Once those
-            //         // have been found, we run a pass with kernel expansion, limiting the
-            //         // expander to only use the macros that we've exposed. After that,
-            //         // we run the expansion again, using the full suite of defmacro capabilities.
-            //         //
-            //         // The question that remains - how to define the neat phases of what kinds
-            //         // of macros can expand into what? Can defmacro -> syntax-rules -> defmacro?
-            //         // This could eventually prove to be cumbersome, but it is still early
-            //         // for defmacro. Plus, I need to create a syntax-case or syntax-parse
-            //         // frontend before the defmacro style macros become too pervasive.
-            //         //
-            //         // TODO: Replicate this behavior over to builtin modules
-
-            //         // First expand the in scope macros
-            //         // These are macros
-            //         let mut expander = Expander::new(&in_scope_macros);
-            //         let mut first_round_expanded = expander.expand(x)?;
-            //         let mut changed = false;
-
-            //         // (first_round_expanded, changed) = expand_kernel_in_env_with_allowed(
-            //         //     first_round_expanded,
-            //         //     kernel.as_mut(),
-            //         //     // We don't need to expand those here
-            //         //     ModuleContainer::default(),
-            //         //     module.name.to_str().unwrap().to_string(),
-            //         //     &kernel_macros_in_scope,
-            //         // )?;
-
-            //         // If the kernel expander expanded into something - go ahead
-            //         // and expand all of the macros in this
-            //         // if changed || expander.changed {
-            //         // Expand here?
-            //         // first_round_expanded = expand(first_round_expanded, &module.macro_map)?;
-
-            //         // Probably don't need this
-            //         // (first_round_expanded, changed) = expand_kernel_in_env_with_change(
-            //         //     first_round_expanded,
-            //         //     kernel.as_mut(),
-            //         //     ModuleContainer::default(),
-            //         //     module.name.to_str().unwrap().to_string(),
-            //         // )?;
-
-            //         // This is pretty suspect, and needs to be revisited - only the output of the
-            //         // macro expansion and not the whole thing needs to be mangled most likely.
-            //         // Otherwise, we'll run into weird stuff?
-            //         // if changed {
-            //         //     name_mangler.visit(&mut first_round_expanded);
-            //         // }
-            //         // }
-
-            //         if expander.changed || changed {
-            //             let source_id = sources.get_source_id(&module.name).unwrap();
-
-            //             let mut fully_expanded = first_round_expanded;
-
-            //             expand(
-            //                 &mut fully_expanded,
-            //                 &module.macro_map,
-            //                 // source_id,
-            //             )?;
-
-            //             let module_name = module.name.to_str().unwrap().to_string();
-
-            //             // Expanding the kernel with only these macros...
-            //             let changed = expand_kernel_in_env_with_change(
-            //                 &mut fully_expanded,
-            //                 kernel.as_mut(),
-            //                 // We don't need to expand those here
-            //                 ModuleContainer::default(),
-            //                 module_name.clone(),
-            //                 // &kernel_macros_in_scope,
-            //             )?;
-
-            //             if changed {
-            //                 name_mangler.visit(&mut fully_expanded);
-            //             }
-
-            //             // lifted_kernel_environments.insert(
-            //             //     module_name.clone(),
-            //             //     KernelDefMacroSpec {
-            //             //         env: module_name,
-            //             //         exported: None,
-            //             //         name_mangler: name_mangler.clone(),
-            //             //     },
-            //             // );
-
-            //             Ok(fully_expanded)
-            //         } else {
-            //             Ok(first_round_expanded)
-            //         }
-            //     })
-            //     .collect::<Result<_>>()?;
 
             // Global macro map - also need to expand with ALL macros
             // post expansion in the target environment, which means we can't _just_
@@ -842,21 +681,9 @@ impl ModuleManager {
                         // If this was recently shadowed, then we don't want it any more.
                         shadowed_vars.insert(*item);
                     }
-
-                    // Remove from the lifted macro env as well
                 }
             }
         });
-
-        // @Matt 7/4/23
-        // TODO: With mangling, this could cause problems. We'll want to un-mangle quotes AFTER the macro has been expanded,
-        // in order to preserve the existing behavior.
-        // let result = module_statements
-        //     .into_iter()
-        //     .map(|x| expand(x, global_macro_map))
-        //     .collect::<Result<_>>();
-
-        // result
 
         Ok(module_statements)
     }
