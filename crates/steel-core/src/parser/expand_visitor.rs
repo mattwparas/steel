@@ -247,31 +247,31 @@ impl<'a> VisitorMutRef for Expander<'a> {
             ExprKind::List(l) => {
                 match l.first() {
                     // TODO: Come back to this?
-                    // Some(ExprKind::Atom(
-                    //     ident @ Atom {
-                    //         syn:
-                    //             SyntaxObject {
-                    //                 ty: TokenType::Identifier(s),
-                    //                 ..
-                    //             },
-                    //     },
-                    // )) if *s == *LAMBDA_SYMBOL || *s == *LAMBDA => {
-                    //     if let ExprKind::LambdaFunction(mut lambda) =
-                    //         parse_lambda(&ident.clone(), l.args.clone())?
-                    //     {
-                    //         self.visit_lambda_function(&mut lambda)?;
+                    Some(ExprKind::Atom(
+                        ident @ Atom {
+                            syn:
+                                SyntaxObject {
+                                    ty: TokenType::Identifier(s),
+                                    ..
+                                },
+                        },
+                    )) if *s == *LAMBDA_SYMBOL || *s == *LAMBDA => {
+                        if let ExprKind::LambdaFunction(mut lambda) =
+                            parse_lambda(ident.clone(), l.args.clone())?
+                        {
+                            self.visit_lambda_function(&mut lambda)?;
 
-                    //         *expr = ExprKind::LambdaFunction(lambda);
+                            *expr = ExprKind::LambdaFunction(lambda);
 
-                    //         return Ok(());
+                            return Ok(());
 
-                    //         // return self.visit_lambda_function(&mut lambda);
+                            // return self.visit_lambda_function(&mut lambda);
 
-                    //         // return self.visit_lambda_function(lambda);
-                    //     } else {
-                    //         unreachable!()
-                    //     }
-                    // }
+                            // return self.visit_lambda_function(lambda);
+                        } else {
+                            unreachable!()
+                        }
+                    }
                     Some(ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
@@ -338,8 +338,11 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                         }
                                     }
                                 }
-                                if let Some(body) = l.args.get_mut(2) {
-                                    self.visit(body)?;
+                            }
+
+                            if let Some(body_args) = l.args.get_mut(2..) {
+                                for body_expr in body_args {
+                                    self.visit(body_expr)?;
                                 }
                             }
                         }
@@ -377,8 +380,10 @@ impl<'a> VisitorMutRef for Expander<'a> {
                             }
                         }
 
-                        if let Some(body) = l.args.get_mut(2) {
-                            self.visit(body)?;
+                        if let Some(body_args) = l.args.get_mut(2..) {
+                            for body_expr in body_args {
+                                self.visit(body_expr)?;
+                            }
                         }
 
                         self.in_scope_values.pop_layer();
@@ -400,7 +405,6 @@ impl<'a> VisitorMutRef for Expander<'a> {
                         }
                         return Ok(());
                     }
-
                     // If we're in define-syntax, don't expand the list of the name
                     Some(ExprKind::Atom(Atom {
                         syn:
@@ -686,31 +690,31 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
             ExprKind::List(l) => {
                 match l.first() {
                     // TODO: Come back to this?
-                    // Some(ExprKind::Atom(
-                    //     ident @ Atom {
-                    //         syn:
-                    //             SyntaxObject {
-                    //                 ty: TokenType::Identifier(s),
-                    //                 ..
-                    //             },
-                    //     },
-                    // )) if *s == *LAMBDA_SYMBOL || *s == *LAMBDA => {
-                    //     if let ExprKind::LambdaFunction(mut lambda) =
-                    //         parse_lambda(ident.clone(), l.args.clone())?
-                    //     {
-                    //         self.visit_lambda_function(&mut lambda)?;
+                    Some(ExprKind::Atom(
+                        ident @ Atom {
+                            syn:
+                                SyntaxObject {
+                                    ty: TokenType::Identifier(s),
+                                    ..
+                                },
+                        },
+                    )) if *s == *LAMBDA_SYMBOL || *s == *LAMBDA => {
+                        if let ExprKind::LambdaFunction(mut lambda) =
+                            parse_lambda(ident.clone(), l.args.clone())?
+                        {
+                            self.visit_lambda_function(&mut lambda)?;
 
-                    //         *expr = ExprKind::LambdaFunction(lambda);
+                            *expr = ExprKind::LambdaFunction(lambda);
 
-                    //         return Ok(());
+                            return Ok(());
 
-                    //         // return self.visit_lambda_function(&mut lambda);
+                            // return self.visit_lambda_function(&mut lambda);
 
-                    //         // return self.visit_lambda_function(lambda);
-                    //     } else {
-                    //         unreachable!()
-                    //     }
-                    // }
+                            // return self.visit_lambda_function(lambda);
+                        } else {
+                            unreachable!()
+                        }
+                    }
                     Some(ExprKind::Atom(Atom {
                         syn:
                             SyntaxObject {
@@ -738,8 +742,11 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                                         }
                                     }
                                 }
-                                if let Some(body) = l.args.get_mut(2) {
-                                    self.visit(body)?;
+                            }
+
+                            if let Some(body_args) = l.args.get_mut(2..) {
+                                for body_expr in body_args {
+                                    self.visit(body_expr)?;
                                 }
                             }
                         }
