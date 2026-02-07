@@ -993,7 +993,8 @@ fn match_single_pattern(
                         ty: TokenType::Identifier(s),
                         ..
                     },
-            }) if s == v && !in_scope.contains(s) && !globals.contains(s) => true,
+                // }) if s == v && !in_scope.contains(s) && !globals.contains(s) => true,
+            }) if s == v && !in_scope.contains(s) => true,
             ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {

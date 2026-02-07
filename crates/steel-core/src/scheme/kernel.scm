@@ -77,7 +77,10 @@
        (let ()
          (begin
            funcs ...)
-         (hash-union name (#%syntax-transformer-module provide ids ...))))]
+         (hash-union (if (void? name)
+                         (%proto-hash%)
+                         name)
+                     (#%syntax-transformer-module provide ids ...))))]
 
     ;; Normal case
     [(#%syntax-transformer-module provide name) (%proto-hash% 'name name)]
