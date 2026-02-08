@@ -315,7 +315,15 @@ impl Kernel {
         // in the first place
         let mut def_macro_exprs = Vec::with_capacity(def_macro_expr_indices.len() + 3);
 
-        def_macro_exprs.push(ExprKind::ident("#%syntax-transformer-module"));
+        let mut macro_of_choice: InternedString = "#%syntax-transformer-module".into();
+
+        if environment == "top-level" {
+            if self.engine.extract_value("top-level").is_ok() {
+                macro_of_choice = "#%syntax-transformer-module-update".into();
+            }
+        }
+
+        def_macro_exprs.push(ExprKind::atom(macro_of_choice));
         def_macro_exprs.push(ExprKind::ident(&environment));
 
         if !def_macro_expr_indices.is_empty() {

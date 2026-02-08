@@ -2364,6 +2364,18 @@ fn syntax_to_module(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     Some(syntax_to_module_impl(ctx, args))
 }
 
+#[steel_derive::context(name = "#%syntax/raw", arity = "Exact(3)")]
+fn syntax_raw(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn syntax_raw_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        let syntax = args[1].clone();
+        let span = Span::from_steelval(&args[2])?;
+        let interned_raw = intern_symbol(ctx, &args[..1]).unwrap()?;
+        crate::rvals::Syntax::proto(interned_raw, syntax, span).into_steelval()
+    }
+
+    Some(syntax_raw_impl(ctx, args))
+}
+
 fn syntax_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/syntax");
     module
@@ -2372,7 +2384,7 @@ fn syntax_module() -> BuiltInModule {
         .register_fn("syntax/loc", crate::rvals::Syntax::new)
         .register_fn("syntax-span", crate::rvals::Syntax::syntax_loc)
         .register_fn("span-file-id", |span: Span| span.source_id.map(|x| x.0))
-        .register_fn("#%syntax/raw", crate::rvals::Syntax::proto)
+        .register_native_fn_definition(SYNTAX_RAW_DEFINITION)
         .register_fn("syntax-e", crate::rvals::Syntax::syntax_e)
         .register_value("syntax?", gen_pred!(SyntaxObject))
         .register_fn("#%debug-syntax->exprkind", |value| {

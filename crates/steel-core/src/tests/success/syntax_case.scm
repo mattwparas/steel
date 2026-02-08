@@ -5,9 +5,9 @@
     [(_ name place)
      (begin
        (when (identifier? #'name)
-         (displayln "Found identifier for name:" #'name))
+         (displayln #'name))
        (when (identifier? #'place)
-         (displayln "Found identifier for place:" #'place))
+         (displayln #'place))
        (with-syntax ([baz #'10])
          #`(list name place #,foo #,bar baz)))]))
 
@@ -47,3 +47,56 @@
 
 (define (test-compile2)
   (loop2 (func)))
+
+(define-syntax structure-test
+  (lambda (stx)
+    (syntax-case stx ()
+      [(kw (a b c))
+       (let ([datum (syntax->datum (syntax (a b c)))])
+         (if (and (pair? datum) (eq? (car datum) 'a) (eq? (cadr datum) 'b) (eq? (caddr datum) 'c))
+             (syntax (quote correct))
+             (syntax (quote wrong))))])))
+
+(assert! (equal? (structure-test (a b c)) 'correct))
+
+(define-syntax make-macro
+  (syntax-rules (foo bar baz)
+    [(_ name)
+     (define-syntax name
+       (syntax-rules ()
+         [(_) 100]))]))
+
+(define-syntax make-macro2
+  (syntax-rules ()
+    [(_ name)
+     (define-syntax (name stx)
+       (syntax-case stx ()
+         [(_) 10]))]))
+
+(make-macro foo)
+(make-macro2 bar)
+
+(assert! (equal? (foo) 100))
+(assert! (equal? (bar) 10))
+
+(define-syntax make-macro3
+  (syntax-rules (foo bar baz)
+    [(_ name)
+     (define-syntax name
+       (syntax-rules (foo bar baz)
+         [(_) 100]))]))
+
+;; TODO: Make a test case that has foo/bar
+;; in the pattern:
+(define-syntax make-macro4
+  (syntax-rules ()
+    [(_ name)
+     (define-syntax (name stx)
+       (syntax-case stx (foo bar baz)
+         [(_) 10]))]))
+
+(make-macro3 foo2)
+(make-macro4 bar2)
+
+(assert! (equal? (foo2) 100))
+(assert! (equal? (bar2) 10))

@@ -61,6 +61,7 @@ define_symbols! {
     SYNTAX_QUOTE => "syntax",
     DEFINE_SYNTAX => "define-syntax",
     SYNTAX_RULES => "syntax-rules",
+    SYNTAX_CASE => "syntax-case",
 }
 
 pub trait AstTools {
