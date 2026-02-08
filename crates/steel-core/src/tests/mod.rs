@@ -37,6 +37,21 @@ macro_rules! test_harness_success {
                 fn $file_name() {
                     let script = include_str!(concat!("success/", stringify!($file_name), ".scm"));
                     assert_script(script);
+                }
+            )*
+        }
+    };
+}
+
+macro_rules! test_harness_success_module {
+    ($($file_name:ident),* $(,)?) => {
+        #[cfg(test)]
+        mod integration_success_module {
+            use super::*;
+            $(
+                #[test]
+                fn $file_name() {
+                    let script = include_str!(concat!("success/", stringify!($file_name), ".scm"));
                     assert_script_module(stringify!($file_name), script);
                 }
             )*
@@ -103,6 +118,94 @@ test_harness_success! {
     contracts,
     define_normal,
     defmacro,
+    delim_control,
+    delim_control_n,
+    dfs,
+    dll,
+    docs,
+    ellipses,
+    empty,
+    fib,
+    generator,
+    generic_execution,
+    generic_execution_dropping,
+    generic_execution_output_different_type,
+    generic_transducer,
+    generic_transducer_with_different_functions,
+    hailstone,
+    hash,
+    heap_sort,
+    help,
+    html_table,
+    into_string,
+    letrec_mutual_recursion,
+    letrec_simple_recursion,
+    list_append,
+    list_functions,
+    local_struct,
+    matcher,
+    maxsubseq,
+    merge_sort,
+    ncsubseq,
+    numbers,
+    pascals,
+    print,
+    permutations,
+    ports,
+    quicksort,
+    read,
+    require_alias,
+    require_only_in,
+    require_prefix,
+    result,
+    search,
+    set_local,
+    set_tail_call,
+    shift_reset,
+    sicp_example,
+    sieve,
+    simple_stream,
+    simple_stream_with_map,
+    simple_stream_with_mapping,
+    simple_stream_with_transduce_operation,
+    simple_stream_with_transducer,
+    stack_state,
+    stack_struct,
+    stack_test_with_contract,
+    string,
+    string_eq,
+    structs,
+    symbols,
+    // TODO: @Matt 11/11/2023
+    syntax_case,
+    threads,
+    transducer_over_streams,
+    tree_traversal,
+    trie_sort,
+    y_combinator,
+}
+
+test_harness_success_module! {
+    abc_problem,
+    apply,
+    apply_more_complex,
+    babbage_problem,
+    balanced_brackets,
+    basic_apply,
+    binary_search,
+    bytevectors,
+    calculator,
+    capture_upvalue,
+    capture_upvalues_arity_two,
+    close_upvalue,
+    closure_value_capture,
+    comma_quibbling,
+    complex_lets,
+    constant_eval_set,
+    curried,
+    contracts,
+    define_normal,
+    // defmacro,
     delim_control,
     delim_control_n,
     dfs,
