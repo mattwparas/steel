@@ -2,7 +2,7 @@
 use std::{
     cell::RefCell,
     collections::HashMap,
-    path::{Path, PathBuf},
+    path::Path,
     rc::Rc,
     sync::{Arc, Mutex},
 };
@@ -18,6 +18,7 @@ use once_cell::sync::Lazy;
 
 use crate::{
     compiler::modules::steel_home,
+    path::PathBuf,
     rvals::{IntoSteelVal, SteelString, SteelVal},
 };
 

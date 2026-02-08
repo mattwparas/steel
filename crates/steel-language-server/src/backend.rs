@@ -4,7 +4,6 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     error::Error,
-    path::PathBuf,
     sync::{Arc, Mutex, RwLock},
 };
 
@@ -33,6 +32,7 @@ use steel::{
         span::Span,
         tryfrom_visitor::SyntaxObjectFromExprKindRef,
     },
+    path::PathBuf,
     rvals::{AsRefSteelVal, FromSteelVal, SteelString},
     steel_vm::{builtin::BuiltInModule, engine::Engine, register_fn::RegisterFn},
 };
@@ -916,8 +916,8 @@ impl LanguageServer for Backend {
                     .clone()
                     .to_file_path();
                 if let Ok(module_path) = module_path {
-                    let mut external_module_refs =
-                        self.find_references_external_module(identifier, module_path);
+                    let mut external_module_refs = self
+                        .find_references_external_module(identifier, PathBuf::from(module_path));
                     found_locations.append(&mut external_module_refs);
                 }
             }
@@ -1331,7 +1331,7 @@ impl Backend {
             let require_objects = module.get_requires();
 
             for req in require_objects {
-                if req.path.get_path().as_path() == module_path {
+                if req.path.get_path().as_path() == module_path.as_path() {
                     // Note: Once the logging is fixed we can remove the clone here
                     should_index.push((module, req));
                 }
@@ -1848,7 +1848,7 @@ impl Backend {
                 let now = std::time::Instant::now();
                 let expressions = guard.emit_expanded_ast_without_optimizations(
                     &expression,
-                    params.uri.to_file_path().ok(),
+                    params.uri.to_file_path().ok().map(PathBuf::from),
                 );
                 eprintln!("on change time: {:?}", now.elapsed());
 

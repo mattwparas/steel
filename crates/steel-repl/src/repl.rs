@@ -5,9 +5,9 @@ use rustyline::{
     Cmd, ConditionalEventHandler, Event, EventContext, EventHandler, KeyEvent, RepeatCount,
 };
 use steel::compiler::modules::steel_home;
+use steel::path::PathBuf;
 use steel::rvals::{Custom, SteelString};
 
-use std::borrow::Cow;
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,7 +18,7 @@ use rustyline::error::ReadlineError;
 
 use rustyline::{config::Configurer, Editor};
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use steel::{rvals::SteelVal, steel_vm::register_fn::RegisterFn};
 
 use steel::steel_vm::engine::Engine;
@@ -62,12 +62,16 @@ fn get_default_startup() -> ColoredString {
 
 fn get_default_repl_history_path() -> PathBuf {
     if let Some(val) = steel_home() {
-        let mut parsed_path = PathBuf::from(&val);
-        parsed_path = parsed_path.canonicalize().unwrap_or(parsed_path);
+        let mut parsed_path = PathBuf::from(val);
+        let canonicalized = parsed_path
+            .as_path()
+            .canonicalize()
+            .unwrap_or_else(|_| parsed_path.to_path_buf());
+        parsed_path = PathBuf::from(canonicalized);
         parsed_path.push("history");
         parsed_path
     } else {
-        let mut default_path = env_home::env_home_dir().unwrap_or_default();
+        let mut default_path = PathBuf::from(env_home::env_home_dir().unwrap_or_default());
         default_path.push(".steel/history");
         default_path.to_string_lossy().into_owned();
         default_path
@@ -261,11 +265,11 @@ impl<S: Display, P: AsRef<Path> + Debug> Repl<S, P> {
         rl.set_check_cursor_position(true);
 
         // Load repl history
-        let history_path: Cow<Path> = self
+        let history_path = self
             .history_path
             .as_ref()
-            .map(|p| Cow::Borrowed(p.as_ref()))
-            .unwrap_or_else(|| Cow::Owned(get_default_repl_history_path()));
+            .map(|p| p.as_ref().to_path_buf())
+            .unwrap_or_else(|| get_default_repl_history_path().to_path_buf());
 
         if rl.load_history(&history_path).is_err() && File::create(&history_path).is_err() {
             eprintln!("Unable to create repl history file {:?}", history_path)
@@ -365,7 +369,7 @@ impl<S: Display, P: AsRef<Path> + Debug> Repl<S, P> {
 
                             clear_interrupted();
 
-                            finish_load_or_interrupt(&mut self.vm, exprs, path.to_path_buf());
+                            finish_load_or_interrupt(&mut self.vm, exprs, PathBuf::from(path));
                         }
                         _ => {
                             // TODO also include this for loading files

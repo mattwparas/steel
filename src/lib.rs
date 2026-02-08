@@ -4,12 +4,12 @@ extern crate steel_repl;
 
 use clap::{Args, Command, CommandFactory, Parser, ValueEnum, ValueHint};
 use clap_complete::{generate, Generator, Shell};
+use steel::path::PathBuf;
 use steel::steel_vm::engine::Engine;
 use steel_doc::walk_dir;
 use steel_repl::{register_readline_module, run_repl};
 
 use std::env::current_dir;
-use std::path::{Path, PathBuf};
 use std::{error::Error, fs};
 use std::{io, process};
 
@@ -109,9 +109,13 @@ const DOC_OUTPUT_DIR: &str = "docs";
 impl DocArgs {
     fn process(self, vm: &mut Engine) -> Result<(), Box<dyn Error + 'static>> {
         let docs_with_defaults =
-            self.with_defaults(current_dir()?, Path::new(DOC_OUTPUT_DIR).to_path_buf());
+            self.with_defaults(PathBuf::from(current_dir()?), PathBuf::from(DOC_OUTPUT_DIR));
         let mut writer = std::io::BufWriter::new(std::io::stdout());
-        walk_dir(&mut writer, docs_with_defaults.input_path.unwrap(), vm)?;
+        walk_dir(
+            &mut writer,
+            PathBuf::from(docs_with_defaults.input_path.unwrap()),
+            vm,
+        )?;
         Ok(())
     }
 
@@ -277,11 +281,14 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
                             None,
                         )
                     } else {
-                        vm.emit_fully_expanded_ast_to_string(&contents, Some(path.clone()))
+                        vm.emit_fully_expanded_ast_to_string(
+                            &contents,
+                            Some(PathBuf::from(path.clone())),
+                        )
                     }
                 }
                 (true, false) => vm
-                    .emit_fully_expanded_ast(&contents, Some(path.clone()))
+                    .emit_fully_expanded_ast(&contents, Some(PathBuf::from(path.clone())))
                     .map(|ast| format!("{:#?}", ast)),
                 (false, true) => Engine::emit_ast_to_string(&contents),
                 (false, false) => Engine::emit_ast(&contents).map(|ast| format!("{:#?}", ast)),
@@ -316,7 +323,10 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
 
             let contents =
                 fs::read_to_string(&path).expect("Something went wrong reading the file");
-            let res = vm.compile_and_run_raw_program_with_path(contents.clone(), path.clone());
+            let res = vm.compile_and_run_raw_program_with_path(
+                contents.clone(),
+                PathBuf::from(path.clone()),
+            );
 
             if let Err(e) = res {
                 vm.raise_error(e);
@@ -338,7 +348,8 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
 
             // Something went wrong - TODO: Raise the error correctly
             let non_interactive_program =
-                Engine::create_non_interactive_program_image(entrypoint, file).unwrap();
+                Engine::create_non_interactive_program_image(entrypoint, PathBuf::from(file))
+                    .unwrap();
 
             let mut temporary_output = PathBuf::from("steel_target/src");
 
@@ -506,7 +517,7 @@ fn r7rs_benchmark_test_suite_two() {
     for bench in benches {
         let args = SteelCliArgs {
             action: None,
-            default_file: Some(PathBuf::from(bench)),
+            default_file: Some(PathBuf::from(*bench)),
             arguments: vec![],
         };
 
@@ -528,7 +539,7 @@ fn r7rs_benchmark_test_suite() {
     for bench in benches {
         let args = SteelCliArgs {
             action: None,
-            default_file: Some(PathBuf::from(bench)),
+            default_file: Some(PathBuf::from(*bench)),
             arguments: vec![],
         };
 
@@ -554,7 +565,7 @@ fn r7rs_benchmark_test_suite_three() {
     for bench in benches {
         let args = SteelCliArgs {
             action: None,
-            default_file: Some(PathBuf::from(bench)),
+            default_file: Some(PathBuf::from(*bench)),
             arguments: vec![],
         };
 

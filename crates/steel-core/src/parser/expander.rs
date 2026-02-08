@@ -7,6 +7,7 @@ use crate::parser::tokens::TokenType;
 
 use crate::parser::span::Span;
 
+use crate::path::PathBuf;
 use crate::rvals::{IntoSteelVal, Result};
 use alloc::sync::Arc;
 use core::cell::RefCell;
@@ -15,7 +16,7 @@ use std::{
     fs::File,
     io::{Read, Write},
     iter::FromIterator,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -36,7 +37,7 @@ fn update_extension(mut path: PathBuf, extension: &str) -> PathBuf {
 
 // Prepend the given path with the working directory
 pub fn path_from_working_dir<P: AsRef<Path>>(path: P) -> std::io::Result<PathBuf> {
-    let mut working_dir = std::env::current_dir()?;
+    let mut working_dir = PathBuf::from(std::env::current_dir()?);
     working_dir.push(path);
     Ok(working_dir)
 }

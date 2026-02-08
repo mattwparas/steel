@@ -3,7 +3,6 @@
 use std::{
     collections::{BTreeSet, HashMap},
     iter::FlatMap,
-    path::PathBuf,
 };
 
 use dashmap::DashSet;
@@ -26,6 +25,7 @@ use steel::{
         parser::{SourceId, SyntaxObjectId},
         span::Span,
     },
+    path::PathBuf,
     steel_vm::{builtin::Arity, engine::Engine},
     stop, SteelVal,
 };
