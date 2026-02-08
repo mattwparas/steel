@@ -321,6 +321,7 @@ impl LanguageServer for Backend {
                             }
                         });
 
+                        #[allow(deprecated)]
                         SymbolInformation {
                             name: name.resolve().into(),
                             kind: match kind {
@@ -375,6 +376,7 @@ impl LanguageServer for Backend {
                             }
                         });
 
+                        #[allow(deprecated)]
                         SymbolInformation {
                             name: name.to_string(),
                             kind: SymbolKind::VARIABLE,

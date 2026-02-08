@@ -4,7 +4,7 @@ use steel::{
     steel_vm::ffi::{FFIModule, RegisterFFIFn},
 };
 
-use ureq::{Request, Response};
+use ureq::Request;
 
 declare_module!(create_module);
 
@@ -44,7 +44,6 @@ fn create_module() -> FFIModule {
 
 #[derive(Clone)]
 struct BlockingRequest(Option<Request>);
-struct BlockingResponse(Response);
 
 #[derive(Clone)]
 struct Client(ureq::Agent);
@@ -56,9 +55,26 @@ enum BlockingError {
 }
 
 impl Custom for BlockingRequest {}
-impl Custom for BlockingResponse {}
 impl Custom for BlockingError {}
 impl Custom for Client {}
+
+impl std::fmt::Display for BlockingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BlockingError::Ureq(err) => write!(f, "{err}"),
+            BlockingError::ResponseAlreadyUsed => write!(f, "response already used"),
+        }
+    }
+}
+
+impl std::error::Error for BlockingError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            BlockingError::Ureq(err) => Some(err),
+            BlockingError::ResponseAlreadyUsed => None,
+        }
+    }
+}
 
 impl Client {
     fn new() -> Self {
