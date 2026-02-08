@@ -97,7 +97,8 @@ pub enum GlobalMap<'a> {
 impl<'a> GlobalMap<'a> {
     pub fn contains(&self, i: &InternedString) -> bool {
         match self {
-            GlobalMap::Map(hash_map) => false,
+            // TODO: Fix this so that we can actually leverage it!
+            GlobalMap::Map(_) => false,
             GlobalMap::Set(hash_set) => hash_set.contains(i),
         }
     }
@@ -1946,7 +1947,7 @@ mod expansion_tests {
             Vec::new(),
             vec![MacroCase::new(
                 PatternList::new(vec![
-                    MacroPattern::Syntax("when".into()),
+                    MacroPattern::Syntax("when".into(), false),
                     MacroPattern::Single("a".into()),
                     MacroPattern::Many(MacroPattern::Single("b".into()).into()),
                 ]),

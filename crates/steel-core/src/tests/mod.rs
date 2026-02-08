@@ -17,6 +17,16 @@ pub(crate) fn assert_script_error<T: AsRef<str> + Into<Cow<'static, str>>>(scrip
     assert!(vm.compile_and_run_raw_program(script).is_err());
 }
 
+pub(crate) fn assert_script_module<T: AsRef<str> + Into<Cow<'static, str>>>(name: &str, script: T) {
+    let mut vm = generate_asserting_machine();
+    vm.register_steel_module(name.to_string(), script.into().to_string());
+
+    println!("Registered: {}", name);
+
+    vm.compile_and_run_raw_program(format!(r#"(require "{}")"#, name))
+        .unwrap();
+}
+
 macro_rules! test_harness_success {
     ($($file_name:ident),* $(,)?) => {
         #[cfg(test)]
@@ -27,6 +37,7 @@ macro_rules! test_harness_success {
                 fn $file_name() {
                     let script = include_str!(concat!("success/", stringify!($file_name), ".scm"));
                     assert_script(script);
+                    assert_script_module(stringify!($file_name), script);
                 }
             )*
         }

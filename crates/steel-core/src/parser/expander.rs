@@ -526,7 +526,14 @@ impl MacroCase {
 pub enum MacroPattern {
     Rest(Box<MacroPattern>),
     Single(InternedString),
-    Syntax(InternedString),
+    // TODO: We need to encode
+    // the global offset, or at least something
+    // related to the scope identifier for this
+    // value such that we can do more macro things.
+    //
+    // This is so that we can see if something has
+    // already been bound.
+    Syntax(InternedString, bool),
     Many(Box<MacroPattern>),
     Nested(PatternList, bool),
     CharacterLiteral(char),
@@ -543,7 +550,7 @@ impl core::fmt::Debug for MacroPattern {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             MacroPattern::Single(s) => f.debug_tuple("Single").field(&s.resolve()).finish(),
-            MacroPattern::Syntax(s) => f.debug_tuple("Syntax").field(&s.resolve()).finish(),
+            MacroPattern::Syntax(s, _) => f.debug_tuple("Syntax").field(&s.resolve()).finish(),
             MacroPattern::Many(m) => f.debug_tuple("Many").field(&m).finish(),
             MacroPattern::Nested(n, v) => f.debug_tuple("Nested").field(n).field(v).finish(),
             MacroPattern::CharacterLiteral(c) => {
@@ -663,7 +670,7 @@ impl MacroPattern {
                 }) => match s {
                     TokenType::Identifier(t) => {
                         if t == ctx.name || ctx.special_forms.contains(&t) {
-                            pattern_vec.push(MacroPattern::Syntax(t))
+                            pattern_vec.push(MacroPattern::Syntax(t, false))
                         } else {
                             let peek = exprs_iter.peek().map(|(_, expr)| expr);
 
@@ -715,16 +722,16 @@ impl MacroPattern {
                     }
                     // TODO: Add all of the tokens here
                     TokenType::Begin => {
-                        pattern_vec.push(MacroPattern::Syntax(*BEGIN));
+                        pattern_vec.push(MacroPattern::Syntax(*BEGIN, false));
                     }
                     TokenType::Define => {
-                        pattern_vec.push(MacroPattern::Syntax(*DEFINE));
+                        pattern_vec.push(MacroPattern::Syntax(*DEFINE, false));
                     }
                     TokenType::Lambda => {
-                        pattern_vec.push(MacroPattern::Syntax(*LAMBDA));
+                        pattern_vec.push(MacroPattern::Syntax(*LAMBDA, false));
                     }
                     TokenType::If => {
-                        pattern_vec.push(MacroPattern::Syntax(*IF));
+                        pattern_vec.push(MacroPattern::Syntax(*IF, false));
                     }
                     TokenType::BooleanLiteral(b) => {
                         pattern_vec.push(MacroPattern::BooleanLiteral(b));
@@ -986,7 +993,7 @@ fn match_single_pattern(
         MacroPattern::Many(_) => unreachable!(),
         MacroPattern::Rest(_) => unreachable!(),
         MacroPattern::Single(_) => true,
-        MacroPattern::Syntax(v) => match expr {
+        MacroPattern::Syntax(v, _) => match expr {
             ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {
@@ -994,7 +1001,6 @@ fn match_single_pattern(
                         ..
                     },
             }) if s == v && !in_scope.contains(s) && !globals.contains(s) => true,
-            // }) if s == v && !in_scope.contains(s) => true,
             ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {
@@ -1193,7 +1199,7 @@ fn collect_bindings(
                 }
             }
             // actually check if the syntax matches
-            MacroPattern::Syntax(s) => {
+            MacroPattern::Syntax(s, _) => {
                 let error_func = throw!(BadSyntax => format!("macro expand expected keyword {s} - within {:?}", list));
 
                 let (_, e) = expr_iter.next().ok_or_else(error_func)?;
@@ -1349,7 +1355,7 @@ mod match_list_pattern_tests {
     #[test]
     fn test_match_basic() {
         let pattern_args = vec![
-            MacroPattern::Syntax("and".into()),
+            MacroPattern::Syntax("and".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Single("b".into()),
         ];
@@ -1379,7 +1385,7 @@ mod match_list_pattern_tests {
     #[test]
     fn test_match_many() {
         let pattern_args = vec![
-            MacroPattern::Syntax("and".into()),
+            MacroPattern::Syntax("and".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Many(MacroPattern::Single("b".into()).into()),
         ];
@@ -1408,7 +1414,7 @@ mod match_list_pattern_tests {
     #[test]
     fn test_match_many_multiple() {
         let pattern_args = vec![
-            MacroPattern::Syntax("and".into()),
+            MacroPattern::Syntax("and".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Many(MacroPattern::Single("b".into()).into()),
         ];
@@ -1435,7 +1441,7 @@ mod match_list_pattern_tests {
     #[test]
     fn test_nested() {
         let pattern_args = vec![
-            MacroPattern::Syntax("->>".into()),
+            MacroPattern::Syntax("->>".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Nested(
                 PatternList::new(vec![
@@ -1467,7 +1473,7 @@ mod match_list_pattern_tests {
     #[test]
     fn test_no_match_simple() {
         let pattern_args = vec![
-            MacroPattern::Syntax("->>".into()),
+            MacroPattern::Syntax("->>".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Single("bad".into()),
         ];
@@ -1491,7 +1497,7 @@ mod match_list_pattern_tests {
     #[test]
     fn test_nested_no_match() {
         let pattern_args = vec![
-            MacroPattern::Syntax("->>".into()),
+            MacroPattern::Syntax("->>".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Single("bad".into()),
             MacroPattern::Nested(
@@ -1525,7 +1531,7 @@ mod match_list_pattern_tests {
     #[test]
     fn test_number_literals() {
         let pattern_args = vec![
-            MacroPattern::Syntax("->>".into()),
+            MacroPattern::Syntax("->>".into(), false),
             MacroPattern::NumberLiteral(NumberLiteral::Real(RealLiteral::Rational(
                 IntLiteral::Small(3),
                 IntLiteral::Small(4),
@@ -1575,7 +1581,7 @@ mod collect_bindings_tests {
         let mut bindings = FxHashMap::default();
         let mut binding_kind = FxHashMap::default();
         let pattern_args = vec![
-            MacroPattern::Syntax("and".into()),
+            MacroPattern::Syntax("and".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Single("b".into()),
         ];
@@ -1629,7 +1635,7 @@ mod collect_bindings_tests {
         let mut bindings = FxHashMap::default();
         let mut binding_kind = FxHashMap::default();
         let pattern_args = vec![
-            MacroPattern::Syntax("and".into()),
+            MacroPattern::Syntax("and".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Many(MacroPattern::Single("b".into()).into()),
         ];
@@ -1682,7 +1688,7 @@ mod collect_bindings_tests {
         let mut bindings = FxHashMap::default();
         let mut binding_kind = FxHashMap::default();
         let pattern_args = vec![
-            MacroPattern::Syntax("and".into()),
+            MacroPattern::Syntax("and".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Many(MacroPattern::Single("b".into()).into()),
         ];
@@ -1735,7 +1741,7 @@ mod collect_bindings_tests {
         let mut binding_kind = FxHashMap::default();
         // (->> a (b c ...))
         let pattern_args = vec![
-            MacroPattern::Syntax("->>".into()),
+            MacroPattern::Syntax("->>".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Nested(
                 PatternList::new(vec![
@@ -1821,7 +1827,7 @@ mod macro_case_expand_test {
     fn test_basic_expansion() {
         let case = MacroCase {
             args: PatternList::new(vec![
-                MacroPattern::Syntax("test".into()),
+                MacroPattern::Syntax("test".into(), false),
                 MacroPattern::Single("a".into()),
                 MacroPattern::Single("b".into()),
                 MacroPattern::Single("c".into()),
