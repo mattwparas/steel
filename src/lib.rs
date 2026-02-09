@@ -275,13 +275,21 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
 
             let res = match (expanded, pretty) {
                 (true, true) => {
+                    let original_path = path.clone();
+
+                    #[cfg(target_family = "unix")]
+                    let path = path.to_str().unwrap().to_string();
+
+                    #[cfg(target_family = "windows")]
+                    let path = path.display().to_string().unwrap().replace("\\", "/");
+
                     if require {
                         vm.emit_fully_expanded_ast_to_string(
-                            &format!("(require \"{}\")", path.to_str().unwrap()),
+                            &format!("(require \"{}\")", path),
                             None,
                         )
                     } else {
-                        vm.emit_fully_expanded_ast_to_string(&contents, Some(path.clone()))
+                        vm.emit_fully_expanded_ast_to_string(&contents, Some(original_path.clone()))
                     }
                 }
                 (true, false) => vm
