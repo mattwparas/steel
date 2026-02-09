@@ -192,7 +192,7 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
             let path = path.to_str().unwrap();
 
             #[cfg(target_family = "windows")]
-            let path = path.display().to_string().unwrap().replace("\\", "/");
+            let path = path.display().to_string().replace("\\", "/");
 
             let res = vm.compile_and_run_raw_program(format!("(require \"{}\")", path));
 
@@ -242,7 +242,7 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
             let path = path.to_str().unwrap().to_string();
 
             #[cfg(target_family = "windows")]
-            let path = path.display().to_string().unwrap().replace("\\", "/");
+            let path = path.display().to_string().replace("\\", "/");
 
             let program = vm.emit_raw_program_no_path(format!("(require \"{}\")", path));
 
@@ -281,7 +281,7 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
                     let path = path.to_str().unwrap().to_string();
 
                     #[cfg(target_family = "windows")]
-                    let path = path.display().to_string().unwrap().replace("\\", "/");
+                    let path = path.display().to_string().replace("\\", "/");
 
                     if require {
                         vm.emit_fully_expanded_ast_to_string(
