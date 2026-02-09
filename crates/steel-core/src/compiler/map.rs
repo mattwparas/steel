@@ -2,7 +2,7 @@ use crate::throw;
 use crate::{parser::interner::InternedString, rvals::Result};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// At the REPL or within an application, a script might be repeatedly
 /// loaded. In this situation, the behavior that Steel picks is that
