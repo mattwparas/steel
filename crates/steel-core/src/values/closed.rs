@@ -139,6 +139,7 @@ impl GlobalSlotRecycler {
 
         // Anything that is still remaining will require
         // getting added to the free list that is left.
+
         for index in self.slots.drain() {
             if index < roots.len() {
                 symbol_map.free_list.free_list.push(index);

@@ -655,9 +655,13 @@ pub fn string_push(value: &mut SteelVal, character_or_string: SteelVal) -> Resul
 /// (string->uninterned-symbol "abc") ;; => 'abc
 /// (string->uninterned-symbol "pea pod") ;; => '|pea pod|
 /// ```
-#[function(name = "string->uninterned-symbol", constant = true)]
+#[function(name = "string->uninterned-symbol", constant = false)]
 pub fn string_to_uninterned_symbol(value: SteelString) -> SteelVal {
-    SteelVal::SymbolV(value)
+    match Gc::strong_count(&value.0) {
+        1 => SteelVal::SymbolV(value),
+        _ => SteelVal::SymbolV(value.0.unwrap().into()),
+    }
+    // SteelVal::SymbolV(value)
 }
 
 /// Returns an interned symbol from the given string.

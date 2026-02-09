@@ -19,8 +19,6 @@ use std::{alloc, cmp, fmt, iter, mem, ptr};
 
 use std::hash::{Hash, Hasher};
 
-use rustc_hash::FxHashMap;
-
 thread_local! {
     /// Zero-sized thread-local variable to differentiate threads.
     static THREAD_MARKER: () = ();
@@ -564,9 +562,8 @@ unsafe impl Sync for Wrapper {}
 
 #[derive(Default)]
 pub struct QueueHandle {
-    inner: Vec<Wrapper>,
-    map: FxHashMap<Option<ThreadId>, Vec<Wrapper>>,
-    unregistered: FxHashMap<Option<ThreadId>, Vec<Wrapper>>,
+    map: dashmap::DashMap<Option<ThreadId>, Vec<Wrapper>>,
+    unregistered: dashmap::DashMap<Option<ThreadId>, Vec<Wrapper>>,
 }
 
 /// The same as `std::thread::spawn`, however this will run
@@ -650,8 +647,7 @@ impl<T: ?Sized> BiasedMerge for BiasedRc<T> {
     }
 }
 
-pub static QUEUE: LazyLock<parking_lot::Mutex<QueueHandle>> =
-    LazyLock::new(|| parking_lot::Mutex::new(QueueHandle::default()));
+pub static QUEUE: LazyLock<QueueHandle> = LazyLock::new(|| QueueHandle::default());
 
 /// Registers the currently running thread with the queue collector.
 /// This isn't explicitly required; however if you do not
@@ -660,37 +656,31 @@ pub fn register_thread() {
 }
 
 impl QueueHandle {
-    pub fn insert_fallback<T: ?Sized + 'static>(&mut self, value: BiasedRc<T>) {
-        self.inner.push(Wrapper(Box::new(ManuallyDrop::new(value))));
-    }
-
     pub fn register_thread() {
         let key = ThreadId::current_thread();
-        let mut guard = QUEUE.lock();
 
-        if !guard.map.contains_key(&Some(key)) {
-            guard.map.insert(Some(key), Vec::new());
+        if !QUEUE.map.contains_key(&Some(key)) {
+            QUEUE.map.insert(Some(key), Vec::new());
         }
     }
 
     pub fn enqueue<T: ?Sized + 'static>(value: &BiasedRc<T>) {
         // let key = value.meta().thread_id.load(Ordering::Relaxed);
         let key = value.meta().thread_id.get();
-        let mut guard = QUEUE.lock();
 
         // TODO: The thread ID needs to be registered once its created. Otherwise,
         // this doesn't really work.
-        if let Some(q) = guard.map.get_mut(&key) {
+        if let Some(mut q) = QUEUE.map.get_mut(&key) {
             q.push(Wrapper(Box::new(ManuallyDrop::new(BiasedRc::from_inner(
                 value.ptr,
             )))));
         } else {
-            if let Some(q) = guard.unregistered.get_mut(&key) {
+            if let Some(mut q) = QUEUE.unregistered.get_mut(&key) {
                 q.push(Wrapper(Box::new(ManuallyDrop::new(BiasedRc::from_inner(
                     value.ptr,
                 )))));
             } else {
-                guard.unregistered.insert(
+                QUEUE.unregistered.insert(
                     key,
                     vec![Wrapper(Box::new(ManuallyDrop::new(BiasedRc::from_inner(
                         value.ptr,
@@ -704,22 +694,20 @@ impl QueueHandle {
     }
 
     pub fn run_explicit_merge() -> usize {
-        let mut guard = QUEUE.lock();
-
         let current = ThreadId::current_thread();
 
         // Attempt to coalesce the unregistered queue, if its now registered:
 
-        let unregistered = guard
+        let unregistered = QUEUE
             .unregistered
             .get_mut(&Some(current))
-            .map(Self::explicit_merge)
+            .map(|mut x| Self::explicit_merge(&mut x))
             .unwrap_or_default();
 
-        let registered = guard
+        let registered = QUEUE
             .map
             .get_mut(&Some(ThreadId::current_thread()))
-            .map(Self::explicit_merge)
+            .map(|mut x| Self::explicit_merge(&mut x))
             .unwrap_or_default();
 
         unregistered + registered
@@ -728,11 +716,9 @@ impl QueueHandle {
     }
 
     pub fn finish_thread_merge() {
-        let mut guard = QUEUE.lock();
         let id = ThreadId::current_thread();
-        let q = guard.map.remove(&Some(id));
-        drop(guard);
-        q.map(|mut x| Self::explicit_merge(&mut x));
+        let q = QUEUE.map.remove(&Some(id));
+        q.map(|mut x| Self::explicit_merge(&mut x.1));
     }
 
     pub fn explicit_merge(values: &mut Vec<Wrapper>) -> usize {
@@ -1874,11 +1860,6 @@ fn test_moving_across_threads() {
     // Value should be on the thread:
     let merged = QueueHandle::run_explicit_merge();
     start.join().unwrap();
-
-    println!("Unregistered queue:");
-    for (key, v) in QUEUE.lock().unregistered.iter() {
-        println!("{:?}: {}", key, v.len());
-    }
 
     dbg!(merged);
 }
