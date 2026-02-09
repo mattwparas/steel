@@ -40,6 +40,8 @@
 (define (#%set-module mod)
   (set! #%loading-current-module mod))
 
+(define top-level (%proto-hash%))
+
 ;; Snag the current environment
 (define (current-env)
   #%loading-current-module)
@@ -73,14 +75,14 @@
        (%proto-hash%))]
 
     [(#%syntax-transformer-module name (provide ids ...) funcs ...)
-     (define (datum->syntax name)
-       (let ()
-         (begin
-           funcs ...)
-         (hash-union (if (void? name)
-                         (%proto-hash%)
-                         name)
-                     (#%syntax-transformer-module provide ids ...))))]
+     (set! (datum->syntax name)
+           (let ()
+             (begin
+               funcs ...)
+             (hash-union (if (void? name)
+                             (%proto-hash%)
+                             name)
+                         (#%syntax-transformer-module provide ids ...))))]
 
     ;; Normal case
     [(#%syntax-transformer-module provide name) (%proto-hash% 'name name)]

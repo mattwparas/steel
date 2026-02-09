@@ -15,7 +15,7 @@ serde_json = "1.0.92"
 tokio = { version = "1.29.1", features = ["full"] }
 tower-lsp = { version = "0.20.0" }
 serde = { version = "1.0.152", features = ["derive"] }
-dashmap = "5.1.0"
+dashmap = "6.1.0"
 log = "0.4.17"
 steel-core = { path = "../steel-core", version = "0.7.0", features = ["dylibs", "stacker", "sync", "anyhow"] }
 steel-parser = { path = "../steel-parser", version = "0.7.0" }

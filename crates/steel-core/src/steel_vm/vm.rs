@@ -4166,11 +4166,20 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn handle_push(&mut self, index: usize) -> Result<()> {
         // let value = self.thread.global_env.repl_lookup_idx(index);
+
+        let idx = self
+            .thread
+            .compiler
+            .read()
+            .symbol_map
+            .values()
+            .get(index)
+            .copied();
         let value = self
             .thread
             .global_env
             .repl_maybe_lookup_idx(index)
-            .ok_or_else(throw!(Generic => "free identifier"))?;
+            .ok_or_else(throw!(Generic => "free identifier: {} - {}", index, idx.unwrap()))?;
 
         self.thread.stack.push(value);
         self.ip += 1;

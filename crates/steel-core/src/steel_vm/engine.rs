@@ -250,12 +250,14 @@ impl Engine {
     }
 }
 
+/*
 #[cfg(feature = "biased")]
 impl Drop for Engine {
     fn drop(&mut self) {
         steel_rc::QueueHandle::run_explicit_merge();
     }
 }
+*/
 
 impl Clone for Engine {
     fn clone(&self) -> Self {
@@ -1911,14 +1913,10 @@ impl Engine {
     fn gc_shadowed_roots(&mut self) {
         // Unfortunately, we have to invoke a whole GC algorithm here
         // for shadowed rooted values
-        if self
-            .virtual_machine
-            .compiler
-            .write()
-            .symbol_map
-            .free_list
-            .should_collect()
-        {
+        let guard = self.virtual_machine.compiler.write();
+        if guard.symbol_map.free_list.should_collect() {
+            drop(guard);
+
             let mut heap_lock = self
                 .virtual_machine
                 .enter_safepoint(|thread| thread.heap.lock_arc());
