@@ -188,11 +188,13 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
                 ),
             );
 
-            // let contents = fs::read_to_string(&path)?;
-            // let res = vm.compile_and_run_raw_program_with_path(contents.clone(), path.clone());
+            #[cfg(target_family = "unix")]
+            let path = path.to_str().unwrap();
 
-            let res =
-                vm.compile_and_run_raw_program(format!("(require \"{}\")", path.to_str().unwrap()));
+            #[cfg(target_family = "windows")]
+            let path = path.display().to_string().unwrap().replace("\\", "/");
+
+            let res = vm.compile_and_run_raw_program(format!("(require \"{}\")", path));
 
             if let Err(e) = res {
                 vm.raise_error(e.clone());
@@ -236,15 +238,17 @@ pub fn run(clap_args: SteelCliArgs) -> Result<(), Box<dyn Error>> {
                 }),
             ..
         } => {
-            // let contents = fs::read_to_string(&path)?;
+            #[cfg(target_family = "unix")]
+            let path = path.to_str().unwrap().to_string();
 
-            let program =
-                vm.emit_raw_program_no_path(format!("(require \"{}\")", path.to_str().unwrap()));
+            #[cfg(target_family = "windows")]
+            let path = path.display().to_string().unwrap().replace("\\", "/");
+
+            let program = vm.emit_raw_program_no_path(format!("(require \"{}\")", path));
 
             match program {
                 Ok(program) => {
-                    vm.debug_print_build(path.to_str().unwrap().to_string(), program)
-                        .unwrap();
+                    vm.debug_print_build(path, program).unwrap();
                 }
                 Err(e) => vm.raise_error(e),
             }
