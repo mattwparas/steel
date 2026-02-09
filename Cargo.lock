@@ -3989,7 +3989,7 @@ name = "steel-language-server"
 version = "0.7.0"
 dependencies = [
  "crossbeam-utils",
- "dashmap 5.5.3",
+ "dashmap 6.1.0",
  "env_logger",
  "ignore",
  "log",
@@ -4043,6 +4043,7 @@ dependencies = [
 name = "steel-rc"
 version = "0.7.0"
 dependencies = [
+ "dashmap 6.1.0",
  "parking_lot",
  "rustc-hash",
 ]
