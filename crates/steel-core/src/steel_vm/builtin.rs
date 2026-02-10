@@ -286,7 +286,7 @@ pub(crate) fn generate_function(
         .virtual_machine
         .insert_binding(fresh_index, func.clone());
 
-    for i in 0..arity - 1 {
+    for i in 0..arity.saturating_sub(1) {
         match i {
             0 => {
                 instrs.push(DenseInstruction {
