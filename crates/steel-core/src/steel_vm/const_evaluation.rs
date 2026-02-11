@@ -602,7 +602,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             let func = self.visit(func_expr)?;
 
             if let Some(evaluated_func) = self.to_constant(&func) {
-                // println!("Attempting to evaluate: {}", &func);
                 return self.eval_function(evaluated_func, func, Vec::new(), &mut []);
             } else if let Some(ident) = func.atom_identifier().and_then(|x| {
                 // TODO: @Matt 4/24/23 - this condition is super ugly and I would prefer if we cleaned it up
@@ -612,9 +611,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                     None
                 }
             }) {
-                // log::debug!("Running kernel function!");
-
-                return self.eval_kernel_function(ident.clone(), func, Vec::new(), &[]);
+                return self.eval_kernel_function(*ident, func, Vec::new(), &[]);
             } else {
                 if let ExprKind::LambdaFunction(f) = &func {
                     if !f.rest {
@@ -625,7 +622,12 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                         // If the body is constant we can safely remove the application
                         // Otherwise we can't eliminate the additional scope depth
                         if self.to_constant(&f.body).is_some() {
-                            return Ok(f.body.clone());
+                            // Avoid the clone
+                            if let ExprKind::LambdaFunction(f) = func {
+                                return Ok(f.body);
+                            } else {
+                                unreachable!();
+                            }
                         }
                     }
                 }
@@ -647,10 +649,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 // let span = get_span(&func_expr);
 
                 if let Some(evaluated_func) = self.to_constant(&func_expr) {
-                    // println!(
-                    //     "Attempting to evaluate: {} with args: {:?}",
-                    //     &func_expr, arguments
-                    // );
                     // TODO: This shouldn't fail here under normal circumstances! If the end result is an error, we should
                     // just return the value that was originally passed in. Otherwise, this signals
                     // an error in the dataflow, and it means we're checking a condition that isn't constant
@@ -666,7 +664,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                         None
                     }
                 }) {
-                    return self.eval_kernel_function(ident.clone(), func_expr, args, &arguments);
+                    return self.eval_kernel_function(*ident, func_expr, args, &arguments);
                 }
                 // return self.eval_function(func_expr, span, &arguments);
             }
@@ -775,15 +773,10 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 // If the argument/variable is used internally, keep it
                 // Also, if the argument is _not_ a constant
                 if self.bindings.borrow().used_bindings.contains(identifier) {
-                    // if self.to_constant(arg).is_none() {
-                    // println!("FOUND ARGUMENT: {}", identifier);
-                    actually_used_variables.push(var.clone());
-                    actually_used_arguments.push(arg.clone());
-                    // }
+                    actually_used_variables.push(var);
+                    actually_used_arguments.push(arg);
                 } else if self.to_constant(arg).is_none() {
-                    // actually_used_variables.push(var.clone());
-                    // println!("Found a non constant argument: {}", arg);
-                    non_constant_arguments.push(arg.clone());
+                    non_constant_arguments.push(arg);
                 }
             }
 
@@ -794,9 +787,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 && non_constant_arguments.is_empty()
                 && !self.scope_contains_define
             {
-                // println!("Found no used arguments or non constant arguments, returning the body");
-                // println!("Output: {}", output);
-
                 // Unwind the recursion before we bail out
                 self.bindings = parent;
 
@@ -815,8 +805,8 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             // TODO only do this if all of the args are constant as well
             // Find a better way to do this
             if let Some(value_output) = self.to_constant(&output) {
-                let mut non_constant_arguments: Vec<_> = args
-                    .into_iter()
+                let non_constant_arguments: Vec<_> = args
+                    .iter()
                     .filter(|x| self.to_constant(x).is_none())
                     .collect();
 
@@ -835,6 +825,8 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                             )))
                         });
                 } else {
+                    let mut non_constant_arguments: Vec<_> =
+                        non_constant_arguments.into_iter().cloned().collect();
                     non_constant_arguments.push(output);
                     // TODO come up witih a better location
                     return Ok(ExprKind::Begin(Box::new(Begin::new(
@@ -847,9 +839,9 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             // Unwind the 'recursion'
             self.bindings = parent;
 
-            // let constructed_func = ExprKind::LambdaFunction(
-            //     LambdaFunction::new(actually_used_variables, output, l.location).into(),
-            // );
+            drop(non_constant_arguments);
+            drop(actually_used_variables);
+            drop(actually_used_arguments);
 
             let func = if l.rest {
                 LambdaFunction::new_with_rest_arg(l.args, output, l.location)
@@ -903,7 +895,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             .map(|x| self.visit(x.1.clone()))
             .collect::<Result<_>>()?;
 
-        for (var, arg) in bindings.iter().map(|x| x.0.clone()).zip(args.iter()) {
+        for (var, arg) in bindings.iter().map(|x| &x.0).zip(args.iter()) {
             let identifier = var.atom_identifier_or_else(
                     throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); l.location.span),
                 )?;
@@ -933,12 +925,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         let mut indices_to_retain = Vec::new();
 
-        for (index, (var, arg)) in bindings
-            .iter()
-            .map(|x| x.0.clone())
-            .zip(args.iter())
-            .enumerate()
-        {
+        for (index, (var, arg)) in bindings.iter().map(|x| &x.0).zip(args.iter()).enumerate() {
             let identifier = var.atom_identifier_or_else(
                     throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); span),
                 )?;
@@ -948,15 +935,15 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             if self.bindings.borrow().used_bindings.contains(identifier) {
                 // if self.to_constant(arg).is_none() {
                 // println!("FOUND ARGUMENT: {}", identifier);
-                actually_used_variables.push(var.clone());
-                actually_used_arguments.push(arg.clone());
+                actually_used_variables.push(var);
+                actually_used_arguments.push(arg);
                 // }
 
                 indices_to_retain.push(index);
             } else if self.to_constant(arg).is_none() {
                 // actually_used_variables.push(var.clone());
                 // println!("Found a non constant argument: {}", arg);
-                non_constant_arguments.push(arg.clone());
+                non_constant_arguments.push(arg);
 
                 indices_to_retain.push(index);
             }
@@ -991,6 +978,10 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         // } else {
         //     bindings
         // };
+
+        drop(actually_used_arguments);
+        drop(actually_used_variables);
+        drop(non_constant_arguments);
 
         l.bindings = bindings
             .into_iter()
