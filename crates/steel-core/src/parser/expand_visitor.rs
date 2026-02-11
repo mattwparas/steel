@@ -1210,7 +1210,7 @@ impl<'a> KernelExpander<'a> {
 
 fn expr_usize(value: usize) -> ExprKind {
     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
-        Box::new(NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
+        std::sync::Arc::new(NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
             steel_parser::tokens::IntLiteral::Small(value as _),
         ))),
     ))))
@@ -1416,9 +1416,11 @@ fn expand_keyword_and_default_arguments(
                     ExprKind::ident("#%prim.plist-try-get-positional-arg",),
                     ExprKind::ident(REST_ARG),
                     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
-                        Box::new(NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
-                            steel_parser::tokens::IntLiteral::Small(index as _)
-                        )))
+                        std::sync::Arc::new(NumberLiteral::Real(
+                            steel_parser::tokens::RealLiteral::Int(
+                                steel_parser::tokens::IntLiteral::Small(index as _)
+                            )
+                        ))
                     )))),
                     default_value.clone()
                 ];

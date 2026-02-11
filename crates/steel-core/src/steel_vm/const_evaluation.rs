@@ -278,6 +278,70 @@ impl<'a> ConstantEvaluator<'a> {
         }
     }
 
+    fn is_truthy_constant(&self, expr: &ExprKind) -> bool {
+        match expr {
+            ExprKind::Atom(Atom { syn, .. }) => match &syn.ty {
+                TokenType::BooleanLiteral(f) => return *f,
+                TokenType::Identifier(s) => {
+                    // If we found a set identifier, skip it
+                    if self.set_idents.get(&s).is_some() || self.expr_level_set_idents.contains(&s)
+                    {
+                        self.bindings.borrow_mut().unbind(&s);
+
+                        return false;
+                    };
+                    self.bindings
+                        .borrow_mut()
+                        .get(&s)
+                        .map(|x| x.is_truthy())
+                        .unwrap_or_default()
+                }
+                // todo!() figure out if it is ok to expand scope of eval_atom.
+                TokenType::Number(_) => true,
+                TokenType::StringLiteral(_) => true,
+                TokenType::CharacterLiteral(_) => true,
+                _ => false,
+            },
+            ExprKind::Quote(q) => {
+                let inner = &q.expr;
+                self.is_truthy_constant(inner)
+            }
+            _ => false,
+        }
+    }
+
+    fn is_constant(&self, expr: &ExprKind) -> bool {
+        match expr {
+            ExprKind::Atom(Atom { syn, .. }) => match &syn.ty {
+                TokenType::BooleanLiteral(_) => return true,
+                TokenType::Identifier(s) => {
+                    // If we found a set identifier, skip it
+                    if self.set_idents.get(&s).is_some() || self.expr_level_set_idents.contains(&s)
+                    {
+                        self.bindings.borrow_mut().unbind(&s);
+
+                        return false;
+                    };
+                    self.bindings
+                        .borrow_mut()
+                        .get(&s)
+                        .map(|x| x.is_truthy())
+                        .unwrap_or_default()
+                }
+                // todo!() figure out if it is ok to expand scope of eval_atom.
+                TokenType::Number(_) => true,
+                TokenType::StringLiteral(_) => true,
+                TokenType::CharacterLiteral(_) => true,
+                _ => true,
+            },
+            ExprKind::Quote(q) => {
+                let inner = &q.expr;
+                self.is_truthy_constant(inner)
+            }
+            _ => false,
+        }
+    }
+
     fn eval_atom(&self, t: &SyntaxObject) -> Option<SteelVal> {
         match &t.ty {
             TokenType::BooleanLiteral(b) => Some((*b).into()),
@@ -453,13 +517,10 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         let test_expr = self.visit(f.test_expr)?;
 
         if self.opt_level == OptLevel::Three {
-            if let Some(test_expr) = self.to_constant(&test_expr) {
-                self.changed = true;
-                if test_expr.is_truthy() {
-                    // debug!("Const evaluation resulted in taking the then branch");
+            if self.is_constant(&test_expr) {
+                if self.is_truthy_constant(&test_expr) {
                     return self.visit(f.then_expr);
                 } else {
-                    // debug!("Const evaluation resulted in taking the else branch");
                     return self.visit(f.else_expr);
                 }
             }
@@ -621,7 +682,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
                         // If the body is constant we can safely remove the application
                         // Otherwise we can't eliminate the additional scope depth
-                        if self.to_constant(&f.body).is_some() {
+                        if self.is_constant(&f.body) {
                             // Avoid the clone
                             if let ExprKind::LambdaFunction(f) = func {
                                 return Ok(f.body);

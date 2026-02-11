@@ -1,3 +1,4 @@
+use crate::interner::InternedString;
 use crate::lexer;
 use crate::parser::SourceId;
 use crate::span::Span;
@@ -58,8 +59,6 @@ impl Paren {
     }
 }
 
-// TODO the character parsing is not quite right
-// need to make sure that we can handle cases like "#\SPACE" or "#\a" but not "#\applesauce"
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TokenType<S> {
     OpenParen(Paren, Option<ParenMod>),
@@ -91,7 +90,7 @@ pub enum TokenType<S> {
     BooleanLiteral(bool),
     Identifier(S),
     Keyword(S),
-    Number(Box<NumberLiteral>),
+    Number(Arc<NumberLiteral>),
     StringLiteral(Arc<String>),
     Dot,
 }
@@ -141,7 +140,7 @@ impl Display for NumberLiteral {
 
 impl<S> From<NumberLiteral> for TokenType<S> {
     fn from(n: NumberLiteral) -> Self {
-        TokenType::Number(Box::new(n))
+        TokenType::Number(Arc::new(n))
     }
 }
 

@@ -3912,6 +3912,7 @@ dependencies = [
  "steel-rc",
  "strsim",
  "termimad",
+ "thin-vec",
  "triomphe",
  "ureq 3.1.2",
  "weak-table",
@@ -4029,6 +4030,7 @@ dependencies = [
  "rustc-hash",
  "serde",
  "smallvec",
+ "thin-vec",
 ]
 
 [[package]]
@@ -4275,6 +4277,15 @@ dependencies = [
  "serde",
  "thiserror 2.0.17",
  "unicode-width 0.1.14",
+]
+
+[[package]]
+name = "thin-vec"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "144f754d318415ac792f9d69fc87abbbfc043ce2ef041c60f16ad828f638717d"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

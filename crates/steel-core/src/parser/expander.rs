@@ -538,7 +538,7 @@ pub enum MacroPattern {
     Nested(PatternList, bool),
     CharacterLiteral(char),
     BytesLiteral(Vec<u8>),
-    NumberLiteral(NumberLiteral),
+    NumberLiteral(Arc<NumberLiteral>),
     StringLiteral(Arc<String>),
     BooleanLiteral(bool),
     QuotedExpr(Box<Quote>),
@@ -737,7 +737,7 @@ impl MacroPattern {
                         pattern_vec.push(MacroPattern::BooleanLiteral(b));
                     }
                     TokenType::Number(n) => {
-                        pattern_vec.push(MacroPattern::NumberLiteral(*n));
+                        pattern_vec.push(MacroPattern::NumberLiteral(n));
                     }
                     TokenType::CharacterLiteral(c) => {
                         pattern_vec.push(MacroPattern::CharacterLiteral(c));
@@ -1057,11 +1057,11 @@ fn match_single_pattern(
                         ..
                     },
             }) => {
-                let Ok(n) = n.into_steelval() else {
+                let Ok(n) = n.as_ref().clone().into_steelval() else {
                     return false;
                 };
 
-                let Ok(t) = t.clone().into_steelval() else {
+                let Ok(t) = t.as_ref().clone().into_steelval() else {
                     return false;
                 };
 
@@ -1532,9 +1532,8 @@ mod match_list_pattern_tests {
     fn test_number_literals() {
         let pattern_args = vec![
             MacroPattern::Syntax("->>".into(), false),
-            MacroPattern::NumberLiteral(NumberLiteral::Real(RealLiteral::Rational(
-                IntLiteral::Small(3),
-                IntLiteral::Small(4),
+            MacroPattern::NumberLiteral(std::sync::Arc::new(NumberLiteral::Real(
+                RealLiteral::Rational(IntLiteral::Small(3), IntLiteral::Small(4)),
             ))),
         ];
 
