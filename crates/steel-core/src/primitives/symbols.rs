@@ -52,7 +52,7 @@ impl<'a> PrimitiveAsRef<'a> for SteelSymbol<'a> {
 /// > (symbol=? 'x 'x 'x)
 /// => #t
 /// ```
-#[steel_derive::function(name = "symbol=?", constant = true)]
+#[steel_derive::function(name = "symbol=?", constant = false)]
 pub fn symbol_equals(mut iter: RestArgsIter<SteelSymbol<'_>>) -> Result<SteelVal> {
     let Some(mut prev) = iter.next().transpose()? else {
         stop!(ArityMismatch => "expected at least one argument");

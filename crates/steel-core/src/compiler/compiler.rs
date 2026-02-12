@@ -12,7 +12,7 @@ use crate::{
     core::{instructions::u24, labels::Expr},
     gc::Shared,
     parser::{
-        expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change},
+        expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change, GlobalMap},
         interner::InternedString,
         kernel::Kernel,
         parser::{lower_entire_ast, lower_macro_and_require_definitions, SourcesCollector},
@@ -858,6 +858,7 @@ impl Compiler {
             &mut self.lifted_kernel_environments,
             &mut self.lifted_macro_environments,
             &self.search_dirs,
+            &self.symbol_map.map(),
         )
 
         // #[cfg(not(feature = "modules"))]
@@ -940,7 +941,11 @@ impl Compiler {
                 self.builtin_modules.clone(),
                 "top-level",
             )?;
-            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+            crate::parser::expand_visitor::expand(
+                expr,
+                &self.macro_env,
+                GlobalMap::Map(self.symbol_map.map()),
+            )?;
             lower_entire_ast(expr)?;
 
             for (module, shadowed_vars) in &self.lifted_macro_environments {
@@ -952,6 +957,7 @@ impl Compiler {
                         macro_env,
                         &shadowed_vars,
                         Some(source_id),
+                        GlobalMap::Map(self.symbol_map.map()),
                     )?
                 }
             }
@@ -978,7 +984,11 @@ impl Compiler {
             )?;
 
             // TODO: If we have this, then we have to lower all of the expressions again
-            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+            crate::parser::expand_visitor::expand(
+                expr,
+                &self.macro_env,
+                GlobalMap::Map(self.symbol_map.map()),
+            )?;
 
             // for expr in expanded_statements.iter_mut() {
             lower_entire_ast(expr)?;
@@ -1115,7 +1125,11 @@ impl Compiler {
                 self.builtin_modules.clone(),
                 "top-level",
             )?;
-            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+            crate::parser::expand_visitor::expand(
+                expr,
+                &self.macro_env,
+                GlobalMap::Map(self.symbol_map.map()),
+            )?;
             lower_entire_ast(expr)?;
 
             for (module, shadowed_vars) in &self.lifted_macro_environments {
@@ -1129,6 +1143,7 @@ impl Compiler {
                         macro_env,
                         &shadowed_vars,
                         Some(source_id),
+                        GlobalMap::Map(self.symbol_map.map()),
                     )?;
                 }
             }
@@ -1155,7 +1170,11 @@ impl Compiler {
             )?;
 
             // TODO: If we have this, then we have to lower all of the expressions again
-            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+            crate::parser::expand_visitor::expand(
+                expr,
+                &self.macro_env,
+                GlobalMap::Map(self.symbol_map.map()),
+            )?;
 
             // for expr in expanded_statements.iter_mut() {
             lower_entire_ast(expr)?;

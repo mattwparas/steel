@@ -21,6 +21,9 @@ serde = { version = "1.0.152", features = ["derive", "rc"] }
 smallvec = "1.13"
 compact_str = "0.8.0"
 log = "0.4.17"
+thin-vec = { version = "0.2.14", features = ["serde"] }
+dashmap = "6.1.0"
+ordered-float = { version = "5.1.0", features = ["serde"] }
 
 [features]
 default = ["std"]

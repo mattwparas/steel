@@ -315,7 +315,7 @@ impl TryFrom<TokenType<InternedString>> for SteelVal {
             CharacterLiteral(x) => Ok(CharV(x)),
             BooleanLiteral(x) => Ok(BoolV(x)),
             Identifier(x) => Ok(SymbolV(x.into())),
-            Number(x) => x.into_steelval(),
+            Number(x) => x.resolve().into_steelval(),
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => Err(SteelErr::new(ErrorKind::UnexpectedToken, "'".to_string())),
@@ -366,7 +366,7 @@ impl TryFrom<SyntaxObject> for SteelVal {
             CharacterLiteral(x) => Ok(CharV(x)),
             BooleanLiteral(x) => Ok(BoolV(x)),
             Identifier(x) => Ok(SymbolV(x.into())),
-            Number(x) => x.into_steelval(),
+            Number(x) => x.resolve().into_steelval(),
             StringLiteral(x) => Ok(StringV(x.into())),
             Keyword(x) => Ok(SymbolV(x.into())),
             QuoteTick => {

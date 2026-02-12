@@ -251,12 +251,14 @@ impl Engine {
     }
 }
 
+/*
 #[cfg(feature = "biased")]
 impl Drop for Engine {
     fn drop(&mut self) {
         steel_rc::QueueHandle::run_explicit_merge();
     }
 }
+*/
 
 impl Clone for Engine {
     fn clone(&self) -> Self {
@@ -1718,7 +1720,7 @@ impl Engine {
         fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
             match &t.ty {
                 TokenType::BooleanLiteral(b) => Ok((*b).into()),
-                TokenType::Number(n) => (&**n).into_steelval(),
+                TokenType::Number(n) => n.resolve().into_steelval(),
                 TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
                 TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
                 // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
@@ -1912,14 +1914,10 @@ impl Engine {
     fn gc_shadowed_roots(&mut self) {
         // Unfortunately, we have to invoke a whole GC algorithm here
         // for shadowed rooted values
-        if self
-            .virtual_machine
-            .compiler
-            .write()
-            .symbol_map
-            .free_list
-            .should_collect()
-        {
+        let guard = self.virtual_machine.compiler.write();
+        if guard.symbol_map.free_list.should_collect() {
+            drop(guard);
+
             let mut heap_lock = self
                 .virtual_machine
                 .enter_safepoint(|thread| thread.heap.lock_arc());
@@ -2714,8 +2712,9 @@ mod derive_macro_tests {
 
 #[test]
 fn test_steel_quote_macro() {
+    use thin_vec::thin_vec;
     let foobarbaz = ExprKind::atom("foo");
-    let foobarbaz_list = ExprKind::List(List::new(vec![ExprKind::atom("foo")]));
+    let foobarbaz_list = ExprKind::List(List::new(thin_vec![ExprKind::atom("foo")]));
 
     let expanded = steel_derive::internal_steel_quote! {
         (define bananas #foobarbaz)

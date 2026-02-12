@@ -39,6 +39,8 @@ use parking_lot::RwLock;
 
 use super::vm::BuiltInSignature;
 
+use thin_vec::thin_vec;
+
 /// A module to be consumed by the Steel Engine for later on demand access by scripts
 /// to refresh the primitives that are being used. For instance, the VM should have support
 /// for a primitive like so, where "kernel" has functions like `list`, `cons`, `car`, and `cdr`:
@@ -286,7 +288,7 @@ pub(crate) fn generate_function(
         .virtual_machine
         .insert_binding(fresh_index, func.clone());
 
-    for i in 0..arity - 1 {
+    for i in 0..arity.saturating_sub(1) {
         match i {
             0 => {
                 instrs.push(DenseInstruction {
@@ -659,7 +661,7 @@ impl BuiltInModuleRepr {
                     // TODO: Add the custom prefix here
                     // Handling a more complex case of qualifying imports
                     ExprKind::atom(name),
-                    ExprKind::List(crate::parser::ast::List::new(vec![
+                    ExprKind::List(crate::parser::ast::List::new(thin_vec![
                         ExprKind::atom(*MODULE_GET),
                         module_name_expr.clone(),
                         ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
@@ -672,7 +674,7 @@ impl BuiltInModuleRepr {
             })
             .collect::<Vec<_>>();
 
-        defines.push(ExprKind::List(crate::parser::ast::List::new(vec![
+        defines.push(ExprKind::List(crate::parser::ast::List::new(thin_vec![
             ExprKind::atom("#%void"),
         ])));
 

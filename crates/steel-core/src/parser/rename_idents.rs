@@ -433,6 +433,8 @@ mod rename_visitor_tests {
     use super::*;
     use crate::parser::ast::{Atom, Define, If, LambdaFunction, List};
 
+    use thin_vec::thin_vec;
+
     fn atom_identifier(s: &str) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
             s.into(),
@@ -448,10 +450,10 @@ mod rename_visitor_tests {
     #[test]
     fn test_rename_identifiers() {
         let mut pre_condition = ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-            vec![ExprKind::Atom(Atom::new(SyntaxObject::default(
+            thin_vec![ExprKind::Atom(Atom::new(SyntaxObject::default(
                 Identifier("x".into()),
             )))],
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("+".into())))),
                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("x".into())))),
                 atom_int(10),
@@ -460,10 +462,10 @@ mod rename_visitor_tests {
         )));
 
         let post_condition = ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-            vec![ExprKind::Atom(Atom::new(SyntaxObject::default(
+            thin_vec![ExprKind::Atom(Atom::new(SyntaxObject::default(
                 Identifier("##x".into()),
             )))],
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("+".into())))),
                 ExprKind::Atom(Atom::new(SyntaxObject::default(Identifier("##x".into())))),
                 atom_int(10),
@@ -523,7 +525,7 @@ mod rename_visitor_tests {
     #[test]
     fn test_rename_define_datum_syntax() {
         let mut pre_condition: ExprKind = Define::new(
-            List::new(vec![
+            List::new(thin_vec![
                 atom_identifier("datum->syntax"),
                 atom_identifier("escaping-definition"),
             ])
@@ -534,7 +536,7 @@ mod rename_visitor_tests {
         .into();
 
         let post_condition: ExprKind = Define::new(
-            List::new(vec![
+            List::new(thin_vec![
                 atom_identifier("datum->syntax"),
                 atom_identifier("escaping-definition"),
             ])

@@ -4166,11 +4166,20 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn handle_push(&mut self, index: usize) -> Result<()> {
         // let value = self.thread.global_env.repl_lookup_idx(index);
+
+        let idx = self
+            .thread
+            .compiler
+            .read()
+            .symbol_map
+            .values()
+            .get(index)
+            .copied();
         let value = self
             .thread
             .global_env
             .repl_maybe_lookup_idx(index)
-            .ok_or_else(throw!(Generic => "free identifier"))?;
+            .ok_or_else(throw!(Generic => "free identifier: {} - {}", index, idx.unwrap()))?;
 
         self.thread.stack.push(value);
         self.ip += 1;
@@ -6011,7 +6020,7 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, _args: &[SteelVal]) -> Option
 // Snag values, then expand them, then convert back? The constant conversion
 // back and forth will probably hamper performance significantly. That being said,
 // it is entirely at compile time, so probably _okay_
-pub(crate) fn expand_syntax_case_impl(_ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let mut bindings: rustc_hash::FxHashMap<_, _> = if let SteelVal::HashMapV(h) = &args[1] {
         h.iter()
             .map(|(k, v)| match (k, v) {
@@ -6060,7 +6069,30 @@ pub(crate) fn expand_syntax_case_impl(_ctx: &mut VmCore, args: &[SteelVal]) -> R
 
     expand_template(&mut template, &mut bindings, &mut binding_kind)?;
 
-    crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(template)
+    let mut res =
+        crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(template);
+
+    if let Ok(SteelVal::SyntaxObject(s)) = &mut res {
+        let inner = Gc::get_mut(s);
+
+        if let Some(inner) = inner {
+            let mut guard = ctx.thread.compiler.write();
+
+            if let Some(inner) = &mut inner.raw {
+                if let SteelVal::Void = inner {
+                    return res;
+                }
+
+                let interned_index = guard.constant_map.add_or_get(inner.clone());
+                let value = guard.constant_map.get(interned_index);
+                *inner = value;
+            }
+        }
+
+        res
+    } else {
+        res
+    }
 }
 
 #[steel_derive::context(name = "#%expand-syntax-case", arity = "Exact(3)")]

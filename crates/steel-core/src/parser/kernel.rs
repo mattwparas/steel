@@ -25,6 +25,7 @@ use crate::{
 use crate::{stdlib::KERNEL, steel_vm::engine::Engine, SteelVal};
 
 use steel_parser::expr_list;
+use thin_vec::{thin_vec, ThinVec};
 
 use super::{
     ast::{ExprKind, TryFromSteelValVisitorForExprKind},
@@ -271,7 +272,7 @@ impl Kernel {
 
         let mut def_macro_expr_indices = smallvec::SmallVec::<[IndexKind; 5]>::new();
 
-        let mut provide_definitions = vec![ExprKind::ident("provide")];
+        let mut provide_definitions = thin_vec![ExprKind::ident("provide")];
         // TOOD: Consider using Arc<String> instead of just plain String!
         let environment_ident = ExprKind::string_lit(environment.clone());
 
@@ -313,9 +314,17 @@ impl Kernel {
         // Fill up the define macro expressions with the correct ones
         // Lets do some debug logging to make sure this even makes sense
         // in the first place
-        let mut def_macro_exprs = Vec::with_capacity(def_macro_expr_indices.len() + 3);
+        let mut def_macro_exprs = ThinVec::with_capacity(def_macro_expr_indices.len() + 3);
 
-        def_macro_exprs.push(ExprKind::ident("#%syntax-transformer-module"));
+        let mut macro_of_choice: InternedString = "#%syntax-transformer-module".into();
+
+        if environment == "top-level" {
+            if self.engine.extract_value("top-level").is_ok() {
+                macro_of_choice = "#%syntax-transformer-module-update".into();
+            }
+        }
+
+        def_macro_exprs.push(ExprKind::atom(macro_of_choice));
         def_macro_exprs.push(ExprKind::ident(&environment));
 
         if !def_macro_expr_indices.is_empty() {
@@ -324,7 +333,7 @@ impl Kernel {
             )));
         }
 
-        let mut exprs_buffer = Vec::with_capacity(def_macro_expr_indices.len());
+        let mut exprs_buffer = ThinVec::with_capacity(def_macro_expr_indices.len());
 
         while let Some(i) = def_macro_expr_indices.pop() {
             match i {
