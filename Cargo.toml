@@ -66,7 +66,7 @@ snmalloc-rs = { version = "0.3.8", optional = true, default-features = false, fe
 ] }
 
 [target.'cfg(not(target_os = "redox"))'.dependencies]
-cargo-steel-lib = { path = "./crates/cargo-steel-lib", version = "0.3.0" }
+cargo-steel-lib = { path = "./crates/cargo-steel-lib", version = "0.8.0" }
 
 [workspace]
 members = [".", "crates/*", "libs/*"]
