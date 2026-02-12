@@ -15,4 +15,5 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-da
 install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
+# Whether CI should trigger releases with dispatches instead of tag pushes
 dispatch-releases = true
