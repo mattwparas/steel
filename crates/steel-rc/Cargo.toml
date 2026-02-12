@@ -2,6 +2,8 @@
 name = "steel-rc"
 edition = "2021"
 version.workspace = true
+license = "MIT OR Apache-2.0"
+description = "Biased reference counting implementation for steel"
 
 [dependencies]
 parking_lot = "0.12"
