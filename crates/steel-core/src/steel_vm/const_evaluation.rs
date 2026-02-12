@@ -31,6 +31,7 @@ use rustc_hash::{FxBuildHasher, FxHashSet};
 
 use steel_parser::span::Span;
 use steel_parser::tokens::{IntLiteral, RealLiteral};
+use thin_vec::ThinVec;
 
 use super::cache::MemoizationTable;
 
@@ -370,7 +371,7 @@ impl<'a> ConstantEvaluator<'a> {
         &mut self,
         ident: InternedString,
         func: ExprKind,
-        mut raw_args: Vec<ExprKind>,
+        mut raw_args: ThinVec<ExprKind>,
         args: &[SteelVal],
     ) -> Result<ExprKind> {
         // TODO: We should just bail immediately if this results in an error
@@ -419,7 +420,7 @@ impl<'a> ConstantEvaluator<'a> {
         &mut self,
         evaluated_func: SteelVal,
         func: ExprKind,
-        mut raw_args: Vec<ExprKind>,
+        mut raw_args: ThinVec<ExprKind>,
         args: &mut [SteelVal],
     ) -> Result<ExprKind> {
         if evaluated_func.is_function() {
@@ -476,7 +477,7 @@ impl<'a> ConstantEvaluator<'a> {
         output: SteelVal,
         func: ExprKind,
         // evaluated_func: &SteelVal,
-        mut raw_args: Vec<ExprKind>,
+        mut raw_args: ThinVec<ExprKind>,
     ) -> core::result::Result<ExprKind, crate::SteelErr> {
         if let Some(new_token) = steelval_to_atom(&output) {
             let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));
@@ -663,7 +664,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             let func = self.visit(func_expr)?;
 
             if let Some(evaluated_func) = self.to_constant(&func) {
-                return self.eval_function(evaluated_func, func, Vec::new(), &mut []);
+                return self.eval_function(evaluated_func, func, ThinVec::new(), &mut []);
             } else if let Some(ident) = func.atom_identifier().and_then(|x| {
                 // TODO: @Matt 4/24/23 - this condition is super ugly and I would prefer if we cleaned it up
                 if self.kernel.is_some() && self.kernel.as_ref().unwrap().is_constant(x) {
@@ -672,7 +673,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                     None
                 }
             }) {
-                return self.eval_kernel_function(*ident, func, Vec::new(), &[]);
+                return self.eval_kernel_function(*ident, func, ThinVec::new(), &[]);
             } else {
                 if let ExprKind::LambdaFunction(f) = &func {
                     if !f.rest {
@@ -702,7 +703,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         let mut args = l.args.into_iter();
 
         let func_expr = args.next().expect("Function missing");
-        let mut args: Vec<_> = args.map(|x| self.visit(x)).collect::<Result<_>>()?;
+        let mut args: ThinVec<_> = args.map(|x| self.visit(x)).collect::<Result<_>>()?;
 
         // Resolve the arguments - if they're all constants, we have a chance to do constant evaluation
         if let Some(mut arguments) = self.all_to_constant(&args) {

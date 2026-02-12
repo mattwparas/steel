@@ -32,6 +32,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 // use smallvec::SmallVec;
 use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
 
+use thin_vec::{thin_vec, ThinVec};
+
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
@@ -1383,7 +1385,7 @@ impl CompiledModule {
         name_mangler.mangle_vars(&mut right);
         // name_unmangler.unmangle_vars(&mut provides);
 
-        let mut hash_body = vec![ExprKind::ident("%proto-hash%")];
+        let mut hash_body = thin_vec![ExprKind::ident("%proto-hash%")];
 
         // We can put the module name in there, but that doesn't help us get the docs out...
         // Probably need to just store the docs directly in the module itself as well?
@@ -1542,7 +1544,7 @@ impl CompiledModule {
 
     // Turn the module into the AST node that represents the macro module in the stdlib
     fn _to_module_ast_node(&self) -> ExprKind {
-        let mut body = vec![
+        let mut body = thin_vec![
             ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
                 "module".into(),
             )))),
@@ -1552,7 +1554,7 @@ impl CompiledModule {
         ];
 
         // Put any provides at the top
-        body.append(&mut self.provides.clone());
+        body.extend(self.provides.clone());
 
         // Include any dependencies here
         // body.append(&mut self.requires.clone());
@@ -1568,7 +1570,7 @@ impl CompiledModule {
         // body.push(steel_base);
 
         // Put the ast nodes inside the macro
-        body.append(&mut self.ast.clone());
+        body.extend(self.ast.clone());
 
         // TODO clean this up
         let res = ExprKind::List(List::new(body));
@@ -2668,8 +2670,11 @@ impl<'a> ModuleBuilder<'a> {
     }
 
     // Takes out the (for-syntax) forms from the provides
-    fn filter_out_for_syntax_provides(&mut self, exprs: Vec<ExprKind>) -> Result<Vec<ExprKind>> {
-        let mut normal_provides = Vec::new();
+    fn filter_out_for_syntax_provides(
+        &mut self,
+        exprs: ThinVec<ExprKind>,
+    ) -> Result<ThinVec<ExprKind>> {
+        let mut normal_provides = ThinVec::new();
 
         for expr in exprs {
             match &expr {

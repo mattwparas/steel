@@ -48,6 +48,7 @@ use std::{
     sync::{Arc, Mutex},
     task::Context,
 };
+use thin_vec::ThinVec;
 
 // TODO
 #[macro_export]
@@ -680,7 +681,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
                 span,
             )))),
             VectorV(lst) => {
-                let items: Result<Vec<ExprKind>> = lst.iter().map(|x| self.visit(x)).collect();
+                let items: Result<ThinVec<ExprKind>> = lst.iter().map(|x| self.visit(x)).collect();
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
@@ -709,7 +710,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
                     match maybe_special_form {
                         Some(x) if x.as_str() == "quote" => {
                             if self.quoted {
-                                let items: core::result::Result<Vec<ExprKind>, _> =
+                                let items: core::result::Result<ThinVec<ExprKind>, _> =
                                     l.iter().map(|x| self.visit(x)).collect();
 
                                 return Ok(ExprKind::List(ast::List::new(items?)));
@@ -720,7 +721,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
                             let return_value = l
                                 .into_iter()
                                 .map(|x| self.visit(x))
-                                .collect::<core::result::Result<Vec<_>, _>>()?
+                                .collect::<core::result::Result<ThinVec<_>, _>>()?
                                 .try_into()?;
 
                             self.quoted = false;
@@ -738,7 +739,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
 
                 Ok(l.into_iter()
                     .map(|x| self.visit(x))
-                    .collect::<core::result::Result<Vec<_>, _>>()?
+                    .collect::<core::result::Result<ThinVec<_>, _>>()?
                     .try_into()?)
             }
 
@@ -809,7 +810,7 @@ impl Syntax {
                 RealLiteral::Int(IntLiteral::Small(*x)).into(),
             )))),
             VectorV(lst) => {
-                let items: Result<Vec<ExprKind>> =
+                let items: Result<ThinVec<ExprKind>> =
                     lst.iter().map(Self::steelval_to_exprkind).collect();
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
@@ -822,7 +823,7 @@ impl Syntax {
                 TokenType::Identifier(x.as_str().into()),
             )))),
             ListV(l) => {
-                let items: Result<Vec<ExprKind>> =
+                let items: Result<ThinVec<ExprKind>> =
                     l.iter().map(Self::steelval_to_exprkind).collect();
 
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
@@ -855,7 +856,7 @@ impl Syntax {
                 span,
             )))),
             VectorV(lst) => {
-                let items: Result<Vec<ExprKind>> =
+                let items: Result<ThinVec<ExprKind>> =
                     lst.iter().map(Self::steelval_to_exprkind).collect();
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
@@ -870,7 +871,7 @@ impl Syntax {
                 span,
             )))),
             ListV(l) => {
-                let items: Result<Vec<ExprKind>> =
+                let items: Result<ThinVec<ExprKind>> =
                     l.iter().map(Self::steelval_to_exprkind).collect();
 
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
