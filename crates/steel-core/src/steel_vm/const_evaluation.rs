@@ -31,6 +31,7 @@ use rustc_hash::{FxBuildHasher, FxHashSet};
 
 use steel_parser::span::Span;
 use steel_parser::tokens::{IntLiteral, RealLiteral};
+use thin_vec::ThinVec;
 
 use super::cache::MemoizationTable;
 
@@ -238,10 +239,10 @@ struct ConstantEvaluator<'a> {
 fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<InternedString>> {
     match value {
         SteelVal::BoolV(b) => Some(TokenType::BooleanLiteral(*b)),
-        SteelVal::NumV(n) => Some(RealLiteral::Float(*n).into()),
+        SteelVal::NumV(n) => Some(RealLiteral::Float((*n).into()).into()),
         SteelVal::CharV(c) => Some(TokenType::CharacterLiteral(*c)),
         SteelVal::IntV(i) => Some(IntLiteral::Small(*i).into()),
-        SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.to_arc_string())),
+        SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.as_str().into())),
         _ => None,
     }
 }
@@ -278,6 +279,70 @@ impl<'a> ConstantEvaluator<'a> {
         }
     }
 
+    fn is_truthy_constant(&self, expr: &ExprKind) -> bool {
+        match expr {
+            ExprKind::Atom(Atom { syn, .. }) => match &syn.ty {
+                TokenType::BooleanLiteral(f) => return *f,
+                TokenType::Identifier(s) => {
+                    // If we found a set identifier, skip it
+                    if self.set_idents.get(&s).is_some() || self.expr_level_set_idents.contains(&s)
+                    {
+                        self.bindings.borrow_mut().unbind(&s);
+
+                        return false;
+                    };
+                    self.bindings
+                        .borrow_mut()
+                        .get(&s)
+                        .map(|x| x.is_truthy())
+                        .unwrap_or_default()
+                }
+                // todo!() figure out if it is ok to expand scope of eval_atom.
+                TokenType::Number(_) => true,
+                TokenType::StringLiteral(_) => true,
+                TokenType::CharacterLiteral(_) => true,
+                _ => false,
+            },
+            ExprKind::Quote(q) => {
+                let inner = &q.expr;
+                self.is_truthy_constant(inner)
+            }
+            _ => false,
+        }
+    }
+
+    fn is_constant(&self, expr: &ExprKind) -> bool {
+        match expr {
+            ExprKind::Atom(Atom { syn, .. }) => match &syn.ty {
+                TokenType::BooleanLiteral(_) => return true,
+                TokenType::Identifier(s) => {
+                    // If we found a set identifier, skip it
+                    if self.set_idents.get(&s).is_some() || self.expr_level_set_idents.contains(&s)
+                    {
+                        self.bindings.borrow_mut().unbind(&s);
+
+                        return false;
+                    };
+                    self.bindings
+                        .borrow_mut()
+                        .get(&s)
+                        .map(|x| x.is_truthy())
+                        .unwrap_or_default()
+                }
+                // todo!() figure out if it is ok to expand scope of eval_atom.
+                TokenType::Number(_) => true,
+                TokenType::StringLiteral(_) => true,
+                TokenType::CharacterLiteral(_) => true,
+                _ => true,
+            },
+            ExprKind::Quote(q) => {
+                let inner = &q.expr;
+                self.is_truthy_constant(inner)
+            }
+            _ => false,
+        }
+    }
+
     fn eval_atom(&self, t: &SyntaxObject) -> Option<SteelVal> {
         match &t.ty {
             TokenType::BooleanLiteral(b) => Some((*b).into()),
@@ -291,7 +356,7 @@ impl<'a> ConstantEvaluator<'a> {
                 self.bindings.borrow_mut().get(s)
             }
             // todo!() figure out if it is ok to expand scope of eval_atom.
-            TokenType::Number(n) => (&**n).into_steelval().ok(),
+            TokenType::Number(n) => n.resolve().into_steelval().ok(),
             TokenType::StringLiteral(s) => Some(SteelVal::StringV((s.clone()).into())),
             TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
             _ => None,
@@ -306,7 +371,7 @@ impl<'a> ConstantEvaluator<'a> {
         &mut self,
         ident: InternedString,
         func: ExprKind,
-        mut raw_args: Vec<ExprKind>,
+        mut raw_args: ThinVec<ExprKind>,
         args: &[SteelVal],
     ) -> Result<ExprKind> {
         // TODO: We should just bail immediately if this results in an error
@@ -355,7 +420,7 @@ impl<'a> ConstantEvaluator<'a> {
         &mut self,
         evaluated_func: SteelVal,
         func: ExprKind,
-        mut raw_args: Vec<ExprKind>,
+        mut raw_args: ThinVec<ExprKind>,
         args: &mut [SteelVal],
     ) -> Result<ExprKind> {
         if evaluated_func.is_function() {
@@ -412,7 +477,7 @@ impl<'a> ConstantEvaluator<'a> {
         output: SteelVal,
         func: ExprKind,
         // evaluated_func: &SteelVal,
-        mut raw_args: Vec<ExprKind>,
+        mut raw_args: ThinVec<ExprKind>,
     ) -> core::result::Result<ExprKind, crate::SteelErr> {
         if let Some(new_token) = steelval_to_atom(&output) {
             let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));
@@ -453,27 +518,15 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         let test_expr = self.visit(f.test_expr)?;
 
         if self.opt_level == OptLevel::Three {
-            if let Some(test_expr) = self.to_constant(&test_expr) {
-                self.changed = true;
-                if test_expr.is_truthy() {
-                    // debug!("Const evaluation resulted in taking the then branch");
+            if self.is_constant(&test_expr) {
+                if self.is_truthy_constant(&test_expr) {
                     return self.visit(f.then_expr);
                 } else {
-                    // debug!("Const evaluation resulted in taking the else branch");
                     return self.visit(f.else_expr);
                 }
             }
         }
 
-        // If we found a constant, we can elect to only take the truthy path
-        // if let Some(test_expr) = self.to_constant(&test_expr) {
-        //     self.changed = true;
-        //     if test_expr.is_truthy() {
-        //         self.visit(f.then_expr)
-        //     } else {
-        //         self.visit(f.else_expr)
-        //     }
-        // } else {
         Ok(ExprKind::If(
             If::new(
                 test_expr,
@@ -483,7 +536,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             )
             .into(),
         ))
-        // }
     }
 
     fn visit_define(&mut self, mut define: Box<crate::parser::ast::Define>) -> Self::Output {
@@ -602,7 +654,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             let func = self.visit(func_expr)?;
 
             if let Some(evaluated_func) = self.to_constant(&func) {
-                return self.eval_function(evaluated_func, func, Vec::new(), &mut []);
+                return self.eval_function(evaluated_func, func, ThinVec::new(), &mut []);
             } else if let Some(ident) = func.atom_identifier().and_then(|x| {
                 // TODO: @Matt 4/24/23 - this condition is super ugly and I would prefer if we cleaned it up
                 if self.kernel.is_some() && self.kernel.as_ref().unwrap().is_constant(x) {
@@ -611,7 +663,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                     None
                 }
             }) {
-                return self.eval_kernel_function(*ident, func, Vec::new(), &[]);
+                return self.eval_kernel_function(*ident, func, ThinVec::new(), &[]);
             } else {
                 if let ExprKind::LambdaFunction(f) = &func {
                     if !f.rest {
@@ -621,7 +673,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
                         // If the body is constant we can safely remove the application
                         // Otherwise we can't eliminate the additional scope depth
-                        if self.to_constant(&f.body).is_some() {
+                        if self.is_constant(&f.body) {
                             // Avoid the clone
                             if let ExprKind::LambdaFunction(f) = func {
                                 return Ok(f.body);
@@ -641,7 +693,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         let mut args = l.args.into_iter();
 
         let func_expr = args.next().expect("Function missing");
-        let mut args: Vec<_> = args.map(|x| self.visit(x)).collect::<Result<_>>()?;
+        let mut args: ThinVec<_> = args.map(|x| self.visit(x)).collect::<Result<_>>()?;
 
         // Resolve the arguments - if they're all constants, we have a chance to do constant evaluation
         if let Some(mut arguments) = self.all_to_constant(&args) {

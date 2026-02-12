@@ -105,7 +105,7 @@ fn main() {
             let escaped = item.replace("*", "\\*");
             if let Some(doc) = doc {
                 writeln!(file, "### **{}**", escaped).unwrap();
-                format_markdown_doc(&mut file, &doc);
+                format_markdown_doc(&mut file, &doc.resolve());
             } else {
                 writeln!(file, "### **{}**", escaped).unwrap();
             }
@@ -113,7 +113,7 @@ fn main() {
     }
 }
 
-fn docs_for_scheme_module(name: &str, module: &str) -> Vec<(String, Option<Arc<String>>)> {
+fn docs_for_scheme_module(name: &str, module: &str) -> Vec<(String, Option<InternedString>)> {
     let parser = Parser::doc_comment_parser(module, None);
     let exprs = parser.filter_map(|x| x.ok()).collect::<Vec<_>>();
 

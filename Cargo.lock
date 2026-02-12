@@ -2782,6 +2782,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ordered-float"
+version = "5.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f4779c6901a562440c3786d08192c6fbda7c1c2060edd10006b05ee35d10f2d"
+dependencies = [
+ "num-traits",
+ "rand 0.8.5",
+ "serde",
+]
+
+[[package]]
 name = "parking"
 version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3094,6 +3105,7 @@ dependencies = [
  "libc",
  "rand_chacha 0.3.1",
  "rand_core 0.6.4",
+ "serde",
 ]
 
 [[package]]
@@ -3133,6 +3145,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom 0.2.16",
+ "serde",
 ]
 
 [[package]]
@@ -3586,7 +3599,7 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
 dependencies = [
- "ordered-float",
+ "ordered-float 2.10.1",
  "serde",
 ]
 
@@ -3912,6 +3925,7 @@ dependencies = [
  "steel-rc",
  "strsim",
  "termimad",
+ "thin-vec",
  "triomphe",
  "ureq 3.1.2",
  "weak-table",
@@ -4018,17 +4032,20 @@ name = "steel-parser"
 version = "0.7.0"
 dependencies = [
  "compact_str",
+ "dashmap 6.1.0",
  "lasso",
  "log",
  "num-bigint",
  "num-rational",
  "num-traits",
  "once_cell",
+ "ordered-float 5.1.0",
  "pretty",
  "pretty_assertions",
  "rustc-hash",
  "serde",
  "smallvec",
+ "thin-vec",
 ]
 
 [[package]]
@@ -4275,6 +4292,15 @@ dependencies = [
  "serde",
  "thiserror 2.0.17",
  "unicode-width 0.1.14",
+]
+
+[[package]]
+name = "thin-vec"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "144f754d318415ac792f9d69fc87abbbfc043ce2ef041c60f16ad828f638717d"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

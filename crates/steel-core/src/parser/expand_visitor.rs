@@ -19,6 +19,7 @@ use crate::{compiler::program::AS_KEYWORD, parser::tokens::TokenType};
 use crate::{compiler::program::REQUIRE_BUILTIN, rvals::Result};
 
 use steel_parser::expr_list;
+use thin_vec::{thin_vec, ThinVec};
 
 use super::visitors::VisitorMutRef;
 use super::{
@@ -1210,9 +1211,10 @@ impl<'a> KernelExpander<'a> {
 
 fn expr_usize(value: usize) -> ExprKind {
     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
-        Box::new(NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
+        NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
             steel_parser::tokens::IntLiteral::Small(value as _),
-        ))),
+        ))
+        .into(),
     ))))
 }
 
@@ -1416,9 +1418,10 @@ fn expand_keyword_and_default_arguments(
                     ExprKind::ident("#%prim.plist-try-get-positional-arg",),
                     ExprKind::ident(REST_ARG),
                     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
-                        Box::new(NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
+                        NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
                             steel_parser::tokens::IntLiteral::Small(index as _)
-                        )))
+                        ))
+                        .into()
                     )))),
                     default_value.clone()
                 ];
@@ -1498,7 +1501,7 @@ fn expand_keyword_and_default_arguments(
     // TODO: Pick up all keyword args before the start
     non_keyword_or_default_args.push(ExprKind::ident(REST_ARG));
 
-    let mut inner_application = vec![ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
+    let mut inner_application = thin_vec![ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
         bindings.iter().map(|x| x.0.clone()).collect(),
         lambda_function.body.clone(),
         SyntaxObject::default(TokenType::Lambda),
@@ -1515,7 +1518,7 @@ fn expand_keyword_and_default_arguments(
     // Required positional and keyword args will count for 1 and 2 spaces
     // at the callsite, respectively.
     let arity_check_condition = ExprKind::If(Box::new(ast::If::new(
-        ExprKind::List(List::new(vec![
+        ExprKind::List(List::new(thin_vec![
             ExprKind::ident("#%prim.plist-validate-args"),
             ExprKind::ident(REST_ARG),
             expr_usize(required_keyword_arg_count),
@@ -1539,7 +1542,7 @@ fn expand_keyword_and_default_arguments(
     )));
 
     *lambda_function = LambdaFunction::new_with_rest_arg(
-        non_keyword_or_default_args.to_vec(),
+        non_keyword_or_default_args.into_iter().collect(),
         arity_check_condition,
         SyntaxObject::default(TokenType::Lambda),
     );
@@ -1753,7 +1756,10 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                             {
                                 let mut expanded = map.expand_syntax_object(
                                     &s,
-                                    ExprKind::List(core::mem::replace(l, List::new(Vec::new()))),
+                                    ExprKind::List(core::mem::replace(
+                                        l,
+                                        List::new(ThinVec::new()),
+                                    )),
                                     self.environment
                                         .as_ref()
                                         .map(|x| x.as_ref())
@@ -1790,7 +1796,7 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                     // (require-builtin steel/obviouslydylib/sqlite (only-in ... ... ...)) <-
                                     // Then, we can _attempt_ to load the dylib at runtime. If we can't we move on, and
                                     // otherwise we can error if the identifiers are not lining up.
-                                    if let Some(module) = self.builtin_modules.get(s.as_str()) {
+                                    if let Some(module) = self.builtin_modules.get(s.resolve()) {
                                         *expr = module.to_syntax(None);
                                         return Ok(());
 
@@ -1836,7 +1842,7 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                             ..
                                         },
                                 })] if *az == *AS_KEYWORD => {
-                                    if let Some(module) = self.builtin_modules.get(s.as_str()) {
+                                    if let Some(module) = self.builtin_modules.get(s.resolve()) {
                                         *expr = module.to_syntax(Some(prefix.resolve()));
 
                                         return Ok(());
@@ -1969,7 +1975,7 @@ mod expansion_tests {
         let mut map = FxHashMap::default();
         map.insert("when".into(), m);
 
-        let mut input: ExprKind = List::new(vec![
+        let mut input: ExprKind = List::new(thin_vec![
             atom_identifier("when"),
             atom_identifier("blagh"),
             atom_identifier("do-thing"),
