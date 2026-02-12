@@ -33,13 +33,13 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
 
 use crate::path::PathBuf;
-use thin_vec::{thin_vec, ThinVec};
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     io::Read,
     sync::Arc,
 };
+use thin_vec::{thin_vec, ThinVec};
 
 use crate::parser::expander::SteelMacro;
 use crate::stop;
