@@ -8,7 +8,7 @@ use std::{
 };
 
 use abi_stable::{
-    library::{LibraryError, RootModule},
+    library::{LibraryError, RootModule, RootModuleError},
     package_version_strings,
     sabi_types::VersionStrings,
     std_types::{RBox, RBoxError},
@@ -102,23 +102,26 @@ pub fn load_root_module_in_directory_manual(
                                 return Err(LibraryError::AbiInstability(RBoxError::new(errs)));
                             }
                         }
+                        abi_stable::abi_stability::abi_checking::AI::PackageVersion(p) => {
+                            log::warn!("Found older package version: {:?}", p);
+                        }
+
                         // IF this isn't one of our known issues, we're just going to bail immediately
-                        _ => return Err(LibraryError::AbiInstability(RBoxError::new(errs))),
+                        _ => {
+                            return Err(LibraryError::AbiInstability(RBoxError::new(errs)));
+                        }
                     }
                 }
             }
         }
     };
 
-    unsafe { header.init_root_module_with_unchecked_layout::<GenerateModule_Ref>() }
-        .map(|x| (x, max_enum))
+    // unsafe { header.init_root_module_with_unchecked_layout::<GenerateModule_Ref>() }
+    //     .map(|x| (x, max_enum))
 
-    // If we want to include version checking, use this instead:
-    // let lib = unsafe {
-    //     header
-    //         .unchecked_layout::<GenerateModule_Ref>()
-    //         .expect("plugin broke while loading")
-    // };
+    unsafe { header.unchecked_layout::<GenerateModule_Ref>() }
+        .map_err(RootModuleError::into_library_error::<GenerateModule_Ref>)
+        .map(|x| (x, max_enum))
 }
 
 #[derive(Clone)]
