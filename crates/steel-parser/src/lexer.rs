@@ -1416,7 +1416,9 @@ mod lexer_tests {
 
         match got.ty {
             TokenType::Number(n) => {
-                assert!(matches!(*n, NumberLiteral::Real(RealLiteral::Float(x)) if x.is_nan()))
+                assert!(
+                    matches!(n.resolve(), NumberLiteral::Real(RealLiteral::Float(x)) if x.is_nan())
+                )
             }
 
             _ => panic!("Didn't match"),
@@ -1426,7 +1428,9 @@ mod lexer_tests {
 
         match got.ty {
             TokenType::Number(n) => {
-                assert!(matches!(*n, NumberLiteral::Real(RealLiteral::Float(x)) if x.is_nan()))
+                assert!(
+                    matches!(n.resolve(), NumberLiteral::Real(RealLiteral::Float(x)) if x.is_nan())
+                )
             }
 
             _ => panic!("Didn't match"),

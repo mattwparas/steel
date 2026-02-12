@@ -129,6 +129,10 @@ static NUMBER_INTERNER: LazyLock<NumberLiteralInterner> =
 
 impl NumberLiteralInterner {
     pub fn add(&self, n: NumberLiteral) -> InternedNumber {
+        if let Some(value) = self.keys.get(&n) {
+            return InternedNumber(*value);
+        }
+
         let value = self.key.fetch_add(1, core::sync::atomic::Ordering::Acquire);
         self.keys.insert(n.clone(), value);
         self.values.insert(value, n.clone());
@@ -136,7 +140,7 @@ impl NumberLiteralInterner {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct InternedNumber(u32);
 
 impl std::fmt::Display for InternedNumber {
