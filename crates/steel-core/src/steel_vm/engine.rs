@@ -2711,8 +2711,9 @@ mod derive_macro_tests {
 
 #[test]
 fn test_steel_quote_macro() {
+    use thin_vec::thin_vec;
     let foobarbaz = ExprKind::atom("foo");
-    let foobarbaz_list = ExprKind::List(List::new(vec![ExprKind::atom("foo")]));
+    let foobarbaz_list = ExprKind::List(List::new(thin_vec![ExprKind::atom("foo")]));
 
     let expanded = steel_derive::internal_steel_quote! {
         (define bananas #foobarbaz)

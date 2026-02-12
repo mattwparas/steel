@@ -527,15 +527,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             }
         }
 
-        // If we found a constant, we can elect to only take the truthy path
-        // if let Some(test_expr) = self.to_constant(&test_expr) {
-        //     self.changed = true;
-        //     if test_expr.is_truthy() {
-        //         self.visit(f.then_expr)
-        //     } else {
-        //         self.visit(f.else_expr)
-        //     }
-        // } else {
         Ok(ExprKind::If(
             If::new(
                 test_expr,
@@ -545,7 +536,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             )
             .into(),
         ))
-        // }
     }
 
     fn visit_define(&mut self, mut define: Box<crate::parser::ast::Define>) -> Self::Output {
