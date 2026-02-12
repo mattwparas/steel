@@ -190,10 +190,10 @@ impl ExprKind {
         }
     }
 
-    pub fn to_string_literal(&self) -> Option<&String> {
+    pub fn to_string_literal(&self) -> Option<String> {
         if let ExprKind::Atom(a) = self {
             if let TokenType::StringLiteral(s) = &a.syn.ty {
-                Some(s)
+                Some(s.resolve().to_string())
             } else {
                 None
             }
@@ -249,7 +249,7 @@ impl ExprKind {
 
     pub fn string_lit(input: String) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::StringLiteral(
-            Arc::new(input),
+            input.into(),
         ))))
     }
 
@@ -358,7 +358,7 @@ impl ExprKind {
                         ty: TokenType::StringLiteral(s),
                         ..
                     },
-            }) => Some(s),
+            }) => Some(s.resolve()),
             _ => None,
         }
     }
@@ -527,10 +527,10 @@ impl Atom {
             return None;
         };
 
-        match &**number {
+        match number.resolve() {
             NumberLiteral::Real(RealLiteral::Int(int)) => match int {
-                IntLiteral::Small(int) => u8::try_from(*int).ok(),
-                IntLiteral::Big(bigint) => u8::try_from(&**bigint).ok(),
+                IntLiteral::Small(int) => u8::try_from(int).ok(),
+                IntLiteral::Big(bigint) => u8::try_from(*bigint).ok(),
             },
             _ => None,
         }

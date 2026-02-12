@@ -7,10 +7,14 @@ use alloc::sync::Arc;
 use core::fmt::{self, Display};
 use core::ops;
 use core::str::FromStr;
+use core::sync::atomic::AtomicU32;
+use dashmap::DashMap;
 use num_bigint::{BigInt, ParseBigIntError};
 use num_rational::Rational32;
 use num_traits::{Num, Signed};
+use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 use TokenType::*;
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -90,8 +94,8 @@ pub enum TokenType<S> {
     BooleanLiteral(bool),
     Identifier(S),
     Keyword(S),
-    Number(Arc<NumberLiteral>),
-    StringLiteral(Arc<String>),
+    Number(InternedNumber),
+    StringLiteral(InternedString),
     Dot,
 }
 
@@ -113,7 +117,67 @@ impl<T> TokenType<T> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
+struct NumberLiteralInterner {
+    keys: DashMap<NumberLiteral, u32>,
+    values: DashMap<u32, NumberLiteral>,
+    key: AtomicU32,
+}
+
+static NUMBER_INTERNER: LazyLock<NumberLiteralInterner> =
+    LazyLock::new(NumberLiteralInterner::default);
+
+impl NumberLiteralInterner {
+    pub fn add(&self, n: NumberLiteral) -> InternedNumber {
+        let value = self.key.fetch_add(1, core::sync::atomic::Ordering::Acquire);
+        self.keys.insert(n.clone(), value);
+        self.values.insert(value, n.clone());
+        InternedNumber(value)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct InternedNumber(u32);
+
+impl std::fmt::Display for InternedNumber {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.resolve())
+    }
+}
+
+impl InternedNumber {
+    pub fn resolve(&self) -> NumberLiteral {
+        NUMBER_INTERNER.values.get(&self.0).unwrap().clone()
+    }
+}
+
+impl From<NumberLiteral> for InternedNumber {
+    fn from(value: NumberLiteral) -> Self {
+        NUMBER_INTERNER.add(value)
+    }
+}
+
+impl Serialize for InternedNumber {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.resolve().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for InternedNumber {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let key = <NumberLiteral>::deserialize(deserializer)?;
+
+        Ok(InternedNumber::from(key))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, PartialOrd, Hash, Eq)]
 pub enum NumberLiteral {
     Real(RealLiteral),
     Complex(RealLiteral, RealLiteral),
@@ -140,15 +204,15 @@ impl Display for NumberLiteral {
 
 impl<S> From<NumberLiteral> for TokenType<S> {
     fn from(n: NumberLiteral) -> Self {
-        TokenType::Number(Arc::new(n))
+        TokenType::Number(n.into())
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, PartialOrd, Hash, Eq)]
 pub enum RealLiteral {
     Int(IntLiteral),
     Rational(IntLiteral, IntLiteral),
-    Float(f64),
+    Float(OrderedFloat<f64>),
 }
 
 impl RealLiteral {
@@ -183,7 +247,7 @@ impl<S> From<RealLiteral> for TokenType<S> {
 
 impl From<f64> for RealLiteral {
     fn from(value: f64) -> RealLiteral {
-        RealLiteral::Float(value)
+        RealLiteral::Float(value.into())
     }
 }
 

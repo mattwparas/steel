@@ -2942,7 +2942,7 @@ impl<'a> VisitorMutRefUnit for RemovedUnusedImports<'a> {
                             Some(ExprKind::List(l)) => l.is_a_builtin_expr(),
                             Some(ExprKind::Quote(_)) => true,
                             Some(ExprKind::Atom(a)) => match &a.syn.ty {
-                                TokenType::Number(n) => match n.as_ref() {
+                                TokenType::Number(n) => match n.resolve() {
                                     NumberLiteral::Real(r) => match r {
                                         RealLiteral::Int(IntLiteral::Small(_))
                                         | RealLiteral::Float(_) => true,

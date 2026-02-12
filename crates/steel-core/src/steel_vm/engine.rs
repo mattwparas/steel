@@ -1719,7 +1719,7 @@ impl Engine {
         fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
             match &t.ty {
                 TokenType::BooleanLiteral(b) => Ok((*b).into()),
-                TokenType::Number(n) => (&**n).into_steelval(),
+                TokenType::Number(n) => n.resolve().into_steelval(),
                 TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
                 TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
                 // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed

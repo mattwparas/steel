@@ -1210,9 +1210,10 @@ impl<'a> KernelExpander<'a> {
 
 fn expr_usize(value: usize) -> ExprKind {
     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
-        std::sync::Arc::new(NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
+        NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
             steel_parser::tokens::IntLiteral::Small(value as _),
-        ))),
+        ))
+        .into(),
     ))))
 }
 
@@ -1416,11 +1417,10 @@ fn expand_keyword_and_default_arguments(
                     ExprKind::ident("#%prim.plist-try-get-positional-arg",),
                     ExprKind::ident(REST_ARG),
                     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Number(
-                        std::sync::Arc::new(NumberLiteral::Real(
-                            steel_parser::tokens::RealLiteral::Int(
-                                steel_parser::tokens::IntLiteral::Small(index as _)
-                            )
+                        NumberLiteral::Real(steel_parser::tokens::RealLiteral::Int(
+                            steel_parser::tokens::IntLiteral::Small(index as _)
                         ))
+                        .into()
                     )))),
                     default_value.clone()
                 ];
@@ -1792,7 +1792,7 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                     // (require-builtin steel/obviouslydylib/sqlite (only-in ... ... ...)) <-
                                     // Then, we can _attempt_ to load the dylib at runtime. If we can't we move on, and
                                     // otherwise we can error if the identifiers are not lining up.
-                                    if let Some(module) = self.builtin_modules.get(s.as_str()) {
+                                    if let Some(module) = self.builtin_modules.get(s.resolve()) {
                                         *expr = module.to_syntax(None);
                                         return Ok(());
 
@@ -1838,7 +1838,7 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                             ..
                                         },
                                 })] if *az == *AS_KEYWORD => {
-                                    if let Some(module) = self.builtin_modules.get(s.as_str()) {
+                                    if let Some(module) = self.builtin_modules.get(s.resolve()) {
                                         *expr = module.to_syntax(Some(prefix.resolve()));
 
                                         return Ok(());

@@ -4,7 +4,6 @@ use super::{ast::*, interner::InternedString};
 use crate::parser::parser::Parser;
 use crate::parser::span::Span;
 // use super::
-use alloc::sync::Arc;
 use core::convert::TryFrom;
 use proptest::prelude::*;
 use steel_parser::parser::SourceId;
@@ -151,11 +150,11 @@ fn tokentype_strategy() -> impl Strategy<Value = TokenType<InternedString>> {
     use TokenType::*;
     prop_oneof![
         any::<char>().prop_map(CharacterLiteral),
-        string_strategy().prop_map(|x| StringLiteral(Arc::new(x))),
+        string_strategy().prop_map(|x| StringLiteral(x.into())),
         ident_strategy().prop_map(Identifier),
         any::<isize>().prop_map(|x| IntLiteral::Small(x).into()),
         any::<bool>().prop_map(BooleanLiteral),
-        any::<f64>().prop_map(|x| RealLiteral::Float(x).into())
+        any::<f64>().prop_map(|x| RealLiteral::Float(x.into()).into())
     ]
 }
 

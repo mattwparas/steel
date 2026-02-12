@@ -238,10 +238,10 @@ struct ConstantEvaluator<'a> {
 fn steelval_to_atom(value: &SteelVal) -> Option<TokenType<InternedString>> {
     match value {
         SteelVal::BoolV(b) => Some(TokenType::BooleanLiteral(*b)),
-        SteelVal::NumV(n) => Some(RealLiteral::Float(*n).into()),
+        SteelVal::NumV(n) => Some(RealLiteral::Float((*n).into()).into()),
         SteelVal::CharV(c) => Some(TokenType::CharacterLiteral(*c)),
         SteelVal::IntV(i) => Some(IntLiteral::Small(*i).into()),
-        SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.to_arc_string())),
+        SteelVal::StringV(s) => Some(TokenType::StringLiteral(s.as_str().into())),
         _ => None,
     }
 }
@@ -355,7 +355,7 @@ impl<'a> ConstantEvaluator<'a> {
                 self.bindings.borrow_mut().get(s)
             }
             // todo!() figure out if it is ok to expand scope of eval_atom.
-            TokenType::Number(n) => (&**n).into_steelval().ok(),
+            TokenType::Number(n) => n.resolve().into_steelval().ok(),
             TokenType::StringLiteral(s) => Some(SteelVal::StringV((s.clone()).into())),
             TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
             _ => None,

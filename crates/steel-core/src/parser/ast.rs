@@ -63,7 +63,7 @@ impl TryFromSteelValVisitorForExprKind {
                 BooleanLiteral(*x),
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                RealLiteral::Float(*x).into(),
+                RealLiteral::Float((*x).into()).into(),
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 RealLiteral::Int(IntLiteral::Small(*x)).into(),
@@ -79,7 +79,7 @@ impl TryFromSteelValVisitorForExprKind {
             }
             Void => stop!(Generic => "Can't convert from Void to expression!"),
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                StringLiteral(x.to_arc_string()),
+                StringLiteral(x.as_str().into()),
             )))),
             FuncV(_) => stop!(Generic => "Can't convert from Function to expression!"),
 
@@ -202,7 +202,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                     BooleanLiteral(*x),
                 )))),
                 NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    RealLiteral::Float(*x).into(),
+                    RealLiteral::Float((*x).into()).into(),
                 )))),
                 IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     RealLiteral::Int(IntLiteral::Small(*x)).into(),
@@ -234,7 +234,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                 }
                 Void => Err("Can't convert from Void to expression!"),
                 StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    StringLiteral(x.to_arc_string()),
+                    StringLiteral(x.as_str().into()),
                 )))),
                 FuncV(_) => Err("Can't convert from Function to expression!"),
                 SymbolV(x) if x.starts_with("#:") => Ok(ExprKind::Atom(Atom::new(

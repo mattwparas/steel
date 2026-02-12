@@ -2814,12 +2814,12 @@ impl<'a> ModuleBuilder<'a> {
                 }
 
                 // Try this?
-                if let Some(lib) = BUILT_INS.iter().cloned().find(|x| x.0 == s.as_str()) {
+                if let Some(lib) = BUILT_INS.iter().cloned().find(|x| x.0 == s.resolve()) {
                     require_object.path = Some(PathOrBuiltIn::BuiltIn(lib.0.into()));
                     return Ok(());
                 }
 
-                if self.custom_builtins.contains_key(s.as_str()) {
+                if self.custom_builtins.contains_key(s.resolve()) {
                     require_object.path =
                         Some(PathOrBuiltIn::BuiltIn(s.clone().to_string().into()));
 
@@ -2829,7 +2829,7 @@ impl<'a> ModuleBuilder<'a> {
                 if self
                     .module_resolvers
                     .iter()
-                    .find(|x| x.exists(s.as_str()))
+                    .find(|x| x.exists(s.resolve()))
                     .is_some()
                 {
                     require_object.path =
@@ -2846,13 +2846,13 @@ impl<'a> ModuleBuilder<'a> {
                 if current.is_file() {
                     current.pop();
                 }
-                current.push(PathBuf::from(s.as_str()));
+                current.push(PathBuf::from(s.resolve()));
 
                 // // If the path exists on its own, we can continue
                 // // But theres the case where we're searching for a module on the STEEL_HOME
                 if !current.exists() {
                     if let Some(mut home) = home.clone() {
-                        home.push(PathBuf::from(s.as_str()));
+                        home.push(PathBuf::from(s.resolve()));
                         current = home;
 
                         log::info!("Searching STEEL_HOME for {:?}", current);
@@ -2860,7 +2860,7 @@ impl<'a> ModuleBuilder<'a> {
                         if !current.exists() {
                             for dir in self.search_dirs {
                                 let mut dir = dir.clone();
-                                dir.push(s.as_str());
+                                dir.push(s.resolve());
 
                                 if dir.exists() {
                                     current = dir;
@@ -2876,7 +2876,7 @@ impl<'a> ModuleBuilder<'a> {
                         // a matching path there.
                         for dir in self.search_dirs {
                             let mut dir = dir.clone();
-                            dir.push(s.as_str());
+                            dir.push(s.resolve());
 
                             if dir.exists() {
                                 current = dir;

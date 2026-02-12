@@ -55,7 +55,7 @@ fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
 fn try_eval_atom(t: &SyntaxObject) -> Option<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Some((*b).into()),
-        TokenType::Number(n) => (&**n).into_steelval().ok(),
+        TokenType::Number(n) => n.resolve().into_steelval().ok(),
         TokenType::StringLiteral(s) => Some(SteelVal::StringV(s.to_string().into())),
         TokenType::CharacterLiteral(c) => Some(SteelVal::CharV(*c)),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
@@ -67,7 +67,7 @@ fn try_eval_atom(t: &SyntaxObject) -> Option<SteelVal> {
 fn try_eval_atom_with_context(t: &SyntaxObject) -> Result<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Ok((*b).into()),
-        TokenType::Number(n) => (&**n).into_steelval().map_err(|e| e.with_span(t.span)),
+        TokenType::Number(n) => n.resolve().into_steelval().map_err(|e| e.with_span(t.span)),
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.clone().into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         TokenType::Keyword(k) => Ok(SteelVal::SymbolV(k.clone().into())),
@@ -177,8 +177,8 @@ impl<'a> CodeGenerator<'a> {
 
         let value =
             if let Some(TokenType::Number(n)) = l.args[2].atom_syntax_object().map(|x| &x.ty) {
-                if let NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(l))) = n.as_ref() {
-                    *l
+                if let NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(l))) = n.resolve() {
+                    l
                 } else {
                     return None;
                 }

@@ -146,7 +146,7 @@ impl CycleDetector {
 
         let res = match val {
             BoolV(b) => write!(f, "#{b}"),
-            NumV(x) => write!(f, "{}", RealLiteral::Float(*x)),
+            NumV(x) => write!(f, "{}", RealLiteral::Float((*x).into())),
             IntV(x) => write!(f, "{x}"),
             BigNum(b) => write!(f, "{}", b.as_ref()),
             Rational(x) => write!(f, "{n}/{d}", n = x.numer(), d = x.denom()),

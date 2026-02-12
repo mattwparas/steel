@@ -672,7 +672,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
                 span,
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                RealLiteral::Float(*x).into(),
+                RealLiteral::Float((*x).into()).into(),
                 span,
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
@@ -684,7 +684,7 @@ impl ast::TryFromSteelValVisitorForExprKind {
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::StringLiteral(x.to_arc_string()),
+                TokenType::StringLiteral(x.as_str().into()),
                 span,
             )))),
 
@@ -803,7 +803,7 @@ impl Syntax {
                 TokenType::BooleanLiteral(*x),
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                RealLiteral::Float(*x).into(),
+                RealLiteral::Float((*x).into()).into(),
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 RealLiteral::Int(IntLiteral::Small(*x)).into(),
@@ -814,7 +814,7 @@ impl Syntax {
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                TokenType::StringLiteral(x.to_arc_string()),
+                TokenType::StringLiteral(x.as_str().into()),
             )))),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),
             // MacroV(_) => Err("Can't convert from Macro to expression!"),
@@ -847,7 +847,7 @@ impl Syntax {
                 span,
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                RealLiteral::Float(*x).into(),
+                RealLiteral::Float((*x).into()).into(),
                 span,
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
@@ -860,7 +860,7 @@ impl Syntax {
                 Ok(ExprKind::List(crate::parser::ast::List::new(items?)))
             }
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::new(
-                TokenType::StringLiteral(x.to_arc_string()),
+                TokenType::StringLiteral(x.as_str().into()),
                 span,
             )))),
             // LambdaV(_) => Err("Can't convert from Lambda to expression!"),

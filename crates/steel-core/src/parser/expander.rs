@@ -25,7 +25,7 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 #[cfg(test)]
 use steel_parser::tokens::IntLiteral;
-use steel_parser::tokens::NumberLiteral;
+use steel_parser::tokens::{InternedNumber, NumberLiteral};
 
 use super::macro_template::MacroTemplate;
 use super::{ast::Quote, interner::InternedString, parser::Parser};
@@ -538,8 +538,8 @@ pub enum MacroPattern {
     Nested(PatternList, bool),
     CharacterLiteral(char),
     BytesLiteral(Vec<u8>),
-    NumberLiteral(Arc<NumberLiteral>),
-    StringLiteral(Arc<String>),
+    NumberLiteral(InternedNumber),
+    StringLiteral(InternedString),
     BooleanLiteral(bool),
     QuotedExpr(Box<Quote>),
     Quote(InternedString),
@@ -1057,11 +1057,11 @@ fn match_single_pattern(
                         ..
                     },
             }) => {
-                let Ok(n) = n.as_ref().clone().into_steelval() else {
+                let Ok(n) = n.resolve().into_steelval() else {
                     return false;
                 };
 
-                let Ok(t) = t.as_ref().clone().into_steelval() else {
+                let Ok(t) = t.resolve().into_steelval() else {
                     return false;
                 };
 
@@ -1086,7 +1086,7 @@ fn match_single_pattern(
                         ty: TokenType::StringLiteral(b),
                         ..
                     },
-            }) if s.as_str() == b.as_str() => true,
+            }) if s == b => true,
             _ => false,
         },
         MacroPattern::BytesLiteral(v) => match expr {
@@ -1532,9 +1532,13 @@ mod match_list_pattern_tests {
     fn test_number_literals() {
         let pattern_args = vec![
             MacroPattern::Syntax("->>".into(), false),
-            MacroPattern::NumberLiteral(std::sync::Arc::new(NumberLiteral::Real(
-                RealLiteral::Rational(IntLiteral::Small(3), IntLiteral::Small(4)),
-            ))),
+            MacroPattern::NumberLiteral(
+                NumberLiteral::Real(RealLiteral::Rational(
+                    IntLiteral::Small(3),
+                    IntLiteral::Small(4),
+                ))
+                .into(),
+            ),
         ];
 
         let list_expr = List::new(vec![
