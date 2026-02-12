@@ -9,7 +9,6 @@ use crate::parser::tokens::TokenType;
 use crate::parser::span::Span;
 
 use crate::rvals::{IntoSteelVal, Result};
-use alloc::sync::Arc;
 use core::cell::RefCell;
 use quickscope::ScopeSet;
 use std::{
@@ -25,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 #[cfg(test)]
 use steel_parser::tokens::IntLiteral;
-use steel_parser::tokens::{InternedNumber, NumberLiteral};
+use steel_parser::tokens::InternedNumber;
 
 use super::macro_template::MacroTemplate;
 use super::{ast::Quote, interner::InternedString, parser::Parser};

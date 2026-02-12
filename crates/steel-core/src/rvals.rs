@@ -1820,18 +1820,6 @@ impl From<Arc<String>> for SteelString {
     }
 }
 
-impl SteelString {
-    pub(crate) fn to_arc_string(&self) -> Arc<String> {
-        #[cfg(feature = "sync")]
-        {
-            // self.0 .0.clone()
-            Arc::new(self.0.unwrap())
-        }
-        #[cfg(not(feature = "sync"))]
-        Arc::new(self.0.unwrap())
-    }
-}
-
 impl From<&str> for SteelString {
     fn from(val: &str) -> Self {
         SteelString(Gc::new(val.to_string()))

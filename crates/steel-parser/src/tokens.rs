@@ -3,7 +3,6 @@ use crate::lexer;
 use crate::parser::SourceId;
 use crate::span::Span;
 use alloc::borrow::Cow;
-use alloc::sync::Arc;
 use core::fmt::{self, Display};
 use core::ops;
 use core::str::FromStr;

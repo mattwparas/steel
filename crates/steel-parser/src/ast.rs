@@ -3,7 +3,6 @@ use crate::{
     tokens::{NumberLiteral, ParenMod, RealLiteral, TokenType},
 };
 
-use alloc::sync::Arc;
 use core::{convert::TryFrom, fmt::Write};
 use thin_vec::ThinVec;
 
