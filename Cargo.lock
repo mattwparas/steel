@@ -509,7 +509,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-steel-lib"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cargo-platform 0.1.7",
  "cargo_metadata 0.20.0",
@@ -528,7 +528,7 @@ dependencies = [
  "serde-untagged",
  "serde-value",
  "thiserror 1.0.69",
- "toml 0.8.23",
+ "toml",
  "unicode-xid",
  "url",
 ]
@@ -3632,15 +3632,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_spanned"
-version = "1.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8bbf91e5a4d6315eee45e704372590b30e260ee83af6639d64557f51b067776"
-dependencies = [
- "serde_core",
-]
-
-[[package]]
 name = "serde_urlencoded"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3819,7 +3810,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "steel-async-webrequests"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "abi_stable",
  "base64 0.22.1",
@@ -3831,7 +3822,7 @@ dependencies = [
 
 [[package]]
 name = "steel-core"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "abi_stable",
  "anyhow",
@@ -3900,7 +3891,7 @@ dependencies = [
 
 [[package]]
 name = "steel-derive"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3909,21 +3900,21 @@ dependencies = [
 
 [[package]]
 name = "steel-doc"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "steel-core",
 ]
 
 [[package]]
 name = "steel-forge"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "steel-core",
 ]
 
 [[package]]
 name = "steel-gen"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "codegen",
  "serde",
@@ -3946,7 +3937,7 @@ dependencies = [
 
 [[package]]
 name = "steel-interpreter"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "cargo-steel-lib",
  "clap",
@@ -3965,7 +3956,7 @@ dependencies = [
 
 [[package]]
 name = "steel-language-server"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "crossbeam-utils",
  "dashmap 6.1.0",
@@ -3984,7 +3975,7 @@ dependencies = [
 
 [[package]]
 name = "steel-markdown"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "abi_stable",
  "pulldown-cmark",
@@ -3994,7 +3985,7 @@ dependencies = [
 
 [[package]]
 name = "steel-parser"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "compact_str",
  "dashmap 6.1.0",
@@ -4015,7 +4006,7 @@ dependencies = [
 
 [[package]]
 name = "steel-quickscope"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "indexmap 2.13.0",
  "smallvec",
@@ -4023,7 +4014,7 @@ dependencies = [
 
 [[package]]
 name = "steel-rc"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "dashmap 6.1.0",
  "parking_lot",
@@ -4032,7 +4023,7 @@ dependencies = [
 
 [[package]]
 name = "steel-regex"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "abi_stable",
  "regex",
@@ -4041,7 +4032,7 @@ dependencies = [
 
 [[package]]
 name = "steel-repl"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "colored",
  "crossbeam-utils",
@@ -4054,7 +4045,7 @@ dependencies = [
 
 [[package]]
 name = "steel-rustls"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "abi_stable",
  "flate2",
@@ -4065,7 +4056,7 @@ dependencies = [
 
 [[package]]
 name = "steel-sqlite"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "abi_stable",
  "rusqlite",
@@ -4074,7 +4065,7 @@ dependencies = [
 
 [[package]]
 name = "steel-sys-info"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "abi_stable",
  "steel-core",
@@ -4083,16 +4074,16 @@ dependencies = [
 
 [[package]]
 name = "steel-toml"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "abi_stable",
  "steel-core",
- "toml 1.0.0+spec-1.1.0",
+ "toml",
 ]
 
 [[package]]
 name = "steel-webrequests"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "abi_stable",
  "async-channel 2.5.0",
@@ -4102,7 +4093,7 @@ dependencies = [
 
 [[package]]
 name = "steel-webserver"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "abi_stable",
  "axum",
@@ -4114,7 +4105,7 @@ dependencies = [
 
 [[package]]
 name = "steel-websockets"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "abi_stable",
  "steel-core",
@@ -4410,24 +4401,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc1beb996b9d83529a9e75c17a1686767d148d70663143c7854d8b4a09ced362"
 dependencies = [
  "serde",
- "serde_spanned 0.6.9",
- "toml_datetime 0.6.11",
+ "serde_spanned",
+ "toml_datetime",
  "toml_edit",
-]
-
-[[package]]
-name = "toml"
-version = "1.0.0+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1d7e18e3dd1d31e0ee5e863a8091ffec2fcc271636586042452b656a22c8ee1"
-dependencies = [
- "indexmap 2.13.0",
- "serde_core",
- "serde_spanned 1.0.4",
- "toml_datetime 1.0.0+spec-1.1.0",
- "toml_parser",
- "toml_writer",
- "winnow",
 ]
 
 [[package]]
@@ -4440,15 +4416,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "toml_datetime"
-version = "1.0.0+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32c2555c699578a4f59f0cc68e5116c8d7cabbd45e1409b989d4be085b53f13e"
-dependencies = [
- "serde_core",
-]
-
-[[package]]
 name = "toml_edit"
 version = "0.22.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4456,18 +4423,9 @@ checksum = "41fe8c660ae4257887cf66394862d21dbca4a6ddd26f04a3560410406a2f819a"
 dependencies = [
  "indexmap 2.13.0",
  "serde",
- "serde_spanned 0.6.9",
- "toml_datetime 0.6.11",
+ "serde_spanned",
+ "toml_datetime",
  "toml_write",
- "winnow",
-]
-
-[[package]]
-name = "toml_parser"
-version = "1.0.7+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "247eaa3197818b831697600aadf81514e577e0cba5eab10f7e064e78ae154df1"
-dependencies = [
  "winnow",
 ]
 
@@ -4476,12 +4434,6 @@ name = "toml_write"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
-
-[[package]]
-name = "toml_writer"
-version = "1.0.6+spec-1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab16f14aed21ee8bfd8ec22513f7287cd4a91aa92e44edfe2c17ddd004e92607"
 
 [[package]]
 name = "tower"
@@ -5505,7 +5457,7 @@ checksum = "2fb433233f2df9344722454bc7e96465c9d03bff9d77c248f9e7523fe79585b5"
 
 [[package]]
 name = "xtask"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "which 7.0.3",
 ]

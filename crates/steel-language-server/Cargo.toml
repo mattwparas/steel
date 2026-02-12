@@ -17,8 +17,8 @@ tower-lsp = { version = "0.20.0" }
 serde = { version = "1.0.152", features = ["derive"] }
 dashmap = "6.1.0"
 log = "0.4.17"
-steel-core = { path = "../steel-core", version = "0.7.0", features = ["dylibs", "stacker", "sync", "anyhow"] }
-steel-parser = { path = "../steel-parser", version = "0.7.0" }
+steel-core = { path = "../steel-core", version = "0.8.0", features = ["dylibs", "stacker", "sync", "anyhow"] }
+steel-parser = { path = "../steel-parser", version = "0.8.0" }
 once_cell = "1.18.0"
 crossbeam-utils = "0.8.21"
 ignore = "0.4.23"
