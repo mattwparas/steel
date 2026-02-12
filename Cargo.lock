@@ -509,7 +509,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-steel-lib"
-version = "0.3.0"
+version = "0.8.0"
 dependencies = [
  "cargo-platform 0.1.7",
  "cargo_metadata 0.20.0",
