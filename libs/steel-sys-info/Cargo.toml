@@ -2,6 +2,7 @@
 name = "steel-sys-info"
 version.workspace = true
 edition = "2021"
+publish = false
 
 
 [lib]

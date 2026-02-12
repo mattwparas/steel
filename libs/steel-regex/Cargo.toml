@@ -2,7 +2,7 @@
 name = "steel-regex"
 edition = "2021"
 version.workspace = true
-
+publish = false
 
 [lib]
 name = "steel_regex"

@@ -2,6 +2,7 @@
 name = "steel-toml"
 version.workspace = true
 edition = "2021"
+publish = false
 
 [lib]
 name = "steel_toml"
