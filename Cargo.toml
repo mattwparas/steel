@@ -50,7 +50,7 @@ imbl = ["steel-core/imbl"]
 [dependencies]
 once_cell = "1.17.0"
 steel-core = { workspace = true }
-steel-derive = { path = "./crates/steel-derive", version = "0.6.0" }
+steel-derive = { path = "./crates/steel-derive", version = "0.7.0" }
 steel-repl = { path = "./crates/steel-repl", version = "0.7.0" }
 env_logger = "0.10.0"
 log = "0.4.17"
