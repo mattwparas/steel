@@ -1340,7 +1340,7 @@ fn collect_bindings(
 
 #[cfg(test)]
 mod match_list_pattern_tests {
-    use steel_parser::tokens::RealLiteral;
+    use steel_parser::tokens::{NumberLiteral, RealLiteral};
 
     use super::*;
 

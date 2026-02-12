@@ -8,6 +8,7 @@ use core::convert::TryFrom;
 use proptest::prelude::*;
 use steel_parser::parser::SourceId;
 use steel_parser::tokens::{IntLiteral, RealLiteral};
+use thin_vec::ThinVec;
 
 use crate::parser::ast::{Atom, Begin, Define, If, List, Quote};
 
@@ -73,7 +74,7 @@ fn define_vec_strategy(
         .prop_map(|(vector, identifier)| {
             ExprKind::Define(Box::new(Define::new(
                 identifier,
-                ExprKind::try_from(vector).unwrap(),
+                ExprKind::try_from(ThinVec::from(vector)).unwrap(),
                 SyntaxObject::default(TokenType::Define),
             )))
         })
@@ -96,11 +97,11 @@ fn naive_list_vec_strategy(
     prop::collection::vec(inner, 0..10).prop_map(|x| {
         if x.is_empty() {
             ExprKind::Quote(Box::new(Quote::new(
-                ExprKind::List(List::new(x)),
+                ExprKind::List(List::new(x.into())),
                 SyntaxObject::default(TokenType::Quote),
             )))
         } else {
-            ExprKind::List(List::new(x))
+            ExprKind::List(List::new(x.into()))
         }
     })
 }

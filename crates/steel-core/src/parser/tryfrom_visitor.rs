@@ -853,10 +853,12 @@ mod tests {
 
     use super::*;
 
+    use thin_vec::thin_vec;
+
     #[test]
     fn nested_quotes_handled_correctly() {
         let expr = ExprKind::Quote(Box::new(Quote::new(
-            ExprKind::List(crate::parser::ast::List::new(vec![
+            ExprKind::List(crate::parser::ast::List::new(thin_vec![
                 ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Define))),
                 ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
                     "applesauce".into(),
