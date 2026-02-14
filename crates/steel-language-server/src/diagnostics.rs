@@ -29,6 +29,7 @@ use steel::{
     steel_vm::{builtin::Arity, engine::Engine},
     stop, SteelVal,
 };
+use steel_parser::{ast::Atom, parser::RawSyntaxObject, tokens::TokenType};
 use tower_lsp::lsp_types::{Diagnostic, DiagnosticSeverity, Range, Url};
 
 use crate::backend::Config;
@@ -145,6 +146,8 @@ impl DiagnosticGenerator for StaticArityChecker {
             arity_checker.visit(&expr);
         }
 
+        eprintln!("Known contracts: {:#?}", arity_checker.known_contracts);
+
         // TODO: Resolve all required values to their original
         // values in the other module, and link those known
         // functions there.
@@ -231,6 +234,7 @@ impl DiagnosticGenerator for StaticArityChecker {
             known_functions: arity_checker.known_functions,
             context,
             diagnostics: Vec::new(),
+            contracts: arity_checker.known_contracts,
         }
         .check()
     }
@@ -253,22 +257,25 @@ pub struct StaticArityChecking<'a> {
 
 impl<'a> VisitorMutUnitRef<'a> for StaticArityChecking<'a> {
     fn visit_begin(&mut self, begin: &'a steel::parser::ast::Begin) {
-        // Check if this is a define/contract
-        match (begin.exprs.get(0), begin.exprs.get(1)) {
-            (Some(ExprKind::Define(d)), Some(ExprKind::Set(s))) => {
-                if let ExprKind::LambdaFunction(l) = &d.body {
-                    if let Some(contract) = function_contract(&s.expr) {
-                        self.known_functions
-                            .insert(d.name_id().unwrap(), l.args.len());
+        for window in begin.exprs.windows(2) {
+            match &window {
+                &[ExprKind::Define(d), ExprKind::Set(s)] => {
+                    if let ExprKind::LambdaFunction(l) = &d.body {
+                        if let Some(contract) = function_contract(&s.expr) {
+                            self.known_functions
+                                .insert(d.name_id().unwrap(), l.args.len());
 
-                        if let Ok(contract) = contract {
-                            self.known_contracts.insert(d.name_id().unwrap(), contract);
+                            if let Ok(contract) = contract {
+                                self.known_contracts.insert(d.name_id().unwrap(), contract);
+                            }
                         }
                     }
                 }
+                _ => {}
             }
-            _ => {}
         }
+
+        // Check if this is a define/contract
 
         for expr in &begin.exprs {
             self.visit(expr);
@@ -295,6 +302,7 @@ impl<'a> VisitorMutUnitRef<'a> for StaticArityChecking<'a> {
 
 pub struct StaticCallSiteArityChecker<'a, 'b> {
     known_functions: HashMap<SyntaxObjectId, usize>,
+    contracts: HashMap<SyntaxObjectId, StaticContract>,
     context: &'a mut DiagnosticContext<'b>,
     diagnostics: Vec<Diagnostic>,
 }
@@ -470,6 +478,77 @@ impl<'a, 'b> VisitorMutUnitRef<'a> for StaticCallSiteArityChecker<'a, 'b> {
                                 }
                             }
                         }
+
+                        if let Some(contract) = self.contracts.get(&refers_to_id) {
+                            let type_info = contract.to_type_info();
+
+                            match type_info {
+                                TypeInfo::FixedArityFunction(type_infos, type_info) => {
+                                    if l.args[1..].len() == type_infos.len() {
+                                        for (typ, expr) in type_infos.iter().zip(l.args[1..].iter())
+                                        {
+                                            match (typ, expr) {
+                                                (
+                                                    TypeInfo::Int,
+                                                    ExprKind::Atom(Atom {
+                                                        syn:
+                                                            RawSyntaxObject {
+                                                                ty: TokenType::Number(n),
+                                                                ..
+                                                            },
+                                                    }),
+                                                ) if matches!(
+                                                    n.resolve(),
+                                                    steel_parser::tokens::NumberLiteral::Real(
+                                                        steel_parser::tokens::RealLiteral::Int(_)
+                                                    )
+                                                ) => {}
+
+                                                (
+                                                    TypeInfo::Int,
+                                                    ExprKind::Atom(Atom {
+                                                        syn:
+                                                            RawSyntaxObject {
+                                                                ty: TokenType::Identifier(_),
+                                                                ..
+                                                            },
+                                                    }),
+                                                ) => {}
+                                                (
+                                                    TypeInfo::Int,
+                                                    ExprKind::Atom(Atom {
+                                                        syn: RawSyntaxObject { span, .. },
+                                                    }),
+                                                ) => {
+                                                    if let Some(range) = self
+                                                        .context
+                                                        .config
+                                                        .span_to_range(&span, &self.context.rope)
+                                                    {
+                                                        let diagnostic = create_diagnostic(
+                                                            range,
+                                                            DiagnosticSeverity::ERROR,
+                                                            format!(
+                                            "TypeMismatch: {} expects {}, found {}",
+                                            l.first().unwrap(),
+                                            "int?",
+                                            expr
+                                        ),
+                                                        );
+                                                        self.diagnostics.push(diagnostic);
+                                                    }
+                                                }
+
+                                                _ => {}
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+
+                            eprintln!("Found contract: {:#?}", contract);
+                        }
                     }
                 }
             }
@@ -505,15 +584,24 @@ define_primitive_symbols! {
 }
 
 fn is_bind_c(ident: &InternedString) -> bool {
-    *ident == *BIND_C || *ident == *PRIM_BIND_C
+    *ident == *BIND_C || *ident == *PRIM_BIND_C || {
+        let guard = ident.resolve();
+        guard.starts_with("##") && guard.ends_with("__%#__bind/c")
+    }
 }
 
 fn is_make_function_c(ident: &InternedString) -> bool {
-    *ident == *MAKE_FUNCTION_C || *ident == *PRIM_MAKE_FUNCTION_C
+    *ident == *MAKE_FUNCTION_C || *ident == *PRIM_MAKE_FUNCTION_C || {
+        let guard = ident.resolve();
+        guard.starts_with("##") && guard.ends_with("__%#__make-function/c")
+    }
 }
 
 fn is_make_c(ident: &InternedString) -> bool {
-    *ident == *MAKE_C || *ident == *PRIM_MAKE_C
+    *ident == *MAKE_C || *ident == *PRIM_MAKE_C || {
+        let guard = ident.resolve();
+        guard.starts_with("##") && guard.ends_with("__%#__make/c")
+    }
 }
 
 fn is_list_of(ident: &InternedString) -> bool {
@@ -593,6 +681,8 @@ pub enum StaticContract {
 // Is this bind/c instance referring to a make-function/c instance
 fn function_contract(expr: &ExprKind) -> Option<steel::rvals::Result<StaticContract>> {
     let body = expr.list()?;
+
+    eprintln!("{}", body);
 
     if is_bind_c(body.first_ident()?) {
         let make_function = body.get(1)?;
