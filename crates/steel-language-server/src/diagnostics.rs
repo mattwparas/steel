@@ -174,42 +174,55 @@ impl DiagnosticGenerator for StaticArityChecker {
                     // we don't have to go to another AST in order to resolve it,
                     // we should just do that here.
                 }
-                RequiredIdentifierInformation::Unresolved(interned, name, _) => {
-                    let module_path_to_check = name
-                        .trim_start_matches("mangler")
-                        .trim_end_matches(interned.resolve())
-                        .trim_end_matches("__%#__");
+                RequiredIdentifierInformation::Unresolved(interned, name, original) => {
+                    let mut resolver = |mut interned: InternedString,
+                                        name: String,
+                                        original|
+                     -> Option<()> {
+                        let maybe_renamed = interned;
 
-                    let module_guard = context.engine.modules();
-
-                    let Some(module) = module_guard.get(&PathBuf::from(module_path_to_check))
-                    else {
-                        continue;
-                    };
-
-                    let module_ast = module.get_ast();
-
-                    // TODO: This is O(n^2) behavior, and we don't want that.
-                    // We should merge this and the above loop into one pass, collecting
-                    // all of the things that we need. This should be fast enough for small
-                    // enough modules, but it is going to blow up on larger modules.
-                    let top_level_define = query_top_level_define(module_ast, interned.resolve())
-                        .or_else(|| {
-                            query_top_level_define_on_condition(
-                                module_ast,
-                                interned.resolve(),
-                                |name, target| name.ends_with(target),
-                            )
-                        });
-
-                    // Don't include rest args for now
-                    if let Some(d) = top_level_define {
-                        if let ExprKind::LambdaFunction(l) = &d.body {
-                            if !l.rest {
-                                arity_checker.known_functions.insert(id, l.args.len());
+                        if let Some(original) = original {
+                            if interned != original {
+                                interned = original;
                             }
                         }
-                    }
+
+                        let mut module_prefix_path_to_check =
+                            name.trim_end_matches(if maybe_renamed == interned {
+                                interned.resolve()
+                            } else {
+                                maybe_renamed.resolve()
+                            });
+
+                        let modules = context.engine.modules();
+
+                        let module = modules
+                            .values()
+                            .find(|x| x.prefix() == module_prefix_path_to_check)?;
+
+                        let module_ast = module.get_ast();
+
+                        let top_level_define =
+                            query_top_level_define(module_ast, interned.resolve()).or_else(|| {
+                                query_top_level_define_on_condition(
+                                    module_ast,
+                                    interned.resolve(),
+                                    |name, target| target.ends_with(name),
+                                )
+                            });
+
+                        if let Some(d) = top_level_define {
+                            if let ExprKind::LambdaFunction(l) = &d.body {
+                                if !l.rest {
+                                    arity_checker.known_functions.insert(id, l.args.len());
+                                }
+                            }
+                        }
+
+                        Some(())
+                    };
+
+                    resolver(interned, name, original);
                 }
             }
         }
