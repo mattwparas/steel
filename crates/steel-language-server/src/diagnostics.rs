@@ -135,8 +135,6 @@ pub struct StaticArityChecker;
 
 impl DiagnosticGenerator for StaticArityChecker {
     fn diagnose(&mut self, context: &mut DiagnosticContext) -> Vec<Diagnostic> {
-        eprintln!("Calling the static arity checker");
-
         let mut arity_checker = StaticArityChecking {
             known_functions: HashMap::new(),
             analysis: &context.analysis,
@@ -225,46 +223,6 @@ impl DiagnosticGenerator for StaticArityChecker {
                     };
 
                     resolver(interned, name, original);
-
-                    /*
-
-                    let module_path_to_check = name
-                        .trim_start_matches("mangler")
-                        .trim_end_matches(interned.resolve())
-                        .trim_end_matches("__%#__");
-
-                    let module_guard = context.engine.modules();
-
-                    let Some(module) = module_guard.get(&PathBuf::from(module_path_to_check))
-                    else {
-                        continue;
-                    };
-
-                    let module_ast = module.get_ast();
-
-                    // TODO: This is O(n^2) behavior, and we don't want that.
-                    // We should merge this and the above loop into one pass, collecting
-                    // all of the things that we need. This should be fast enough for small
-                    // enough modules, but it is going to blow up on larger modules.
-                    let top_level_define = query_top_level_define(module_ast, interned.resolve())
-                        .or_else(|| {
-                            query_top_level_define_on_condition(
-                                module_ast,
-                                interned.resolve(),
-                                |name, target| name.ends_with(target),
-                            )
-                        });
-
-                    // Don't include rest args for now
-                    if let Some(d) = top_level_define {
-                        if let ExprKind::LambdaFunction(l) = &d.body {
-                            if !l.rest {
-                                arity_checker.known_functions.insert(id, l.args.len());
-                            }
-                        }
-                    }
-
-                    */
                 }
             }
         }
