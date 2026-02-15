@@ -20,10 +20,12 @@ use crate::{
     rvals::IntoSteelVal,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, time::SystemTime};
+use std::collections::HashMap;
+
+use crate::time::SystemTime;
 
 #[cfg(feature = "profiling")]
-use std::time::Instant;
+use crate::time::Instant;
 
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
@@ -34,7 +36,7 @@ use super::{compiler::DebruijnIndicesInterner, map::SymbolMap};
 fn eval_atom(t: &SyntaxObject) -> Result<SteelVal> {
     match &t.ty {
         TokenType::BooleanLiteral(b) => Ok((*b).into()),
-        TokenType::Number(n) => (&**n).into_steelval(),
+        TokenType::Number(n) => n.resolve().into_steelval(),
         TokenType::StringLiteral(s) => Ok(SteelVal::StringV(s.to_string().into())),
         TokenType::CharacterLiteral(c) => Ok(SteelVal::CharV(*c)),
         // TODO: Keywords shouldn't be misused as an expression - only in function calls are keywords allowed
@@ -1075,7 +1077,7 @@ impl RawProgramWithSymbols {
     //             .split(',')
     //             .map(|x| {
     //                 // Parse the input
-    //                 let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+    //                 let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
     //                     Parser::new(&x, &mut intern).collect();
     //                 let parsed = parsed?;
 
@@ -1117,7 +1119,7 @@ impl RawProgramWithSymbols {
     //             continue;
     //         }
 
-    //         let parsed: std::result::Result<Vec<ExprKind>, ParseError> =
+    //         let parsed: core::result::Result<Vec<ExprKind>, ParseError> =
     //             Parser::new(&instruction_string, &mut intern).collect();
     //         let parsed = parsed?;
 

@@ -245,6 +245,7 @@ Removes an environment variable for the child.
 ### **ChildProcess?**
 ### **CommandBuilder?**
 ### **command-builder?**
+### **set-piped-stdout!**
 ### **set-stdout-piped!**
 ### **subprocess?**
 ### **wait->stdout**

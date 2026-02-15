@@ -269,7 +269,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
 
                 impl #name {
                     #[doc = "Registers the struct functions with this module"]
-                    fn register_type(module: &mut #prefix::steel_vm::builtin::BuiltInModule) ->
+                    pub fn register_type(module: &mut #prefix::steel_vm::builtin::BuiltInModule) ->
                         &mut #prefix::steel_vm::builtin::BuiltInModule {
                         use #prefix::steel_vm::register_fn::RegisterFn;
                         #(
@@ -484,7 +484,7 @@ fn derive_steel_impl(input: DeriveInput, prefix: proc_macro2::TokenStream) -> To
 
                 impl #name {
                     #[doc = "Registers the enum variant functions with this module"]
-                    fn register_enum_variants(module: &mut #prefix::steel_vm::builtin::BuiltInModule) ->
+                    pub fn register_enum_variants(module: &mut #prefix::steel_vm::builtin::BuiltInModule) ->
                         &mut #prefix::steel_vm::builtin::BuiltInModule {
                         use #prefix::steel_vm::register_fn::RegisterFn;
                         #(

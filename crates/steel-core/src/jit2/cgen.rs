@@ -144,7 +144,7 @@ macro_rules! register_function_pointers_return {
                     sig.params.push(AbiParam::new(type_to_ir_type::<$typ>()));
                 )*
 
-                let return_size = std::mem::size_of::<RET>();
+                let return_size = core::mem::size_of::<RET>();
 
                 if return_size != 0 {
                     sig.returns.push(AbiParam::new(type_to_ir_type::<RET>()));
@@ -172,7 +172,7 @@ macro_rules! register_function_pointers_return {
                     sig.params.push(AbiParam::new(type_to_ir_type::<$typ>()));
                 )*
 
-                let return_size = std::mem::size_of::<RET>();
+                let return_size = core::mem::size_of::<RET>();
 
                 if return_size != 0 {
                     sig.returns.push(AbiParam::new(type_to_ir_type::<RET>()));
@@ -195,7 +195,7 @@ macro_rules! register_function_pointers_return {
                     sig.params.push(AbiParam::new(type_to_ir_type::<$typ>()));
                 )*
 
-                let return_size = std::mem::size_of::<RET>();
+                let return_size = core::mem::size_of::<RET>();
 
                 if return_size != 0 {
                     sig.returns.push(AbiParam::new(type_to_ir_type::<RET>()));
@@ -219,7 +219,7 @@ macro_rules! register_function_pointers_return {
                     sig.params.push(AbiParam::new(type_to_ir_type::<$typ>()));
                 )*
 
-                let return_size = std::mem::size_of::<RET>();
+                let return_size = core::mem::size_of::<RET>();
 
                 if return_size != 0 {
                     sig.returns.push(AbiParam::new(type_to_ir_type::<RET>()));
@@ -255,7 +255,7 @@ register_function_pointers_return!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, 
 register_function_pointers_return!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q);
 
 fn type_to_ir_type<T>() -> Type {
-    Type::int(std::mem::size_of::<T>() as u16 * 8).unwrap()
+    Type::int(core::mem::size_of::<T>() as u16 * 8).unwrap()
 }
 
 // Build table mapping the function signatures
@@ -953,7 +953,7 @@ unsafe fn compile_bytecode(
     // Cast the raw pointer to a typed function pointer. This is unsafe, because
     // this is the critical point where you have to trust that the generated code
     // is safe to be called.
-    let code_fn = std::mem::transmute::<*const u8, fn(&mut VmCore)>(code_ptr);
+    let code_fn = core::mem::transmute::<*const u8, fn(&mut VmCore)>(code_ptr);
     Ok(code_fn)
 }
 
@@ -1561,7 +1561,7 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
 // but rather encode the enum variant manually as to not create any
 // nasal demons
 fn encode(value: SteelVal) -> i128 {
-    unsafe { std::mem::transmute(value) }
+    unsafe { core::mem::transmute(value) }
 }
 
 impl FunctionTranslator<'_> {

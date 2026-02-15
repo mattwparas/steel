@@ -2,13 +2,14 @@
 name = "steel-rustls"
 edition = "2021"
 version.workspace = true
+publish = false
 
 [lib]
 name = "steel_rustls"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-steel-core = { path = "../../crates/steel-core", version = "0.7.0", features = ["dylibs", "sync"] }
+steel-core = { path = "../../crates/steel-core", version = "0.8.1", features = ["dylibs", "sync"] }
 abi_stable = "0.11.1"
 rustls = "0.23.17"
 webpki-roots = "0.26"

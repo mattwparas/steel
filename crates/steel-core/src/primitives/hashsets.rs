@@ -6,7 +6,7 @@ use crate::values::HashSet;
 use crate::{gc::Gc, steel_vm::builtin::BuiltInModule};
 use crate::{stop, Vector};
 
-pub(crate) fn hashset_module() -> BuiltInModule {
+pub fn hashset_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/sets");
     module
         .register_native_fn_definition(HS_CONSTRUCT_DEFINITION)
@@ -68,7 +68,7 @@ pub fn hs_insert(hashset: &mut SteelVal, value: SteelVal) -> Result<SteelVal> {
         match Gc::get_mut(hs) {
             Some(m) => {
                 m.insert(value);
-                Ok(std::mem::replace(hashset, SteelVal::Void))
+                Ok(core::mem::replace(hashset, SteelVal::Void))
             }
 
             None => Ok(SteelVal::HashSetV(SteelHashSet(Gc::new(hs.update(value))))),
@@ -201,7 +201,7 @@ pub fn hashset_clear(hashset: &mut SteelVal) -> Result<SteelVal> {
         match Gc::get_mut(hs) {
             Some(m) => {
                 m.clear();
-                Ok(std::mem::replace(hashset, SteelVal::Void))
+                Ok(core::mem::replace(hashset, SteelVal::Void))
             }
             None => Ok(SteelVal::HashSetV(Gc::new(HashSet::new()).into())),
         }
@@ -234,7 +234,7 @@ mod hashset_tests {
     use im::vector;
 
     #[cfg(all(feature = "sync", feature = "imbl"))]
-    use imbl::vector;
+    use steel_imbl::generic_vector as vector;
 
     #[test]
     fn hs_construct_normal() {

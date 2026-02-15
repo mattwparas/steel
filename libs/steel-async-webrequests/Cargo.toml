@@ -2,6 +2,7 @@
 name = "steel-async-webrequests"
 edition = "2021"
 version.workspace = true
+publish = false
 
 
 [lib]

@@ -1,3 +1,6 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
 extern crate im_rc;
 #[macro_use]
 mod env;
@@ -5,6 +8,7 @@ mod env;
 pub mod core;
 pub mod compiler;
 pub mod primitives;
+pub mod time;
 #[macro_use]
 pub mod rerrs;
 pub mod rvals;

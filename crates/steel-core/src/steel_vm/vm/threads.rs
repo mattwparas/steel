@@ -13,7 +13,7 @@ use super::*;
 
 pub struct ThreadHandle {
     pub(crate) handle:
-        Mutex<Option<std::thread::JoinHandle<std::result::Result<SteelVal, String>>>>,
+        Mutex<Option<std::thread::JoinHandle<core::result::Result<SteelVal, String>>>>,
 
     pub(crate) thread: std::thread::Thread,
 
@@ -226,7 +226,7 @@ pub fn closure_into_serializable(
 //     use crate::rvals::SerializableSteelVal;
 
 //     #[cfg(feature = "profiling")]
-//     let now = std::time::Instant::now();
+//     let now = crate::time::Instant::now();
 
 //     // Need a new:
 //     // Stack
@@ -766,7 +766,7 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     // We are now in a world in which we have to support safe points
     ctx.thread.safepoints_enabled = true;
 
-    let thread_time = std::time::Instant::now();
+    let thread_time = crate::time::Instant::now();
 
     // Do this here?
     let mut thread = ctx.thread.clone();
@@ -881,7 +881,7 @@ impl Custom for SReceiver {
 }
 
 impl Custom for std::thread::ThreadId {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         Some(Ok(format!("#<{:?}>", self)))
     }
 }

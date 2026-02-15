@@ -6,6 +6,7 @@ use crate::{
 };
 
 use steel_parser::tokens::{IntLiteral, NumberLiteral, RealLiteral};
+use thin_vec::ThinVec;
 
 use crate::{
     rerrs::SteelErr,
@@ -21,7 +22,7 @@ pub use steel_parser::ast::{
 impl TryFrom<ExprKind> for SteelVal {
     type Error = SteelErr;
 
-    fn try_from(e: ExprKind) -> std::result::Result<Self, Self::Error> {
+    fn try_from(e: ExprKind) -> core::result::Result<Self, Self::Error> {
         TryFromExprKindForSteelVal::try_from_expr_kind(e)
     }
 }
@@ -48,7 +49,7 @@ pub(crate) struct TryFromSteelValVisitorForExprKind {
 }
 
 impl TryFromSteelValVisitorForExprKind {
-    pub fn root(value: &SteelVal) -> std::result::Result<ExprKind, SteelErr> {
+    pub fn root(value: &SteelVal) -> core::result::Result<ExprKind, SteelErr> {
         Self {
             qq_depth: 0,
             quoted: false,
@@ -57,13 +58,13 @@ impl TryFromSteelValVisitorForExprKind {
     }
 
     // type Error = &'static str;
-    pub fn visit(&mut self, value: &SteelVal) -> std::result::Result<ExprKind, SteelErr> {
+    pub fn visit(&mut self, value: &SteelVal) -> core::result::Result<ExprKind, SteelErr> {
         match value {
             BoolV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 BooleanLiteral(*x),
             )))),
             NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                RealLiteral::Float(*x).into(),
+                RealLiteral::Float((*x).into()).into(),
             )))),
             IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                 RealLiteral::Int(IntLiteral::Small(*x)).into(),
@@ -73,13 +74,13 @@ impl TryFromSteelValVisitorForExprKind {
                 RealLiteral::Int(IntLiteral::Big(Box::new(x.unwrap()))).into(),
             )))),
             VectorV(lst) => {
-                let items: std::result::Result<Vec<ExprKind>, _> =
+                let items: core::result::Result<ThinVec<ExprKind>, _> =
                     lst.iter().map(|x| self.visit(x)).collect();
                 Ok(ExprKind::List(List::new(items?)))
             }
             Void => stop!(Generic => "Can't convert from Void to expression!"),
             StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                StringLiteral(x.to_arc_string()),
+                StringLiteral(x.as_str().into()),
             )))),
             FuncV(_) => stop!(Generic => "Can't convert from Function to expression!"),
 
@@ -111,7 +112,7 @@ impl TryFromSteelValVisitorForExprKind {
                     match maybe_special_form {
                         Some(x) if x.as_str() == "quote" => {
                             if self.quoted {
-                                let items: std::result::Result<Vec<ExprKind>, _> =
+                                let items: core::result::Result<ThinVec<ExprKind>, _> =
                                     l.iter().map(|x| self.visit(x)).collect();
 
                                 return Ok(ExprKind::List(List::new(items?)));
@@ -122,7 +123,7 @@ impl TryFromSteelValVisitorForExprKind {
                             let return_value = Ok(l
                                 .into_iter()
                                 .map(|x| self.visit(x))
-                                .collect::<std::result::Result<Vec<_>, _>>()?
+                                .collect::<core::result::Result<ThinVec<_>, _>>()?
                                 .try_into()?);
 
                             // dbg!(&return_value);
@@ -144,11 +145,11 @@ impl TryFromSteelValVisitorForExprKind {
 
                 Ok(l.into_iter()
                     .map(|x| self.visit(x))
-                    .collect::<std::result::Result<Vec<_>, _>>()?
+                    .collect::<core::result::Result<ThinVec<_>, _>>()?
                     .try_into()?)
 
                 // If we're not quoted, we need to just return this pushed down to an ast
-                // let items: std::result::Result<Vec<ExprKind>, &'static str> =
+                // let items: core::result::Result<Vec<ExprKind>, &'static str> =
                 // l.iter().map(|x| self.visit(x)).collect();
 
                 // Ok(ExprKind::List(List::new(items?)))
@@ -188,11 +189,11 @@ fn complex_to_literal(v: &SteelComplex) -> Result<NumberLiteral, &'static str> {
 /// as if it was an expression
 impl TryFrom<&SteelVal> for ExprKind {
     type Error = &'static str;
-    fn try_from(r: &SteelVal) -> std::result::Result<Self, Self::Error> {
+    fn try_from(r: &SteelVal) -> core::result::Result<Self, Self::Error> {
         fn inner_try_from(
             r: &SteelVal,
             depth: usize,
-        ) -> std::result::Result<ExprKind, &'static str> {
+        ) -> core::result::Result<ExprKind, &'static str> {
             if depth > 64 {
                 return Err("Unable to convert steel val to exprkind - depth was too large!");
             }
@@ -202,7 +203,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                     BooleanLiteral(*x),
                 )))),
                 NumV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    RealLiteral::Float(*x).into(),
+                    RealLiteral::Float((*x).into()).into(),
                 )))),
                 IntV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
                     RealLiteral::Int(IntLiteral::Small(*x)).into(),
@@ -228,13 +229,13 @@ impl TryFrom<&SteelVal> for ExprKind {
                     complex_to_literal(x)?.into(),
                 )))),
                 VectorV(lst) => {
-                    let items: std::result::Result<Vec<ExprKind>, &'static str> =
+                    let items: core::result::Result<ThinVec<ExprKind>, &'static str> =
                         lst.iter().map(|x| inner_try_from(x, depth + 1)).collect();
                     Ok(ExprKind::List(List::new(items?)))
                 }
                 Void => Err("Can't convert from Void to expression!"),
                 StringV(x) => Ok(ExprKind::Atom(Atom::new(SyntaxObject::default(
-                    StringLiteral(x.to_arc_string()),
+                    StringLiteral(x.as_str().into()),
                 )))),
                 FuncV(_) => Err("Can't convert from Function to expression!"),
                 SymbolV(x) if x.starts_with("#:") => Ok(ExprKind::Atom(Atom::new(
@@ -252,7 +253,7 @@ impl TryFrom<&SteelVal> for ExprKind {
                     Err("Can't convert from Custom Type to expression!")
                 }
                 ListV(l) => {
-                    let items: std::result::Result<Vec<ExprKind>, &'static str> =
+                    let items: core::result::Result<ThinVec<ExprKind>, &'static str> =
                         l.iter().map(|x| inner_try_from(x, depth + 1)).collect();
 
                     Ok(ExprKind::List(List::new(items?)))

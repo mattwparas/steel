@@ -1,6 +1,14 @@
-use std::{borrow::Cow, cell::RefCell, sync::Arc};
+use alloc::{borrow::Cow, sync::Arc};
+use core::cell::RefCell;
+use core::sync::atomic::{AtomicUsize, Ordering};
+use num_traits::ToPrimitive;
+use steel_gen::OpCode;
 
-use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadContainer};
+use crate::compiler::code_gen::fresh_function_id;
+use crate::core::instructions::{u24, DenseInstruction};
+use crate::gc::shared::{
+    MappedScopedReadContainer, MutContainer, ScopedReadContainer, StandardShared,
+};
 
 // #[cfg(not(feature = "triomphe"))]
 // use crate::gc::shared::ShareableMut;
@@ -9,6 +17,8 @@ use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadConta
 use crate::gc::shared::ShareableMut;
 
 use crate::gc::{Shared, SharedMut};
+use crate::rvals::SteelString;
+use crate::values::functions::{ByteCodeLambda, CaptureVec};
 use crate::values::HashMap;
 use crate::{
     containers::RegisterValue,
@@ -28,6 +38,8 @@ use rustc_hash::FxBuildHasher;
 use parking_lot::RwLock;
 
 use super::vm::BuiltInSignature;
+
+use thin_vec::thin_vec;
 
 /// A module to be consumed by the Steel Engine for later on demand access by scripts
 /// to refresh the primitives that are being used. For instance, the VM should have support
@@ -65,6 +77,10 @@ pub(crate) struct BuiltInModuleRepr {
     // We don't need to generate this every time, just need to
     // clone it?
     generated_expression: SharedMut<Option<ExprKind>>,
+
+    // Create something that is (more or less) a generated expression
+    // that uses the context implicitly?
+    pub(crate) context_functions: std::collections::HashMap<Arc<str>, (SteelString, SteelVal)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -101,7 +117,7 @@ pub enum Arity {
 }
 
 impl Custom for Arity {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         Some(Ok(match self {
             Arity::Exact(a) => format!("(Arity::Exact {a})"),
             Arity::AtLeast(a) => format!("(Arity::AtLeast {a})"),
@@ -112,7 +128,7 @@ impl Custom for Arity {
 }
 
 impl Custom for FunctionSignatureMetadata {
-    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+    fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         Some(Ok(format!(
             "(FunctionSignatureMetadata #:name {} #:arity {:?} #:const? {})",
             self.name, self.arity, self.is_const
@@ -125,6 +141,11 @@ impl Custom for BuiltInModule {}
 impl RegisterValue for BuiltInModule {
     fn register_value_inner(&mut self, name: &str, value: SteelVal) -> &mut Self {
         self.module.write().values.insert(name.into(), value);
+        self
+    }
+
+    fn supply_context_arg(&mut self, ctx: &'static str, name: &'static str) -> &mut Self {
+        self.supply_context_arg(ctx, name);
         self
     }
 }
@@ -193,6 +214,154 @@ pub struct NativeFunctionDefinition {
     pub signature: Option<(&'static [TypeKind], TypeKind)>,
 }
 
+pub fn register_context_functions(
+    engine: &mut super::engine::Engine,
+    context_functions: &mut std::collections::HashMap<Arc<str>, (SteelString, SteelVal)>,
+) -> std::collections::HashMap<Arc<str>, SteelVal> {
+    let mut map = std::collections::HashMap::new();
+
+    // Create function which fetches the global value, so that you don't have to reference it directly:
+
+    for (name, (ctx, func)) in context_functions.iter() {
+        if let SteelVal::BoxedFunction(f) = func {
+            // Construct a function, for the sake of it. We'll register a completely whack gensym,
+            // register it in the VM.
+            //
+            // in the global namespace, and then call that, with implicitly passing the VM context in.
+            // 0    PUSH           : 445    ;; test
+            // 1    CALLGLOBALTAIL : 385    ;; foo
+            // 2    TAILCALL       : 1      ;; foo
+            // 3    POPPURE        : 0
+
+            // with multiple args:
+
+            // 0    PUSH           : 445    ;; test
+            // 1    MOVEREADLOCAL0 : 0      ;; x
+            // 2    MOVEREADLOCAL1 : 1      ;; y
+            // 3    MOVEREADLOCAL2 : 2      ;; z
+            // 4    CALLGLOBALTAIL : 385    ;; foo
+            // 5    TAILCALL       : 4      ;; foo
+            // 6    POPPURE        : 3
+
+            let lambda = generate_function(engine, ctx, func, f);
+            map.insert(Arc::clone(name), lambda);
+        }
+    }
+
+    map
+}
+
+pub(crate) fn generate_function(
+    engine: &mut super::engine::Engine,
+    ctx: &SteelString,
+    func: &SteelVal,
+    f: &Gc<BoxedDynFunction>,
+) -> SteelVal {
+    static GENSYM: AtomicUsize = AtomicUsize::new(0);
+
+    fn fresh() -> String {
+        format!("###ctx-func{}", GENSYM.fetch_add(1, Ordering::Relaxed))
+    }
+
+    let arity = f.arity.unwrap();
+
+    let mut instrs: Vec<DenseInstruction> = Vec::with_capacity(arity as usize + 4);
+
+    let idx = engine
+        .virtual_machine
+        .compiler
+        .read()
+        .symbol_map
+        .get(&InternedString::from(ctx.as_str()))
+        .unwrap();
+
+    // Push instruction
+    instrs.push(DenseInstruction {
+        op_code: OpCode::PUSH,
+        payload_size: u24::from_usize(idx),
+    });
+
+    let gensym = fresh();
+    let fresh_index = engine.virtual_machine.compiler.write().register(&gensym);
+
+    engine
+        .virtual_machine
+        .insert_binding(fresh_index, func.clone());
+
+    for i in 0..arity.saturating_sub(1) {
+        match i {
+            0 => {
+                instrs.push(DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL0,
+                    payload_size: u24::from_usize(0),
+                });
+            }
+            1 => {
+                instrs.push(DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL1,
+                    payload_size: u24::from_usize(1),
+                });
+            }
+
+            2 => {
+                instrs.push(DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL2,
+                    payload_size: u24::from_usize(2),
+                });
+            }
+
+            3 => {
+                instrs.push(DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL3,
+                    payload_size: u24::from_usize(3),
+                });
+            }
+
+            _ => {
+                instrs.push(DenseInstruction {
+                    op_code: OpCode::MOVEREADLOCAL,
+                    payload_size: u24::from_u32(i),
+                });
+            }
+        }
+    }
+
+    instrs.push(DenseInstruction {
+        op_code: OpCode::CALLGLOBALTAIL,
+        payload_size: u24::from_usize(fresh_index),
+    });
+    instrs.push(DenseInstruction {
+        op_code: OpCode::TAILCALL,
+        payload_size: u24::from_u32(arity),
+    });
+
+    instrs.push(DenseInstruction {
+        op_code: OpCode::POPPURE,
+        payload_size: u24::from_u32(0),
+    });
+
+    let lambda = ByteCodeLambda::new(
+        fresh_function_id() as _,
+        StandardShared::from(instrs),
+        arity.to_usize().unwrap() - 1,
+        false,
+        CaptureVec::new(),
+    );
+
+    let lambda = Gc::new(lambda);
+
+    // Now we generate a new closure, update the values
+    // in the map to have that thing.
+
+    engine
+        .virtual_machine
+        .function_interner
+        .pure_function_interner
+        .insert(lambda.id, Gc::clone(&lambda));
+
+    SteelVal::Closure(lambda)
+}
+
 impl BuiltInModuleRepr {
     pub fn new<T: Into<Shared<str>>>(name: T) -> Self {
         Self {
@@ -201,7 +370,15 @@ impl BuiltInModuleRepr {
             docs: Box::new(InternalDocumentation::new()),
             fn_ptr_table: std::collections::HashMap::new(),
             generated_expression: Shared::new(MutContainer::new(None)),
+            context_functions: Default::default(),
         }
+    }
+
+    pub(crate) fn mark_ctx(&mut self, ctx: &str, name: &str) {
+        let key = Arc::from(name);
+        let value = self.values.get(&key).unwrap().clone();
+        self.context_functions
+            .insert(Arc::from(name), (ctx.into(), value));
     }
 
     pub fn contains(&self, ident: &str) -> bool {
@@ -308,7 +485,7 @@ impl BuiltInModuleRepr {
     }
 
     pub fn with_module(&mut self, module: BuiltInModule) {
-        // self.values = std::mem::take(&mut self.values).union(module.module.read().values.clone());
+        // self.values = core::mem::take(&mut self.values).union(module.module.read().values.clone());
 
         self.values.extend(
             module
@@ -322,7 +499,7 @@ impl BuiltInModuleRepr {
         // TODO: This almost assuredly, is not necessary, right? We could instead just use
         // the global metadata table and get rid of the vast majority of this information.
         // self.fn_ptr_table =
-        //     std::mem::take(&mut self.fn_ptr_table).union(module.module.read().fn_ptr_table.clone());
+        //     core::mem::take(&mut self.fn_ptr_table).union(module.module.read().fn_ptr_table.clone());
 
         self.fn_ptr_table.extend(
             module
@@ -484,7 +661,7 @@ impl BuiltInModuleRepr {
                     // TODO: Add the custom prefix here
                     // Handling a more complex case of qualifying imports
                     ExprKind::atom(name),
-                    ExprKind::List(crate::parser::ast::List::new(vec![
+                    ExprKind::List(crate::parser::ast::List::new(thin_vec![
                         ExprKind::atom(*MODULE_GET),
                         module_name_expr.clone(),
                         ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
@@ -497,13 +674,8 @@ impl BuiltInModuleRepr {
             })
             .collect::<Vec<_>>();
 
-        defines.push(ExprKind::List(crate::parser::ast::List::new(vec![
-            ExprKind::atom(*MODULE_GET),
-            ExprKind::atom(*VOID_MODULE),
-            ExprKind::Quote(Box::new(crate::parser::ast::Quote::new(
-                ExprKind::atom(*VOID),
-                SyntaxObject::default(TokenType::Quote),
-            ))),
+        defines.push(ExprKind::List(crate::parser::ast::List::new(thin_vec![
+            ExprKind::atom("#%void"),
         ])));
 
         let res = ExprKind::Begin(Box::new(crate::parser::ast::Begin::new(
@@ -529,8 +701,17 @@ impl BuiltInModule {
         }
     }
 
+    /// Automatically provide arguments to a function.
+    pub fn supply_context_arg(&mut self, context: &str, name: &str) {
+        self.module.write().mark_ctx(context, name);
+    }
+
     pub(crate) fn cached_expression(&self) -> SharedMut<Option<ExprKind>> {
         self.module.read().cached_expression()
+    }
+
+    pub fn remove(&mut self, name: &str) {
+        self.module.write().values.remove(name);
     }
 
     pub(crate) fn constant_funcs(
@@ -562,8 +743,8 @@ impl BuiltInModule {
         Shared::clone(&self.module.read().name)
     }
 
-    // pub fn documentation(&self) -> std::cell::Ref<'_, InternalDocumentation> {
-    //     std::cell::Ref::map(self.module.read(), |x| x.docs.as_ref())
+    // pub fn documentation(&self) -> core::cell::Ref<'_, InternalDocumentation> {
+    //     core::cell::Ref::map(self.module.read(), |x| x.docs.as_ref())
     // }
 
     pub fn documentation(&self) -> MappedScopedReadContainer<'_, InternalDocumentation> {
@@ -619,7 +800,7 @@ impl BuiltInModule {
             BuiltInFunctionType::Context(value) => SteelVal::BuiltIn(value),
         };
 
-        let names = std::iter::once(definition.name).chain(definition.aliases.iter().cloned());
+        let names = core::iter::once(definition.name).chain(definition.aliases.iter().cloned());
 
         for name in names {
             self.register_value(name, steel_val.clone());
@@ -829,8 +1010,8 @@ impl<'a> MarkdownDoc<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for MarkdownDoc<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Display for MarkdownDoc<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         #[cfg(feature = "markdown")]
         return write!(f, "{}", termimad::text(&self.0));
 
@@ -839,8 +1020,8 @@ impl<'a> std::fmt::Display for MarkdownDoc<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for Documentation<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Display for Documentation<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Documentation::Function(d) => write!(f, "{d}"),
             Documentation::Module(d) => write!(f, "{d}"),
@@ -859,8 +1040,8 @@ impl<'a> Documentation<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for DocTemplate<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Display for DocTemplate<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f)?;
         writeln!(f, "{}", self.signature)?;
         writeln!(f)?;
@@ -884,8 +1065,8 @@ impl<'a> std::fmt::Display for DocTemplate<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for ValueDoc<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Display for ValueDoc<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f)?;
         writeln!(f, "{}", self.name)?;
         writeln!(f)?;
@@ -893,8 +1074,8 @@ impl<'a> std::fmt::Display for ValueDoc<'a> {
     }
 }
 
-impl<'a> std::fmt::Display for ModuleDoc<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<'a> core::fmt::Display for ModuleDoc<'a> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         writeln!(f)?;
         writeln!(f, "{}", self.name)?;
         writeln!(f)?;
@@ -934,7 +1115,7 @@ pub(crate) fn find_closest_match<'a>(
         .into_iter()
         .map(|candidate| (strsim::normalized_levenshtein(target, candidate), candidate))
         .filter(|(sim, _)| *sim > 0.8)
-        // The key must be converted to a type that implements std::cmp::Ord.
+        // The key must be converted to a type that implements core::cmp::Ord.
         .max_by_key(|(sim, _)| (*sim * 100.0) as usize)
         .map(|(_, s)| s)
 }

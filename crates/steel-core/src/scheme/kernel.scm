@@ -40,6 +40,8 @@
 (define (#%set-module mod)
   (set! #%loading-current-module mod))
 
+(define top-level (%proto-hash%))
+
 ;; Snag the current environment
 (define (current-env)
   #%loading-current-module)
@@ -57,6 +59,30 @@
          (begin
            funcs ...)
          (#%syntax-transformer-module provide ids ...)))]
+
+    ;; Normal case
+    [(#%syntax-transformer-module provide name) (%proto-hash% 'name name)]
+
+    ;; Normal case
+    [(#%syntax-transformer-module provide name rest ...)
+     (%proto-hash-insert% (#%syntax-transformer-module provide rest ...) 'name name)]))
+
+(define-syntax #%syntax-transformer-module-update
+  (syntax-rules (provide)
+
+    [(#%syntax-transformer-module name)
+     (define (datum->syntax name)
+       (%proto-hash%))]
+
+    [(#%syntax-transformer-module name (provide ids ...) funcs ...)
+     (set! (datum->syntax name)
+           (let ()
+             (begin
+               funcs ...)
+             (hash-union (if (void? name)
+                             (%proto-hash%)
+                             name)
+                         (#%syntax-transformer-module provide ids ...))))]
 
     ;; Normal case
     [(#%syntax-transformer-module provide name) (%proto-hash% 'name name)]
@@ -404,11 +430,22 @@
   ;; Name of the function
   (define name-expr (list-ref stx 1))
 
+  ; (when (and (list? stx) (not (empty? stx)) (equal? (car stx) 'begin))
+  ;   (stdout-simple-displayln "Updating the stx to destructure the begin")
+  ;   (set! stx (cdr stx)))
+
   (cond
+
     [(list? name-expr)
+
+     ; (stdout-simple-displayln stx)
+     ; (stdout-simple-displayln "==============================")
 
      ;; Syntax case expr
      (define syntax-case-expr (last stx))
+
+     ; (stdout-simple-displayln syntax-case-expr)
+     ; (stdout-simple-displayln "--------------------------")
 
      (define body-exprs (all-but-last (drop stx 2)))
 
@@ -465,18 +502,42 @@
     [(symbol? name-expr)
      ;; (lambda (x) ...)
      (define lambda-expr (list-ref stx 2))
-     (if (and (list? lambda-expr) (equal? (car lambda-expr) 'lambda))
-         (begin
+     (cond
+       [(and (list? lambda-expr) (equal? (car lambda-expr) 'lambda))
 
-           (define lowered-expression
-             (append (list 'define-syntax (cons name-expr (cadr lambda-expr))) (drop lambda-expr 2)))
+        ; (stdout-simple-displayln "We're under this case")
+        ; (stdout-simple-displayln lambda-expr)
+        ; (stdout-simple-displayln (drop lambda-expr 2))
+        ; (stdout-simple-displayln (cdar (drop lambda-expr 2)))
 
-           ;; (displayln lowered-expression)
+        ;; TODO: @Matt clean this bad boy up
+        (define list-of-expressions
+          (if (and (= (length lambda-expr) 3)
+                   (list? (list-ref lambda-expr 2))
+                   (not (empty? (list-ref lambda-expr 2)))
+                   (equal? (car (list-ref lambda-expr 2)) 'begin))
 
-           ;; Body exprs
-           (parse-def-syntax lowered-expression))
+              (cdar (drop lambda-expr 2))
 
-         (error "syntax-case expects a function"))]
+              (drop lambda-expr 2)))
+
+        (define lowered-expression
+          (append (list 'define-syntax (cons name-expr (cadr lambda-expr))) list-of-expressions))
+
+        ;; Body exprs
+        (parse-def-syntax lowered-expression)]
+
+       [(and (list? lambda-expr) (equal? (car lambda-expr) 'syntax-rules))
+
+        (define rules (list-ref lambda-expr 1))
+
+        (define lowered-expression
+          (append (list 'define-syntax (cons name-expr '(stx)))
+                  (list (append (list 'syntax-case 'stx rules) (drop lambda-expr 2)))))
+
+        (parse-def-syntax lowered-expression)]
+
+       [else (error "syntax-case expects a function")])]
 
     [else (error "internal compilation error")]))
 
@@ -484,7 +545,13 @@
  (define-syntax expression)
  (define unwrapped (syntax->datum expression))
  ;; Just register a syntax transformer?
+ ; (stdout-simple-displayln "DEFINE SYNTAX START")
+ ; (stdout-simple-displayln unwrapped)
  (define func (parse-def-syntax unwrapped))
+ ; (define func
+ ;   (if (and (list? unwrapped) (not (empty? unwrapped)) (equal? (car unwrapped) 'begin))
+ ;       (parse-def-syntax (cdr unwrapped))
+ ;       (parse-def-syntax unwrapped)))
  (define name-expr (list-ref unwrapped 1))
  (define name
    (if (list? name-expr)
@@ -494,11 +561,13 @@
  ;; We'd like to
  (define env (or originating-file "default"))
  (if (equal? env "default")
-
      (begin
        (eval `(define ,name ,func))
        ;; Register into the top environment
        (register-macro-transformer! name env))
+
+     ; (define top-level-exists? (with-handler (lambda (_) #f) (eval 'top-level)))
+     ; (stdout-simple-displayln top-level-exists?)
 
      (with-handler (lambda (e1)
 

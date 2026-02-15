@@ -3,13 +3,16 @@ use crate::{
     tokens::{NumberLiteral, ParenMod, RealLiteral, TokenType},
 };
 
-use std::{convert::TryFrom, fmt::Write, sync::Arc};
+use core::{convert::TryFrom, fmt::Write};
+use thin_vec::ThinVec;
 
 use crate::tokens::IntLiteral;
+use core::fmt;
+use core::ops::Deref;
 use pretty::RcDoc;
 use serde::{Deserialize, Serialize};
-use std::fmt;
-use std::ops::Deref;
+
+use thin_vec::thin_vec;
 
 use super::{interner::InternedString, parser::SyntaxObjectId, span::Span};
 
@@ -60,6 +63,7 @@ define_symbols! {
     SYNTAX_QUOTE => "syntax",
     DEFINE_SYNTAX => "define-syntax",
     SYNTAX_RULES => "syntax-rules",
+    SYNTAX_CASE => "syntax-case",
 }
 
 pub trait AstTools {
@@ -97,7 +101,7 @@ impl AstTools for &mut Vec<ExprKind> {
 pub trait IteratorExtensions: Iterator {
     fn join(&mut self, sep: &str) -> String
     where
-        Self::Item: std::fmt::Display,
+        Self::Item: core::fmt::Display,
     {
         match self.next() {
             None => String::new(),
@@ -138,19 +142,19 @@ pub enum ExprKind {
 
 impl Default for ExprKind {
     fn default() -> Self {
-        ExprKind::List(List::new(Vec::new()))
+        ExprKind::List(List::new(ThinVec::new()))
     }
 }
 
 #[test]
 fn check_size() {
-    println!("ExprKind: {}", std::mem::size_of::<ExprKind>());
-    println!("SyntaxRules: {}", std::mem::size_of::<SyntaxRules>());
-    println!("Macro: {}", std::mem::size_of::<Macro>());
-    println!("List: {}", std::mem::size_of::<List>());
-    println!("Atom: {}", std::mem::size_of::<Atom>());
-    println!("Require: {}", std::mem::size_of::<Require>());
-    println!("Vector: {}", std::mem::size_of::<Vector>());
+    println!("ExprKind: {}", core::mem::size_of::<ExprKind>());
+    println!("SyntaxRules: {}", core::mem::size_of::<SyntaxRules>());
+    println!("Macro: {}", core::mem::size_of::<Macro>());
+    println!("List: {}", core::mem::size_of::<List>());
+    println!("Atom: {}", core::mem::size_of::<Atom>());
+    println!("Require: {}", core::mem::size_of::<Require>());
+    println!("Vector: {}", core::mem::size_of::<Vector>());
 }
 
 #[macro_export]
@@ -158,13 +162,13 @@ macro_rules! expr_list {
     () => { $crate::ast::ExprKind::List($crate::ast::List::new(vec![])) };
 
     ( $($x:expr),* ) => {{
-        $crate::ast::ExprKind::List($crate::ast::List::new(vec![$(
+        $crate::ast::ExprKind::List($crate::ast::List::new(thin_vec![$(
             $x,
         ) *]))
     }};
 
     ( $($x:expr ,)* ) => {{
-        $crate::ast::ExprKind::List($crate::ast::List::new(vec![$($x, )*]))
+        $crate::ast::ExprKind::List($crate::ast::List::new(thin_vec![$($x, )*]))
     }};
 }
 
@@ -188,10 +192,10 @@ impl ExprKind {
         }
     }
 
-    pub fn to_string_literal(&self) -> Option<&String> {
+    pub fn to_string_literal(&self) -> Option<String> {
         if let ExprKind::Atom(a) = self {
             if let TokenType::StringLiteral(s) = &a.syn.ty {
-                Some(s)
+                Some(s.resolve().to_string())
             } else {
                 None
             }
@@ -216,7 +220,7 @@ impl ExprKind {
     }
 
     pub fn empty() -> ExprKind {
-        ExprKind::List(List::new(Vec::new()))
+        ExprKind::List(List::new(ThinVec::new()))
     }
 
     pub fn integer_literal(value: isize, span: Span) -> ExprKind {
@@ -247,7 +251,7 @@ impl ExprKind {
 
     pub fn string_lit(input: String) -> ExprKind {
         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::StringLiteral(
-            Arc::new(input),
+            input.into(),
         ))))
     }
 
@@ -322,7 +326,7 @@ impl ExprKind {
     pub fn atom_identifier_or_else<E, F: FnOnce() -> E>(
         &self,
         err: F,
-    ) -> std::result::Result<&InternedString, E> {
+    ) -> core::result::Result<&InternedString, E> {
         match self {
             Self::Atom(Atom {
                 syn:
@@ -356,7 +360,7 @@ impl ExprKind {
                         ty: TokenType::StringLiteral(s),
                         ..
                     },
-            }) => Some(s),
+            }) => Some(s.resolve()),
             _ => None,
         }
     }
@@ -377,7 +381,7 @@ impl ExprKind {
         }
     }
 
-    pub fn list_or_else<E, F: FnOnce() -> E>(&self, err: F) -> std::result::Result<&List, E> {
+    pub fn list_or_else<E, F: FnOnce() -> E>(&self, err: F) -> core::result::Result<&List, E> {
         match self {
             Self::List(l) => Ok(l),
             _ => Err(err()),
@@ -387,14 +391,14 @@ impl ExprKind {
     pub fn list_mut_or_else<E, F: FnOnce() -> E>(
         &mut self,
         err: F,
-    ) -> std::result::Result<&mut List, E> {
+    ) -> core::result::Result<&mut List, E> {
         match self {
             Self::List(l) => Ok(l),
             _ => Err(err()),
         }
     }
 
-    pub fn into_list_or_else<E, F: FnOnce() -> E>(self, err: F) -> std::result::Result<List, E> {
+    pub fn into_list_or_else<E, F: FnOnce() -> E>(self, err: F) -> core::result::Result<List, E> {
         match self {
             Self::List(l) => Ok(l),
             _ => Err(err()),
@@ -525,10 +529,10 @@ impl Atom {
             return None;
         };
 
-        match &**number {
+        match number.resolve() {
             NumberLiteral::Real(RealLiteral::Int(int)) => match int {
-                IntLiteral::Small(int) => u8::try_from(*int).ok(),
-                IntLiteral::Big(bigint) => u8::try_from(&**bigint).ok(),
+                IntLiteral::Small(int) => u8::try_from(int).ok(),
+                IntLiteral::Big(bigint) => u8::try_from(*bigint).ok(),
             },
             _ => None,
         }
@@ -787,7 +791,7 @@ impl From<Define> for ExprKind {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LambdaFunction {
-    pub args: Vec<ExprKind>,
+    pub args: ThinVec<ExprKind>,
     pub body: ExprKind,
     pub location: SyntaxObject,
     pub rest: bool,
@@ -859,7 +863,7 @@ impl ToDoc for LambdaFunction {
 }
 
 impl LambdaFunction {
-    pub fn new(args: Vec<ExprKind>, body: ExprKind, location: SyntaxObject) -> Self {
+    pub fn new(args: ThinVec<ExprKind>, body: ExprKind, location: SyntaxObject) -> Self {
         LambdaFunction {
             args,
             body,
@@ -870,7 +874,11 @@ impl LambdaFunction {
         }
     }
 
-    pub fn new_with_rest_arg(args: Vec<ExprKind>, body: ExprKind, location: SyntaxObject) -> Self {
+    pub fn new_with_rest_arg(
+        args: ThinVec<ExprKind>,
+        body: ExprKind,
+        location: SyntaxObject,
+    ) -> Self {
         LambdaFunction {
             args,
             body,
@@ -882,7 +890,7 @@ impl LambdaFunction {
     }
 
     pub fn new_maybe_rest(
-        args: Vec<ExprKind>,
+        args: ThinVec<ExprKind>,
         body: ExprKind,
         location: SyntaxObject,
         rest: bool,
@@ -1032,7 +1040,7 @@ impl From<Require> for ExprKind {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Vector {
-    pub args: Vec<ExprKind>,
+    pub args: ThinVec<ExprKind>,
     pub bytes: bool,
     pub span: Span,
 }
@@ -1100,7 +1108,7 @@ impl From<Vector> for ExprKind {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct List {
-    pub args: Vec<ExprKind>,
+    pub args: ThinVec<ExprKind>,
     pub syntax_object_id: u32,
     pub improper: bool,
     // TODO: Attach the span from the parser - just the offset
@@ -1117,7 +1125,11 @@ impl PartialEq for List {
 }
 
 impl List {
-    pub fn new(args: Vec<ExprKind>) -> Self {
+    pub fn empty() -> Self {
+        Self::new(ThinVec::new())
+    }
+
+    pub fn new(args: ThinVec<ExprKind>) -> Self {
         List {
             args,
             syntax_object_id: SyntaxObjectId::fresh().0 as _,
@@ -1126,7 +1138,7 @@ impl List {
         }
     }
 
-    pub fn new_maybe_improper(args: Vec<ExprKind>, improper: bool) -> Self {
+    pub fn new_maybe_improper(args: ThinVec<ExprKind>, improper: bool) -> Self {
         List {
             args,
             syntax_object_id: SyntaxObjectId::fresh().0 as _,
@@ -1135,7 +1147,7 @@ impl List {
         }
     }
 
-    pub fn with_spans(args: Vec<ExprKind>, open: Span, close: Span) -> Self {
+    pub fn with_spans(args: ThinVec<ExprKind>, open: Span, close: Span) -> Self {
         List {
             args,
             improper: false,
@@ -1173,7 +1185,7 @@ impl List {
         self.args.split_first_mut().map(|x| x.1)
     }
 
-    pub fn args_proper(self, ty: TokenType<&str>) -> Result<Vec<ExprKind>, ParseError> {
+    pub fn args_proper(self, ty: TokenType<&str>) -> Result<ThinVec<ExprKind>, ParseError> {
         if self.improper {
             return Err(ParseError::SyntaxError(
                 format!("{} expression requires a proper list", ty),
@@ -1379,8 +1391,8 @@ impl ToDoc for List {
                 let iter = car
                     .iter()
                     .map(ToDoc::to_doc)
-                    .chain(std::iter::once(RcDoc::text(".")))
-                    .chain(std::iter::once(cdr.to_doc()));
+                    .chain(core::iter::once(RcDoc::text(".")))
+                    .chain(core::iter::once(cdr.to_doc()));
 
                 RcDoc::intersperse(iter, RcDoc::line())
             } else {
@@ -1429,7 +1441,8 @@ impl Deref for List {
 // and we'll implement IntoIterator
 impl IntoIterator for List {
     type Item = ExprKind;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
+    // type IntoIter = alloc::vec::IntoIter<Self::Item>;
+    type IntoIter = thin_vec::IntoIter<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.args.into_iter()
@@ -1518,13 +1531,17 @@ impl From<Macro> for ExprKind {
 // by the expander
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SyntaxRules {
-    pub syntax: Vec<ExprKind>,
-    pub patterns: Vec<PatternPair>,
+    pub syntax: ThinVec<ExprKind>,
+    pub patterns: ThinVec<PatternPair>,
     pub location: SyntaxObject,
 }
 
 impl SyntaxRules {
-    pub fn new(syntax: Vec<ExprKind>, patterns: Vec<PatternPair>, location: SyntaxObject) -> Self {
+    pub fn new(
+        syntax: ThinVec<ExprKind>,
+        patterns: ThinVec<PatternPair>,
+        location: SyntaxObject,
+    ) -> Self {
         SyntaxRules {
             syntax,
             patterns,
@@ -1622,7 +1639,7 @@ impl fmt::Display for PatternPair {
 pub(crate) fn parse_if<I>(
     mut value_iter: I,
     syn: SyntaxObject,
-) -> std::result::Result<ExprKind, ParseError>
+) -> core::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
@@ -1674,7 +1691,7 @@ where
 pub(crate) fn parse_define<I>(
     mut value_iter: I,
     syn: SyntaxObject,
-) -> std::result::Result<ExprKind, ParseError>
+) -> core::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
@@ -1744,11 +1761,11 @@ where
                 }
 
                 if let Some(rest) = l.args.get(1..) {
-                    let mut lst = List::new_maybe_improper(rest.to_vec(), l.improper);
+                    let mut lst = List::new_maybe_improper(rest.into(), l.improper);
                     lst.location = l.location;
                     args_stack.push(lst);
                 } else {
-                    let mut lst = List::new_maybe_improper(Vec::new(), l.improper);
+                    let mut lst = List::new_maybe_improper(ThinVec::new(), l.improper);
                     lst.location = l.location;
                     args_stack.push(lst);
                 }
@@ -1766,7 +1783,7 @@ where
                 )
             })?;
 
-            let args = args.collect();
+            let args: ThinVec<_> = args.collect();
 
             let body_exprs: Vec<_> = value_iter.collect();
 
@@ -1862,7 +1879,7 @@ where
 pub(crate) fn parse_new_let<I>(
     mut value_iter: I,
     syn: SyntaxObject,
-) -> std::result::Result<ExprKind, ParseError>
+) -> core::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
@@ -1940,7 +1957,7 @@ fn parse_named_let<I>(
     mut value_iter: I,
     syn: SyntaxObject,
     name: ExprKind,
-) -> std::result::Result<ExprKind, ParseError>
+) -> core::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
@@ -1980,7 +1997,7 @@ where
         )))
     };
 
-    let mut arguments = Vec::with_capacity(pairs.len());
+    let mut arguments = ThinVec::with_capacity(pairs.len());
 
     // insert args at the end
     // put the function in the inside
@@ -2017,24 +2034,48 @@ where
 
     let define: ExprKind = Define::new(name.clone(), function, syn.clone()).into();
 
+    // Evaluate the application args first:
+
+    let mut fake_application_args = application_args
+        .iter()
+        .enumerate()
+        .map(|(x, _)| ExprKind::ident(&format!("###{}", x)))
+        .collect();
+
     let application: ExprKind = {
-        let mut application = vec![name];
-        application.append(&mut application_args);
+        let mut application = thin_vec![name];
+        application.append(&mut fake_application_args);
         List::new(application).into()
     };
 
     let begin = ExprKind::Begin(Box::new(Begin::new(vec![define, application], syn.clone())));
 
+    let eval_application_args = ExprKind::Let(Box::new(Let::new(
+        application_args
+            .into_iter()
+            .enumerate()
+            .map(|x| (ExprKind::ident(&format!("###{}", x.0)), x.1))
+            .collect(),
+        begin,
+        syn.clone(),
+    )));
+
     // Wrap the whole thing inside of an empty function application, to create a new scope
 
-    Ok(List::new(vec![LambdaFunction::new(vec![], begin, syn).into()]).into())
+    Ok(List::new(thin_vec![LambdaFunction::new(
+        thin_vec![],
+        eval_application_args,
+        syn,
+    )
+    .into()])
+    .into())
 }
 
 #[inline]
 pub(crate) fn parse_let<I>(
     mut value_iter: I,
     mut syn: SyntaxObject,
-) -> std::result::Result<ExprKind, ParseError>
+) -> core::result::Result<ExprKind, ParseError>
 where
     I: Iterator<Item = ExprKind>,
 {
@@ -2080,11 +2121,11 @@ where
         )))
     };
 
-    let mut arguments = Vec::with_capacity(let_pairs.len());
+    let mut arguments = ThinVec::with_capacity(let_pairs.len());
 
     // insert args at the end
     // put the function in the inside
-    let mut application_args = Vec::with_capacity(let_pairs.len());
+    let mut application_args = ThinVec::with_capacity(let_pairs.len());
 
     for pair in let_pairs {
         if let ExprKind::List(l) = pair {
@@ -2115,7 +2156,8 @@ where
     // Since we've converted it, we should turn it into a lambda
     syn.ty = TokenType::Lambda;
 
-    let mut function: Vec<ExprKind> = vec![LambdaFunction::new(arguments, body, syn).into()];
+    let mut function: ThinVec<ExprKind> =
+        thin_vec![LambdaFunction::new(arguments, body, syn).into()];
 
     function.append(&mut application_args);
 
@@ -2153,9 +2195,9 @@ where
     }
 }
 
-impl TryFrom<Vec<ExprKind>> for ExprKind {
+impl TryFrom<ThinVec<ExprKind>> for ExprKind {
     type Error = ParseError;
-    fn try_from(value: Vec<ExprKind>) -> std::result::Result<Self, Self::Error> {
+    fn try_from(value: ThinVec<ExprKind>) -> core::result::Result<Self, Self::Error> {
         // let mut value = value.into_iter().peekable();
 
         // TODO -> get rid of this clone on the first value
@@ -2326,7 +2368,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     "syntax-rules expects a list of new syntax forms used in the macro".to_string(), syn.span, None));
                             };
 
-                            let mut pairs = Vec::new();
+                            let mut pairs = ThinVec::new();
                             let rest: Vec<_> = value_iter.collect();
 
                             for pair in rest {
@@ -2377,7 +2419,7 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                                     "syntax-rules expects a list of new syntax forms used in the macro".to_string(), syn.span, None));
                             };
 
-                            let mut pairs = Vec::new();
+                            let mut pairs = ThinVec::new();
                             let rest: Vec<_> = value_iter.collect();
 
                             for pair in rest {
@@ -2414,12 +2456,12 @@ impl TryFrom<Vec<ExprKind>> for ExprKind {
                 _ => Ok(ExprKind::List(List::new(value))),
             }
         } else {
-            Ok(ExprKind::List(List::new(vec![])))
+            Ok(ExprKind::List(List::new(thin_vec![])))
         }
     }
 }
 
-pub fn parse_lambda(a: Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+pub fn parse_lambda(a: Atom, value: ThinVec<ExprKind>) -> Result<ExprKind, ParseError> {
     let syn = a.syn;
     if value.len() < 3 {
         return Err(ParseError::SyntaxError(
@@ -2483,7 +2525,7 @@ pub fn parse_lambda(a: Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseErro
 
             // (lambda x ...) => x is a rest arg, becomes a list at run time
             Ok(ExprKind::LambdaFunction(Box::new(
-                LambdaFunction::new_with_rest_arg(vec![ExprKind::Atom(a)], body, syn),
+                LambdaFunction::new_with_rest_arg(thin_vec![ExprKind::Atom(a)], body, syn),
             )))
         }
         _ => {
@@ -2500,7 +2542,7 @@ pub fn parse_lambda(a: Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseErro
     }
 }
 
-pub(crate) fn parse_set(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+pub(crate) fn parse_set(a: &Atom, value: ThinVec<ExprKind>) -> Result<ExprKind, ParseError> {
     let syn = a.syn.clone();
     if value.len() != 3 {
         return Err(ParseError::ArityMismatch(
@@ -2518,7 +2560,7 @@ pub(crate) fn parse_set(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, Pars
     ))))
 }
 
-pub(crate) fn parse_require(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+pub(crate) fn parse_require(a: &Atom, value: ThinVec<ExprKind>) -> Result<ExprKind, ParseError> {
     let syn = a.syn.clone();
     if value.len() < 2 {
         return Err(ParseError::ArityMismatch(
@@ -2550,7 +2592,7 @@ pub(crate) fn parse_require(a: &Atom, value: Vec<ExprKind>) -> Result<ExprKind, 
     Ok(ExprKind::Require(Box::new(Require::new(expressions, syn))))
 }
 
-pub(crate) fn parse_begin(a: Atom, value: Vec<ExprKind>) -> Result<ExprKind, ParseError> {
+pub(crate) fn parse_begin(a: Atom, value: ThinVec<ExprKind>) -> Result<ExprKind, ParseError> {
     let syn = a.syn;
     let mut value_iter = value.into_iter();
     value_iter.next();

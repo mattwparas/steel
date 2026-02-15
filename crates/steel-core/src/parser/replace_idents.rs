@@ -1,5 +1,6 @@
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
+use thin_vec::ThinVec;
 
 use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutRefUnit};
 use crate::compiler::program::{ELLIPSES_SYMBOL, SYNTAX_SPAN};
@@ -17,13 +18,9 @@ use super::expander::BindingKind;
 use super::visitors::VisitorMutRef;
 use super::{ast::Atom, interner::InternedString};
 
-use std::ops::ControlFlow;
+use core::ops::ControlFlow;
 
-// const DATUM_TO_SYNTAX: &str = "datum->syntax";
-// const SYNTAX_CONST_IF: &str = "syntax-const-if";
-// TODO: Add level for pure macros to run at compile time... More or less const functions, that still
-// have access to the span?
-// const CURRENT_FILE: &str = "const-current-file!";
+use thin_vec::thin_vec;
 
 pub fn replace_identifiers(
     expr: &mut ExprKind,
@@ -184,7 +181,7 @@ impl<'a> ReplaceExpressions<'a> {
     // }
 
     // Note: Returns a bool indicating if this should be made improper/rest or not
-    fn expand_ellipses(&mut self, vec_exprs: &mut Vec<ExprKind>) -> Result<bool> {
+    fn expand_ellipses(&mut self, vec_exprs: &mut ThinVec<ExprKind>) -> Result<bool> {
         if let Some(ellipses_pos) = vec_exprs.iter().position(check_ellipses) {
             if ellipses_pos == 0 {
                 return Ok(false);
@@ -234,7 +231,7 @@ impl<'a> ReplaceExpressions<'a> {
                         res
                     };
 
-                    let mut list_of_exprs = list_of_exprs.to_vec();
+                    let mut list_of_exprs: ThinVec<_> = list_of_exprs.args.clone();
 
                     for expr in list_of_exprs.iter_mut() {
                         if let ExprKind::Atom(a) = expr {
@@ -273,7 +270,7 @@ impl<'a> ReplaceExpressions<'a> {
                         .flat_map(|x| self.bindings.get(x).map(|value| (*x, value.clone())))
                         .collect();
 
-                    std::mem::swap(self.fallback_bindings, &mut original_bindings);
+                    core::mem::swap(self.fallback_bindings, &mut original_bindings);
 
                     let mut expanded_expressions = SmallVec::<[ExprKind; 6]>::with_capacity(width);
 
@@ -297,7 +294,149 @@ impl<'a> ReplaceExpressions<'a> {
                         expanded_expressions.push(template);
                     }
 
-                    std::mem::swap(self.fallback_bindings, &mut original_bindings);
+                    core::mem::swap(self.fallback_bindings, &mut original_bindings);
+
+                    // Move the original bindings back in
+                    for (key, value) in original_bindings {
+                        self.bindings.insert(key, value);
+                    }
+
+                    let back_chunk = vec_exprs
+                        .drain(ellipses_pos - 1..)
+                        .collect::<SmallVec<[_; 8]>>();
+
+                    // TODO: We might need to mimic the above, where we
+                    // set if the resulting expression was introduced via macro.
+                    vec_exprs.reserve(expanded_expressions.len() + back_chunk[2..].len());
+                    vec_exprs.extend(expanded_expressions);
+                    vec_exprs.extend_from_slice(&back_chunk[2..]);
+
+                    Ok(improper)
+                }
+
+                _ => {
+                    stop!(BadSyntax => "macro expansion failed at lookup!: {}", variable_to_lookup)
+                }
+            }
+        } else {
+            Ok(false)
+        }
+    }
+
+    fn expand_ellipses_vec(&mut self, vec_exprs: &mut Vec<ExprKind>) -> Result<bool> {
+        if let Some(ellipses_pos) = vec_exprs.iter().position(check_ellipses) {
+            if ellipses_pos == 0 {
+                return Ok(false);
+            }
+
+            let variable_to_lookup = vec_exprs.get(ellipses_pos - 1).ok_or_else(
+                throw!(BadSyntax => "macro expansion failed, could not find variable when expanding ellipses")
+            )?;
+
+            match variable_to_lookup {
+                ExprKind::Atom(Atom {
+                    syn:
+                        SyntaxObject {
+                            ty: TokenType::Identifier(var),
+                            introduced_via_macro,
+                            ..
+                        },
+                }) => {
+                    let improper;
+
+                    // let rest = self.bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?;
+
+                    let rest = if let Some(rest) = self.bindings.get(var) {
+                        rest
+                    } else {
+                        return Ok(false);
+                    };
+
+                    let list_of_exprs = if let ExprKind::List(list_of_exprs) = rest {
+                        improper = list_of_exprs.improper;
+
+                        list_of_exprs
+                    } else {
+                        let res = if let Some(res) = self.fallback_bindings.get(var) {
+                            res.list_or_else(
+                        throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone().into())))?
+                        } else {
+                            return Ok(false);
+                        };
+
+                        improper = res.improper;
+
+                        //     let res = self.fallback_bindings.get(var).ok_or_else(throw!(BadSyntax => format!("macro expansion failed at finding the variable when expanding ellipses: {var}")))?.list_or_else(
+                        //     throw!(BadSyntax => "macro expansion failed, expected list of expressions, found: {}, within {}", rest, super::ast::List::new(vec_exprs.clone()))
+                        // )?;
+
+                        res
+                    };
+
+                    let mut list_of_exprs: Vec<_> = list_of_exprs.args.clone().into();
+
+                    for expr in list_of_exprs.iter_mut() {
+                        if let ExprKind::Atom(a) = expr {
+                            a.syn.introduced_via_macro = *introduced_via_macro;
+                            a.syn.unresolved = false;
+                        }
+                    }
+
+                    let back_chunk = vec_exprs
+                        .drain(ellipses_pos - 1..)
+                        .collect::<SmallVec<[_; 8]>>();
+
+                    vec_exprs.reserve(list_of_exprs.len() + back_chunk[2..].len());
+
+                    vec_exprs.append(&mut list_of_exprs);
+
+                    vec_exprs.extend_from_slice(&back_chunk[2..]);
+
+                    Ok(improper)
+                }
+
+                ExprKind::List(bound_list) => {
+                    let improper = bound_list.improper;
+
+                    let visitor = EllipsesExpanderVisitor::find_expansion_width_and_collect_ellipses_expanders(self.bindings, self.binding_kind, variable_to_lookup);
+
+                    if let Some(error) = visitor.error {
+                        stop!(BadSyntax => error);
+                    }
+
+                    let width = visitor.found_length.ok_or_else(throw!(BadSyntax => "No pattern variables before ellipses in template: at {} in {}", variable_to_lookup, ExprKind::List(super::ast::List::new(vec_exprs.clone().into()))))?;
+
+                    let mut original_bindings: FxHashMap<_, _> = visitor
+                        .collected
+                        .iter()
+                        .flat_map(|x| self.bindings.get(x).map(|value| (*x, value.clone())))
+                        .collect();
+
+                    core::mem::swap(self.fallback_bindings, &mut original_bindings);
+
+                    let mut expanded_expressions = SmallVec::<[ExprKind; 6]>::with_capacity(width);
+
+                    for i in 0..width {
+                        let mut template = variable_to_lookup.clone();
+
+                        for (key, value) in self.fallback_bindings.iter() {
+                            if let ExprKind::List(expansion) = value {
+                                let new_binding = expansion
+                                    .get(i)
+                                    .ok_or_else(throw!(BadSyntax => "Unreachable"))?;
+
+                                self.bindings.insert(*key, new_binding.clone());
+                            } else {
+                                stop!(BadSyntax => "Unexpected value found in ellipses expansion")
+                            }
+                        }
+
+                        self.visit(&mut template)?;
+
+                        expanded_expressions.push(template);
+                    }
+
+                    core::mem::swap(self.fallback_bindings, &mut original_bindings);
 
                     // Move the original bindings back in
                     for (key, value) in original_bindings {
@@ -465,7 +604,7 @@ impl<'a> ReplaceExpressions<'a> {
                 );
 
                 Ok(Some(ExprKind::Quote(Box::new(super::ast::Quote::new(
-                    ExprKind::List(super::ast::List::new(vec![start, end, source_id])),
+                    ExprKind::List(super::ast::List::new(thin_vec![start, end, source_id])),
                     SyntaxObject::default(TokenType::Quote),
                 )))))
 
@@ -606,7 +745,7 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
     }
 
     fn visit_begin(&mut self, begin: &mut super::ast::Begin) -> Self::Output {
-        self.expand_ellipses(&mut begin.exprs)?;
+        self.expand_ellipses_vec(&mut begin.exprs)?;
 
         for expr in begin.exprs.iter_mut() {
             self.visit(expr)?;
@@ -887,7 +1026,7 @@ mod replace_expressions_tests {
             "##struct-name" => atom_identifier("apple"),
         };
 
-        let mut expr = ExprKind::List(List::new(vec![
+        let mut expr = ExprKind::List(List::new(thin_vec![
             atom_identifier("datum->syntax"),
             atom_identifier("struct-name"),
             atom_identifier("?"),
@@ -910,19 +1049,19 @@ mod replace_expressions_tests {
     fn test_expand_ellipses() {
         let mut bindings = map! {
             "apple" => atom_identifier("x"),
-            "many" => ExprKind::List(List::new(vec![
+            "many" => ExprKind::List(List::new(thin_vec![
                 atom_identifier("first"),
                 atom_identifier("second")
             ])),
         };
 
-        let mut expr = ExprKind::List(List::new(vec![
+        let mut expr = ExprKind::List(List::new(thin_vec![
             atom_identifier("apple"),
             atom_identifier("many"),
             ellipses(),
         ]));
 
-        let post_condition = ExprKind::List(List::new(vec![
+        let post_condition = ExprKind::List(List::new(thin_vec![
             atom_identifier("x"),
             atom_identifier("first"),
             atom_identifier("second"),
@@ -943,21 +1082,21 @@ mod replace_expressions_tests {
     fn test_lambda_expression() {
         let mut bindings = map! {
             "apple" => atom_identifier("x"),
-            "many" => ExprKind::List(List::new(vec![
+            "many" => ExprKind::List(List::new(thin_vec![
                 atom_identifier("first-arg"),
                 atom_identifier("second-arg")
             ])),
         };
 
         let mut expr: ExprKind = LambdaFunction::new(
-            vec![atom_identifier("many"), ellipses()],
+            thin_vec![atom_identifier("many"), ellipses()],
             atom_identifier("apple"),
             SyntaxObject::default(TokenType::Lambda),
         )
         .into();
 
         let post_condition = LambdaFunction::new(
-            vec![atom_identifier("first-arg"), atom_identifier("second-arg")],
+            thin_vec![atom_identifier("first-arg"), atom_identifier("second-arg")],
             atom_identifier("x"),
             SyntaxObject::default(TokenType::Lambda),
         )

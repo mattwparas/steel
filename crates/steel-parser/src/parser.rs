@@ -1,10 +1,7 @@
-use std::{
-    borrow::Cow,
-    path::PathBuf,
-    rc::Rc,
-    result,
-    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
-};
+use alloc::{borrow::Cow, rc::Rc};
+use core::result;
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +18,8 @@ use crate::{
     span::Span,
     tokens::{Paren, ParenMod, Token, TokenLike, TokenType},
 };
+
+use thin_vec::{thin_vec, ThinVec};
 
 static SOURCE_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -71,8 +70,8 @@ impl From<SyntaxObjectId> for u32 {
     }
 }
 
-impl std::fmt::Display for SyntaxObjectId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for SyntaxObjectId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{self:?}")
     }
 }
@@ -147,8 +146,8 @@ impl<T: Clone> Clone for RawSyntaxObject<T> {
     }
 }
 
-impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: core::fmt::Debug> core::fmt::Debug for RawSyntaxObject<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("RawSyntaxObject")
             .field("ty", &self.ty)
             .field("span", &self.span)
@@ -158,8 +157,8 @@ impl<T: std::fmt::Debug> std::fmt::Debug for RawSyntaxObject<T> {
 
 // Implementing hash here just on the token type - we dont want the span included
 // For determining the hash here
-impl<T: std::hash::Hash> std::hash::Hash for RawSyntaxObject<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl<T: core::hash::Hash> core::hash::Hash for RawSyntaxObject<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.ty.hash(state);
         self.span.hash(state);
     }
@@ -240,8 +239,8 @@ impl From<TokenLike<'_, TokenError>> for ParseError {
     }
 }
 
-impl std::fmt::Display for ParseError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for ParseError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             ParseError::MismatchedParen(paren, _, _) => {
                 write!(f, "Mismatched parenthesis, expected \"{}\"", paren.close())
@@ -433,10 +432,10 @@ impl<'a> Parser<'a> {
     ) -> ExprKind {
         let q = ExprKind::Atom(Atom::new(SyntaxObject::new(token, span)));
 
-        ExprKind::List(List::new(vec![q, val]))
+        ExprKind::List(List::new(thin_vec![q, val]))
     }
 
-    fn construct_quote_vec(&mut self, val: ExprKind, span: Span) -> Vec<ExprKind> {
+    fn construct_quote_vec(&mut self, val: ExprKind, span: Span) -> ThinVec<ExprKind> {
         // println!("Inside construct quote vec with: {:?}", val);
 
         let q = {
@@ -447,7 +446,7 @@ impl<'a> Parser<'a> {
             // val
         };
 
-        vec![q, val]
+        thin_vec![q, val]
     }
 
     // Reader macro for #'
@@ -457,7 +456,7 @@ impl<'a> Parser<'a> {
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
-        ExprKind::List(List::new(vec![q, val]))
+        ExprKind::List(List::new(thin_vec![q, val]))
     }
 
     // Reader macro for #'
@@ -467,7 +466,7 @@ impl<'a> Parser<'a> {
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
-        ExprKind::List(List::new(vec![q, val]))
+        ExprKind::List(List::new(thin_vec![q, val]))
     }
 
     fn construct_quasiunquote_syntax(&mut self, val: ExprKind, span: Span) -> ExprKind {
@@ -476,7 +475,7 @@ impl<'a> Parser<'a> {
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
-        ExprKind::List(List::new(vec![q, val]))
+        ExprKind::List(List::new(thin_vec![q, val]))
     }
 
     fn construct_quasiunquote_syntax_splicing(&mut self, val: ExprKind, span: Span) -> ExprKind {
@@ -485,7 +484,7 @@ impl<'a> Parser<'a> {
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
-        ExprKind::List(List::new(vec![q, val]))
+        ExprKind::List(List::new(thin_vec![q, val]))
     }
 
     // Reader macro for `
@@ -495,7 +494,7 @@ impl<'a> Parser<'a> {
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
-        ExprKind::List(List::new(vec![q, val]))
+        ExprKind::List(List::new(thin_vec![q, val]))
     }
 
     // Reader macro for ,
@@ -505,7 +504,7 @@ impl<'a> Parser<'a> {
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
-        ExprKind::List(List::new(vec![q, val]))
+        ExprKind::List(List::new(thin_vec![q, val]))
     }
 
     fn construct_raw_unquote(&mut self, val: ExprKind, span: Span) -> ExprKind {
@@ -515,7 +514,7 @@ impl<'a> Parser<'a> {
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
-        ExprKind::List(List::new(vec![q, val]))
+        ExprKind::List(List::new(thin_vec![q, val]))
     }
     // Reader macro for ,@
     fn construct_unquote_splicing(&mut self, val: ExprKind, span: Span) -> ExprKind {
@@ -524,7 +523,7 @@ impl<'a> Parser<'a> {
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
-        ExprKind::List(List::new(vec![q, val]))
+        ExprKind::List(List::new(thin_vec![q, val]))
     }
 
     // Reader macro for ,@
@@ -534,7 +533,7 @@ impl<'a> Parser<'a> {
             ExprKind::Atom(Atom::new(SyntaxObject::new(rc_val, span)))
         };
 
-        ExprKind::List(List::new(vec![q, val]))
+        ExprKind::List(List::new(thin_vec![q, val]))
     }
 
     fn increment_quasiquote_context_if_not_in_quote_context(&mut self) {
@@ -551,7 +550,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn maybe_lower(&self, exprs: Vec<ExprKind>) -> Result<ExprKind> {
+    fn maybe_lower(&self, exprs: ThinVec<ExprKind>) -> Result<ExprKind> {
         if self.keep_lists {
             Ok(ExprKind::List(List::new(exprs)))
         } else {
@@ -584,7 +583,7 @@ impl<'a> Parser<'a> {
             open,
             paren,
             paren_mod,
-            exprs: Vec::new(),
+            exprs: ThinVec::new(),
             dot: None,
             comment: 0,
         };
@@ -846,7 +845,7 @@ impl<'a> Parser<'a> {
                     current_frame = Frame {
                         open: token.span,
                         paren_mod,
-                        exprs: Vec::with_capacity(4),
+                        exprs: ThinVec::with_capacity(4),
                         dot: None,
                         paren,
                         comment: 0,
@@ -1150,7 +1149,7 @@ fn wrap_in_doc_function(expr: ExprKind, comment: String) -> DocResult {
             // Just emit a single @doc line for the define-syntax,
             // and we'll handle the macro itself separately.
             if let Some(ident) = l.second_ident() {
-                let doc = ExprKind::List(List::new(vec![
+                let doc = ExprKind::List(List::new(thin_vec![
                     ExprKind::ident("@doc"),
                     ExprKind::string_lit(comment),
                     ExprKind::ident("#%macro"),
@@ -1166,7 +1165,7 @@ fn wrap_in_doc_function(expr: ExprKind, comment: String) -> DocResult {
         // Just emit a single @doc line for the define-syntax,
         // and we'll handle the macro itself separately.
         if let Some(ident) = m.name.atom_identifier().copied() {
-            let doc = ExprKind::List(List::new(vec![
+            let doc = ExprKind::List(List::new(thin_vec![
                 ExprKind::ident("@doc"),
                 ExprKind::string_lit(comment),
                 ExprKind::ident("#%macro"),
@@ -1177,7 +1176,7 @@ fn wrap_in_doc_function(expr: ExprKind, comment: String) -> DocResult {
         }
     }
 
-    DocResult::Single(ExprKind::List(List::new(vec![
+    DocResult::Single(ExprKind::List(List::new(thin_vec![
         ExprKind::ident("@doc"),
         ExprKind::string_lit(comment),
         expr,
@@ -1186,7 +1185,7 @@ fn wrap_in_doc_function(expr: ExprKind, comment: String) -> DocResult {
 
 impl<'a> Parser<'a> {
     fn get_next_and_maybe_wrap_in_doc(&mut self) -> Option<Result<ExprKind>> {
-        let mut datum_comments = vec![];
+        let mut datum_comments = thin_vec![];
 
         macro_rules! maybe_return {
             ($value:expr) => {{
@@ -1532,7 +1531,7 @@ pub fn lower_syntax_rules(expr: ExprKind) -> Result<SyntaxRules> {
         ));
     };
 
-    let mut pairs = Vec::new();
+    let mut pairs = ThinVec::new();
     let rest: Vec<_> = value_iter.collect();
 
     for pair in rest {
@@ -1601,7 +1600,10 @@ pub fn lower_macro_and_require_definitions(expr: ExprKind) -> Result<ExprKind> {
             ));
         }
 
-        return Ok(ExprKind::Require(Box::new(ast::Require::new(raw, syn))));
+        return Ok(ExprKind::Require(Box::new(ast::Require::new(
+            raw.into(),
+            syn,
+        ))));
     }
 
     let mut expr = expr;
@@ -1669,7 +1671,7 @@ impl ASTLowerPass {
                             match &a.syn.ty {
                                 TokenType::Quote => {
                                     *expr = parse_single_argument(
-                                        std::mem::take(&mut value.args).into_iter(),
+                                        core::mem::take(&mut value.args).into_iter(),
                                         a.syn.clone(),
                                         "quote",
                                         |expr, syn| ast::Quote::new(expr, syn).into(),
@@ -1681,7 +1683,7 @@ impl ASTLowerPass {
                             }
                         }
                         ExprKind::Atom(a) if self.quote_depth == 0 => {
-                            let value = std::mem::replace(value, List::new(vec![]));
+                            let value = core::mem::replace(value, List::new(thin_vec![]));
 
                             *expr = match &a.syn.ty {
                                 TokenType::If => {
@@ -1882,7 +1884,7 @@ struct Frame {
     open: Span,
     paren: Paren,
     paren_mod: Option<ParenMod>,
-    exprs: Vec<ExprKind>,
+    exprs: ThinVec<ExprKind>,
     dot: Option<(u32, Span)>,
     comment: u8,
 }
@@ -1895,7 +1897,7 @@ impl Frame {
     fn build_expr(
         self,
         close: Span,
-        builder: impl FnOnce(Vec<ExprKind>) -> Result<ExprKind>,
+        builder: impl FnOnce(ThinVec<ExprKind>) -> Result<ExprKind>,
     ) -> Result<ExprKind> {
         if self.comment > 0 {
             return Err(ParseError::SyntaxError(
@@ -2277,7 +2279,7 @@ mod parser_tests {
     #[test]
     fn test_empty() {
         assert_parse("", &[]);
-        assert_parse("()", &[ExprKind::List(List::new(vec![]))]);
+        assert_parse("()", &[ExprKind::List(List::new(thin_vec![]))]);
     }
 
     #[test]
@@ -2288,7 +2290,7 @@ mod parser_tests {
                 character('¡'),
                 ExprKind::Quote(
                     Quote::new(
-                        List::new(vec![]).into(),
+                        List::new(thin_vec![]).into(),
                         SyntaxObject::default(TokenType::Quote),
                     )
                     .into(),
@@ -2305,7 +2307,7 @@ mod parser_tests {
             "'()",
             &[ExprKind::Quote(
                 Quote::new(
-                    List::new(vec![]).into(),
+                    List::new(thin_vec![]).into(),
                     SyntaxObject::default(TokenType::Quote),
                 )
                 .into(),
@@ -2317,11 +2319,11 @@ mod parser_tests {
     fn test_empty_quote_nested() {
         assert_parse(
             "(list '())",
-            &[ExprKind::List(List::new(vec![
+            &[ExprKind::List(List::new(thin_vec![
                 atom("list"),
                 ExprKind::Quote(
                     Quote::new(
-                        List::new(vec![]).into(),
+                        List::new(thin_vec![]).into(),
                         SyntaxObject::default(TokenType::Quote),
                     )
                     .into(),
@@ -2342,14 +2344,14 @@ mod parser_tests {
             &[
                 atom("a"),
                 atom("b"),
-                ExprKind::List(List::new(vec![
+                ExprKind::List(List::new(thin_vec![
                     atom("funcall"),
                     int(1),
-                    ExprKind::List(List::new(vec![
+                    ExprKind::List(List::new(thin_vec![
                         atom("+"),
                         int(2),
                         ExprKind::Atom(Atom::new(SyntaxObject::default(
-                            RealLiteral::Float(3.5).into(),
+                            RealLiteral::Float((3.5).into()).into(),
                         ))),
                     ])),
                 ])),
@@ -2361,8 +2363,8 @@ mod parser_tests {
         assert_parse(
             "(+ 1 2 3) (- 4 3)",
             &[
-                ExprKind::List(List::new(vec![atom("+"), int(1), int(2), int(3)])),
-                ExprKind::List(List::new(vec![atom("-"), int(4), int(3)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), int(1), int(2), int(3)])),
+                ExprKind::List(List::new(thin_vec![atom("-"), int(4), int(3)])),
             ],
         );
     }
@@ -2371,24 +2373,24 @@ mod parser_tests {
     fn test_parse_nested() {
         assert_parse(
             "(+ 1 (foo (bar 2 3)))",
-            &[ExprKind::List(List::new(vec![
+            &[ExprKind::List(List::new(thin_vec![
                 atom("+"),
                 int(1),
-                ExprKind::List(List::new(vec![
+                ExprKind::List(List::new(thin_vec![
                     atom("foo"),
-                    ExprKind::List(List::new(vec![atom("bar"), int(2), int(3)])),
+                    ExprKind::List(List::new(thin_vec![atom("bar"), int(2), int(3)])),
                 ])),
             ]))],
         );
         assert_parse(
             "(+ 1 (+ 2 3) (foo (bar 2 3)))",
-            &[ExprKind::List(List::new(vec![
+            &[ExprKind::List(List::new(thin_vec![
                 atom("+"),
                 int(1),
-                ExprKind::List(List::new(vec![atom("+"), int(2), int(3)])),
-                ExprKind::List(List::new(vec![
+                ExprKind::List(List::new(thin_vec![atom("+"), int(2), int(3)])),
+                ExprKind::List(List::new(thin_vec![
                     atom("foo"),
-                    ExprKind::List(List::new(vec![atom("bar"), int(2), int(3)])),
+                    ExprKind::List(List::new(thin_vec![atom("bar"), int(2), int(3)])),
                 ])),
             ]))],
         );
@@ -2398,7 +2400,7 @@ mod parser_tests {
     fn test_if() {
         assert_parse(
             "(+ 1 (if 2 3 4) (foo (+ (bar 1 1) 3) 5))",
-            &[ExprKind::List(List::new(vec![
+            &[ExprKind::List(List::new(thin_vec![
                 atom("+"),
                 int(1),
                 ExprKind::If(Box::new(If::new(
@@ -2407,11 +2409,11 @@ mod parser_tests {
                     int(4),
                     SyntaxObject::default(TokenType::If),
                 ))),
-                ExprKind::List(List::new(vec![
+                ExprKind::List(List::new(thin_vec![
                     atom("foo"),
-                    ExprKind::List(List::new(vec![
+                    ExprKind::List(List::new(thin_vec![
                         atom("+"),
-                        ExprKind::List(List::new(vec![atom("bar"), int(1), int(1)])),
+                        ExprKind::List(List::new(thin_vec![atom("bar"), int(1), int(1)])),
                         int(3),
                     ])),
                     int(5),
@@ -2425,7 +2427,7 @@ mod parser_tests {
         assert_parse(
             "(quote (if 1 2))",
             &[ExprKind::Quote(Box::new(Quote::new(
-                ExprKind::List(List::new(vec![
+                ExprKind::List(List::new(thin_vec![
                     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
                     int(1),
                     int(2),
@@ -2440,7 +2442,7 @@ mod parser_tests {
         assert_parse(
             "'(if 1 2)",
             &[ExprKind::Quote(Box::new(Quote::new(
-                ExprKind::List(List::new(vec![
+                ExprKind::List(List::new(thin_vec![
                     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
                     int(1),
                     int(2),
@@ -2455,9 +2457,9 @@ mod parser_tests {
         assert_parse(
             "(quote (if (if 1 2) 3))",
             &[ExprKind::Quote(Box::new(Quote::new(
-                ExprKind::List(List::new(vec![
+                ExprKind::List(List::new(thin_vec![
                     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
-                    ExprKind::List(List::new(vec![
+                    ExprKind::List(List::new(thin_vec![
                         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
                         int(1),
                         int(2),
@@ -2474,9 +2476,9 @@ mod parser_tests {
         assert_parse(
             "'(if (if 1 2) 3)",
             &[ExprKind::Quote(Box::new(Quote::new(
-                ExprKind::List(List::new(vec![
+                ExprKind::List(List::new(thin_vec![
                     ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
-                    ExprKind::List(List::new(vec![
+                    ExprKind::List(List::new(thin_vec![
                         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
                         int(1),
                         int(2),
@@ -2494,9 +2496,9 @@ mod parser_tests {
             "'(if (if 1 2) 3) (+ 1 (if 2 3 4) (foo (+ (bar 1 1) 3) 5))",
             &[
                 ExprKind::Quote(Box::new(Quote::new(
-                    ExprKind::List(List::new(vec![
+                    ExprKind::List(List::new(thin_vec![
                         ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
-                        ExprKind::List(List::new(vec![
+                        ExprKind::List(List::new(thin_vec![
                             ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::If))),
                             int(1),
                             int(2),
@@ -2505,7 +2507,7 @@ mod parser_tests {
                     ])),
                     SyntaxObject::default(TokenType::Quote),
                 ))),
-                ExprKind::List(List::new(vec![
+                ExprKind::List(List::new(thin_vec![
                     atom("+"),
                     int(1),
                     ExprKind::If(Box::new(If::new(
@@ -2514,11 +2516,11 @@ mod parser_tests {
                         int(4),
                         SyntaxObject::default(TokenType::If),
                     ))),
-                    ExprKind::List(List::new(vec![
+                    ExprKind::List(List::new(thin_vec![
                         atom("foo"),
-                        ExprKind::List(List::new(vec![
+                        ExprKind::List(List::new(thin_vec![
                             atom("+"),
-                            ExprKind::List(List::new(vec![atom("bar"), int(1), int(1)])),
+                            ExprKind::List(List::new(thin_vec![atom("bar"), int(1), int(1)])),
                             int(3),
                         ])),
                         int(5),
@@ -2533,7 +2535,7 @@ mod parser_tests {
         assert_parse(
             "'(applesauce 'one)",
             &[ExprKind::Quote(Box::new(Quote::new(
-                ExprKind::List(List::new(vec![
+                ExprKind::List(List::new(thin_vec![
                     atom("applesauce"),
                     ExprKind::Quote(Box::new(Quote::new(
                         atom("one"),
@@ -2550,7 +2552,7 @@ mod parser_tests {
         assert_parse(
             "(quote (applesauce 'one))",
             &[ExprKind::Quote(Box::new(Quote::new(
-                ExprKind::List(List::new(vec![
+                ExprKind::List(List::new(thin_vec![
                     atom("applesauce"),
                     ExprKind::Quote(Box::new(Quote::new(
                         atom("one"),
@@ -2566,9 +2568,9 @@ mod parser_tests {
     fn test_quasiquote_shorthand() {
         assert_parse(
             "`(+ 1 2)",
-            &[ExprKind::List(List::new(vec![
+            &[ExprKind::List(List::new(thin_vec![
                 atom("quasiquote"),
-                ExprKind::List(List::new(vec![atom("+"), int(1), int(2)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), int(1), int(2)])),
             ]))],
         )
     }
@@ -2577,9 +2579,9 @@ mod parser_tests {
     fn test_quasiquote_normal() {
         assert_parse(
             "(quasiquote (+ 1 2))",
-            &[ExprKind::List(List::new(vec![
+            &[ExprKind::List(List::new(thin_vec![
                 atom("quasiquote"),
-                ExprKind::List(List::new(vec![atom("+"), int(1), int(2)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), int(1), int(2)])),
             ]))],
         )
     }
@@ -2588,9 +2590,9 @@ mod parser_tests {
     fn test_unquote_shorthand() {
         assert_parse(
             ",(+ 1 2)",
-            &[ExprKind::List(List::new(vec![
+            &[ExprKind::List(List::new(thin_vec![
                 atom("unquote"),
-                ExprKind::List(List::new(vec![atom("+"), int(1), int(2)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), int(1), int(2)])),
             ]))],
         )
     }
@@ -2599,9 +2601,9 @@ mod parser_tests {
     fn test_unquote_normal() {
         assert_parse(
             "(unquote (+ 1 2))",
-            &[ExprKind::List(List::new(vec![
+            &[ExprKind::List(List::new(thin_vec![
                 atom("unquote"),
-                ExprKind::List(List::new(vec![atom("+"), int(1), int(2)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), int(1), int(2)])),
             ]))],
         )
     }
@@ -2610,9 +2612,9 @@ mod parser_tests {
     fn test_unquote_splicing_shorthand() {
         assert_parse(
             ",@(+ 1 2)",
-            &[ExprKind::List(List::new(vec![
+            &[ExprKind::List(List::new(thin_vec![
                 atom("unquote-splicing"),
-                ExprKind::List(List::new(vec![atom("+"), int(1), int(2)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), int(1), int(2)])),
             ]))],
         )
     }
@@ -2621,9 +2623,9 @@ mod parser_tests {
     fn test_unquote_splicing_normal() {
         assert_parse(
             "(unquote-splicing (+ 1 2))",
-            &[ExprKind::List(List::new(vec![
+            &[ExprKind::List(List::new(thin_vec![
                 atom("unquote-splicing"),
-                ExprKind::List(List::new(vec![atom("+"), int(1), int(2)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), int(1), int(2)])),
             ]))],
         )
     }
@@ -2647,8 +2649,8 @@ mod parser_tests {
             &[ExprKind::Define(Box::new(Define::new(
                 atom("foo"),
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                    vec![atom("x")],
-                    ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
+                    thin_vec![atom("x")],
+                    ExprKind::List(List::new(thin_vec![atom("+"), atom("x"), int(10)])),
                     SyntaxObject::default(TokenType::Lambda),
                 ))),
                 SyntaxObject::default(TokenType::Define),
@@ -2663,8 +2665,8 @@ mod parser_tests {
             &[ExprKind::Define(Box::new(Define::new(
                 atom("foo"),
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                    vec![atom("x"), atom("y"), atom("z")],
-                    ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
+                    thin_vec![atom("x"), atom("y"), atom("z")],
+                    ExprKind::List(List::new(thin_vec![atom("+"), atom("x"), int(10)])),
                     SyntaxObject::default(TokenType::Lambda),
                 ))),
                 SyntaxObject::default(TokenType::Define),
@@ -2679,12 +2681,12 @@ mod parser_tests {
             &[ExprKind::Define(Box::new(Define::new(
                 atom("foo"),
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                    vec![atom("x"), atom("y"), atom("z")],
+                    thin_vec![atom("x"), atom("y"), atom("z")],
                     ExprKind::Begin(Box::new(Begin::new(
                         vec![
-                            ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
-                            ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
-                            ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
+                            ExprKind::List(List::new(thin_vec![atom("+"), atom("x"), int(10)])),
+                            ExprKind::List(List::new(thin_vec![atom("+"), atom("y"), int(20)])),
+                            ExprKind::List(List::new(thin_vec![atom("+"), atom("z"), int(30)])),
                         ],
                         SyntaxObject::default(TokenType::Begin),
                     ))),
@@ -2702,14 +2704,14 @@ mod parser_tests {
             &[ExprKind::Define(Box::new(Define::new(
                 atom("test"),
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                    vec![],
+                    thin_vec![],
                     ExprKind::Begin(Box::new(Begin::new(
                         vec![
                             ExprKind::Define(Box::new(Define::new(
                                 atom("foo"),
                                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                                    vec![],
-                                    ExprKind::List(List::new(vec![atom("bar")])),
+                                    thin_vec![],
+                                    ExprKind::List(List::new(thin_vec![atom("bar")])),
                                     SyntaxObject::default(TokenType::Lambda),
                                 ))),
                                 SyntaxObject::default(TokenType::Define),
@@ -2717,8 +2719,8 @@ mod parser_tests {
                             ExprKind::Define(Box::new(Define::new(
                                 atom("bar"),
                                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                                    vec![],
-                                    ExprKind::List(List::new(vec![atom("foo")])),
+                                    thin_vec![],
+                                    ExprKind::List(List::new(thin_vec![atom("foo")])),
                                     SyntaxObject::default(TokenType::Lambda),
                                 ))),
                                 SyntaxObject::default(TokenType::Define),
@@ -2760,7 +2762,7 @@ mod parser_tests {
         assert_parse(
             "(lambda (x) 10)",
             &[ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                vec![atom("x")],
+                thin_vec![atom("x")],
                 int(10),
                 SyntaxObject::default(TokenType::Lambda),
             )))],
@@ -2773,7 +2775,7 @@ mod parser_tests {
             "(lambda (x . y) 10)",
             &[ExprKind::LambdaFunction(Box::new(
                 LambdaFunction::new_maybe_rest(
-                    vec![atom("x"), atom("y")],
+                    thin_vec![atom("x"), atom("y")],
                     int(10),
                     SyntaxObject::default(TokenType::Lambda),
                     true,
@@ -2788,7 +2790,7 @@ mod parser_tests {
             "(lambda x 10)",
             &[ExprKind::LambdaFunction(Box::new(
                 LambdaFunction::new_maybe_rest(
-                    vec![atom("x")],
+                    thin_vec![atom("x")],
                     int(10),
                     SyntaxObject::default(TokenType::Lambda),
                     true,
@@ -2801,10 +2803,10 @@ mod parser_tests {
     fn test_lambda_matches_let() {
         assert_parse(
             "((lambda (a) (+ a 20)) 10)",
-            &[ExprKind::List(List::new(vec![
+            &[ExprKind::List(List::new(thin_vec![
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                    vec![atom("a")],
-                    ExprKind::List(List::new(vec![atom("+"), atom("a"), int(20)])),
+                    thin_vec![atom("a")],
+                    ExprKind::List(List::new(thin_vec![atom("+"), atom("a"), int(20)])),
                     SyntaxObject::default(TokenType::Lambda),
                 ))),
                 int(10),
@@ -2816,10 +2818,10 @@ mod parser_tests {
     fn test_let() {
         assert_parse(
             "(let ([a 10]) (+ a 20))",
-            &[ExprKind::List(List::new(vec![
+            &[ExprKind::List(List::new(thin_vec![
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                    vec![atom("a")],
-                    ExprKind::List(List::new(vec![atom("+"), atom("a"), int(20)])),
+                    thin_vec![atom("a")],
+                    ExprKind::List(List::new(thin_vec![atom("+"), atom("a"), int(20)])),
                     SyntaxObject::default(TokenType::Lambda),
                 ))),
                 int(10),
@@ -2833,13 +2835,13 @@ mod parser_tests {
             "'(#f '())",
             &[ExprKind::Quote(
                 Quote::new(
-                    ExprKind::List(List::new(vec![
+                    ExprKind::List(List::new(thin_vec![
                         ExprKind::Atom(Atom::new(SyntaxObject::default(
                             TokenType::BooleanLiteral(false),
                         ))),
                         ExprKind::Quote(
                             Quote::new(
-                                List::new(vec![]).into(),
+                                List::new(thin_vec![]).into(),
                                 SyntaxObject::default(TokenType::Quote),
                             )
                             .into(),
@@ -2859,16 +2861,16 @@ mod parser_tests {
                 '(#f '())
                 (list (car contents) (cdr contents)))",
             &[ExprKind::If(Box::new(If::new(
-                ExprKind::List(List::new(vec![atom("null?"), atom("contents")])),
+                ExprKind::List(List::new(thin_vec![atom("null?"), atom("contents")])),
                 ExprKind::Quote(
                     Quote::new(
-                        ExprKind::List(List::new(vec![
+                        ExprKind::List(List::new(thin_vec![
                             ExprKind::Atom(Atom::new(SyntaxObject::default(
                                 TokenType::BooleanLiteral(false),
                             ))),
                             ExprKind::Quote(
                                 Quote::new(
-                                    List::new(vec![]).into(),
+                                    List::new(thin_vec![]).into(),
                                     SyntaxObject::default(TokenType::Quote),
                                 )
                                 .into(),
@@ -2878,10 +2880,10 @@ mod parser_tests {
                     )
                     .into(),
                 ),
-                ExprKind::List(List::new(vec![
+                ExprKind::List(List::new(thin_vec![
                     atom("list"),
-                    ExprKind::List(List::new(vec![atom("car"), atom("contents")])),
-                    ExprKind::List(List::new(vec![atom("cdr"), atom("contents")])),
+                    ExprKind::List(List::new(thin_vec![atom("car"), atom("contents")])),
+                    ExprKind::List(List::new(thin_vec![atom("cdr"), atom("contents")])),
                 ])),
                 SyntaxObject::default(TokenType::If),
             )))],
@@ -2895,16 +2897,16 @@ mod parser_tests {
                 (quote (#f '()))
                 (list (car contents) (cdr contents)))",
             &[ExprKind::If(Box::new(If::new(
-                ExprKind::List(List::new(vec![atom("null?"), atom("contents")])),
+                ExprKind::List(List::new(thin_vec![atom("null?"), atom("contents")])),
                 ExprKind::Quote(
                     Quote::new(
-                        ExprKind::List(List::new(vec![
+                        ExprKind::List(List::new(thin_vec![
                             ExprKind::Atom(Atom::new(SyntaxObject::default(
                                 TokenType::BooleanLiteral(false),
                             ))),
                             ExprKind::Quote(
                                 Quote::new(
-                                    List::new(vec![]).into(),
+                                    List::new(thin_vec![]).into(),
                                     SyntaxObject::default(TokenType::Quote),
                                 )
                                 .into(),
@@ -2914,10 +2916,10 @@ mod parser_tests {
                     )
                     .into(),
                 ),
-                ExprKind::List(List::new(vec![
+                ExprKind::List(List::new(thin_vec![
                     atom("list"),
-                    ExprKind::List(List::new(vec![atom("car"), atom("contents")])),
-                    ExprKind::List(List::new(vec![atom("cdr"), atom("contents")])),
+                    ExprKind::List(List::new(thin_vec![atom("car"), atom("contents")])),
+                    ExprKind::List(List::new(thin_vec![atom("cdr"), atom("contents")])),
                 ])),
                 SyntaxObject::default(TokenType::If),
             )))],
@@ -2931,19 +2933,19 @@ mod parser_tests {
                 (if (null? contents)
                 '(#f '())
                 (list (car contents) (cdr contents))))",
-            &[ExprKind::List(List::new(vec![
+            &[ExprKind::List(List::new(thin_vec![
                 atom("list"),
                 ExprKind::If(Box::new(If::new(
-                    ExprKind::List(List::new(vec![atom("null?"), atom("contents")])),
+                    ExprKind::List(List::new(thin_vec![atom("null?"), atom("contents")])),
                     ExprKind::Quote(
                         Quote::new(
-                            ExprKind::List(List::new(vec![
+                            ExprKind::List(List::new(thin_vec![
                                 ExprKind::Atom(Atom::new(SyntaxObject::default(
                                     TokenType::BooleanLiteral(false),
                                 ))),
                                 ExprKind::Quote(
                                     Quote::new(
-                                        List::new(vec![]).into(),
+                                        List::new(thin_vec![]).into(),
                                         SyntaxObject::default(TokenType::Quote),
                                     )
                                     .into(),
@@ -2953,10 +2955,10 @@ mod parser_tests {
                         )
                         .into(),
                     ),
-                    ExprKind::List(List::new(vec![
+                    ExprKind::List(List::new(thin_vec![
                         atom("list"),
-                        ExprKind::List(List::new(vec![atom("car"), atom("contents")])),
-                        ExprKind::List(List::new(vec![atom("cdr"), atom("contents")])),
+                        ExprKind::List(List::new(thin_vec![atom("car"), atom("contents")])),
+                        ExprKind::List(List::new(thin_vec![atom("cdr"), atom("contents")])),
                     ])),
                     SyntaxObject::default(TokenType::If),
                 ))),
@@ -2969,8 +2971,8 @@ mod parser_tests {
         assert_parse(
             "(define (datum->syntax var) (car ret-value))",
             &[ExprKind::Define(Box::new(Define::new(
-                ExprKind::List(List::new(vec![atom("datum->syntax"), atom("var")])),
-                ExprKind::List(List::new(vec![atom("car"), atom("ret-value")])),
+                ExprKind::List(List::new(thin_vec![atom("datum->syntax"), atom("var")])),
+                ExprKind::List(List::new(thin_vec![atom("car"), atom("ret-value")])),
                 SyntaxObject::default(TokenType::Define),
             )))],
         )
@@ -2981,9 +2983,9 @@ mod parser_tests {
         assert_parse(
             "(define ((datum->syntax var) arg) 10)",
             &[ExprKind::Define(Box::new(Define::new(
-                ExprKind::List(List::new(vec![atom("datum->syntax"), atom("var")])),
+                ExprKind::List(List::new(thin_vec![atom("datum->syntax"), atom("var")])),
                 ExprKind::LambdaFunction(Box::new(LambdaFunction::new(
-                    vec![atom("arg")],
+                    thin_vec![atom("arg")],
                     int(10),
                     SyntaxObject::default(TokenType::Lambda),
                 ))),
@@ -3056,14 +3058,14 @@ mod parser_tests {
 
     #[test]
     fn test_improper_list() {
-        let mut pair = List::new(vec![atom("x"), atom("y")]);
+        let mut pair = List::new(thin_vec![atom("x"), atom("y")]);
         pair.make_improper();
 
         assert_parse("(x . y)", &[ExprKind::List(pair)]);
 
         assert_parse(
             "(x . (y . ()))",
-            &[ExprKind::List(List::new(vec![atom("x"), atom("y")]))],
+            &[ExprKind::List(List::new(thin_vec![atom("x"), atom("y")]))],
         )
     }
 
@@ -3085,7 +3087,7 @@ mod parser_tests {
         assert_parse(
             "#(a b)",
             &[ExprKind::Vector(Vector {
-                args: vec![atom("a"), atom("b")],
+                args: thin_vec![atom("a"), atom("b")],
                 bytes: false,
                 span: Span::default(),
             })],
@@ -3094,7 +3096,7 @@ mod parser_tests {
         assert_parse(
             "#u8(1 3)",
             &[ExprKind::Vector(Vector {
-                args: vec![int(1), int(3)],
+                args: thin_vec![int(1), int(3)],
                 bytes: true,
                 span: Span::default(),
             })],
@@ -3128,7 +3130,7 @@ mod parser_tests {
 
         assert_parse(
             "(1 #; #(a b c) 2)",
-            &[ExprKind::List(List::new(vec![int(1), int(2)]))],
+            &[ExprKind::List(List::new(thin_vec![int(1), int(2)]))],
         )
     }
 
@@ -3143,9 +3145,9 @@ mod parser_tests {
     }
 }
 
-use std::cell::RefCell;
-use std::default::Default;
-use std::ops::{Deref, DerefMut};
+use core::cell::RefCell;
+use core::default::Default;
+use core::ops::{Deref, DerefMut};
 
 pub trait Recyclable {
     fn put(self);
@@ -3177,7 +3179,7 @@ impl<T: Recyclable + Default> Recycle<T> {
 
 impl<T: Recyclable + Default> Drop for Recycle<T> {
     fn drop(&mut self) {
-        T::put(std::mem::take(&mut self.t))
+        T::put(core::mem::take(&mut self.t))
     }
 }
 
@@ -3201,14 +3203,14 @@ impl<T: Recyclable + Clone + Default> Clone for Recycle<T> {
     }
 }
 
-impl<T: Recyclable + std::fmt::Debug + Default> std::fmt::Debug for Recycle<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<T: Recyclable + core::fmt::Debug + Default> core::fmt::Debug for Recycle<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Recycle").field("t", &self.t).finish()
     }
 }
 
-impl<T: Recyclable + std::hash::Hash + Default> std::hash::Hash for Recycle<T> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+impl<T: Recyclable + core::hash::Hash + Default> core::hash::Hash for Recycle<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         self.t.hash(state);
     }
 }

@@ -86,10 +86,11 @@ use crate::{
     rvals::{Result, SteelVal},
     SteelErr,
 };
+use alloc::borrow::Cow;
 use compact_str::CompactString;
+use core::cmp::Ordering;
 use once_cell::sync::Lazy;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
-use std::{borrow::Cow, cmp::Ordering};
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
 
 #[cfg(not(target_family = "wasm"))]
@@ -104,31 +105,6 @@ fn polling_module() -> BuiltInModule {
 
 #[cfg(feature = "dylibs")]
 use crate::steel_vm::ffi::ffi_module;
-
-macro_rules! ensure_tonicity_two {
-    ($check_fn:expr) => {{
-        |args: &[SteelVal]| -> Result<SteelVal> {
-
-            if args.is_empty() {
-                stop!(ArityMismatch => "expected at least one argument");
-            }
-
-            for window in args.windows(2) {
-                if let &[left, right] = &window {
-                    if !$check_fn(&left, &right) {
-                        return Ok(SteelVal::BoolV(false))
-                    }
-                } else {
-                    unreachable!()
-                }
-
-            }
-
-            Ok(SteelVal::BoolV(true))
-
-        }
-    }};
-}
 
 macro_rules! gen_pred {
     ($variant:ident) => {{
@@ -498,6 +474,81 @@ fn render_as_md(text: String) {
     println!("{}", text);
 }
 
+pub fn bootstrap_globals(engine: &mut Engine) {
+    engine.register_value("std::env::args", SteelVal::ListV(List::new()));
+
+    engine.register_fn("##__module-get", BuiltInModule::get);
+    engine.register_fn("%module-get%", BuiltInModule::get);
+    engine.register_fn("%#maybe-module-get", BuiltInModule::try_get);
+
+    engine.register_fn("load-from-module!", BuiltInModule::get);
+
+    // Registering values in modules
+    engine.register_fn("#%module", BuiltInModule::new::<String>);
+    engine.register_fn(
+        "#%module-add",
+        |module: &mut BuiltInModule, name: SteelString, value: SteelVal| {
+            module.register_value(&name, value);
+        },
+    );
+
+    engine.register_fn(
+        "#%module-add-doc",
+        |module: &mut BuiltInModule, name: SteelString, value: String| {
+            module.register_doc(
+                Cow::Owned(name.as_str().to_string()),
+                super::builtin::Documentation::Markdown(MarkdownDoc(value.into())),
+            );
+        },
+    );
+
+    engine.register_fn("%doc?", BuiltInModule::get_doc);
+    engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
+    engine.register_fn("%module/lookup-function", BuiltInModule::search);
+    engine.register_fn("%string->render-markdown", render_as_md);
+    engine.register_fn(
+        "%module-bound-identifiers->list",
+        BuiltInModule::bound_identifiers,
+    );
+
+    // TODO: Provide a better version of this that is able to
+    // reject anything larger than a certain amount. At this point
+    // if the user attempts to type proto hash they could build something
+    // large.
+    engine.register_value("%proto-hash%", HM_CONSTRUCT);
+    engine.register_value("%proto-hash-insert%", HM_INSERT);
+    engine.register_value("%proto-hash-get%", HM_GET);
+    engine.register_value("error!", ControlOperations::error());
+
+    engine.register_value("error", ControlOperations::error());
+
+    engine.register_value("#%error", ControlOperations::error());
+
+    engine.register_value("#%box", SteelVal::BuiltIn(make_mutable_box));
+
+    engine.register_fn("#%void", || SteelVal::Void);
+
+    for definition in &[
+        PUSH_MODULE_CONTEXT_DEFINITION,
+        POP_MODULE_CONTEXT_DEFINITION,
+        GET_MODULE_CONTEXT_DEFINITION,
+        SET_BOX_DEFINITION,
+        UNBOX_DEFINITION,
+    ] {
+        let steel_val = match definition.func {
+            BuiltInFunctionType::Reference(value) => SteelVal::FuncV(value),
+            BuiltInFunctionType::Mutable(value) => SteelVal::MutFunc(value),
+            BuiltInFunctionType::Context(value) => SteelVal::BuiltIn(value),
+        };
+
+        let names = std::iter::once(definition.name).chain(definition.aliases.iter().cloned());
+
+        for name in names {
+            engine.register_value(&format!("#%prim.{}", name), steel_val.clone());
+        }
+    }
+}
+
 pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     engine.register_value("std::env::args", SteelVal::ListV(List::new()));
 
@@ -506,6 +557,8 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
     engine.register_fn("%#maybe-module-get", BuiltInModule::try_get);
 
     engine.register_fn("load-from-module!", BuiltInModule::get);
+
+    engine.register_fn("#%void", || SteelVal::Void);
 
     // Registering values in modules
     engine.register_fn("#%module", BuiltInModule::new::<String>);
@@ -1364,29 +1417,48 @@ pub fn gt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     })))
 }
 
+/// Checks two values for pointer equality, i.e. returns #t if the two values
+/// refer to the same object.
+///
+/// # Examples
+/// ```scheme
+/// (eq? 'yes 'yes) ;; => #t
+/// (eq? 'yes 'no) ;; => #f
+/// (eq? (* 6 7) 42) ;; => #t
+/// (eq? (list 10) (list 10)) ;; => #f
+/// ```
 #[steel_derive::function(name = "eq?")]
 pub fn eq(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(left.ptr_eq(&right)))
+}
+
+/// Checks two values for value equality, i.e. returns #t if the two values
+/// are the same data type, and also are equal recursively structurally.
+///
+/// # Examples
+/// ```scheme
+/// (equal? 'yes 'yes) ;; => #t
+/// (equal? 'yes 'no) ;; => #f
+/// (equal? (* 6 7) 42) ;; => #t
+/// (equal? (list 10) (list 10)) ;; => #t
+/// ```
+#[steel_derive::function(name = "equal?")]
+pub fn equalp(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(left == right))
+}
+
+#[steel_derive::function(name = "eqv?")]
+pub fn eqv(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(left.ptr_eq(&right)))
 }
 
 fn equality_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/equality");
     module
-        .register_value(
-            "equal?",
-            SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)),
-        )
-        .register_value(
-            "eqv?",
-            SteelVal::FuncV(ensure_tonicity_two!(
-                |a: &SteelVal, b: &SteelVal| a.ptr_eq(b)
-            )),
-        )
+        .register_native_fn_definition(EQUALP_DEFINITION)
+        .register_native_fn_definition(EQV_DEFINITION)
         .register_native_fn_definition(EQ_DEFINITION)
         .register_native_fn_definition(NUMBER_EQUALITY_DEFINITION);
-
-    // TODO: Replace this with just numeric equality!
-    // .register_value("=", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)));
 
     module
 }
@@ -2049,6 +2121,30 @@ pub fn struct_to_list(value: &UserDefinedStruct) -> Result<SteelVal> {
     }
 }
 
+#[cfg(feature = "sync")]
+#[steel_derive::context(name = "#%closure->boxed-function", arity = "Exact(1)")]
+pub fn closure_to_boxed_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn function_to_ffi_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        let function = args[0].clone();
+
+        if function.is_function() {
+            let function = ctx.steel_function_to_arc_rust_function(function);
+
+            Ok(SteelVal::BoxedFunction(crate::gc::Gc::new(
+                crate::values::functions::BoxedDynFunction {
+                    function,
+                    name: None,
+                    arity: None,
+                },
+            )))
+        } else {
+            stop!(TypeMismatch => "#%closure->boxed-function expected a function, found: {}", function);
+        }
+    }
+
+    Some(function_to_ffi_impl(ctx, args))
+}
+
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
@@ -2215,6 +2311,9 @@ fn meta_module() -> BuiltInModule {
     #[cfg(feature = "jit2")]
     module.register_native_fn_definition(super::vm::jit::JIT_COMPILE_TWO_DEFINITION);
 
+    #[cfg(feature = "sync")]
+    module.register_native_fn_definition(CLOSURE_TO_BOXED_FUNCTION_DEFINITION);
+
     module
 }
 
@@ -2265,6 +2364,18 @@ fn syntax_to_module(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     Some(syntax_to_module_impl(ctx, args))
 }
 
+#[steel_derive::context(name = "#%syntax/raw", arity = "Exact(3)")]
+fn syntax_raw(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn syntax_raw_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        let syntax = args[1].clone();
+        let span = Span::from_steelval(&args[2])?;
+        let interned_raw = intern_symbol(ctx, &args[..1]).unwrap()?;
+        crate::rvals::Syntax::proto(interned_raw, syntax, span).into_steelval()
+    }
+
+    Some(syntax_raw_impl(ctx, args))
+}
+
 fn syntax_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/syntax");
     module
@@ -2273,7 +2384,7 @@ fn syntax_module() -> BuiltInModule {
         .register_fn("syntax/loc", crate::rvals::Syntax::new)
         .register_fn("syntax-span", crate::rvals::Syntax::syntax_loc)
         .register_fn("span-file-id", |span: Span| span.source_id.map(|x| x.0))
-        .register_fn("#%syntax/raw", crate::rvals::Syntax::proto)
+        .register_native_fn_definition(SYNTAX_RAW_DEFINITION)
         .register_fn("syntax-e", crate::rvals::Syntax::syntax_e)
         .register_value("syntax?", gen_pred!(SyntaxObject))
         .register_fn("#%debug-syntax->exprkind", |value| {

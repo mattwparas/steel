@@ -12,9 +12,11 @@ use crate::parser::{
 use crate::parser::{interner::InternedString, tokens::TokenType};
 
 #[cfg(feature = "profiling")]
-use std::time::Instant;
+use crate::time::Instant;
 
 use super::{VisitorMutRefUnit, VisitorMutUnit};
+
+use thin_vec::{thin_vec, ThinVec};
 
 pub(crate) struct CheckDefinesAreInLegalPositions {
     depth: usize,
@@ -177,12 +179,15 @@ impl VisitorMutRefUnit for FlattenBegin {
                 }
 
                 if begin.exprs.len() == 1 {
-                    *expr = std::mem::take(&mut begin.exprs).into_iter().next().unwrap();
+                    *expr = core::mem::take(&mut begin.exprs)
+                        .into_iter()
+                        .next()
+                        .unwrap();
 
                     return;
                 }
 
-                let begin_exprs = std::mem::take(&mut begin.exprs);
+                let begin_exprs = core::mem::take(&mut begin.exprs);
 
                 let mut flattened_exprs = Vec::with_capacity(begin_exprs.len());
 
@@ -197,7 +202,10 @@ impl VisitorMutRefUnit for FlattenBegin {
                 begin.exprs = flattened_exprs;
 
                 if begin.exprs.len() == 1 {
-                    *expr = std::mem::take(&mut begin.exprs).into_iter().next().unwrap();
+                    *expr = core::mem::take(&mut begin.exprs)
+                        .into_iter()
+                        .next()
+                        .unwrap();
                 }
             }
             ExprKind::Return(r) => self.visit_return(r),
@@ -292,7 +300,7 @@ impl VisitorMutRefUnit for ConvertDefinesToLetsMut {
                         begin.exprs.iter().any(|x| matches!(x, ExprKind::Define(_)));
                     if contains_defines {
                         let mut fake_begin = Begin::new(Vec::new(), begin.location.clone());
-                        std::mem::swap(&mut fake_begin, begin);
+                        core::mem::swap(&mut fake_begin, begin);
 
                         let boxed = Box::new(fake_begin);
 
@@ -441,7 +449,7 @@ fn set(var: ExprKind, expr: ExprKind) -> ExprKind {
 }
 
 fn apply_ident(func: ExprKind) -> ExprKind {
-    ExprKind::List(List::new(vec![func]))
+    ExprKind::List(List::new(thin_vec![func]))
 }
 
 fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
@@ -462,27 +470,23 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
             .exprs
             .into_iter()
             .rev()
-            .reduce(|accum, expr| {
-                match expr {
-                    ExprKind::Define(d) => {
-                        // let constructed_function =
+            .reduce(|accum, expr| match expr {
+                ExprKind::Define(d) => {
+                    let constructed_function = ExprKind::LambdaFunction(
+                        LambdaFunction::new(
+                            thin_vec![d.name],
+                            accum,
+                            SyntaxObject::default(TokenType::Lambda),
+                        )
+                        .into(),
+                    );
 
-                        let constructed_function = ExprKind::LambdaFunction(
-                            LambdaFunction::new(
-                                vec![d.name],
-                                accum,
-                                SyntaxObject::default(TokenType::Lambda),
-                            )
-                            .into(),
-                        );
-
-                        ExprKind::List(List::new(vec![constructed_function, d.body]))
-                    }
-                    other => ExprKind::Begin(Box::new(Begin::new(
-                        vec![other, accum],
-                        SyntaxObject::default(TokenType::Begin),
-                    ))),
+                    ExprKind::List(List::new(thin_vec![constructed_function, d.body]))
                 }
+                other => ExprKind::Begin(Box::new(Begin::new(
+                    vec![other, accum],
+                    SyntaxObject::default(TokenType::Begin),
+                ))),
             })
             .expect("Empty expression");
 
@@ -519,7 +523,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
 
     // This corresponds to the (let ((apple ..) (banana ..) (cucumber ..)))
     //                               ^^^^^^     ^^^^^^^      ^^^^^^^^
-    let mut top_level_arguments: Vec<ExprKind> = Vec::with_capacity(idx + 1);
+    let mut top_level_arguments: ThinVec<ExprKind> = ThinVec::with_capacity(idx + 1);
 
     // This corresponds to the set expressions
     // (set! apple #####apple0)
@@ -528,7 +532,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
     let mut set_expressions: Vec<ExprKind> = Vec::with_capacity(idx + 1);
 
     // corresponds to #####apple0, #####banana1, #####cucumber1, etc
-    let mut bound_names: Vec<ExprKind> = Vec::with_capacity(idx + 1);
+    let mut bound_names: ThinVec<ExprKind> = ThinVec::with_capacity(idx + 1);
 
     // TODO - check that the last expression does not contain any usages of the constant?
     // if expression_types[0..idx + 1]
@@ -539,9 +543,9 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
     // }
 
     // Top level application with dummy arguments that will immediately get overwritten
-    let mut top_level_dummy_args = Vec::with_capacity(idx + 1);
+    let mut top_level_dummy_args = ThinVec::with_capacity(idx + 1);
 
-    let mut new_args = Vec::with_capacity(idx + 1);
+    let mut new_args = ThinVec::with_capacity(idx + 1);
 
     // println!("{:#?}", expression_types);
 
@@ -627,7 +631,7 @@ fn convert_exprs_to_let(begin: Box<Begin>) -> ExprKind {
                     // Set this to be an empty function (lambda () <expr>)
                     new_args.push(
                         LambdaFunction::new(
-                            Vec::new(),
+                            ThinVec::new(),
                             arg.clone(),
                             SyntaxObject::default(TokenType::Lambda),
                         )
@@ -771,24 +775,24 @@ mod flatten_begin_test {
         let mut expr = ExprKind::Begin(Box::new(Begin::new(
             vec![
                 ExprKind::Begin(Box::new(Begin::new(
-                    vec![ExprKind::List(List::new(vec![
+                    vec![ExprKind::List(List::new(thin_vec![
                         atom("+"),
                         atom("x"),
                         int(10),
                     ]))],
                     SyntaxObject::default(TokenType::Begin),
                 ))),
-                ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
-                ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), atom("y"), int(20)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), atom("z"), int(30)])),
             ],
             SyntaxObject::default(TokenType::Begin),
         )));
 
         let expected = ExprKind::Begin(Box::new(Begin::new(
             vec![
-                ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
-                ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
-                ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), atom("x"), int(10)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), atom("y"), int(20)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), atom("z"), int(30)])),
             ],
             SyntaxObject::default(TokenType::Begin),
         )));
@@ -803,7 +807,7 @@ mod flatten_begin_test {
         let mut expr = ExprKind::Begin(Box::new(Begin::new(
             vec![
                 ExprKind::Begin(Box::new(Begin::new(
-                    vec![ExprKind::List(List::new(vec![
+                    vec![ExprKind::List(List::new(thin_vec![
                         atom("+"),
                         atom("x"),
                         int(10),
@@ -811,7 +815,7 @@ mod flatten_begin_test {
                     SyntaxObject::default(TokenType::Begin),
                 ))),
                 ExprKind::Begin(Box::new(Begin::new(
-                    vec![ExprKind::List(List::new(vec![
+                    vec![ExprKind::List(List::new(thin_vec![
                         atom("+"),
                         atom("y"),
                         int(20),
@@ -819,7 +823,7 @@ mod flatten_begin_test {
                     SyntaxObject::default(TokenType::Begin),
                 ))),
                 ExprKind::Begin(Box::new(Begin::new(
-                    vec![ExprKind::List(List::new(vec![
+                    vec![ExprKind::List(List::new(thin_vec![
                         atom("+"),
                         atom("z"),
                         int(30),
@@ -832,9 +836,9 @@ mod flatten_begin_test {
 
         let expected = ExprKind::Begin(Box::new(Begin::new(
             vec![
-                ExprKind::List(List::new(vec![atom("+"), atom("x"), int(10)])),
-                ExprKind::List(List::new(vec![atom("+"), atom("y"), int(20)])),
-                ExprKind::List(List::new(vec![atom("+"), atom("z"), int(30)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), atom("x"), int(10)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), atom("y"), int(20)])),
+                ExprKind::List(List::new(thin_vec![atom("+"), atom("z"), int(30)])),
             ],
             SyntaxObject::default(TokenType::Begin),
         )));

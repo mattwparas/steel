@@ -1,6 +1,7 @@
 #![allow(unused)]
 
-use std::{cell::RefCell, future::Future, marker::PhantomData, ops::DerefMut, rc::Rc, sync::Arc};
+use alloc::{rc::Rc, sync::Arc};
+use core::{cell::RefCell, future::Future, marker::PhantomData, ops::DerefMut};
 
 use super::{
     builtin::{Arity, FunctionSignatureMetadata},
@@ -48,6 +49,12 @@ pub trait RegisterFn<FN, ARGS, RET> {
     fn register_owned_fn(&mut self, name: String, func: FN) -> &mut Self {
         self
     }
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self;
 }
 
 pub trait RegisterFnBorrowed<FN, ARGS, RET> {
@@ -77,7 +84,7 @@ struct RestArgs<'a> {
     args: &'a [SteelVal],
 }
 
-impl<'a> std::ops::Deref for RestArgs<'a> {
+impl<'a> core::ops::Deref for RestArgs<'a> {
     type Target = [SteelVal];
 
     fn deref(&self) -> &Self::Target {
@@ -103,6 +110,17 @@ impl<
         };
 
         self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -158,6 +176,17 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStatic>
@@ -190,6 +219,17 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendSyncStatic>
@@ -221,6 +261,17 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
                 Some(1),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -256,6 +307,17 @@ impl<
                 Some(1),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -295,6 +357,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -332,6 +405,17 @@ impl<
                 Some(2),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -382,6 +466,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -430,6 +525,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -475,6 +581,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -519,6 +636,17 @@ impl<
                 Some(3),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -606,6 +734,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -682,6 +821,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -756,6 +906,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -776,7 +937,7 @@ impl<
         // todo!()
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 1 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
@@ -803,7 +964,7 @@ impl<
                 crate::gc::unsafe_erased_pointers::TemporaryObject { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<TemporaryObject<RET>, TemporaryObject<STATICRET>>(
+                core::mem::transmute::<TemporaryObject<RET>, TemporaryObject<STATICRET>>(
                     temporary_borrowed_object,
                 )
             };
@@ -821,7 +982,7 @@ impl<
             let mut borrowed = BorrowedObject::new(weak_ptr).with_parent_flag(borrow_flag);
 
             let extended = unsafe {
-                std::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
+                core::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
             };
 
             let return_value =
@@ -847,6 +1008,19 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        RegisterFn::<FN, MarkerWrapper7<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(
+            self, name, func,
+        );
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 // TODO: Generalize this to multiple things, use more and more and more macros
@@ -862,7 +1036,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 1 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
@@ -889,7 +1063,7 @@ impl<
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<
+                core::mem::transmute::<
                     ReadOnlyTemporaryObject<RET>,
                     ReadOnlyTemporaryObject<STATICRET>,
                 >(temporary_borrowed_object)
@@ -909,7 +1083,7 @@ impl<
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
             let extended = unsafe {
-                std::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
+                core::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
                     borrowed,
                 )
             };
@@ -929,6 +1103,19 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        RegisterFn::<FN, MarkerWrapper8<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(
+            self, name, func,
+        );
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -944,7 +1131,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 2 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
@@ -975,7 +1162,7 @@ impl<
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<
+                core::mem::transmute::<
                     ReadOnlyTemporaryObject<RET>,
                     ReadOnlyTemporaryObject<STATICRET>,
                 >(temporary_borrowed_object)
@@ -993,7 +1180,7 @@ impl<
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
             let extended = unsafe {
-                std::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
+                core::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
                     borrowed,
                 )
             };
@@ -1013,6 +1200,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        RegisterFn::<FN, MarkerWrapper8<(SELF, ARG, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(self, name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -1028,7 +1226,7 @@ impl<
 {
     fn register_fn_borrowed(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 2 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
@@ -1060,7 +1258,9 @@ impl<
                 crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<Temporary<RET>, Temporary<RETSTAT>>(temporary_borrowed_object)
+                core::mem::transmute::<Temporary<RET>, Temporary<RETSTAT>>(
+                    temporary_borrowed_object,
+                )
             };
 
             // Allocate the rooted object here
@@ -1069,7 +1269,7 @@ impl<
             let borrowed = ReadOnlyTemporary { ptr: weak_ptr };
 
             let extended = unsafe {
-                std::mem::transmute::<ReadOnlyTemporary<RET>, ReadOnlyTemporary<RETSTAT>>(borrowed)
+                core::mem::transmute::<ReadOnlyTemporary<RET>, ReadOnlyTemporary<RETSTAT>>(borrowed)
             };
 
             let return_value =
@@ -1101,7 +1301,7 @@ impl<
 {
     fn register_fn_borrowed(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 1 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
@@ -1117,7 +1317,7 @@ impl<
 
             let res = func(unsafe { &(*pointer) });
 
-            // let lifted = unsafe { std::mem::transmute::<RET, RETSTAT>(res) };
+            // let lifted = unsafe { core::mem::transmute::<RET, RETSTAT>(res) };
 
             // lifted.into_steelval()
 
@@ -1132,7 +1332,9 @@ impl<
                 crate::gc::unsafe_erased_pointers::Temporary { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<Temporary<RET>, Temporary<RETSTAT>>(temporary_borrowed_object)
+                core::mem::transmute::<Temporary<RET>, Temporary<RETSTAT>>(
+                    temporary_borrowed_object,
+                )
             };
 
             // Allocate the rooted object here
@@ -1141,7 +1343,7 @@ impl<
             let borrowed = ReadOnlyTemporary { ptr: weak_ptr };
 
             let extended = unsafe {
-                std::mem::transmute::<ReadOnlyTemporary<RET>, ReadOnlyTemporary<RETSTAT>>(borrowed)
+                core::mem::transmute::<ReadOnlyTemporary<RET>, ReadOnlyTemporary<RETSTAT>>(borrowed)
             };
 
             let return_value =
@@ -1204,6 +1406,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -1248,6 +1461,17 @@ impl<
                 Some(3),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -1338,6 +1562,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -1359,7 +1594,7 @@ impl<
         // todo!()
 
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 1 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
@@ -1386,7 +1621,7 @@ impl<
                 crate::gc::unsafe_erased_pointers::TemporaryObject { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<TemporaryObject<RET>, TemporaryObject<STATICRET>>(
+                core::mem::transmute::<TemporaryObject<RET>, TemporaryObject<STATICRET>>(
                     temporary_borrowed_object,
                 )
             };
@@ -1403,7 +1638,7 @@ impl<
             let borrowed = BorrowedObject::new(weak_ptr).with_parent_flag(borrow_flag);
 
             let extended = unsafe {
-                std::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
+                core::mem::transmute::<BorrowedObject<RET>, BorrowedObject<STATICRET>>(borrowed)
             };
 
             let return_value =
@@ -1429,6 +1664,19 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        RegisterFn::<FN, MarkerWrapper7<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(
+            self, name, func,
+        );
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 // TODO: Generalize this to multiple things, use more and more and more macros
@@ -1445,7 +1693,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 1 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 1, args.len()));
@@ -1472,7 +1720,7 @@ impl<
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<
+                core::mem::transmute::<
                     ReadOnlyTemporaryObject<RET>,
                     ReadOnlyTemporaryObject<STATICRET>,
                 >(temporary_borrowed_object)
@@ -1493,7 +1741,7 @@ impl<
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
             let extended = unsafe {
-                std::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
+                core::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
                     borrowed,
                 )
             };
@@ -1513,6 +1761,19 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        RegisterFn::<FN, MarkerWrapper8<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(
+            self, name, func,
+        );
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -1529,7 +1790,7 @@ impl<
 {
     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-            let args = unsafe { std::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
+            let args = unsafe { core::mem::transmute::<&[SteelVal], &'static [SteelVal]>(args) };
 
             if args.len() != 2 {
                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, 2, args.len()));
@@ -1560,7 +1821,7 @@ impl<
                 crate::gc::unsafe_erased_pointers::ReadOnlyTemporaryObject { ptr: wrapped };
 
             let temp_borrow = unsafe {
-                std::mem::transmute::<
+                core::mem::transmute::<
                     ReadOnlyTemporaryObject<RET>,
                     ReadOnlyTemporaryObject<STATICRET>,
                 >(temporary_borrowed_object)
@@ -1578,7 +1839,7 @@ impl<
             let borrowed = ReadOnlyBorrowedObject::new(weak_ptr, borrow_flag);
 
             let extended = unsafe {
-                std::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
+                core::mem::transmute::<ReadOnlyBorrowedObject<RET>, ReadOnlyBorrowedObject<STATICRET>>(
                     borrowed,
                 )
             };
@@ -1597,6 +1858,17 @@ impl<
                 Some(2),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        RegisterFn::<FN, MarkerWrapper8<(SELF, ARG, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(self, name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -1685,6 +1957,17 @@ impl<
 
         self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper<()>, RET>
@@ -1709,6 +1992,17 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper
                 Some(0),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -1775,6 +2069,17 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
         //     ))),
         // )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendSyncStatic>
@@ -1806,6 +2111,17 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
                 Some(1),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -1842,6 +2158,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendSyncStatic>
@@ -1871,6 +2198,17 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 Some(1),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -1908,6 +2246,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendSyncStatic>
@@ -1939,6 +2288,16 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 Some(1),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self
     }
 }
 
@@ -1999,6 +2358,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -2039,6 +2409,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 macro_rules! impl_register_fn {
@@ -2072,6 +2453,18 @@ macro_rules! impl_register_fn {
                     ))),
                 )
             }
+
+            fn register_fn_with_ctx(
+                &mut self,
+                ctx: &'static str,
+                name: &'static str,
+                func: FN,
+            ) -> &mut Self {
+                self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
+                self
+            }
+
         }
 
         impl<
@@ -2103,6 +2496,18 @@ macro_rules! impl_register_fn {
                     ))),
                 )
             }
+
+
+            fn register_fn_with_ctx(
+                &mut self,
+                ctx: &'static str,
+                name: &'static str,
+                func: FN,
+            ) -> &mut Self {
+                self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
+                self
+            }
         }
 
 
@@ -2127,6 +2532,18 @@ macro_rules! impl_register_fn {
 
                 self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
             }
+
+            fn register_fn_with_ctx(
+                &mut self,
+                ctx: &'static str,
+                name: &'static str,
+                func: FN,
+            ) -> &mut Self {
+                self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
+                self
+            }
+
         }
 
         impl<
@@ -2148,6 +2565,17 @@ macro_rules! impl_register_fn {
 
                 self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
             }
+
+            fn register_fn_with_ctx(
+                &mut self,
+                ctx: &'static str,
+                name: &'static str,
+                func: FN,
+            ) -> &mut Self {
+                self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
+                self
+            }
         }
     };
 }
@@ -2161,6 +2589,19 @@ macro_rules! impl_register_fn_self {
             FN: Fn(&SELF, $($param),*) -> RET + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, MarkerWrapper3<(SELF, $($param,)*)>, RET> for T {
+
+            fn register_fn_with_ctx(
+                &mut self,
+                ctx: &'static str,
+                name: &'static str,
+                func: FN,
+            ) -> &mut Self {
+                self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
+                self
+            }
+
+
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
                 let f = move |args: &[SteelVal]| -> Result<SteelVal> {
                     if args.len() != $arg_count {
@@ -2201,6 +2642,18 @@ macro_rules! impl_register_fn_self {
             FN: Fn(&mut SELF, $($param),*) -> RET + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, MarkerWrapper4<(SELF, $($param,)*)>, RET> for T {
+
+            fn register_fn_with_ctx(
+                &mut self,
+                ctx: &'static str,
+                name: &'static str,
+                func: FN,
+            ) -> &mut Self {
+                self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
+                self
+            }
+
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
                 let f = move |args: &[SteelVal]| -> Result<SteelVal> {
                     if args.len() != $arg_count {
@@ -2239,6 +2692,19 @@ macro_rules! impl_register_fn_self {
             FN: Fn(&mut SELF, $($param),*) -> RET + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, MarkerWrapper5<(SELF, $($param,)*)>, RET> for T {
+
+            fn register_fn_with_ctx(
+                &mut self,
+                ctx: &'static str,
+                name: &'static str,
+                func: FN,
+            ) -> &mut Self {
+                self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
+                self
+            }
+
+
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
                 let f = move |args: &[SteelVal]| -> Result<SteelVal> {
                     if args.len() != $arg_count {
@@ -2301,127 +2767,7 @@ macro_rules! impl_register_fn_self {
                  ))),
              )
          }
-
         }
-
-        // impl<
-        //     T: RegisterValue,
-        //     SELF: AsRefSteelVal,
-        //     $($param: FromSteelVal,)*
-        //     FN: Fn(&SELF, $($param),*) -> RET + SendSyncStatic,
-        //     RET: IntoSteelVal
-        // > RegisterFn<FN, MarkerWrapper1<(SELF, $($param,)*)>, RET> for BuiltInModule {
-        //     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
-        //         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-        //             if args.len() != $arg_count {
-        //                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
-        //             }
-
-        //             let mut nursery = <SELF::Nursery>::default();
-
-        //             let input = <SELF>::as_ref(&args[0], &mut nursery)?;
-
-        //             let res = func(&input, $(<$param>::from_steelval(&args[$idx])?,)*);
-
-        //             res.into_steelval()
-        //         };
-
-        //         self.register_value(
-        //             name,
-        //             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-        //                 Arc::new(f),
-        //                 Some(name),
-        //                 Some($arg_count),
-        //             ))),
-        //         )
-        //     }
-        // }
-
-        // impl<
-        //     SELF: AsRefMutSteelVal,
-        //     $($param: FromSteelVal,)*
-        //     FN: Fn(&mut SELF, $($param),*) -> RET + SendSyncStatic,
-        //     RET: IntoSteelVal
-        // > RegisterFn<FN, MarkerWrapper3<(SELF, $($param,)*)>, RET> for BuiltInModule {
-        //     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
-        //         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-        //             if args.len() != $arg_count {
-        //                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
-        //             }
-
-        //             let mut input = <SELF>::as_mut_ref(&args[0])?;
-
-        //             let res = func(&mut input, $(<$param>::from_steelval(&args[$idx])?,)*);
-
-        //             res.into_steelval()
-        //         };
-
-        //         self.register_value(
-        //             name,
-        //             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-        //                 Arc::new(f),
-        //                 Some(name),
-        //                 Some($arg_count),
-        //             ))),
-        //         )
-        //     }
-        // }
-
-        // impl<
-        //     SELF: AsRefMutSteelValFromRef,
-        //     $($param: FromSteelVal,)*
-        //     FN: Fn(&mut SELF, $($param),*) -> RET + SendSyncStatic,
-        //     RET: IntoSteelVal
-        // > RegisterFn<FN, MarkerWrapper5<(SELF, $($param,)*)>, RET> for BuiltInModule {
-        //     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
-        //         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-        //             if args.len() != $arg_count {
-        //                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
-        //             }
-
-        //             let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
-
-        //             let res = func(&mut input, $(<$param>::from_steelval(&args[$idx])?,)*);
-
-        //             res.into_steelval()
-        //         };
-
-        //         self.register_value(
-        //             name,
-        //             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-        //                 Arc::new(f),
-        //                 Some(name),
-        //                 Some($arg_count),
-        //             ))),
-        //         )
-        //     }
-
-        //     fn register_owned_fn(&mut self, name: String, func: FN) -> &mut Self {
-
-        //         let cloned_name = name.clone();
-
-        //         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-        //             if args.len() != $arg_count {
-        //                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
-        //             }
-
-        //             let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
-
-        //             let res = func(&mut input, $(<$param>::from_steelval(&args[$idx])?,)*);
-
-        //             res.into_steelval()
-        //         };
-
-        //         self.register_value(
-        //             &cloned_name.to_string(),
-        //             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
-        //                 Arc::new(f),
-        //                 Some(Arc::new(cloned_name)),
-        //                 Some($arg_count),
-        //             ))),
-        //         )
-        //     }
-        // }
     };
 }
 
@@ -2457,43 +2803,3 @@ impl_register_fn_self!(13 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, 
 impl_register_fn_self!(14 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13);
 impl_register_fn_self!(15 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13, O: 14);
 impl_register_fn_self!(16 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 14, O: 14, P: 15);
-
-// Generate the combinations for up to arity 5?
-mod generated_impls {
-
-    use super::*;
-
-    pub struct FakeEngine {}
-
-    #[derive(Clone)]
-    struct FooBarBaz {}
-
-    impl crate::rvals::Custom for FooBarBaz {}
-
-    // Check the status of the code gen. Eventually we're going to pivot this to just be a blanket implementation
-    // against anything that implements `RegisterValue`
-    // #[test]
-    // fn check_engine_light() {
-    //     let mut engine = FakeEngine {};
-
-    //     engine.register_fn(
-    //         "applesauce",
-    //         |foo: FooBarBaz,
-    //          bar: &FooBarBaz,
-    //          baz: &mut FooBarBaz,
-    //          quux: FooBarBaz,
-    //          qux: FooBarBaz| todo!(),
-    //     );
-    // }
-
-    struct MarkerWrapper<ARGS>(PhantomData<ARGS>);
-
-    impl FakeEngine {
-        pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
-            todo!()
-        }
-    }
-
-    // TODO: Come up with better MarkerWrapper<ARGS>(PhantomData<ARGS>); -> This is gonna be nasty.
-    // include!(concat!(env!("OUT_DIR"), "/generated.rs"));
-}

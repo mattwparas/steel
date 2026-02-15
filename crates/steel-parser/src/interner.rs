@@ -1,35 +1,17 @@
+use alloc::sync::Arc;
 use compact_str::CompactString;
+use core::fmt;
 use lasso::Key;
 use lasso::Spur;
 use once_cell::sync::OnceCell;
 use rustc_hash::FxBuildHasher;
 use serde::{Deserialize, Serialize};
-use std::{fmt, sync::Arc};
 
 // TODO: Serialize and Deserialize should resolve() -> Otherwise we're in for deep trouble
 // trying to serialize and deserialize this
 #[derive(Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct InternedString(Spur);
-
-// impl Encode for InternedString {
-//     fn encode<E: bincode::enc::Encoder>(
-//         &self,
-//         encoder: &mut E,
-//     ) -> Result<(), bincode::error::EncodeError> {
-//         bincode::Encode::encode(self.resolve(), encoder)
-//     }
-// }
-
-// impl<Context> Decode<Context> for InternedString {
-//     fn decode<D: bincode::de::Decoder<Context = Context>>(
-//         decoder: &mut D,
-//     ) -> Result<Self, bincode::error::DecodeError> {
-//         let string: String = bincode::Decode::decode(decoder)?;
-
-//         Ok(string.into())
-//     }
-// }
 
 impl Serialize for InternedString {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

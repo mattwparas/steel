@@ -1,6 +1,6 @@
 #![allow(improper_ctypes_definitions, unused)]
 
-use std::mem::ManuallyDrop;
+use core::mem::ManuallyDrop;
 
 use steel_derive::cross_platform_fn;
 use steel_gen::opcode::{MAX_OPCODE_SIZE, OPCODES_ARRAY};
@@ -1808,7 +1808,7 @@ fn num_equal_value_unboxed(_ctx: *mut VmCore, left: i128, right: i128) -> bool {
 
     unsafe {
         if let Ok(SteelVal::BoolV(b)) =
-            number_equality(&std::mem::transmute(left), &std::mem::transmute(right))
+            number_equality(&core::mem::transmute(left), &core::mem::transmute(right))
         {
             b
         } else {
@@ -1848,7 +1848,7 @@ impl<'a> VmCore<'a> {
     fn move_local_value(&mut self, index: usize) -> SteelVal {
         let offset = self.get_offset();
 
-        let value = std::mem::replace(&mut self.thread.stack[index + offset], SteelVal::Void);
+        let value = core::mem::replace(&mut self.thread.stack[index + offset], SteelVal::Void);
         self.ip += 1;
         return value;
     }
@@ -2383,7 +2383,7 @@ fn handle_global_tail_call_deopt_with_args(
             for val in args {
                 ctx.thread
                     .stack
-                    .push(std::mem::replace(val, SteelVal::Void));
+                    .push(core::mem::replace(val, SteelVal::Void));
             }
 
             // TODO:
@@ -2400,7 +2400,7 @@ fn handle_global_tail_call_deopt_with_args(
             for val in args {
                 ctx.thread
                     .stack
-                    .push(std::mem::replace(val, SteelVal::Void));
+                    .push(core::mem::replace(val, SteelVal::Void));
             }
             ctx.call_continuation(cc)?;
             Ok(SteelVal::Void)
@@ -2410,7 +2410,7 @@ fn handle_global_tail_call_deopt_with_args(
             for val in args {
                 ctx.thread
                     .stack
-                    .push(std::mem::replace(val, SteelVal::Void));
+                    .push(core::mem::replace(val, SteelVal::Void));
             }
             ctx.call_builtin_func(f, len)?;
             Ok(SteelVal::Void)
@@ -2420,7 +2420,7 @@ fn handle_global_tail_call_deopt_with_args(
             for val in args {
                 ctx.thread
                     .stack
-                    .push(std::mem::replace(val, SteelVal::Void));
+                    .push(core::mem::replace(val, SteelVal::Void));
             }
 
             ctx.call_custom_struct(&s, len)?;
@@ -2512,7 +2512,7 @@ fn handle_global_function_call_with_args(
             for val in args {
                 ctx.thread
                     .stack
-                    .push(std::mem::replace(val, SteelVal::Void));
+                    .push(core::mem::replace(val, SteelVal::Void));
             }
 
             if should_trampoline(ctx) {
@@ -2567,7 +2567,7 @@ fn handle_global_function_call_with_args(
             for val in args {
                 ctx.thread
                     .stack
-                    .push(std::mem::replace(val, SteelVal::Void));
+                    .push(core::mem::replace(val, SteelVal::Void));
             }
             ctx.call_continuation(cc)?;
             Ok(SteelVal::Void)
@@ -2577,7 +2577,7 @@ fn handle_global_function_call_with_args(
             for val in args {
                 ctx.thread
                     .stack
-                    .push(std::mem::replace(val, SteelVal::Void));
+                    .push(core::mem::replace(val, SteelVal::Void));
             }
             ctx.call_builtin_func(f, len)?;
             Ok(SteelVal::Void)
@@ -2587,7 +2587,7 @@ fn handle_global_function_call_with_args(
             for val in args {
                 ctx.thread
                     .stack
-                    .push(std::mem::replace(val, SteelVal::Void));
+                    .push(core::mem::replace(val, SteelVal::Void));
             }
 
             ctx.call_custom_struct(&s, len)?;
@@ -4892,7 +4892,7 @@ fn pop_test(ctx: &mut VmCore) -> bool {
 
 #[cross_platform_fn]
 fn if_handler_raw_value(_ctx: *mut VmCore, value: i128) -> bool {
-    let test: SteelVal = unsafe { std::mem::transmute(value) };
+    let test: SteelVal = unsafe { core::mem::transmute(value) };
     test.is_truthy()
 }
 

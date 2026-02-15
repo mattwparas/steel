@@ -49,6 +49,8 @@ use crate::{
     rvals::SteelString,
 };
 pub use control::ControlOperations;
+use core::convert::TryFrom;
+use core::result;
 pub use fs::{fs_module, fs_module_sandbox};
 pub use io::IoFunctions;
 pub use lists::UnRecoverableResult;
@@ -58,8 +60,6 @@ use num_rational::{BigRational, Rational32};
 use num_traits::ToPrimitive;
 pub use numbers::{add_primitive, divide_primitive, multiply_primitive, subtract_primitive};
 pub use ports::port_module;
-use std::convert::TryFrom;
-use std::result;
 pub use streams::StreamOperations;
 pub use strings::string_module;
 pub use symbols::symbol_module;
@@ -172,6 +172,30 @@ impl FromSteelVal for u8 {
             _ => Err(SteelErr::new(
                 ErrorKind::ConversionError,
                 format!("Unable to convert steelval to u8: {}", val),
+            )),
+        }
+    }
+}
+
+impl FromSteelVal for i8 {
+    #[inline]
+    fn from_steelval(val: &SteelVal) -> crate::rvals::Result<Self> {
+        match val {
+            SteelVal::IntV(v) => (*v).try_into().map_err(|_err| {
+                SteelErr::new(
+                    ErrorKind::ConversionError,
+                    format!("Unable to convert isize to i8: {}", v),
+                )
+            }),
+            SteelVal::BigNum(n) => n.as_ref().try_into().map_err(|_err| {
+                SteelErr::new(
+                    ErrorKind::ConversionError,
+                    format!("Unable to convert bignum to i8: {:?}", n),
+                )
+            }),
+            _ => Err(SteelErr::new(
+                ErrorKind::ConversionError,
+                format!("Unable to convert steelval to i8: {}", val),
             )),
         }
     }
@@ -371,7 +395,7 @@ impl IntoSteelVal for BigRational {
 from_f64!(f64, f32);
 from_for_isize!(i32, i16, i8, u8, u16, u32, u64, isize);
 try_from_impl!(NumV => f64, f32);
-try_from_impl!(IntV => i32, i16, i8, u16, u32, u64, usize, isize);
+try_from_impl!(IntV => i32, i16, u16, u32, u64, usize, isize);
 
 impl TryFrom<SteelVal> for String {
     type Error = SteelErr;
@@ -463,8 +487,8 @@ pub enum Either<L, R> {
 impl<'a, L: PrimitiveAsRef<'a>, R: PrimitiveAsRef<'a>> PrimitiveAsRef<'a> for Either<L, R> {
     #[inline(always)]
     fn primitive_as_ref(val: &'a SteelVal) -> crate::rvals::Result<Self> {
-        let left_type_name = std::any::type_name::<L>();
-        let right_type_name = std::any::type_name::<R>();
+        let left_type_name = core::any::type_name::<L>();
+        let right_type_name = core::any::type_name::<R>();
 
         let error_thunk = crate::throw!(ConversionError => format!("Cannot convert steel value to the specified type: {} or {}", left_type_name, right_type_name));
 
