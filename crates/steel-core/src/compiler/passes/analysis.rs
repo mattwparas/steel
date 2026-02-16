@@ -5275,37 +5275,29 @@ impl<'a> SemanticAnalysis<'a> {
         modules: &FxHashMap<InternedString, FxHashMap<InternedString, InternedString>>,
         define: &Box<Define>,
         new_mapping: &mut FxHashMap<InternedString, InternedString>,
-    ) {
-        if let Some(name) = define.name.atom_identifier() {
-            if name.resolve().starts_with(prefix) {
-                if let Some(analysis) = define
-                    .name
-                    .atom_syntax_object()
-                    .and_then(|x| self.analysis.get(x))
-                {
-                    if !analysis.set_bang {
-                        if let Some(func) = define.body.list().and_then(|x| x.first_ident()) {
-                            if *func == proto_hash_get {
-                                let proto = define.body.list().unwrap();
-                                if let Some(module) =
-                                    proto.args.get(1).and_then(|x| x.atom_identifier())
-                                {
-                                    if let Some(ExprKind::Quote(key)) = proto.args.get(2) {
-                                        if let Some(key) = key.expr.atom_identifier() {
-                                            let mapped_identifier =
-                                                modules.get(module).and_then(|x| x.get(key));
-                                            if let Some(mapped_identifier) = mapped_identifier {
-                                                new_mapping.insert(*name, *mapped_identifier);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
+    ) -> Option<()> {
+        let name = define.name.atom_identifier()?;
+        if name.resolve().starts_with(prefix) {
+            let analysis = define
+                .name
+                .atom_syntax_object()
+                .and_then(|x| self.analysis.get(x))?;
+
+            if !analysis.set_bang {
+                let func = define.body.list().and_then(|x| x.first_ident())?;
+                if *func == proto_hash_get {
+                    let proto = define.body.list().unwrap();
+                    let module = proto.args.get(1).and_then(|x| x.atom_identifier())?;
+                    if let Some(ExprKind::Quote(key)) = proto.args.get(2) {
+                        let key = key.expr.atom_identifier()?;
+                        let mapped_identifier = modules.get(module).and_then(|x| x.get(key))?;
+                        new_mapping.insert(*name, *mapped_identifier);
                     }
                 }
             }
         }
+
+        Some(())
     }
 
     // TODO: Check the arity at the call site and make sure it matches before inlining!
