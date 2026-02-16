@@ -1,8 +1,12 @@
 use polling::{Event, Events, Poller};
-use std::{cell::RefCell, net::TcpListener, sync::atomic::AtomicUsize};
+use std::{
+    cell::RefCell,
+    net::{TcpListener, TcpStream},
+    sync::atomic::AtomicUsize,
+};
 
 use crate::{
-    rvals::{AsRefSteelVal, Custom, IntoSteelVal, Result},
+    rvals::{as_underlying_type, AsRefSteelVal, Custom, IntoSteelVal, Result},
     steel_vm::builtin::BuiltInModule,
     SteelVal,
 };
@@ -26,26 +30,61 @@ pub fn new_poller() -> Result<SteelVal> {
 
 #[steel_derive::function(name = "add-event-interest-read")]
 pub fn add_read(poller: &SteelVal, socket: &SteelVal, key: usize) -> Result<SteelVal> {
-    unsafe {
-        Poller::as_ref(poller)?.add(&*(TcpListener::as_ref(socket)?), Event::readable(key))?;
-        Ok(SteelVal::Void)
+    let poller = Poller::as_ref(poller)?;
+
+    if let SteelVal::Custom(c) = socket {
+        let guard = c.read();
+        if let Some(v) = as_underlying_type::<TcpListener>(guard.as_ref()) {
+            unsafe {
+                poller.add(&*v, Event::readable(key))?;
+            }
+        } else if let Some(v) = as_underlying_type::<TcpStream>(guard.as_ref()) {
+            unsafe {
+                poller.add(&*v, Event::readable(key))?;
+            }
+        }
     }
+
+    Ok(SteelVal::Void)
 }
 
 #[steel_derive::function(name = "add-event-interest-write")]
 pub fn add_write(poller: &SteelVal, socket: &SteelVal, key: usize) -> Result<SteelVal> {
-    unsafe {
-        Poller::as_ref(poller)?.add(&*(TcpListener::as_ref(socket)?), Event::writable(key))?;
-        Ok(SteelVal::Void)
+    let poller = Poller::as_ref(poller)?;
+
+    if let SteelVal::Custom(c) = socket {
+        let guard = c.read();
+        if let Some(v) = as_underlying_type::<TcpListener>(guard.as_ref()) {
+            unsafe {
+                poller.add(&*v, Event::writable(key))?;
+            }
+        } else if let Some(v) = as_underlying_type::<TcpStream>(guard.as_ref()) {
+            unsafe {
+                poller.add(&*v, Event::writable(key))?;
+            }
+        }
     }
+
+    Ok(SteelVal::Void)
 }
 
 #[steel_derive::function(name = "add-event-interest-all")]
 pub fn add_all(poller: &SteelVal, socket: &SteelVal, key: usize) -> Result<SteelVal> {
-    unsafe {
-        Poller::as_ref(poller)?.add(&*(TcpListener::as_ref(socket)?), Event::all(key))?;
-        Ok(SteelVal::Void)
+    let poller = Poller::as_ref(poller)?;
+
+    if let SteelVal::Custom(c) = socket {
+        let guard = c.read();
+        if let Some(v) = as_underlying_type::<TcpListener>(guard.as_ref()) {
+            unsafe {
+                poller.add(&*v, Event::all(key))?;
+            }
+        } else if let Some(v) = as_underlying_type::<TcpStream>(guard.as_ref()) {
+            unsafe {
+                poller.add(&*v, Event::all(key))?;
+            }
+        }
     }
+    Ok(SteelVal::Void)
 }
 
 // Probably, just need to have a thread local events?

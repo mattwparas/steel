@@ -47,7 +47,6 @@
 
     (listen-for-tasks))
 
-
   ;; Give me back a thread pool to do some work
   (ThreadPool sender
               capacity

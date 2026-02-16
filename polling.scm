@@ -23,19 +23,19 @@
 ;; So we will clear it per loop, but we won't be
 ;; responsible for setting up the events buffer itself.
 
-(define (event-loop)
-  (events-clear!)
-  ;; Probably need some global poller
-  (poller-wait poller)
+; (define (event-loop)
+;   (events-clear!)
+;   ;; Probably need some global poller
+;   (poller-wait poller)
 
-  (let ([events (events->list)])
-    (for-each (lambda (event)
-                (when (= event key)
-                  (displayln "Performing a non blocking accept")
-                  (tcp-accept listener)
-                  (displayln "Updating event interest")
-                  (modify-event-interest-read! poller listener key)))
-              events)))
+;   (let ([events (events->list)])
+;     (for-each (lambda (event)
+;                 (when (= event key)
+;                   (displayln "Performing a non blocking accept")
+;                   (tcp-accept listener)
+;                   (displayln "Updating event interest")
+;                   (modify-event-interest-read! poller listener key)))
+;               events)))
 
 (define (event-loop)
   (displayln "Waiting for events.")
@@ -59,10 +59,9 @@
 ;; an event for this thing.
 (define (read-byte output-port)
   (define byte (#%prim.read-byte output-port))
-  (if (would-block-object?)
+  (if (would-block-object? byte)
       (begin
-        ;; Yield... but schedule this thread to be woken up?
-        (async-yield)
+        (async-yield (#%port->tcp-stream output-port))
         (read-byte output-port))
       byte))
 

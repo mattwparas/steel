@@ -84,7 +84,10 @@ pub fn tcp_input_port(stream: &SteelVal) -> Result<SteelVal> {
 pub fn tcp_output_port(stream: &SteelVal) -> Result<SteelVal> {
     let reader = TcpStream::as_ref(stream)?.try_clone().unwrap();
     Ok(SteelVal::PortV(SteelPort {
-        port: Gc::new_lock(SteelPortRepr::TcpStream(Peekable::new(reader))),
+        port: Gc::new_lock(SteelPortRepr::TcpStream(
+            stream.clone(),
+            Peekable::new(reader),
+        )),
     }))
 }
 

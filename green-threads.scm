@@ -1,6 +1,7 @@
 (provide spawn
          yield
-         start-threads)
+         start-threads
+         async-yield)
 
 ; *thread-queue* : list[continuation]
 (define *thread-queue* '())
@@ -27,7 +28,7 @@
           (thunk)
           (quit)))))
 
-; async-ield : value -> void
+; async-yield : value -> void
 (define (async-yield key)
   (let ([cc (current-continuation)])
     ;; If there is a continuation, and there is a thread queue?

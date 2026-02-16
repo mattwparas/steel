@@ -232,7 +232,7 @@ pub enum SteelPortRepr {
     // with blanket trait impls to do the thing otherwise.
     DynWriter(Arc<Mutex<dyn Write + Send + Sync>>),
     DynReader(Peekable<BufReader<Box<dyn Read + Send + Sync>>>),
-    TcpStream(Peekable<TcpStream>),
+    TcpStream(SteelVal, Peekable<TcpStream>),
     // DynReader(Box<dyn Read>),
     Closed,
 }
@@ -259,7 +259,7 @@ impl core::fmt::Debug for SteelPortRepr {
                 .debug_tuple("DynReader")
                 .field(&"#<opaque-reader>")
                 .finish(),
-            SteelPortRepr::TcpStream(_) => f.debug_tuple("TcpStream").finish(),
+            SteelPortRepr::TcpStream(_, _) => f.debug_tuple("TcpStream").finish(),
             SteelPortRepr::Closed => f.debug_tuple("Closed").finish(),
         }
     }
@@ -280,7 +280,7 @@ impl core::fmt::Display for SteelPortRepr {
             SteelPortRepr::StringOutput(_) => write!(f, "#<output-port:string>"),
             SteelPortRepr::DynWriter(_) => write!(f, "#<output-port:opaque>"),
             SteelPortRepr::DynReader(_) => write!(f, "#<input-port:opaque>"),
-            SteelPortRepr::TcpStream(_) => write!(f, "#<port:tcp>"),
+            SteelPortRepr::TcpStream(_, _) => write!(f, "#<port:tcp>"),
             SteelPortRepr::Closed => write!(f, "#<port:closed>"),
         }
     }
@@ -460,7 +460,7 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdError(output) => output.read_bytes_amt(buf),
             SteelPortRepr::StringInput(reader) => reader.read_bytes_amt(buf),
             SteelPortRepr::DynReader(reader) => reader.read_bytes_amt(buf),
-            SteelPortRepr::TcpStream(t) => t.read_bytes_amt(buf),
+            SteelPortRepr::TcpStream(_, t) => t.read_bytes_amt(buf),
             SteelPortRepr::FileOutput(_, _)
             | SteelPortRepr::StdOutput(_)
             | SteelPortRepr::StdError(_)
@@ -481,7 +481,7 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdError(output) => output.read_byte(),
             SteelPortRepr::StringInput(reader) => reader.read_byte(),
             SteelPortRepr::DynReader(reader) => reader.read_byte(),
-            SteelPortRepr::TcpStream(t) => t.read_byte(),
+            SteelPortRepr::TcpStream(_, t) => t.read_byte(),
             SteelPortRepr::FileOutput(_, _)
             | SteelPortRepr::StdOutput(_)
             | SteelPortRepr::StdError(_)
@@ -502,7 +502,7 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdError(output) => output.peek_byte(),
             SteelPortRepr::StringInput(reader) => reader.peek_byte(),
             SteelPortRepr::DynReader(reader) => reader.peek_byte(),
-            SteelPortRepr::TcpStream(t) => t.peek_byte(),
+            SteelPortRepr::TcpStream(_, t) => t.peek_byte(),
             SteelPortRepr::FileOutput(_, _)
             | SteelPortRepr::StdOutput(_)
             | SteelPortRepr::StdError(_)
@@ -598,7 +598,7 @@ impl SteelPortRepr {
             SteelPortRepr::StringOutput(writer) => writer.write_all(buf)?,
             SteelPortRepr::DynWriter(writer) => writer.lock().unwrap().write_all(buf)?,
             // TODO: Should tcp streams be both input and output ports?
-            SteelPortRepr::TcpStream(tcp) => tcp.inner.write_all(buf)?,
+            SteelPortRepr::TcpStream(_, tcp) => tcp.inner.write_all(buf)?,
             SteelPortRepr::FileInput(_, _)
             | SteelPortRepr::StdInput(_)
             | SteelPortRepr::DynReader(_)

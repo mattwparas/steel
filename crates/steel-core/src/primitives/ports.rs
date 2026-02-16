@@ -610,6 +610,14 @@ pub fn would_block_object() -> SteelVal {
     would_block()
 }
 
+#[function(name = "#%port->tcp-stream")]
+pub fn port_as_tcp_stream(port: &SteelPort) -> Option<SteelVal> {
+    match &*port.port.lock() {
+        SteelPortRepr::TcpStream(p, _) => Some(p.clone()),
+        _ => None,
+    }
+}
+
 /// Returns `#t` if the value is an EOF object.
 ///
 /// (eof-object? any/c) -> bool?
