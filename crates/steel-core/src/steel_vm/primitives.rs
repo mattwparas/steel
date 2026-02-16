@@ -91,6 +91,7 @@ use compact_str::CompactString;
 use core::cmp::Ordering;
 use once_cell::sync::Lazy;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
+use std::path::PathBuf;
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
 
 #[cfg(not(target_family = "wasm"))]
@@ -2145,6 +2146,52 @@ pub fn closure_to_boxed_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
     Some(function_to_ffi_impl(ctx, args))
 }
 
+#[steel_derive::context(name = "module->exports", arity = "Exact(1)")]
+fn module_exports(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn module_exports_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        let module = args[0].clone();
+
+        match module {
+            SteelVal::StringV(s) | SteelVal::SymbolV(s) => {
+                let guard = ctx.thread.compiler.read();
+                let modules = guard.modules();
+
+                let mut as_path = PathBuf::from(s.as_str());
+
+                if let Ok(p) = std::fs::canonicalize(&as_path) {
+                    as_path = p;
+                }
+
+                let mut symbols = Vec::new();
+
+                if let Some(module) = modules.get(&as_path) {
+                    let provides = module.get_provides();
+
+                    for p in provides {
+                        for provide in &p.list().unwrap().args[1..] {
+                            if let Some(ident) = provide.atom_identifier() {
+                                symbols.push(SteelVal::SymbolV(ident.resolve().into()));
+                            }
+
+                            if let Some(list) = provide.list().and_then(|x| x.second_ident()) {
+                                symbols.push(SteelVal::SymbolV(list.resolve().into()));
+                            }
+                        }
+                    }
+
+                    symbols.into_steelval()
+                } else {
+                    stop!(Generic => "Unable to resolve module: {:?}", as_path);
+                }
+            }
+            _ => {
+                stop!(TypeMismatch => "module->exports expects a string or symbol referring to a module, found: {}", module);
+            }
+        }
+    }
+    Some(module_exports_impl(ctx, args))
+}
+
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
@@ -2291,7 +2338,8 @@ fn meta_module() -> BuiltInModule {
         .register_fn("%#interner-memory-usage", interned_current_memory_usage)
         .register_native_fn_definition(PUSH_MODULE_CONTEXT_DEFINITION)
         .register_native_fn_definition(POP_MODULE_CONTEXT_DEFINITION)
-        .register_native_fn_definition(GET_MODULE_CONTEXT_DEFINITION);
+        .register_native_fn_definition(GET_MODULE_CONTEXT_DEFINITION)
+        .register_native_fn_definition(MODULE_EXPORTS_DEFINITION);
 
     module
         .register_native_fn_definition(WILL_EXECUTE_DEFINITION)
