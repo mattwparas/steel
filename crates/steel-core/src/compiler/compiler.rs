@@ -1299,6 +1299,11 @@ impl Compiler {
         analysis.populate_captures(&expanded_statements);
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
+        // Inline across module boundaries
+
+        semantic.inline_idents_across_module_boundaries()?;
+        semantic.refresh_variables();
+
         // Do this, and then inline everything. Do it again
         // TODO: Configure the amount that we inline?
         semantic.inline_function_calls(None)?;
@@ -1331,13 +1336,8 @@ impl Compiler {
             semantic.lift_closures();
         }
 
-        // self.shadowed_variable_renamer
-        //     .rename_shadowed_variables(&mut semantic.exprs, false);
-
-        // analysis.fresh_from_exprs(&expanded_statements);
-        // semantic.analysis.fresh_from_exprs(&semantic.exprs);
-
-        // semantic.fresh
+        // semantic.inline_idents_across_module_boundaries()?;
+        // semantic.refresh_variables();
 
         // TODO: Configure inlining function size
 

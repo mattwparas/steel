@@ -4299,13 +4299,40 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
         if let Some(ident) = a.ident_mut() {
             if self.identifiers_to_replace.contains(ident) {
                 if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
-                    // *ident = ("#%prim.".to_string() + builtin_name).into();
-
                     *ident = builtin_to_reserved(builtin_name);
                     self.changed = true;
                 }
             }
         }
+    }
+}
+
+struct FlattenModuleReferences<'a> {
+    identifier_mapping: &'a mut FxHashMap<InternedString, InternedString>,
+    proto_hash: InternedString,
+}
+
+impl<'a> VisitorMutRefUnit for FlattenModuleReferences<'a> {
+    fn visit_atom(&mut self, a: &mut Atom) {
+        if let Some(i) = a.ident_mut() {
+            if let Some(value) = self.identifier_mapping.get(i) {
+                *i = *value;
+            }
+        }
+    }
+
+    fn visit_define(&mut self, define: &mut Define) {
+        if let Some(name) = define.name.atom_identifier() {
+            if name.resolve().starts_with("__module-##mm") {
+                if let Some(func) = define.body.list().and_then(|x| x.first_ident()) {
+                    if *func == self.proto_hash {
+                        return;
+                    }
+                }
+            }
+        }
+
+        self.visit(&mut define.body);
     }
 }
 
@@ -5090,6 +5117,195 @@ impl<'a> SemanticAnalysis<'a> {
         self.find_call_sites_and_modify_with_many_depth(funcs, depth);
 
         Ok(())
+    }
+
+    pub fn inline_idents_across_module_boundaries(&mut self) -> Result<(), SteelErr> {
+        /*
+        (begin
+         (#%prim.#%push-module-context
+                 "/home/matt/code/steel/test.scm")
+              (#%void)
+              (quote
+                void)
+              (define ##mm5673__%#__test-func
+                (λ (##x2 ##y2 ##z2)
+                  (#%prim.list ##x2 ##y2 ##z2)))
+              (define __module-##mm5673__%#__
+                (%proto-hash%
+                   (quote
+                     test-func)
+                   ##mm5673__%#__test-func))
+              (#%prim.#%pop-module-context))
+
+        (begin
+         (define ##mm5800__%#__test-func
+                (%proto-hash-get%
+                   __module-##mm5673__%#__
+                   (quote
+                     test-func)))
+              (#%prim.#%push-module-context
+                 "/home/matt/code/steel/foo.scm")
+              (#%void)
+              (quote
+                void)
+              (##mm5800__%#__test-func 10 20 30)
+              (if (#%prim.null? (#%prim.cdr (#%prim.list 10)))
+                10
+                20)
+              (define __module-##mm5800__%#__
+                (%proto-hash%))
+              (#%prim.#%pop-module-context))
+
+        What we're looking for here is to track the usage of the ##mm5800__%#__test-func
+        through the proto-hash-get, and link it back to the original definition, and confirm
+        that it hasn't been mutated. Assuming that is the case, we can then replace usages
+        of the identifier across module boundaries.
+                */
+
+        let prefix = "##mm";
+        let proto_hash_get: InternedString = "%proto-hash-get%".into();
+        let proto_hash: InternedString = "%proto-hash%".into();
+
+        // This is going to be a mapping of module name -> map of symbol name -> original binding.
+        //
+        // Assuming we do this correctly, we can then just visit identifiers later, and create a
+        // mapping of identifier -> original binding. Inlining across module boundaries will let
+        // us actually do something real optimizations, especially of primitives like ports, etc.
+        let mut module_definitions: FxHashMap<
+            InternedString,
+            FxHashMap<InternedString, InternedString>,
+        > = Default::default();
+
+        for expression in self.exprs.iter() {
+            match expression {
+                ExprKind::Define(define) => {
+                    self.check_define_module(proto_hash, &mut module_definitions, define)
+                }
+                ExprKind::Begin(b) => {
+                    for expression in &b.exprs {
+                        if let ExprKind::Define(define) = expression {
+                            self.check_define_module(proto_hash, &mut module_definitions, define)
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut ident_mapping = FxHashMap::default();
+
+        for expression in self.exprs.iter() {
+            match expression {
+                ExprKind::Define(define) => {
+                    self.check_define_proto_hash_get(
+                        prefix,
+                        proto_hash_get,
+                        &module_definitions,
+                        define,
+                        &mut ident_mapping,
+                    );
+                }
+                ExprKind::Begin(b) => {
+                    for expression in &b.exprs {
+                        if let ExprKind::Define(define) = expression {
+                            self.check_define_proto_hash_get(
+                                prefix,
+                                proto_hash_get,
+                                &module_definitions,
+                                define,
+                                &mut ident_mapping,
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut visitor = FlattenModuleReferences {
+            identifier_mapping: &mut ident_mapping,
+            proto_hash,
+        };
+
+        for expr in self.exprs.iter_mut() {
+            visitor.visit(expr);
+        }
+
+        Ok(())
+    }
+
+    fn check_define_module(
+        &self,
+        proto_hash: InternedString,
+        module_defs: &mut FxHashMap<InternedString, FxHashMap<InternedString, InternedString>>,
+        define: &Box<Define>,
+    ) {
+        if let Some(name) = define.name.atom_identifier() {
+            if name.resolve().starts_with("__module-##mm") {
+                if let Some(func) = define.body.list().and_then(|x| x.first_ident()) {
+                    if *func == proto_hash {
+                        let expr = define.body.list().unwrap();
+
+                        let mut map = FxHashMap::default();
+
+                        for chunk in expr.args[1..].chunks_exact(2) {
+                            match &chunk {
+                                &[ExprKind::Quote(a), ident] => {
+                                    if let Some(quoted_ident) = a.expr.atom_identifier() {
+                                        if let Some(rhs) = ident.atom_identifier() {
+                                            map.insert(*quoted_ident, *rhs);
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        module_defs.insert(*name, map);
+                    }
+                }
+            }
+        }
+    }
+
+    fn check_define_proto_hash_get(
+        &self,
+        prefix: &str,
+        proto_hash_get: InternedString,
+        modules: &FxHashMap<InternedString, FxHashMap<InternedString, InternedString>>,
+        define: &Box<Define>,
+        new_mapping: &mut FxHashMap<InternedString, InternedString>,
+    ) {
+        if let Some(name) = define.name.atom_identifier() {
+            if name.resolve().starts_with(prefix) {
+                if let Some(analysis) = define
+                    .name
+                    .atom_syntax_object()
+                    .and_then(|x| self.analysis.get(x))
+                {
+                    if !analysis.set_bang {
+                        if let Some(func) = define.body.list().and_then(|x| x.first_ident()) {
+                            if *func == proto_hash_get {
+                                let proto = define.body.list().unwrap();
+                                if let Some(module) =
+                                    proto.args.get(1).and_then(|x| x.atom_identifier())
+                                {
+                                    if let Some(ExprKind::Quote(key)) = proto.args.get(2) {
+                                        if let Some(key) = key.expr.atom_identifier() {
+                                            let mapped_identifier =
+                                                modules.get(module).and_then(|x| x.get(key));
+                                            if let Some(mapped_identifier) = mapped_identifier {
+                                                new_mapping.insert(*name, *mapped_identifier);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // TODO: Check the arity at the call site and make sure it matches before inlining!
