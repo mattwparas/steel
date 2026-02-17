@@ -1,8 +1,12 @@
-use std::collections::{hash_map, HashMap, HashSet};
+use core::ops::ControlFlow;
+use std::{
+    collections::{hash_map, HashMap, HashSet},
+    path::PathBuf,
+};
 
 use crate::{
     compiler::{
-        modules::{MANGLER_PREFIX, MODULE_PREFIX},
+        modules::{CompiledModule, MANGLER_PREFIX, MODULE_PREFIX},
         program::{SETBOX, UNBOX},
     },
     parser::ast::List,
@@ -2319,6 +2323,10 @@ where
             if let Some(semantic_info) = self.analysis.get(l.args[0].atom_syntax_object().unwrap())
             {
                 if semantic_info.kind == IdentifierStatus::Global {
+                    if let Some(func) = self.map.get_mut(name) {
+                        (func)(self.analysis, l);
+                    }
+                } else if name.resolve().starts_with("##") {
                     if let Some(func) = self.map.get_mut(name) {
                         (func)(self.analysis, l);
                     }
@@ -5119,7 +5127,10 @@ impl<'a> SemanticAnalysis<'a> {
         Ok(())
     }
 
-    pub fn inline_idents_across_module_boundaries(&mut self) -> Result<(), SteelErr> {
+    pub fn inline_idents_across_module_boundaries(
+        &mut self,
+        module_map: &crate::HashMap<PathBuf, CompiledModule>,
+    ) -> Result<(), SteelErr> {
         /*
         (begin
          (#%prim.#%push-module-context
@@ -5175,6 +5186,33 @@ impl<'a> SemanticAnalysis<'a> {
             InternedString,
             FxHashMap<InternedString, InternedString>,
         > = Default::default();
+
+        // Go through the already compiled modules, and attempt to resolve
+        // any remaining references to modules that have already been established.
+        //
+        // Then we can rename those references, and later during the actual inlining
+        // pass we can use them.
+        for (_, module) in module_map {
+            if let Some(ast) = module.get_compiled_ast() {
+                match ast {
+                    ExprKind::Define(define) => {
+                        self.check_define_module(proto_hash, &mut module_definitions, define)
+                    }
+                    ExprKind::Begin(b) => {
+                        for expression in &b.exprs {
+                            if let ExprKind::Define(define) = expression {
+                                self.check_define_module(
+                                    proto_hash,
+                                    &mut module_definitions,
+                                    define,
+                                )
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         for expression in self.exprs.iter() {
             match expression {
@@ -5302,82 +5340,69 @@ impl<'a> SemanticAnalysis<'a> {
 
     // TODO: Check the arity at the call site and make sure it matches before inlining!
     // Otherwise, we're in trouble and we'll get weird compilation errors
-    pub fn inline_function_calls(&mut self, size: Option<usize>) -> Result<(), SteelErr> {
-        let estimator = self.calculate_function_sizes();
+    pub fn inline_function_calls(
+        &mut self,
+        size: Option<usize>,
+        module_map: &crate::HashMap<PathBuf, CompiledModule>,
+    ) -> Result<(), SteelErr> {
+        let mut estimator = self.calculate_function_sizes();
         let threshold = size.unwrap_or(50);
+
+        for (_, module) in module_map {
+            if let Some(ast) = module.get_compiled_ast() {
+                estimator.visit(ast);
+            }
+        }
 
         // Only do this for functions in which the arity is exactly known
         let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
+
+        for (_, module) in module_map {
+            if let Some(ast) = module.get_compiled_ast() {
+                match ast {
+                    ExprKind::Define(d) => {
+                        if let ControlFlow::Break(_) =
+                            self.inline_handle_define(&estimator, threshold, &mut funcs, &d)
+                        {
+                            continue;
+                        }
+                    }
+
+                    ExprKind::Begin(b) => {
+                        for expr in b.exprs.iter() {
+                            if let ExprKind::Define(d) = expr {
+                                if let ControlFlow::Break(_) =
+                                    self.inline_handle_define(&estimator, threshold, &mut funcs, d)
+                                {
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
+                    _ => {}
+                }
+            }
+        }
 
         // Only inline forwards, as to not run in to any issues with visibility
         for expr in self.exprs.iter() {
             match expr {
                 ExprKind::Define(d) => {
-                    let name = if let Some(name) = d.name.atom_syntax_object() {
-                        name
-                    } else {
+                    if let ControlFlow::Break(_) =
+                        self.inline_handle_define(&estimator, threshold, &mut funcs, d)
+                    {
                         continue;
-                    };
-
-                    if let Some(analysis) = self.analysis.get(name) {
-                        if analysis.set_bang {
-                            continue;
-                        }
-                    }
-
-                    if let ExprKind::LambdaFunction(l) = &d.body {
-                        if let Some(count) = estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
-                        {
-                            if *count < threshold {
-                                let original_id = l.syntax_object_id;
-                                let l = l.clone();
-                                funcs.insert(
-                                    *d.name.atom_identifier().unwrap(),
-                                    Box::new(move |_: &Analysis, lst: &mut List| {
-                                        if lst.syntax_object_id > original_id {
-                                            lst.args[0] = ExprKind::LambdaFunction(l.clone());
-                                        }
-                                    }),
-                                );
-                            }
-                        }
                     }
                 }
 
                 ExprKind::Begin(b) => {
                     for expr in b.exprs.iter() {
                         if let ExprKind::Define(d) = expr {
-                            let name = if let Some(name) = d.name.atom_syntax_object() {
-                                name
-                            } else {
+                            if let ControlFlow::Break(_) =
+                                self.inline_handle_define(&estimator, threshold, &mut funcs, d)
+                            {
                                 continue;
-                            };
-
-                            if let Some(analysis) = self.analysis.get(name) {
-                                if analysis.set_bang {
-                                    continue;
-                                }
-                            }
-
-                            if let ExprKind::LambdaFunction(l) = &d.body {
-                                if let Some(count) =
-                                    estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
-                                {
-                                    if *count < threshold {
-                                        let original_id = l.syntax_object_id;
-                                        let l = l.clone();
-                                        funcs.insert(
-                                            *d.name.atom_identifier().unwrap(),
-                                            Box::new(move |_: &Analysis, lst: &mut List| {
-                                                if lst.syntax_object_id > original_id {
-                                                    // println!("Inlining: {} @ {}", l, lst);
-                                                    lst.args[0] =
-                                                        ExprKind::LambdaFunction(l.clone());
-                                                }
-                                            }),
-                                        );
-                                    }
-                                }
                             }
                         }
                     }
@@ -5390,6 +5415,44 @@ impl<'a> SemanticAnalysis<'a> {
         self.find_call_sites_and_modify_with_many(funcs);
 
         Ok(())
+    }
+
+    fn inline_handle_define(
+        &self,
+        estimator: &FunctionSizeEstimator,
+        threshold: usize,
+        funcs: &mut HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List) + 'static>>,
+        d: &Box<Define>,
+    ) -> ControlFlow<()> {
+        let name = if let Some(name) = d.name.atom_syntax_object() {
+            name
+        } else {
+            return ControlFlow::Break(());
+        };
+        if let Some(analysis) = self.analysis.get(name) {
+            if analysis.set_bang {
+                return ControlFlow::Break(());
+            }
+        }
+
+        if let ExprKind::LambdaFunction(l) = &d.body {
+            if let Some(count) = estimator.map.get(&SyntaxObjectId(l.syntax_object_id)) {
+                if *count < threshold {
+                    let original_id = l.syntax_object_id;
+                    let l = l.clone();
+
+                    funcs.insert(
+                        *d.name.atom_identifier().unwrap(),
+                        Box::new(move |_: &Analysis, lst: &mut List| {
+                            if lst.syntax_object_id > original_id {
+                                lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                            }
+                        }),
+                    );
+                }
+            }
+        }
+        ControlFlow::Continue(())
     }
 
     // Takes the function call, and inlines it at the call sites. In theory, with constant evaluation and
