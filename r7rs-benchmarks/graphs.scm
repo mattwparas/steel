@@ -165,6 +165,9 @@
                [t-state t-state]
                [accross (lambda (final-t-state) final-t-state)])
 
+      (when (function? universe)
+        ;; TODO: Somehow, this is getting bound to cons?
+        (universe))
       (stdout-simple-displayln universe)
 
       (if (null? universe)
