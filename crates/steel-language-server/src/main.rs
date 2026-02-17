@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, HashSet},
-    path::PathBuf,
     sync::Arc,
 };
 
@@ -9,6 +8,7 @@ use dashmap::{DashMap, DashSet};
 use steel::{
     compiler::modules::MANGLER_PREFIX,
     parser::{expander::SteelMacro, interner::InternedString},
+    path::PathBuf,
     steel_vm::{engine::Engine, register_fn::RegisterFn},
 };
 use steel_language_server::backend::{
@@ -53,7 +53,7 @@ async fn main() {
     let home_directory = lsp_home();
 
     ENGINE.write().unwrap().register_module_resolver(
-        ExternalModuleResolver::new(&mut resolver_engine, PathBuf::from(home_directory)).unwrap(),
+        ExternalModuleResolver::new(&mut resolver_engine, home_directory).unwrap(),
     );
 
     {
@@ -141,7 +141,7 @@ async fn main() {
 
     eprintln!("Finished indexing workspace");
 
-    let root = std::env::current_dir().unwrap();
+    let root = PathBuf::from(std::env::current_dir().unwrap());
 
     let (service, socket) = LspService::build(|client| Backend {
         config: Config::new(),

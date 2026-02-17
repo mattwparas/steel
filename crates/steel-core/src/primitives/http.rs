@@ -76,7 +76,8 @@ fn download_file(_url: &SteelString, _file: &SteelString) -> Result<SteelVal> {
 
     #[cfg(feature = "ureq")]
     {
-        use std::{fs, path::PathBuf};
+        use crate::path::PathBuf;
+        use std::fs;
 
         let url = _url.as_str();
         let file = PathBuf::from(_file.as_str());

@@ -7,6 +7,7 @@ mod env;
 #[macro_use]
 pub mod core;
 pub mod compiler;
+pub mod path;
 pub mod primitives;
 pub mod time;
 #[macro_use]

@@ -1,5 +1,4 @@
-use std::path::PathBuf;
-
+use steel::path::PathBuf;
 use steel::steel_vm::engine::Engine;
 
 fn main() {
