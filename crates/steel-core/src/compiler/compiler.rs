@@ -1248,26 +1248,6 @@ impl Compiler {
         // Here:
 
         // Discover modules:
-        let module_context: InternedString = "#%prim.#%push-module-context".into();
-        for top_expr in semantic.exprs.iter() {
-            if let ExprKind::Begin(b) = top_expr {
-                for expr in &b.exprs {
-                    if expr.list().and_then(|x| x.first_ident()).copied() == Some(module_context) {
-                        if let Some(found) = expr
-                            .list()
-                            .and_then(|x| x.get(1))
-                            .and_then(|x| x.to_string_literal())
-                        {
-                            let p = PathBuf::from(found);
-                            if let Some(m) = self.module_manager.modules_mut().get_mut(&p) {
-                                m.compiled_ast = Some(top_expr.clone());
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
 
         // debug!("About to expand defines");
 
@@ -1315,6 +1295,27 @@ impl Compiler {
         // RenameShadowedVariables::rename_shadowed_vars(&mut expanded_statements);
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements, false);
+
+        let module_context: InternedString = "#%prim.#%push-module-context".into();
+        for top_expr in expanded_statements.iter() {
+            if let ExprKind::Begin(b) = top_expr {
+                for expr in &b.exprs {
+                    if expr.list().and_then(|x| x.first_ident()).copied() == Some(module_context) {
+                        if let Some(found) = expr
+                            .list()
+                            .and_then(|x| x.get(1))
+                            .and_then(|x| x.to_string_literal())
+                        {
+                            let p = PathBuf::from(found);
+                            if let Some(m) = self.module_manager.modules_mut().get_mut(&p) {
+                                m.compiled_ast = Some(top_expr.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // TODO - make sure I want to keep this
         // let mut expanded_statements =
