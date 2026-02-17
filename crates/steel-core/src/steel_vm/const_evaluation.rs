@@ -427,7 +427,7 @@ impl<'a> ConstantEvaluator<'a> {
             match evaluated_func {
                 SteelVal::MutFunc(f) => {
                     let output = f(args)
-                        .map_err(|e| e.set_span_if_none(func.atom_syntax_object().unwrap().span))?;
+                        .map_err(|e| e.set_span_if_none(func.atom_syntax_object().unwrap().span));
 
                     self.handle_output(output, func, raw_args)
                 }
@@ -443,7 +443,7 @@ impl<'a> ConstantEvaluator<'a> {
                     // } else {
 
                     let output = f(args)
-                        .map_err(|e| e.set_span_if_none(func.atom_syntax_object().unwrap().span))?;
+                        .map_err(|e| e.set_span_if_none(func.atom_syntax_object().unwrap().span));
 
                     // self.memoization_table.insert(
                     //     SteelVal::FuncV(f),
@@ -474,11 +474,18 @@ impl<'a> ConstantEvaluator<'a> {
 
     fn handle_output(
         &mut self,
-        output: SteelVal,
+        output: Result<SteelVal>,
         func: ExprKind,
         // evaluated_func: &SteelVal,
         mut raw_args: ThinVec<ExprKind>,
     ) -> core::result::Result<ExprKind, crate::SteelErr> {
+        let output = if let Ok(result) = output {
+            result
+        } else {
+            raw_args.insert(0, func);
+            return Ok(ExprKind::List(List::new(raw_args)));
+        };
+
         if let Some(new_token) = steelval_to_atom(&output) {
             let atom = Atom::new(SyntaxObject::new(new_token, get_span(&func)));
             // debug!(

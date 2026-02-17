@@ -946,7 +946,7 @@ pub struct CompiledModule {
     downstream: Vec<PathBuf>,
     downstream_builtins: Vec<PathBuf>,
 
-    compiled_ast: Option<ExprKind>,
+    pub(crate) compiled_ast: Option<ExprKind>,
 }
 
 pub static MANGLER_PREFIX: &str = "##mm";
@@ -1548,7 +1548,8 @@ impl CompiledModule {
             SyntaxObject::default(TokenType::Begin),
         )));
 
-        self.compiled_ast = Some(res.clone());
+        // Don't include this... yet
+        // self.compiled_ast = Some(res.clone());
 
         Ok(res)
     }

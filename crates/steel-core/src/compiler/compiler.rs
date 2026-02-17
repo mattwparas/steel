@@ -35,7 +35,10 @@ use std::{
 
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use steel_parser::{ast::PROVIDE, span::Span};
+use steel_parser::{
+    ast::{AstTools, PROVIDE},
+    span::Span,
+};
 
 use crate::rvals::{Result, SteelVal};
 
@@ -1242,6 +1245,30 @@ impl Compiler {
             .lift_pure_local_functions()
             .lift_all_local_functions();
 
+        // Here:
+
+        // Discover modules:
+        let module_context: InternedString = "#%prim.#%push-module-context".into();
+        for top_expr in semantic.exprs.iter() {
+            if let ExprKind::Begin(b) = top_expr {
+                for expr in &b.exprs {
+                    if expr.list().and_then(|x| x.first_ident()).copied() == Some(module_context) {
+                        if let Some(found) = expr
+                            .list()
+                            .and_then(|x| x.get(1))
+                            .and_then(|x| x.to_string_literal())
+                        {
+                            let p = PathBuf::from(found);
+                            if let Some(m) = self.module_manager.modules_mut().get_mut(&p) {
+                                m.compiled_ast = Some(top_expr.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // debug!("About to expand defines");
 
         log::debug!(target: "expansion-phase", "Flattening begins, converting internal defines to let expressions");
@@ -1300,11 +1327,6 @@ impl Compiler {
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
         // Inline across module boundaries
-
-        // for (key, module) in self.modules() {
-        //     println!("Module: {:?}", key);
-        //     module.ast.pretty_print();
-        // }
 
         semantic.inline_idents_across_module_boundaries(self.modules())?;
         semantic.refresh_variables();

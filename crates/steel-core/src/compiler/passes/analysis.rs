@@ -2312,6 +2312,7 @@ where
 struct FindCallSitesMany<'a, F> {
     analysis: &'a Analysis,
     map: HashMap<InternedString, F>,
+    proto_hash: InternedString,
 }
 
 impl<'a, F> VisitorMutRefUnit for FindCallSitesMany<'a, F>
@@ -2320,6 +2321,10 @@ where
 {
     fn visit_list(&mut self, l: &mut List) {
         if let Some(name) = l.first_ident() {
+            if *name == self.proto_hash {
+                return;
+            }
+
             if let Some(semantic_info) = self.analysis.get(l.args[0].atom_syntax_object().unwrap())
             {
                 if semantic_info.kind == IdentifierStatus::Global {
@@ -6098,6 +6103,7 @@ impl<'a> SemanticAnalysis<'a> {
         let mut find_call_sites = FindCallSitesMany {
             analysis: &self.analysis,
             map: mapping,
+            proto_hash: "%proto-hash%".into(),
         };
 
         for expr in self.exprs.iter_mut() {
