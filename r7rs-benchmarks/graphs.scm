@@ -60,9 +60,7 @@
     ;;            limit)
     (let _-*- ([limit limit]
                [res '()])
-      (if (zero? limit)
-          res
-          (let ([limit (- limit 1)]) (_-*- limit (cons limit res)))))))
+      (if (zero? limit) res (let ([limit (- limit 1)]) (_-*- limit (cons limit res)))))))
 
 ;; Fold over the integers [0, limit).
 (define gnatural-fold
@@ -184,6 +182,7 @@
                         b-state
                         t-state
                         (lambda (new-b-state new-t-state)
+                          (stdout-simple-displayln "INSIDE HERE" (fold out cons rest))
                           (_-*- (fold out cons rest) new-b-state new-t-state accross))
                         accross)))))))
 

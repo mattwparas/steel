@@ -4321,15 +4321,32 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
 }
 
 struct FlattenModuleReferences<'a> {
-    identifier_mapping: &'a mut FxHashMap<InternedString, InternedString>,
+    analysis: &'a Analysis,
+    identifier_mapping: &'a mut FxHashMap<InternedString, (InternedString, SyntaxObjectId)>,
     proto_hash: InternedString,
 }
 
 impl<'a> VisitorMutRefUnit for FlattenModuleReferences<'a> {
     fn visit_atom(&mut self, a: &mut Atom) {
-        if let Some(i) = a.ident_mut() {
+        if let Some(i) = a.ident() {
             if let Some(value) = self.identifier_mapping.get(i) {
-                *i = *value;
+                if let Some(info) = self.analysis.get(&a.syn) {
+                    // println!("Replacing: {} -> {}, {}", i, value.0, value.1);
+                    // println!("{:#?}", info);
+
+                    if let Some(refers_to) = info.refers_to {
+                        // println!("Refers to: {:?}", info.refers_to);
+
+                        let refers_info = self.analysis.info.get(&refers_to);
+
+                        // println!("{:#?}", refers_info);
+
+                        if refers_to != value.1 {
+                            return;
+                        }
+                    }
+                    *a.ident_mut().unwrap() = value.0;
+                }
             }
         }
     }
@@ -5266,6 +5283,7 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         let mut visitor = FlattenModuleReferences {
+            analysis: &self.analysis,
             identifier_mapping: &mut ident_mapping,
             proto_hash,
         };
@@ -5317,7 +5335,7 @@ impl<'a> SemanticAnalysis<'a> {
         proto_hash_get: InternedString,
         modules: &FxHashMap<InternedString, FxHashMap<InternedString, InternedString>>,
         define: &Box<Define>,
-        new_mapping: &mut FxHashMap<InternedString, InternedString>,
+        new_mapping: &mut FxHashMap<InternedString, (InternedString, SyntaxObjectId)>,
     ) -> Option<()> {
         let name = define.name.atom_identifier()?;
         if name.resolve().starts_with(prefix) {
@@ -5334,8 +5352,18 @@ impl<'a> SemanticAnalysis<'a> {
                     if let Some(ExprKind::Quote(key)) = proto.args.get(2) {
                         let key = key.expr.atom_identifier()?;
                         let mapped_identifier = modules.get(module).and_then(|x| x.get(key))?;
-                        new_mapping.insert(*name, *mapped_identifier);
+
+                        new_mapping.insert(
+                            *name,
+                            (
+                                *mapped_identifier,
+                                define.name.atom_syntax_object().unwrap().syntax_object_id,
+                            ),
+                        );
                     }
+                } else {
+                    println!("Removing mapping: {}", name);
+                    new_mapping.remove(name);
                 }
             }
         }
