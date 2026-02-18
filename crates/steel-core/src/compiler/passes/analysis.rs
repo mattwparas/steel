@@ -5345,25 +5345,28 @@ impl<'a> SemanticAnalysis<'a> {
                 .and_then(|x| self.analysis.get(x))?;
 
             if !analysis.set_bang {
-                let func = define.body.list().and_then(|x| x.first_ident())?;
-                if *func == proto_hash_get {
-                    let proto = define.body.list().unwrap();
-                    let module = proto.args.get(1).and_then(|x| x.atom_identifier())?;
-                    if let Some(ExprKind::Quote(key)) = proto.args.get(2) {
-                        let key = key.expr.atom_identifier()?;
-                        let mapped_identifier = modules.get(module).and_then(|x| x.get(key))?;
+                let func = define.body.list().and_then(|x| x.first_ident());
 
-                        new_mapping.insert(
-                            *name,
-                            (
-                                *mapped_identifier,
-                                define.name.atom_syntax_object().unwrap().syntax_object_id,
-                            ),
-                        );
+                match func {
+                    Some(func) if *func == proto_hash_get => {
+                        let proto = define.body.list().unwrap();
+                        let module = proto.args.get(1).and_then(|x| x.atom_identifier())?;
+                        if let Some(ExprKind::Quote(key)) = proto.args.get(2) {
+                            let key = key.expr.atom_identifier()?;
+                            let mapped_identifier = modules.get(module).and_then(|x| x.get(key))?;
+
+                            new_mapping.insert(
+                                *name,
+                                (
+                                    *mapped_identifier,
+                                    define.name.atom_syntax_object().unwrap().syntax_object_id,
+                                ),
+                            );
+                        }
                     }
-                } else {
-                    println!("Removing mapping: {}", name);
-                    new_mapping.remove(name);
+                    _ => {
+                        new_mapping.remove(name);
+                    }
                 }
             }
         }
