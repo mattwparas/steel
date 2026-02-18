@@ -4321,32 +4321,15 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
 }
 
 struct FlattenModuleReferences<'a> {
-    analysis: &'a Analysis,
     identifier_mapping: &'a mut FxHashMap<InternedString, (InternedString, SyntaxObjectId)>,
     proto_hash: InternedString,
 }
 
 impl<'a> VisitorMutRefUnit for FlattenModuleReferences<'a> {
     fn visit_atom(&mut self, a: &mut Atom) {
-        if let Some(i) = a.ident() {
+        if let Some(i) = a.ident_mut() {
             if let Some(value) = self.identifier_mapping.get(i) {
-                if let Some(info) = self.analysis.get(&a.syn) {
-                    // println!("Replacing: {} -> {}, {}", i, value.0, value.1);
-                    // println!("{:#?}", info);
-
-                    if let Some(refers_to) = info.refers_to {
-                        // println!("Refers to: {:?}", info.refers_to);
-
-                        let refers_info = self.analysis.info.get(&refers_to);
-
-                        // println!("{:#?}", refers_info);
-
-                        if refers_to != value.1 {
-                            return;
-                        }
-                    }
-                    *a.ident_mut().unwrap() = value.0;
-                }
+                *i = value.0;
             }
         }
     }
@@ -5283,7 +5266,6 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         let mut visitor = FlattenModuleReferences {
-            analysis: &self.analysis,
             identifier_mapping: &mut ident_mapping,
             proto_hash,
         };
