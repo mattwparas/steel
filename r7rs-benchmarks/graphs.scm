@@ -60,7 +60,9 @@
     ;;            limit)
     (let _-*- ([limit limit]
                [res '()])
-      (if (zero? limit) res (let ([limit (- limit 1)]) (_-*- limit (cons limit res)))))))
+      (if (zero? limit)
+          res
+          (let ([limit (- limit 1)]) (_-*- limit (cons limit res)))))))
 
 ;; Fold over the integers [0, limit).
 (define gnatural-fold
@@ -151,7 +153,6 @@
 ;; keep the current branch.
 (define fold-over-perm-tree
   (lambda (universe b-folder b-state t-folder t-state)
-    (stdout-simple-displayln universe)
     ;;        (assert (list? universe)
     ;;            universe)
     ;;        (assert (procedure? b-folder)
@@ -162,11 +163,6 @@
                [b-state b-state]
                [t-state t-state]
                [accross (lambda (final-t-state) final-t-state)])
-
-      (when (function? universe)
-        ;; TODO: Somehow, this is getting bound to cons?
-        (universe))
-      (stdout-simple-displayln universe)
 
       (if (null? universe)
           (t-folder b-state t-state accross)
@@ -182,7 +178,6 @@
                         b-state
                         t-state
                         (lambda (new-b-state new-t-state)
-                          (stdout-simple-displayln "INSIDE HERE" (fold out cons rest))
                           (_-*- (fold out cons rest) new-b-state new-t-state accross))
                         accross)))))))
 
@@ -222,8 +217,6 @@
     (let ([iotas (proc->vector (+ max-size 1) giota)]
           [perm (make-vector max-size 0)])
       (lambda (size graph folder state)
-
-        (stdout-simple-displayln iotas)
         ;;                (assert (and (integer? size)
         ;;                        (exact? size)
         ;;                        (<= 0 size max-size))
