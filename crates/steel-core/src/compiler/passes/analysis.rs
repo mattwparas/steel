@@ -1,8 +1,12 @@
-use std::collections::{hash_map, HashMap, HashSet};
+use core::ops::ControlFlow;
+use std::{
+    collections::{hash_map, HashMap, HashSet},
+    path::PathBuf,
+};
 
 use crate::{
     compiler::{
-        modules::{MANGLER_PREFIX, MODULE_PREFIX},
+        modules::{CompiledModule, MANGLER_PREFIX, MODULE_PREFIX},
         program::{SETBOX, UNBOX},
     },
     parser::ast::List,
@@ -2308,6 +2312,7 @@ where
 struct FindCallSitesMany<'a, F> {
     analysis: &'a Analysis,
     map: HashMap<InternedString, F>,
+    proto_hash: InternedString,
 }
 
 impl<'a, F> VisitorMutRefUnit for FindCallSitesMany<'a, F>
@@ -2316,9 +2321,17 @@ where
 {
     fn visit_list(&mut self, l: &mut List) {
         if let Some(name) = l.first_ident() {
+            if *name == self.proto_hash {
+                return;
+            }
+
             if let Some(semantic_info) = self.analysis.get(l.args[0].atom_syntax_object().unwrap())
             {
                 if semantic_info.kind == IdentifierStatus::Global {
+                    if let Some(func) = self.map.get_mut(name) {
+                        (func)(self.analysis, l);
+                    }
+                } else if name.resolve().starts_with("##") {
                     if let Some(func) = self.map.get_mut(name) {
                         (func)(self.analysis, l);
                     }
@@ -4299,13 +4312,40 @@ impl<'a> VisitorMutRefUnit for ReplaceBuiltinUsagesInsideMacros<'a> {
         if let Some(ident) = a.ident_mut() {
             if self.identifiers_to_replace.contains(ident) {
                 if let Some((_, builtin_name)) = ident.resolve().split_once(MANGLER_SEPARATOR) {
-                    // *ident = ("#%prim.".to_string() + builtin_name).into();
-
                     *ident = builtin_to_reserved(builtin_name);
                     self.changed = true;
                 }
             }
         }
+    }
+}
+
+struct FlattenModuleReferences<'a> {
+    identifier_mapping: &'a mut FxHashMap<InternedString, (InternedString, SyntaxObjectId)>,
+    proto_hash: InternedString,
+}
+
+impl<'a> VisitorMutRefUnit for FlattenModuleReferences<'a> {
+    fn visit_atom(&mut self, a: &mut Atom) {
+        if let Some(i) = a.ident_mut() {
+            if let Some(value) = self.identifier_mapping.get(i) {
+                *i = value.0;
+            }
+        }
+    }
+
+    fn visit_define(&mut self, define: &mut Define) {
+        if let Some(name) = define.name.atom_identifier() {
+            if name.resolve().starts_with("__module-##mm") {
+                if let Some(func) = define.body.list().and_then(|x| x.first_ident()) {
+                    if *func == self.proto_hash {
+                        return;
+                    }
+                }
+            }
+        }
+
+        self.visit(&mut define.body);
     }
 }
 
@@ -5092,84 +5132,295 @@ impl<'a> SemanticAnalysis<'a> {
         Ok(())
     }
 
+    pub fn inline_idents_across_module_boundaries(
+        &mut self,
+        module_map: &crate::HashMap<PathBuf, CompiledModule>,
+    ) -> Result<(), SteelErr> {
+        /*
+        (begin
+         (#%prim.#%push-module-context
+                 "/home/matt/code/steel/test.scm")
+              (#%void)
+              (quote
+                void)
+              (define ##mm5673__%#__test-func
+                (λ (##x2 ##y2 ##z2)
+                  (#%prim.list ##x2 ##y2 ##z2)))
+              (define __module-##mm5673__%#__
+                (%proto-hash%
+                   (quote
+                     test-func)
+                   ##mm5673__%#__test-func))
+              (#%prim.#%pop-module-context))
+
+        (begin
+         (define ##mm5800__%#__test-func
+                (%proto-hash-get%
+                   __module-##mm5673__%#__
+                   (quote
+                     test-func)))
+              (#%prim.#%push-module-context
+                 "/home/matt/code/steel/foo.scm")
+              (#%void)
+              (quote
+                void)
+              (##mm5800__%#__test-func 10 20 30)
+              (if (#%prim.null? (#%prim.cdr (#%prim.list 10)))
+                10
+                20)
+              (define __module-##mm5800__%#__
+                (%proto-hash%))
+              (#%prim.#%pop-module-context))
+
+        What we're looking for here is to track the usage of the ##mm5800__%#__test-func
+        through the proto-hash-get, and link it back to the original definition, and confirm
+        that it hasn't been mutated. Assuming that is the case, we can then replace usages
+        of the identifier across module boundaries.
+                */
+
+        let prefix = "##mm";
+        let proto_hash_get: InternedString = "%proto-hash-get%".into();
+        let proto_hash: InternedString = "%proto-hash%".into();
+
+        // This is going to be a mapping of module name -> map of symbol name -> original binding.
+        //
+        // Assuming we do this correctly, we can then just visit identifiers later, and create a
+        // mapping of identifier -> original binding. Inlining across module boundaries will let
+        // us actually do something real optimizations, especially of primitives like ports, etc.
+        let mut module_definitions: FxHashMap<
+            InternedString,
+            FxHashMap<InternedString, InternedString>,
+        > = Default::default();
+
+        // Go through the already compiled modules, and attempt to resolve
+        // any remaining references to modules that have already been established.
+        //
+        // Then we can rename those references, and later during the actual inlining
+        // pass we can use them.
+        for (_, module) in module_map {
+            if let Some(ast) = module.get_compiled_ast() {
+                match ast {
+                    ExprKind::Define(define) => {
+                        self.check_define_module(proto_hash, &mut module_definitions, define)
+                    }
+                    ExprKind::Begin(b) => {
+                        for expression in &b.exprs {
+                            if let ExprKind::Define(define) = expression {
+                                self.check_define_module(
+                                    proto_hash,
+                                    &mut module_definitions,
+                                    define,
+                                )
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        for expression in self.exprs.iter() {
+            match expression {
+                ExprKind::Define(define) => {
+                    self.check_define_module(proto_hash, &mut module_definitions, define)
+                }
+                ExprKind::Begin(b) => {
+                    for expression in &b.exprs {
+                        if let ExprKind::Define(define) = expression {
+                            self.check_define_module(proto_hash, &mut module_definitions, define)
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut ident_mapping = FxHashMap::default();
+
+        for expression in self.exprs.iter() {
+            match expression {
+                ExprKind::Define(define) => {
+                    self.check_define_proto_hash_get(
+                        prefix,
+                        proto_hash_get,
+                        &module_definitions,
+                        define,
+                        &mut ident_mapping,
+                    );
+                }
+                ExprKind::Begin(b) => {
+                    for expression in &b.exprs {
+                        if let ExprKind::Define(define) = expression {
+                            self.check_define_proto_hash_get(
+                                prefix,
+                                proto_hash_get,
+                                &module_definitions,
+                                define,
+                                &mut ident_mapping,
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let mut visitor = FlattenModuleReferences {
+            identifier_mapping: &mut ident_mapping,
+            proto_hash,
+        };
+
+        for expr in self.exprs.iter_mut() {
+            visitor.visit(expr);
+        }
+
+        Ok(())
+    }
+
+    fn check_define_module(
+        &self,
+        proto_hash: InternedString,
+        module_defs: &mut FxHashMap<InternedString, FxHashMap<InternedString, InternedString>>,
+        define: &Box<Define>,
+    ) {
+        if let Some(name) = define.name.atom_identifier() {
+            if name.resolve().starts_with("__module-##mm") {
+                if let Some(func) = define.body.list().and_then(|x| x.first_ident()) {
+                    if *func == proto_hash {
+                        let expr = define.body.list().unwrap();
+
+                        let mut map = FxHashMap::default();
+
+                        for chunk in expr.args[1..].chunks_exact(2) {
+                            match &chunk {
+                                &[ExprKind::Quote(a), ident] => {
+                                    if let Some(quoted_ident) = a.expr.atom_identifier() {
+                                        if let Some(rhs) = ident.atom_identifier() {
+                                            map.insert(*quoted_ident, *rhs);
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        module_defs.insert(*name, map);
+                    }
+                }
+            }
+        }
+    }
+
+    fn check_define_proto_hash_get(
+        &self,
+        prefix: &str,
+        proto_hash_get: InternedString,
+        modules: &FxHashMap<InternedString, FxHashMap<InternedString, InternedString>>,
+        define: &Box<Define>,
+        new_mapping: &mut FxHashMap<InternedString, (InternedString, SyntaxObjectId)>,
+    ) -> Option<()> {
+        let name = define.name.atom_identifier()?;
+        if name.resolve().starts_with(prefix) {
+            let analysis = define
+                .name
+                .atom_syntax_object()
+                .and_then(|x| self.analysis.get(x))?;
+
+            if !analysis.set_bang {
+                let func = define.body.list().and_then(|x| x.first_ident());
+
+                match func {
+                    Some(func) if *func == proto_hash_get => {
+                        let proto = define.body.list().unwrap();
+                        let module = proto.args.get(1).and_then(|x| x.atom_identifier())?;
+                        if let Some(ExprKind::Quote(key)) = proto.args.get(2) {
+                            let key = key.expr.atom_identifier()?;
+                            let mapped_identifier = modules.get(module).and_then(|x| x.get(key))?;
+
+                            new_mapping.insert(
+                                *name,
+                                (
+                                    *mapped_identifier,
+                                    define.name.atom_syntax_object().unwrap().syntax_object_id,
+                                ),
+                            );
+                        }
+                    }
+                    _ => {
+                        new_mapping.remove(name);
+                    }
+                }
+            }
+        }
+
+        Some(())
+    }
+
     // TODO: Check the arity at the call site and make sure it matches before inlining!
     // Otherwise, we're in trouble and we'll get weird compilation errors
-    pub fn inline_function_calls(&mut self, size: Option<usize>) -> Result<(), SteelErr> {
-        let estimator = self.calculate_function_sizes();
+    pub fn inline_function_calls(
+        &mut self,
+        size: Option<usize>,
+        module_map: &crate::HashMap<PathBuf, CompiledModule>,
+    ) -> Result<(), SteelErr> {
+        let mut estimator = self.calculate_function_sizes();
         let threshold = size.unwrap_or(50);
+
+        for (_, module) in module_map {
+            if let Some(ast) = module.get_compiled_ast() {
+                estimator.visit(ast);
+            }
+        }
 
         // Only do this for functions in which the arity is exactly known
         let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
+
+        for (_, module) in module_map {
+            if let Some(ast) = module.get_compiled_ast() {
+                match ast {
+                    ExprKind::Define(d) => {
+                        if let ControlFlow::Break(_) =
+                            self.inline_handle_define(&estimator, threshold, &mut funcs, &d)
+                        {
+                            continue;
+                        }
+                    }
+
+                    ExprKind::Begin(b) => {
+                        for expr in b.exprs.iter() {
+                            if let ExprKind::Define(d) = expr {
+                                if let ControlFlow::Break(_) =
+                                    self.inline_handle_define(&estimator, threshold, &mut funcs, d)
+                                {
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+
+                    _ => {}
+                }
+            }
+        }
 
         // Only inline forwards, as to not run in to any issues with visibility
         for expr in self.exprs.iter() {
             match expr {
                 ExprKind::Define(d) => {
-                    let name = if let Some(name) = d.name.atom_syntax_object() {
-                        name
-                    } else {
+                    if let ControlFlow::Break(_) =
+                        self.inline_handle_define(&estimator, threshold, &mut funcs, d)
+                    {
                         continue;
-                    };
-
-                    if let Some(analysis) = self.analysis.get(name) {
-                        if analysis.set_bang {
-                            continue;
-                        }
-                    }
-
-                    if let ExprKind::LambdaFunction(l) = &d.body {
-                        if let Some(count) = estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
-                        {
-                            if *count < threshold {
-                                let original_id = l.syntax_object_id;
-                                let l = l.clone();
-                                funcs.insert(
-                                    *d.name.atom_identifier().unwrap(),
-                                    Box::new(move |_: &Analysis, lst: &mut List| {
-                                        if lst.syntax_object_id > original_id {
-                                            lst.args[0] = ExprKind::LambdaFunction(l.clone());
-                                        }
-                                    }),
-                                );
-                            }
-                        }
                     }
                 }
 
                 ExprKind::Begin(b) => {
                     for expr in b.exprs.iter() {
                         if let ExprKind::Define(d) = expr {
-                            let name = if let Some(name) = d.name.atom_syntax_object() {
-                                name
-                            } else {
+                            if let ControlFlow::Break(_) =
+                                self.inline_handle_define(&estimator, threshold, &mut funcs, d)
+                            {
                                 continue;
-                            };
-
-                            if let Some(analysis) = self.analysis.get(name) {
-                                if analysis.set_bang {
-                                    continue;
-                                }
-                            }
-
-                            if let ExprKind::LambdaFunction(l) = &d.body {
-                                if let Some(count) =
-                                    estimator.map.get(&SyntaxObjectId(l.syntax_object_id))
-                                {
-                                    if *count < threshold {
-                                        let original_id = l.syntax_object_id;
-                                        let l = l.clone();
-                                        funcs.insert(
-                                            *d.name.atom_identifier().unwrap(),
-                                            Box::new(move |_: &Analysis, lst: &mut List| {
-                                                if lst.syntax_object_id > original_id {
-                                                    // println!("Inlining: {} @ {}", l, lst);
-                                                    lst.args[0] =
-                                                        ExprKind::LambdaFunction(l.clone());
-                                                }
-                                            }),
-                                        );
-                                    }
-                                }
                             }
                         }
                     }
@@ -5182,6 +5433,47 @@ impl<'a> SemanticAnalysis<'a> {
         self.find_call_sites_and_modify_with_many(funcs);
 
         Ok(())
+    }
+
+    fn inline_handle_define(
+        &self,
+        estimator: &FunctionSizeEstimator,
+        threshold: usize,
+        funcs: &mut HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List) + 'static>>,
+        d: &Box<Define>,
+    ) -> ControlFlow<()> {
+        let name = if let Some(name) = d.name.atom_syntax_object() {
+            name
+        } else {
+            return ControlFlow::Break(());
+        };
+        if let Some(analysis) = self.analysis.get(name) {
+            if analysis.set_bang {
+                return ControlFlow::Break(());
+            }
+        }
+
+        if let ExprKind::LambdaFunction(l) = &d.body {
+            if let Some(count) = estimator.map.get(&SyntaxObjectId(l.syntax_object_id)) {
+                if *count < threshold {
+                    let original_id = l.syntax_object_id;
+                    let l = l.clone();
+
+                    // TODO: Investigate bug with multi arity functions and inlining?
+                    if !l.rest {
+                        funcs.insert(
+                            *d.name.atom_identifier().unwrap(),
+                            Box::new(move |_: &Analysis, lst: &mut List| {
+                                if lst.syntax_object_id > original_id {
+                                    lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                                }
+                            }),
+                        );
+                    }
+                }
+            }
+        }
+        ControlFlow::Continue(())
     }
 
     // Takes the function call, and inlines it at the call sites. In theory, with constant evaluation and
@@ -5827,6 +6119,7 @@ impl<'a> SemanticAnalysis<'a> {
         let mut find_call_sites = FindCallSitesMany {
             analysis: &self.analysis,
             map: mapping,
+            proto_hash: "%proto-hash%".into(),
         };
 
         for expr in self.exprs.iter_mut() {

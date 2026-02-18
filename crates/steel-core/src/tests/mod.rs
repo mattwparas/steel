@@ -21,8 +21,6 @@ pub(crate) fn assert_script_module<T: AsRef<str> + Into<Cow<'static, str>>>(name
     let mut vm = generate_asserting_machine();
     vm.register_steel_module(name.to_string(), script.into().to_string());
 
-    println!("Registered: {}", name);
-
     vm.compile_and_run_raw_program(format!(r#"(require "{}")"#, name))
         .unwrap();
 }

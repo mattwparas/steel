@@ -30,7 +30,12 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rustc_hash::{FxHashMap, FxHashSet};
 // use smallvec::SmallVec;
-use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
+use steel_parser::{
+    ast::{AstTools, PROTO_HASH_GET},
+    expr_list,
+    parser::SourceId,
+    span::Span,
+};
 
 use thin_vec::{thin_vec, ThinVec};
 
@@ -773,6 +778,10 @@ impl ModuleManager {
 
             name_mangler.mangle_vars(&mut module_ast);
 
+            println!("PRINTING MANGLED AST");
+
+            module_ast.pretty_print();
+
             mangled_asts.append(&mut module_ast);
         }
 
@@ -936,6 +945,8 @@ pub struct CompiledModule {
     cached_prefix: CompactString,
     downstream: Vec<PathBuf>,
     downstream_builtins: Vec<PathBuf>,
+
+    pub(crate) compiled_ast: Option<ExprKind>,
 }
 
 pub static MANGLER_PREFIX: &str = "##mm";
@@ -1044,12 +1055,17 @@ impl CompiledModule {
             cached_prefix: base,
             downstream,
             downstream_builtins,
+            compiled_ast: None,
         }
     }
 
     // TODO: Should cache this
     pub fn prefix(&self) -> CompactString {
         self.cached_prefix.clone()
+    }
+
+    pub fn get_compiled_ast(&self) -> &Option<ExprKind> {
+        &self.compiled_ast
     }
 
     pub fn get_macros(&self) -> Arc<FxHashMap<InternedString, SteelMacro>> {
@@ -1081,7 +1097,7 @@ impl CompiledModule {
     }
 
     fn to_top_level_module(
-        &self,
+        &mut self,
         modules: &crate::HashMap<PathBuf, CompiledModule>,
         global_macro_map: &FxHashMap<InternedString, SteelMacro>,
     ) -> Result<ExprKind> {
@@ -1527,19 +1543,15 @@ impl CompiledModule {
         //     provide_definitions.append(&mut exprs);
         // }
 
-        // Try this out?
-        // let mut analysis = Analysis::from_exprs(&provide_definitions);
-        // let mut semantic = SemanticAnalysis::from_analysis(&mut provide_definitions, analysis);
-
-        // // This is definitely broken still
-        // semantic.remove_unused_globals_with_prefix("mangler");
-        // .replace_non_shadowed_globals_with_builtins()
-        // .remove_unused_globals_with_prefix("mangler");
-
-        Ok(ExprKind::Begin(Box::new(Begin::new(
+        let res = ExprKind::Begin(Box::new(Begin::new(
             exprs,
             SyntaxObject::default(TokenType::Begin),
-        ))))
+        )));
+
+        // Don't include this... yet
+        // self.compiled_ast = Some(res.clone());
+
+        Ok(res)
     }
 
     // Turn the module into the AST node that represents the macro module in the stdlib
