@@ -509,7 +509,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-steel-lib"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "cargo-platform 0.1.7",
  "cargo_metadata 0.20.0",
@@ -3810,7 +3810,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "steel-async-webrequests"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "abi_stable",
  "base64 0.22.1",
@@ -3822,7 +3822,7 @@ dependencies = [
 
 [[package]]
 name = "steel-core"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "abi_stable",
  "anyhow",
@@ -3891,7 +3891,7 @@ dependencies = [
 
 [[package]]
 name = "steel-derive"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3900,21 +3900,21 @@ dependencies = [
 
 [[package]]
 name = "steel-doc"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "steel-core",
 ]
 
 [[package]]
 name = "steel-forge"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "steel-core",
 ]
 
 [[package]]
 name = "steel-gen"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "codegen",
  "serde",
@@ -3937,7 +3937,7 @@ dependencies = [
 
 [[package]]
 name = "steel-interpreter"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "cargo-steel-lib",
  "clap",
@@ -3956,7 +3956,7 @@ dependencies = [
 
 [[package]]
 name = "steel-language-server"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "crossbeam-utils",
  "dashmap 6.1.0",
@@ -3975,7 +3975,7 @@ dependencies = [
 
 [[package]]
 name = "steel-markdown"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "abi_stable",
  "pulldown-cmark",
@@ -3985,7 +3985,7 @@ dependencies = [
 
 [[package]]
 name = "steel-parser"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "compact_str",
  "dashmap 6.1.0",
@@ -4006,7 +4006,7 @@ dependencies = [
 
 [[package]]
 name = "steel-quickscope"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "indexmap 2.13.0",
  "smallvec",
@@ -4014,7 +4014,7 @@ dependencies = [
 
 [[package]]
 name = "steel-rc"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "dashmap 6.1.0",
  "parking_lot",
@@ -4023,7 +4023,7 @@ dependencies = [
 
 [[package]]
 name = "steel-regex"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "abi_stable",
  "regex",
@@ -4032,7 +4032,7 @@ dependencies = [
 
 [[package]]
 name = "steel-repl"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "colored",
  "crossbeam-utils",
@@ -4045,7 +4045,7 @@ dependencies = [
 
 [[package]]
 name = "steel-rustls"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "abi_stable",
  "flate2",
@@ -4056,7 +4056,7 @@ dependencies = [
 
 [[package]]
 name = "steel-sqlite"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "abi_stable",
  "rusqlite",
@@ -4065,7 +4065,7 @@ dependencies = [
 
 [[package]]
 name = "steel-sys-info"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "abi_stable",
  "steel-core",
@@ -4074,7 +4074,7 @@ dependencies = [
 
 [[package]]
 name = "steel-toml"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "abi_stable",
  "steel-core",
@@ -4083,7 +4083,7 @@ dependencies = [
 
 [[package]]
 name = "steel-webrequests"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "abi_stable",
  "async-channel 2.5.0",
@@ -4093,7 +4093,7 @@ dependencies = [
 
 [[package]]
 name = "steel-webserver"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "abi_stable",
  "axum",
@@ -4105,7 +4105,7 @@ dependencies = [
 
 [[package]]
 name = "steel-websockets"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "abi_stable",
  "steel-core",
@@ -5457,7 +5457,7 @@ checksum = "2fb433233f2df9344722454bc7e96465c9d03bff9d77c248f9e7523fe79585b5"
 
 [[package]]
 name = "xtask"
-version = "0.8.1"
+version = "0.8.2"
 dependencies = [
  "which 7.0.3",
 ]
