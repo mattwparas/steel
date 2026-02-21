@@ -183,6 +183,20 @@ fn install_pgo() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn dist_source_rename() -> Result<(), Box<dyn Error>> {
+    // Copy the artifact
+    let name = std::env::args().nth(2);
+    let Some(name) = name else { return Ok(()) };
+
+    std::fs::copy("source.tar.gz", format!("{}-source.tar.gz", name))?;
+    std::fs::copy(
+        "source.tar.gz.sha256",
+        format!("{}-source.tar.gz.sha256", name),
+    )?;
+
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let task = std::env::args().nth(1);
     match task {
@@ -193,6 +207,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "docgen" => generate_docs()?,
             "test" => run_tests()?,
             "pgo" => install_pgo()?,
+            "dist-source-rename" => dist_source_rename()?,
             invalid => return Err(format!("Invalid task name: {}", invalid).into()),
         },
     };

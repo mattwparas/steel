@@ -24,11 +24,6 @@ steel-core = { path = "../steel-core", version = "0.8.1", features = ["dylibs", 
 default = ["dylib-build"]
 dylib-build = ["steel-core/dylib-build"]
 
-
 [[package.metadata.dist.extra-artifacts]]
-artifacts = ["steel-forge-source.tar.gz"]
-build = ["cp", "source.tar.gz", "steel-forge.tar.gz"]
-
-[[package.metadata.dist.extra-artifacts]]
-artifacts = ["steel-forge-source.tar.gz.sha256"]
-build = ["cp", "source.tar.gz.sha256", "steel-forge-source.tar.gz.sha256"]
+artifacts = ["steel-forge-source.tar.gz", "steel-forge-source.tar.gz.sha256"]
+build = ["cargo", "xtask", "dist-source-rename"]
