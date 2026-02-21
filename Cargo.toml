@@ -87,3 +87,7 @@ vergen = { version = "9.0.0", features = [
     "cargo",
     "rustc",
 ], optional = true }
+
+[[package.metadata.dist.extra-artifacts]]
+artifacts = ["steel-source.tar.gz"]
+build = ["cargo", "xtask", "dist-source-rename"]
