@@ -17,3 +17,5 @@ install-path = "CARGO_HOME"
 install-updater = false
 # Whether CI should trigger releases with dispatches instead of tag pushes
 dispatch-releases = true
+# Which actions to run on pull requests
+pr-run-mode = "upload"
