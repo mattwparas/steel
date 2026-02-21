@@ -184,15 +184,20 @@ fn install_pgo() -> Result<(), Box<dyn Error>> {
 }
 
 fn dist_source_rename() -> Result<(), Box<dyn Error>> {
-    // Copy the artifact
-    let name = std::env::args().nth(2);
-    let Some(name) = name else { return Ok(()) };
-
-    std::fs::copy("source.tar.gz", format!("{}-source.tar.gz", name))?;
-    std::fs::copy(
-        "source.tar.gz.sha256",
-        format!("{}-source.tar.gz.sha256", name),
-    )?;
+    std::process::Command::new("git")
+        .args(&[
+            "archive",
+            "--prefix=source/",
+            "--format",
+            "tar.gz",
+            "HEAD",
+            "-o",
+            "steel-source.tar.gz",
+        ])
+        .spawn()
+        .unwrap()
+        .wait()
+        .unwrap();
 
     Ok(())
 }
