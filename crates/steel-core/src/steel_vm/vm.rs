@@ -1941,24 +1941,24 @@ impl<'a> VmCore<'a> {
 
     pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
         let last = self.thread.stack_frames.len();
-
         DehydratedStackTrace::new(
             self.thread
                 .stack_frames
                 .iter()
                 .enumerate()
-                .map(|(index, x)| {
+                .map(|(index, frame)| {
                     DehydratedCallContext::new(
                         self.thread
                             .function_interner
                             .spans
-                            .get(&x.function.id)
+                            .get(&frame.function.id)
                             .and_then(|x| {
-                                x.get(if index == last {
+                                let ip = if index == last - 1 {
                                     self.ip
                                 } else {
-                                    self.ip.saturating_sub(1)
-                                })
+                                    frame.ip.saturating_sub(1) as _
+                                };
+                                x.get(ip).or_else(|| self.root_spans.get(ip))
                             })
                             .copied(),
                     )
