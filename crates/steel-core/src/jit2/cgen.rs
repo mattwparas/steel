@@ -323,20 +323,20 @@ impl PrimitiveTable {
 
         map.insert(
             PrimitiveSignature {
-                func: steel_read_char as i64,
+                func: steel_read_char as *const () as i64,
                 arity: 1,
                 shape: &[CallKind::Ref],
             },
-            read_char_single_ref as i64,
+            read_char_single_ref as *const () as i64,
         );
 
         map.insert(
             PrimitiveSignature {
-                func: steel_char_equals as i64,
+                func: steel_char_equals as *const () as i64,
                 arity: 2,
                 shape: &[CallKind::Value, CallKind::Value],
             },
-            char_equals_binop as i64,
+            char_equals_binop as *const () as i64,
         );
 
         Self { map }
@@ -2824,7 +2824,7 @@ impl FunctionTranslator<'_> {
 
         let function = self.builder.ins().iconst(
             self.module.target_config().pointer_type(),
-            eof_objectp_jit as i64,
+            eof_objectp_jit as *const () as i64,
         );
 
         let mut args = vec![function, fallback_ip];
@@ -3139,7 +3139,7 @@ impl FunctionTranslator<'_> {
         } else {
             let function = self.builder.ins().iconst(
                 self.module.target_config().pointer_type(),
-                crate::primitives::strings::char_equals_binop as i64,
+                crate::primitives::strings::char_equals_binop as *const () as i64,
             );
 
             let fallback_ip = self

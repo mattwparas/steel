@@ -1,4 +1,5 @@
 use core::cmp::Ordering;
+#[cfg(feature = "jit2")]
 use std::hint::unreachable_unchecked;
 
 use crate::rvals::{IntoSteelVal, Result, SteelVal};
@@ -616,6 +617,7 @@ pub(crate) fn car(list: &SteelVal) -> Result<SteelVal> {
     }
 }
 
+#[cfg(feature = "jit2")]
 pub(crate) unsafe fn unchecked_car(list: &SteelVal) -> SteelVal {
     match list {
         SteelVal::ListV(l) => l.car().unwrap_unchecked(),
@@ -678,6 +680,7 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
     }
 }
 
+#[cfg(feature = "jit2")]
 pub(crate) unsafe fn cdr_no_check(arg: &mut SteelVal) -> SteelVal {
     match core::mem::replace(arg, SteelVal::Void) {
         SteelVal::ListV(mut l) => {
