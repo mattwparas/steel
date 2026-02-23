@@ -118,7 +118,8 @@
     [(syntax (#%syntax/raw x ...))
      (#%expand-syntax-case (#%syntax/raw x ...) (#%syntax-bindings) (#%syntax-binding-kind))]
 
-    [(syntax (quote x)) (#%expand-syntax-case (quote x) (#%syntax-bindings) (#%syntax-binding-kind))]
+    [(syntax (quote x))
+     (#%expand-syntax-case (quote (quote x)) (#%syntax-bindings) (#%syntax-binding-kind))]
 
     ;; Otherwise, if its not quoted, just quote it
     ;; Quasisyntax isn't quite right here. We actually just want the syntax raw behavior without really any unquote?
@@ -1140,9 +1141,13 @@
 ;; 'c
 ;; ```
 (define (for-each func lst)
-  (unless (null? lst)
-    (func (car lst))
-    (for-each func (cdr lst))))
+  (if (function? func)
+      (if (list? lst)
+          (unless (null? lst)
+            (func (car lst))
+            (for-each func (cdr lst)))
+          (error-with-span (current-function-span) "for-each expected a list, found: " lst))
+      (error-with-span (current-function-span) "for-each expected a function, found: " func)))
 
 ;; TODO: Just make this a built in!
 (define (vector->list v . remaining)

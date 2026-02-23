@@ -12,7 +12,7 @@ use crate::{
     core::{instructions::u24, labels::Expr},
     gc::Shared,
     parser::{
-        expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change},
+        expand_visitor::{expand_kernel_in_env, expand_kernel_in_env_with_change, GlobalMap},
         interner::InternedString,
         kernel::Kernel,
         parser::{lower_entire_ast, lower_macro_and_require_definitions, SourcesCollector},
@@ -61,7 +61,7 @@ use super::{
 use crate::values::HashMap as ImmutableHashMap;
 
 #[cfg(feature = "profiling")]
-use std::time::Instant;
+use crate::time::Instant;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum DefineKind {
@@ -428,7 +428,7 @@ pub struct Compiler {
     // Macros that... we need to compile against directly at the top level
     // This is really just a hack, but it solves cases for interactively
     // running at the top level using private macros.
-    lifted_macro_environments: HashSet<PathBuf>,
+    lifted_macro_environments: HashMap<PathBuf, HashSet<InternedString>>,
 
     analysis: Analysis,
     shadowed_variable_renamer: RenameShadowedVariables,
@@ -620,7 +620,7 @@ impl Compiler {
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashSet::default(),
             lifted_kernel_environments: HashMap::new(),
-            lifted_macro_environments: HashSet::new(),
+            lifted_macro_environments: HashMap::new(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
             search_dirs,
@@ -650,7 +650,7 @@ impl Compiler {
             memoization_table: MemoizationTable::new(),
             mangled_identifiers: FxHashSet::default(),
             lifted_kernel_environments: HashMap::new(),
-            lifted_macro_environments: HashSet::new(),
+            lifted_macro_environments: HashMap::new(),
             analysis: Analysis::pre_allocated(),
             shadowed_variable_renamer: RenameShadowedVariables::default(),
             search_dirs,
@@ -860,6 +860,7 @@ impl Compiler {
             &mut self.lifted_kernel_environments,
             &mut self.lifted_macro_environments,
             &self.search_dirs,
+            &self.symbol_map.map(),
         )
 
         // #[cfg(not(feature = "modules"))]
@@ -942,17 +943,23 @@ impl Compiler {
                 self.builtin_modules.clone(),
                 "top-level",
             )?;
-            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+            crate::parser::expand_visitor::expand(
+                expr,
+                &self.macro_env,
+                GlobalMap::Map(self.symbol_map.map()),
+            )?;
             lower_entire_ast(expr)?;
 
-            for module in &self.lifted_macro_environments {
+            for (module, shadowed_vars) in &self.lifted_macro_environments {
                 if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
                     let source_id = self.sources.get_source_id(module).unwrap();
 
                     crate::parser::expand_visitor::expand_with_source_id(
                         expr,
                         macro_env,
+                        &shadowed_vars,
                         Some(source_id),
+                        GlobalMap::Map(self.symbol_map.map()),
                     )?
                 }
             }
@@ -979,7 +986,11 @@ impl Compiler {
             )?;
 
             // TODO: If we have this, then we have to lower all of the expressions again
-            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+            crate::parser::expand_visitor::expand(
+                expr,
+                &self.macro_env,
+                GlobalMap::Map(self.symbol_map.map()),
+            )?;
 
             // for expr in expanded_statements.iter_mut() {
             lower_entire_ast(expr)?;
@@ -1116,17 +1127,25 @@ impl Compiler {
                 self.builtin_modules.clone(),
                 "top-level",
             )?;
-            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+            crate::parser::expand_visitor::expand(
+                expr,
+                &self.macro_env,
+                GlobalMap::Map(self.symbol_map.map()),
+            )?;
             lower_entire_ast(expr)?;
 
-            for module in &self.lifted_macro_environments {
+            for (module, shadowed_vars) in &self.lifted_macro_environments {
                 if let Some(macro_env) = self.modules().get(module).map(|x| &x.macro_map) {
+                    // If this was recently shadowed, then we don't want it any more.
+
                     let source_id = self.sources.get_source_id(module).unwrap();
 
                     crate::parser::expand_visitor::expand_with_source_id(
                         expr,
                         macro_env,
+                        &shadowed_vars,
                         Some(source_id),
+                        GlobalMap::Map(self.symbol_map.map()),
                     )?;
                 }
             }
@@ -1153,7 +1172,11 @@ impl Compiler {
             )?;
 
             // TODO: If we have this, then we have to lower all of the expressions again
-            crate::parser::expand_visitor::expand(expr, &self.macro_env)?;
+            crate::parser::expand_visitor::expand(
+                expr,
+                &self.macro_env,
+                GlobalMap::Map(self.symbol_map.map()),
+            )?;
 
             // for expr in expanded_statements.iter_mut() {
             lower_entire_ast(expr)?;

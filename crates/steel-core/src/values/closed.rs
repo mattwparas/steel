@@ -139,6 +139,7 @@ impl GlobalSlotRecycler {
 
         // Anything that is still remaining will require
         // getting added to the free list that is left.
+
         for index in self.slots.drain() {
             if index < roots.len() {
                 symbol_map.free_list.free_list.push(index);
@@ -1032,7 +1033,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     }
 
     fn grow_by(&mut self, amount: usize) {
-        // let now = std::time::Instant::now();
+        // let now = crate::time::Instant::now();
         // Can probably make this a lot bigger
         let current = self.elements.len().max(amount);
 
@@ -1042,7 +1043,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
         log::debug!(target: "gc", "Time to extend the heap vec");
 
-        // let now = std::time::Instant::now();
+        // let now = crate::time::Instant::now();
 
         // Can we pre allocate this somewhere else? Incrementally allocate the values?
         // So basically we can have the elements be allocated vs not, and just have them
@@ -1275,7 +1276,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
     }
 
     fn grow(&mut self) {
-        // let now = std::time::Instant::now();
+        // let now = crate::time::Instant::now();
         // Can probably make this a lot bigger
         let current = self.elements.len().max(Self::EXTEND_CHUNK);
 
@@ -1285,7 +1286,7 @@ impl<T: HeapAble + 'static> FreeList<T> {
 
         log::debug!(target: "gc", "Time to extend the heap vec");
 
-        // let now = std::time::Instant::now();
+        // let now = crate::time::Instant::now();
 
         // Can we pre allocate this somewhere else? Incrementally allocate the values?
         // So basically we can have the elements be allocated vs not, and just have them
@@ -1684,7 +1685,7 @@ impl Heap {
         }
 
         if self.memory_free_list.percent_full() > 0.95 || force {
-            // let now = std::time::Instant::now();
+            // let now = crate::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "SteelVal gc invocation");
             self.memory_free_list.weak_collection();
@@ -1781,7 +1782,7 @@ impl Heap {
         }
 
         if self.vector_free_list.percent_full() > 0.95 || force {
-            // let now = std::time::Instant::now();
+            // let now = crate::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
             self.vector_free_list.weak_collection();
@@ -1856,7 +1857,7 @@ impl Heap {
         }
 
         if self.vector_free_list.percent_full() > 0.95 {
-            // let now = std::time::Instant::now();
+            // let now = crate::time::Instant::now();
             // Attempt a weak collection
             log::debug!(target: "gc", "Vec<SteelVal> gc invocation");
             self.vector_free_list.weak_collection();
@@ -1924,7 +1925,7 @@ impl Heap {
         );
 
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
 
         #[cfg(feature = "sync")]
         {
@@ -1960,7 +1961,7 @@ impl Heap {
         log::debug!(target: "gc", "Marking the heap");
 
         #[cfg(feature = "profiling")]
-        let now = std::time::Instant::now();
+        let now = crate::time::Instant::now();
 
         let mut context = MarkAndSweepContext {
             queue: &mut self.mark_and_sweep_queue,
@@ -2081,7 +2082,7 @@ impl ParallelMarker {
                 // This... might be too big?
                 let mut local_queue = Vec::with_capacity(4096);
                 for _ in receiver {
-                    let now = std::time::Instant::now();
+                    let now = crate::time::Instant::now();
 
                     let mut context = MarkAndSweepContextRefQueue {
                         queue: &cloned_queue,

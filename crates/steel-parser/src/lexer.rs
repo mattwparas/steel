@@ -3,7 +3,6 @@ use crate::interner::InternedString;
 use crate::tokens::{IntLiteral, Token, TokenLike, TokenType};
 use crate::tokens::{NumberLiteral, Paren, ParenMod, RealLiteral};
 use alloc::borrow::Cow;
-use alloc::sync::Arc;
 use core::char;
 use core::iter::Iterator;
 use core::ops::Range;
@@ -88,7 +87,7 @@ impl<'a> Lexer<'a> {
         while let Some(&c) = self.chars.peek() {
             self.eat();
             match c {
-                '"' => return Ok(TokenType::StringLiteral(Arc::new(buf))),
+                '"' => return Ok(TokenType::StringLiteral(buf.into())),
                 '\\' => {
                     if let Some(c) = self.read_string_escape(TokenError::IncompleteString, '"')? {
                         buf.push(c);
@@ -855,11 +854,11 @@ enum NumPart<'a> {
 
 fn parse_real(s: &str, radix: u32) -> Option<RealLiteral> {
     if s == NEG_INFINITY {
-        return Some(RealLiteral::Float(f64::NEG_INFINITY));
+        return Some(RealLiteral::Float(f64::NEG_INFINITY.into()));
     } else if s == INFINITY {
-        return Some(RealLiteral::Float(f64::INFINITY));
+        return Some(RealLiteral::Float(f64::INFINITY.into()));
     } else if s == NAN || s == NEG_NAN {
-        return Some(RealLiteral::Float(f64::NAN));
+        return Some(RealLiteral::Float(f64::NAN.into()));
     }
 
     let mut has_dot = false;
@@ -1125,7 +1124,7 @@ mod lexer_tests {
         assert_eq!(
             s.next().unwrap(),
             Token {
-                ty: StringLiteral(Arc::from("\r".to_string())),
+                ty: StringLiteral("\r".into()),
                 source: r#""\x00D;""#,
                 span: Span::new(27, 35, SourceId::none())
             }
@@ -1134,7 +1133,7 @@ mod lexer_tests {
         assert_eq!(
             s.next().unwrap(),
             Token {
-                ty: StringLiteral(Arc::from("၄".to_string())),
+                ty: StringLiteral("၄".into()),
                 source: r#""\u1044;""#,
                 span: Span::new(36, 45, SourceId::none())
             }
@@ -1143,7 +1142,7 @@ mod lexer_tests {
         assert_eq!(
             s.next().unwrap(),
             Token {
-                ty: StringLiteral(Arc::from("E".to_string())),
+                ty: StringLiteral("E".into()),
                 source: r#""\u{045}""#,
                 span: Span::new(46, 55, SourceId::none())
             }
@@ -1177,7 +1176,7 @@ mod lexer_tests {
         assert_eq!(
             s.next().unwrap(),
             Token {
-                ty: StringLiteral(Arc::from("foo\nbar".to_string())),
+                ty: StringLiteral("foo\nbar".into()),
                 source: "\"foo\nbar\"",
                 span: Span::new(1, 10, SourceId::none())
             }
@@ -1186,7 +1185,7 @@ mod lexer_tests {
         assert_eq!(
             s.next().unwrap(),
             Token {
-                ty: StringLiteral(Arc::from("foo bar".to_string())),
+                ty: StringLiteral("foo bar".into()),
                 source: "\"foo \\  \n   bar\"",
                 span: Span::new(11, 27, SourceId::none())
             }
@@ -1347,12 +1346,12 @@ mod lexer_tests {
                     span: Span::new(2, 4, SourceId::none()),
                 },
                 Token {
-                    ty: RealLiteral::Float(-1.2).into(),
+                    ty: RealLiteral::Float((-1.2).into()).into(),
                     source: "-1.2",
                     span: Span::new(5, 9, SourceId::none()),
                 },
                 Token {
-                    ty: RealLiteral::Float(2.3).into(),
+                    ty: RealLiteral::Float(2.3.into()).into(),
                     source: "+2.3",
                     span: Span::new(10, 14, SourceId::none()),
                 },
@@ -1362,47 +1361,47 @@ mod lexer_tests {
                     span: Span::new(15, 18, SourceId::none()),
                 },
                 Token {
-                    ty: RealLiteral::Float(1.0).into(),
+                    ty: RealLiteral::Float(1.0.into()).into(),
                     source: "1.",
                     span: Span::new(19, 21, SourceId::none()),
                 },
                 Token {
-                    ty: RealLiteral::Float(100.0).into(),
+                    ty: RealLiteral::Float(100.0.into()).into(),
                     source: "1e2",
                     span: Span::new(22, 25, SourceId::none()),
                 },
                 Token {
-                    ty: RealLiteral::Float(100.0).into(),
+                    ty: RealLiteral::Float(100.0.into()).into(),
                     source: "1E2",
                     span: Span::new(26, 29, SourceId::none()),
                 },
                 Token {
-                    ty: RealLiteral::Float(120.0).into(),
+                    ty: RealLiteral::Float(120.0.into()).into(),
                     source: "1.2e2",
                     span: Span::new(30, 35, SourceId::none()),
                 },
                 Token {
-                    ty: RealLiteral::Float(120.0).into(),
+                    ty: RealLiteral::Float(120.0.into()).into(),
                     source: "1.2E2",
                     span: Span::new(36, 41, SourceId::none()),
                 },
                 Token {
-                    ty: RealLiteral::Float(f64::INFINITY).into(),
+                    ty: RealLiteral::Float(f64::INFINITY.into()).into(),
                     source: "+inf.0",
                     span: Span::new(42, 48, SourceId::none()),
                 },
                 Token {
-                    ty: RealLiteral::Float(f64::NEG_INFINITY).into(),
+                    ty: RealLiteral::Float(f64::NEG_INFINITY.into()).into(),
                     source: "-inf.0",
                     span: Span::new(49, 55, SourceId::none()),
                 },
                 Token {
-                    ty: RealLiteral::Float(2e-4).into(),
+                    ty: RealLiteral::Float((2e-4).into()).into(),
                     source: "2e-4",
                     span: Span::new(56, 60, SourceId::none()),
                 },
                 Token {
-                    ty: RealLiteral::Float(2e+10).into(),
+                    ty: RealLiteral::Float((2e+10).into()).into(),
                     source: "2e+10",
                     span: Span::new(61, 66, SourceId::none())
                 }
@@ -1417,7 +1416,9 @@ mod lexer_tests {
 
         match got.ty {
             TokenType::Number(n) => {
-                assert!(matches!(*n, NumberLiteral::Real(RealLiteral::Float(x)) if x.is_nan()))
+                assert!(
+                    matches!(n.resolve(), NumberLiteral::Real(RealLiteral::Float(x)) if x.is_nan())
+                )
             }
 
             _ => panic!("Didn't match"),
@@ -1427,7 +1428,9 @@ mod lexer_tests {
 
         match got.ty {
             TokenType::Number(n) => {
-                assert!(matches!(*n, NumberLiteral::Real(RealLiteral::Float(x)) if x.is_nan()))
+                assert!(
+                    matches!(n.resolve(), NumberLiteral::Real(RealLiteral::Float(x)) if x.is_nan())
+                )
             }
 
             _ => panic!("Didn't match"),
@@ -1523,7 +1526,7 @@ mod lexer_tests {
                     span: Span::new(205, 206, SourceId::none()),
                 },
                 Token {
-                    ty: RealLiteral::Float(0.2).into(),
+                    ty: RealLiteral::Float((0.2).into()).into(),
                     source: ".2",
                     span: Span::new(223, 225, SourceId::none())
                 }
@@ -1578,8 +1581,8 @@ mod lexer_tests {
                 },
                 Token {
                     ty: NumberLiteral::Complex(
-                        RealLiteral::Float(1.0).into(),
-                        RealLiteral::Float(2.0).into()
+                        RealLiteral::Float((1.0).into()).into(),
+                        RealLiteral::Float((2.0).into()).into()
                     )
                     .into(),
                     source: "1.0+2.0i",
@@ -1588,7 +1591,7 @@ mod lexer_tests {
                 Token {
                     ty: NumberLiteral::Complex(
                         IntLiteral::Small(3).into(),
-                        RealLiteral::Float(-4.0).into()
+                        RealLiteral::Float((-4.0).into()).into()
                     )
                     .into(),
                     source: "3-4.0i",
@@ -1597,7 +1600,7 @@ mod lexer_tests {
                 Token {
                     ty: NumberLiteral::Complex(
                         IntLiteral::Small(0).into(),
-                        RealLiteral::Float(1.0).into()
+                        RealLiteral::Float((1.0).into()).into()
                     )
                     .into(),
                     source: "+1.0i",
@@ -1605,8 +1608,8 @@ mod lexer_tests {
                 },
                 Token {
                     ty: NumberLiteral::Complex(
-                        RealLiteral::Float(2e+4),
-                        RealLiteral::Float(f64::INFINITY),
+                        RealLiteral::Float((2e+4).into()),
+                        RealLiteral::Float(f64::INFINITY.into()),
                     )
                     .into(),
                     source: "2e+4+inf.0i",
@@ -1614,8 +1617,8 @@ mod lexer_tests {
                 },
                 Token {
                     ty: NumberLiteral::Complex(
-                        RealLiteral::Float(f64::NEG_INFINITY),
-                        RealLiteral::Float(-2e-4),
+                        RealLiteral::Float(f64::NEG_INFINITY.into()),
+                        RealLiteral::Float((-2e-4).into()),
                     )
                     .into(),
                     source: "-inf.0-2e-4i",
@@ -1720,7 +1723,7 @@ mod lexer_tests {
                     span: Span::new(30, 38, SourceId::none()),
                 },
                 Token {
-                    ty: NumberLiteral::Real(RealLiteral::Float(1.0)).into(),
+                    ty: NumberLiteral::Real(RealLiteral::Float((1.0).into())).into(),
                     source: "#d1.0",
                     span: Span::new(39, 44, SourceId::none()),
                 }
@@ -1760,17 +1763,17 @@ mod lexer_tests {
             got.as_slice(),
             &[
                 Token {
-                    ty: StringLiteral(Arc::new(r#""#.to_string())),
+                    ty: StringLiteral(r#""#.into()),
                     source: r#""""#,
                     span: Span::new(1, 3, SourceId::none()),
                 },
                 Token {
-                    ty: StringLiteral(Arc::new(r#"Foo bar"#.to_string())),
+                    ty: StringLiteral(r#"Foo bar"#.into()),
                     source: r#""Foo bar""#,
                     span: Span::new(4, 13, SourceId::none()),
                 },
                 Token {
-                    ty: StringLiteral(Arc::new(r#""\"#.to_string())),
+                    ty: StringLiteral(r#""\"#.into()),
                     source: r#""\"\\""#,
                     span: Span::new(14, 20, SourceId::none()),
                 },

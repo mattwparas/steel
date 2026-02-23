@@ -269,7 +269,7 @@ pub struct SyntaxObjectFromExprKind {
 
 impl SyntaxObjectFromExprKind {
     pub fn try_from_expr_kind(e: ExprKind) -> Result<SteelVal> {
-        // let now = std::time::Instant::now();
+        // let now = crate::time::Instant::now();
 
         SyntaxObjectFromExprKind {
             _inside_quote: false,
@@ -853,10 +853,12 @@ mod tests {
 
     use super::*;
 
+    use thin_vec::thin_vec;
+
     #[test]
     fn nested_quotes_handled_correctly() {
         let expr = ExprKind::Quote(Box::new(Quote::new(
-            ExprKind::List(crate::parser::ast::List::new(vec![
+            ExprKind::List(crate::parser::ast::List::new(thin_vec![
                 ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Define))),
                 ExprKind::Atom(Atom::new(SyntaxObject::default(TokenType::Identifier(
                     "applesauce".into(),

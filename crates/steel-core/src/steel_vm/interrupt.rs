@@ -1,12 +1,10 @@
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 
 use crate::steel_vm::{engine::Engine, ThreadStateController};
+use crate::time::Duration;
 
 pub struct InterruptHandler {
     controller: ThreadStateController,

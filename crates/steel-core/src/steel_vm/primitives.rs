@@ -92,6 +92,7 @@ use compact_str::CompactString;
 use core::cmp::Ordering;
 use once_cell::sync::Lazy;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
+use std::path::PathBuf;
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
 
 #[cfg(not(target_family = "wasm"))]
@@ -106,31 +107,6 @@ fn polling_module() -> BuiltInModule {
 
 #[cfg(feature = "dylibs")]
 use crate::steel_vm::ffi::ffi_module;
-
-macro_rules! ensure_tonicity_two {
-    ($check_fn:expr) => {{
-        |args: &[SteelVal]| -> Result<SteelVal> {
-
-            if args.is_empty() {
-                stop!(ArityMismatch => "expected at least one argument");
-            }
-
-            for window in args.windows(2) {
-                if let &[left, right] = &window {
-                    if !$check_fn(&left, &right) {
-                        return Ok(SteelVal::BoolV(false))
-                    }
-                } else {
-                    unreachable!()
-                }
-
-            }
-
-            Ok(SteelVal::BoolV(true))
-
-        }
-    }};
-}
 
 macro_rules! gen_pred {
     ($variant:ident) => {{
@@ -1443,29 +1419,48 @@ pub fn gt_primitive(args: &[SteelVal]) -> Result<SteelVal> {
     })))
 }
 
+/// Checks two values for pointer equality, i.e. returns #t if the two values
+/// refer to the same object.
+///
+/// # Examples
+/// ```scheme
+/// (eq? 'yes 'yes) ;; => #t
+/// (eq? 'yes 'no) ;; => #f
+/// (eq? (* 6 7) 42) ;; => #t
+/// (eq? (list 10) (list 10)) ;; => #f
+/// ```
 #[steel_derive::function(name = "eq?")]
 pub fn eq(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(left.ptr_eq(&right)))
+}
+
+/// Checks two values for value equality, i.e. returns #t if the two values
+/// are the same data type, and also are equal recursively structurally.
+///
+/// # Examples
+/// ```scheme
+/// (equal? 'yes 'yes) ;; => #t
+/// (equal? 'yes 'no) ;; => #f
+/// (equal? (* 6 7) 42) ;; => #t
+/// (equal? (list 10) (list 10)) ;; => #t
+/// ```
+#[steel_derive::function(name = "equal?")]
+pub fn equalp(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
+    Ok(SteelVal::BoolV(left == right))
+}
+
+#[steel_derive::function(name = "eqv?")]
+pub fn eqv(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
     Ok(SteelVal::BoolV(left.ptr_eq(&right)))
 }
 
 fn equality_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/equality");
     module
-        .register_value(
-            "equal?",
-            SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)),
-        )
-        .register_value(
-            "eqv?",
-            SteelVal::FuncV(ensure_tonicity_two!(
-                |a: &SteelVal, b: &SteelVal| a.ptr_eq(b)
-            )),
-        )
+        .register_native_fn_definition(EQUALP_DEFINITION)
+        .register_native_fn_definition(EQV_DEFINITION)
         .register_native_fn_definition(EQ_DEFINITION)
         .register_native_fn_definition(NUMBER_EQUALITY_DEFINITION);
-
-    // TODO: Replace this with just numeric equality!
-    // .register_value("=", SteelVal::FuncV(ensure_tonicity_two!(|a, b| a == b)));
 
     module
 }
@@ -2152,6 +2147,52 @@ pub fn closure_to_boxed_function(ctx: &mut VmCore, args: &[SteelVal]) -> Option<
     Some(function_to_ffi_impl(ctx, args))
 }
 
+#[steel_derive::context(name = "module->exports", arity = "Exact(1)")]
+fn module_exports(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn module_exports_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        let module = args[0].clone();
+
+        match module {
+            SteelVal::StringV(s) | SteelVal::SymbolV(s) => {
+                let guard = ctx.thread.compiler.read();
+                let modules = guard.modules();
+
+                let mut as_path = PathBuf::from(s.as_str());
+
+                if let Ok(p) = std::fs::canonicalize(&as_path) {
+                    as_path = p;
+                }
+
+                let mut symbols = Vec::new();
+
+                if let Some(module) = modules.get(&as_path) {
+                    let provides = module.get_provides();
+
+                    for p in provides {
+                        for provide in &p.list().unwrap().args[1..] {
+                            if let Some(ident) = provide.atom_identifier() {
+                                symbols.push(SteelVal::SymbolV(ident.resolve().into()));
+                            }
+
+                            if let Some(list) = provide.list().and_then(|x| x.second_ident()) {
+                                symbols.push(SteelVal::SymbolV(list.resolve().into()));
+                            }
+                        }
+                    }
+
+                    symbols.into_steelval()
+                } else {
+                    stop!(Generic => "Unable to resolve module: {:?}", as_path);
+                }
+            }
+            _ => {
+                stop!(TypeMismatch => "module->exports expects a string or symbol referring to a module, found: {}", module);
+            }
+        }
+    }
+    Some(module_exports_impl(ctx, args))
+}
+
 fn meta_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/meta");
     module
@@ -2298,7 +2339,8 @@ fn meta_module() -> BuiltInModule {
         .register_fn("%#interner-memory-usage", interned_current_memory_usage)
         .register_native_fn_definition(PUSH_MODULE_CONTEXT_DEFINITION)
         .register_native_fn_definition(POP_MODULE_CONTEXT_DEFINITION)
-        .register_native_fn_definition(GET_MODULE_CONTEXT_DEFINITION);
+        .register_native_fn_definition(GET_MODULE_CONTEXT_DEFINITION)
+        .register_native_fn_definition(MODULE_EXPORTS_DEFINITION);
 
     module
         .register_native_fn_definition(WILL_EXECUTE_DEFINITION)
@@ -2375,6 +2417,18 @@ fn syntax_to_module(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelV
     Some(syntax_to_module_impl(ctx, args))
 }
 
+#[steel_derive::context(name = "#%syntax/raw", arity = "Exact(3)")]
+fn syntax_raw(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn syntax_raw_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        let syntax = args[1].clone();
+        let span = Span::from_steelval(&args[2])?;
+        let interned_raw = intern_symbol(ctx, &args[..1]).unwrap()?;
+        crate::rvals::Syntax::proto(interned_raw, syntax, span).into_steelval()
+    }
+
+    Some(syntax_raw_impl(ctx, args))
+}
+
 fn syntax_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/syntax");
     module
@@ -2383,7 +2437,7 @@ fn syntax_module() -> BuiltInModule {
         .register_fn("syntax/loc", crate::rvals::Syntax::new)
         .register_fn("syntax-span", crate::rvals::Syntax::syntax_loc)
         .register_fn("span-file-id", |span: Span| span.source_id.map(|x| x.0))
-        .register_fn("#%syntax/raw", crate::rvals::Syntax::proto)
+        .register_native_fn_definition(SYNTAX_RAW_DEFINITION)
         .register_fn("syntax-e", crate::rvals::Syntax::syntax_e)
         .register_value("syntax?", gen_pred!(SyntaxObject))
         .register_fn("#%debug-syntax->exprkind", |value| {

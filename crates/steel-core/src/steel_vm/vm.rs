@@ -65,6 +65,8 @@ use std::sync::Mutex;
 
 use super::engine::EngineId;
 
+#[cfg(feature = "profiling")]
+use crate::time::Instant;
 use crossbeam_utils::atomic::AtomicCell;
 #[cfg(feature = "profiling")]
 use log::{debug, log_enabled};
@@ -72,8 +74,6 @@ use num_bigint::BigInt;
 use num_traits::CheckedSub;
 use parking_lot::RwLock;
 use smallvec::SmallVec;
-#[cfg(feature = "profiling")]
-use std::time::Instant;
 use steel_parser::interner::InternedString;
 use threads::ThreadHandle;
 
@@ -731,7 +731,7 @@ impl Synchronizer {
                     continue;
                 }
 
-                let now = std::time::Instant::now();
+                let now = crate::time::Instant::now();
 
                 // TODO: Have to use a condvar
                 while now.elapsed().as_millis() < timeout_ms {
@@ -2179,17 +2179,26 @@ impl<'a> VmCore<'a> {
     }
 
     pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
+        let last = self.thread.stack_frames.len();
         DehydratedStackTrace::new(
             self.thread
                 .stack_frames
                 .iter()
-                .map(|x| {
+                .enumerate()
+                .map(|(index, frame)| {
                     DehydratedCallContext::new(
                         self.thread
                             .function_interner
                             .spans
-                            .get(&x.function.id)
-                            .and_then(|x| x.get(self.ip))
+                            .get(&frame.function.id)
+                            .and_then(|x| {
+                                let ip = if index == last - 1 {
+                                    self.ip
+                                } else {
+                                    frame.ip.saturating_sub(1) as _
+                                };
+                                x.get(ip).or_else(|| self.root_spans.get(ip))
+                            })
                             .copied(),
                     )
                 })
@@ -2793,7 +2802,7 @@ impl<'a> VmCore<'a> {
 
             // println!("{:?}", self.instructions[self.ip]);
 
-            // let now = std::time::Instant::now();
+            // let now = crate::time::Instant::now();
 
             // TODO -> don't just copy the value from the instructions
             // We don't need to do that... Figure out a way to just take a reference to the value
@@ -4448,11 +4457,20 @@ impl<'a> VmCore<'a> {
     #[inline(always)]
     fn handle_push(&mut self, index: usize) -> Result<()> {
         // let value = self.thread.global_env.repl_lookup_idx(index);
+
+        let idx = self
+            .thread
+            .compiler
+            .read()
+            .symbol_map
+            .values()
+            .get(index)
+            .copied();
         let value = self
             .thread
             .global_env
             .repl_maybe_lookup_idx(index)
-            .ok_or_else(throw!(Generic => "free identifier"))?;
+            .ok_or_else(throw!(Generic => "free identifier: {} - {}", index, idx.unwrap()))?;
 
         self.thread.stack.push(value);
         self.ip += 1;
@@ -6527,7 +6545,7 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, _args: &[SteelVal]) -> Option
 // Snag values, then expand them, then convert back? The constant conversion
 // back and forth will probably hamper performance significantly. That being said,
 // it is entirely at compile time, so probably _okay_
-pub(crate) fn expand_syntax_case_impl(_ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let mut bindings: rustc_hash::FxHashMap<_, _> = if let SteelVal::HashMapV(h) = &args[1] {
         h.iter()
             .map(|(k, v)| match (k, v) {
@@ -6576,7 +6594,30 @@ pub(crate) fn expand_syntax_case_impl(_ctx: &mut VmCore, args: &[SteelVal]) -> R
 
     expand_template(&mut template, &mut bindings, &mut binding_kind)?;
 
-    crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(template)
+    let mut res =
+        crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(template);
+
+    if let Ok(SteelVal::SyntaxObject(s)) = &mut res {
+        let inner = Gc::get_mut(s);
+
+        if let Some(inner) = inner {
+            let mut guard = ctx.thread.compiler.write();
+
+            if let Some(inner) = &mut inner.raw {
+                if let SteelVal::Void = inner {
+                    return res;
+                }
+
+                let interned_index = guard.constant_map.add_or_get(inner.clone());
+                let value = guard.constant_map.get(interned_index);
+                *inner = value;
+            }
+        }
+
+        res
+    } else {
+        res
+    }
 }
 
 #[steel_derive::context(name = "#%expand-syntax-case", arity = "Exact(3)")]

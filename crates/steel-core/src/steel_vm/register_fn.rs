@@ -49,6 +49,12 @@ pub trait RegisterFn<FN, ARGS, RET> {
     fn register_owned_fn(&mut self, name: String, func: FN) -> &mut Self {
         self
     }
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self;
 }
 
 pub trait RegisterFnBorrowed<FN, ARGS, RET> {
@@ -105,6 +111,17 @@ impl<
 
         self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 // impl RegisterFn<fn(&[SteelVal]) -> Result<SteelVal>, NativeWrapper, Result<SteelVal>> for Engine {
@@ -159,6 +176,17 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStatic>
@@ -191,6 +219,17 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendSyncStatic>
@@ -222,6 +261,17 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
                 Some(1),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -257,6 +307,17 @@ impl<
                 Some(1),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -296,6 +357,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -333,6 +405,17 @@ impl<
                 Some(2),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -383,6 +466,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -431,6 +525,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -476,6 +581,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -520,6 +636,17 @@ impl<
                 Some(3),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -607,6 +734,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -683,6 +821,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -756,6 +905,17 @@ impl<
                 Some(2),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -848,6 +1008,19 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        RegisterFn::<FN, MarkerWrapper7<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(
+            self, name, func,
+        );
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 // TODO: Generalize this to multiple things, use more and more and more macros
@@ -929,6 +1102,19 @@ impl<
                 Some(1),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        RegisterFn::<FN, MarkerWrapper8<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(
+            self, name, func,
+        );
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -1013,6 +1199,17 @@ impl<
                 Some(2),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        RegisterFn::<FN, MarkerWrapper8<(SELF, ARG, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(self, name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -1209,6 +1406,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -1253,6 +1461,17 @@ impl<
                 Some(3),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -1342,6 +1561,17 @@ impl<
                 Some(2),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -1434,6 +1664,19 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        RegisterFn::<FN, MarkerWrapper7<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(
+            self, name, func,
+        );
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 // TODO: Generalize this to multiple things, use more and more and more macros
@@ -1517,6 +1760,19 @@ impl<
                 Some(1),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        RegisterFn::<FN, MarkerWrapper8<(SELF, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(
+            self, name, func,
+        );
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -1602,6 +1858,17 @@ impl<
                 Some(2),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        RegisterFn::<FN, MarkerWrapper8<(SELF, ARG, RET, STATICRET, SELFSTAT)>, STATICRET>::register_fn(self, name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -1690,6 +1957,17 @@ impl<
 
         self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper<()>, RET>
@@ -1714,6 +1992,17 @@ impl<RET: IntoSteelVal, FN: Fn() -> RET + SendSyncStatic> RegisterFn<FN, Wrapper
                 Some(0),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -1780,6 +2069,17 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelVal, FN: Fn(&SELF) -> RET + SendSyncStat
         //     ))),
         // )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendSyncStatic>
@@ -1811,6 +2111,17 @@ impl<RET: IntoSteelVal, SELF: AsRefMutSteelVal, FN: Fn(&mut SELF) -> RET + SendS
                 Some(1),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -1847,6 +2158,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendSyncStatic>
@@ -1876,6 +2198,17 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 Some(1),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
     }
 }
 
@@ -1913,6 +2246,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendSyncStatic>
@@ -1944,6 +2288,16 @@ impl<RET: IntoSteelVal, SELF: AsRefSteelValFromRef, FN: Fn(&SELF) -> RET + SendS
                 Some(1),
             ))),
         )
+    }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self
     }
 }
 
@@ -2004,6 +2358,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 impl<
@@ -2044,6 +2409,17 @@ impl<
             ))),
         )
     }
+
+    fn register_fn_with_ctx(
+        &mut self,
+        ctx: &'static str,
+        name: &'static str,
+        func: FN,
+    ) -> &mut Self {
+        self.register_fn(name, func);
+        self.supply_context_arg(ctx, name);
+        self
+    }
 }
 
 macro_rules! impl_register_fn {
@@ -2077,6 +2453,18 @@ macro_rules! impl_register_fn {
                     ))),
                 )
             }
+
+            fn register_fn_with_ctx(
+                &mut self,
+                ctx: &'static str,
+                name: &'static str,
+                func: FN,
+            ) -> &mut Self {
+                self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
+                self
+            }
+
         }
 
         impl<
@@ -2108,6 +2496,18 @@ macro_rules! impl_register_fn {
                     ))),
                 )
             }
+
+
+            fn register_fn_with_ctx(
+                &mut self,
+                ctx: &'static str,
+                name: &'static str,
+                func: FN,
+            ) -> &mut Self {
+                self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
+                self
+            }
         }
 
 
@@ -2132,6 +2532,18 @@ macro_rules! impl_register_fn {
 
                 self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
             }
+
+            fn register_fn_with_ctx(
+                &mut self,
+                ctx: &'static str,
+                name: &'static str,
+                func: FN,
+            ) -> &mut Self {
+                self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
+                self
+            }
+
         }
 
         impl<
@@ -2153,6 +2565,17 @@ macro_rules! impl_register_fn {
 
                 self.register_value(name, SteelVal::FutureFunc(Shared::new(Box::new(f))))
             }
+
+            fn register_fn_with_ctx(
+                &mut self,
+                ctx: &'static str,
+                name: &'static str,
+                func: FN,
+            ) -> &mut Self {
+                self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
+                self
+            }
         }
     };
 }
@@ -2166,6 +2589,19 @@ macro_rules! impl_register_fn_self {
             FN: Fn(&SELF, $($param),*) -> RET + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, MarkerWrapper3<(SELF, $($param,)*)>, RET> for T {
+
+            fn register_fn_with_ctx(
+                &mut self,
+                ctx: &'static str,
+                name: &'static str,
+                func: FN,
+            ) -> &mut Self {
+                self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
+                self
+            }
+
+
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
                 let f = move |args: &[SteelVal]| -> Result<SteelVal> {
                     if args.len() != $arg_count {
@@ -2206,6 +2642,18 @@ macro_rules! impl_register_fn_self {
             FN: Fn(&mut SELF, $($param),*) -> RET + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, MarkerWrapper4<(SELF, $($param,)*)>, RET> for T {
+
+            fn register_fn_with_ctx(
+                &mut self,
+                ctx: &'static str,
+                name: &'static str,
+                func: FN,
+            ) -> &mut Self {
+                self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
+                self
+            }
+
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
                 let f = move |args: &[SteelVal]| -> Result<SteelVal> {
                     if args.len() != $arg_count {
@@ -2244,6 +2692,19 @@ macro_rules! impl_register_fn_self {
             FN: Fn(&mut SELF, $($param),*) -> RET + SendSyncStatic,
             RET: IntoSteelVal
         > RegisterFn<FN, MarkerWrapper5<(SELF, $($param,)*)>, RET> for T {
+
+            fn register_fn_with_ctx(
+                &mut self,
+                ctx: &'static str,
+                name: &'static str,
+                func: FN,
+            ) -> &mut Self {
+                self.register_fn(name, func);
+                self.supply_context_arg(ctx, name);
+                self
+            }
+
+
             fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
                 let f = move |args: &[SteelVal]| -> Result<SteelVal> {
                     if args.len() != $arg_count {
@@ -2306,127 +2767,7 @@ macro_rules! impl_register_fn_self {
                  ))),
              )
          }
-
         }
-
-        // impl<
-        //     T: RegisterValue,
-        //     SELF: AsRefSteelVal,
-        //     $($param: FromSteelVal,)*
-        //     FN: Fn(&SELF, $($param),*) -> RET + SendSyncStatic,
-        //     RET: IntoSteelVal
-        // > RegisterFn<FN, MarkerWrapper1<(SELF, $($param,)*)>, RET> for BuiltInModule {
-        //     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
-        //         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-        //             if args.len() != $arg_count {
-        //                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
-        //             }
-
-        //             let mut nursery = <SELF::Nursery>::default();
-
-        //             let input = <SELF>::as_ref(&args[0], &mut nursery)?;
-
-        //             let res = func(&input, $(<$param>::from_steelval(&args[$idx])?,)*);
-
-        //             res.into_steelval()
-        //         };
-
-        //         self.register_value(
-        //             name,
-        //             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-        //                 Arc::new(f),
-        //                 Some(name),
-        //                 Some($arg_count),
-        //             ))),
-        //         )
-        //     }
-        // }
-
-        // impl<
-        //     SELF: AsRefMutSteelVal,
-        //     $($param: FromSteelVal,)*
-        //     FN: Fn(&mut SELF, $($param),*) -> RET + SendSyncStatic,
-        //     RET: IntoSteelVal
-        // > RegisterFn<FN, MarkerWrapper3<(SELF, $($param,)*)>, RET> for BuiltInModule {
-        //     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
-        //         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-        //             if args.len() != $arg_count {
-        //                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
-        //             }
-
-        //             let mut input = <SELF>::as_mut_ref(&args[0])?;
-
-        //             let res = func(&mut input, $(<$param>::from_steelval(&args[$idx])?,)*);
-
-        //             res.into_steelval()
-        //         };
-
-        //         self.register_value(
-        //             name,
-        //             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-        //                 Arc::new(f),
-        //                 Some(name),
-        //                 Some($arg_count),
-        //             ))),
-        //         )
-        //     }
-        // }
-
-        // impl<
-        //     SELF: AsRefMutSteelValFromRef,
-        //     $($param: FromSteelVal,)*
-        //     FN: Fn(&mut SELF, $($param),*) -> RET + SendSyncStatic,
-        //     RET: IntoSteelVal
-        // > RegisterFn<FN, MarkerWrapper5<(SELF, $($param,)*)>, RET> for BuiltInModule {
-        //     fn register_fn(&mut self, name: &'static str, func: FN) -> &mut Self {
-        //         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-        //             if args.len() != $arg_count {
-        //                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
-        //             }
-
-        //             let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
-
-        //             let res = func(&mut input, $(<$param>::from_steelval(&args[$idx])?,)*);
-
-        //             res.into_steelval()
-        //         };
-
-        //         self.register_value(
-        //             name,
-        //             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new(
-        //                 Arc::new(f),
-        //                 Some(name),
-        //                 Some($arg_count),
-        //             ))),
-        //         )
-        //     }
-
-        //     fn register_owned_fn(&mut self, name: String, func: FN) -> &mut Self {
-
-        //         let cloned_name = name.clone();
-
-        //         let f = move |args: &[SteelVal]| -> Result<SteelVal> {
-        //             if args.len() != $arg_count {
-        //                 stop!(ArityMismatch => format!("{} expected {} argument, got {}", name, $arg_count, args.len()));
-        //             }
-
-        //             let mut input = <SELF>::as_mut_ref_from_ref(&args[0])?;
-
-        //             let res = func(&mut input, $(<$param>::from_steelval(&args[$idx])?,)*);
-
-        //             res.into_steelval()
-        //         };
-
-        //         self.register_value(
-        //             &cloned_name.to_string(),
-        //             SteelVal::BoxedFunction(Rc::new(BoxedDynFunction::new_owned(
-        //                 Arc::new(f),
-        //                 Some(Arc::new(cloned_name)),
-        //                 Some($arg_count),
-        //             ))),
-        //         )
-        //     }
-        // }
     };
 }
 
@@ -2462,43 +2803,3 @@ impl_register_fn_self!(13 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, 
 impl_register_fn_self!(14 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13);
 impl_register_fn_self!(15 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 13, O: 14);
 impl_register_fn_self!(16 => B:1, C:2, D:3, E:4, F:5, G:6, H:7, I:8, J:9, K:10, L:11, M: 12, N: 14, O: 14, P: 15);
-
-// Generate the combinations for up to arity 5?
-mod generated_impls {
-
-    use super::*;
-
-    pub struct FakeEngine {}
-
-    #[derive(Clone)]
-    struct FooBarBaz {}
-
-    impl crate::rvals::Custom for FooBarBaz {}
-
-    // Check the status of the code gen. Eventually we're going to pivot this to just be a blanket implementation
-    // against anything that implements `RegisterValue`
-    // #[test]
-    // fn check_engine_light() {
-    //     let mut engine = FakeEngine {};
-
-    //     engine.register_fn(
-    //         "applesauce",
-    //         |foo: FooBarBaz,
-    //          bar: &FooBarBaz,
-    //          baz: &mut FooBarBaz,
-    //          quux: FooBarBaz,
-    //          qux: FooBarBaz| todo!(),
-    //     );
-    // }
-
-    struct MarkerWrapper<ARGS>(PhantomData<ARGS>);
-
-    impl FakeEngine {
-        pub fn register_value(&mut self, name: &str, value: SteelVal) -> &mut Self {
-            todo!()
-        }
-    }
-
-    // TODO: Come up with better MarkerWrapper<ARGS>(PhantomData<ARGS>); -> This is gonna be nasty.
-    // include!(concat!(env!("OUT_DIR"), "/generated.rs"));
-}

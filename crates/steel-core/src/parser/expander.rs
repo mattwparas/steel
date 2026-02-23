@@ -1,5 +1,6 @@
 use crate::compiler::program::{BEGIN, DEFINE, ELLIPSES_SYMBOL, IF, LAMBDA};
 use crate::parser::ast::{Atom, ExprKind, List, Macro, PatternPair, Vector};
+use crate::parser::expand_visitor::GlobalMap;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::rename_idents::RenameIdentifiersVisitor;
 use crate::parser::replace_idents::replace_identifiers;
@@ -8,8 +9,8 @@ use crate::parser::tokens::TokenType;
 use crate::parser::span::Span;
 
 use crate::rvals::{IntoSteelVal, Result};
-use alloc::sync::Arc;
 use core::cell::RefCell;
+use quickscope::ScopeSet;
 use std::{
     collections::HashMap,
     fs::File,
@@ -18,15 +19,17 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 #[cfg(test)]
 use steel_parser::tokens::IntLiteral;
-use steel_parser::tokens::NumberLiteral;
+use steel_parser::tokens::InternedNumber;
 
 use super::macro_template::MacroTemplate;
 use super::{ast::Quote, interner::InternedString, parser::Parser};
+
+use thin_vec::thin_vec;
 
 // Given path, update the extension
 fn update_extension(mut path: PathBuf, extension: &str) -> PathBuf {
@@ -83,7 +86,11 @@ impl LocalMacroManager {
     /// Expand the expressions according to the macros in the current scope
     pub fn expand(&self, exprs: &mut [ExprKind]) -> Result<()> {
         for expr in exprs.iter_mut() {
-            crate::parser::expand_visitor::expand(expr, &self.macros)?
+            crate::parser::expand_visitor::expand(
+                expr,
+                &self.macros,
+                super::expand_visitor::GlobalMap::Set(&Default::default()),
+            )?;
         }
 
         Ok(())
@@ -239,10 +246,15 @@ impl SteelMacro {
 
     // TODO the case matching should be a little bit more informed than this
     // I think it should also not be greedy, and should report if there are ambiguous matchings
-    pub(crate) fn match_case(&self, expr: &List) -> Result<&MacroCase> {
+    pub(crate) fn match_case(
+        &self,
+        expr: &List,
+        in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+        globals: GlobalMap,
+    ) -> Result<&MacroCase> {
         for case in &self.cases {
             // println!("Matching: {:?}", case.args);
-            if case.recursive_match(expr) {
+            if case.recursive_match(expr, in_scope, globals) {
                 return Ok(case);
             }
         }
@@ -262,20 +274,30 @@ impl SteelMacro {
     pub(crate) fn match_case_index(&self, expr: &List) -> Result<(&MacroCase, usize)> {
         // TODO: Ellipses need to not be mangled?
         for (index, case) in self.cases.iter().enumerate() {
-            if case.recursive_match(expr) {
+            if case.recursive_match(
+                expr,
+                &ScopeSet::default(),
+                GlobalMap::Set(&Default::default()),
+            ) {
                 return Ok((case, index));
             }
         }
 
         if let Some(ExprKind::Atom(a)) = expr.first() {
-            stop!(BadSyntax => format!("macro expansion unable to match case: {expr}"); a.syn.span);
+            stop!(BadSyntax => format!("macro expansion unable to match case for index: {expr}"); a.syn.span);
         } else {
             unreachable!()
         }
     }
 
-    pub fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
-        let case_to_expand = self.match_case(&expr)?;
+    pub fn expand(
+        &self,
+        expr: List,
+        span: Span,
+        in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+        globals: GlobalMap,
+    ) -> Result<ExprKind> {
+        let case_to_expand = self.match_case(&expr, in_scope, globals)?;
         let expanded_expr = case_to_expand.expand(expr, span)?;
 
         Ok(expanded_expr)
@@ -403,8 +425,19 @@ impl MacroCase {
         })
     }
 
-    fn recursive_match(&self, list: &List) -> bool {
-        match_list_pattern(&self.args.args[1..], &list.args[1..], list.improper)
+    fn recursive_match(
+        &self,
+        list: &List,
+        in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+        globals: GlobalMap,
+    ) -> bool {
+        match_list_pattern(
+            &self.args.args[1..],
+            &list.args[1..],
+            list.improper,
+            in_scope,
+            globals,
+        )
     }
 
     pub(crate) fn gather_bindings(
@@ -494,13 +527,20 @@ impl MacroCase {
 pub enum MacroPattern {
     Rest(Box<MacroPattern>),
     Single(InternedString),
-    Syntax(InternedString),
+    // TODO: We need to encode
+    // the global offset, or at least something
+    // related to the scope identifier for this
+    // value such that we can do more macro things.
+    //
+    // This is so that we can see if something has
+    // already been bound.
+    Syntax(InternedString, bool),
     Many(Box<MacroPattern>),
     Nested(PatternList, bool),
     CharacterLiteral(char),
     BytesLiteral(Vec<u8>),
-    NumberLiteral(NumberLiteral),
-    StringLiteral(Arc<String>),
+    NumberLiteral(InternedNumber),
+    StringLiteral(InternedString),
     BooleanLiteral(bool),
     QuotedExpr(Box<Quote>),
     Quote(InternedString),
@@ -511,7 +551,7 @@ impl core::fmt::Debug for MacroPattern {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             MacroPattern::Single(s) => f.debug_tuple("Single").field(&s.resolve()).finish(),
-            MacroPattern::Syntax(s) => f.debug_tuple("Syntax").field(&s.resolve()).finish(),
+            MacroPattern::Syntax(s, _) => f.debug_tuple("Syntax").field(&s.resolve()).finish(),
             MacroPattern::Many(m) => f.debug_tuple("Many").field(&m).finish(),
             MacroPattern::Nested(n, v) => f.debug_tuple("Nested").field(n).field(v).finish(),
             MacroPattern::CharacterLiteral(c) => {
@@ -631,7 +671,7 @@ impl MacroPattern {
                 }) => match s {
                     TokenType::Identifier(t) => {
                         if t == ctx.name || ctx.special_forms.contains(&t) {
-                            pattern_vec.push(MacroPattern::Syntax(t))
+                            pattern_vec.push(MacroPattern::Syntax(t, false))
                         } else {
                             let peek = exprs_iter.peek().map(|(_, expr)| expr);
 
@@ -683,22 +723,22 @@ impl MacroPattern {
                     }
                     // TODO: Add all of the tokens here
                     TokenType::Begin => {
-                        pattern_vec.push(MacroPattern::Syntax(*BEGIN));
+                        pattern_vec.push(MacroPattern::Syntax(*BEGIN, false));
                     }
                     TokenType::Define => {
-                        pattern_vec.push(MacroPattern::Syntax(*DEFINE));
+                        pattern_vec.push(MacroPattern::Syntax(*DEFINE, false));
                     }
                     TokenType::Lambda => {
-                        pattern_vec.push(MacroPattern::Syntax(*LAMBDA));
+                        pattern_vec.push(MacroPattern::Syntax(*LAMBDA, false));
                     }
                     TokenType::If => {
-                        pattern_vec.push(MacroPattern::Syntax(*IF));
+                        pattern_vec.push(MacroPattern::Syntax(*IF, false));
                     }
                     TokenType::BooleanLiteral(b) => {
                         pattern_vec.push(MacroPattern::BooleanLiteral(b));
                     }
                     TokenType::Number(n) => {
-                        pattern_vec.push(MacroPattern::NumberLiteral(*n));
+                        pattern_vec.push(MacroPattern::NumberLiteral(n));
                     }
                     TokenType::CharacterLiteral(c) => {
                         pattern_vec.push(MacroPattern::CharacterLiteral(c));
@@ -840,7 +880,13 @@ impl MacroPattern {
     }
 }
 
-fn match_list_pattern(patterns: &[MacroPattern], list: &[ExprKind], improper: bool) -> bool {
+fn match_list_pattern(
+    patterns: &[MacroPattern],
+    list: &[ExprKind],
+    improper: bool,
+    in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+    globals: GlobalMap,
+) -> bool {
     let (proper_patterns, rest_pattern) = match patterns.split_last() {
         Some((MacroPattern::Rest(pat), rest)) => (rest, Some(&**pat)),
         _ => (patterns, None),
@@ -889,7 +935,7 @@ fn match_list_pattern(patterns: &[MacroPattern], list: &[ExprKind], improper: bo
                         return false;
                     };
 
-                    if !match_single_pattern(subpat, item) {
+                    if !match_single_pattern(subpat, item, in_scope, globals) {
                         return false;
                     }
                 }
@@ -902,16 +948,16 @@ fn match_list_pattern(patterns: &[MacroPattern], list: &[ExprKind], improper: bo
             return false;
         };
 
-        if !match_single_pattern(pat, expr) {
+        if !match_single_pattern(pat, expr, in_scope, globals) {
             return false;
         }
     }
 
     if let Some((pat, exprs)) = tail_to_match {
         let tail_matches = if improper && exprs.len() == 1 {
-            match_single_pattern(pat, &exprs[0])
+            match_single_pattern(pat, &exprs[0], in_scope, globals)
         } else {
-            match_rest_pattern(pat, exprs, improper)
+            match_rest_pattern(pat, exprs, improper, in_scope, globals)
         };
 
         if !tail_matches {
@@ -922,29 +968,40 @@ fn match_list_pattern(patterns: &[MacroPattern], list: &[ExprKind], improper: bo
     true
 }
 
-fn match_rest_pattern(pattern: &MacroPattern, exprs: &[ExprKind], improper: bool) -> bool {
+fn match_rest_pattern(
+    pattern: &MacroPattern,
+    exprs: &[ExprKind],
+    improper: bool,
+    in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+    globals: GlobalMap,
+) -> bool {
     match pattern {
         MacroPattern::Single(_) => true,
         MacroPattern::Nested(patterns, false) => {
-            match_list_pattern(&patterns.args, exprs, improper)
+            match_list_pattern(&patterns.args, exprs, improper, in_scope, globals)
         }
         _ => false,
     }
 }
 
-fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
+fn match_single_pattern(
+    pattern: &MacroPattern,
+    expr: &ExprKind,
+    in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+    globals: GlobalMap,
+) -> bool {
     match pattern {
         MacroPattern::Many(_) => unreachable!(),
         MacroPattern::Rest(_) => unreachable!(),
         MacroPattern::Single(_) => true,
-        MacroPattern::Syntax(v) => match expr {
+        MacroPattern::Syntax(v, _) => match expr {
             ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {
                         ty: TokenType::Identifier(s),
                         ..
                     },
-            }) if s == v => true,
+            }) if s == v && !in_scope.contains(s) && !globals.contains(s) => true,
             ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {
@@ -1001,11 +1058,11 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
                         ..
                     },
             }) => {
-                let Ok(n) = n.into_steelval() else {
+                let Ok(n) = n.resolve().into_steelval() else {
                     return false;
                 };
 
-                let Ok(t) = t.clone().into_steelval() else {
+                let Ok(t) = t.resolve().into_steelval() else {
                     return false;
                 };
 
@@ -1030,7 +1087,7 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
                         ty: TokenType::StringLiteral(b),
                         ..
                     },
-            }) if s.as_str() == b.as_str() => true,
+            }) if s == b => true,
             _ => false,
         },
         MacroPattern::BytesLiteral(v) => match expr {
@@ -1091,9 +1148,13 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
         MacroPattern::Nested(patterns, is_vec) => {
             match expr {
                 // Make the recursive call on the next layer
-                ExprKind::List(l) => !is_vec && match_list_pattern(&patterns.args, l, l.improper),
+                ExprKind::List(l) => {
+                    !is_vec && match_list_pattern(&patterns.args, l, l.improper, in_scope, globals)
+                }
                 ExprKind::Vector(v) => {
-                    *is_vec && !v.bytes && match_list_pattern(&patterns.args, &v.args, false)
+                    *is_vec
+                        && !v.bytes
+                        && match_list_pattern(&patterns.args, &v.args, false, in_scope, globals)
                 }
                 // TODO: Come back here
                 ExprKind::Quote(_) => {
@@ -1101,7 +1162,7 @@ fn match_single_pattern(pattern: &MacroPattern, expr: &ExprKind) -> bool {
                 }
                 _ => {
                     if let Some(pat) = non_list_match(&patterns.args) {
-                        match_single_pattern(pat, expr)
+                        match_single_pattern(pat, expr, in_scope, globals)
                     } else {
                         false
                     }
@@ -1139,7 +1200,7 @@ fn collect_bindings(
                 }
             }
             // actually check if the syntax matches
-            MacroPattern::Syntax(s) => {
+            MacroPattern::Syntax(s, _) => {
                 let error_func = throw!(BadSyntax => format!("macro expand expected keyword {s} - within {:?}", list));
 
                 let (_, e) = expr_iter.next().ok_or_else(error_func)?;
@@ -1159,7 +1220,7 @@ fn collect_bindings(
             }
             MacroPattern::Many(pat) if expected_many_captures == 0 => {
                 for ident in pat.variables() {
-                    bindings.insert(ident, List::new(vec![]).into());
+                    bindings.insert(ident, List::new(thin_vec![]).into());
                     binding_kind.insert(ident, BindingKind::Many);
                 }
             }
@@ -1179,7 +1240,10 @@ fn collect_bindings(
                     }
 
                     for (ident, captured) in nested_bindings.drain() {
-                        list_bindings.entry(ident).or_insert(vec![]).push(captured);
+                        list_bindings
+                            .entry(ident)
+                            .or_insert(thin_vec![])
+                            .push(captured);
                     }
                 }
 
@@ -1254,11 +1318,11 @@ fn collect_bindings(
                 let list = match expr_iter.next() {
                     Some((i, expr)) if improper && i + 1 == list.len() => [expr.clone()],
                     Some((i, _)) => {
-                        let list = List::new_maybe_improper(list[i..].to_vec(), improper);
+                        let list = List::new_maybe_improper(list[i..].into(), improper);
 
                         [ExprKind::List(list)]
                     }
-                    None => [ExprKind::List(List::new(vec![]))],
+                    None => [ExprKind::List(List::new(thin_vec![]))],
                 };
 
                 collect_bindings(&[(**pat).clone()], &list, bindings, binding_kind, false)?;
@@ -1276,7 +1340,7 @@ fn collect_bindings(
 
 #[cfg(test)]
 mod match_list_pattern_tests {
-    use steel_parser::tokens::RealLiteral;
+    use steel_parser::tokens::{NumberLiteral, RealLiteral};
 
     use super::*;
 
@@ -1295,60 +1359,72 @@ mod match_list_pattern_tests {
     #[test]
     fn test_match_basic() {
         let pattern_args = vec![
-            MacroPattern::Syntax("and".into()),
+            MacroPattern::Syntax("and".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Single("b".into()),
         ];
-        let list_expr = List::new(vec![
+        let list_expr = List::new(thin_vec![
             atom_identifier("and"),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
             ])),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
             ])),
         ]);
 
-        assert!(match_list_pattern(&pattern_args, &list_expr, false));
+        assert!(match_list_pattern(
+            &pattern_args,
+            &list_expr,
+            false,
+            &ScopeSet::default(),
+            GlobalMap::Set(&Default::default())
+        ));
     }
 
     #[test]
     fn test_match_many() {
         let pattern_args = vec![
-            MacroPattern::Syntax("and".into()),
+            MacroPattern::Syntax("and".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Many(MacroPattern::Single("b".into()).into()),
         ];
-        let list_expr = List::new(vec![
+        let list_expr = List::new(thin_vec![
             atom_identifier("and"),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
             ])),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
             ])),
         ]);
-        assert!(match_list_pattern(&pattern_args, &list_expr, false));
+        assert!(match_list_pattern(
+            &pattern_args,
+            &list_expr,
+            false,
+            &ScopeSet::default(),
+            GlobalMap::Set(&Default::default())
+        ));
     }
 
     #[test]
     fn test_match_many_multiple() {
         let pattern_args = vec![
-            MacroPattern::Syntax("and".into()),
+            MacroPattern::Syntax("and".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Many(MacroPattern::Single("b".into()).into()),
         ];
-        let list_expr = List::new(vec![
+        let list_expr = List::new(thin_vec![
             atom_identifier("and"),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
@@ -1357,13 +1433,19 @@ mod match_list_pattern_tests {
             atom_identifier("x"),
             atom_identifier("y"),
         ]);
-        assert!(match_list_pattern(&pattern_args, &list_expr, false));
+        assert!(match_list_pattern(
+            &pattern_args,
+            &list_expr,
+            false,
+            &ScopeSet::default(),
+            GlobalMap::Set(&Default::default())
+        ));
     }
 
     #[test]
     fn test_nested() {
         let pattern_args = vec![
-            MacroPattern::Syntax("->>".into()),
+            MacroPattern::Syntax("->>".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Nested(
                 PatternList::new(vec![
@@ -1374,40 +1456,52 @@ mod match_list_pattern_tests {
             ),
         ];
 
-        let list_expr = List::new(vec![
+        let list_expr = List::new(thin_vec![
             atom_identifier("->>"),
             atom_int(1),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("apple"),
                 atom_identifier("sauce"),
                 atom_identifier("is-good"),
             ])),
         ]);
-        assert!(match_list_pattern(&pattern_args, &list_expr, false));
+        assert!(match_list_pattern(
+            &pattern_args,
+            &list_expr,
+            false,
+            &ScopeSet::default(),
+            GlobalMap::Set(&Default::default())
+        ));
     }
 
     #[test]
     fn test_no_match_simple() {
         let pattern_args = vec![
-            MacroPattern::Syntax("->>".into()),
+            MacroPattern::Syntax("->>".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Single("bad".into()),
         ];
 
-        let list_expr = List::new(vec![
+        let list_expr = List::new(thin_vec![
             atom_identifier("->>"),
             atom_int(1),
             atom_int(2),
             atom_int(3),
         ]);
 
-        assert!(!match_list_pattern(&pattern_args, &list_expr, false));
+        assert!(!match_list_pattern(
+            &pattern_args,
+            &list_expr,
+            false,
+            &ScopeSet::default(),
+            GlobalMap::Set(&Default::default())
+        ));
     }
 
     #[test]
     fn test_nested_no_match() {
         let pattern_args = vec![
-            MacroPattern::Syntax("->>".into()),
+            MacroPattern::Syntax("->>".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Single("bad".into()),
             MacroPattern::Nested(
@@ -1419,30 +1513,39 @@ mod match_list_pattern_tests {
             ),
         ];
 
-        let list_expr = List::new(vec![
+        let list_expr = List::new(thin_vec![
             atom_identifier("->>"),
             atom_int(1),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("apple"),
                 atom_identifier("sauce"),
                 atom_identifier("is-good"),
             ])),
         ]);
 
-        assert!(!match_list_pattern(&pattern_args, &list_expr, false));
+        assert!(!match_list_pattern(
+            &pattern_args,
+            &list_expr,
+            false,
+            &ScopeSet::default(),
+            GlobalMap::Set(&Default::default())
+        ));
     }
 
     #[test]
     fn test_number_literals() {
         let pattern_args = vec![
-            MacroPattern::Syntax("->>".into()),
-            MacroPattern::NumberLiteral(NumberLiteral::Real(RealLiteral::Rational(
-                IntLiteral::Small(3),
-                IntLiteral::Small(4),
-            ))),
+            MacroPattern::Syntax("->>".into(), false),
+            MacroPattern::NumberLiteral(
+                NumberLiteral::Real(RealLiteral::Rational(
+                    IntLiteral::Small(3),
+                    IntLiteral::Small(4),
+                ))
+                .into(),
+            ),
         ];
 
-        let list_expr = List::new(vec![
+        let list_expr = List::new(thin_vec![
             atom_identifier("->>"),
             atom(TokenType::Number(
                 NumberLiteral::Real(RealLiteral::Rational(
@@ -1453,7 +1556,13 @@ mod match_list_pattern_tests {
             )),
         ]);
 
-        assert!(match_list_pattern(&pattern_args, &list_expr, false));
+        assert!(match_list_pattern(
+            &pattern_args,
+            &list_expr,
+            false,
+            &ScopeSet::default(),
+            GlobalMap::Set(&Default::default())
+        ));
     }
 }
 
@@ -1479,18 +1588,18 @@ mod collect_bindings_tests {
         let mut bindings = FxHashMap::default();
         let mut binding_kind = FxHashMap::default();
         let pattern_args = vec![
-            MacroPattern::Syntax("and".into()),
+            MacroPattern::Syntax("and".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Single("b".into()),
         ];
-        let list_expr = List::new(vec![
+        let list_expr = List::new(thin_vec![
             atom_identifier("and"),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
             ])),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
@@ -1509,7 +1618,7 @@ mod collect_bindings_tests {
         let mut post_bindings = FxHashMap::default();
         post_bindings.insert(
             "a".into(),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
@@ -1518,7 +1627,7 @@ mod collect_bindings_tests {
 
         post_bindings.insert(
             "b".into(),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
@@ -1533,18 +1642,18 @@ mod collect_bindings_tests {
         let mut bindings = FxHashMap::default();
         let mut binding_kind = FxHashMap::default();
         let pattern_args = vec![
-            MacroPattern::Syntax("and".into()),
+            MacroPattern::Syntax("and".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Many(MacroPattern::Single("b".into()).into()),
         ];
-        let list_expr = List::new(vec![
+        let list_expr = List::new(thin_vec![
             atom_identifier("and"),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
             ])),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
@@ -1563,7 +1672,7 @@ mod collect_bindings_tests {
         let mut post_bindings = FxHashMap::default();
         post_bindings.insert(
             "a".into(),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
@@ -1571,7 +1680,7 @@ mod collect_bindings_tests {
         );
         post_bindings.insert(
             "b".into(),
-            ExprKind::List(List::new(vec![ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
@@ -1586,13 +1695,13 @@ mod collect_bindings_tests {
         let mut bindings = FxHashMap::default();
         let mut binding_kind = FxHashMap::default();
         let pattern_args = vec![
-            MacroPattern::Syntax("and".into()),
+            MacroPattern::Syntax("and".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Many(MacroPattern::Single("b".into()).into()),
         ];
-        let list_expr = List::new(vec![
+        let list_expr = List::new(thin_vec![
             atom_identifier("and"),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
@@ -1614,7 +1723,7 @@ mod collect_bindings_tests {
 
         post_bindings.insert(
             "a".into(),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
@@ -1623,7 +1732,7 @@ mod collect_bindings_tests {
 
         post_bindings.insert(
             "b".into(),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("+"),
                 atom_identifier("x"),
                 atom_identifier("y"),
@@ -1639,7 +1748,7 @@ mod collect_bindings_tests {
         let mut binding_kind = FxHashMap::default();
         // (->> a (b c ...))
         let pattern_args = vec![
-            MacroPattern::Syntax("->>".into()),
+            MacroPattern::Syntax("->>".into(), false),
             MacroPattern::Single("a".into()),
             MacroPattern::Nested(
                 PatternList::new(vec![
@@ -1650,10 +1759,10 @@ mod collect_bindings_tests {
             ),
         ];
 
-        let list_expr = List::new(vec![
+        let list_expr = List::new(thin_vec![
             atom_identifier("->>"),
             atom_int(1),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("apple"),
                 atom_identifier("sauce"),
                 atom_identifier("is-good"),
@@ -1674,7 +1783,7 @@ mod collect_bindings_tests {
         post_bindings.insert("b".into(), atom_identifier("apple"));
         post_bindings.insert(
             "c".into(),
-            ExprKind::List(List::new(vec![
+            ExprKind::List(List::new(thin_vec![
                 atom_identifier("sauce"),
                 atom_identifier("is-good"),
             ])),
@@ -1725,12 +1834,12 @@ mod macro_case_expand_test {
     fn test_basic_expansion() {
         let case = MacroCase {
             args: PatternList::new(vec![
-                MacroPattern::Syntax("test".into()),
+                MacroPattern::Syntax("test".into(), false),
                 MacroPattern::Single("a".into()),
                 MacroPattern::Single("b".into()),
                 MacroPattern::Single("c".into()),
             ]),
-            body: List::new(vec![
+            body: List::new(thin_vec![
                 atom_identifier("fun-call"),
                 atom_identifier("inserted-variable"),
                 atom_identifier("a"),
@@ -1740,14 +1849,14 @@ mod macro_case_expand_test {
             .into(),
         };
 
-        let input = List::new(vec![
+        let input = List::new(thin_vec![
             atom_identifier("test"),
             atom_int(1),
             atom_identifier("apple"),
             atom_int(2),
         ]);
 
-        let expected: ExprKind = List::new(vec![
+        let expected: ExprKind = List::new(thin_vec![
             atom_identifier("fun-call"),
             atom_identifier("inserted-variable"),
             atom_int(1),

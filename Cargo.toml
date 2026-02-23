@@ -11,7 +11,7 @@ default-run = "steel"
 include = ["/src/**/*", "/Cargo.toml", "/README.md", "LICENSE*", "cogs/test-runner.scm"]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.2"
 
 [[bin]]
 name = "steel"
@@ -19,17 +19,15 @@ path = "src/main.rs"
 
 [workspace.dependencies]
 # This has to line up with the workspace version above
-steel-core = { path = "./crates/steel-core", version = "0.7.0", features = [
+steel-core = { path = "./crates/steel-core", version = "0.8.2", features = [
     "dylibs",
     "markdown",
     "stacker",
     "sync",
     "rooted-instructions",
-    # "triomphe",
     "imbl",
     "jit2",
     "biased"
-    # "op-code-profiling",
 ] }
 
 [features]
@@ -50,13 +48,13 @@ imbl = ["steel-core/imbl"]
 [dependencies]
 once_cell = "1.17.0"
 steel-core = { workspace = true }
-steel-derive = { path = "./crates/steel-derive", version = "0.6.0" }
-steel-repl = { path = "./crates/steel-repl", version = "0.7.0" }
+steel-derive = { path = "./crates/steel-derive", version = "0.8.2" }
+steel-repl = { path = "./crates/steel-repl", version = "0.8.2" }
 env_logger = "0.10.0"
 log = "0.4.17"
 clap = { version = "4.5.39", features = ["derive"] }
 clap_complete = "4.5.52"
-steel-doc = { path = "./crates/steel-doc", version = "0.7.0" }
+steel-doc = { path = "./crates/steel-doc", version = "0.8.2" }
 mimalloc = { version = "0.1.47", optional = true }
 snmalloc-rs = { version = "0.3.8", optional = true, default-features = false, features = [
     "build_cc",
@@ -66,7 +64,7 @@ snmalloc-rs = { version = "0.3.8", optional = true, default-features = false, fe
 ] }
 
 [target.'cfg(not(target_os = "redox"))'.dependencies]
-cargo-steel-lib = { path = "./crates/cargo-steel-lib", version = "0.2.0" }
+cargo-steel-lib = { path = "./crates/cargo-steel-lib", version = "0.8.2" }
 
 [workspace]
 members = [".", "crates/*", "libs/*"]
@@ -89,3 +87,7 @@ vergen = { version = "9.0.0", features = [
     "cargo",
     "rustc",
 ], optional = true }
+
+[[package.metadata.dist.extra-artifacts]]
+artifacts = ["steel-source.tar.gz"]
+build = ["cargo", "xtask", "dist-source-rename"]
