@@ -263,8 +263,6 @@
          [maybe-procedure-field (hash-try-get options-map '#:prop:procedure)]
          [maybe-finalizer (hash-try-get options-map '#:finalizer)])
 
-    ; (displayln maybe-finalizer)
-
     (when (and maybe-procedure-field (> maybe-procedure-field (length fields)))
       (error! "struct #:prop:procedure cannot refer to an index that is out of bounds"))
 
@@ -272,97 +270,77 @@
     (define struct-prop-name (concat-symbols 'struct: struct-name))
     (define struct-predicate (concat-symbols struct-name '?))
 
+    (define struct-proto-gensym (gensym))
+    (define constructor-proto-gensym (gensym))
+    (define predicate-proto-gensym (gensym))
+    (define getter-proto-gensym (gensym))
+    (define getter-proto-list-gensym (gensym))
+    (define struct-prop-name-gensym (gensym))
+
     `(begin
-       ; (#%black-box "STRUCT" (quote ,struct-name))
+       (define ,struct-proto-gensym (make-struct-type (quote ,struct-name) ,field-count))
+       (define ,struct-prop-name-gensym (list-ref ,struct-proto-gensym 0))
+       (define ,constructor-proto-gensym (list-ref ,struct-proto-gensym 1))
+       (define ,predicate-proto-gensym (list-ref ,struct-proto-gensym 2))
+       (define ,getter-proto-gensym (list-ref ,struct-proto-gensym 3))
+       (define ,getter-proto-list-gensym (list-ref ,struct-proto-gensym 4))
        (define ,struct-options-name (#%prim.hash ,@(hash->list options-map)))
-       (define ,struct-name 'unintialized)
-       (define ,struct-prop-name 'uninitialized)
-       (define ,struct-predicate 'uninitialized)
-       ,@(map (lambda (field)
-                `(define ,(concat-symbols struct-name '- field)
-                   'uninitialized))
-              fields)
-       ;; If we're mutable, set up the identifiers to later be `set!`
-       ;; below in the same scope
+
+       (define ,struct-prop-name ,struct-prop-name-gensym)
+       (#%vtable-update-entry! ,struct-prop-name-gensym ,maybe-procedure-field ,struct-options-name)
+       (if ,(not (bool? maybe-finalizer))
+           (#%start-will-executor)
+           void)
+       ,(if mutable?
+            (if maybe-finalizer
+                `(define ,struct-name
+                   (lambda ,fields
+                     ;; TODO: Put the right thing on here
+                     (#%register-struct-finalizer
+                      (,constructor-proto-gensym ,@(map (lambda (x) `(#%box ,x)) fields)
+                                                 ,maybe-finalizer))))
+
+                `(define ,struct-name
+                   (lambda ,fields
+                     ;; TODO: Put the right thing on here
+                     (,constructor-proto-gensym ,@(map (lambda (x) `(#%box ,x)) fields)))))
+
+            (if maybe-finalizer
+                `(define ,struct-name
+                   (lambda ,fields
+                     (#%register-struct-finalizer (,constructor-proto-gensym ,@fields)
+                                                  ,maybe-finalizer)))
+
+                `(define ,struct-name ,constructor-proto-gensym)))
+       ,(new-make-predicate struct-predicate predicate-proto-gensym)
        ,@(if mutable?
-             (map (lambda (field)
-                    `(define ,(concat-symbols 'set- struct-name '- field '!)
-                       'unintialized))
-                  fields)
+             (mutable-make-getters struct-name fields getter-proto-gensym)
+             (new-make-getters struct-name fields getter-proto-list-gensym))
+       ;; If this is a mutable struct, generate the setters
+       ,@(if mutable?
+             (mutable-make-setters struct-name fields getter-proto-gensym)
              (list))
+       void)))
 
-       (%plain-let
-        ([prototypes (make-struct-type (quote ,struct-name) ,field-count)])
-        (%plain-let
-         ([struct-type-descriptor (list-ref prototypes 0)] [constructor-proto (list-ref prototypes 1)]
-                                                           [predicate-proto (list-ref prototypes 2)]
-                                                           ;; TODO: Deprecate this
-                                                           [getter-proto (list-ref prototypes 3)]
-                                                           [getter-proto-list
-                                                            (list-ref prototypes 4)])
-         (set! ,struct-prop-name struct-type-descriptor)
-         (#%vtable-update-entry! struct-type-descriptor ,maybe-procedure-field ,struct-options-name)
-         (if ,(not (bool? maybe-finalizer))
-             (#%start-will-executor)
-             void)
-         ,(if mutable?
-              (if maybe-finalizer
-                  `(set! ,struct-name
-                         (lambda ,fields
-                           ;; TODO: Put the right thing on here
-                           (#%register-struct-finalizer
-                            (constructor-proto ,@(map (lambda (x) `(#%box ,x)) fields)
-                                               ,maybe-finalizer))))
+(define (new-make-predicate struct-predicate-name predicate-proto-gensym)
+  `(define ,struct-predicate-name ,predicate-proto-gensym))
 
-                  `(set! ,struct-name
-                         (lambda ,fields
-                           ;; TODO: Put the right thing on here
-                           (constructor-proto ,@(map (lambda (x) `(#%box ,x)) fields)))))
-
-              (if maybe-finalizer
-                  `(set! ,struct-name
-                         (lambda ,fields
-                           (#%register-struct-finalizer (constructor-proto ,@fields)
-                                                        ,maybe-finalizer)))
-
-                  `(set! ,struct-name constructor-proto)))
-         ,(new-make-predicate struct-predicate struct-name fields)
-         ,@(if mutable?
-               (mutable-make-getters struct-name fields)
-               (new-make-getters struct-name fields))
-         ;; If this is a mutable struct, generate the setters
-         ,@(if mutable?
-               (mutable-make-setters struct-name fields)
-               (list))
-         void)))))
-
-(define (new-make-predicate struct-predicate-name struct-name fields)
-  `(set! ,struct-predicate-name predicate-proto))
-
-(define (mutable-make-getters struct-name fields)
+(define (mutable-make-getters struct-name fields getter-proto-gensym)
   (map (lambda (field)
-         `(set! ,(concat-symbols struct-name '- (car field))
-                (lambda (this) (#%unbox (getter-proto this ,(list-ref field 1))))))
+         `(define ,(concat-symbols struct-name '- (car field))
+            (lambda (this) (#%unbox (,getter-proto-gensym this ,(list-ref field 1))))))
        (enumerate 0 '() fields)))
 
-(define (mutable-make-setters struct-name fields)
+(define (mutable-make-setters struct-name fields getter-proto-gensym)
   (map (lambda (field)
-         `(set! ,(concat-symbols 'set- struct-name '- (car field) '!)
-                (lambda (this value) (#%set-box! (getter-proto this ,(list-ref field 1)) value))))
+         `(define ,(concat-symbols 'set- struct-name '- (car field) '!)
+            (lambda (this value) (#%set-box! (,getter-proto-gensym this ,(list-ref field 1)) value))))
        (enumerate 0 '() fields)))
 
-(define (new-make-getters struct-name fields)
+(define (new-make-getters struct-name fields getter-proto-list-gensym)
   (map (lambda (field)
-         `(set! ,(concat-symbols struct-name '- (car field))
-                (list-ref getter-proto-list ,(list-ref field 1))
-                ; (lambda (this) (getter-proto this ,(list-ref field 1)))
-                ))
-       (enumerate 0 '() fields)))
-
-(define (new-make-setters struct-name fields)
-  (map (lambda (field)
-         `(set! ,(concat-symbols 'set- struct-name '- (car field) '!)
-                (lambda (this value) (setter-proto this ,(list-ref field 1) value))))
+         `(define ,(concat-symbols struct-name '- (car field))
+            (list-ref ,getter-proto-list-gensym ,(list-ref field 1))))
        (enumerate 0 '() fields)))
 
 (define (%make-memoize f)
@@ -370,10 +348,8 @@
     (let ([previous-value (%memo-table-ref %memo-table f n)])
       (if (and (Ok? previous-value) (Ok->value previous-value))
           (begin
-            ; (displayln "READ VALUE: " previous-value " with args " n)
             (Ok->value previous-value))
           (let ([new-value (apply f n)])
-            ; (displayln "SETTING VALUE " new-value " with args " n)
             (%memo-table-set! %memo-table f n new-value)
             new-value)))))
 
