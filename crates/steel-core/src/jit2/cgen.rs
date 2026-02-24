@@ -978,6 +978,15 @@ impl JIT {
     ) -> Result<*const u8, String> {
         // self.ctx.set_disasm(true);
 
+        if let Some(data) = self.module.get_name(&name) {
+            match data {
+                cranelift_module::FuncOrDataId::Func(func_id) => {
+                    return Ok(self.module.get_finalized_function(func_id));
+                }
+                cranelift_module::FuncOrDataId::Data(data_id) => panic!(),
+            }
+        }
+
         let (params, stmts) = (Default::default(), instructions);
 
         let pointer = self.module.target_config().pointer_type();
@@ -1006,7 +1015,7 @@ impl JIT {
 
         if let Err(e) = cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
             // println!("{:#?}", self.ctx.func);
-            println!("{:#?}", e);
+            eprintln!("{:#?}", e);
             self.module.clear_context(&mut self.ctx);
             return Err(format!("errors: {:#?}", e));
         }
@@ -1014,10 +1023,8 @@ impl JIT {
         self.module
             .define_function(id, &mut self.ctx)
             .map_err(|e| {
-                println!("error in defining function: {}", e);
-
+                eprintln!("error in defining function: {}", e);
                 self.module.clear_context(&mut self.ctx);
-
                 e.to_string()
             })?;
 
