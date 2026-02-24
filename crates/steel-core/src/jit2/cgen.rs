@@ -980,6 +980,13 @@ impl JIT {
 
         let (params, stmts) = (Default::default(), instructions);
 
+        let pointer = self.module.target_config().pointer_type();
+
+        let mut param = AbiParam::new(pointer);
+        param.purpose = ArgumentPurpose::VMContext;
+
+        self.ctx.func.signature.params.push(param);
+
         let id = self
             .module
             .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
@@ -1007,7 +1014,10 @@ impl JIT {
         self.module
             .define_function(id, &mut self.ctx)
             .map_err(|e| {
-                println!("error in defining function");
+                println!("error in defining function: {}", e);
+
+                self.module.clear_context(&mut self.ctx);
+
                 e.to_string()
             })?;
 
@@ -1066,14 +1076,6 @@ impl JIT {
 
         // Upgrade to 128 bit?
         let int = Type::int(128).unwrap();
-
-        // Set up pointer type to be the first argument.
-        let pointer = self.module.target_config().pointer_type();
-
-        let mut param = AbiParam::new(pointer);
-        param.purpose = ArgumentPurpose::VMContext;
-
-        self.ctx.func.signature.params.push(param);
 
         // dbg!(&self.ctx.func.signature);
 
