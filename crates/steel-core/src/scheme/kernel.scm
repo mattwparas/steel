@@ -12,10 +12,6 @@
 ; (define #%syntax-bindings (make-parameter (hash)))
 ; (define #%syntax-binding-kind (make-parameter (hash)))
 
-(require-builtin steel/base)
-(require "#%private/steel/control")
-(require "#%private/steel/ports")
-
 (set! #%syntax-bindings (make-parameter (hash)))
 (set! #%syntax-binding-kind (make-parameter (hash)))
 

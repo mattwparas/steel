@@ -148,6 +148,13 @@ impl Kernel {
             panic!("Kernel failed to load: This shouldn't happen!");
         }
 
+        if let Err(err) =
+            engine.compile_and_run_raw_program(include_str!("../scheme/modules/ports.scm"))
+        {
+            engine.raise_error(err);
+            panic!("Kernel failed to load: This shouldn't happen!");
+        }
+
         // Run the script for building the core interface for structs
         if let Err(err) = engine.compile_and_run_raw_program(KERNEL) {
             engine.raise_error(err);
