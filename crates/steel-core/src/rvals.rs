@@ -1232,11 +1232,7 @@ pub struct SerializationContext<'a> {
 pub fn into_serializable_value(
     val: SteelVal,
     ctx: &mut SerializationContext,
-    // serialized_heap: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-    // visited: &mut std::collections::HashSet<usize>,
 ) -> Result<SerializableSteelVal> {
-    // dbg!(&serialized_heap);
-
     match val {
         SteelVal::Closure(c) => {
             closure_into_serializable(&c, ctx).map(SerializableSteelVal::Closure)
