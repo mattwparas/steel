@@ -1243,13 +1243,15 @@ pub fn into_serializable_value(
         SteelVal::CharV(c) => Ok(SerializableSteelVal::CharV(c)),
         SteelVal::Void => Ok(SerializableSteelVal::Void),
         SteelVal::StringV(s) => Ok(SerializableSteelVal::StringV(s.to_string())),
-        SteelVal::FuncV(_) => Ok(SerializableSteelVal::NativeRef(
-            // TODO: Native ref spec for anything that is native
-            // and truly can't be serialized between runtimes, such as native
-            // functions.
-            crate::steel_vm::vm::threads::create_native_ref(&ctx.builtin_modules, val.clone())
-                .expect(&format!("Unable to find: {}", val)),
-        )),
+        SteelVal::FuncV(_) | SteelVal::BuiltIn(_) | SteelVal::MutFunc(_) => {
+            Ok(SerializableSteelVal::NativeRef(
+                // TODO: Native ref spec for anything that is native
+                // and truly can't be serialized between runtimes, such as native
+                // functions.
+                crate::steel_vm::vm::threads::create_native_ref(&ctx.builtin_modules, val.clone())
+                    .expect(&format!("Unable to find: {}", val)),
+            ))
+        }
         SteelVal::ListV(l) => Ok(SerializableSteelVal::ListV(
             l.into_iter()
                 .map(|x| into_serializable_value(x, ctx))
@@ -1259,10 +1261,13 @@ pub fn into_serializable_value(
             into_serializable_value(pair.car.clone(), ctx)?,
             into_serializable_value(pair.cdr.clone(), ctx)?,
         )))),
+        // This is going to be an issue with structs, probably. The generated functions there
+        // will need to be handled separately from this.
         SteelVal::BoxedFunction(f) => Ok(SerializableSteelVal::BoxedDynFunction((*f).clone())),
-        SteelVal::BuiltIn(f) => Ok(SerializableSteelVal::BuiltIn(f)),
+
+        // TODO: These will also need to be interned, probably can do this through
+        // some constant pool and get back an index.
         SteelVal::SymbolV(s) => Ok(SerializableSteelVal::SymbolV(s.to_string())),
-        SteelVal::MutFunc(f) => Ok(SerializableSteelVal::MutFunc(f)),
         SteelVal::HashMapV(v) => Ok(SerializableSteelVal::HashMapV(
             v.0.unwrap()
                 .into_iter()
