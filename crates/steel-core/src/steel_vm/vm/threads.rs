@@ -916,8 +916,8 @@ pub fn threading_module() -> BuiltInModule {
         })
         .register_fn(
             "channel->send",
-            |channel: &std::sync::mpsc::Sender<SerializableSteelVal>,
-             val: SteelVal|
+            |_channel: &std::sync::mpsc::Sender<SerializableSteelVal>,
+             _val: SteelVal|
              -> Result<()> {
                 todo!()
                 // let mut map = HashMap::new();
@@ -937,36 +937,39 @@ pub fn threading_module() -> BuiltInModule {
             },
         )
         // TODO: These need to be fucntions that take the context
-        .register_fn("channel->recv", |channel: &SReceiver| -> Result<SteelVal> {
-            // let receiver = channel
-            //     .receiver
-            //     .as_ref()
-            //     .expect("Channel should not be dropped here!");
+        .register_fn(
+            "channel->recv",
+            |_channel: &SReceiver| -> Result<SteelVal> {
+                // let receiver = channel
+                //     .receiver
+                //     .as_ref()
+                //     .expect("Channel should not be dropped here!");
 
-            // let value = receiver
-            //     .recv()
-            //     .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))?;
+                // let value = receiver
+                //     .recv()
+                //     .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))?;
 
-            // let mut heap = Heap::new_empty();
-            // let mut fake_heap = HashMap::new();
-            // let mut patcher = HashMap::new();
-            // let mut built_functions = HashMap::new();
-            // let mut serializer = HeapSerializer {
-            //     heap: &mut heap,
-            //     fake_heap: &mut fake_heap,
-            //     values_to_fill_in: &mut patcher,
-            //     built_functions: &mut built_functions,
-            // };
+                // let mut heap = Heap::new_empty();
+                // let mut fake_heap = HashMap::new();
+                // let mut patcher = HashMap::new();
+                // let mut built_functions = HashMap::new();
+                // let mut serializer = HeapSerializer {
+                //     heap: &mut heap,
+                //     fake_heap: &mut fake_heap,
+                //     values_to_fill_in: &mut patcher,
+                //     built_functions: &mut built_functions,
+                // };
 
-            // let value = crate::rvals::from_serializable_value(&mut serializer, value);
+                // let value = crate::rvals::from_serializable_value(&mut serializer, value);
 
-            // Ok(value)
+                // Ok(value)
 
-            todo!()
-        })
+                todo!()
+            },
+        )
         .register_fn(
             "channel->try-recv",
-            |channel: &SReceiver| -> Result<Option<SteelVal>> {
+            |_channel: &SReceiver| -> Result<Option<SteelVal>> {
                 todo!()
                 // let receiver = channel
                 //     .receiver

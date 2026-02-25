@@ -1148,7 +1148,16 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
 
                             match ctx.fake_heap.get(&v).unwrap() {
                                 SerializedHeapRef::Serialized(serializable_steel_val) => {
-                                    panic!("Found a cycle: {} = {:?}", v, serializable_steel_val);
+                                    // Introduce a third value: a sentinal value that will get patched back
+                                    // to the requisite value later.
+                                    // panic!("Found a cycle: {} = {:?}", v, serializable_steel_val);
+
+                                    let allocation =
+                                        ctx.heap.allocate_without_collection(SteelVal::Void);
+
+                                    ctx.values_to_fill_in.insert(v, allocation.clone());
+
+                                    SteelVal::HeapAllocated(allocation)
                                 }
                                 SerializedHeapRef::Closed(heap_ref) => {
                                     SteelVal::HeapAllocated(heap_ref.clone())
