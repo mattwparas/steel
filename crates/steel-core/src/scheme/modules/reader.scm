@@ -1,6 +1,4 @@
 (require-builtin #%private/steel/reader as reader.)
-(require "steel/result")
-(require "#%private/steel/control")
 
 (provide read
          read-syntax-object)
@@ -47,7 +45,6 @@
                            (read-impl finisher)))))
 
                  next)))
-         ; next))
 
          (begin
 
@@ -78,9 +75,6 @@
     ;; The reader is not empty!
     [else
      (let ([next (reader.reader-read-one *reader*)])
-
-       ; (displayln "GETTING HERE")
-       ; (displayln next)
 
        (if (void? next)
            ;; TODO: Share this code with the above
