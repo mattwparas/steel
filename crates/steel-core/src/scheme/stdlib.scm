@@ -173,8 +173,7 @@
 
     ;; What the heck is going on here?
     [(quasisyntax #%internal-crunch (syntax x))
-     (begin
-       (#%syntax/raw (quote x) (quasisyntax #%internal-crunch x) (#%syntax-span x)))]
+     (#%syntax/raw (quote x) (quasisyntax #%internal-crunch x) (#%syntax-span x))]
 
     [(quasisyntax #%internal-crunch ((unsyntax x) xs ...))
      (cons (list 'unsyntax (quasisyntax #%internal-crunch x))
@@ -188,13 +187,26 @@
 
     [(quasisyntax #%internal-crunch (#%unsyntax x)) x]
 
+    ; [(quasisyntax #%internal-crunch (#%unsyntax-splicing x xs ...))
+    ;  (#%syntax/raw (quote x) (append (syntax-e x) '()) (#%syntax-span x))]
+
+    ; (let ([evald x])
+    ;   (begin
+    ;     (stdout-simple-displayln "first case" evald)
+    ;     (#%syntax/raw (quote x) evald (#%syntax-span x))))
+    [(quasisyntax #%internal-crunch (#%unsyntax-splicing x)) x]
+
     [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x)))
-     (#%syntax/raw (quote x) (append (syntax-e x) '()) (#%syntax-span x))]
+     (let ([evald x]) (#%syntax/raw (quote x) evald (#%syntax-span x)))]
 
     [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x) xs ...))
-     (#%syntax/raw (quote (xs ...))
-                   (append (syntax-e x) (syntax-e (quasisyntax #%internal-crunch (xs ...))))
-                   (#%syntax-span (xs ...)))]
+     (let ([evald x])
+       (#%syntax/raw (quote (xs ...))
+                     (append (if (list? evald)
+                                 evald
+                                 (syntax-e evald))
+                             (syntax-e (quasisyntax #%internal-crunch (xs ...))))
+                     (#%syntax-span (xs ...))))]
 
     ;; TODO: Do unquote-splicing as well, follow the same rules as unquote
     [(quasisyntax #%internal-crunch ((unsyntax-splicing x)))
@@ -221,6 +233,10 @@
      (if (empty? 'x)
          (#%syntax/raw '() '() (#%syntax-span x))
          (#%syntax/raw 'x 'x (#%syntax-span x)))]
+
+    ;; This is the absolute worst!
+    [(quasisyntax (x))
+     (syntax (#%syntax/raw (quote (x)) (quasisyntax #%internal-crunch x) (#%syntax-span (x xs ...))))]
 
     [(quasisyntax (x xs ...))
      (syntax (#%syntax/raw (quote (x xs ...))
