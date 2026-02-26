@@ -173,9 +173,7 @@
 
     ;; What the heck is going on here?
     [(quasisyntax #%internal-crunch (syntax x))
-     (begin
-       (stdout-simple-displayln "internal crunch syntax 2")
-       (#%syntax/raw (quote x) (quasisyntax #%internal-crunch x) (#%syntax-span x)))]
+     (#%syntax/raw (quote x) (quasisyntax #%internal-crunch x) (#%syntax-span x))]
 
     [(quasisyntax #%internal-crunch ((unsyntax x) xs ...))
      (cons (list 'unsyntax (quasisyntax #%internal-crunch x))
@@ -196,29 +194,19 @@
     ;   (begin
     ;     (stdout-simple-displayln "first case" evald)
     ;     (#%syntax/raw (quote x) evald (#%syntax-span x))))
-    [(quasisyntax #%internal-crunch (#%unsyntax-splicing x))
-
-     (begin
-       (stdout-simple-displayln "inside here: " x)
-
-       x)]
+    [(quasisyntax #%internal-crunch (#%unsyntax-splicing x)) x]
 
     [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x)))
-     (let ([evald x])
-       (begin
-         (stdout-simple-displayln "second case")
-         (#%syntax/raw (quote x) evald (#%syntax-span x))))]
+     (let ([evald x]) (#%syntax/raw (quote x) evald (#%syntax-span x)))]
 
     [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x) xs ...))
      (let ([evald x])
-       (begin
-         (stdout-simple-displayln "third case")
-         (#%syntax/raw (quote (xs ...))
-                       (append (if (list? evald)
-                                   evald
-                                   (syntax-e evald))
-                               (syntax-e (quasisyntax #%internal-crunch (xs ...))))
-                       (#%syntax-span (xs ...)))))]
+       (#%syntax/raw (quote (xs ...))
+                     (append (if (list? evald)
+                                 evald
+                                 (syntax-e evald))
+                             (syntax-e (quasisyntax #%internal-crunch (xs ...))))
+                     (#%syntax-span (xs ...))))]
 
     ;; TODO: Do unquote-splicing as well, follow the same rules as unquote
     [(quasisyntax #%internal-crunch ((unsyntax-splicing x)))
