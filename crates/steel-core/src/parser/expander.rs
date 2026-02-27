@@ -297,8 +297,11 @@ impl SteelMacro {
         in_scope: &ScopeSet<InternedString, FxBuildHasher>,
         globals: GlobalMap,
     ) -> Result<ExprKind> {
+        // println!("Before: {}", expr);
+        // println!("{:?}", expr);
         let case_to_expand = self.match_case(&expr, in_scope, globals)?;
         let expanded_expr = case_to_expand.expand(expr, span)?;
+        // println!("After: {}", expanded_expr);
 
         Ok(expanded_expr)
     }
@@ -1009,6 +1012,13 @@ fn match_single_pattern(
                         ..
                     },
             }) if *v == *DEFINE => true,
+            ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Lambda,
+                        ..
+                    },
+            }) if *v == *LAMBDA => true,
             ExprKind::Atom(Atom {
                 syn:
                     SyntaxObject {

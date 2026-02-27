@@ -60,6 +60,7 @@ use std::io::Read as _;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
+use steel_parser::parser::lower_syntax_rules;
 
 use super::engine::EngineId;
 
@@ -5603,7 +5604,13 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
 }
 
 fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+    // Can we have this... not lower?
+    let mut expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[0])?;
+
+    expr = steel_parser::parser::lower_macro_and_require_definitions(expr)?;
+
+    // println!("{}", expr.to_pretty(60));
+    // println!("{:#?}", expr);
 
     let maybe_path = ctx
         .thread

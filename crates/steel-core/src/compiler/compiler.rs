@@ -35,7 +35,10 @@ use std::{
 
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use steel_parser::{ast::PROVIDE, span::Span};
+use steel_parser::{
+    ast::{AstTools, PROVIDE},
+    span::Span,
+};
 
 use crate::rvals::{Result, SteelVal};
 
@@ -1106,6 +1109,10 @@ impl Compiler {
         let now = Instant::now();
 
         let mut expanded_statements = self.expand_expressions(exprs, path)?;
+
+        // println!("---- Post expansion ----");
+        // expanded_statements.pretty_print();
+        // println!("{:#?}", expanded_statements);
 
         #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Phase 1 module expansion time: {:?}", now.elapsed());

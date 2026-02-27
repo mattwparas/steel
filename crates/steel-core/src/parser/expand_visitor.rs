@@ -539,6 +539,10 @@ impl<'a> VisitorMutRef for Expander<'a> {
                             // return self.visit(expanded);
                         }
                     }
+                    // Some(other) => {
+                    //     println!("543 - DIDN'T MATCH: {}", other);
+                    //     // println!("{:?}", other);
+                    // }
                     _ => {}
                 }
 
@@ -960,6 +964,9 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                             // return self.visit(expanded);
                         }
                     }
+                    // Some(other) => {
+                    //     println!("967 - DIDN'T MATCH: {}", other)
+                    // }
                     _ => {}
                 }
 
