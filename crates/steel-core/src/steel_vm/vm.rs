@@ -66,7 +66,6 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 use steel_parser::ast::Atom;
-use steel_parser::parser::lower_syntax_rules;
 
 use super::engine::EngineId;
 

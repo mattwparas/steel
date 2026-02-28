@@ -35,7 +35,7 @@ static REST_ARG: &str = "##%list-args";
 pub fn extract_macro_defs(
     exprs: &mut Vec<ExprKind>,
     macro_map: &mut FxHashMap<InternedString, SteelMacro>,
-    global_map: &FxHashMap<InternedString, usize>,
+    _global_map: &FxHashMap<InternedString, usize>,
 ) -> Result<()> {
     let mut error = None;
 

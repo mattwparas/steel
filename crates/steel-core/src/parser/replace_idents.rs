@@ -1,5 +1,5 @@
 use quickscope::ScopeSet;
-use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use smallvec::SmallVec;
 use thin_vec::ThinVec;
 
