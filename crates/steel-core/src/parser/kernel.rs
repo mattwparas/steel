@@ -3,6 +3,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use quickscope::ScopeSet;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 
 #[cfg(feature = "sync")]
@@ -14,8 +15,11 @@ use crate::{
         passes::analysis::SemanticAnalysis,
         program::{BEGIN_FOR_SYNTAX, DEFMACRO},
     },
+    custom_reference,
+    gc::unsafe_erased_pointers::CustomReference,
     parser::{
         ast::{Atom, Set},
+        expand_visitor::GlobalMap,
         parser::SyntaxObject,
     },
     rvals::{Result, SteelString},
@@ -96,6 +100,23 @@ impl Default for Kernel {
     }
 }
 
+pub(crate) struct GlobalSymbolMap<'a> {
+    pub(crate) map: &'a GlobalMap<'a>,
+}
+
+impl<'a> CustomReference for GlobalSymbolMap<'a> {}
+custom_reference!(GlobalSymbolMap<'a>);
+
+pub(crate) struct ParentScopeSet<'a> {
+    pub(crate) set: &'a ScopeSet<InternedString, FxBuildHasher>,
+}
+
+impl<'a> CustomReference for ParentScopeSet<'a> {}
+custom_reference!(ParentScopeSet<'a>);
+
+pub(crate) static TOP_LEVEL_SCOPE_MAP: &str = "#%top-level-scope-map";
+pub(crate) static TOP_LEVEL_GLOBAL_MAP: &str = "#%top-level-global-map";
+
 impl Kernel {
     pub fn new() -> Self {
         // Does... sandboxing help here?
@@ -138,6 +159,9 @@ impl Kernel {
                     .unwrap_or_else(|| SteelVal::ListV(List::new()))
             },
         );
+
+        // engine.register_value(TOP_LEVEL_SCOPE_MAP, SteelVal::Void);
+        // engine.register_value(TOP_LEVEL_GLOBAL_MAP, SteelVal::Void);
 
         // Load in parameters.
         // TODO: Merge this with the path in modules.rs
@@ -610,6 +634,8 @@ impl Kernel {
         ident: &InternedString,
         expr: ExprKind,
         environment: &str,
+        in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+        globals: GlobalMap,
     ) -> Result<ExprKind> {
         #[cfg(feature = "profiling")]
         let now = crate::time::Instant::now();
@@ -637,10 +663,23 @@ impl Kernel {
             }
         };
 
+        let in_scope = ParentScopeSet { set: in_scope };
+        let globals = GlobalSymbolMap { map: &globals };
+
         let result = self
             .engine
-            .call_function_with_args_from_mut_slice(function, &mut [syntax_objects])
-            .map_err(|x| x.set_span(span))?;
+            .with_immutable_reference(&in_scope)
+            .with_immutable_reference(&globals)
+            .consume_once(|engine, args| {
+                let mut args_iter = args.into_iter();
+
+                engine.update_value(TOP_LEVEL_SCOPE_MAP, args_iter.next().unwrap());
+                engine.update_value(TOP_LEVEL_GLOBAL_MAP, args_iter.next().unwrap());
+
+                engine
+                    .call_function_with_args_from_mut_slice(function, &mut [syntax_objects])
+                    .map_err(|x| x.set_span(span))
+            })?;
 
         // This shouldn't be lowering all the way. It should just be back to list right?
         let res = TryFromSteelValVisitorForExprKind::root(&result);

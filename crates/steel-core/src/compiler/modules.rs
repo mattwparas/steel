@@ -346,7 +346,7 @@ impl ModuleManager {
         // For instance, (cond) is global, but (define-syntax blagh) might be local to main
         // if a module then defines a function (blagh) that is used inside its scope, this would expand the macro in that scope
         // which we do not want
-        extract_macro_defs(&mut exprs, global_macro_map)?;
+        extract_macro_defs(&mut exprs, global_macro_map, global_map)?;
 
         let mut module_builder = ModuleBuilder::main(
             path,
@@ -652,7 +652,7 @@ impl ModuleManager {
                         // We don't need to expand those here
                         ModuleContainer::default(),
                         &module_name,
-                        // &kernel_macros_in_scope,
+                        GlobalMap::Set(&name_mangler.globals),
                     )?;
 
                     if changed {
@@ -2366,6 +2366,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.builtin_modules.clone(),
                     // Expanding macros in the environment?
                     self.name.to_str().unwrap(),
+                    globals,
                 )?;
 
                 expand(expr, &self.macro_map, globals)?;
@@ -2383,6 +2384,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.builtin_modules.clone(),
                 // Expanding macros in the environment?
                 self.name.to_str().unwrap(),
+                globals,
             )?;
             // })
         }
@@ -2462,6 +2464,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.builtin_modules.clone(),
                 // Expanding macros in the environment?
                 self.name.to_str().unwrap(),
+                globals,
             )?;
 
             expand(expr, &many_expander.map, globals)?;
@@ -2481,6 +2484,7 @@ impl<'a> ModuleBuilder<'a> {
                         // We don't need to expand those here
                         ModuleContainer::default(),
                         &req_macro.module_name,
+                        globals,
                     )?;
 
                     if local_changed {
@@ -2523,6 +2527,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 self.name.to_str().unwrap(),
+                globals,
             )?;
         }
 

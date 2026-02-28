@@ -244,6 +244,9 @@
                                  (syntax-e (quasisyntax #%internal-crunch (xs ...))))
                            (#%syntax-span (x xs ...))))]
 
+    ;; If x is something like (lambda (x) ...)
+    ;; it won't match properly, because the lambda is not getting
+    ;; destructed into a list.
     [(quasisyntax x)
      (if (empty? 'x)
          (#%syntax/raw '() '() (#%syntax-span x))

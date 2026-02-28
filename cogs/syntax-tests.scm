@@ -4,9 +4,10 @@
 
 (require "tests/unit-test.scm")
 
-(define-syntax check-syntax-error? (syntax-rules (skip)
-  [(_ skip name input expected) (skip-compile (check-syntax-error? name input expected))]
-  [(_ name input expected) (check-syntax-error-impl? name input expected)]))
+(define-syntax check-syntax-error?
+  (syntax-rules (skip)
+    [(_ skip name input expected) (skip-compile (check-syntax-error? name input expected))]
+    [(_ name input expected) (check-syntax-error-impl? name input expected)]))
 
 (define (check-syntax-error-impl? name input expected)
   (define error-message (~> (run! (Engine::new) input) Err->value error-object-message))
@@ -106,7 +107,9 @@
   (syntax-rules ()
     [(_ #(a ...) ...) #((a ...) ...)]))
 
-(skip-compile (check-equal? "multiple, nested ellipsis, vectors" (multiple-ellipsis-vectors #(1) #(a b)) #((1) (a b))))
+(skip-compile (check-equal? "multiple, nested ellipsis, vectors"
+                            (multiple-ellipsis-vectors #(1) #(a b))
+                            #((1) (a b))))
 
 (define-syntax vector-spread
   (syntax-rules ()
@@ -118,7 +121,9 @@
   (syntax-rules ()
     [(_ (a ...) ...) '(#((a #f) ...) ...)]))
 
-(skip-compile (check-equal? "ellipsis spread in vector, nested" (vector-spread-multiple (1) (2 3)) '(#((1 #f)) #((2 #f) (3 #f)))))
+(skip-compile (check-equal? "ellipsis spread in vector, nested"
+                            (vector-spread-multiple (1) (2 3))
+                            '(#((1 #f)) #((2 #f) (3 #f)))))
 
 (define-syntax catchall
   (syntax-rules ()
@@ -170,6 +175,8 @@
   (syntax-rules ()
     [(_) bound-x]))
 
+;; TODO: Fix lexical captures so that the values are
+;; actually yoinked properly at _definition_ time.
 (let ([bound-x 'inner]) (check-equal? "hygiene, lexical capture" (lexical-capture) 3))
 
 (check-equal? "improper lists in syntax"
@@ -321,23 +328,26 @@
 
 (check-equal? "vector quasiquoting" `#(,(list 'a)) #((a)))
 
-(check-syntax-error? "invalid repetitions"
-                     '((define-syntax invalid-repetitions
-                         (syntax-rules ()
-                           [(_ a ...) a])))
-                     "missing ellipsis: pattern variable needs at least 1 levels of repetition, found 0")
+(check-syntax-error?
+ "invalid repetitions"
+ '((define-syntax invalid-repetitions
+     (syntax-rules ()
+       [(_ a ...) a])))
+ "missing ellipsis: pattern variable needs at least 1 levels of repetition, found 0")
 
-(check-syntax-error? "invalid repetitions, 2 levels"
-                     '((define-syntax invalid-repetitions
-                         (syntax-rules ()
-                           [(_ (a ...) ...) (a ...)])))
-                     "missing ellipsis: pattern variable needs at least 2 levels of repetition, found 1")
+(check-syntax-error?
+ "invalid repetitions, 2 levels"
+ '((define-syntax invalid-repetitions
+     (syntax-rules ()
+       [(_ (a ...) ...) (a ...)])))
+ "missing ellipsis: pattern variable needs at least 2 levels of repetition, found 1")
 
-(check-syntax-error? "invalid repetitions, many levels"
-                     '((define-syntax invalid-repetitions
-                         (syntax-rules ()
-                           [(_ (#( b (x (c ...)) ) ...) ...) c])))
-                     "missing ellipses: pattern variable needs at least 3 levels of repetition, found 0")
+(check-syntax-error?
+ "invalid repetitions, many levels"
+ '((define-syntax invalid-repetitions
+     (syntax-rules ()
+       [(_ (#(b (x (c ...))) ...) ...) c])))
+ "missing ellipses: pattern variable needs at least 3 levels of repetition, found 0")
 
 (check-syntax-error? "ellipsis in template cdr"
                      '((define-syntax ellipsis-tail
@@ -356,7 +366,6 @@
                          (syntax-rules ()
                            [(_ a) (... a 1)])))
                      "ellipses are not a valid identifier in templates")
-
 
 ;; -------------- Report ------------------
 

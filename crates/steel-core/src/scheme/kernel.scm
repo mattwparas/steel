@@ -12,6 +12,9 @@
 ; (define #%syntax-bindings (make-parameter (hash)))
 ; (define #%syntax-binding-kind (make-parameter (hash)))
 
+(define #%top-level-scope-map void)
+(define #%top-level-global-map void)
+
 (set! #%syntax-bindings (make-parameter (hash)))
 (set! #%syntax-binding-kind (make-parameter (hash)))
 
