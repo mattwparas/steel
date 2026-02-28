@@ -59,6 +59,7 @@ pub fn expand_template_pair(
             expr,
             &mut bindings,
             &mut binding_kind,
+            &Default::default(),
             GlobalMap::Map(&Default::default()),
         )?;
     }
@@ -81,13 +82,14 @@ pub fn expand_template(
     expr: &mut ExprKind,
     bindings: &mut FxHashMap<InternedString, ExprKind>,
     binding_kind: &mut FxHashMap<InternedString, BindingKind>,
+    in_scope: &ScopeSet<InternedString, FxBuildHasher>,
     globals: GlobalMap,
 ) -> Result<()> {
     ReplaceExpressions::new(
         bindings,
         binding_kind,
         &mut Default::default(),
-        &Default::default(),
+        in_scope,
         globals,
     )
     .visit(expr)

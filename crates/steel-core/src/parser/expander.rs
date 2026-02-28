@@ -530,25 +530,6 @@ impl MacroCase {
                 })
             })
         })
-
-        // TODO: Consider using a thread local allocation, and just
-        // clear the hashmap after each use?
-        // let mut bindings = FxHashMap::default();
-        // let mut binding_kind = FxHashMap::default();
-        // let mut fallback_bindings = FxHashMap::default();
-        // collect_bindings(
-        //     &self.args[1..],
-        //     &expr[1..],
-        //     &mut bindings,
-        //     &mut binding_kind,
-        // )?;
-        // replace_identifiers(
-        //     self.body.clone(),
-        //     &mut bindings,
-        //     &mut binding_kind,
-        //     &mut fallback_bindings,
-        //     span,
-        // )
     }
 }
 

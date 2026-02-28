@@ -657,7 +657,7 @@ impl ModuleManager {
                         // We don't need to expand those here
                         ModuleContainer::default(),
                         &module_name,
-                        // &kernel_macros_in_scope,
+                        GlobalMap::Set(&name_mangler.globals),
                     )?;
 
                     if changed {
@@ -2371,6 +2371,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.builtin_modules.clone(),
                     // Expanding macros in the environment?
                     self.name.to_str().unwrap(),
+                    globals,
                 )?;
 
                 expand(expr, &self.macro_map, globals)?;
@@ -2388,6 +2389,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.builtin_modules.clone(),
                 // Expanding macros in the environment?
                 self.name.to_str().unwrap(),
+                globals,
             )?;
             // })
         }
@@ -2467,6 +2469,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.builtin_modules.clone(),
                 // Expanding macros in the environment?
                 self.name.to_str().unwrap(),
+                globals,
             )?;
 
             expand(expr, &many_expander.map, globals)?;
@@ -2486,6 +2489,7 @@ impl<'a> ModuleBuilder<'a> {
                         // We don't need to expand those here
                         ModuleContainer::default(),
                         &req_macro.module_name,
+                        globals,
                     )?;
 
                     if local_changed {
@@ -2528,6 +2532,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 self.name.to_str().unwrap(),
+                globals,
             )?;
         }
 

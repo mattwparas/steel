@@ -945,6 +945,7 @@ impl Compiler {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
+                GlobalMap::Map(self.symbol_map.map()),
             )?;
             crate::parser::expand_visitor::expand(
                 expr,
@@ -974,6 +975,7 @@ impl Compiler {
                     self.kernel.as_mut(),
                     self.builtin_modules.clone(),
                     module,
+                    GlobalMap::Map(self.symbol_map.map()),
                 )?;
 
                 if changed {
@@ -986,6 +988,7 @@ impl Compiler {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
+                GlobalMap::Map(self.symbol_map.map()),
             )?;
 
             // TODO: If we have this, then we have to lower all of the expressions again
@@ -1133,6 +1136,7 @@ impl Compiler {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
+                GlobalMap::Map(self.symbol_map.map()),
             )?;
             crate::parser::expand_visitor::expand(
                 expr,
@@ -1164,6 +1168,7 @@ impl Compiler {
                     self.kernel.as_mut(),
                     self.builtin_modules.clone(),
                     module,
+                    GlobalMap::Map(self.symbol_map.map()),
                 )?;
 
                 if changed {
@@ -1176,6 +1181,7 @@ impl Compiler {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
+                GlobalMap::Map(self.symbol_map.map()),
             )?;
 
             // TODO: If we have this, then we have to lower all of the expressions again

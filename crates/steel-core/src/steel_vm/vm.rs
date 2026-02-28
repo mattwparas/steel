@@ -1,4 +1,5 @@
 use crate::compiler::compiler::Compiler;
+use crate::compiler::passes::VisitorMutRefUnit;
 use crate::core::instructions::{pretty_print_dense_instructions, u24};
 use crate::env::SharedVectorWrapper;
 use crate::gc::shared::{
@@ -7,6 +8,9 @@ use crate::gc::shared::{
 };
 use crate::parser::expand_visitor::GlobalMap;
 use crate::parser::expander::BindingKind;
+use crate::parser::kernel::{
+    GlobalSymbolMap, ParentScopeSet, TOP_LEVEL_GLOBAL_MAP, TOP_LEVEL_SCOPE_MAP,
+};
 use crate::parser::replace_idents::expand_template;
 use crate::primitives::lists::car;
 use crate::primitives::lists::cdr;
@@ -15,7 +19,6 @@ use crate::primitives::lists::steel_cons;
 use crate::primitives::lists::steel_list_ref;
 use crate::primitives::numbers::add_two_fallible;
 use crate::primitives::vectors::vec_ref;
-use crate::rvals::as_underlying_type;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
 use crate::rvals::number_equality;
 use crate::rvals::AsRefMutSteelVal;
@@ -23,6 +26,7 @@ use crate::rvals::AsRefSteelVal;
 use crate::rvals::BoxedAsyncFunctionSignature;
 use crate::rvals::FromSteelVal as _;
 use crate::rvals::SteelString;
+use crate::rvals::{as_underlying_type, AsRefSteelValFromRef};
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
 use crate::steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive, steel_not};
@@ -61,6 +65,7 @@ use std::io::Read as _;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
+use steel_parser::ast::Atom;
 use steel_parser::parser::lower_syntax_rules;
 
 use super::engine::EngineId;
@@ -6029,6 +6034,19 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, _args: &[SteelVal]) -> Option
 // back and forth will probably hamper performance significantly. That being said,
 // it is entirely at compile time, so probably _okay_
 pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let guard = ctx.thread.compiler.read();
+    let scope_index = guard
+        .symbol_map
+        .get(&(InternedString::from(TOP_LEVEL_SCOPE_MAP)))?;
+    let global_index = guard
+        .symbol_map
+        .get(&(InternedString::from(TOP_LEVEL_GLOBAL_MAP)))?;
+
+    let scope_value = ctx.thread.global_env.repl_lookup_idx(scope_index);
+    let global_value = ctx.thread.global_env.repl_lookup_idx(global_index);
+
+    drop(guard);
+
     let mut bindings: rustc_hash::FxHashMap<_, _> = if let SteelVal::HashMapV(h) = &args[1] {
         h.iter()
             .map(|(k, v)| match (k, v) {
@@ -6074,15 +6092,27 @@ pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Re
         }
     }
 
-    println!(
-        "CALLING EXPAND SYNTAX CASE - kernel: {}",
-        ctx.thread.compiler.read().kernel.is_none()
-    );
+    // println!(
+    //     "CALLING EXPAND SYNTAX CASE - kernel: {}",
+    //     ctx.thread.compiler.read().kernel.is_none()
+    // );
 
-    println!("Template: {}", &args[0]);
+    // println!("Template: {}", &args[0]);
 
     let mut template =
         crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[0])?;
+
+    struct UnresolvedByMacro;
+    impl VisitorMutRefUnit for UnresolvedByMacro {
+        fn visit_atom(&mut self, a: &mut Atom) {
+            a.syn.unresolved = true;
+        }
+    }
+
+    UnresolvedByMacro.visit(&mut template);
+
+    let scope_guard = ParentScopeSet::as_ref_from_ref(&scope_value)?;
+    let map_guard = GlobalSymbolMap::as_ref_from_ref(&global_value)?;
 
     // TODO: Pass a reference from the parent symbol map
     // down to the child one, as well as "whatever" values are currently
@@ -6092,10 +6122,9 @@ pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Re
         &mut template,
         &mut bindings,
         &mut binding_kind,
-        GlobalMap::Map(&Default::default()),
+        &scope_guard.as_ro().set,
+        *map_guard.as_ro().map,
     )?;
-
-    println!("Done in vm");
 
     let mut res =
         crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(template);

@@ -1100,6 +1100,7 @@ pub fn expand_kernel_in_env_with_allowed(
     builtin_modules: ModuleContainer,
     env: &str,
     allowed: &FxHashSet<InternedString>,
+    globals: GlobalMap,
 ) -> Result<(ExprKind, bool)> {
     let mut expander = KernelExpander {
         map: kernel,
@@ -1109,6 +1110,8 @@ pub fn expand_kernel_in_env_with_allowed(
         depth: 0,
         allowed_macros: Some(allowed),
         define_context: None,
+        in_scope_values: ScopeSet::default(),
+        globals,
     };
 
     expander.visit(&mut expr)?;
@@ -1123,6 +1126,7 @@ pub fn expand_kernel_in_env_with_change(
     kernel: Option<&mut Kernel>,
     builtin_modules: ModuleContainer,
     env: &str,
+    globals: GlobalMap,
 ) -> Result<bool> {
     let mut expander = KernelExpander {
         map: kernel,
@@ -1132,6 +1136,8 @@ pub fn expand_kernel_in_env_with_change(
         depth: 0,
         allowed_macros: None,
         define_context: None,
+        in_scope_values: ScopeSet::default(),
+        globals,
     };
 
     // TODO: Set the environment during loading here
@@ -1149,6 +1155,7 @@ pub fn expand_kernel_in_env(
     kernel: Option<&mut Kernel>,
     builtin_modules: ModuleContainer,
     env: &str,
+    globals: GlobalMap,
 ) -> Result<()> {
     let mut expander = KernelExpander {
         map: kernel,
@@ -1158,6 +1165,8 @@ pub fn expand_kernel_in_env(
         depth: 0,
         allowed_macros: None,
         define_context: None,
+        in_scope_values: ScopeSet::default(),
+        globals,
     };
 
     expander.visit(expr)
@@ -1167,6 +1176,7 @@ pub fn expand_kernel(
     mut expr: ExprKind,
     kernel: Option<&mut Kernel>,
     builtin_modules: ModuleContainer,
+    globals: GlobalMap,
 ) -> Result<ExprKind> {
     let mut expander = KernelExpander {
         map: kernel,
@@ -1176,8 +1186,9 @@ pub fn expand_kernel(
         depth: 0,
         allowed_macros: None,
         define_context: None,
+        in_scope_values: ScopeSet::default(),
+        globals,
     };
-
     expander.visit(&mut expr)?;
 
     Ok(expr)
@@ -1191,10 +1202,16 @@ pub struct KernelExpander<'a> {
     depth: usize,
     allowed_macros: Option<&'a FxHashSet<InternedString>>,
     define_context: Option<ExprKind>,
+    in_scope_values: ScopeSet<InternedString, FxBuildHasher>,
+    globals: GlobalMap<'a>,
 }
 
 impl<'a> KernelExpander<'a> {
-    pub fn new(map: Option<&'a mut Kernel>, builtin_modules: ModuleContainer) -> Self {
+    pub fn new(
+        map: Option<&'a mut Kernel>,
+        builtin_modules: ModuleContainer,
+        globals: GlobalMap<'a>,
+    ) -> Self {
         Self {
             map,
             changed: false,
@@ -1203,6 +1220,8 @@ impl<'a> KernelExpander<'a> {
             depth: 0,
             allowed_macros: None,
             define_context: None,
+            in_scope_values: ScopeSet::default(),
+            globals,
         }
     }
 
@@ -1578,6 +1597,24 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
         &mut self,
         lambda_function: &mut super::ast::LambdaFunction,
     ) -> Self::Output {
+        {
+            self.in_scope_values.push_layer();
+
+            for value in &lambda_function.args {
+                if let Some(ident) = value.atom_identifier() {
+                    self.in_scope_values.define(*ident);
+                }
+            }
+
+            for value in &mut lambda_function.args {
+                self.visit(value)?;
+            }
+
+            self.visit(&mut lambda_function.body)?;
+
+            self.in_scope_values.pop_layer();
+        }
+
         // TODO: Unfortunately this wipes out the span
         // There needs to be
 
@@ -1640,15 +1677,24 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
     }
 
     fn visit_let(&mut self, l: &mut super::ast::Let) -> Self::Output {
+        self.in_scope_values.push_layer();
+
+        for (binding, _) in l.bindings.iter_mut() {
+            if let Some(ident) = binding.atom_identifier() {
+                self.in_scope_values.define(*ident);
+            }
+        }
+
         for (binding, expr) in l.bindings.iter_mut() {
             self.visit(binding)?;
             self.visit(expr)?;
         }
 
-        // l.bindings = visited_bindings;
-        self.visit(&mut l.body_expr)
+        self.visit(&mut l.body_expr)?;
 
-        // Ok(ExprKind::Let(l))
+        self.in_scope_values.pop_layer();
+
+        Ok(())
     }
 
     fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
@@ -1668,6 +1714,115 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
             ExprKind::Atom(a) => self.visit_atom(a),
             ExprKind::List(l) => {
                 {
+                    match l.first() {
+                        Some(ExprKind::Atom(Atom {
+                            syn:
+                                SyntaxObject {
+                                    ty: TokenType::Identifier(i),
+                                    ..
+                                },
+                        })) if *i == *LET => {
+                            self.in_scope_values.push_layer();
+                            if let Some(bindings) = l.args.get_mut(1) {
+                                if let ExprKind::List(l) = bindings {
+                                    for arg in &mut l.args {
+                                        if let ExprKind::List(l) = arg {
+                                            if let Some(ident) = l.first_ident() {
+                                                self.in_scope_values.define(*ident);
+                                            }
+                                        }
+
+                                        if let ExprKind::List(l) = arg {
+                                            if let Some(expr) = l.args.get_mut(0) {
+                                                self.visit(expr)?;
+                                            }
+
+                                            if let Some(expr) = l.args.get_mut(1) {
+                                                self.visit(expr)?;
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if let Some(body_args) = l.args.get_mut(2..) {
+                                    for body_expr in body_args {
+                                        self.visit(body_expr)?;
+                                    }
+                                }
+                            }
+
+                            self.in_scope_values.pop_layer();
+
+                            return Ok(());
+                        }
+
+                        Some(ExprKind::Atom(Atom {
+                            syn:
+                                SyntaxObject {
+                                    ty: TokenType::Let, ..
+                                },
+                        })) => {
+                            self.in_scope_values.push_layer();
+                            if let Some(bindings) = l.args.get_mut(1) {
+                                if let ExprKind::List(l) = bindings {
+                                    for arg in &mut l.args {
+                                        if let ExprKind::List(l) = arg {
+                                            if let Some(ident) = l.first_ident() {
+                                                self.in_scope_values.define(*ident);
+                                            }
+                                        }
+
+                                        if let ExprKind::List(l) = arg {
+                                            if let Some(expr) = l.args.get_mut(0) {
+                                                self.visit(expr)?;
+                                            }
+                                            if let Some(expr) = l.args.get_mut(1) {
+                                                self.visit(expr)?;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if let Some(body_args) = l.args.get_mut(2..) {
+                                for body_expr in body_args {
+                                    self.visit(body_expr)?;
+                                }
+                            }
+
+                            self.in_scope_values.pop_layer();
+
+                            return Ok(());
+                        }
+                        Some(ExprKind::Atom(
+                            ident @ Atom {
+                                syn:
+                                    SyntaxObject {
+                                        ty: TokenType::Identifier(s),
+                                        ..
+                                    },
+                            },
+                        )) if *s == *LAMBDA_SYMBOL || *s == *LAMBDA => {
+                            if let ExprKind::LambdaFunction(mut lambda) =
+                                parse_lambda(ident.clone(), l.args.clone())?
+                            {
+                                self.visit_lambda_function(&mut lambda)?;
+
+                                *expr = ExprKind::LambdaFunction(lambda);
+
+                                return Ok(());
+
+                                // return self.visit_lambda_function(&mut lambda);
+
+                                // return self.visit_lambda_function(lambda);
+                            } else {
+                                unreachable!()
+                            }
+                        }
+
+                        _ => {}
+                    }
+
                     if l.first()
                         .map(|x| {
                             if let ExprKind::Atom(Atom {
@@ -1768,6 +1923,8 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
                                         .as_ref()
                                         .map(|x| x.as_ref())
                                         .unwrap_or("default"),
+                                    &self.in_scope_values,
+                                    self.globals,
                                 )?;
                                 self.changed = true;
 
