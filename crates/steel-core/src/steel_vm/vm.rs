@@ -6034,18 +6034,20 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, _args: &[SteelVal]) -> Option
 // back and forth will probably hamper performance significantly. That being said,
 // it is entirely at compile time, so probably _okay_
 pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    let guard = ctx.thread.compiler.read();
-    let scope_index = guard
-        .symbol_map
-        .get(&(InternedString::from(TOP_LEVEL_SCOPE_MAP)))?;
-    let global_index = guard
-        .symbol_map
-        .get(&(InternedString::from(TOP_LEVEL_GLOBAL_MAP)))?;
+    let (scope_value, global_value) = {
+        let guard = ctx.thread.compiler.read();
+        let scope_index = guard
+            .symbol_map
+            .get(&(InternedString::from(TOP_LEVEL_SCOPE_MAP)));
+        let global_index = guard
+            .symbol_map
+            .get(&(InternedString::from(TOP_LEVEL_GLOBAL_MAP)));
 
-    let scope_value = ctx.thread.global_env.repl_lookup_idx(scope_index);
-    let global_value = ctx.thread.global_env.repl_lookup_idx(global_index);
+        let scope_value = scope_index.map(|x| ctx.thread.global_env.repl_lookup_idx(x));
+        let global_value = global_index.map(|x| ctx.thread.global_env.repl_lookup_idx(x));
 
-    drop(guard);
+        (scope_value, global_value)
+    };
 
     let mut bindings: rustc_hash::FxHashMap<_, _> = if let SteelVal::HashMapV(h) = &args[1] {
         h.iter()
@@ -6111,20 +6113,35 @@ pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Re
 
     UnresolvedByMacro.visit(&mut template);
 
-    let scope_guard = ParentScopeSet::as_ref_from_ref(&scope_value)?;
-    let map_guard = GlobalSymbolMap::as_ref_from_ref(&global_value)?;
+    match (scope_value, global_value) {
+        (Ok(scope_value), Ok(map_value)) => {
+            let scope_guard = ParentScopeSet::as_ref_from_ref(&scope_value)?;
+            let map_guard = GlobalSymbolMap::as_ref_from_ref(&map_value)?;
+
+            expand_template(
+                &mut template,
+                &mut bindings,
+                &mut binding_kind,
+                &scope_guard.as_ro().set,
+                *map_guard.as_ro().map,
+            )?;
+        }
+
+        _ => {
+            expand_template(
+                &mut template,
+                &mut bindings,
+                &mut binding_kind,
+                &Default::default(),
+                GlobalMap::Map(&Default::default()),
+            )?;
+        }
+    }
 
     // TODO: Pass a reference from the parent symbol map
     // down to the child one, as well as "whatever" values are currently
     // in scope at the call site. This can be tracked as well from the
     // kernel expansion level.
-    expand_template(
-        &mut template,
-        &mut bindings,
-        &mut binding_kind,
-        &scope_guard.as_ro().set,
-        *map_guard.as_ro().map,
-    )?;
 
     let mut res =
         crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(template);

@@ -1618,7 +1618,7 @@ impl<'a> VisitorMutRef for KernelExpander<'a> {
         // TODO: Unfortunately this wipes out the span
         // There needs to be
 
-        self.visit(&mut lambda_function.body)?;
+        // self.visit(&mut lambda_function.body)?;
 
         // Expand keyword arguments if we can
         // TODO: If this isn't a lambda function, we're gonna have problems

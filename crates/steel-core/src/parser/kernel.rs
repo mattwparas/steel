@@ -160,8 +160,8 @@ impl Kernel {
             },
         );
 
-        engine.register_value(TOP_LEVEL_SCOPE_MAP, SteelVal::Void);
-        engine.register_value(TOP_LEVEL_GLOBAL_MAP, SteelVal::Void);
+        // engine.register_value(TOP_LEVEL_SCOPE_MAP, SteelVal::Void);
+        // engine.register_value(TOP_LEVEL_GLOBAL_MAP, SteelVal::Void);
 
         // Load in parameters.
         // TODO: Merge this with the path in modules.rs
