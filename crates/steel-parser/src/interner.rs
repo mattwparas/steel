@@ -107,7 +107,7 @@ impl From<Spur> for InternedString {
 
 impl fmt::Debug for InternedString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.get().into_usize())
+        write!(f, "{}", self.resolve())
     }
 }
 

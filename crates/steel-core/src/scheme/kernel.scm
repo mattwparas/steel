@@ -12,6 +12,9 @@
 ; (define #%syntax-bindings (make-parameter (hash)))
 ; (define #%syntax-binding-kind (make-parameter (hash)))
 
+(define #%top-level-scope-map void)
+(define #%top-level-global-map void)
+
 (set! #%syntax-bindings (make-parameter (hash)))
 (set! #%syntax-binding-kind (make-parameter (hash)))
 
@@ -70,9 +73,7 @@
 (define-syntax #%syntax-transformer-module-update
   (syntax-rules (provide)
 
-    [(#%syntax-transformer-module name)
-     (define (datum->syntax name)
-       (%proto-hash%))]
+    [(#%syntax-transformer-module name) void]
 
     [(#%syntax-transformer-module name (provide ids ...) funcs ...)
      (set! (datum->syntax name)

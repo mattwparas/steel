@@ -748,6 +748,13 @@ impl ast::TryFromSteelValVisitorForExprKind {
                     }
                 }
 
+                if self.force_hir {
+                    let items: core::result::Result<ThinVec<ExprKind>, _> =
+                        l.iter().map(|x| self.visit(x)).collect();
+
+                    return Ok(ExprKind::List(ast::List::new(items?)));
+                }
+
                 Ok(l.into_iter()
                     .map(|x| self.visit(x))
                     .collect::<core::result::Result<ThinVec<_>, _>>()?
