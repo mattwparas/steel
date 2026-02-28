@@ -35,6 +35,7 @@ use crate::{
     },
 };
 use alloc::vec::IntoIter;
+use serde::{Deserialize, Serialize};
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
@@ -938,6 +939,8 @@ pub struct SerializedNativeStructSpec {}
 // If it cannot be sent to another thread, then we'll error out on conversion.
 // TODO: Add boxed dyn functions to this.
 // #[derive(PartialEq)]
+
+// #[derive(Serialize, Deserialize)]
 pub enum SerializableSteelVal {
     Closure(crate::values::functions::SerializedLambda),
     BoolV(bool),
@@ -946,8 +949,6 @@ pub enum SerializableSteelVal {
     CharV(char),
     Void,
     StringV(String),
-    FuncV(FunctionSignature),
-    MutFunc(MutFunctionSignature),
     HashMapV(Vec<(SerializableSteelVal, SerializableSteelVal)>),
     HashSet(Vec<SerializableSteelVal>),
     ListV(Vec<SerializableSteelVal>),
@@ -955,12 +956,13 @@ pub enum SerializableSteelVal {
     VectorV(Vec<SerializableSteelVal>),
     ByteVectorV(Vec<u8>),
     BoxedDynFunction(BoxedDynFunction),
-    BuiltIn(BuiltInSignature),
     SymbolV(String),
+    // Genuinely serializable... if possible?
     Custom(Box<dyn CustomType + Send>),
     CustomStruct(SerializableUserDefinedStruct),
     // Attempt to reuse the storage if possible
     HeapAllocated(usize),
+    // Ports can't really be serialized either?
     Port(SendablePort),
     Rational(Rational32),
     Stream(Box<SerializableStream>),
@@ -980,8 +982,6 @@ impl std::fmt::Debug for SerializableSteelVal {
             SerializableSteelVal::CharV(x) => write!(f, "{}", x),
             SerializableSteelVal::Void => write!(f, "SteelVal::Void"),
             SerializableSteelVal::StringV(x) => write!(f, "{}", x),
-            SerializableSteelVal::FuncV(x) => write!(f, "{:?}", x),
-            SerializableSteelVal::MutFunc(x) => write!(f, "{:?}", x),
             SerializableSteelVal::HashMapV(x) => write!(f, "{:?}", x),
             SerializableSteelVal::HashSet(x) => write!(f, "{:?}", x),
             SerializableSteelVal::ListV(x) => write!(f, "{:?}", x),
@@ -989,7 +989,6 @@ impl std::fmt::Debug for SerializableSteelVal {
             SerializableSteelVal::VectorV(x) => write!(f, "{:?}", x),
             SerializableSteelVal::ByteVectorV(items) => write!(f, "{:?}", items),
             SerializableSteelVal::BoxedDynFunction(x) => write!(f, "#<func>"),
-            SerializableSteelVal::BuiltIn(x) => write!(f, "{:?}", x),
             SerializableSteelVal::SymbolV(x) => write!(f, "{:?}", x),
             SerializableSteelVal::CustomStruct(x) => write!(f, "{:?}", x),
             SerializableSteelVal::HeapAllocated(x) => write!(f, "{:?}", x),
@@ -1013,7 +1012,7 @@ struct NativeRefSpec {
 And then deserializing is just grabbing that back from the root.
 */
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct NativeRefSpec {
     pub module: String,
     pub key: String,
@@ -1065,8 +1064,6 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
         SerializableSteelVal::Void => SteelVal::Void,
         SerializableSteelVal::Rational(r) => SteelVal::Rational(r),
         SerializableSteelVal::StringV(s) => SteelVal::StringV(s.into()),
-        SerializableSteelVal::FuncV(f) => SteelVal::FuncV(f),
-        SerializableSteelVal::MutFunc(f) => SteelVal::MutFunc(f),
         SerializableSteelVal::HashMapV(h) => SteelVal::HashMapV(
             Gc::new(
                 h.into_iter()
@@ -1099,7 +1096,6 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                 .collect(),
         ))),
         SerializableSteelVal::BoxedDynFunction(f) => SteelVal::BoxedFunction(Gc::new(f)),
-        SerializableSteelVal::BuiltIn(f) => SteelVal::BuiltIn(f),
         SerializableSteelVal::SymbolV(s) => SteelVal::SymbolV(s.into()),
         SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new_mut(b)),
         SerializableSteelVal::CustomStruct(s) => {
@@ -1270,7 +1266,18 @@ pub fn into_serializable_value(
         )))),
         // This is going to be an issue with structs, probably. The generated functions there
         // will need to be handled separately from this.
-        SteelVal::BoxedFunction(f) => Ok(SerializableSteelVal::BoxedDynFunction((*f).clone())),
+        SteelVal::BoxedFunction(_) => {
+            // First, attempt a native ref:
+
+            if let Some(spec) =
+                crate::steel_vm::vm::threads::create_native_ref(&ctx.builtin_modules, val.clone())
+            {
+                Ok(SerializableSteelVal::NativeRef(spec))
+            } else {
+                // Attempt to discover it from the struct registry
+                todo!("{}", val)
+            }
+        }
 
         // TODO: These will also need to be interned, probably can do this through
         // some constant pool and get back an index.

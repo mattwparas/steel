@@ -47,8 +47,8 @@ env_home = "0.1.0"
 weak-table = "0.3.2"
 # TODO: Consider whether rand needs to be here
 rand = "0.9.0"
-num-bigint = "0.4.6"
-num-rational = "0.4.2"
+num-bigint = { version = "0.4.6", features = ["serde"] }
+num-rational = { version = "0.4.2", features = ["serde"] }
 num-traits = "0.2.19"
 num-integer = "0.1.46"
 

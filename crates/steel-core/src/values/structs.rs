@@ -635,6 +635,15 @@ fn make_struct_type_inner(
         ));
     }
 
+    // TODO: Insider this in the VTable entry so that
+    // it can be fetched for images later
+    struct SteelStructTypePayload {
+        constructor: SteelVal,
+        predicate: SteelVal,
+        getter_prototype: SteelVal,
+        getter_prototypes: Vec<SteelVal>,
+    }
+
     (
         struct_type_descriptor,
         struct_constructor,
