@@ -5,6 +5,7 @@ use crate::gc::shared::{
     MutContainer, ShareableMut, Shared, StandardShared, StandardSharedMut, WeakShared,
     WeakSharedMut,
 };
+use crate::parser::expand_visitor::GlobalMap;
 use crate::parser::expander::BindingKind;
 use crate::parser::replace_idents::expand_template;
 use crate::primitives::lists::car;
@@ -6073,10 +6074,28 @@ pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Re
         }
     }
 
+    println!(
+        "CALLING EXPAND SYNTAX CASE - kernel: {}",
+        ctx.thread.compiler.read().kernel.is_none()
+    );
+
+    println!("Template: {}", &args[0]);
+
     let mut template =
         crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[0])?;
 
-    expand_template(&mut template, &mut bindings, &mut binding_kind)?;
+    // TODO: Pass a reference from the parent symbol map
+    // down to the child one, as well as "whatever" values are currently
+    // in scope at the call site. This can be tracked as well from the
+    // kernel expansion level.
+    expand_template(
+        &mut template,
+        &mut bindings,
+        &mut binding_kind,
+        GlobalMap::Map(&Default::default()),
+    )?;
+
+    println!("Done in vm");
 
     let mut res =
         crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(template);

@@ -14,6 +14,8 @@ use crate::{
         passes::analysis::SemanticAnalysis,
         program::{BEGIN_FOR_SYNTAX, DEFMACRO},
     },
+    custom_reference,
+    gc::unsafe_erased_pointers::CustomReference,
     parser::{
         ast::{Atom, Set},
         parser::SyntaxObject,
@@ -96,6 +98,13 @@ impl Default for Kernel {
     }
 }
 
+struct GlobalSymbolMap<'a> {
+    map: &'a FxHashMap<InternedString, usize>,
+}
+
+impl<'a> CustomReference for GlobalSymbolMap<'a> {}
+custom_reference!(GlobalSymbolMap<'a>);
+
 impl Kernel {
     pub fn new() -> Self {
         // Does... sandboxing help here?
@@ -138,6 +147,8 @@ impl Kernel {
                     .unwrap_or_else(|| SteelVal::ListV(List::new()))
             },
         );
+
+        engine.register_value("#%symbol-map", SteelVal::Void);
 
         // Load in parameters.
         // TODO: Merge this with the path in modules.rs
@@ -611,6 +622,8 @@ impl Kernel {
         expr: ExprKind,
         environment: &str,
     ) -> Result<ExprKind> {
+        println!("EXPANDING SYNTAX OBJECT: {}", expr);
+
         #[cfg(feature = "profiling")]
         let now = crate::time::Instant::now();
 
@@ -647,6 +660,8 @@ impl Kernel {
 
         #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Kernel expansion time: {:?}", now.elapsed());
+
+        println!("Done.");
 
         res
     }

@@ -55,7 +55,12 @@ pub fn expand_template_pair(
     }
 
     for expr in &mut exprs {
-        expand_template(expr, &mut bindings, &mut binding_kind)?;
+        expand_template(
+            expr,
+            &mut bindings,
+            &mut binding_kind,
+            GlobalMap::Map(&Default::default()),
+        )?;
     }
 
     if exprs.len() == 1 {
@@ -68,17 +73,22 @@ pub fn expand_template_pair(
     }
 }
 
+// TODO: I think this will need to know the values that are in scope
+// at the time the kernel macro is expanded, as well as what the globals
+// are. These will need to get passed down; otherwise it won't be able
+// to respect the scope properly.
 pub fn expand_template(
     expr: &mut ExprKind,
     bindings: &mut FxHashMap<InternedString, ExprKind>,
     binding_kind: &mut FxHashMap<InternedString, BindingKind>,
+    globals: GlobalMap,
 ) -> Result<()> {
     ReplaceExpressions::new(
         bindings,
         binding_kind,
         &mut Default::default(),
         &Default::default(),
-        GlobalMap::Map(&Default::default()),
+        globals,
     )
     .visit(expr)
 }
