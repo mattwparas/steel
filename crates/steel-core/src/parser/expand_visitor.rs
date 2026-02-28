@@ -35,19 +35,8 @@ static REST_ARG: &str = "##%list-args";
 pub fn extract_macro_defs(
     exprs: &mut Vec<ExprKind>,
     macro_map: &mut FxHashMap<InternedString, SteelMacro>,
+    global_map: &FxHashMap<InternedString, usize>,
 ) -> Result<()> {
-    // let mut non_macros = Vec::new();
-    // for expr in exprs {
-    //     if let ExprKind::Macro(m) = expr {
-    //         let generated_macro = SteelMacro::parse_from_ast_macro(m)?;
-    //         let name = generated_macro.name();
-    //         macro_map.insert(*name, generated_macro);
-    //     } else {
-    //         non_macros.push(expr)
-    //     }
-    // }
-    // Ok(non_macros)
-
     let mut error = None;
 
     exprs.retain_mut(|expr| {
@@ -89,7 +78,7 @@ pub fn extract_macro_defs(
     Ok(())
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum GlobalMap<'a> {
     Map(&'a FxHashMap<InternedString, usize>),
     Set(&'a FxHashSet<InternedString>),
@@ -100,6 +89,14 @@ impl<'a> GlobalMap<'a> {
         match self {
             // TODO: Fix this so that we can actually leverage it!
             GlobalMap::Map(_) => false,
+            GlobalMap::Set(hash_set) => hash_set.contains(i),
+        }
+    }
+
+    pub fn actually_contains(&self, i: &InternedString) -> bool {
+        match self {
+            // TODO: Fix this so that we can actually leverage it!
+            GlobalMap::Map(m) => m.contains_key(i),
             GlobalMap::Set(hash_set) => hash_set.contains(i),
         }
     }

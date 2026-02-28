@@ -2239,15 +2239,7 @@ impl TryFrom<ThinVec<ExprKind>> for ExprKind {
 
                         TokenType::Let => parse_let(value.into_iter(), a.syn.clone()),
                         TokenType::Identifier(expr) if *expr == *LET => {
-                            // println!("PARSING 3");
-                            // for v in &value {
-                            //     println!("{}", v);
-                            // }
-                            // println!("{:#?}", value);
-                            let res = parse_let(value.into_iter(), a.syn.clone());
-                            // println!("Done.");
-                            // println!("{}", std::backtrace::Backtrace::capture());
-                            res
+                            parse_let(value.into_iter(), a.syn.clone())
                         }
 
                         // TODO: Deprecate

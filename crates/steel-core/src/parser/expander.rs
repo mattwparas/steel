@@ -1,3 +1,4 @@
+use crate::compiler::passes::VisitorMutRefUnit;
 use crate::compiler::program::{BEGIN, DEFINE, ELLIPSES_SYMBOL, IF, LAMBDA};
 use crate::parser::ast::{Atom, ExprKind, List, Macro, PatternPair, Vector};
 use crate::parser::expand_visitor::GlobalMap;
@@ -297,11 +298,8 @@ impl SteelMacro {
         in_scope: &ScopeSet<InternedString, FxBuildHasher>,
         globals: GlobalMap,
     ) -> Result<ExprKind> {
-        // println!("Before: {}", expr);
-        // println!("{:?}", expr);
         let case_to_expand = self.match_case(&expr, in_scope, globals)?;
-        let expanded_expr = case_to_expand.expand(expr, span)?;
-        // println!("After: {}", expanded_expr);
+        let expanded_expr = case_to_expand.expand(expr, span, in_scope, globals)?;
 
         Ok(expanded_expr)
     }
@@ -464,7 +462,13 @@ impl MacroCase {
         Ok((bindings, binding_kind))
     }
 
-    fn expand(&self, expr: List, span: Span) -> Result<ExprKind> {
+    fn expand(
+        &self,
+        expr: List,
+        span: Span,
+        in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+        globals: GlobalMap,
+    ) -> Result<ExprKind> {
         thread_local! {
             static BINDINGS: RefCell<FxHashMap<InternedString, ExprKind>> = RefCell::new(FxHashMap::default());
             static BINDINGS_KIND: RefCell<FxHashMap<InternedString, BindingKind>> = RefCell::new(FxHashMap::default());
@@ -490,13 +494,35 @@ impl MacroCase {
                         expr.improper,
                     )?;
 
+                    // Mark each identifier in the bindings
+                    // as potentially being introduced by a macro:
+
+                    for (_, v) in bindings.iter_mut() {
+                        struct IntroducedByMacro;
+                        impl VisitorMutRefUnit for IntroducedByMacro {
+                            fn visit_atom(&mut self, a: &mut Atom) {
+                                a.syn.introduced_via_macro = true;
+                            }
+                        }
+
+                        IntroducedByMacro.visit(v);
+                    }
+
                     let mut body = self.body.clone();
+
+                    // println!("Expanding: {}", body);
+                    // println!("Bindings");
+                    // for p in bindings.iter() {
+                    //     println!("{} -> {}", p.0, p.1);
+                    // }
 
                     replace_identifiers(
                         &mut body,
                         &mut bindings,
                         &mut binding_kind,
                         &mut fallback_bindings,
+                        in_scope,
+                        globals,
                         span,
                     )?;
 
@@ -1876,7 +1902,12 @@ mod macro_case_expand_test {
         .into();
 
         let output = case
-            .expand(input, Span::new(0, 0, SourceId::none()))
+            .expand(
+                input,
+                Span::new(0, 0, SourceId::none()),
+                &ScopeSet::default(),
+                GlobalMap::Map(&Default::default()),
+            )
             .unwrap();
 
         assert_eq!(output, expected);

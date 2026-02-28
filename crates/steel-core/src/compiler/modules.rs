@@ -351,7 +351,7 @@ impl ModuleManager {
         // For instance, (cond) is global, but (define-syntax blagh) might be local to main
         // if a module then defines a function (blagh) that is used inside its scope, this would expand the macro in that scope
         // which we do not want
-        extract_macro_defs(&mut exprs, global_macro_map)?;
+        extract_macro_defs(&mut exprs, global_macro_map, global_map)?;
 
         let mut module_builder = ModuleBuilder::main(
             path,
