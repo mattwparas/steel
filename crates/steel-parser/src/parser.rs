@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::ast::ToDoc;
 use crate::{
     ast::{
         self, parse_begin, parse_define, parse_if, parse_lambda, parse_let, parse_new_let,

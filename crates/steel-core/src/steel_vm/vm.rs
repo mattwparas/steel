@@ -6065,14 +6065,16 @@ pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Re
         if let SteelVal::SyntaxObject(_) = &args[0] {
             return Ok(args[0].clone());
         } else {
-            let template = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+            let template =
+                crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[0])?;
             return crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(
                 template,
             );
         }
     }
 
-    let mut template = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+    let mut template =
+        crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[0])?;
 
     expand_template(&mut template, &mut bindings, &mut binding_kind)?;
 
