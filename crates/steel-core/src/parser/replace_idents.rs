@@ -1,9 +1,11 @@
-use rustc_hash::FxHashMap;
+use quickscope::ScopeSet;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 use smallvec::SmallVec;
 use thin_vec::ThinVec;
 
 use crate::compiler::passes::{VisitorMutControlFlow, VisitorMutRefUnit};
 use crate::compiler::program::{ELLIPSES_SYMBOL, SYNTAX_SPAN};
+use crate::parser::expand_visitor::GlobalMap;
 use crate::parser::parser::SyntaxObject;
 use crate::parser::span::Span;
 use crate::parser::tokens::TokenType;
@@ -27,6 +29,8 @@ pub fn replace_identifiers(
     bindings: &mut FxHashMap<InternedString, ExprKind>,
     binding_kind: &mut FxHashMap<InternedString, BindingKind>,
     fallback_bindings: &mut FxHashMap<InternedString, ExprKind>,
+    in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+    globals: GlobalMap,
     span: Span,
 ) -> Result<()> {
     // let mut rewrite_spans = expr;
@@ -34,7 +38,8 @@ pub fn replace_identifiers(
     RewriteSpan::new(span).visit(expr);
 
     // TODO: Replace this here!
-    ReplaceExpressions::new(bindings, binding_kind, fallback_bindings).visit(expr)
+    ReplaceExpressions::new(bindings, binding_kind, fallback_bindings, in_scope, globals)
+        .visit(expr)
 }
 
 pub fn expand_template_pair(
@@ -50,7 +55,13 @@ pub fn expand_template_pair(
     }
 
     for expr in &mut exprs {
-        expand_template(expr, &mut bindings, &mut binding_kind)?;
+        expand_template(
+            expr,
+            &mut bindings,
+            &mut binding_kind,
+            &Default::default(),
+            GlobalMap::Map(&Default::default()),
+        )?;
     }
 
     if exprs.len() == 1 {
@@ -63,12 +74,25 @@ pub fn expand_template_pair(
     }
 }
 
+// TODO: I think this will need to know the values that are in scope
+// at the time the kernel macro is expanded, as well as what the globals
+// are. These will need to get passed down; otherwise it won't be able
+// to respect the scope properly.
 pub fn expand_template(
     expr: &mut ExprKind,
     bindings: &mut FxHashMap<InternedString, ExprKind>,
     binding_kind: &mut FxHashMap<InternedString, BindingKind>,
+    in_scope: &ScopeSet<InternedString, FxBuildHasher>,
+    globals: GlobalMap,
 ) -> Result<()> {
-    ReplaceExpressions::new(bindings, binding_kind, &mut Default::default()).visit(expr)
+    ReplaceExpressions::new(
+        bindings,
+        binding_kind,
+        &mut Default::default(),
+        in_scope,
+        globals,
+    )
+    .visit(expr)
 }
 
 // struct ConstExprKindTransformers {
@@ -79,6 +103,8 @@ pub struct ReplaceExpressions<'a> {
     bindings: &'a mut FxHashMap<InternedString, ExprKind>,
     fallback_bindings: &'a mut FxHashMap<InternedString, ExprKind>,
     binding_kind: &'a mut FxHashMap<InternedString, BindingKind>,
+    in_scope: &'a ScopeSet<InternedString, FxBuildHasher>,
+    globals: GlobalMap<'a>,
     wildcard: InternedString,
 }
 
@@ -158,11 +184,15 @@ impl<'a> ReplaceExpressions<'a> {
         bindings: &'a mut FxHashMap<InternedString, ExprKind>,
         binding_kind: &'a mut FxHashMap<InternedString, BindingKind>,
         fallback_bindings: &'a mut FxHashMap<InternedString, ExprKind>,
+        in_scope: &'a ScopeSet<InternedString, FxBuildHasher>,
+        globals: GlobalMap<'a>,
     ) -> Self {
         ReplaceExpressions {
             bindings,
             binding_kind,
             fallback_bindings,
+            in_scope,
+            globals,
             wildcard: InternedString::from_static("_"),
         }
     }
@@ -622,6 +652,7 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
     type Output = Result<()>;
 
     fn visit(&mut self, expr: &mut ExprKind) -> Self::Output {
+        // println!("Visiting: {}", expr);
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
@@ -632,7 +663,15 @@ impl<'a> VisitorMutRef for ReplaceExpressions<'a> {
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => {
-                if let TokenType::Identifier(s) = &a.syn.ty {
+                if let TokenType::Identifier(s) = &mut a.syn.ty {
+                    if self.in_scope.contains(s)
+                        && a.syn.unresolved
+                        && !a.syn.introduced_via_macro
+                        && !self.globals.actually_contains(s)
+                    {
+                        *s = ("##".to_string() + s.resolve()).into();
+                    }
+
                     if *s != self.wildcard {
                         if let Some(body) = self.bindings.get(s) {
                             let introduced_via_macro = a.syn.introduced_via_macro;
@@ -1038,6 +1077,8 @@ mod replace_expressions_tests {
             &mut bindings,
             &mut FxHashMap::default(),
             &mut FxHashMap::default(),
+            &Default::default(),
+            GlobalMap::Map(&Default::default()),
         )
         .visit(&mut expr)
         .unwrap();
@@ -1071,6 +1112,8 @@ mod replace_expressions_tests {
             &mut bindings,
             &mut FxHashMap::default(),
             &mut FxHashMap::default(),
+            &Default::default(),
+            GlobalMap::Map(&Default::default()),
         )
         .visit(&mut expr)
         .unwrap();
@@ -1106,6 +1149,8 @@ mod replace_expressions_tests {
             &mut bindings,
             &mut FxHashMap::default(),
             &mut FxHashMap::default(),
+            &Default::default(),
+            GlobalMap::Map(&Default::default()),
         )
         .visit(&mut expr)
         .unwrap();

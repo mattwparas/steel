@@ -46,6 +46,7 @@ impl TryFrom<ExprKind> for SteelVal {
 pub(crate) struct TryFromSteelValVisitorForExprKind {
     pub(crate) qq_depth: usize,
     pub(crate) quoted: bool,
+    pub(crate) force_hir: bool,
 }
 
 impl TryFromSteelValVisitorForExprKind {
@@ -53,6 +54,16 @@ impl TryFromSteelValVisitorForExprKind {
         Self {
             qq_depth: 0,
             quoted: false,
+            force_hir: false,
+        }
+        .visit(value)
+    }
+
+    pub fn root_quoted(value: &SteelVal) -> core::result::Result<ExprKind, SteelErr> {
+        Self {
+            qq_depth: 0,
+            quoted: false,
+            force_hir: true,
         }
         .visit(value)
     }
@@ -141,6 +152,13 @@ impl TryFromSteelValVisitorForExprKind {
                         // }
                         _ => {}
                     }
+                }
+
+                if self.force_hir {
+                    let items: core::result::Result<ThinVec<ExprKind>, _> =
+                        l.iter().map(|x| self.visit(x)).collect();
+
+                    return Ok(ExprKind::List(List::new(items?)));
                 }
 
                 Ok(l.into_iter()

@@ -92,7 +92,7 @@ use compact_str::CompactString;
 use core::cmp::Ordering;
 use once_cell::sync::Lazy;
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use steel_parser::{ast::ExprKind, interner::interned_current_memory_usage, parser::SourceId};
 
 #[cfg(not(target_family = "wasm"))]
@@ -2429,6 +2429,23 @@ fn syntax_raw(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(syntax_raw_impl(ctx, args))
 }
 
+#[steel_derive::context(name = "#%path->source-id", arity = "Exact(1)")]
+fn path_to_source_id(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    fn path_to_source_id_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+        let path = SteelString::from_steelval(&args[0])?;
+
+        ctx.thread
+            .compiler
+            .read()
+            .sources
+            .get_source_id(Path::new(path.as_str()))
+            .map(|x| SteelVal::IntV(x.0 as isize))
+            .into_steelval()
+    }
+
+    Some(path_to_source_id_impl(ctx, args))
+}
+
 fn syntax_module() -> BuiltInModule {
     let mut module = BuiltInModule::new("steel/syntax");
     module
@@ -2440,6 +2457,7 @@ fn syntax_module() -> BuiltInModule {
         .register_native_fn_definition(SYNTAX_RAW_DEFINITION)
         .register_fn("syntax-e", crate::rvals::Syntax::syntax_e)
         .register_value("syntax?", gen_pred!(SyntaxObject))
+        .register_native_fn_definition(PATH_TO_SOURCE_ID_DEFINITION)
         .register_fn("#%debug-syntax->exprkind", |value| {
             let expr = TryFromSteelValVisitorForExprKind::root(&value);
 

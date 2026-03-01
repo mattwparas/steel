@@ -1213,7 +1213,7 @@ impl List {
     }
 
     pub fn is_require(&self) -> bool {
-        matches!(
+        if matches!(
             self.args.first(),
             Some(ExprKind::Atom(Atom {
                 syn: SyntaxObject {
@@ -1221,7 +1221,20 @@ impl List {
                     ..
                 },
             }))
-        )
+        ) {
+            return true;
+        }
+
+        match self.args.first() {
+            Some(ExprKind::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Identifier(i),
+                        ..
+                    },
+            })) if *i == *REQUIRE => true,
+            _ => false,
+        }
     }
 
     pub fn is_begin(&self) -> bool {
@@ -1246,6 +1259,15 @@ impl List {
         })) = self.args.first()
         {
             self.args.len() == 3
+        } else if let Some(ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Identifier(i),
+                    ..
+                },
+        })) = self.args.first()
+        {
+            *i == *DEFINE_SYNTAX && self.args.len() == 3
         } else {
             false
         }
@@ -1261,6 +1283,15 @@ impl List {
         })) = self.args.first()
         {
             self.args.len() > 2
+        } else if let Some(ExprKind::Atom(Atom {
+            syn:
+                SyntaxObject {
+                    ty: TokenType::Identifier(i),
+                    ..
+                },
+        })) = self.args.first()
+        {
+            *i == *SYNTAX_RULES && self.args.len() > 2
         } else {
             false
         }

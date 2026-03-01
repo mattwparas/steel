@@ -942,6 +942,7 @@ impl Compiler {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
+                GlobalMap::Map(self.symbol_map.map()),
             )?;
             crate::parser::expand_visitor::expand(
                 expr,
@@ -971,6 +972,7 @@ impl Compiler {
                     self.kernel.as_mut(),
                     self.builtin_modules.clone(),
                     module,
+                    GlobalMap::Map(self.symbol_map.map()),
                 )?;
 
                 if changed {
@@ -983,6 +985,7 @@ impl Compiler {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
+                GlobalMap::Map(self.symbol_map.map()),
             )?;
 
             // TODO: If we have this, then we have to lower all of the expressions again
@@ -1107,6 +1110,10 @@ impl Compiler {
 
         let mut expanded_statements = self.expand_expressions(exprs, path)?;
 
+        // println!("---- Post expansion ----");
+        // expanded_statements.pretty_print();
+        // println!("{:#?}", expanded_statements);
+
         #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Phase 1 module expansion time: {:?}", now.elapsed());
 
@@ -1126,6 +1133,7 @@ impl Compiler {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
+                GlobalMap::Map(self.symbol_map.map()),
             )?;
             crate::parser::expand_visitor::expand(
                 expr,
@@ -1157,6 +1165,7 @@ impl Compiler {
                     self.kernel.as_mut(),
                     self.builtin_modules.clone(),
                     module,
+                    GlobalMap::Map(self.symbol_map.map()),
                 )?;
 
                 if changed {
@@ -1169,6 +1178,7 @@ impl Compiler {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
+                GlobalMap::Map(self.symbol_map.map()),
             )?;
 
             // TODO: If we have this, then we have to lower all of the expressions again

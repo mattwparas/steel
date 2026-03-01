@@ -12,6 +12,9 @@
 ; (define #%syntax-bindings (make-parameter (hash)))
 ; (define #%syntax-binding-kind (make-parameter (hash)))
 
+(define #%top-level-scope-map void)
+(define #%top-level-global-map void)
+
 (set! #%syntax-bindings (make-parameter (hash)))
 (set! #%syntax-binding-kind (make-parameter (hash)))
 
@@ -70,9 +73,7 @@
 (define-syntax #%syntax-transformer-module-update
   (syntax-rules (provide)
 
-    [(#%syntax-transformer-module name)
-     (define (datum->syntax name)
-       (%proto-hash%))]
+    [(#%syntax-transformer-module name) void]
 
     [(#%syntax-transformer-module name (provide ids ...) funcs ...)
      (set! (datum->syntax name)
@@ -263,8 +264,6 @@
          [maybe-procedure-field (hash-try-get options-map '#:prop:procedure)]
          [maybe-finalizer (hash-try-get options-map '#:finalizer)])
 
-    ; (displayln maybe-finalizer)
-
     (when (and maybe-procedure-field (> maybe-procedure-field (length fields)))
       (error! "struct #:prop:procedure cannot refer to an index that is out of bounds"))
 
@@ -272,97 +271,77 @@
     (define struct-prop-name (concat-symbols 'struct: struct-name))
     (define struct-predicate (concat-symbols struct-name '?))
 
+    (define struct-proto-gensym (gensym))
+    (define constructor-proto-gensym (gensym))
+    (define predicate-proto-gensym (gensym))
+    (define getter-proto-gensym (gensym))
+    (define getter-proto-list-gensym (gensym))
+    (define struct-prop-name-gensym (gensym))
+
     `(begin
-       ; (#%black-box "STRUCT" (quote ,struct-name))
+       (define ,struct-proto-gensym (make-struct-type (quote ,struct-name) ,field-count))
+       (define ,struct-prop-name-gensym (list-ref ,struct-proto-gensym 0))
+       (define ,constructor-proto-gensym (list-ref ,struct-proto-gensym 1))
+       (define ,predicate-proto-gensym (list-ref ,struct-proto-gensym 2))
+       (define ,getter-proto-gensym (list-ref ,struct-proto-gensym 3))
+       (define ,getter-proto-list-gensym (list-ref ,struct-proto-gensym 4))
        (define ,struct-options-name (#%prim.hash ,@(hash->list options-map)))
-       (define ,struct-name 'unintialized)
-       (define ,struct-prop-name 'uninitialized)
-       (define ,struct-predicate 'uninitialized)
-       ,@(map (lambda (field)
-                `(define ,(concat-symbols struct-name '- field)
-                   'uninitialized))
-              fields)
-       ;; If we're mutable, set up the identifiers to later be `set!`
-       ;; below in the same scope
+
+       (define ,struct-prop-name ,struct-prop-name-gensym)
+       (#%vtable-update-entry! ,struct-prop-name-gensym ,maybe-procedure-field ,struct-options-name)
+       (if ,(not (bool? maybe-finalizer))
+           (#%start-will-executor)
+           void)
+       ,(if mutable?
+            (if maybe-finalizer
+                `(define ,struct-name
+                   (lambda ,fields
+                     ;; TODO: Put the right thing on here
+                     (#%register-struct-finalizer
+                      (,constructor-proto-gensym ,@(map (lambda (x) `(#%box ,x)) fields)
+                                                 ,maybe-finalizer))))
+
+                `(define ,struct-name
+                   (lambda ,fields
+                     ;; TODO: Put the right thing on here
+                     (,constructor-proto-gensym ,@(map (lambda (x) `(#%box ,x)) fields)))))
+
+            (if maybe-finalizer
+                `(define ,struct-name
+                   (lambda ,fields
+                     (#%register-struct-finalizer (,constructor-proto-gensym ,@fields)
+                                                  ,maybe-finalizer)))
+
+                `(define ,struct-name ,constructor-proto-gensym)))
+       ,(new-make-predicate struct-predicate predicate-proto-gensym)
        ,@(if mutable?
-             (map (lambda (field)
-                    `(define ,(concat-symbols 'set- struct-name '- field '!)
-                       'unintialized))
-                  fields)
+             (mutable-make-getters struct-name fields getter-proto-gensym)
+             (new-make-getters struct-name fields getter-proto-list-gensym))
+       ;; If this is a mutable struct, generate the setters
+       ,@(if mutable?
+             (mutable-make-setters struct-name fields getter-proto-gensym)
              (list))
+       void)))
 
-       (%plain-let
-        ([prototypes (make-struct-type (quote ,struct-name) ,field-count)])
-        (%plain-let
-         ([struct-type-descriptor (list-ref prototypes 0)] [constructor-proto (list-ref prototypes 1)]
-                                                           [predicate-proto (list-ref prototypes 2)]
-                                                           ;; TODO: Deprecate this
-                                                           [getter-proto (list-ref prototypes 3)]
-                                                           [getter-proto-list
-                                                            (list-ref prototypes 4)])
-         (set! ,struct-prop-name struct-type-descriptor)
-         (#%vtable-update-entry! struct-type-descriptor ,maybe-procedure-field ,struct-options-name)
-         (if ,(not (bool? maybe-finalizer))
-             (#%start-will-executor)
-             void)
-         ,(if mutable?
-              (if maybe-finalizer
-                  `(set! ,struct-name
-                         (lambda ,fields
-                           ;; TODO: Put the right thing on here
-                           (#%register-struct-finalizer
-                            (constructor-proto ,@(map (lambda (x) `(#%box ,x)) fields)
-                                               ,maybe-finalizer))))
+(define (new-make-predicate struct-predicate-name predicate-proto-gensym)
+  `(define ,struct-predicate-name ,predicate-proto-gensym))
 
-                  `(set! ,struct-name
-                         (lambda ,fields
-                           ;; TODO: Put the right thing on here
-                           (constructor-proto ,@(map (lambda (x) `(#%box ,x)) fields)))))
-
-              (if maybe-finalizer
-                  `(set! ,struct-name
-                         (lambda ,fields
-                           (#%register-struct-finalizer (constructor-proto ,@fields)
-                                                        ,maybe-finalizer)))
-
-                  `(set! ,struct-name constructor-proto)))
-         ,(new-make-predicate struct-predicate struct-name fields)
-         ,@(if mutable?
-               (mutable-make-getters struct-name fields)
-               (new-make-getters struct-name fields))
-         ;; If this is a mutable struct, generate the setters
-         ,@(if mutable?
-               (mutable-make-setters struct-name fields)
-               (list))
-         void)))))
-
-(define (new-make-predicate struct-predicate-name struct-name fields)
-  `(set! ,struct-predicate-name predicate-proto))
-
-(define (mutable-make-getters struct-name fields)
+(define (mutable-make-getters struct-name fields getter-proto-gensym)
   (map (lambda (field)
-         `(set! ,(concat-symbols struct-name '- (car field))
-                (lambda (this) (#%unbox (getter-proto this ,(list-ref field 1))))))
+         `(define ,(concat-symbols struct-name '- (car field))
+            (lambda (this) (#%unbox (,getter-proto-gensym this ,(list-ref field 1))))))
        (enumerate 0 '() fields)))
 
-(define (mutable-make-setters struct-name fields)
+(define (mutable-make-setters struct-name fields getter-proto-gensym)
   (map (lambda (field)
-         `(set! ,(concat-symbols 'set- struct-name '- (car field) '!)
-                (lambda (this value) (#%set-box! (getter-proto this ,(list-ref field 1)) value))))
+         `(define ,(concat-symbols 'set- struct-name '- (car field) '!)
+            (lambda (this value) (#%set-box! (,getter-proto-gensym this ,(list-ref field 1)) value))))
        (enumerate 0 '() fields)))
 
-(define (new-make-getters struct-name fields)
+(define (new-make-getters struct-name fields getter-proto-list-gensym)
   (map (lambda (field)
-         `(set! ,(concat-symbols struct-name '- (car field))
-                (list-ref getter-proto-list ,(list-ref field 1))
-                ; (lambda (this) (getter-proto this ,(list-ref field 1)))
-                ))
-       (enumerate 0 '() fields)))
-
-(define (new-make-setters struct-name fields)
-  (map (lambda (field)
-         `(set! ,(concat-symbols 'set- struct-name '- (car field) '!)
-                (lambda (this value) (setter-proto this ,(list-ref field 1) value))))
+         `(define ,(concat-symbols struct-name '- (car field))
+            (list-ref ,getter-proto-list-gensym ,(list-ref field 1))))
        (enumerate 0 '() fields)))
 
 (define (%make-memoize f)
@@ -370,10 +349,8 @@
     (let ([previous-value (%memo-table-ref %memo-table f n)])
       (if (and (Ok? previous-value) (Ok->value previous-value))
           (begin
-            ; (displayln "READ VALUE: " previous-value " with args " n)
             (Ok->value previous-value))
           (let ([new-value (apply f n)])
-            ; (displayln "SETTING VALUE " new-value " with args " n)
             (%memo-table-set! %memo-table f n new-value)
             new-value)))))
 
@@ -588,3 +565,98 @@
                                 (%proto-hash-insert% ,(string->symbol env) (quote ,name) ,func)))
                    (register-macro-transformer! name env)))
  'void)
+
+(require-builtin #%private/steel/reader as reader.)
+
+(define *reader* (reader.new-reader))
+
+(define (read . port)
+  (if (null? port)
+      (reader.#%intern (read-impl reader.reader-read-one))
+      (parameterize ([current-input-port (car port)])
+        (reader.#%intern (read-impl reader.reader-read-one)))))
+
+(define (read-syntax-object . port)
+  (if (null? port)
+      (read-impl reader.reader-read-one-syntax-object)
+      (parameterize ([current-input-port (car port)])
+        (read-impl reader.reader-read-one-syntax-object))))
+
+(define (read-impl finisher)
+  (cond
+    [(reader.reader-empty? *reader*)
+
+     (if (or (#%string-input-port? (current-input-port)) (#%file-input-port? (current-input-port)))
+         (begin
+
+           (define entry (read-port-to-string (current-input-port)))
+           (reader.reader-push-string *reader* entry)
+
+           (let ([next (finisher *reader*)])
+             ; (displayln next)
+             (if (void? next)
+                 (begin
+                   (let ([maybe-next-line (read-line-from-port (current-input-port))])
+                     (if (eof-object? maybe-next-line)
+                         (if (or (#%string-input-port? (current-input-port))
+                                 (#%file-input-port? (current-input-port)))
+                             maybe-next-line
+                             (begin
+                               (set! *reader* (reader.new-reader))
+                               (error "missing closing paren - unexpected eof")))
+                         ;; If the next line is not empty,
+                         (begin
+                           (reader.reader-push-string *reader* maybe-next-line)
+                           (read-impl finisher)))))
+
+                 next)))
+
+         (begin
+
+           (define next-line (read-line-from-port (current-input-port)))
+           (cond
+             [(string? next-line)
+              (reader.reader-push-string *reader* next-line)
+
+              (let ([next (finisher *reader*)])
+                (if (void? next)
+                    (begin
+                      (let ([maybe-next-line (read-line-from-port (current-input-port))])
+                        (if (eof-object? maybe-next-line)
+                            (if (or (#%string-input-port? (current-input-port))
+                                    (#%file-input-port? (current-input-port)))
+                                maybe-next-line
+                                (begin
+                                  (set! *reader* (reader.new-reader))
+                                  (error "missing closing paren - unexpected eof")))
+                            ;; If the next line is not empty,
+                            (begin
+                              (reader.reader-push-string *reader* maybe-next-line)
+                              (read-impl finisher)))))
+                    next))]
+
+             [else next-line])))]
+
+    ;; The reader is not empty!
+    [else
+     (let ([next (reader.reader-read-one *reader*)])
+
+       (if (void? next)
+           ;; TODO: Share this code with the above
+           (begin
+             (let ([maybe-next-line (read-line-from-port (current-input-port))])
+               (if (eof-object? maybe-next-line)
+                   ;; Stupid hack
+                   (if (or (#%string-input-port? (current-input-port))
+                           (#%file-input-port? (current-input-port)))
+                       maybe-next-line
+                       (begin
+                         ;; TODO: drain the reader - consider a separate function for this
+                         (set! *reader* (reader.new-reader))
+                         (error "missing closing paren - unexpected eof")))
+                   ;; If the next line is not empty,
+                   (begin
+                     (reader.reader-push-string *reader* maybe-next-line)
+                     (read-impl finisher)))))
+
+           next))]))

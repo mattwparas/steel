@@ -323,20 +323,20 @@ impl PrimitiveTable {
 
         map.insert(
             PrimitiveSignature {
-                func: steel_read_char as i64,
+                func: steel_read_char as *const () as i64,
                 arity: 1,
                 shape: &[CallKind::Ref],
             },
-            read_char_single_ref as i64,
+            read_char_single_ref as *const () as i64,
         );
 
         map.insert(
             PrimitiveSignature {
-                func: steel_char_equals as i64,
+                func: steel_char_equals as *const () as i64,
                 arity: 2,
                 shape: &[CallKind::Value, CallKind::Value],
             },
-            char_equals_binop as i64,
+            char_equals_binop as *const () as i64,
         );
 
         Self { map }
@@ -978,7 +978,23 @@ impl JIT {
     ) -> Result<*const u8, String> {
         // self.ctx.set_disasm(true);
 
+        if let Some(data) = self.module.get_name(&name) {
+            match data {
+                cranelift_module::FuncOrDataId::Func(func_id) => {
+                    return Ok(self.module.get_finalized_function(func_id));
+                }
+                cranelift_module::FuncOrDataId::Data(data_id) => panic!(),
+            }
+        }
+
         let (params, stmts) = (Default::default(), instructions);
+
+        let pointer = self.module.target_config().pointer_type();
+
+        let mut param = AbiParam::new(pointer);
+        param.purpose = ArgumentPurpose::VMContext;
+
+        self.ctx.func.signature.params.push(param);
 
         let id = self
             .module
@@ -999,7 +1015,7 @@ impl JIT {
 
         if let Err(e) = cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
             // println!("{:#?}", self.ctx.func);
-            println!("{:#?}", e);
+            eprintln!("{:#?}", e);
             self.module.clear_context(&mut self.ctx);
             return Err(format!("errors: {:#?}", e));
         }
@@ -1007,7 +1023,8 @@ impl JIT {
         self.module
             .define_function(id, &mut self.ctx)
             .map_err(|e| {
-                println!("error in defining function");
+                eprintln!("error in defining function: {}", e);
+                self.module.clear_context(&mut self.ctx);
                 e.to_string()
             })?;
 
@@ -1066,14 +1083,6 @@ impl JIT {
 
         // Upgrade to 128 bit?
         let int = Type::int(128).unwrap();
-
-        // Set up pointer type to be the first argument.
-        let pointer = self.module.target_config().pointer_type();
-
-        let mut param = AbiParam::new(pointer);
-        param.purpose = ArgumentPurpose::VMContext;
-
-        self.ctx.func.signature.params.push(param);
 
         // dbg!(&self.ctx.func.signature);
 
@@ -2824,7 +2833,7 @@ impl FunctionTranslator<'_> {
 
         let function = self.builder.ins().iconst(
             self.module.target_config().pointer_type(),
-            eof_objectp_jit as i64,
+            eof_objectp_jit as *const () as i64,
         );
 
         let mut args = vec![function, fallback_ip];
@@ -3139,7 +3148,7 @@ impl FunctionTranslator<'_> {
         } else {
             let function = self.builder.ins().iconst(
                 self.module.target_config().pointer_type(),
-                crate::primitives::strings::char_equals_binop as i64,
+                crate::primitives::strings::char_equals_binop as *const () as i64,
             );
 
             let fallback_ip = self
