@@ -362,6 +362,8 @@ fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVa
         .map(|(key, value)| (key, SerializedHeapRef::Serialized(Some(value))))
         .collect();
 
+    println!("Finished serializing values");
+
     let mut patcher = HashMap::new();
     let mut built_functions = HashMap::new();
 
