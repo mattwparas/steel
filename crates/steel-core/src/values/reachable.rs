@@ -1,11 +1,7 @@
 use std::collections::HashSet;
 
-#[cfg(feature = "sync")]
-use crate::rvals::cycles::BreadthFirstSearchSteelValReferenceVisitor2;
-
 use crate::values::closed::{HeapRef, MarkAndSweepContext, MarkAndSweepStats};
 use crate::{
-    compiler::map::SymbolMap,
     gc::{shared::ShareableMut, GcMut},
     rvals::{OpaqueIterator, SteelComplex, SteelVector},
     steel_vm::vm::{Continuation, ContinuationMark},

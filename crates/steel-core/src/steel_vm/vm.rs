@@ -1552,7 +1552,9 @@ impl Continuation {
             }
 
             if let Some(ns) = attachments.namespace.as_ref() {
-                println!("Found a namespace during continuation mark closing");
+                let mut guard = ns.lock().unwrap();
+                std::mem::swap(&mut ctx.thread.global_env, &mut guard.env);
+                std::mem::swap(&mut ctx.thread.compiler, &mut guard.compiler);
             }
 
             return ret;
@@ -4205,8 +4207,8 @@ impl<'a> VmCore<'a> {
                 ret = true;
             }
 
-            if let Some(ns) = attachments.namespace.as_ref() {
-                println!("Found a namespace during continuation mark closing current frame");
+            if let Some(_ns) = attachments.namespace.as_ref() {
+                log::warn!("Found a namespace during continuation mark closing current frame");
             }
 
             return ret;
@@ -5901,7 +5903,7 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
 }
 
 fn eval_with_namespace_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[0])?;
 
     let namespace = Namespace::as_mut_ref(&args[1])?;
 
