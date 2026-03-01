@@ -965,14 +965,13 @@ impl CustomFunctionConstructors {
     pub fn new() {
         let mut this = Self::default();
 
-        this.register::<BuiltInModule>(|ctx, b| {
-            todo!()
-
-            // bincode::deserialize::<BuiltInModule>(b)
-            //     .unwrap()
-            //     .into_steelval()
-            //     .unwrap()
-        });
+        // this.register::<BuiltInModule>(|ctx, b| {
+        //     todo!()
+        // bincode::deserialize::<BuiltInModule>(b)
+        //     .unwrap()
+        //     .into_steelval()
+        //     .unwrap()
+        // });
     }
 }
 

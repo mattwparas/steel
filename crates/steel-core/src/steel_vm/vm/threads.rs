@@ -224,6 +224,7 @@ struct MovableFunctionInterner {
     spans: FxHashMap<u32, Vec<Span>>,
 }
 
+#[allow(unused)]
 struct EngineImage {
     vtable: Vec<SendableVTableEntry>,
     heap_map: HashMap<usize, SerializedHeapRef>,
