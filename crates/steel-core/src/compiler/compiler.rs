@@ -1328,9 +1328,10 @@ impl Compiler {
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
         // Inline across module boundaries
-
-        semantic.inline_idents_across_module_boundaries(self.modules())?;
-        semantic.refresh_variables();
+        if std::env::var("STEEL_MODULE_INLINE").is_ok() {
+            semantic.inline_idents_across_module_boundaries(self.modules())?;
+            semantic.refresh_variables();
+        }
 
         // Do this, and then inline everything. Do it again
         // TODO: Configure the amount that we inline?
