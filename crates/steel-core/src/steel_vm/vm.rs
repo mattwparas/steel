@@ -5633,9 +5633,6 @@ fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result
 
     expr = steel_parser::parser::lower_macro_and_require_definitions(expr)?;
 
-    // println!("{}", expr.to_pretty(60));
-    // println!("{:#?}", expr);
-
     let maybe_path = ctx
         .thread
         .module_context
@@ -6144,7 +6141,6 @@ pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Re
                 *map_guard.as_ro().map,
             )?;
         }
-
         _ => {
             expand_template(
                 &mut template,
