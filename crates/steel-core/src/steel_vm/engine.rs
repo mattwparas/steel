@@ -367,11 +367,12 @@ impl NonInteractiveProgramImage {
 
 pub struct LifetimeGuard<'a> {
     engine: &'a mut Engine,
+    count: usize,
 }
 
 impl<'a> Drop for LifetimeGuard<'a> {
     fn drop(&mut self) {
-        crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::free_all();
+        crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::free_n(self.count);
     }
 }
 
@@ -381,7 +382,7 @@ impl<'a> LifetimeGuard<'a> {
         T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
         EXT: CustomReference + 'static,
     >(
-        self,
+        mut self,
         obj: &'a T,
     ) -> Self {
         assert_eq!(
@@ -392,6 +393,7 @@ impl<'a> LifetimeGuard<'a> {
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
             obj,
         );
+        self.count += 1;
 
         self
     }
@@ -401,7 +403,7 @@ impl<'a> LifetimeGuard<'a> {
         T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
         EXT: CustomReference + 'static,
     >(
-        self,
+        mut self,
         obj: &'a mut T,
     ) -> Self {
         assert_eq!(
@@ -412,19 +414,21 @@ impl<'a> LifetimeGuard<'a> {
             obj,
         );
 
+        self.count += 1;
+
         self
     }
 
     pub fn consume<T>(self, mut thunk: impl FnMut(&mut Engine, Vec<SteelVal>) -> T) -> T {
         let values =
-            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_weak_references_to_steelvals();
+            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_weak_references_to_steelvals(self.count);
 
         thunk(self.engine, values)
     }
 
     pub fn consume_once<T>(self, mut thunk: impl FnOnce(&mut Engine, Vec<SteelVal>) -> T) -> T {
         let values =
-            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_weak_references_to_steelvals();
+            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_weak_references_to_steelvals(self.count);
 
         thunk(self.engine, values)
     }
@@ -1385,7 +1389,10 @@ impl Engine {
             obj,
         );
 
-        LifetimeGuard { engine: self }
+        LifetimeGuard {
+            engine: self,
+            count: 1,
+        }
     }
 
     pub fn with_mut_reference<
@@ -1406,7 +1413,10 @@ impl Engine {
             obj,
         );
 
-        LifetimeGuard { engine: self }
+        LifetimeGuard {
+            engine: self,
+            count: 1,
+        }
     }
 
     // Tie the lifetime of this object to the scope of this execution

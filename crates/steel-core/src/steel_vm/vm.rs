@@ -6123,7 +6123,6 @@ pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Re
                 *map_guard.as_ro().map,
             )?;
         }
-
         _ => {
             expand_template(
                 &mut template,
