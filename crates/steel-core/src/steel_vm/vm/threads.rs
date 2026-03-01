@@ -11,7 +11,10 @@ use crate::{
         SerializableSteelVal, SerializationContext, SerializedHeapRef,
     },
     steel_vm::{builtin::BuiltInModule, engine::ModuleContainer, register_fn::RegisterFn},
-    values::{functions::SerializedLambdaPrototype, structs::VTable},
+    values::{
+        functions::SerializedLambdaPrototype,
+        structs::{SendableVTableEntry, VTable},
+    },
 };
 
 use super::*;
@@ -221,6 +224,12 @@ struct MovableFunctionInterner {
     spans: FxHashMap<u32, Vec<Span>>,
 }
 
+struct EngineImage {
+    vtable: Vec<SendableVTableEntry>,
+    heap_map: HashMap<usize, SerializedHeapRef>,
+    thread: MovableThread,
+}
+
 #[steel_derive::context(name = "serialize-thread", arity = "Exact(0)")]
 fn serialize_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(serialize_thread_impl(ctx, args))
@@ -366,7 +375,6 @@ fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVa
 
     let mut patcher = HashMap::new();
     let mut built_functions = HashMap::new();
-
     let mut heap_guard = heap.lock().unwrap();
 
     let mut serializer = HeapSerializer {
