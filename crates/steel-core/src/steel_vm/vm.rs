@@ -210,7 +210,12 @@ impl SteelNamespace {
 
     pub fn require_module(&mut self, ctx: &mut VmCore, module: PathBuf) -> Option<()> {
         let guard = ctx.thread.compiler.read();
-        let compiled_module = guard.module_manager.modules().get(&module)?;
+        let compiled_module = guard.module_manager.modules().get(&module).or_else(|| {
+            guard
+                .module_manager
+                .modules()
+                .get(&std::fs::canonicalize(&module).ok()?)
+        })?;
 
         println!("Requiring module: {:?}", module);
 
@@ -256,8 +261,12 @@ impl SteelNamespace {
             let index = guard.symbol_map.get(&module_name).ok()?;
             let value = ctx.thread.global_env.repl_maybe_lookup_idx(index)?;
 
+            println!("Binding: {}", module_name);
+            println!("{}", value);
+
             // Register this module as well:
             let new_index = self.compiler.write().symbol_map.add(&module_name);
+
             SharedVectorWrapper::repl_define_idx(&mut self.env.bindings, new_index, value.clone());
 
             if let SteelVal::HashMapV(h) = &value {

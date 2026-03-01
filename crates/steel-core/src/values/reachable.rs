@@ -180,6 +180,7 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotReacher<'a> {
         // }
 
         for capture in closure.captures() {
+            println!("Visiting capture: {}", capture);
             self.push_back(capture.clone());
         }
 
