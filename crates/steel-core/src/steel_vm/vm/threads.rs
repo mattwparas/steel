@@ -273,12 +273,16 @@ fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVa
 
     let _sources = ctx.thread.compiler.read().sources.clone();
 
-    let builtin_modules = ctx.thread.compiler.read().builtin_modules.clone();
+    let compiler_guard = ctx.thread.compiler.read();
+
+    let builtin_modules = compiler_guard.builtin_modules.clone();
 
     let mut sctx = SerializationContext {
         builtin_modules: &builtin_modules,
         serialized_heap: &mut initial_map,
         visited: &mut visited,
+        globals: ctx.thread.global_env.roots(),
+        symbol_map: &compiler_guard.symbol_map,
     };
 
     let constants = ctx.thread.constant_map.to_serializable_vec(&mut sctx);
@@ -368,7 +372,9 @@ fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVa
         fake_heap: &mut mapping,
         values_to_fill_in: &mut patcher,
         built_functions: &mut built_functions,
-        modules: ctx.thread.compiler.read().builtin_modules.clone(),
+        modules: compiler_guard.builtin_modules.clone(),
+        globals: ctx.thread.global_env.roots(),
+        symbols: &compiler_guard.symbol_map,
     };
 
     // Moved over the thread. We now have

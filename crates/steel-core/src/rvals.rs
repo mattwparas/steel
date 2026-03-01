@@ -1,12 +1,15 @@
 pub mod cycles;
 
 use crate::{
+    compiler::map::SymbolMap,
     gc::{
         shared::{
             MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
             ScopedWriteContainer, ShareableMut, StandardShared,
         },
-        unsafe_erased_pointers::{OpaqueReference, TemporaryMutableView, TemporaryReadonlyView},
+        unsafe_erased_pointers::{
+            type_id, OpaqueReference, TemporaryMutableView, TemporaryReadonlyView,
+        },
         Gc, GcMut,
     },
     parser::{
@@ -18,6 +21,7 @@ use crate::{
     primitives::numbers::realp,
     rerrs::{ErrorKind, SteelErr},
     steel_vm::{
+        builtin::BuiltInModule,
         engine::ModuleContainer,
         vm::{
             threads::closure_into_serializable, BuiltInSignature, Continuation, ContinuationMark,
@@ -29,7 +33,10 @@ use crate::{
         lazy_stream::{LazyStream, SerializableStream},
         lists::Pair,
         port::{SendablePort, SteelPort},
-        structs::{SerializableUserDefinedStruct, UserDefinedStruct},
+        structs::{
+            create_struct_spec, fetch_from_type_map, SerializableUserDefinedStruct,
+            StructConstructorRefSpec, StructTypeDescriptor, UserDefinedStruct,
+        },
         transducers::{Reducer, Transducer},
         HashMapConsumingIter, HashSetConsumingIter, SteelPortRepr, VectorConsumingIter,
     },
@@ -930,15 +937,41 @@ impl From<Syntax> for SteelVal {
 
 pub struct SerializedNativeStructSpec {}
 
-// TODO:
-// This needs to be a method on the runtime: in order to properly support
-// threads
-// Tracking issue here: https://github.com/mattwparas/steel/issues/98
+pub struct CustomTypeConstructor {
+    // Type name
+    name: String,
 
-// Values which can be sent to another thread.
-// If it cannot be sent to another thread, then we'll error out on conversion.
-// TODO: Add boxed dyn functions to this.
-// #[derive(PartialEq)]
+    // Values encoded with bincode
+    payload: Vec<u8>,
+}
+
+// In the runtime, if we want to serialize it, we'll
+// have to serialize it somehow in a way that the values
+// can be recovered.
+
+#[derive(Default)]
+pub struct CustomFunctionConstructors {
+    map: HashMap<&'static str, fn(&[u8]) -> SteelVal>,
+}
+
+impl CustomFunctionConstructors {
+    pub fn register<T: Custom + 'static>(&mut self, func: fn(&[u8]) -> SteelVal) {
+        self.map.insert(core::any::type_name::<T>(), func);
+    }
+
+    pub fn new() {
+        let mut this = Self::default();
+
+        this.register::<BuiltInModule>(|b| {
+            todo!()
+
+            // bincode::deserialize::<BuiltInModule>(b)
+            //     .unwrap()
+            //     .into_steelval()
+            //     .unwrap()
+        });
+    }
+}
 
 // #[derive(Serialize, Deserialize)]
 pub enum SerializableSteelVal {
@@ -955,7 +988,6 @@ pub enum SerializableSteelVal {
     Pair(Box<(SerializableSteelVal, SerializableSteelVal)>),
     VectorV(Vec<SerializableSteelVal>),
     ByteVectorV(Vec<u8>),
-    BoxedDynFunction(BoxedDynFunction),
     SymbolV(String),
     // Genuinely serializable... if possible?
     Custom(Box<dyn CustomType + Send>),
@@ -967,6 +999,9 @@ pub enum SerializableSteelVal {
     Rational(Rational32),
     Stream(Box<SerializableStream>),
     NativeRef(NativeRefSpec),
+    StructConstructorSpec(StructConstructorRefSpec),
+    ModuleSpec(String),
+    GlobalRef(String),
 }
 
 impl std::fmt::Debug for SerializableSteelVal {
@@ -988,7 +1023,6 @@ impl std::fmt::Debug for SerializableSteelVal {
             SerializableSteelVal::Pair(x) => write!(f, "{:?}", x),
             SerializableSteelVal::VectorV(x) => write!(f, "{:?}", x),
             SerializableSteelVal::ByteVectorV(items) => write!(f, "{:?}", items),
-            SerializableSteelVal::BoxedDynFunction(x) => write!(f, "#<func>"),
             SerializableSteelVal::SymbolV(x) => write!(f, "{:?}", x),
             SerializableSteelVal::CustomStruct(x) => write!(f, "{:?}", x),
             SerializableSteelVal::HeapAllocated(x) => write!(f, "{:?}", x),
@@ -996,21 +1030,14 @@ impl std::fmt::Debug for SerializableSteelVal {
             SerializableSteelVal::Rational(x) => write!(f, "{:?}", x),
             SerializableSteelVal::Stream(x) => write!(f, "{:?}", x),
             SerializableSteelVal::NativeRef(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::StructConstructorSpec(struct_constructor_ref_spec) => {
+                write!(f, "{:?}", struct_constructor_ref_spec)
+            }
+            SerializableSteelVal::ModuleSpec(x) => write!(f, "#<module:{}>", x),
+            SerializableSteelVal::GlobalRef(x) => write!(f, "#<global:{}>", x),
         }
     }
 }
-
-/*
-Serialize via known modules. If the value is a native one, then it should get replaced with a
-value that is something like SerializableSteelVal::NativeRef(NativeRefSpec) where NativeRefSpec is like:
-
-struct NativeRefSpec {
-    module: String,
-    key: String,
-}
-
-And then deserializing is just grabbing that back from the root.
-*/
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NativeRefSpec {
@@ -1034,6 +1061,10 @@ pub struct HeapSerializer<'a> {
     pub built_functions: &'a mut std::collections::HashMap<u32, Gc<ByteCodeLambda>>,
 
     pub modules: ModuleContainer,
+
+    pub globals: &'a [SteelVal],
+
+    pub symbols: &'a SymbolMap,
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
@@ -1095,7 +1126,6 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                 .map(|x| from_serializable_value(ctx, x))
                 .collect(),
         ))),
-        SerializableSteelVal::BoxedDynFunction(f) => SteelVal::BoxedFunction(Gc::new(f)),
         SerializableSteelVal::SymbolV(s) => SteelVal::SymbolV(s.into()),
         SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new_mut(b)),
         SerializableSteelVal::CustomStruct(s) => {
@@ -1128,7 +1158,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             if let Some(mut guard) = ctx.fake_heap.get_mut(&v) {
                 match &mut guard {
                     SerializedHeapRef::Serialized(value) => {
-                        println!("Visiting: {} -> {:?}", v, value);
+                        // println!("Visiting: {} -> {:?}", v, value);
 
                         let value = std::mem::take(value);
 
@@ -1140,7 +1170,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                             ctx.fake_heap
                                 .insert(v, SerializedHeapRef::Closed(allocation.clone()));
 
-                            println!("patching: {}", v);
+                            // println!("patching: {}", v);
 
                             SteelVal::HeapAllocated(allocation)
                         } else {
@@ -1205,7 +1235,6 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             stream_thunk: from_serializable_value(ctx, value.stream_thunk),
             empty_stream: value.empty_stream,
         })),
-
         SerializableSteelVal::NativeRef(s) => {
             let module_map = ctx.modules.inner();
 
@@ -1218,6 +1247,24 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
         SerializableSteelVal::ByteVectorV(bytes) => {
             SteelVal::ByteVector(SteelByteVector::new(bytes))
         }
+        SerializableSteelVal::StructConstructorSpec(spec) => fetch_from_type_map(spec).unwrap(),
+        SerializableSteelVal::ModuleSpec(m) => ctx
+            .modules
+            .inner()
+            .get(m.as_str())
+            .unwrap()
+            .clone()
+            .into_steelval()
+            .unwrap(),
+        // If all else fails, attempt to resolve the value
+        // to a global index or name by scanning the globals to
+        // generate the heap dump.
+        SerializableSteelVal::GlobalRef(s) => {
+            let interned = s.into();
+            // Find the index of this thing:
+            let idx = ctx.symbols.get(&interned).unwrap();
+            ctx.globals[idx].clone()
+        }
     }
 }
 
@@ -1225,6 +1272,8 @@ pub struct SerializationContext<'a> {
     pub builtin_modules: &'a ModuleContainer,
     pub serialized_heap: &'a mut std::collections::HashMap<usize, SerializableSteelVal>,
     pub visited: &'a mut std::collections::HashSet<usize>,
+    pub globals: &'a [SteelVal],
+    pub symbol_map: &'a SymbolMap,
 }
 
 // The serializable value needs to refer to the original heap -
@@ -1273,9 +1322,23 @@ pub fn into_serializable_value(
                 crate::steel_vm::vm::threads::create_native_ref(&ctx.builtin_modules, val.clone())
             {
                 Ok(SerializableSteelVal::NativeRef(spec))
-            } else {
+            } else if let Some(spec) = create_struct_spec(val.clone()) {
+                Ok(SerializableSteelVal::StructConstructorSpec(spec))
+
                 // Attempt to discover it from the struct registry
-                todo!("{}", val)
+                // todo!("{}", val)
+            } else {
+                // Check the globals:
+
+                for (idx, v) in ctx.globals.iter().enumerate() {
+                    if v.ptr_eq(&val) {
+                        // Get the name:
+                        let name = ctx.symbol_map.values()[idx];
+                        return Ok(SerializableSteelVal::GlobalRef(name.resolve().to_string()));
+                    }
+                }
+
+                panic!();
             }
         }
 

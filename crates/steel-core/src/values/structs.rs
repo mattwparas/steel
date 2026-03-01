@@ -4,7 +4,9 @@
 use crate::steel_vm::primitives::{steel_unbox_mutable, unbox_mutable};
 use crate::values::HashMap;
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
+use rustc_hash::FxHashMap;
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::compiler::map::SymbolMap;
@@ -62,6 +64,23 @@ pub(crate) struct SendableVTableEntry {
     pub(crate) mutable: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub enum StructFunctionType {
+    Constructor,
+    Predicate,
+    GetterProto,
+    GetterProtoVec(usize),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StructConstructorRefSpec {
+    // This isn't any use if we don't have the original context, since
+    // we have to map this back to something from the original description
+    // of the struct.
+    pub descriptor: StructTypeDescriptor,
+    pub typ: StructFunctionType,
+}
+
 impl VTableEntry {
     pub fn new(name: InternedString, proc: Option<usize>) -> Self {
         Self {
@@ -91,7 +110,7 @@ impl Properties {
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 // Wrap the usize, store this and this only. We use this as an index into the VTable.
 pub struct StructTypeDescriptor(usize);
 
@@ -610,6 +629,72 @@ pub fn make_struct_singleton(name: &str) -> (SteelVal, StructTypeDescriptor) {
     (SteelVal::CustomStruct(Gc::new(instance)), descriptor)
 }
 
+// TODO: Insider this in the VTable entry so that
+// it can be fetched for images later
+struct SteelStructTypePayload {
+    constructor: SteelVal,
+    predicate: SteelVal,
+    getter_prototype: SteelVal,
+    getter_prototypes: Vec<SteelVal>,
+}
+
+static STRUCT_MAP: Lazy<Mutex<FxHashMap<StructTypeDescriptor, SteelStructTypePayload>>> =
+    Lazy::new(|| Mutex::new(Default::default()));
+
+pub fn fetch_from_type_map(
+    StructConstructorRefSpec { descriptor, typ }: StructConstructorRefSpec,
+) -> Option<SteelVal> {
+    let guard = STRUCT_MAP.lock();
+
+    let payload = guard.get(&descriptor)?;
+
+    match typ {
+        StructFunctionType::Constructor => Some(payload.constructor.clone()),
+        StructFunctionType::Predicate => Some(payload.predicate.clone()),
+        StructFunctionType::GetterProto => Some(payload.getter_prototype.clone()),
+        StructFunctionType::GetterProtoVec(index) => Some(payload.getter_prototypes[index].clone()),
+    }
+}
+
+pub(crate) fn create_struct_spec(func: SteelVal) -> Option<StructConstructorRefSpec> {
+    let guard = STRUCT_MAP.lock();
+
+    for (descriptor, value) in guard.iter() {
+        let descriptor = *descriptor;
+        if value.constructor == func {
+            return Some(StructConstructorRefSpec {
+                descriptor,
+                typ: StructFunctionType::Constructor,
+            });
+        }
+
+        if value.predicate == func {
+            return Some(StructConstructorRefSpec {
+                descriptor,
+                typ: StructFunctionType::Predicate,
+            });
+        }
+
+        if value.getter_prototype == func {
+            return Some(StructConstructorRefSpec {
+                descriptor,
+                typ: StructFunctionType::GetterProto,
+            });
+        }
+
+        for (i, g) in value.getter_prototypes.iter().enumerate() {
+            if g == &func {
+                return Some(StructConstructorRefSpec {
+                    descriptor,
+                    typ: StructFunctionType::GetterProtoVec(i),
+                });
+            }
+        }
+    }
+
+    None
+}
+
 fn make_struct_type_inner(
     name: &str,
     field_count: usize,
@@ -635,14 +720,17 @@ fn make_struct_type_inner(
         ));
     }
 
-    // TODO: Insider this in the VTable entry so that
-    // it can be fetched for images later
-    struct SteelStructTypePayload {
-        constructor: SteelVal,
-        predicate: SteelVal,
-        getter_prototype: SteelVal,
-        getter_prototypes: Vec<SteelVal>,
-    }
+    // Just find all the structs that we need?
+
+    STRUCT_MAP.lock().insert(
+        struct_type_descriptor,
+        SteelStructTypePayload {
+            constructor: struct_constructor.clone(),
+            predicate: struct_predicate.clone(),
+            getter_prototype: getter_prototype.clone(),
+            getter_prototypes: getter_prototypes.clone(),
+        },
+    );
 
     (
         struct_type_descriptor,
