@@ -212,6 +212,8 @@ impl SteelNamespace {
         let guard = ctx.thread.compiler.read();
         let compiled_module = guard.module_manager.modules().get(&module)?;
 
+        println!("Requiring module: {:?}", module);
+
         // Modules:
 
         let dependent_modules = compiled_module.dependent_modules();
@@ -228,6 +230,15 @@ impl SteelNamespace {
             let new_index = self.compiler.write().symbol_map.add(&primitive);
             SharedVectorWrapper::repl_define_idx(&mut self.env.bindings, new_index, value.clone());
         }
+
+        println!(
+            "Closures in the cache: {:#?}",
+            ctx.thread
+                .function_interner
+                .closure_interner
+                .keys()
+                .collect::<Vec<_>>()
+        );
 
         for compiled_module in std::iter::once(compiled_module).chain(
             dependent_modules
@@ -271,53 +282,143 @@ impl SteelNamespace {
                 for index in reachable_globals {
                     let mut global = ctx.thread.global_env.repl_maybe_lookup_idx(index).unwrap();
 
-                    if let SteelVal::Closure(c) = &global {
-                        let mut c = c.unwrap();
-                        let mut new_body = Vec::with_capacity(c.body_exp().len());
-
-                        for instr in c.body_exp().iter() {
-                            let mut instr = *instr;
-
-                            match instr.op_code {
-                                // If this instruction touches this global variable,
-                                // then we want to mark it as possibly referenced here.
-                                OpCode::CALLGLOBAL
-                                | OpCode::CALLPRIMITIVE
-                                | OpCode::PUSH
-                                | OpCode::CALLGLOBALTAIL
-                                | OpCode::CALLGLOBALNOARITY
-                                | OpCode::CALLGLOBALTAILNOARITY => {
-                                    instr.payload_size = u24::from_usize(
-                                        *mapping.get(&instr.payload_size.to_usize()).unwrap(),
-                                    );
-                                }
-                                _ => {}
-                            }
-
-                            new_body.push(instr);
-                        }
-
-                        c.body_exp = Arc::from(new_body);
-
-                        c.id = fresh_function_id() as _;
-
-                        ctx.thread
-                            .function_interner
-                            .closure_interner
-                            .insert(c.id, c.clone());
-
-                        global = SteelVal::Closure(Gc::new(c));
-                    }
+                    rewrite_indices(&mut ctx.thread.function_interner, &mapping, &mut global);
 
                     let idx = mapping.get(&index).unwrap();
 
                     SharedVectorWrapper::repl_define_idx(&mut self.env.bindings, *idx, global);
+                }
+
+                for (name, value) in h.iter() {
+                    if let SteelVal::SymbolV(s) = name {
+                        // This could fail if the module was only partially required, and then it doesn't
+                        // exist in the global namespace. If that is the case, we should just make a new
+                        // thing to fetch, and then visit it
+                        // let name = guard
+                        //     .symbol_map
+                        //     .get(&InternedString::from_str(s.as_str()))
+                        //     .unwrap();
+
+                        println!("Trying to define: {}", s);
+                        let idx = self
+                            .compiler
+                            .write()
+                            .symbol_map
+                            .add(&InternedString::from_str(s.as_str()));
+
+                        let mut global = value.clone();
+                        rewrite_indices(&mut ctx.thread.function_interner, &mapping, &mut global);
+
+                        SharedVectorWrapper::repl_define_idx(&mut self.env.bindings, idx, global);
+                    }
                 }
             }
         }
 
         None
     }
+}
+
+fn rewrite_indices(
+    ctx: &mut FunctionInterner,
+    mapping: &HashMap<usize, usize>,
+    global: &mut SteelVal,
+) {
+    let mut stack: Vec<ByteCodeLambda> = Vec::new();
+
+    // This is the global that is going to be used
+    if let SteelVal::Closure(c) = &*global {
+        let mut c = c.unwrap();
+        c.id = fresh_function_id() as _;
+
+        rewrite_indices_closure(ctx, mapping, &mut c, &mut stack);
+        *global = SteelVal::Closure(Gc::new(c));
+    }
+
+    while let Some(mut c) = stack.pop() {
+        println!("Rewriting closure: {}", c.id);
+        rewrite_indices_closure(ctx, mapping, &mut c, &mut stack);
+    }
+}
+
+fn rewrite_indices_closure(
+    ctx: &mut FunctionInterner,
+    mapping: &HashMap<usize, usize>,
+    c: &mut ByteCodeLambda,
+    stack: &mut Vec<ByteCodeLambda>,
+) {
+    let mut new_body = Vec::with_capacity(c.body_exp().len());
+
+    let mut closures_to_rewrite = Vec::new();
+
+    for (idx, instr) in c.body_exp().iter().enumerate() {
+        let mut instr = *instr;
+
+        // TODO: Rewrite the closures these reference as well.
+        // If there is an SCLOSURE or something, then a new closure
+        // will get created (or maybe, was already created) that pointed
+        // to the old one?
+        match instr.op_code {
+            // If this instruction touches this global variable,
+            // then we want to mark it as possibly referenced here.
+            OpCode::CALLGLOBAL
+            | OpCode::CALLPRIMITIVE
+            | OpCode::PUSH
+            | OpCode::CALLGLOBALTAIL
+            | OpCode::CALLGLOBALNOARITY
+            | OpCode::CALLGLOBALTAILNOARITY => {
+                instr.payload_size =
+                    u24::from_usize(*mapping.get(&instr.payload_size.to_usize()).unwrap());
+            }
+
+            // TODO: Find the ip of the closure, and then go allocate a _new_ closure
+            // for this one, since the values are going to now be rewritten.
+            OpCode::NEWSCLOSURE => {
+                // closure IP
+                let closure_id = c.body_exp().get(idx + 2).unwrap().payload_size.to_u32();
+
+                if let Some(value) = ctx.closure_interner.get(&closure_id) {
+                    println!(
+                        "Found closure that has already been put into the cache: {}",
+                        closure_id
+                    );
+                    let mut value = value.clone();
+                    value.id = fresh_function_id() as _;
+
+                    closures_to_rewrite.push((idx + 2, value.id));
+
+                    stack.push(value.clone());
+                }
+            }
+            OpCode::PUREFUNC => {
+                let closure_id = c.body_exp().get(idx + 2).unwrap().payload_size.to_u32();
+                closures_to_rewrite.push((idx + 2, fresh_function_id() as _));
+
+                if let Some(value) = ctx.pure_function_interner.get(&closure_id) {
+                    println!(
+                        "Found pure function that has already been put into the cache: {}",
+                        closure_id
+                    );
+                    // let mut value = value.clone();
+                    // value.id = fresh_function_id() as _;
+
+                    // closures_to_rewrite.push((idx + 2, value.id));
+
+                    // stack.push(value.clone());
+                }
+            }
+            _ => {}
+        }
+
+        new_body.push(instr);
+    }
+
+    for (idx, id) in closures_to_rewrite {
+        new_body[idx].payload_size = u24::from_u32(id);
+    }
+
+    c.body_exp = Arc::from(new_body);
+    ctx.closure_interner.insert(c.id, c.clone());
 }
 
 #[steel_derive::context(name = "make-namespace", arity = "Exact(0)")]
@@ -4419,8 +4520,6 @@ impl<'a> VmCore<'a> {
 
     #[inline(always)]
     fn handle_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
-        // TODO: Lazily fetch the function. Avoid cloning where relevant.
-        // Boxed functions probably _should_ be rooted in the modules?
         let func = self.thread.global_env.repl_lookup_idx(index);
         self.handle_global_function_call(func, payload_size)
     }
@@ -5903,7 +6002,9 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
 }
 
 fn eval_with_namespace_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[0])?;
+    let mut expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[0])?;
+
+    expr = steel_parser::parser::lower_macro_and_require_definitions(expr)?;
 
     let namespace = Namespace::as_mut_ref(&args[1])?;
 
