@@ -951,18 +951,21 @@ pub struct CustomTypeConstructor {
 
 #[derive(Default)]
 pub struct CustomFunctionConstructors {
-    map: HashMap<&'static str, fn(&[u8]) -> SteelVal>,
+    map: HashMap<&'static str, fn(ctx: &mut HeapSerializer, &[u8]) -> SteelVal>,
 }
 
 impl CustomFunctionConstructors {
-    pub fn register<T: Custom + 'static>(&mut self, func: fn(&[u8]) -> SteelVal) {
+    pub fn register<T: Custom + 'static>(
+        &mut self,
+        func: fn(&mut HeapSerializer, &[u8]) -> SteelVal,
+    ) {
         self.map.insert(core::any::type_name::<T>(), func);
     }
 
     pub fn new() {
         let mut this = Self::default();
 
-        this.register::<BuiltInModule>(|b| {
+        this.register::<BuiltInModule>(|ctx, b| {
             todo!()
 
             // bincode::deserialize::<BuiltInModule>(b)
@@ -1043,6 +1046,9 @@ impl std::fmt::Debug for SerializableSteelVal {
 pub struct NativeRefSpec {
     pub module: String,
     pub key: String,
+    // This should also include some metadata about what the type was _before_
+    // going in, and what it will be after
+    // pub pointer_addr: Option<usize>,
 }
 
 pub enum SerializedHeapRef {

@@ -185,13 +185,7 @@ impl Kernel {
             panic!("Kernel failed to load: This shouldn't happen!");
         }
 
-        // let mut macros = HashSet::new();
-        // macros.insert("%better-lambda%".to_string());
-        // macros.insert(*STRUCT_KEYWORD);
-        // macros.insert(*DEFINE_VALUES);
-
         Kernel {
-            // macros,
             transformers,
             constants: HashSet::new(),
             engine: Box::new(engine),

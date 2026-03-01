@@ -35,22 +35,21 @@ use super::{
     structs::UserDefinedStruct,
 };
 
-// pub(crate) enum Function {
-//     BoxedFunction(BoxedFunctionSignature),
-//     Closure(Gc<ByteCodeLambda>),
-//     FuncV(FunctionSignature),
-//     ContractedFunction(Gc<ContractedFunction>),
-//     MutFuncV(MutFunctionSignature),
-//     Builtin(BuiltInSignature),
-// }
-
-// Keep track of this metadata table for getting the docs associated
-// with a given function?
+// Keeps track of this metadata table for getting the docs associated
+// with a given function
 #[derive(Clone)]
 pub struct LambdaMetadataTable {
     fn_ptr_table: HashMap<usize, SteelString>,
 }
 
+// Note: If this is getting deserialized, we need something better than
+// just the function pointer to this, since its possible that the function
+// pointer now changes across images. We'll have to reconstruct it
+// on bootup.
+//
+// What that might mean is we record the pointer address of every function
+// pointer, and then when re initializating, we map that back to the value
+// that it had later.
 impl Custom for LambdaMetadataTable {
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         Some(SerializableSteelVal::Custom(Box::new(self.clone())))
