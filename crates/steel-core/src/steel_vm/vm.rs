@@ -5615,9 +5615,6 @@ fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result
 
     expr = steel_parser::parser::lower_macro_and_require_definitions(expr)?;
 
-    // println!("{}", expr.to_pretty(60));
-    // println!("{:#?}", expr);
-
     let maybe_path = ctx
         .thread
         .module_context
