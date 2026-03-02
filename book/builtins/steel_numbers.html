@@ -1,0 +1,927 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>steel/numbers - The Steel Book</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../theme/pagetoc-3c51fd36.css">
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-7b707207.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-1ba75a5b.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">The Steel Book</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="steelnumbers"><a class="header" href="#steelnumbers">steel/numbers</a></h1>
+<h3 id=""><a class="header" href="#"><strong>*</strong></a></h3>
+<p>Multiplies the given numbers.</p>
+<p>(* . nums) -&gt; number?</p>
+<ul>
+<li>nums : number? - The numbers to multiply. Can have any number of arguments including zero.</li>
+</ul>
+<h4 id="examples"><a class="header" href="#examples">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (* 5 3) ;; =&gt; 15
+&gt; (* 10 3 2) ;; =&gt; 60
+&gt; (*) ;; =&gt; 1
+</code></pre>
+<h3 id="-1"><a class="header" href="#-1"><strong>+</strong></a></h3>
+<p>Adds the given numbers.</p>
+<p>(+ . nums) -&gt; number?</p>
+<ul>
+<li>nums : number? - The numbers to add. Can have any number of arguments including zero.</li>
+</ul>
+<h4 id="examples-1"><a class="header" href="#examples-1">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (+ 5 3) ;; =&gt; 8
+&gt; (+ 10 3 2) ;; =&gt; 15
+&gt; (+) ;; =&gt; 0
+</code></pre>
+<h3 id="-"><a class="header" href="#-"><strong>-</strong></a></h3>
+<p>Subtracts the given numbers.</p>
+<p>(- . nums) -&gt; number?</p>
+<ul>
+<li>nums : number? - The numbers to subtract. Must have at least one number.</li>
+</ul>
+<h4 id="examples-2"><a class="header" href="#examples-2">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (- 5 3) ;; =&gt; 2
+&gt; (- 10 3 2) ;; =&gt; 5
+&gt; (- -5) ;; =&gt; 5
+</code></pre>
+<h3 id="-2"><a class="header" href="#-2"><strong>/</strong></a></h3>
+<p>Divides the given numbers.</p>
+<p>(/ . nums) -&gt; number?</p>
+<ul>
+<li>nums : number? - The numbers to divide. Must have at least one number.</li>
+</ul>
+<h4 id="examples-3"><a class="header" href="#examples-3">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (/ 10 2) ;; =&gt; 5
+&gt; (/ 10 2 2.0) ;; =&gt; 2.5
+&gt; (/ 1 3.0) ;; =&gt; 0.3333333333333333
+&gt; (/ 1 3) ;; =&gt; 1/3
+</code></pre>
+<h3 id="abs"><a class="header" href="#abs"><strong>abs</strong></a></h3>
+<p>Computes the absolute value of the given number.</p>
+<p>(abs number) -&gt; number?</p>
+<ul>
+<li>number : number? - The number to compute the absolute value of.</li>
+</ul>
+<h4 id="examples-4"><a class="header" href="#examples-4">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (abs 42) ;; =&gt; 42
+&gt; (abs -42) ;; =&gt; 42
+&gt; (abs 0) ;; =&gt; 0
+</code></pre>
+<h3 id="acos"><a class="header" href="#acos"><strong>acos</strong></a></h3>
+<p>Returns the arccosine, or inverse cosine, of a value; output is in radians.</p>
+<p>(acos n) -&gt; number?</p>
+<ul>
+<li>n : number? - The input value is the cosine of the angle you want and must be from -1 to 1.</li>
+</ul>
+<h4 id="examples-5"><a class="header" href="#examples-5">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (acos -1) ;; =&gt; 3.141592653589793
+&gt; (acos 0) ;; =&gt; 1.5707963267948966
+&gt; (acos 0.5) ;; =&gt; 1.0471975511965976
+&gt; (acos 2) ;; =&gt; +nan.0
+</code></pre>
+<h3 id="angle"><a class="header" href="#angle"><strong>angle</strong></a></h3>
+<p>Computes the angle <code>θ</code> of a complex number <code>z</code> where <code>z = r * (cos θ + i sin θ)</code> and <code>r</code> is the magnitude.</p>
+<p>(angle number) -&gt; number?</p>
+<ul>
+<li>number : number?</li>
+</ul>
+<h3 id="arithmetic-shift"><a class="header" href="#arithmetic-shift"><strong>arithmetic-shift</strong></a></h3>
+<p>Performs a bitwise arithmetic shift using the given 2 numbers</p>
+<p>(arithmetic-shift n m) -&gt; integer?</p>
+<ul>
+<li>n : integer? - The number to shift.</li>
+<li>m : integer? - The number by which to shift.</li>
+</ul>
+<h4 id="examples-6"><a class="header" href="#examples-6">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (arithmetic-shift 10 1) ;; =&gt; 20
+&gt; (arithmetic-shift 20 1) ;; =&gt; 40
+&gt; (arithmetic-shift 40 -2) ;; =&gt; 10
+</code></pre>
+<h3 id="asin"><a class="header" href="#asin"><strong>asin</strong></a></h3>
+<p>Returns the arcsine, or inverse sine, of a value; output is in radians.</p>
+<p>(asin n) -&gt; number?</p>
+<ul>
+<li>n : number? - The input value is the sine of the angle you want and must be from -1 to 1.</li>
+</ul>
+<h4 id="examples-7"><a class="header" href="#examples-7">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (asin -1) ;; =&gt; -1.5707963267948966
+&gt; (asin 0) ;; =&gt; 0
+&gt; (asin 0.5) ;; =&gt; 0.5235987755982988
+&gt; (asin 2) ;; =&gt; +nan.0
+</code></pre>
+<h3 id="atan"><a class="header" href="#atan"><strong>atan</strong></a></h3>
+<p>Returns the arctangent, or inverse tangent, of a value; output is in radians.</p>
+<p>(atan n) -&gt; number?</p>
+<ul>
+<li>n : number? - The input value is the tangent of the angle you want.</li>
+</ul>
+<h4 id="examples-8"><a class="header" href="#examples-8">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (atan -1) ;; =&gt; -0.7853981633974483
+&gt; (atan 0) ;; =&gt; 0
+&gt; (atan 0.5) ;; =&gt; 0.46364760900080615
+&gt; (atan 2) ;; =&gt; 1.1071487177940906
+</code></pre>
+<h3 id="bitwise-and"><a class="header" href="#bitwise-and"><strong>bitwise-and</strong></a></h3>
+<p>Performs a bitwise and using the given numbers</p>
+<p>(bitwise-and n …) -&gt; integer?</p>
+<ul>
+<li>n : integer?</li>
+</ul>
+<h4 id="examples-9"><a class="header" href="#examples-9">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (bitwise-and 1 2) ;; =&gt; 0
+&gt; (bitwise-and -32 -1) ;; =&gt; -32
+</code></pre>
+<h3 id="bitwise-ior"><a class="header" href="#bitwise-ior"><strong>bitwise-ior</strong></a></h3>
+<p>Performs a bitwise ior using the given numbers</p>
+<p>(bitwise-ior n …) -&gt; integer?</p>
+<ul>
+<li>n : integer?</li>
+</ul>
+<h4 id="examples-10"><a class="header" href="#examples-10">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (bitwise-ior 1 2) ;; =&gt; 3
+&gt; (bitwise-ior -32 1) ;; =&gt; -31
+</code></pre>
+<h3 id="bitwise-not"><a class="header" href="#bitwise-not"><strong>bitwise-not</strong></a></h3>
+<p>Performs a bitwise not using the given numbers</p>
+<p>(bitwise-not n …) -&gt; integer?</p>
+<ul>
+<li>n : integer?</li>
+</ul>
+<h4 id="examples-11"><a class="header" href="#examples-11">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (bitwise-not 5) ;; =&gt; -6
+&gt; (bitwise-not -1) ;; =&gt; 0
+</code></pre>
+<h3 id="bitwise-xor"><a class="header" href="#bitwise-xor"><strong>bitwise-xor</strong></a></h3>
+<p>Performs a bitwise xor using the given numbers</p>
+<p>(bitwise-xor n …) -&gt; integer?</p>
+<ul>
+<li>n : integer?</li>
+</ul>
+<h4 id="examples-12"><a class="header" href="#examples-12">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (bitwise-xor 1 5) ;; =&gt; 4
+&gt; (bitwise-xor -32 -1) ;; =&gt; 31
+</code></pre>
+<h3 id="ceiling"><a class="header" href="#ceiling"><strong>ceiling</strong></a></h3>
+<p>Rounds the given number up to the nearest integer not less than it.</p>
+<p>(ceiling number) -&gt; integer?</p>
+<ul>
+<li>number : real? - The number to round up.</li>
+</ul>
+<h4 id="examples-13"><a class="header" href="#examples-13">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (ceiling 42) ;; =&gt; 42
+&gt; (ceiling 42.1) ;; =&gt; 43
+&gt; (ceiling -42.1) ;; =&gt; -42
+</code></pre>
+<h3 id="cos"><a class="header" href="#cos"><strong>cos</strong></a></h3>
+<p>Returns the cosine value of the input angle, measured in radians.</p>
+<p>(cos n) -&gt; number?</p>
+<ul>
+<li>n : number? - The input angle, in radians.</li>
+</ul>
+<h4 id="examples-14"><a class="header" href="#examples-14">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (cos 0) ;; =&gt; 1
+&gt; (cos 1) ;; =&gt; 0.5403023058681398
+&gt; (cos 2.0) ;; =&gt; -0.4161468365471424
+&gt; (cos 3.14) ;; =&gt; -0.9999987317275395
+</code></pre>
+<h3 id="denominator"><a class="header" href="#denominator"><strong>denominator</strong></a></h3>
+<p>Retrieves the denominator of the given rational number.</p>
+<p>(denominator number) -&gt; integer?</p>
+<ul>
+<li>number : number? - The rational number to retrieve the denominator from.</li>
+</ul>
+<h4 id="examples-15"><a class="header" href="#examples-15">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (denominator 1/2) ;; =&gt; 2
+&gt; (denominator 3/4) ;; =&gt; 4
+&gt; (denominator 4) ;; =&gt; 1
+</code></pre>
+<h3 id="euclidean-quotient"><a class="header" href="#euclidean-quotient"><strong>euclidean-quotient</strong></a></h3>
+<p>Returns the quotient of a euclidean integer division of a given numerator <em>n</em>
+by a given denominator <em>m</em>.</p>
+<p>(euclidean-quotient n m) -&gt; integer?</p>
+<ul>
+<li>n : integer?</li>
+<li>m : integer?</li>
+</ul>
+<h4 id="examples-16"><a class="header" href="#examples-16">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (euclidean-quotient 5 2) ;; =&gt; 2
+&gt; (euclidean-quotient -5 2) ;; =&gt; -3
+&gt; (euclidean-quotient 5 -2) ;; =&gt; -2
+&gt; (euclidean-quotient -5 -2) ;; =&gt; 3
+</code></pre>
+<h3 id="euclidean-remainder"><a class="header" href="#euclidean-remainder"><strong>euclidean-remainder</strong></a></h3>
+<p>Returns the arithmetic remainder of a euclidean integer division of a given
+numerator <em>n</em> by a given denominator <em>m</em>.</p>
+<p>The return value of this procedure is always positive.</p>
+<p>(euclidean-remainder n m) -&gt; integer?</p>
+<ul>
+<li>n : integer?</li>
+<li>m : integer?</li>
+</ul>
+<h4 id="examples-17"><a class="header" href="#examples-17">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (euclidean-remainder 5 2) ;; =&gt; 1
+&gt; (euclidean-remainder -5 2) ;; =&gt; 1
+&gt; (euclidean-remainder 5 -2) ;; =&gt; 1
+&gt; (euclidean-remainder -5 -2) ;; =&gt; 1
+</code></pre>
+<h3 id="euclidean"><a class="header" href="#euclidean"><strong>euclidean/</strong></a></h3>
+<p>Simultaneously returns the quotient and the arithmetic remainder of a euclidean
+integer division of a given numerator <em>n</em> by a given denominator <em>m</em>.</p>
+<p>Equivalent to <code>(values (euclidean-quotient n m) (euclidean-remainder n m))</code>,
+but may be computed more efficiently.</p>
+<p>(euclidean/ n m) -&gt; (integer? integer?)</p>
+<ul>
+<li>n : integer?</li>
+<li>m : integer?</li>
+</ul>
+<h4 id="examples-18"><a class="header" href="#examples-18">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (euclidean/ 5 2) ;; =&gt; (2 1)
+&gt; (euclidean/ -5 2) ;; =&gt; (-3 1)
+&gt; (euclidean/ 5 -2) ;; =&gt; (-2 1)
+&gt; (euclidean/ -5 -2) ;; =&gt; (3 1)
+</code></pre>
+<h3 id="even"><a class="header" href="#even"><strong>even?</strong></a></h3>
+<p>Checks if the given number is even</p>
+<p>(even? n) -&gt; bool?</p>
+<ul>
+<li>n : number? - The number to check for evenness.</li>
+</ul>
+<h4 id="examples-19"><a class="header" href="#examples-19">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (even? 2) ;; =&gt; #true
+&gt; (even? 3) ;; =&gt; #false
+&gt; (even? 4.0) ;; =&gt; #true
+</code></pre>
+<h3 id="exact"><a class="header" href="#exact"><strong>exact</strong></a></h3>
+<p>Converts a number to an exact number.</p>
+<p>(exact num) -&gt; number?</p>
+<ul>
+<li>num : number? - The value to convert to exact.</li>
+</ul>
+<h4 id="examples-20"><a class="header" href="#examples-20">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (exact 10.0) ;; =&gt; 10
+&gt; (exact 1.5) ;; =&gt; 3/2
+&gt; (exact 1.5+2.5i) ;; =&gt; 3/2+5/2i
+</code></pre>
+<h3 id="exact-inexact"><a class="header" href="#exact-inexact"><strong>exact-&gt;inexact</strong></a></h3>
+<p>Alias of <code>inexact</code>.</p>
+<h3 id="exact-integer-sqrt"><a class="header" href="#exact-integer-sqrt"><strong>exact-integer-sqrt</strong></a></h3>
+<p>Computes the integer square root of the given non-negative integer.</p>
+<p>(exact-integer-sqrt number) -&gt; (integer? integer?)</p>
+<ul>
+<li>number : (and/c integer? positive?) - The non-negative integer to compute the square root for.</li>
+</ul>
+<h4 id="examples-21"><a class="header" href="#examples-21">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (exact-integer-sqrt 25) ;; =&gt; (5 0)
+&gt; (exact-integer-sqrt 35) ;; =&gt; (5 10)
+</code></pre>
+<h3 id="exact-1"><a class="header" href="#exact-1"><strong>exact?</strong></a></h3>
+<p>Checks if the given value is exact.</p>
+<p>(exact? val) -&gt; boolean?</p>
+<ul>
+<li>val : any - The value to check for exactness.</li>
+</ul>
+<h4 id="examples-22"><a class="header" href="#examples-22">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (exact? 42) ;; =&gt; #t
+&gt; (exact? 3.14) ;; =&gt; #f
+&gt; (exact? "hello") ;; =&gt; #f
+</code></pre>
+<h3 id="exp"><a class="header" href="#exp"><strong>exp</strong></a></h3>
+<p>Returns Euler’s number raised to the power of z.</p>
+<p>(exp z) -&gt; number?</p>
+<ul>
+<li>z : number? - The number to raise e to the power of.</li>
+</ul>
+<h4 id="examples-23"><a class="header" href="#examples-23">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (exp 0) ;; =&gt; 1
+&gt; (exp 2) ;; =&gt; 7.38905609893065
+&gt; (exp 1.5) ;; =&gt; 4.4816890703380645
+</code></pre>
+<h3 id="expt"><a class="header" href="#expt"><strong>expt</strong></a></h3>
+<p>Raises the left operand to the power of the right operand.</p>
+<p>(expt base exponent) -&gt; number?</p>
+<ul>
+<li>base : number? - The base number.</li>
+<li>exponent : number? - The exponent to raise the base to.</li>
+</ul>
+<h4 id="examples-24"><a class="header" href="#examples-24">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (expt 2 3) ;; =&gt; 8
+&gt; (expt 2.0 0.5) ;; =&gt; 1.4142135623730951
+&gt; (expt 9 0.5) ;; =&gt; 3
+</code></pre>
+<h3 id="f"><a class="header" href="#f"><strong>f+</strong></a></h3>
+<p>Sums all given floats</p>
+<p>(f+ nums) -&gt; number?</p>
+<ul>
+<li>nums : float? - The floats to sum up.</li>
+</ul>
+<h4 id="examples-25"><a class="header" href="#examples-25">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (f+ 5.5) ;; =&gt; 5.5
+&gt; (f+ 1.1 2.2) ;; =&gt; 3.3
+&gt; (f+ 3.3 3.3 3.3) ;; =&gt; 9.9
+</code></pre>
+<h3 id="finite"><a class="header" href="#finite"><strong>finite?</strong></a></h3>
+<p>Returns <code>#t</code> if the given number is finite.</p>
+<p>(finite? number) -&gt; boolean?</p>
+<ul>
+<li>number : number? - The number to check for finiteness.</li>
+</ul>
+<h4 id="examples-26"><a class="header" href="#examples-26">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (finite? 42) ;; =&gt; #t
+&gt; (finite? 0.1) ;; =&gt; #t
+&gt; (finite? +inf.0) ;; =&gt; #f
+&gt; (finite? -inf.0) ;; =&gt; #f
+&gt; (finite? +nan.0) ;; =&gt; #f
+</code></pre>
+<h3 id="floor"><a class="header" href="#floor"><strong>floor</strong></a></h3>
+<p>Rounds the given number down to the nearest integer not larger than it.</p>
+<p>(floor number) -&gt; number?</p>
+<ul>
+<li>number : real? - The number to compute the floor for.</li>
+</ul>
+<h4 id="examples-27"><a class="header" href="#examples-27">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (floor 3.14) ;; =&gt; 3
+&gt; (floor 4.99) ;; =&gt; 4
+&gt; (floor -2.5) ;; =&gt; -3
+</code></pre>
+<h3 id="floor-quotient"><a class="header" href="#floor-quotient"><strong>floor-quotient</strong></a></h3>
+<p>Returns the quotient of a floored integer division of a given numerator <em>n</em>
+by a given denominator <em>m</em>.</p>
+<p>Equivalent to <code>(values (floor-quotient n m) (floor-remainder n m))</code>, but
+may be computed more efficiently.</p>
+<p>(floor-quotient n m) -&gt; integer?</p>
+<ul>
+<li>n : integer?</li>
+<li>m : integer?</li>
+</ul>
+<h4 id="examples-28"><a class="header" href="#examples-28">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (floor-quotient 5 2) ;; =&gt; 2
+&gt; (floor-quotient -5 2) ;; =&gt; -3
+&gt; (floor-quotient 5 -2) ;; =&gt; -3
+&gt; (floor-quotient -5 -2) ;; =&gt; 2
+</code></pre>
+<h3 id="floor-remainder"><a class="header" href="#floor-remainder"><strong>floor-remainder</strong></a></h3>
+<p>Returns the arithmetic remainder of a floored integer division of a given
+numerator <em>n</em> by a given denominator <em>m</em>.</p>
+<p>The return value of this procedure has the same sign as the denominator.</p>
+<p>(floor-remainder n m) -&gt; integer?</p>
+<ul>
+<li>n : integer?</li>
+<li>m : integer?</li>
+</ul>
+<h4 id="examples-29"><a class="header" href="#examples-29">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (floor-remainder 5 2) ;; =&gt; 1
+&gt; (floor-remainder -5 2) ;; =&gt; 1
+&gt; (floor-remainder 5 -2) ;; =&gt; -1
+&gt; (floor-remainder -5 -2) ;; =&gt; -1
+</code></pre>
+<h3 id="floor-1"><a class="header" href="#floor-1"><strong>floor/</strong></a></h3>
+<p>Simultaneously returns the quotient and the arithmetic remainder of a floored
+integer division of a given numerator <em>n</em> by a given denominator <em>m</em>.</p>
+<p>(floor/ n m) -&gt; (integer? integer?)</p>
+<ul>
+<li>n : integer?</li>
+<li>m : integer?</li>
+</ul>
+<h4 id="examples-30"><a class="header" href="#examples-30">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (floor/ 5 2) ;; =&gt; (2 1)
+&gt; (floor/ -5 2) ;; =&gt; (-3 1)
+&gt; (floor/ 5 -2) ;; =&gt; (-3 -1)
+&gt; (floor/ -5 -2) ;; =&gt; (2 -1)
+</code></pre>
+<h3 id="imag-part"><a class="header" href="#imag-part"><strong>imag-part</strong></a></h3>
+<p>Returns the imaginary part of a number</p>
+<p>(imag-part number) -&gt; number?</p>
+<h4 id="examples-31"><a class="header" href="#examples-31">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (imag-part 3+4i) ;; =&gt; 4
+&gt; (imag-part 42) ;; =&gt; 0
+</code></pre>
+<h3 id="inexact"><a class="header" href="#inexact"><strong>inexact</strong></a></h3>
+<p>Converts a number to an inexact number.</p>
+<p>(inexact num) -&gt; number?</p>
+<ul>
+<li>num : number? - The number to convert from exact to inexact.</li>
+</ul>
+<h4 id="examples-32"><a class="header" href="#examples-32">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (inexact 10) ;; =&gt; 10
+&gt; (inexact 1/2) ;; =&gt; 0.5
+&gt; (inexact 1+2i) ;; =&gt; 1+2i
+</code></pre>
+<h3 id="inexact-exact"><a class="header" href="#inexact-exact"><strong>inexact-&gt;exact</strong></a></h3>
+<p>Alias of <code>exact</code>.</p>
+<h3 id="inexact-1"><a class="header" href="#inexact-1"><strong>inexact?</strong></a></h3>
+<p>Checks if the given value is inexact.</p>
+<p>(inexact? val) -&gt; boolean?</p>
+<ul>
+<li>val : any - The value to check for inexactness.</li>
+</ul>
+<h4 id="examples-33"><a class="header" href="#examples-33">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (inexact? 42) ;; =&gt; #f
+&gt; (inexact? 3.14) ;; =&gt; #t
+</code></pre>
+<h3 id="infinite"><a class="header" href="#infinite"><strong>infinite?</strong></a></h3>
+<p>Returns <code>#t</code> if the given number is infinite.</p>
+<p>(infinite? number) -&gt; boolean?</p>
+<ul>
+<li>number : number? - The number to check for infiniteness.</li>
+</ul>
+<h4 id="examples-34"><a class="header" href="#examples-34">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (infinite? 42) ;; =&gt; #f
+&gt; (infinite? -nan.0) ;; =&gt; #f
+&gt; (infinite? +inf.0) ;; =&gt; #t
+</code></pre>
+<h3 id="log"><a class="header" href="#log"><strong>log</strong></a></h3>
+<p>Computes the natural logarithm of the given number.</p>
+<p>(log number [base]) -&gt; number?</p>
+<ul>
+<li>number : number? - The number to compute the logarithm for.</li>
+<li>base : number? - The base of the logarithm. If not provided, defaults to Euler’s number (e).</li>
+</ul>
+<h4 id="examples-35"><a class="header" href="#examples-35">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (log 10) ;; =&gt; 2.302585092994046
+&gt; (log 100 10) ;; =&gt; 2
+&gt; (log 27 3) ;; =&gt; 3
+</code></pre>
+<h3 id="magnitude"><a class="header" href="#magnitude"><strong>magnitude</strong></a></h3>
+<p>Computes the magnitude of the given number.</p>
+<p>(magnitude number) -&gt; number?</p>
+<ul>
+<li>number : number? - The number to compute the magnitude for.</li>
+</ul>
+<h4 id="examples-36"><a class="header" href="#examples-36">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (magnitude 3+4i) ;; =&gt; 5
+&gt; (magnitude 5) ;; =&gt; 5
+&gt; (magnitude -5) ;; =&gt; 5
+</code></pre>
+<h3 id="make-polar"><a class="header" href="#make-polar"><strong>make-polar</strong></a></h3>
+<p>Make a complex number out of a magnitude <code>r</code> and an angle <code>θ</code>, so that the result is <code>r * (cos θ + i sin θ)</code></p>
+<p>(make-polar r θ) -&gt; number?</p>
+<ul>
+<li>r : real?</li>
+<li>theta : real?</li>
+</ul>
+<h3 id="make-rectangular"><a class="header" href="#make-rectangular"><strong>make-rectangular</strong></a></h3>
+<p>Create a complex number with <code>re</code> as the real part and <code>im</code> as the imaginary part.</p>
+<p>(make-rectangular re im) -&gt; number?</p>
+<ul>
+<li>re : real?</li>
+<li>im : real?</li>
+</ul>
+<h3 id="modulo"><a class="header" href="#modulo"><strong>modulo</strong></a></h3>
+<p>Returns the arithmetic remainder of a floored integer division of a given
+numerator <em>n</em> by a given denominator <em>m</em>.</p>
+<p>The return value of this procedure has the same sign as the denominator.</p>
+<p>This procedure is an alias of <code>floor-remainder</code>.</p>
+<p>(modulo n m) -&gt; integer?</p>
+<ul>
+<li>n : integer?</li>
+<li>m : integer?</li>
+</ul>
+<h4 id="examples-37"><a class="header" href="#examples-37">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (modulo 5 2) ;; =&gt; 1
+&gt; (modulo -5 2) ;; =&gt; 1
+&gt; (modulo 5 -2) ;; =&gt; -1
+&gt; (modulo -5 -2) ;; =&gt; -1
+</code></pre>
+<h3 id="nan"><a class="header" href="#nan"><strong>nan?</strong></a></h3>
+<p>Returns <code>#t</code> if the real number is Nan.</p>
+<p>(nan? value) -&gt; boolean?</p>
+<ul>
+<li>value : real? - The value to check</li>
+</ul>
+<pre><code class="language-scheme">(nan? +nan.0) =&gt; #t
+(nan? 100000) =&gt; #f
+</code></pre>
+<h3 id="negative"><a class="header" href="#negative"><strong>negative?</strong></a></h3>
+<p>Checks if the given real number is negative.</p>
+<p>(negative? num) -&gt; boolean?</p>
+<ul>
+<li>num : real? - The real number to check for negativity.</li>
+</ul>
+<h4 id="examples-38"><a class="header" href="#examples-38">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (negative? 0) ;; =&gt; #f
+&gt; (negative? 1) ;; =&gt; #f
+&gt; (negative? -1) ;; =&gt; #t
+</code></pre>
+<h3 id="numerator"><a class="header" href="#numerator"><strong>numerator</strong></a></h3>
+<p>Retrieves the numerator of the given rational number.</p>
+<p>(numerator number) -&gt; number?</p>
+<ul>
+<li>number : number? - The rational number to retrieve the numerator from.</li>
+</ul>
+<h4 id="examples-39"><a class="header" href="#examples-39">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (numerator 3/4) ;; =&gt; 3
+&gt; (numerator 5/2) ;; =&gt; 5
+&gt; (numerator -2) ;; =&gt; -2
+</code></pre>
+<h3 id="odd"><a class="header" href="#odd"><strong>odd?</strong></a></h3>
+<p>Checks if the given number is odd</p>
+<p>(odd? n) -&gt; bool?</p>
+<ul>
+<li>n : number? - The number to check for oddness.</li>
+</ul>
+<h4 id="examples-40"><a class="header" href="#examples-40">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (odd? 2) ;; =&gt; #false
+&gt; (odd? 3) ;; =&gt; #true
+&gt; (odd? 5.0) ;; =&gt; #true
+</code></pre>
+<h3 id="positive"><a class="header" href="#positive"><strong>positive?</strong></a></h3>
+<p>Checks if the given real number is positive.</p>
+<p>(positive? num) -&gt; boolean?</p>
+<ul>
+<li>num : real? - The real number to check for positivity.</li>
+</ul>
+<h4 id="examples-41"><a class="header" href="#examples-41">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (positive? 0) ;; =&gt; #f
+&gt; (positive? 1) ;; =&gt; #t
+&gt; (positive? -1) ;; =&gt; #f
+</code></pre>
+<h3 id="quotient"><a class="header" href="#quotient"><strong>quotient</strong></a></h3>
+<p>Returns the quotient of a truncated integer division of a given numerator <em>n</em>
+by a given denominator <em>m</em>.</p>
+<p>This procedure is an alias of <code>truncate-quotient</code>.</p>
+<p>(quotient n m) -&gt; integer?</p>
+<ul>
+<li>n : integer? - The numerator.</li>
+<li>m : integer? - The denominator.</li>
+</ul>
+<h4 id="examples-42"><a class="header" href="#examples-42">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (quotient 5 2) ;; =&gt; 2
+&gt; (quotient -5 2) ;; =&gt; -2
+&gt; (quotient 5 -2) ;; =&gt; -2
+&gt; (quotient -5 -2) ;; =&gt; 2
+</code></pre>
+<h3 id="real-part"><a class="header" href="#real-part"><strong>real-part</strong></a></h3>
+<p>Returns the real part of a number</p>
+<p>(real-part number) -&gt; number?</p>
+<h4 id="examples-43"><a class="header" href="#examples-43">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (real-part 3+4i) ;; =&gt; 3
+&gt; (real-part 42) ;; =&gt; 42
+</code></pre>
+<h3 id="remainder"><a class="header" href="#remainder"><strong>remainder</strong></a></h3>
+<p>Returns the arithmetic remainder of a truncated integer division of a given
+numerator <em>n</em> by a given denominator <em>m</em>.</p>
+<p>The return value of this procedure has the same sign as the numerator.</p>
+<p>This procedure is an alias of <code>truncate-remainder</code>.</p>
+<p>(remainder n m) -&gt; integer?</p>
+<ul>
+<li>n : integer?</li>
+<li>m : integer?</li>
+</ul>
+<h4 id="examples-44"><a class="header" href="#examples-44">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (remainder 5 2) ;; =&gt; 1
+&gt; (remainder -5 2) ;; =&gt; -1
+&gt; (remainder 5 -2) ;; =&gt; 1
+&gt; (remainder -5 -2) ;; =&gt; -1
+</code></pre>
+<h3 id="round"><a class="header" href="#round"><strong>round</strong></a></h3>
+<p>Rounds the given number to the nearest integer, rounding half-way cases to
+the even number.</p>
+<p>(round number) -&gt; number?</p>
+<ul>
+<li>number : real? - The number to round.</li>
+</ul>
+<h4 id="examples-45"><a class="header" href="#examples-45">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (round 3.14) ;; =&gt; 3
+&gt; (round 4.6) ;; =&gt; 5
+&gt; (round 2.5) ;; =&gt; 2
+&gt; (round 3.5) ;; =&gt; 4
+&gt; (round -2.5) ;; =&gt; -2
+</code></pre>
+<h3 id="sin"><a class="header" href="#sin"><strong>sin</strong></a></h3>
+<p>Returns the sine value of the input angle, measured in radians.</p>
+<p>(sin n) -&gt; number?</p>
+<ul>
+<li>n : number? - The input angle, in radians.</li>
+</ul>
+<h4 id="examples-46"><a class="header" href="#examples-46">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (sin 0) ;; =&gt; 0
+&gt; (sin 1) ;; =&gt; 0.8414709848078965
+&gt; (sin 2.0) ;; =&gt; 0.9092974268256817
+&gt; (sin 3.14) ;; =&gt; 0.0015926529164868282
+</code></pre>
+<h3 id="sqrt"><a class="header" href="#sqrt"><strong>sqrt</strong></a></h3>
+<p>Computes the square root of the given number.</p>
+<p>(sqrt number) -&gt; number?</p>
+<ul>
+<li>number : number? - The number to compute the square root for.</li>
+</ul>
+<h4 id="examples-47"><a class="header" href="#examples-47">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (sqrt 4) ;; =&gt; 2
+&gt; (sqrt 2) ;; =&gt; 1.4142135623730951
+&gt; (sqrt -1) ;; =&gt; 0+1i
+</code></pre>
+<h3 id="square"><a class="header" href="#square"><strong>square</strong></a></h3>
+<p>Computes the square of the given number.</p>
+<p>(square number) -&gt; number?</p>
+<ul>
+<li>number : number? - The number to square.</li>
+</ul>
+<h4 id="examples-48"><a class="header" href="#examples-48">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (square 5) ;; =&gt; 25
+&gt; (square -3) ;; =&gt; 9
+&gt; (square 2.5) ;; =&gt; 6.25
+</code></pre>
+<h3 id="tan"><a class="header" href="#tan"><strong>tan</strong></a></h3>
+<p>Returns the tangent value of the input angle, measured in radians.</p>
+<p>(tan n) -&gt; number?</p>
+<ul>
+<li>n : number? - The input angle, in radians.</li>
+</ul>
+<h4 id="examples-49"><a class="header" href="#examples-49">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (tan 0) ;; =&gt; 0
+&gt; (tan 1) ;; =&gt; 1.557407724654902
+&gt; (tan 2.0) ;; =&gt; -2.185039863261519
+&gt; (tan 3.14) ;; =&gt; -0.0015926549364072232
+</code></pre>
+<h3 id="truncate"><a class="header" href="#truncate"><strong>truncate</strong></a></h3>
+<p>Rounds the given number to the nearest integer, whose absolute value is not
+larger than it.</p>
+<p>(truncate number) -&gt; integer?</p>
+<ul>
+<li>number : real? - The number to truncate.</li>
+</ul>
+<h4 id="examples-50"><a class="header" href="#examples-50">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (truncate 42) ;; =&gt; 42
+&gt; (truncate 42.1) ;; =&gt; 42
+&gt; (truncate -42.1) ;; =&gt; -42
+</code></pre>
+<h3 id="truncate-quotient"><a class="header" href="#truncate-quotient"><strong>truncate-quotient</strong></a></h3>
+<p>Returns the quotient of a truncated integer division of a given numerator <em>n</em>
+by a given denominator <em>m</em>.</p>
+<p>(truncate-quotient n m) -&gt; integer?</p>
+<ul>
+<li>n : integer? - The numerator.</li>
+<li>m : integer? - The denominator.</li>
+</ul>
+<h4 id="examples-51"><a class="header" href="#examples-51">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (truncate-quotient 5 2) ;; =&gt; 2
+&gt; (truncate-quotient -5 2) ;; =&gt; -2
+&gt; (truncate-quotient 5 -2) ;; =&gt; -2
+&gt; (truncate-quotient -5 -2) ;; =&gt; 2
+</code></pre>
+<h3 id="truncate-remainder"><a class="header" href="#truncate-remainder"><strong>truncate-remainder</strong></a></h3>
+<p>Returns the arithmetic remainder of a truncated integer division of a given
+numerator <em>n</em> by a given denominator <em>m</em>.</p>
+<p>The return value of this procedure has the same sign as the numerator.</p>
+<p>(truncate-remainder n m) -&gt; integer?</p>
+<ul>
+<li>n : integer? - The numerator.</li>
+<li>m : integer? - The denominator.</li>
+</ul>
+<h4 id="examples-52"><a class="header" href="#examples-52">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (truncate-remainder 5 2) ;; =&gt; 1
+&gt; (truncate-remainder -5 2) ;; =&gt; -1
+&gt; (truncate-remainder 5 -2) ;; =&gt; 1
+&gt; (truncate-remainder -5 -2) ;; =&gt; -1
+</code></pre>
+<h3 id="truncate-1"><a class="header" href="#truncate-1"><strong>truncate/</strong></a></h3>
+<p>Simultaneously returns the quotient and the arithmetic remainder of a truncated
+integer division of a given numerator <em>n</em> by a given denominator <em>m</em>.</p>
+<p>Equivalent to <code>(values (truncate-quotient n m) (truncate-remainder n m))</code>,
+but may be computed more efficiently.</p>
+<p>(truncate/ n m) -&gt; (integer? integer?)</p>
+<ul>
+<li>n : integer?</li>
+<li>m : integer?</li>
+</ul>
+<h4 id="examples-53"><a class="header" href="#examples-53">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (truncate/ 5 2) ;; =&gt; (2 1)
+&gt; (truncate/ -5 2) ;; =&gt; (-2 -1)
+&gt; (truncate/ 5 -2) ;; =&gt; (-2 1)
+&gt; (truncate/ -5 -2) ;; =&gt; (2 -1)
+</code></pre>
+<h3 id="zero"><a class="header" href="#zero"><strong>zero?</strong></a></h3>
+<p>Checks if the given real number is zero.</p>
+<p>(zero? num) -&gt; boolean?</p>
+<ul>
+<li>num : real? - The number to check for zero.</li>
+</ul>
+<h4 id="examples-54"><a class="header" href="#examples-54">Examples</a></h4>
+<pre><code class="language-scheme">&gt; (zero? 0) ;; =&gt; #t
+&gt; (zero? 0.0) ;; =&gt; #t
+&gt; (zero? 0.1) ;; =&gt; #f
+</code></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../builtins/steel_meta.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../builtins/steel_ord.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../builtins/steel_meta.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../builtins/steel_ord.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-85e2a8f8.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../theme/pagetoc-ded3ab25.js"></script>
+
+
+
+    </div>
+    </body>
+</html>
