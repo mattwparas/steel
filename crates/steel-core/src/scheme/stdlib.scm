@@ -1160,10 +1160,10 @@
 ;; 'c
 ;; ```
 (define (for-each func lst)
-  (define (#%for-each func lst)
-    (unless (null? lst)
-      (func (car lst))
-      (#%for-each func (cdr lst))))
+  (define (#%for-each func2 lst2)
+    (unless (null? lst2)
+      (func (car lst2))
+      (#%for-each func2 (cdr lst2))))
   (if (function? func)
       (if (list? lst)
           (unless (null? lst)
