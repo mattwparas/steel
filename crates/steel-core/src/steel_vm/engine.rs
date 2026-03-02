@@ -56,6 +56,7 @@ use crate::{
     values::{
         closed::GlobalSlotRecycler,
         functions::{BoxedDynFunction, ByteCodeLambda},
+        reachable::GlobalSlotReacher,
     },
     SteelErr,
 };
@@ -2749,6 +2750,51 @@ fn test_raw_engine() {
 }
 
 #[test]
+fn namespace_querying() {
+    let mut engine = Engine::new();
+
+    let module = PathBuf::from("#%private/steel/contract");
+
+    let guard = engine.virtual_machine.compiler.read();
+    let compiled_module = guard.module_manager.modules().get(&module).unwrap();
+    let module_name: InternedString = format!("__module-{}", compiled_module.prefix()).into();
+    let index = guard.symbol_map.get(&module_name).unwrap();
+    let value = engine
+        .virtual_machine
+        .global_env
+        .repl_maybe_lookup_idx(index)
+        .unwrap();
+
+    if let SteelVal::HashMapV(h) = value {
+        let mut roots = Vec::new();
+
+        for (key, value) in h.iter() {
+            roots.push(value.clone());
+        }
+
+        let reachable_globals = GlobalSlotReacher::find_reachable(
+            engine.virtual_machine.global_env.roots(),
+            &mut roots,
+        );
+
+        // Module -> Set<GlobalIndex>
+        //
+        // GlobalIndex (old) -> GlobalIndex (new)
+        //
+        // Patch old values into new environment
+        //
+        // Global Slot Renamer
+        //
+        // Iterates over everything, renames the indexes to the new spots.
+
+        println!("{:#?}", reachable_globals);
+
+        // None
+    } else {
+        // return None;
+    }
+}
+
 fn test_ctx_func() {
     let mut engine = Engine::new();
 

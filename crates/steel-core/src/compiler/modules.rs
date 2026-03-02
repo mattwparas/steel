@@ -1047,6 +1047,10 @@ impl CompiledModule {
         }
     }
 
+    pub fn dependent_modules(&self) -> &[PathBuf] {
+        &self.downstream
+    }
+
     // TODO: Should cache this
     pub fn prefix(&self) -> CompactString {
         self.cached_prefix.clone()
