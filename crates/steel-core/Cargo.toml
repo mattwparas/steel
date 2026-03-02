@@ -45,8 +45,7 @@ cargo-steel-lib = { path = "../cargo-steel-lib", version = "0.8.2", optional = t
 chrono = { version = "0.4.23", default-features = false, features = ["std", "clock"], optional = true }
 env_home = "0.1.0"
 weak-table = "0.3.2"
-# TODO: Consider whether rand needs to be here
-rand = "0.9.0"
+getrandom = { version = "0.3.1", default-features = false }
 num-bigint = "0.4.6"
 num-rational = "0.4.2"
 num-traits = "0.2.19"
@@ -111,7 +110,7 @@ icu_casemap = "2.0.0"
 thin-vec = { version = "0.2.14", features = ["serde"] }
 
 [target.'cfg(target_family = "wasm")'.dependencies]
-getrandom = { version = "0.3.1", features = ["wasm_js"] }
+getrandom = { version = "0.3.1", default-features = false, features = ["wasm_js"] }
 js-sys = "0.3.69"
 
 [target.'cfg(not(target_family = "wasm"))'.dependencies]
@@ -127,7 +126,7 @@ criterion = "0.5.1"
 [features]
 # TODO: Deprecate the modules feature flag, it no longer does anything
 default = ["std", "modules"]
-std = ["dep:chrono"]
+std = ["getrandom/std", "dep:chrono"]
 modules = []
 jit = ["dep:cranelift", "dep:cranelift-module", "dep:cranelift-jit"]
 sandbox = []
