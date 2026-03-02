@@ -230,9 +230,7 @@
 
     ;; Internal, we don't do anything special
     [(quasisyntax #%internal-crunch x)
-     (if (empty? 'x)
-         (#%syntax/raw '() '() (#%syntax-span x))
-         (#%syntax/raw 'x 'x (#%syntax-span x)))]
+     (if (empty? 'x) (#%syntax/raw '() '() (#%syntax-span x)) (#%syntax/raw 'x 'x (#%syntax-span x)))]
 
     ;; This is the absolute worst!
     [(quasisyntax (x))
@@ -828,9 +826,7 @@
     (and (pair? list) (or (function (car list)) (some? function (cdr list)))))
 
   (define (map1 func accum lst)
-    (if (null? lst)
-        (reverse accum)
-        (map1 func (cons (func (car lst)) accum) (cdr lst))))
+    (if (null? lst) (reverse accum) (map1 func (cons (func (car lst)) accum) (cdr lst))))
 
   (define (map-many func accum lsts)
     (if (some? null? lsts)
@@ -840,24 +836,17 @@
   (if (null? more-lists)
       (map1 function '() list1)
       (let ([lists (cons list1 more-lists)])
-        (if (some? null? lists)
-            '()
-            (map-many function '() lists)))))
+        (if (some? null? lists) '() (map-many function '() lists)))))
 
 (define (foldl func accum lst)
-  (if (null? lst)
-      accum
-      (foldl func (func (car lst) accum) (cdr lst))))
+  (stdout-simple-displayln "CALLING FOLDL with" func accum lst)
+  (if (null? lst) accum (foldl func (func (car lst) accum) (cdr lst))))
 
 (define (foldr func accum lst)
-  (if (null? lst)
-      accum
-      (func (car lst) (foldr func accum (cdr lst)))))
+  (if (null? lst) accum (func (car lst) (foldr func accum (cdr lst)))))
 
 (define (unfold func init stop?)
-  (if (stop? init)
-      (cons init '())
-      (cons init (unfold func (func init) stop?))))
+  (if (stop? init) (cons init '()) (cons init (unfold func (func init) stop?))))
 
 (define fold foldl)
 (define reduce fold)
@@ -1073,16 +1062,8 @@
 
   (filter-inner function '() lst))
 
-(define even-rec?
-  (lambda (x)
-    (if (= x 0)
-        #t
-        (odd-rec? (- x 1)))))
-(define odd-rec?
-  (lambda (x)
-    (if (= x 0)
-        #f
-        (even-rec? (- x 1)))))
+(define even-rec? (lambda (x) (if (= x 0) #t (odd-rec? (- x 1)))))
+(define odd-rec? (lambda (x) (if (= x 0) #f (even-rec? (- x 1)))))
 
 (define sum (lambda (x) (reduce + 0 x)))
 
@@ -1109,12 +1090,8 @@
 ;; ```
 (define (drop lst n)
   (define (loop lst n)
-    (if (zero? n)
-        lst
-        (loop (cdr lst) (sub1 n))))
-  (if (< n 0)
-      (error 'drop "expects a positive number")
-      (loop lst n)))
+    (if (zero? n) lst (loop (cdr lst) (sub1 n))))
+  (if (< n 0) (error 'drop "expects a positive number") (loop lst n)))
 
 (define (slice l offset n)
   (take (drop l offset) n))
@@ -1142,9 +1119,7 @@
     [else (gcd b (modulo a b))]))
 
 (define (lcm a b)
-  (if (or (zero? a) (zero? b))
-      0
-      (abs (* b (floor (/ a (gcd a b)))))))
+  (if (or (zero? a) (zero? b)) 0 (abs (* b (floor (/ a (gcd a b)))))))
 
 ;;@doc
 ;; Applies a procedure to all elements of a list
@@ -1388,9 +1363,7 @@
 ;; syntax
 (define-syntax delay
   (syntax-rules ()
-    [(delay
-       expr)
-     (lambda () expr)]))
+    [(delay expr) (lambda () expr)]))
 
 (define values list)
 
@@ -1401,9 +1374,7 @@
     ;; Does this work?
     [else
      (define res (apply consumer result))
-     (if (and (list? res) (= (length res) 1))
-         (car res)
-         res)]))
+     (if (and (list? res) (= (length res) 1)) (car res) res)]))
 
 (define-syntax @doc
   (syntax-rules (#%macro struct define/contract)

@@ -35,7 +35,10 @@ use std::{
 
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use steel_parser::{ast::PROVIDE, span::Span};
+use steel_parser::{
+    ast::{AstTools, PROVIDE},
+    span::Span,
+};
 
 use crate::rvals::{Result, SteelVal};
 
@@ -1252,6 +1255,10 @@ impl Compiler {
             .lift_pure_local_functions()
             .lift_all_local_functions();
 
+        // Here:
+
+        // Discover modules:
+
         // debug!("About to expand defines");
 
         log::debug!(target: "expansion-phase", "Flattening begins, converting internal defines to let expressions");
@@ -1299,6 +1306,27 @@ impl Compiler {
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements, false);
 
+        let module_context: InternedString = "#%prim.#%push-module-context".into();
+        for top_expr in expanded_statements.iter() {
+            if let ExprKind::Begin(b) = top_expr {
+                for expr in &b.exprs {
+                    if expr.list().and_then(|x| x.first_ident()).copied() == Some(module_context) {
+                        if let Some(found) = expr
+                            .list()
+                            .and_then(|x| x.get(1))
+                            .and_then(|x| x.to_string_literal())
+                        {
+                            let p = PathBuf::from(found);
+                            if let Some(m) = self.module_manager.modules_mut().get_mut(&p) {
+                                m.compiled_ast = Some(top_expr.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // TODO - make sure I want to keep this
         // let mut expanded_statements =
 
@@ -1309,9 +1337,15 @@ impl Compiler {
         analysis.populate_captures(&expanded_statements);
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
+        // Inline across module boundaries
+        if std::env::var("STEEL_MODULE_INLINE").is_ok() {
+            semantic.inline_idents_across_module_boundaries(self.modules())?;
+            semantic.refresh_variables();
+        }
+
         // Do this, and then inline everything. Do it again
         // TODO: Configure the amount that we inline?
-        semantic.inline_function_calls(None)?;
+        semantic.inline_function_calls(None, self.modules())?;
         semantic.refresh_variables();
 
         let mut analysis = semantic.into_analysis();
@@ -1341,20 +1375,15 @@ impl Compiler {
             semantic.lift_closures();
         }
 
-        // self.shadowed_variable_renamer
-        //     .rename_shadowed_variables(&mut semantic.exprs, false);
-
-        // analysis.fresh_from_exprs(&expanded_statements);
-        // semantic.analysis.fresh_from_exprs(&semantic.exprs);
-
-        // semantic.fresh
+        // semantic.inline_idents_across_module_boundaries()?;
+        // semantic.refresh_variables();
 
         // TODO: Configure inlining function size
 
         // Loop unrolling. That is probably what we need?
         // Inlining?
         if std::env::var("STEEL_INLINE").is_ok() {
-            semantic.inline_function_calls(Some(75))?;
+            semantic.inline_function_calls(Some(75), self.modules())?;
             semantic.refresh_variables();
             let mut analysis = semantic.into_analysis();
             self.shadowed_variable_renamer

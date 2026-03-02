@@ -60,7 +60,9 @@
     ;;            limit)
     (let _-*- ([limit limit]
                [res '()])
-      (if (zero? limit) res (let ([limit (- limit 1)]) (_-*- limit (cons limit res)))))))
+      (if (zero? limit)
+          res
+          (let ([limit (- limit 1)]) (_-*- limit (cons limit res)))))))
 
 ;; Fold over the integers [0, limit).
 (define gnatural-fold
@@ -161,6 +163,7 @@
                [b-state b-state]
                [t-state t-state]
                [accross (lambda (final-t-state) final-t-state)])
+
       (if (null? universe)
           (t-folder b-state t-state accross)
           (let _-**- ([in universe]

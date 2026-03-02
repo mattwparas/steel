@@ -1894,7 +1894,12 @@ impl<'a> VmCore<'a> {
         Continuation {
             inner: StandardShared::new(MutContainer::new(ContinuationMark::Open(
                 OpenContinuationMark {
-                    current_frame: self.thread.stack_frames.last().unwrap().clone(),
+                    current_frame: self
+                        .thread
+                        .stack_frames
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(|| self.thread.current_frame.clone()),
                     stack_frame_offset: self.thread.stack.len(),
                     current_stack_values: self.thread.stack[offset..].to_vec(),
                     instructions: self.instructions.clone(),
@@ -1913,7 +1918,12 @@ impl<'a> VmCore<'a> {
         ClosedContinuation {
             stack: self.thread.stack.clone(),
             instructions: self.instructions.clone(),
-            current_frame: self.thread.stack_frames.last().unwrap().clone(),
+            current_frame: self
+                .thread
+                .stack_frames
+                .last()
+                .cloned()
+                .unwrap_or_else(|| self.thread.current_frame.clone()),
             stack_frames: self.thread.stack_frames.clone(),
             ip: self.ip,
             sp: self.sp,
