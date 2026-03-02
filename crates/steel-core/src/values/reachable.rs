@@ -174,11 +174,6 @@ impl<'a> BreadthFirstSearchSteelValVisitor for GlobalSlotReacher<'a> {
 
     fn visit_char(&mut self, _c: char) -> Self::Output {}
     fn visit_closure(&mut self, closure: Gc<ByteCodeLambda>) -> Self::Output {
-        // for heap_ref in closure.heap_allocated.borrow().iter() {
-        // todo!()
-        // self.mark_heap_reference(&heap_ref.strong_ptr())
-        // }
-
         for capture in closure.captures() {
             println!("Visiting capture: {}", capture);
             self.push_back(capture.clone());

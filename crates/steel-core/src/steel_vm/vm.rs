@@ -236,15 +236,6 @@ impl SteelNamespace {
             SharedVectorWrapper::repl_define_idx(&mut self.env.bindings, new_index, value.clone());
         }
 
-        println!(
-            "Closures in the cache: {:#?}",
-            ctx.thread
-                .function_interner
-                .closure_interner
-                .keys()
-                .collect::<Vec<_>>()
-        );
-
         for compiled_module in std::iter::once(compiled_module).chain(
             dependent_modules
                 .iter()
@@ -276,9 +267,6 @@ impl SteelNamespace {
                     roots.push(value.clone());
                 }
 
-                // TODO: This needs to go past one depth. Right now its not going in
-                // to the next level, we need to keep going on the queue
-                // and keep a visited set of globals to not recur on them.
                 let reachable_globals =
                     GlobalSlotReacher::find_reachable(ctx.thread.global_env.roots(), &mut roots);
 
