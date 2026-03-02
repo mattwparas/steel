@@ -1,7 +1,8 @@
 pub mod cycles;
 
 use crate::{
-    compiler::{constants::ConstantMap, map::SymbolMap},
+    compiler::{compiler::Compiler, constants::ConstantMap, map::SymbolMap},
+    env::Env,
     gc::{
         shared::{
             MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
@@ -1051,6 +1052,7 @@ pub struct NativeRefSpec {
     // pub pointer_addr: Option<usize>,
 }
 
+#[derive(Debug)]
 pub enum SerializedHeapRef {
     Serialized(Option<SerializableSteelVal>),
     Closed(HeapRef<SteelVal>),
@@ -1068,9 +1070,13 @@ pub struct HeapSerializer<'a> {
 
     pub modules: ModuleContainer,
 
-    pub globals: &'a [SteelVal],
+    pub globals: &'a mut Env,
 
-    pub symbols: &'a SymbolMap,
+    pub function_mapping: std::collections::HashMap<u32, u32>,
+
+    pub compiler: &'a mut Compiler,
+
+    pub global_mapping: std::collections::HashMap<usize, usize>,
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
@@ -1079,11 +1085,15 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
     match val {
         SerializableSteelVal::Closure(c) => {
             if c.captures.is_empty() {
-                if let Some(already_made) = ctx.built_functions.get(&c.id) {
+                if let Some(already_made) = ctx
+                    .function_mapping
+                    .get(&c.id)
+                    .and_then(|x| ctx.built_functions.get(x))
+                {
                     SteelVal::Closure(already_made.clone())
                 } else {
-                    let id = c.id;
                     let value = Gc::new(ByteCodeLambda::from_serialized(ctx, c));
+                    let id = value.id;
 
                     // Save those as well
                     // Probably need to just do this for all
@@ -1268,8 +1278,8 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
         SerializableSteelVal::GlobalRef(s) => {
             let interned = s.into();
             // Find the index of this thing:
-            let idx = ctx.symbols.get(&interned).unwrap();
-            ctx.globals[idx].clone()
+            let idx = ctx.compiler.symbol_map.get(&interned).unwrap();
+            ctx.globals.roots()[idx].clone()
         }
     }
 }

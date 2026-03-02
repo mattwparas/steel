@@ -11,7 +11,11 @@ use std::{
 use rustc_hash::FxHashSet;
 
 use crate::{
-    core::{instructions::DenseInstruction, opcode::OpCode},
+    compiler::code_gen::fresh_function_id,
+    core::{
+        instructions::{u24, DenseInstruction},
+        opcode::OpCode,
+    },
     gc::{
         shared::{MutContainer, ShareableMut, StandardShared},
         Gc, Shared, SharedMut,
@@ -25,9 +29,7 @@ use crate::{
         register_fn::SendSyncStatic,
         vm::{BlockMetadata, BlockPattern, BuiltInSignature},
     },
-    // values::contracts::ContractedFunction,
-    SteelErr,
-    SteelVal,
+    SteelErr, SteelVal,
 };
 
 use super::{
@@ -272,9 +274,62 @@ impl ByteCodeLambda {
     }
 
     pub(crate) fn from_serialized(heap: &mut HeapSerializer, value: SerializedLambda) -> Self {
+        // Map the old to the new
+        let id = fresh_function_id();
+        heap.function_mapping.insert(value.id, id as _);
+
+        let mut new_body = Vec::with_capacity(value.body_exp.len());
+        let mut closures_to_rewrite = Vec::new();
+
+        for (idx, instr) in value.body_exp.iter().enumerate() {
+            let mut instr = *instr;
+
+            // TODO: Rewrite the closures these reference as well.
+            // If there is an SCLOSURE or something, then a new closure
+            // will get created (or maybe, was already created) that pointed
+            // to the old one?
+            match instr.op_code {
+                // If this instruction touches this global variable,
+                // then we want to mark it as possibly referenced here.
+                OpCode::CALLGLOBAL
+                | OpCode::CALLPRIMITIVE
+                | OpCode::PUSH
+                | OpCode::CALLGLOBALTAIL
+                | OpCode::CALLGLOBALNOARITY
+                | OpCode::CALLGLOBALTAILNOARITY => {
+                    instr.payload_size = u24::from_usize(
+                        *heap
+                            .global_mapping
+                            .get(&instr.payload_size.to_usize())
+                            .unwrap(),
+                    );
+                }
+
+                // TODO: Find the ip of the closure, and then go allocate a _new_ closure
+                // for this one, since the values are going to now be rewritten.
+                OpCode::NEWSCLOSURE => {
+                    // closure IP
+                    let closure_id = value.body_exp.get(idx + 2).unwrap().payload_size.to_u32();
+
+                    if let Some(old) = heap.function_mapping.get(&closure_id) {
+                        closures_to_rewrite.push((closure_id as usize, *old));
+                    } else {
+                        closures_to_rewrite.push((closure_id as usize, fresh_function_id() as _));
+                    }
+                }
+                _ => {}
+            }
+
+            new_body.push(instr);
+        }
+
+        for (idx, id) in closures_to_rewrite {
+            new_body[idx].payload_size = u24::from_u32(id);
+        }
+
         ByteCodeLambda::new(
             value.id,
-            value.body_exp.into(),
+            new_body.into(),
             value.arity,
             value.is_multi_arity,
             value

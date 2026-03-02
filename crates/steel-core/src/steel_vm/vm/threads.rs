@@ -255,6 +255,11 @@ struct EngineImage {
     thread: MovableThread,
 }
 
+#[steel_derive::context(name = "deserialize-value", arity = "Exact(1)")]
+fn deserialize_value(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(deserialize_individual_value_impl(ctx, args))
+}
+
 #[steel_derive::context(name = "serialize-value", arity = "Exact(1)")]
 fn serialize_value(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
     Some(serialize_individual_value_impl(ctx, args))
@@ -304,9 +309,69 @@ struct SerializedValue {
     referenced_globals: HashMap<usize, SerializableSteelVal>,
 
     vtable_entries: Vec<SendableVTableEntry>,
+
+    serialized_heap: HashMap<usize, SerializableSteelVal>,
 }
 
 impl Custom for SerializedValue {}
+
+fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let value = args[0].clone();
+
+    let mut inner = SerializedValue::as_mut_ref(&value)?;
+
+    let mut mapping = std::mem::take(&mut inner.serialized_heap)
+        .into_iter()
+        .map(|(key, value)| (key, SerializedHeapRef::Serialized(Some(value))))
+        .collect();
+
+    // Have these values point to the new place
+    let mut patcher = HashMap::new();
+    let mut built_functions = HashMap::new();
+    let mut heap_guard = ctx.thread.heap.lock();
+
+    let mut compiler_guard = ctx.thread.compiler.write();
+
+    let mut serializer = HeapSerializer {
+        heap: &mut heap_guard,
+        fake_heap: &mut mapping,
+        values_to_fill_in: &mut patcher,
+        built_functions: &mut built_functions,
+        modules: compiler_guard.builtin_modules.clone(),
+        globals: &mut ctx.thread.global_env,
+        compiler: &mut compiler_guard,
+        function_mapping: HashMap::new(),
+        global_mapping: HashMap::new(),
+    };
+
+    // Populate the symbol maps, using all of the values
+    // that exist.
+    for (index, name) in &inner.symbol_index_map {
+        let idx = serializer.compiler.symbol_map.add(&name);
+        serializer.global_mapping.insert(*index, idx);
+    }
+
+    // Allocate new spots for the globals that we've referenced,
+    // and rewrite their references to point to the new spot.
+    //
+    // Also, rewrite the closure IDs so that they're fresh as well.
+
+    for (key, value) in serializer.values_to_fill_in {
+        if let Some(cycled) = serializer.fake_heap.get(key) {
+            match cycled {
+                SerializedHeapRef::Serialized(_) => todo!(),
+                // Patch over the cycle
+                SerializedHeapRef::Closed(c) => {
+                    value.set(c.get());
+                }
+            }
+        } else {
+            todo!()
+        }
+    }
+
+    todo!()
+}
 
 // Serialize one individual value.
 fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
@@ -377,7 +442,10 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
         symbol_index_map,
         referenced_globals: old_mapping,
         vtable_entries: entries,
+        serialized_heap: initial_map,
     };
+
+    dbg!(&value);
 
     value.into_steelval()
 }
@@ -398,7 +466,7 @@ fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVa
     let mut initial_map = HashMap::new();
     let mut visited = HashSet::new();
     let _sources = ctx.thread.compiler.read().sources.clone();
-    let compiler_guard = ctx.thread.compiler.read();
+    let mut compiler_guard = ctx.thread.compiler.write();
     let builtin_modules = compiler_guard.builtin_modules.clone();
     let mut sctx = SerializationContext {
         builtin_modules: &builtin_modules,
@@ -499,8 +567,10 @@ fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVa
         values_to_fill_in: &mut patcher,
         built_functions: &mut built_functions,
         modules: compiler_guard.builtin_modules.clone(),
-        globals: ctx.thread.global_env.roots(),
-        symbols: &compiler_guard.symbol_map,
+        globals: &mut ctx.thread.global_env,
+        function_mapping: HashMap::new(),
+        compiler: &mut compiler_guard,
+        global_mapping: HashMap::new(),
     };
 
     // Moved over the thread. We now have
