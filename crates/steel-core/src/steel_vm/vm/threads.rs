@@ -166,6 +166,7 @@ pub fn closure_into_serializable(
             arity: prototype.arity,
             is_multi_arity: prototype.is_multi_arity,
             captures: Vec::new(),
+            constants: HashMap::new(),
         };
 
         prototype.captures = c
@@ -177,17 +178,39 @@ pub fn closure_into_serializable(
 
         Ok(prototype)
     } else {
+        let mut constants = HashMap::new();
+
+        for instr in c.body_exp.iter() {
+            if instr.op_code == OpCode::PUSHCONST {
+                let index = instr.payload_size.to_usize();
+                let value = ctx.constants.get(index);
+                constants.insert(index, into_serializable_value(value, ctx).unwrap());
+            }
+
+            match instr.op_code {
+                // If this instruction touches this global variable,
+                // then we want to mark it as possibly referenced here.
+                OpCode::CALLGLOBAL
+                | OpCode::CALLPRIMITIVE
+                | OpCode::PUSH
+                | OpCode::CALLGLOBALTAIL
+                | OpCode::CALLGLOBALNOARITY
+                | OpCode::CALLGLOBALTAILNOARITY => {
+                    let idx = instr.payload_size.to_usize();
+                    ctx.reachable_globals.insert(idx);
+                }
+                _ => {}
+            }
+        }
+
         let prototype = SerializedLambdaPrototype {
             id: c.id,
 
-            #[cfg(not(feature = "dynamic"))]
             body_exp: c.body_exp.iter().cloned().collect(),
-
-            #[cfg(feature = "dynamic")]
-            body_exp: c.body_exp.borrow().iter().cloned().collect(),
 
             arity: c.arity as _,
             is_multi_arity: c.is_multi_arity,
+            constants,
         };
 
         CACHED_CLOSURES.with(|x| x.borrow_mut().insert(c.id, prototype.clone()));
@@ -198,6 +221,7 @@ pub fn closure_into_serializable(
             arity: prototype.arity,
             is_multi_arity: prototype.is_multi_arity,
             captures: Vec::new(),
+            constants: prototype.constants,
         };
 
         prototype.captures = c
@@ -229,6 +253,11 @@ struct EngineImage {
     vtable: Vec<SendableVTableEntry>,
     heap_map: HashMap<usize, SerializedHeapRef>,
     thread: MovableThread,
+}
+
+#[steel_derive::context(name = "serialize-value", arity = "Exact(1)")]
+fn serialize_value(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(serialize_individual_value_impl(ctx, args))
 }
 
 #[steel_derive::context(name = "serialize-thread", arity = "Exact(0)")]
@@ -265,6 +294,50 @@ pub(crate) fn create_native_ref(ctx: &ModuleContainer, v: SteelVal) -> Option<Na
     None
 }
 
+// Serialize one individual value.
+fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let value = args[0].clone();
+
+    let mut initial_map = HashMap::new();
+    let mut visited = HashSet::new();
+    let _sources = ctx.thread.compiler.read().sources.clone();
+    let compiler_guard = ctx.thread.compiler.read();
+    let builtin_modules = compiler_guard.builtin_modules.clone();
+    let mut sctx = SerializationContext {
+        builtin_modules: &builtin_modules,
+        serialized_heap: &mut initial_map,
+        visited: &mut visited,
+        globals: ctx.thread.global_env.roots(),
+        symbol_map: &compiler_guard.symbol_map,
+        constants: &compiler_guard.constant_map,
+        reachable_globals: HashSet::new(),
+    };
+
+    let serialized_value = into_serializable_value(value, &mut sctx)?;
+
+    // Somehow, figure out structs as well
+    println!("Succeeded in serializing the value");
+    println!("Going through the reachable globals");
+
+    let mut old_mapping = HashMap::new();
+
+    for idx in std::mem::take(&mut sctx.reachable_globals) {
+        println!("Serializing: {}", idx);
+        let global = sctx.globals[idx].clone();
+        old_mapping.insert(idx, into_serializable_value(global, &mut sctx)?);
+    }
+
+    println!("Finished serializing globals");
+    println!(
+        "Remaining globals to check: {}",
+        sctx.reachable_globals.len()
+    );
+
+    Ok(SteelVal::Void)
+
+    // Find all the closures that are reachable
+}
+
 fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
     // use crate::rvals::SerializableSteelVal;
 
@@ -280,21 +353,18 @@ fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVa
 
     let mut initial_map = HashMap::new();
     let mut visited = HashSet::new();
-
     let _sources = ctx.thread.compiler.read().sources.clone();
-
     let compiler_guard = ctx.thread.compiler.read();
-
     let builtin_modules = compiler_guard.builtin_modules.clone();
-
     let mut sctx = SerializationContext {
         builtin_modules: &builtin_modules,
         serialized_heap: &mut initial_map,
         visited: &mut visited,
         globals: ctx.thread.global_env.roots(),
         symbol_map: &compiler_guard.symbol_map,
+        constants: &compiler_guard.constant_map,
+        reachable_globals: HashSet::new(),
     };
-
     let constants = ctx.thread.constant_map.to_serializable_vec(&mut sctx);
 
     let thread = MovableThread {
@@ -812,7 +882,9 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
 // Move values back and forth across threads!
 impl Custom for std::sync::mpsc::Sender<SerializableSteelVal> {
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
-        Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+        // Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+
+        None
     }
 }
 
@@ -829,7 +901,9 @@ impl Custom for SReceiver {
 
         let new_channel = SReceiver { receiver: inner };
 
-        Some(SerializableSteelVal::Custom(Box::new(new_channel)))
+        // Some(SerializableSteelVal::Custom(Box::new(new_channel)))
+
+        None
     }
 }
 
@@ -844,7 +918,8 @@ pub struct ThreadLocalStorage(usize);
 impl crate::rvals::Custom for ThreadLocalStorage {
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         // TODO: This probably should have a different implementation?
-        Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+        // Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+        None
     }
 }
 

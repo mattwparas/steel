@@ -52,7 +52,9 @@ pub struct LambdaMetadataTable {
 // that it had later.
 impl Custom for LambdaMetadataTable {
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
-        Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+        // Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+
+        None
     }
 }
 
@@ -161,7 +163,7 @@ impl core::hash::Hash for ByteCodeLambda {
 
 // Can this be moved across threads? What does it cost to execute a closure in another thread?
 // Engine instances be deep cloned?
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SerializedLambda {
     pub id: u32,
     pub body_exp: Vec<DenseInstruction>,
@@ -170,6 +172,8 @@ pub struct SerializedLambda {
     // TODO: Go ahead and create a ThreadSafeSteelVal where we will just deep clone everything, move
     // it across the thread, and reconstruct on the other side.
     pub captures: Vec<SerializableSteelVal>,
+
+    pub constants: HashMap<usize, SerializableSteelVal>,
 }
 
 #[derive(Clone)]
@@ -178,6 +182,7 @@ pub struct SerializedLambdaPrototype {
     pub body_exp: Vec<DenseInstruction>,
     pub arity: usize,
     pub is_multi_arity: bool,
+    pub constants: HashMap<usize, SerializableSteelVal>,
 }
 
 #[derive(Clone, PartialEq, Eq)]

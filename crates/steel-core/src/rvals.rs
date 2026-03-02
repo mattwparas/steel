@@ -1,7 +1,7 @@
 pub mod cycles;
 
 use crate::{
-    compiler::map::SymbolMap,
+    compiler::{constants::ConstantMap, map::SymbolMap},
     gc::{
         shared::{
             MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
@@ -976,6 +976,7 @@ impl CustomFunctionConstructors {
 }
 
 // #[derive(Serialize, Deserialize)]
+#[derive(Clone)]
 pub enum SerializableSteelVal {
     Closure(crate::values::functions::SerializedLambda),
     BoolV(bool),
@@ -992,12 +993,12 @@ pub enum SerializableSteelVal {
     ByteVectorV(Vec<u8>),
     SymbolV(String),
     // Genuinely serializable... if possible?
-    Custom(Box<dyn CustomType + Send>),
+    // Custom(Box<dyn CustomType + Send>),
     CustomStruct(SerializableUserDefinedStruct),
     // Attempt to reuse the storage if possible
     HeapAllocated(usize),
     // Ports can't really be serialized either?
-    Port(SendablePort),
+    // Port(SendablePort),
     Rational(Rational32),
     Stream(Box<SerializableStream>),
     NativeRef(NativeRefSpec),
@@ -1009,7 +1010,7 @@ pub enum SerializableSteelVal {
 impl std::fmt::Debug for SerializableSteelVal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Custom(c) => write!(f, "#<CustomType>"),
+            // Self::Custom(c) => write!(f, "#<CustomType>"),
             SerializableSteelVal::Closure(serialized_lambda) => {
                 write!(f, "{:?}", serialized_lambda)
             }
@@ -1028,7 +1029,7 @@ impl std::fmt::Debug for SerializableSteelVal {
             SerializableSteelVal::SymbolV(x) => write!(f, "{:?}", x),
             SerializableSteelVal::CustomStruct(x) => write!(f, "{:?}", x),
             SerializableSteelVal::HeapAllocated(x) => write!(f, "{:?}", x),
-            SerializableSteelVal::Port(x) => write!(f, "#<port>"),
+            // SerializableSteelVal::Port(x) => write!(f, "#<port>"),
             SerializableSteelVal::Rational(x) => write!(f, "{:?}", x),
             SerializableSteelVal::Stream(x) => write!(f, "{:?}", x),
             SerializableSteelVal::NativeRef(x) => write!(f, "{:?}", x),
@@ -1041,7 +1042,7 @@ impl std::fmt::Debug for SerializableSteelVal {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NativeRefSpec {
     pub module: String,
     pub key: String,
@@ -1132,7 +1133,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                 .collect(),
         ))),
         SerializableSteelVal::SymbolV(s) => SteelVal::SymbolV(s.into()),
-        SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new_mut(b)),
+        // SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new_mut(b)),
         SerializableSteelVal::CustomStruct(s) => {
             SteelVal::CustomStruct(Gc::new(UserDefinedStruct {
                 fields: {
@@ -1156,7 +1157,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                 type_descriptor: s.type_descriptor,
             }))
         }
-        SerializableSteelVal::Port(p) => SteelVal::PortV(SteelPort::from_sendable_port(p)),
+        // SerializableSteelVal::Port(p) => SteelVal::PortV(SteelPort::from_sendable_port(p)),
         SerializableSteelVal::HeapAllocated(v) => {
             // todo!()
 
@@ -1279,6 +1280,8 @@ pub struct SerializationContext<'a> {
     pub visited: &'a mut std::collections::HashSet<usize>,
     pub globals: &'a [SteelVal],
     pub symbol_map: &'a SymbolMap,
+    pub constants: &'a ConstantMap,
+    pub reachable_globals: std::collections::HashSet<usize>,
 }
 
 // The serializable value needs to refer to the original heap -
@@ -1384,7 +1387,8 @@ pub fn into_serializable_value(
             },
         )),
 
-        SteelVal::PortV(p) => SendablePort::from_port(p).map(SerializableSteelVal::Port),
+        // SteelVal::PortV(p) => SendablePort::from_port(p).map(SerializableSteelVal::Port),
+        SteelVal::PortV(p) => Ok(SerializableSteelVal::Void),
 
         // If there is a cycle, this could cause problems?
         SteelVal::HeapAllocated(h) => {

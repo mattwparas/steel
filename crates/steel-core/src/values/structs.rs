@@ -64,7 +64,7 @@ pub(crate) struct SendableVTableEntry {
     pub(crate) mutable: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum StructFunctionType {
     Constructor,
     Predicate,
@@ -72,7 +72,7 @@ pub enum StructFunctionType {
     GetterProtoVec(usize),
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StructConstructorRefSpec {
     // This isn't any use if we don't have the original context, since
     // we have to map this back to something from the original description
@@ -116,7 +116,9 @@ pub struct StructTypeDescriptor(usize);
 
 impl Custom for StructTypeDescriptor {
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
-        Some(SerializableSteelVal::Custom(Box::new(*self)))
+        // Some(SerializableSteelVal::Custom(Box::new(*self)))
+
+        None
     }
 }
 
@@ -143,7 +145,7 @@ impl StructTypeDescriptor {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SerializableUserDefinedStruct {
     pub(crate) fields: Vec<SerializableSteelVal>,
 

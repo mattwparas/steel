@@ -58,7 +58,9 @@ impl Custom for WeakMemoizationTable {
     fn into_serializable_steelval(&mut self) -> Option<crate::rvals::SerializableSteelVal> {
         use crate::rvals::SerializableSteelVal;
 
-        Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+        // Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+
+        None
     }
 }
 
