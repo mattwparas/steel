@@ -115,8 +115,6 @@ pub struct ByteCodeLambda {
 
     pub(crate) is_multi_arity: bool,
 
-    // Store... some amount inline?
-    // pub(crate) captures: Vec<SteelVal>,
     pub(crate) captures: CaptureVec,
 
     // pub(crate) captures: Box<[SteelVal]>
@@ -132,8 +130,6 @@ pub struct ByteCodeLambda {
 
     #[cfg(feature = "jit2")]
     pub(crate) super_instructions: Option<fn(&mut crate::steel_vm::vm::VmCore)>,
-    // #[cfg(feature = "jit2")]
-    // pub(crate) tail_call: bool,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -148,10 +144,7 @@ impl Eq for ByteCodeLambda {}
 impl core::hash::Hash for ByteCodeLambda {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id.hash(state);
-        // self.body_exp.as_ptr().hash(state);
         self.arity.hash(state);
-
-        // self.sub_expression_env.as_ptr().hash(state);
     }
 }
 

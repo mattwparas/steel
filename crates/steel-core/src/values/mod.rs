@@ -6,6 +6,7 @@ pub(crate) mod json_vals;
 pub(crate) mod lazy_stream;
 pub(crate) mod lists;
 pub(crate) mod port;
+pub(crate) mod reachable;
 pub(crate) mod recycler;
 pub(crate) mod structs;
 pub(crate) mod transducers;
