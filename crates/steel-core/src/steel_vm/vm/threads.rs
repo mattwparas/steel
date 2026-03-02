@@ -351,10 +351,16 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         serializer.global_mapping.insert(*index, idx);
     }
 
-    // Allocate new spots for the globals that we've referenced,
-    // and rewrite their references to point to the new spot.
-    //
-    // Also, rewrite the closure IDs so that they're fresh as well.
+    for (index, global) in inner.referenced_globals.drain() {
+        let deserialized = from_serializable_value(&mut serializer, global);
+        let idx = serializer.global_mapping[&index];
+
+        // Make the new global point to the new, deserialized value
+        serializer.globals.repl_set_idx(idx, deserialized).unwrap();
+    }
+
+    let original_value = std::mem::replace(&mut inner.value, SerializableSteelVal::Void);
+    let deserialized = from_serializable_value(&mut serializer, original_value);
 
     for (key, value) in serializer.values_to_fill_in {
         if let Some(cycled) = serializer.fake_heap.get(key) {
@@ -370,7 +376,7 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         }
     }
 
-    todo!()
+    Ok(deserialized)
 }
 
 // Serialize one individual value.
