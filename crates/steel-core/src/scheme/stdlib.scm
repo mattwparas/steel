@@ -1166,9 +1166,7 @@
       (#%for-each func2 (cdr lst2))))
   (if (function? func)
       (if (list? lst)
-          (unless (null? lst)
-            (func (car lst))
-            (#%for-each func (cdr lst)))
+          (#%for-each func lst)
           (error-with-span (current-function-span) "for-each expected a list, found: " lst))
       (error-with-span (current-function-span) "for-each expected a function, found: " func)))
 
