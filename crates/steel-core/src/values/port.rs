@@ -340,6 +340,14 @@ macro_rules! port_read_str_fn {
     }};
 }
 
+macro_rules! port_read_vec_fn {
+    ($br: expr, $fn: ident) => {{
+        let mut result = Vec::new();
+        let size = $br.$fn(&mut result)?;
+        Ok((size, result))
+    }};
+}
+
 impl SteelPortRepr {
     pub fn take(&mut self) -> Self {
         core::mem::replace(self, SteelPortRepr::Closed)
@@ -398,6 +406,18 @@ impl SteelPortRepr {
             SteelPortRepr::ChildStdOutput(br) => port_read_str_fn!(br.inner, read_to_string),
             SteelPortRepr::ChildStdError(br) => port_read_str_fn!(br.inner, read_to_string),
             SteelPortRepr::DynReader(br) => port_read_str_fn!(br.inner, read_to_string),
+            _ => stop!(ContractViolation => "expected input-port?, found {}", self),
+        }
+    }
+
+    pub fn read_all_bytes(&mut self) -> Result<(usize, Vec<u8>)> {
+        match self {
+            SteelPortRepr::FileInput(_, br) => port_read_vec_fn!(br.inner, read_to_end),
+            SteelPortRepr::StdInput(br) => port_read_vec_fn!(br.inner, read_to_end),
+            SteelPortRepr::StringInput(s) => port_read_vec_fn!(s.inner, read_to_end),
+            SteelPortRepr::ChildStdOutput(br) => port_read_vec_fn!(br.inner, read_to_end),
+            SteelPortRepr::ChildStdError(br) => port_read_vec_fn!(br.inner, read_to_end),
+            SteelPortRepr::DynReader(br) => port_read_vec_fn!(br.inner, read_to_end),
             _ => stop!(ContractViolation => "expected input-port?, found {}", self),
         }
     }
@@ -694,6 +714,10 @@ impl SteelPort {
 
     pub fn read_all_str(&self) -> Result<(usize, String)> {
         self.port.write().read_all_str()
+    }
+
+    pub fn read_all_bytes(&self) -> Result<(usize, Vec<u8>)> {
+        self.port.write().read_all_bytes()
     }
 
     pub fn read_char(&self) -> Result<MaybeBlocking<Option<char>>> {

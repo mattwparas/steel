@@ -60,7 +60,8 @@ use crate::{
         builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
         vm::{
             threads::{
-                threading_module, DESERIALIZE_VALUE_DEFINITION, SERIALIZE_THREAD_DEFINITION,
+                threading_module, BYTES_TO_SERIALIZED_DEFINITION, DESERIALIZE_VALUE_DEFINITION,
+                SERIALIZED_TO_BYTES_DEFINITION, SERIALIZE_THREAD_DEFINITION,
                 SERIALIZE_VALUE_DEFINITION,
             },
             DEBUG_GLOBALS_DEFINITION, GET_MODULE_CONTEXT_DEFINITION, POP_MODULE_CONTEXT_DEFINITION,
@@ -2267,6 +2268,8 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(DEBUG_GLOBALS_DEFINITION)
         .register_native_fn_definition(SERIALIZE_THREAD_DEFINITION)
         .register_native_fn_definition(DESERIALIZE_VALUE_DEFINITION)
+        .register_native_fn_definition(SERIALIZED_TO_BYTES_DEFINITION)
+        .register_native_fn_definition(BYTES_TO_SERIALIZED_DEFINITION)
         .register_native_fn_definition(SERIALIZE_VALUE_DEFINITION)
         .register_native_fn_definition(EXPAND_SYNTAX_OBJECTS_DEFINITION)
         .register_native_fn_definition(MATCH_SYNTAX_CASE_DEFINITION)

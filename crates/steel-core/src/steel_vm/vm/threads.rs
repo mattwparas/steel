@@ -1,6 +1,8 @@
+use core::ops::Deref;
 use std::collections::HashSet;
 
 use rustc_hash::FxHashMap;
+use serde::{Deserialize, Serialize};
 use steel_derive::function;
 
 #[cfg(feature = "sync")]
@@ -8,7 +10,7 @@ use crate::rvals::from_serializable_value;
 use crate::{
     rvals::{
         AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer, NativeRefSpec,
-        SerializableSteelVal, SerializationContext, SerializedHeapRef,
+        SerializableSteelVal, SerializationContext, SerializedHeapRef, SteelByteVector,
     },
     steel_vm::{builtin::BuiltInModule, engine::ModuleContainer, register_fn::RegisterFn},
     values::{
@@ -299,7 +301,7 @@ pub(crate) fn create_native_ref(ctx: &ModuleContainer, v: SteelVal) -> Option<Na
     None
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 struct SerializedValue {
     value: SerializableSteelVal,
     // Map the index of something to the name of it, so that we can
@@ -377,6 +379,25 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
     }
 
     Ok(deserialized)
+}
+
+#[steel_derive::function(name = "serialized->bytes")]
+fn serialized_to_bytes(value: &SteelVal) -> Result<SteelVal> {
+    let inner = SerializedValue::as_ref(value)?;
+    let bytes = bincode::serialize(inner.deref()).unwrap();
+    Ok(SteelVal::ByteVector(crate::rvals::SteelByteVector::new(
+        bytes,
+    )))
+}
+
+#[steel_derive::function(name = "bytes->serialized")]
+fn bytes_to_serialized(value: &SteelByteVector) -> Result<SteelVal> {
+    let serde =
+        bincode::deserialize::<SerializedValue>(value.vec.read().as_slice()).map_err(|_| {
+            throw!(Generic => "Unable to convert bytes into deserialized steel value")()
+        })?;
+
+    serde.into_steelval()
 }
 
 // Serialize one individual value.

@@ -9,6 +9,7 @@ use std::{
 };
 
 use rustc_hash::FxHashSet;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     compiler::code_gen::fresh_function_id,
@@ -165,7 +166,7 @@ impl core::hash::Hash for ByteCodeLambda {
 
 // Can this be moved across threads? What does it cost to execute a closure in another thread?
 // Engine instances be deep cloned?
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializedLambda {
     pub id: u32,
     pub body_exp: Vec<DenseInstruction>,

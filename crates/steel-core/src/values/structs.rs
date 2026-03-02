@@ -56,7 +56,7 @@ pub struct VTableEntry {
     pub(crate) mutable: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct SendableVTableEntry {
     pub(crate) name: InternedString,
     pub(crate) properties: Vec<(SerializableSteelVal, SerializableSteelVal)>,
@@ -145,7 +145,7 @@ impl StructTypeDescriptor {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializableUserDefinedStruct {
     pub(crate) fields: Vec<SerializableSteelVal>,
 

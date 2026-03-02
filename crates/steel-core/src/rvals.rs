@@ -976,8 +976,7 @@ impl CustomFunctionConstructors {
     }
 }
 
-// #[derive(Serialize, Deserialize)]
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum SerializableSteelVal {
     Closure(crate::values::functions::SerializedLambda),
     BoolV(bool),
