@@ -1147,6 +1147,11 @@
       0
       (abs (* b (floor (/ a (gcd a b)))))))
 
+(define (#%for-each func2 lst2)
+  (unless (null? lst2)
+    (func2 (car lst2))
+    (#%for-each func2 (cdr lst2))))
+
 ;;@doc
 ;; Applies a procedure to all elements of a list
 ;;
@@ -1161,10 +1166,6 @@
 ;; 'c
 ;; ```
 (define (for-each func lst)
-  (define (#%for-each func2 lst2)
-    (unless (null? lst2)
-      (func (car lst2))
-      (#%for-each func2 (cdr lst2))))
   (if (function? func)
       (if (list? lst)
           (#%for-each func lst)
