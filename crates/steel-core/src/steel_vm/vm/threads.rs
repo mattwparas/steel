@@ -13,7 +13,7 @@ use crate::{
     steel_vm::{builtin::BuiltInModule, engine::ModuleContainer, register_fn::RegisterFn},
     values::{
         functions::SerializedLambdaPrototype,
-        structs::{SendableVTableEntry, VTable},
+        structs::{SendableVTableEntry, StructTypeDescriptor, VTable},
     },
 };
 
@@ -294,6 +294,20 @@ pub(crate) fn create_native_ref(ctx: &ModuleContainer, v: SteelVal) -> Option<Na
     None
 }
 
+#[derive(Debug)]
+struct SerializedValue {
+    value: SerializableSteelVal,
+    // Map the index of something to the name of it, so that we can
+    // build a new reverse mapping when deserializing the bytecode
+    symbol_index_map: HashMap<usize, InternedString>,
+
+    referenced_globals: HashMap<usize, SerializableSteelVal>,
+
+    vtable_entries: Vec<SendableVTableEntry>,
+}
+
+impl Custom for SerializedValue {}
+
 // Serialize one individual value.
 fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     let value = args[0].clone();
@@ -311,6 +325,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
         symbol_map: &compiler_guard.symbol_map,
         constants: &compiler_guard.constant_map,
         reachable_globals: HashSet::new(),
+        reachable_structs: HashSet::new(),
     };
 
     let serialized_value = into_serializable_value(value, &mut sctx)?;
@@ -319,12 +334,19 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
     println!("Succeeded in serializing the value");
     println!("Going through the reachable globals");
 
+    let mut symbol_index_map = HashMap::new();
+
     let mut old_mapping = HashMap::new();
 
     for idx in std::mem::take(&mut sctx.reachable_globals) {
         println!("Serializing: {}", idx);
         let global = sctx.globals[idx].clone();
         old_mapping.insert(idx, into_serializable_value(global, &mut sctx)?);
+
+        let ident = sctx.symbol_map.values()[idx];
+
+        // Take this value, and make sure that the values are aligned.
+        symbol_index_map.insert(idx, ident);
     }
 
     println!("Finished serializing globals");
@@ -333,9 +355,31 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
         sctx.reachable_globals.len()
     );
 
-    Ok(SteelVal::Void)
+    let reachable_structs = std::mem::take(&mut sctx.reachable_structs);
 
-    // Find all the closures that are reachable
+    println!("Checking structs: {}", reachable_structs.len());
+
+    let entries = VTable::sendable_entries_for(&mut sctx, reachable_structs)?;
+
+    println!("Entries: {}", entries.len());
+
+    println!("Checking if we need to do another pass...");
+    println!(
+        "Remaining globals to check: {}",
+        sctx.reachable_globals.len()
+    );
+    println!("Checking structs: {}", sctx.reachable_structs.len());
+
+    println!("Done");
+
+    let value = SerializedValue {
+        value: serialized_value,
+        symbol_index_map,
+        referenced_globals: old_mapping,
+        vtable_entries: entries,
+    };
+
+    value.into_steelval()
 }
 
 fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
@@ -364,6 +408,7 @@ fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVa
         symbol_map: &compiler_guard.symbol_map,
         constants: &compiler_guard.constant_map,
         reachable_globals: HashSet::new(),
+        reachable_structs: HashSet::new(),
     };
     let constants = ctx.thread.constant_map.to_serializable_vec(&mut sctx);
 

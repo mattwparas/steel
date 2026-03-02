@@ -1282,6 +1282,7 @@ pub struct SerializationContext<'a> {
     pub symbol_map: &'a SymbolMap,
     pub constants: &'a ConstantMap,
     pub reachable_globals: std::collections::HashSet<usize>,
+    pub reachable_structs: std::collections::HashSet<StructTypeDescriptor>,
 }
 
 // The serializable value needs to refer to the original heap -
@@ -1375,17 +1376,23 @@ pub fn into_serializable_value(
             }
         }
 
-        SteelVal::CustomStruct(s) => Ok(SerializableSteelVal::CustomStruct(
-            SerializableUserDefinedStruct {
-                fields: s
-                    .fields
-                    .iter()
-                    .cloned()
-                    .map(|x| into_serializable_value(x, ctx))
-                    .collect::<Result<Vec<_>>>()?,
-                type_descriptor: s.type_descriptor,
-            },
-        )),
+        SteelVal::CustomStruct(s) => {
+            // Mark that we visited this, and that it will need to be
+            // present on the other side.
+            ctx.reachable_structs.insert(s.type_descriptor);
+
+            Ok(SerializableSteelVal::CustomStruct(
+                SerializableUserDefinedStruct {
+                    fields: s
+                        .fields
+                        .iter()
+                        .cloned()
+                        .map(|x| into_serializable_value(x, ctx))
+                        .collect::<Result<Vec<_>>>()?,
+                    type_descriptor: s.type_descriptor,
+                },
+            ))
+        }
 
         // SteelVal::PortV(p) => SendablePort::from_port(p).map(SerializableSteelVal::Port),
         SteelVal::PortV(p) => Ok(SerializableSteelVal::Void),

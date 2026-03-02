@@ -31,7 +31,7 @@ use crate::{steel_vm::builtin::BuiltInModule, stop};
 use alloc::sync::Arc;
 use core::hash::Hash;
 use core::ops::Deref;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::{
     cell::{Ref, RefCell},
     rc::Rc,
@@ -56,6 +56,7 @@ pub struct VTableEntry {
     pub(crate) mutable: bool,
 }
 
+#[derive(Debug)]
 pub(crate) struct SendableVTableEntry {
     pub(crate) name: InternedString,
     pub(crate) properties: Vec<(SerializableSteelVal, SerializableSteelVal)>,
@@ -117,7 +118,6 @@ pub struct StructTypeDescriptor(usize);
 impl Custom for StructTypeDescriptor {
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         // Some(SerializableSteelVal::Custom(Box::new(*self)))
-
         None
     }
 }
@@ -772,6 +772,37 @@ impl VTable {
 
     fn get(name: &InternedString) -> Option<Gc<HashMap<SteelVal, SteelVal>>> {
         VTABLE.with(|x| x.borrow().map.get(name).cloned())
+    }
+
+    pub(crate) fn sendable_entries_for(
+        ctx: &mut SerializationContext,
+        reachable_structs: HashSet<StructTypeDescriptor>,
+    ) -> Result<Vec<SendableVTableEntry>> {
+        STATIC_VTABLE
+            .read()
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| reachable_structs.contains(&StructTypeDescriptor(*idx)))
+            .map(|(idx, entry)| {
+                Ok(SendableVTableEntry {
+                    name: entry.name,
+                    proc: entry.proc,
+                    transparent: entry.transparent,
+                    mutable: entry.mutable,
+                    properties: entry
+                        .properties
+                        .iter()
+                        .map(|(key, value)| {
+                            Ok((
+                                into_serializable_value(key.clone(), ctx)?,
+                                into_serializable_value(value.clone(), ctx)?,
+                            ))
+                        })
+                        .collect::<Result<Vec<_>>>()?,
+                })
+            })
+            .collect()
     }
 
     pub(crate) fn sendable_entries(
