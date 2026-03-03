@@ -430,6 +430,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
     let value = args[0].clone();
 
     let mut initial_map = HashMap::new();
+    let mut initial_vector_map = HashMap::new();
     let mut visited = HashSet::new();
     let _sources = ctx.thread.compiler.read().sources.clone();
     let compiler_guard = ctx.thread.compiler.read();
@@ -437,6 +438,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
     let mut sctx = SerializationContext {
         builtin_modules: &builtin_modules,
         serialized_heap: &mut initial_map,
+        serialized_heap_vectors: &mut initial_vector_map,
         visited: &mut visited,
         globals: ctx.thread.global_env.roots(),
         symbol_map: &compiler_guard.symbol_map,

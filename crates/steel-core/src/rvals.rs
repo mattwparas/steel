@@ -1286,6 +1286,8 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
 pub struct SerializationContext<'a> {
     pub builtin_modules: &'a ModuleContainer,
     pub serialized_heap: &'a mut std::collections::HashMap<usize, SerializableSteelVal>,
+    pub serialized_heap_vectors:
+        &'a mut std::collections::HashMap<usize, Vec<SerializableSteelVal>>,
     pub visited: &'a mut std::collections::HashSet<usize>,
     pub globals: &'a [SteelVal],
     pub symbol_map: &'a SymbolMap,
