@@ -1,7 +1,7 @@
 (provide split-last
          flatten
          for-each
-		 repeat)
+         repeat)
 
 (define (split-last-loop accum lst)
   (if (empty? (cdr lst))
@@ -35,7 +35,5 @@
 ;; ```
 (define (repeat val times)
   (cond
-	[(and (integer? times) (> times 0))
-		(map (λ (_) val) (range 0 times))]
-	[else
-	  (error 'invalid-arg "'times' must be a positive nonzero integer.")]))
+    [(and (integer? times) (> times 0)) (map (λ (_) val) (range 0 times))]
+    [else (error 'invalid-arg "'times' must be a positive nonzero integer.")]))

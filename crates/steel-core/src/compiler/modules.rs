@@ -79,6 +79,7 @@ macro_rules! declare_builtins {
             $( ($name, include_str!($path)), )*
         ];
 
+        // TODO: Why was this an issue? Bugs with static string internment issues?
         pub(crate) fn intern_modules() {
             $(
                 let _ = InternedString::from($name);
@@ -142,6 +143,33 @@ create_prelude!(
     for_syntax "#%private/steel/control",
     for_syntax "#%private/steel/contract"
 );
+
+/// Takes a fully qualified path, and resolves it to a relative path,
+/// for use in determining a unique module name irrespective of where the
+/// module was loaded.
+pub(crate) fn fully_qualified_to_relative(
+    path: PathBuf,
+    search_dirs: &[PathBuf],
+) -> std::io::Result<PathBuf> {
+    // First, check if the path is relative:
+    let working_dir = std::env::current_dir()?;
+
+    if let Ok(p) = path.strip_prefix(&working_dir) {
+        if p.exists() {
+            return Ok(p.to_path_buf());
+        }
+    }
+
+    for p in search_dirs {
+        if let Ok(p) = p.strip_prefix(&working_dir) {
+            if p.exists() {
+                return Ok(p.to_path_buf());
+            }
+        }
+    }
+
+    Ok(path)
+}
 
 #[cfg(not(target_family = "wasm"))]
 pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
@@ -217,7 +245,7 @@ pub fn steel_home() -> Option<String> {
 /// Also keeps track of the metadata for each file in order to determine
 /// if it needs to be recompiled
 #[derive(Clone)]
-pub(crate) struct ModuleManager {
+pub struct ModuleManager {
     pub(crate) compiled_modules: CompiledModuleCache,
     pub(crate) file_metadata: crate::HashMap<PathBuf, SystemTime>,
     visited: FxHashSet<PathBuf>,
@@ -1006,6 +1034,8 @@ impl CompiledModule {
         downstream: Vec<PathBuf>,
         downstream_builtins: Vec<PathBuf>,
     ) -> Self {
+        println!("Compiling module: {:?}", name);
+
         let mut base = CompactString::new(MANGLER_PREFIX);
 
         if let Some(steel_home) = STEEL_HOME.as_ref() {
@@ -1014,6 +1044,8 @@ impl CompiledModule {
                 .to_str()
                 .unwrap()
                 .trim_start_matches(steel_home.as_str());
+
+            println!("Using name: {}", name);
 
             let interned = InternedString::from_str(name);
             let id = interned.get().into_inner();
@@ -1032,6 +1064,8 @@ impl CompiledModule {
             base.push_str(&id.to_string());
             base.push_str(MANGLER_SEPARATOR);
         }
+
+        println!("Calculated name: {}", base);
 
         Self {
             name,

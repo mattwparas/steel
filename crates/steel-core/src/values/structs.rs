@@ -49,6 +49,8 @@ enum StringOrMagicNumber {
 
 // #[derive(Debug)]
 pub struct VTableEntry {
+    // Get the originating module?
+    pub(crate) module: Option<SteelString>,
     pub(crate) name: InternedString,
     pub(crate) properties: Gc<HashMap<SteelVal, SteelVal>>,
     pub(crate) proc: Option<usize>,
@@ -83,8 +85,9 @@ pub struct StructConstructorRefSpec {
 }
 
 impl VTableEntry {
-    pub fn new(name: InternedString, proc: Option<usize>) -> Self {
+    pub fn new(name: InternedString, proc: Option<usize>, module: Option<SteelString>) -> Self {
         Self {
+            module,
             name,
             proc,
             properties: DEFAULT_PROPERTIES.with(|x| x.clone()),
@@ -587,8 +590,8 @@ fn populate_fields_offsets<'a>(
 }
 
 pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "make-struct-type expects 2 args, found: {}", args.len())
+    if !(args.len() == 2 || args.len() == 3) {
+        stop!(ArityMismatch => "make-struct-type expects 2 or 3 args, found: {}", args.len())
     }
 
     // Convert the string into an Arc'd string - this now makes the generated functions
@@ -601,13 +604,15 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(TypeMismatch => format!("make-struct-type expected an integer for the field count, found: {}", &args[0]));
     };
 
+    let relative_module = args.get(2).and_then(|x| x.as_string()).cloned();
+
     let (
         struct_type_descriptor,
         struct_constructor,
         struct_predicate,
         getter_prototype,
         getter_prototypes,
-    ) = make_struct_type_inner(name.as_str(), *field_count as usize);
+    ) = make_struct_type_inner(name.as_str(), *field_count as usize, relative_module);
 
     Ok(SteelVal::ListV(
         vec![
@@ -624,7 +629,7 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 pub fn make_struct_singleton(name: &str) -> (SteelVal, StructTypeDescriptor) {
-    let (descriptor, _, _, _, _) = make_struct_type_inner(name, 0);
+    let (descriptor, _, _, _, _) = make_struct_type_inner(name, 0, None);
 
     let instance = UserDefinedStruct::new(descriptor, &[]);
 
@@ -700,11 +705,12 @@ pub(crate) fn create_struct_spec(func: SteelVal) -> Option<StructConstructorRefS
 fn make_struct_type_inner(
     name: &str,
     field_count: usize,
+    module: Option<SteelString>,
 ) -> (StructTypeDescriptor, SteelVal, SteelVal, SteelVal, SteelVal) {
     let name = InternedString::from(name);
 
     // Make a slot in the VTable for this struct
-    let struct_type_descriptor = VTable::new_entry(name, None);
+    let struct_type_descriptor = VTable::new_entry(name, None, module);
 
     // Build out the constructor and the predicate
     let struct_constructor =
@@ -839,7 +845,7 @@ impl VTable {
         heap: &mut HeapSerializer,
     ) {
         for (index, entry) in values.into_iter().enumerate() {
-            Self::new_entry(entry.name, entry.proc);
+            Self::new_entry(entry.name, entry.proc, None);
 
             let properties = Gc::new(
                 entry
@@ -872,10 +878,14 @@ impl VTable {
     }
 
     #[cfg(feature = "sync")]
-    pub fn new_entry(name: InternedString, proc: Option<usize>) -> StructTypeDescriptor {
+    pub fn new_entry(
+        name: InternedString,
+        proc: Option<usize>,
+        module: Option<SteelString>,
+    ) -> StructTypeDescriptor {
         let mut guard = STATIC_VTABLE.write();
         let length = guard.entries.len();
-        guard.entries.push(VTableEntry::new(name, proc));
+        guard.entries.push(VTableEntry::new(name, proc, module));
         StructTypeDescriptor(length)
     }
 
@@ -986,13 +996,13 @@ pub static STATIC_FIELDS_KEY: Lazy<SteelVal> =
     Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
 
 pub static STATIC_OK_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*OK_RESULT_LABEL, None));
+    Lazy::new(|| VTable::new_entry(*OK_RESULT_LABEL, None, None));
 pub static STATIC_ERR_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*ERR_RESULT_LABEL, None));
+    Lazy::new(|| VTable::new_entry(*ERR_RESULT_LABEL, None, None));
 pub static STATIC_SOME_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*SOME_OPTION_LABEL, None));
+    Lazy::new(|| VTable::new_entry(*SOME_OPTION_LABEL, None, None));
 pub static STATIC_NONE_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*NONE_OPTION_LABEL, None));
+    Lazy::new(|| VTable::new_entry(*NONE_OPTION_LABEL, None, None));
 
 // TODO: Just make these Arc'd and lazy static instead of thread local.
 thread_local! {
@@ -1054,10 +1064,10 @@ thread_local! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
 
-    pub static OK_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*OK_RESULT_LABEL, None);
-    pub static ERR_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*ERR_RESULT_LABEL, None);
-    pub static SOME_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*SOME_OPTION_LABEL, None);
-    pub static NONE_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*NONE_OPTION_LABEL, None);
+    pub static OK_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*OK_RESULT_LABEL, None, None);
+    pub static ERR_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*ERR_RESULT_LABEL, None, None);
+    pub static SOME_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*SOME_OPTION_LABEL, None, None);
+    pub static NONE_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*NONE_OPTION_LABEL, None, None);
 
 
     pub static OK_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
@@ -1109,7 +1119,7 @@ pub(crate) fn build_type_id_module() -> BuiltInModule {
 
     let name = *TYPE_ID;
 
-    let type_descriptor = VTable::new_entry(name, None);
+    let type_descriptor = VTable::new_entry(name, None, None);
 
     // Build the getter for the first index
     let getter = UserDefinedStruct::getter_prototype_index(type_descriptor, 0);

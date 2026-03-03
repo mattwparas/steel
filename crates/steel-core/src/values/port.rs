@@ -1,5 +1,7 @@
 use alloc::sync::Arc;
 use core::hash::Hash;
+use serde::Deserialize;
+use serde::Serialize;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
@@ -286,20 +288,21 @@ impl core::fmt::Display for SteelPortRepr {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SendablePort {
-    StdInput(Stdin),
-    StdOutput(Stdout),
-    StdError(Stderr),
-    BoxDynWriter(Arc<Mutex<dyn Write + Send + Sync>>),
+    StdInput,
+    StdOutput,
+    StdError,
+    // BoxDynWriter(Arc<Mutex<dyn Write + Send + Sync>>),
     Closed,
 }
 
 impl SendablePort {
     fn from_port_repr(value: &SteelPortRepr) -> Result<SendablePort> {
         match value {
-            SteelPortRepr::StdInput(_) => Ok(SendablePort::StdInput(io::stdin())),
-            SteelPortRepr::StdOutput(_) => Ok(SendablePort::StdOutput(io::stdout())),
-            SteelPortRepr::StdError(_) => Ok(SendablePort::StdError(io::stderr())),
+            SteelPortRepr::StdInput(_) => Ok(SendablePort::StdInput),
+            SteelPortRepr::StdOutput(_) => Ok(SendablePort::StdOutput),
+            SteelPortRepr::StdError(_) => Ok(SendablePort::StdError),
             SteelPortRepr::Closed => Ok(SendablePort::Closed),
             _ => stop!(Generic => "Unable to send port across threads: {}", value),
         }
@@ -313,21 +316,21 @@ impl SendablePort {
 impl SteelPort {
     pub fn from_sendable_port(value: SendablePort) -> Self {
         match value {
-            SendablePort::StdInput(s) => SteelPort {
-                port: Gc::new_lock(SteelPortRepr::StdInput(Peekable::new(s))),
+            SendablePort::StdInput => SteelPort {
+                port: Gc::new_lock(SteelPortRepr::StdInput(Peekable::new(io::stdin()))),
             },
-            SendablePort::StdOutput(s) => SteelPort {
-                port: Gc::new_lock(SteelPortRepr::StdOutput(s)),
+            SendablePort::StdOutput => SteelPort {
+                port: Gc::new_lock(SteelPortRepr::StdOutput(io::stdout())),
             },
-            SendablePort::StdError(s) => SteelPort {
-                port: Gc::new_lock(SteelPortRepr::StdError(s)),
+            SendablePort::StdError => SteelPort {
+                port: Gc::new_lock(SteelPortRepr::StdError(io::stderr())),
             },
             SendablePort::Closed => SteelPort {
                 port: Gc::new_lock(SteelPortRepr::Closed),
             },
-            SendablePort::BoxDynWriter(w) => SteelPort {
-                port: Gc::new_lock(SteelPortRepr::DynWriter(w)),
-            },
+            // SendablePort::BoxDynWriter(w) => SteelPort {
+            //     port: Gc::new_lock(SteelPortRepr::DynWriter(w)),
+            // },
         }
     }
 }

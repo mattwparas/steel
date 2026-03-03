@@ -308,7 +308,7 @@ impl ByteCodeLambda {
 
                 OpCode::PUSHCONST => {
                     let old_index = instr.payload_size.to_usize();
-                    let old_value = value.constants.remove(&old_index).unwrap();
+                    let old_value = value.constants.get(&old_index).cloned().unwrap();
                     let deserialized_constant = from_serializable_value(heap, old_value);
                     let new_index = heap.compiler.constant_map.add_or_get(deserialized_constant);
                     instr.payload_size = u24::from_usize(new_index);
@@ -321,9 +321,9 @@ impl ByteCodeLambda {
                     let closure_id = value.body_exp.get(idx + 2).unwrap().payload_size.to_u32();
 
                     if let Some(old) = heap.function_mapping.get(&closure_id) {
-                        closures_to_rewrite.push((closure_id as usize, *old));
+                        closures_to_rewrite.push((idx + 2, *old));
                     } else {
-                        closures_to_rewrite.push((closure_id as usize, fresh_function_id() as _));
+                        closures_to_rewrite.push((idx + 2, fresh_function_id() as _));
                     }
                 }
                 _ => {}

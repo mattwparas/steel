@@ -1,7 +1,9 @@
 pub mod cycles;
 
 use crate::{
-    compiler::{compiler::Compiler, constants::ConstantMap, map::SymbolMap},
+    compiler::{
+        compiler::Compiler, constants::ConstantMap, map::SymbolMap, modules::ModuleManager,
+    },
     env::Env,
     gc::{
         shared::{
@@ -998,19 +1000,19 @@ pub enum SerializableSteelVal {
     // Attempt to reuse the storage if possible
     HeapAllocated(usize),
     // Ports can't really be serialized either?
-    // Port(SendablePort),
+    Port(SendablePort),
     Rational(Rational32),
     Stream(Box<SerializableStream>),
     NativeRef(NativeRefSpec),
     StructConstructorSpec(StructConstructorRefSpec),
     ModuleSpec(String),
     GlobalRef(String),
+    BuiltinSteelModuleRef(String, String),
 }
 
 impl std::fmt::Debug for SerializableSteelVal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            // Self::Custom(c) => write!(f, "#<CustomType>"),
             SerializableSteelVal::Closure(serialized_lambda) => {
                 write!(f, "{:?}", serialized_lambda)
             }
@@ -1029,7 +1031,6 @@ impl std::fmt::Debug for SerializableSteelVal {
             SerializableSteelVal::SymbolV(x) => write!(f, "{:?}", x),
             SerializableSteelVal::CustomStruct(x) => write!(f, "{:?}", x),
             SerializableSteelVal::HeapAllocated(x) => write!(f, "{:?}", x),
-            // SerializableSteelVal::Port(x) => write!(f, "#<port>"),
             SerializableSteelVal::Rational(x) => write!(f, "{:?}", x),
             SerializableSteelVal::Stream(x) => write!(f, "{:?}", x),
             SerializableSteelVal::NativeRef(x) => write!(f, "{:?}", x),
@@ -1038,6 +1039,10 @@ impl std::fmt::Debug for SerializableSteelVal {
             }
             SerializableSteelVal::ModuleSpec(x) => write!(f, "#<module:{}>", x),
             SerializableSteelVal::GlobalRef(x) => write!(f, "#<global:{}>", x),
+            SerializableSteelVal::BuiltinSteelModuleRef(m, n) => {
+                write!(f, "#<builtin-module:{}:{}>", m, n)
+            }
+            SerializableSteelVal::Port(sendable_port) => write!(f, "#<port:{:?}>", sendable_port),
         }
     }
 }
@@ -1142,7 +1147,6 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                 .collect(),
         ))),
         SerializableSteelVal::SymbolV(s) => SteelVal::SymbolV(s.into()),
-        // SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new_mut(b)),
         SerializableSteelVal::CustomStruct(s) => {
             SteelVal::CustomStruct(Gc::new(UserDefinedStruct {
                 fields: {
@@ -1166,7 +1170,6 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                 type_descriptor: s.type_descriptor,
             }))
         }
-        // SerializableSteelVal::Port(p) => SteelVal::PortV(SteelPort::from_sendable_port(p)),
         SerializableSteelVal::HeapAllocated(v) => {
             // todo!()
 
@@ -1271,14 +1274,15 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             .clone()
             .into_steelval()
             .unwrap(),
-        // If all else fails, attempt to resolve the value
-        // to a global index or name by scanning the globals to
-        // generate the heap dump.
         SerializableSteelVal::GlobalRef(s) => {
             let interned = s.into();
             // Find the index of this thing:
             let idx = ctx.compiler.symbol_map.get(&interned).unwrap();
             ctx.globals.roots()[idx].clone()
+        }
+        SerializableSteelVal::BuiltinSteelModuleRef(_, _) => todo!(),
+        SerializableSteelVal::Port(sendable_port) => {
+            SteelVal::PortV(SteelPort::from_sendable_port(sendable_port))
         }
     }
 }
@@ -1292,6 +1296,7 @@ pub struct SerializationContext<'a> {
     pub constants: &'a ConstantMap,
     pub reachable_globals: std::collections::HashSet<usize>,
     pub reachable_structs: std::collections::HashSet<StructTypeDescriptor>,
+    pub compiled_modules: &'a ModuleManager,
 }
 
 // The serializable value needs to refer to the original heap -
@@ -1403,8 +1408,8 @@ pub fn into_serializable_value(
             ))
         }
 
-        // SteelVal::PortV(p) => SendablePort::from_port(p).map(SerializableSteelVal::Port),
-        SteelVal::PortV(p) => Ok(SerializableSteelVal::Void),
+        SteelVal::PortV(p) => SendablePort::from_port(p).map(SerializableSteelVal::Port),
+        // SteelVal::PortV(p) => Ok(SerializableSteelVal::Void),
 
         // If there is a cycle, this could cause problems?
         SteelVal::HeapAllocated(h) => {

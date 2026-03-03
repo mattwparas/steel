@@ -8,6 +8,7 @@ use steel_derive::function;
 #[cfg(feature = "sync")]
 use crate::rvals::from_serializable_value;
 use crate::{
+    compiler::modules::{BUILT_INS, MANGLER_PREFIX, MANGLER_SEPARATOR},
     rvals::{
         AsRefMutSteelVal, AsRefSteelVal as _, Custom, HeapSerializer, NativeRefSpec,
         SerializableSteelVal, SerializationContext, SerializedHeapRef, SteelByteVector,
@@ -349,16 +350,40 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
     // Populate the symbol maps, using all of the values
     // that exist.
     for (index, name) in &inner.symbol_index_map {
+        if let Some(SerializableSteelVal::BuiltinSteelModuleRef(m, k)) =
+            inner.referenced_globals.get(index)
+        {
+            // Find the existing index
+            let key = format!(
+                "{}{}{}{}",
+                MANGLER_PREFIX,
+                InternedString::from_str(m.as_str()).get().into_inner(),
+                MANGLER_SEPARATOR,
+                k
+            );
+
+            let interned = InternedString::from_string(key);
+            let existing_index = serializer.compiler.symbol_map.get(&interned)?;
+
+            serializer.global_mapping.insert(*index, existing_index);
+
+            continue;
+        }
+
         let idx = serializer.compiler.symbol_map.add(&name);
         serializer.global_mapping.insert(*index, idx);
     }
 
     for (index, global) in inner.referenced_globals.drain() {
+        if let SerializableSteelVal::BuiltinSteelModuleRef(_, _) = global {
+            continue;
+        }
+
         let deserialized = from_serializable_value(&mut serializer, global);
         let idx = serializer.global_mapping[&index];
 
         // Make the new global point to the new, deserialized value
-        serializer.globals.repl_set_idx(idx, deserialized).unwrap();
+        SharedVectorWrapper::repl_define_idx(&mut serializer.globals.bindings, idx, deserialized);
     }
 
     let original_value = std::mem::replace(&mut inner.value, SerializableSteelVal::Void);
@@ -418,6 +443,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
         constants: &compiler_guard.constant_map,
         reachable_globals: HashSet::new(),
         reachable_structs: HashSet::new(),
+        compiled_modules: &compiler_guard.module_manager,
     };
 
     let serialized_value = into_serializable_value(value, &mut sctx)?;
@@ -430,37 +456,95 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
 
     let mut old_mapping = HashMap::new();
 
-    for idx in std::mem::take(&mut sctx.reachable_globals) {
-        println!("Serializing: {}", idx);
-        let global = sctx.globals[idx].clone();
-        old_mapping.insert(idx, into_serializable_value(global, &mut sctx)?);
+    let mut entries = Vec::new();
 
-        let ident = sctx.symbol_map.values()[idx];
+    loop {
+        for idx in std::mem::take(&mut sctx.reachable_globals) {
+            let ident = sctx.symbol_map.values()[idx];
 
-        // Take this value, and make sure that the values are aligned.
-        symbol_index_map.insert(idx, ident);
+            if old_mapping.contains_key(&idx) {
+                continue;
+            }
+
+            // println!("Serializing: {} @ {}", ident, idx);
+
+            let resolved = ident.resolve();
+
+            // This refers to a built in
+            if resolved.starts_with(MANGLER_PREFIX) {
+                let split = resolved
+                    .strip_prefix(MANGLER_PREFIX)
+                    .and_then(|x| x.split_once(MANGLER_SEPARATOR));
+
+                if let Some((module, name)) = split {
+                    let id = module.parse::<usize>();
+                    if let Ok(id) = id {
+                        let path = InternedString::new(id - 1);
+
+                        let global = sctx.globals[idx].clone();
+
+                        if matches!(global, SteelVal::Custom(_) | SteelVal::PortV(_)) {
+                            println!(
+                                "Found unserializable value @ path: {} -> {} - {}",
+                                module,
+                                path.resolve(),
+                                name
+                            );
+
+                            // If this is a built in, then just record the fact that we should
+                            // resolve to the original built in (or something)
+                            if BUILT_INS.iter().find(|x| x.0 == path.resolve()).is_some() {
+                                old_mapping.insert(
+                                    idx,
+                                    SerializableSteelVal::BuiltinSteelModuleRef(
+                                        path.resolve().to_string(),
+                                        name.to_string(),
+                                    ),
+                                );
+
+                                symbol_index_map.insert(idx, ident);
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let global = sctx.globals[idx].clone();
+
+            old_mapping.insert(idx, into_serializable_value(global, &mut sctx)?);
+
+            // Take this value, and make sure that the values are aligned.
+            symbol_index_map.insert(idx, ident);
+        }
+
+        println!("Finished serializing globals");
+        println!(
+            "Remaining globals to check: {}",
+            sctx.reachable_globals.len()
+        );
+
+        let reachable_structs = std::mem::take(&mut sctx.reachable_structs);
+
+        println!("Checking structs: {}", reachable_structs.len());
+
+        let local_entries = VTable::sendable_entries_for(&mut sctx, reachable_structs)?;
+
+        entries.extend(local_entries);
+
+        println!("Entries: {}", entries.len());
+
+        println!("Checking if we need to do another pass...");
+        println!(
+            "Remaining globals to check: {}",
+            sctx.reachable_globals.len()
+        );
+        println!("Checking structs: {}", sctx.reachable_structs.len());
+
+        if sctx.reachable_globals.len() == 0 && sctx.reachable_structs.len() == 0 {
+            break;
+        }
     }
-
-    println!("Finished serializing globals");
-    println!(
-        "Remaining globals to check: {}",
-        sctx.reachable_globals.len()
-    );
-
-    let reachable_structs = std::mem::take(&mut sctx.reachable_structs);
-
-    println!("Checking structs: {}", reachable_structs.len());
-
-    let entries = VTable::sendable_entries_for(&mut sctx, reachable_structs)?;
-
-    println!("Entries: {}", entries.len());
-
-    println!("Checking if we need to do another pass...");
-    println!(
-        "Remaining globals to check: {}",
-        sctx.reachable_globals.len()
-    );
-    println!("Checking structs: {}", sctx.reachable_structs.len());
 
     println!("Done");
 
@@ -472,7 +556,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
         serialized_heap: initial_map,
     };
 
-    dbg!(&value);
+    // dbg!(&value);
 
     value.into_steelval()
 }
@@ -504,6 +588,7 @@ fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVa
         constants: &compiler_guard.constant_map,
         reachable_globals: HashSet::new(),
         reachable_structs: HashSet::new(),
+        compiled_modules: &compiler_guard.module_manager,
     };
     let constants = ctx.thread.constant_map.to_serializable_vec(&mut sctx);
 

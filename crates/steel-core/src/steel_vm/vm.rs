@@ -1,4 +1,5 @@
 use crate::compiler::compiler::Compiler;
+use crate::compiler::modules::fully_qualified_to_relative;
 use crate::compiler::passes::VisitorMutRefUnit;
 use crate::core::instructions::{pretty_print_dense_instructions, u24};
 use crate::env::SharedVectorWrapper;
@@ -5862,6 +5863,29 @@ fn get_module_context(
         .unwrap_or(SteelVal::BoolV(false));
 
     Some(Ok(last))
+}
+
+#[steel_derive::context(name = "current-module-relative", arity = "Exact(0)")]
+fn get_module_relative_context(
+    ctx: &mut crate::steel_vm::vm::VmCore,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    let last = ctx
+        .thread
+        .module_context
+        .last()
+        .cloned()
+        .map(|x| PathBuf::from(x.as_str()));
+
+    let Some(last) = last else {
+        return Some(Ok(SteelVal::BoolV(false)));
+    };
+
+    let dirs = &ctx.thread.compiler.read().search_dirs;
+
+    let relative = fully_qualified_to_relative(last, dirs).unwrap();
+
+    Some(Ok(SteelVal::StringV(relative.to_str().unwrap().into())))
 }
 
 #[steel_derive::context(name = "#%push-module-context", arity = "Exact(1)")]

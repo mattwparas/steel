@@ -64,7 +64,8 @@ use crate::{
                 SERIALIZED_TO_BYTES_DEFINITION, SERIALIZE_THREAD_DEFINITION,
                 SERIALIZE_VALUE_DEFINITION,
             },
-            DEBUG_GLOBALS_DEFINITION, GET_MODULE_CONTEXT_DEFINITION, POP_MODULE_CONTEXT_DEFINITION,
+            DEBUG_GLOBALS_DEFINITION, GET_MODULE_CONTEXT_DEFINITION,
+            GET_MODULE_RELATIVE_CONTEXT_DEFINITION, POP_MODULE_CONTEXT_DEFINITION,
             PUSH_MODULE_CONTEXT_DEFINITION,
         },
     },
@@ -538,6 +539,7 @@ pub fn bootstrap_globals(engine: &mut Engine) {
         PUSH_MODULE_CONTEXT_DEFINITION,
         POP_MODULE_CONTEXT_DEFINITION,
         GET_MODULE_CONTEXT_DEFINITION,
+        GET_MODULE_RELATIVE_CONTEXT_DEFINITION,
         SET_BOX_DEFINITION,
         UNBOX_DEFINITION,
     ] {
@@ -2372,6 +2374,7 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(PUSH_MODULE_CONTEXT_DEFINITION)
         .register_native_fn_definition(POP_MODULE_CONTEXT_DEFINITION)
         .register_native_fn_definition(GET_MODULE_CONTEXT_DEFINITION)
+        .register_native_fn_definition(GET_MODULE_RELATIVE_CONTEXT_DEFINITION)
         .register_native_fn_definition(MODULE_EXPORTS_DEFINITION);
 
     module

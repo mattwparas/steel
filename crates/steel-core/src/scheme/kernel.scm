@@ -279,7 +279,11 @@
     (define struct-prop-name-gensym (gensym))
 
     `(begin
-       (define ,struct-proto-gensym (make-struct-type (quote ,struct-name) ,field-count))
+       (define ,struct-proto-gensym
+         ;; Include the relative module as a key for the struct. For serialization
+         ;; purposes, we'll treat two structs that come from the same place with the
+         ;; same name as more or less, identical
+         (make-struct-type (quote ,struct-name) ,field-count (current-module-relative)))
        (define ,struct-prop-name-gensym (list-ref ,struct-proto-gensym 0))
        (define ,constructor-proto-gensym (list-ref ,struct-proto-gensym 1))
        (define ,predicate-proto-gensym (list-ref ,struct-proto-gensym 2))
