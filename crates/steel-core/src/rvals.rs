@@ -28,6 +28,7 @@ use crate::{
         engine::ModuleContainer,
         vm::{
             threads::closure_into_serializable, BuiltInSignature, Continuation, ContinuationMark,
+            SteelThread,
         },
     },
     values::{
@@ -316,6 +317,22 @@ pub trait CustomType {
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
     }
+
+    fn as_serializable_steelval_with_ctx(
+        &mut self,
+        ctx: &mut SerializationContext,
+    ) -> Option<Result<SerializableSteelVal>>
+    where
+        Self: 'static,
+    {
+        use crate::values::serde::call_serializer;
+        call_serializer::<Self>(ctx, &self).map(|x| {
+            x.map(|x| {
+                SerializableSteelVal::NativeStruct(core::any::type_name::<Self>().to_string(), x)
+            })
+        })
+    }
+
     fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
     fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
     fn visit_children_for_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
@@ -1034,7 +1051,6 @@ pub enum SerializedHeapRef {
 }
 
 pub struct HeapSerializer<'a> {
-    pub heap: &'a mut Heap,
     pub fake_heap: &'a mut std::collections::HashMap<usize, SerializedHeapRef>,
     // After the conversion, we go back through, and patch the values from the fake heap
     // in to each of the values listed here - otherwise, we'll miss cycles
@@ -1043,13 +1059,9 @@ pub struct HeapSerializer<'a> {
     // Cache the functions that get built
     pub built_functions: &'a mut std::collections::HashMap<u32, Gc<ByteCodeLambda>>,
 
-    pub modules: ModuleContainer,
-
-    pub globals: &'a mut Env,
+    pub thread: &'a mut SteelThread,
 
     pub function_mapping: std::collections::HashMap<u32, u32>,
-
-    pub compiler: &'a mut Compiler,
 
     pub global_mapping: std::collections::HashMap<usize, usize>,
 }
@@ -1154,7 +1166,8 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                         if let Some(value) = value {
                             let value = from_serializable_value(ctx, value);
 
-                            let allocation = ctx.heap.allocate_without_collection(value);
+                            let allocation =
+                                ctx.thread.heap.lock().allocate_without_collection(value);
 
                             ctx.fake_heap
                                 .insert(v, SerializedHeapRef::Closed(allocation.clone()));
@@ -1174,8 +1187,11 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                                     // to the requisite value later.
                                     // panic!("Found a cycle: {} = {:?}", v, serializable_steel_val);
 
-                                    let allocation =
-                                        ctx.heap.allocate_without_collection(SteelVal::Void);
+                                    let allocation = ctx
+                                        .thread
+                                        .heap
+                                        .lock()
+                                        .allocate_without_collection(SteelVal::Void);
 
                                     ctx.values_to_fill_in.insert(v, allocation.clone());
 
@@ -1225,7 +1241,8 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             empty_stream: value.empty_stream,
         })),
         SerializableSteelVal::NativeRef(s) => {
-            let module_map = ctx.modules.inner();
+            let guard = ctx.thread.compiler.read();
+            let module_map = guard.builtin_modules.inner();
 
             if let Some(m) = module_map.get(s.module.as_str()) {
                 return m.get(s.key);
@@ -1238,7 +1255,10 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
         }
         SerializableSteelVal::StructConstructorSpec(spec) => fetch_from_type_map(spec).unwrap(),
         SerializableSteelVal::ModuleSpec(m) => ctx
-            .modules
+            .thread
+            .compiler
+            .read()
+            .builtin_modules
             .inner()
             .get(m.as_str())
             .unwrap()
@@ -1248,8 +1268,14 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
         SerializableSteelVal::GlobalRef(s) => {
             let interned = s.into();
             // Find the index of this thing:
-            let idx = ctx.compiler.symbol_map.get(&interned).unwrap();
-            ctx.globals.roots()[idx].clone()
+            let idx = ctx
+                .thread
+                .compiler
+                .read()
+                .symbol_map
+                .get(&interned)
+                .unwrap();
+            ctx.thread.global_env.roots()[idx].clone()
         }
         SerializableSteelVal::BuiltinSteelModuleRef(_, _) => todo!(),
         SerializableSteelVal::Port(sendable_port) => {

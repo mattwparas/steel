@@ -310,7 +310,12 @@ impl ByteCodeLambda {
                     let old_index = instr.payload_size.to_usize();
                     let old_value = value.constants.get(&old_index).cloned().unwrap();
                     let deserialized_constant = from_serializable_value(heap, old_value);
-                    let new_index = heap.compiler.constant_map.add_or_get(deserialized_constant);
+                    let new_index = heap
+                        .thread
+                        .compiler
+                        .write()
+                        .constant_map
+                        .add_or_get(deserialized_constant);
                     instr.payload_size = u24::from_usize(new_index);
                 }
 

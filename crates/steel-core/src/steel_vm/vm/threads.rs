@@ -5,7 +5,6 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use steel_derive::function;
 
-#[cfg(feature = "sync")]
 use crate::rvals::from_serializable_value;
 use crate::{
     compiler::modules::{BUILT_INS, MANGLER_PREFIX, MANGLER_SEPARATOR},
@@ -268,10 +267,10 @@ fn serialize_value(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVa
     Some(serialize_individual_value_impl(ctx, args))
 }
 
-#[steel_derive::context(name = "serialize-thread", arity = "Exact(0)")]
-fn serialize_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-    Some(serialize_thread_impl(ctx, args))
-}
+// #[steel_derive::context(name = "serialize-thread", arity = "Exact(0)")]
+// fn serialize_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+//     Some(serialize_thread_impl(ctx, args))
+// }
 
 // Create a native ref spec from the builtin modules.
 // This should in theory be all we need in order to then reconstruct this
@@ -331,18 +330,12 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
     // Have these values point to the new place
     let mut patcher = HashMap::new();
     let mut built_functions = HashMap::new();
-    let mut heap_guard = ctx.thread.heap.lock();
-
-    let mut compiler_guard = ctx.thread.compiler.write();
 
     let mut serializer = HeapSerializer {
-        heap: &mut heap_guard,
         fake_heap: &mut mapping,
         values_to_fill_in: &mut patcher,
         built_functions: &mut built_functions,
-        modules: compiler_guard.builtin_modules.clone(),
-        globals: &mut ctx.thread.global_env,
-        compiler: &mut compiler_guard,
+        thread: &mut ctx.thread,
         function_mapping: HashMap::new(),
         global_mapping: HashMap::new(),
     };
@@ -363,14 +356,19 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
             );
 
             let interned = InternedString::from_string(key);
-            let existing_index = serializer.compiler.symbol_map.get(&interned)?;
+            let existing_index = serializer
+                .thread
+                .compiler
+                .read()
+                .symbol_map
+                .get(&interned)?;
 
             serializer.global_mapping.insert(*index, existing_index);
 
             continue;
         }
 
-        let idx = serializer.compiler.symbol_map.add(&name);
+        let idx = serializer.thread.compiler.write().symbol_map.add(&name);
         serializer.global_mapping.insert(*index, idx);
     }
 
@@ -383,7 +381,7 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         let idx = serializer.global_mapping[&index];
 
         // Make the new global point to the new, deserialized value
-        SharedVectorWrapper::repl_define_idx(&mut serializer.globals.bindings, idx, deserialized);
+        serializer.thread.insert_binding(idx, deserialized);
     }
 
     let original_value = std::mem::replace(&mut inner.value, SerializableSteelVal::Void);
@@ -561,6 +559,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
     value.into_steelval()
 }
 
+/*
 fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
     // use crate::rvals::SerializableSteelVal;
 
@@ -780,6 +779,7 @@ fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVa
 
     Ok(SteelVal::Void)
 }
+*/
 
 pub struct SteelReceiver {
     receiver: crossbeam_channel::Receiver<SteelVal>,

@@ -53,16 +53,7 @@ pub struct WeakMemoizationTable {
     table: WeakKeyHashMap<std::sync::Weak<ByteCodeLambda>, HashMap<List<SteelVal>, SteelVal>>,
 }
 
-#[cfg(feature = "sync")]
-impl Custom for WeakMemoizationTable {
-    fn into_serializable_steelval(&mut self) -> Option<crate::rvals::SerializableSteelVal> {
-        use crate::rvals::SerializableSteelVal;
-
-        // Some(SerializableSteelVal::Custom(Box::new(self.clone())))
-
-        None
-    }
-}
+impl Custom for WeakMemoizationTable {}
 
 impl WeakMemoizationTable {
     pub fn new() -> Self {
