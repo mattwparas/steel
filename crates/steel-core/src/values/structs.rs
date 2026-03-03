@@ -60,6 +60,7 @@ pub struct VTableEntry {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct SendableVTableEntry {
+    pub(crate) module: Option<String>,
     pub(crate) name: InternedString,
     pub(crate) properties: Vec<(SerializableSteelVal, SerializableSteelVal)>,
     pub(crate) proc: Option<usize>,
@@ -876,6 +877,7 @@ impl VTable {
             .filter(|(idx, _)| reachable_structs.contains(&StructTypeDescriptor(*idx)))
             .map(|(idx, entry)| {
                 Ok(SendableVTableEntry {
+                    module: entry.module.as_ref().map(|x| x.as_str().to_owned()),
                     name: entry.name,
                     proc: entry.proc,
                     transparent: entry.transparent,
@@ -908,6 +910,7 @@ impl VTable {
                 .filter(|(idx, _)| reachable_structs.contains(&StructTypeDescriptor(*idx)))
                 .map(|(idx, entry)| {
                     Ok(SendableVTableEntry {
+                        module: entry.module.as_ref().map(|x| x.as_str().to_owned()),
                         name: entry.name,
                         proc: entry.proc,
                         transparent: entry.transparent,
@@ -928,6 +931,7 @@ impl VTable {
         })
     }
 
+    /*
     pub(crate) fn sendable_entries(
         ctx: &mut SerializationContext,
     ) -> Result<Vec<SendableVTableEntry>> {
@@ -956,6 +960,7 @@ impl VTable {
                 .collect()
         })
     }
+    */
 
     pub(crate) fn initialize_new_thread(
         values: Vec<SendableVTableEntry>,

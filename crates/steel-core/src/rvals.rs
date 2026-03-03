@@ -1,18 +1,13 @@
 pub mod cycles;
 
 use crate::{
-    compiler::{
-        compiler::Compiler, constants::ConstantMap, map::SymbolMap, modules::ModuleManager,
-    },
-    env::Env,
+    compiler::{constants::ConstantMap, map::SymbolMap, modules::ModuleManager},
     gc::{
         shared::{
             MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
             ScopedWriteContainer, ShareableMut, StandardShared,
         },
-        unsafe_erased_pointers::{
-            type_id, OpaqueReference, TemporaryMutableView, TemporaryReadonlyView,
-        },
+        unsafe_erased_pointers::{OpaqueReference, TemporaryMutableView, TemporaryReadonlyView},
         Gc, GcMut,
     },
     parser::{
@@ -24,7 +19,6 @@ use crate::{
     primitives::numbers::realp,
     rerrs::{ErrorKind, SteelErr},
     steel_vm::{
-        builtin::BuiltInModule,
         engine::ModuleContainer,
         vm::{
             threads::closure_into_serializable, BuiltInSignature, Continuation, ContinuationMark,
@@ -32,12 +26,12 @@ use crate::{
         },
     },
     values::{
-        closed::{Heap, HeapRef, MarkAndSweepContext},
+        closed::{HeapRef, MarkAndSweepContext},
         functions::{BoxedDynFunction, ByteCodeLambda},
         lazy_stream::{LazyStream, SerializableStream},
         lists::Pair,
         port::{SendablePort, SteelPort},
-        serde::{call_deserializer_by_name, NativeSerdeHandlers},
+        serde::call_deserializer_by_name,
         structs::{
             create_struct_spec, fetch_from_type_map, SerializableUserDefinedStruct,
             StructConstructorRefSpec, StructTypeDescriptor, UserDefinedStruct,
@@ -1182,7 +1176,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                             // todo!()
 
                             match ctx.fake_heap.get(&v).unwrap() {
-                                SerializedHeapRef::Serialized(serializable_steel_val) => {
+                                SerializedHeapRef::Serialized(_) => {
                                     // Introduce a third value: a sentinal value that will get patched back
                                     // to the requisite value later.
                                     // panic!("Found a cycle: {} = {:?}", v, serializable_steel_val);
@@ -1482,6 +1476,7 @@ pub fn into_serializable_value(
                 .collect::<Result<_>>()?,
         )),
 
+        // TODO: Implement mutable vector in the graph as well
         SteelVal::MutableVector(v) => {
             println!("Skipping mutable vector for now");
             Ok(SerializableSteelVal::Void)

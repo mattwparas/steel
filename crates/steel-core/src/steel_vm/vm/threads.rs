@@ -1104,39 +1104,6 @@ pub(crate) fn spawn_native_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option
     Some(Ok(value))
 }
 
-// Use internal spawn_thread function
-// pub(crate) fn spawn_thread(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
-//     Some(spawn_thread_result(ctx, args))
-// }
-
-// Move values back and forth across threads!
-impl Custom for std::sync::mpsc::Sender<SerializableSteelVal> {
-    fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
-        // Some(SerializableSteelVal::Custom(Box::new(self.clone())))
-
-        None
-    }
-}
-
-struct SReceiver {
-    receiver: Option<std::sync::mpsc::Receiver<SerializableSteelVal>>,
-}
-
-// TODO: @Matt - Revisit this!
-unsafe impl Sync for SReceiver {}
-
-impl Custom for SReceiver {
-    fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
-        let inner = self.receiver.take();
-
-        let new_channel = SReceiver { receiver: inner };
-
-        // Some(SerializableSteelVal::Custom(Box::new(new_channel)))
-
-        None
-    }
-}
-
 impl Custom for std::thread::ThreadId {
     fn fmt(&self) -> Option<core::result::Result<String, core::fmt::Error>> {
         Some(Ok(format!("#<{:?}>", self)))
@@ -1226,101 +1193,89 @@ pub fn threading_module() -> BuiltInModule {
         .register_native_fn_definition(EMPTY_CHANNEL_OBJECTP_DEFINITION)
         .register_native_fn_definition(DISCONNECTED_CHANNEL_OBJECTP_DEFINITION)
         .register_native_fn_definition(ENGINE_ID_DEFINITION)
-        .register_fn("make-channels", || {
-            let (left, right) = std::sync::mpsc::channel::<SerializableSteelVal>();
-
-            crate::list![
-                left,
-                SReceiver {
-                    receiver: Some(right)
-                }
-            ]
-        })
-        .register_fn(
-            "channel->send",
-            |_channel: &std::sync::mpsc::Sender<SerializableSteelVal>,
-             _val: SteelVal|
-             -> Result<()> {
-                todo!()
-                // let mut map = HashMap::new();
-                // let mut visited = HashSet::new();
-
-                // // TODO: Handle this here somehow, we don't want to use an empty map
-                // let serializable =
-                //     crate::rvals::into_serializable_value(val, &mut map, &mut visited)?;
-
-                // if !map.is_empty() {
-                //     stop!(Generic => "Unable to send mutable variable over a channel");
-                // }
-
-                // channel
-                //     .send(serializable)
-                //     .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))
-            },
-        )
-        // TODO: These need to be fucntions that take the context
-        .register_fn(
-            "channel->recv",
-            |_channel: &SReceiver| -> Result<SteelVal> {
-                // let receiver = channel
-                //     .receiver
-                //     .as_ref()
-                //     .expect("Channel should not be dropped here!");
-
-                // let value = receiver
-                //     .recv()
-                //     .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))?;
-
-                // let mut heap = Heap::new_empty();
-                // let mut fake_heap = HashMap::new();
-                // let mut patcher = HashMap::new();
-                // let mut built_functions = HashMap::new();
-                // let mut serializer = HeapSerializer {
-                //     heap: &mut heap,
-                //     fake_heap: &mut fake_heap,
-                //     values_to_fill_in: &mut patcher,
-                //     built_functions: &mut built_functions,
-                // };
-
-                // let value = crate::rvals::from_serializable_value(&mut serializer, value);
-
-                // Ok(value)
-
-                todo!()
-            },
-        )
-        .register_fn(
-            "channel->try-recv",
-            |_channel: &SReceiver| -> Result<Option<SteelVal>> {
-                todo!()
-                // let receiver = channel
-                //     .receiver
-                //     .as_ref()
-                //     .expect("Channel should not be dropped here!");
-
-                // let value = receiver.try_recv();
-
-                // let mut heap = Heap::new_empty();
-                // let mut fake_heap = HashMap::new();
-                // let mut patcher = HashMap::new();
-                // let mut built_functions = HashMap::new();
-                // let mut serializer = HeapSerializer {
-                //     heap: &mut heap,
-                //     fake_heap: &mut fake_heap,
-                //     values_to_fill_in: &mut patcher,
-                //     built_functions: &mut built_functions,
-                // };
-
-                // match value {
-                //     Ok(v) => Ok(Some(crate::rvals::from_serializable_value(
-                //         &mut serializer,
-                //         v,
-                //     ))),
-                //     Err(std::sync::mpsc::TryRecvError::Empty) => Ok(None),
-                //     Err(e) => Err(SteelErr::new(ErrorKind::Generic, e.to_string())),
-                // }
-            },
-        )
+        // .register_fn("make-channels", || {
+        //     let (left, right) = std::sync::mpsc::channel::<SerializableSteelVal>();
+        //     crate::list![
+        //         left,
+        //         SReceiver {
+        //             receiver: Some(right)
+        //         }
+        //     ]
+        // })
+        // .register_fn(
+        //     "channel->send",
+        //     |_channel: &std::sync::mpsc::Sender<SerializableSteelVal>,
+        //      _val: SteelVal|
+        //      -> Result<()> {
+        //         todo!()
+        //         // let mut map = HashMap::new();
+        //         // let mut visited = HashSet::new();
+        //         // // TODO: Handle this here somehow, we don't want to use an empty map
+        //         // let serializable =
+        //         //     crate::rvals::into_serializable_value(val, &mut map, &mut visited)?;
+        //         // if !map.is_empty() {
+        //         //     stop!(Generic => "Unable to send mutable variable over a channel");
+        //         // }
+        //         // channel
+        //         //     .send(serializable)
+        //         //     .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))
+        //     },
+        // )
+        // // TODO: These need to be fucntions that take the context
+        // .register_fn(
+        //     "channel->recv",
+        //     |_channel: &SReceiver| -> Result<SteelVal> {
+        //         // let receiver = channel
+        //         //     .receiver
+        //         //     .as_ref()
+        //         //     .expect("Channel should not be dropped here!");
+        //         // let value = receiver
+        //         //     .recv()
+        //         //     .map_err(|e| SteelErr::new(ErrorKind::Generic, e.to_string()))?;
+        //         // let mut heap = Heap::new_empty();
+        //         // let mut fake_heap = HashMap::new();
+        //         // let mut patcher = HashMap::new();
+        //         // let mut built_functions = HashMap::new();
+        //         // let mut serializer = HeapSerializer {
+        //         //     heap: &mut heap,
+        //         //     fake_heap: &mut fake_heap,
+        //         //     values_to_fill_in: &mut patcher,
+        //         //     built_functions: &mut built_functions,
+        //         // };
+        //         // let value = crate::rvals::from_serializable_value(&mut serializer, value);
+        //         // Ok(value)
+        //         todo!()
+        //     },
+        // )
+        // .register_fn(
+        //     "channel->try-recv",
+        //     |_channel: &SReceiver| -> Result<Option<SteelVal>> {
+        //         todo!()
+        //         // let receiver = channel
+        //         //     .receiver
+        //         //     .as_ref()
+        //         //     .expect("Channel should not be dropped here!");
+        //         // let value = receiver.try_recv();
+        //         // let mut heap = Heap::new_empty();
+        //         // let mut fake_heap = HashMap::new();
+        //         // let mut patcher = HashMap::new();
+        //         // let mut built_functions = HashMap::new();
+        //         // let mut serializer = HeapSerializer {
+        //         //     heap: &mut heap,
+        //         //     fake_heap: &mut fake_heap,
+        //         //     values_to_fill_in: &mut patcher,
+        //         //     built_functions: &mut built_functions,
+        //         // };
+        //         // match value {
+        //         //     Ok(v) => Ok(Some(crate::rvals::from_serializable_value(
+        //         //         &mut serializer,
+        //         //         v,
+        //         //     ))),
+        //         //     Err(std::sync::mpsc::TryRecvError::Empty) => Ok(None),
+        //         //     Err(e) => Err(SteelErr::new(ErrorKind::Generic, e.to_string())),
+        //         // }
+        //     },
+        // )
         .register_fn("thread::current/id", || std::thread::current().id())
         .register_fn("thread/available-parallelism", || {
             std::thread::available_parallelism().map(|x| x.get()).ok()

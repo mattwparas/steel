@@ -37,7 +37,6 @@ use crate::values::functions::CaptureVec;
 use crate::values::functions::RootedInstructions;
 use crate::values::functions::SerializedLambda;
 use crate::values::lists::List;
-use crate::values::serde::NativeSerdeHandlers;
 use crate::values::structs::UserDefinedStruct;
 use crate::values::transducers::Reducer;
 use crate::{
@@ -5616,7 +5615,7 @@ fn debug_globals(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>
     Some(debug_global_env(ctx, args))
 }
 
-fn debug_global_env(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+fn debug_global_env(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
     let compiler = ctx.thread.compiler.read();
 
     let symbols = compiler.symbol_map.values();
