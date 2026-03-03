@@ -237,6 +237,7 @@ pub fn closure_into_serializable(
     }
 }
 
+#[allow(unused)]
 struct MovableThread {
     constants: Vec<SerializableSteelVal>,
     global_env: Vec<SerializableSteelVal>,
@@ -244,6 +245,7 @@ struct MovableThread {
     _runtime_options: RunTimeOptions,
 }
 
+#[allow(unused)]
 struct MovableFunctionInterner {
     closure_interner: FxHashMap<u32, SerializedLambda>,
     pure_function_interner: FxHashMap<u32, SerializedLambda>,
