@@ -328,9 +328,6 @@ impl SteelPort {
             SendablePort::Closed => SteelPort {
                 port: Gc::new_lock(SteelPortRepr::Closed),
             },
-            // SendablePort::BoxDynWriter(w) => SteelPort {
-            //     port: Gc::new_lock(SteelPortRepr::DynWriter(w)),
-            // },
         }
     }
 }

@@ -37,6 +37,7 @@ use crate::values::functions::CaptureVec;
 use crate::values::functions::RootedInstructions;
 use crate::values::functions::SerializedLambda;
 use crate::values::lists::List;
+use crate::values::serde::NativeSerdeHandlers;
 use crate::values::structs::UserDefinedStruct;
 use crate::values::transducers::Reducer;
 use crate::{

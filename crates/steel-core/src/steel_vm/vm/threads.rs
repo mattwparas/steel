@@ -750,6 +750,7 @@ fn serialize_thread_impl(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVa
             .into_iter()
             .map(|(k, v)| (k, v.into()))
             .collect(),
+        #[cfg(feature = "jit2")]
         jit_funcs: HashMap::default(),
     };
 

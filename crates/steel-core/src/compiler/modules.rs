@@ -1034,8 +1034,6 @@ impl CompiledModule {
         downstream: Vec<PathBuf>,
         downstream_builtins: Vec<PathBuf>,
     ) -> Self {
-        println!("Compiling module: {:?}", name);
-
         let mut base = CompactString::new(MANGLER_PREFIX);
 
         if let Some(steel_home) = STEEL_HOME.as_ref() {
@@ -1044,8 +1042,6 @@ impl CompiledModule {
                 .to_str()
                 .unwrap()
                 .trim_start_matches(steel_home.as_str());
-
-            println!("Using name: {}", name);
 
             let interned = InternedString::from_str(name);
             let id = interned.get().into_inner();
@@ -1064,8 +1060,6 @@ impl CompiledModule {
             base.push_str(&id.to_string());
             base.push_str(MANGLER_SEPARATOR);
         }
-
-        println!("Calculated name: {}", base);
 
         Self {
             name,

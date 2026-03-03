@@ -36,6 +36,7 @@ use crate::{
         lazy_stream::{LazyStream, SerializableStream},
         lists::Pair,
         port::{SendablePort, SteelPort},
+        serde::{call_deserializer_by_name, NativeSerdeHandlers},
         structs::{
             create_struct_spec, fetch_from_type_map, SerializableUserDefinedStruct,
             StructConstructorRefSpec, StructTypeDescriptor, UserDefinedStruct,
@@ -195,14 +196,6 @@ pub trait Custom: private::Sealed {
         None
     }
 
-    fn from_serializable_steelval(
-        &mut self,
-        ctx: &mut HeapSerializer,
-        spec: SerializedNativeStructSpec,
-    ) -> Option<SerializableSteelVal> {
-        None
-    }
-
     fn gc_drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
 
     fn gc_visit_children(&self, _context: &mut MarkAndSweepContext) {}
@@ -270,6 +263,19 @@ pub trait CustomType: MaybeSendSyncStatic {
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
     }
+
+    fn as_serializable_steelval_with_ctx(
+        &mut self,
+        ctx: &mut SerializationContext,
+    ) -> Option<Result<SerializableSteelVal>> {
+        use crate::values::serde::call_serializer;
+        call_serializer::<Self>(ctx, &self).map(|x| {
+            x.map(|x| {
+                SerializableSteelVal::NativeStruct(core::any::type_name::<Self>().to_string(), x)
+            })
+        })
+    }
+
     fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
     fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
     // TODO: Add this back at some point
@@ -940,44 +946,6 @@ impl From<Syntax> for SteelVal {
 
 pub struct SerializedNativeStructSpec {}
 
-pub struct CustomTypeConstructor {
-    // Type name
-    name: String,
-
-    // Values encoded with bincode
-    payload: Vec<u8>,
-}
-
-// In the runtime, if we want to serialize it, we'll
-// have to serialize it somehow in a way that the values
-// can be recovered.
-
-#[derive(Default)]
-pub struct CustomFunctionConstructors {
-    map: HashMap<&'static str, fn(ctx: &mut HeapSerializer, &[u8]) -> SteelVal>,
-}
-
-impl CustomFunctionConstructors {
-    pub fn register<T: Custom + 'static>(
-        &mut self,
-        func: fn(&mut HeapSerializer, &[u8]) -> SteelVal,
-    ) {
-        self.map.insert(core::any::type_name::<T>(), func);
-    }
-
-    pub fn new() {
-        let mut this = Self::default();
-
-        // this.register::<BuiltInModule>(|ctx, b| {
-        //     todo!()
-        // bincode::deserialize::<BuiltInModule>(b)
-        //     .unwrap()
-        //     .into_steelval()
-        //     .unwrap()
-        // });
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize)]
 pub enum SerializableSteelVal {
     Closure(crate::values::functions::SerializedLambda),
@@ -1008,6 +976,8 @@ pub enum SerializableSteelVal {
     ModuleSpec(String),
     GlobalRef(String),
     BuiltinSteelModuleRef(String, String),
+
+    NativeStruct(String, Vec<u8>),
 }
 
 impl std::fmt::Debug for SerializableSteelVal {
@@ -1043,6 +1013,7 @@ impl std::fmt::Debug for SerializableSteelVal {
                 write!(f, "#<builtin-module:{}:{}>", m, n)
             }
             SerializableSteelVal::Port(sendable_port) => write!(f, "#<port:{:?}>", sendable_port),
+            SerializableSteelVal::NativeStruct(n, _) => write!(f, "#<native:{}>", n),
         }
     }
 }
@@ -1284,6 +1255,11 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
         SerializableSteelVal::Port(sendable_port) => {
             SteelVal::PortV(SteelPort::from_sendable_port(sendable_port))
         }
+        SerializableSteelVal::NativeStruct(name, items) => {
+            call_deserializer_by_name(ctx, &name, &items)
+                .expect("Unable to find the deserializer for this type")
+                .expect("Unable to deserialize the value properly")
+        }
     }
 }
 
@@ -1385,6 +1361,10 @@ pub fn into_serializable_value(
 
             if let Some(output) = guard.as_serializable_steelval() {
                 Ok(output)
+            } else
+            // Check the tags that exist for serialization:
+            if let Some(value) = guard.as_serializable_steelval_with_ctx(ctx) {
+                value
             } else {
                 stop!(Generic => "Custom type not allowed to be moved across threads!: {}", guard.name())
             }
