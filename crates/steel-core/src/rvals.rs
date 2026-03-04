@@ -1511,7 +1511,7 @@ pub fn into_serializable_value(
                     }
 
                     ctx.serialized_heap_vectors.insert(v.as_ptr_usize(), values);
-                    Ok(SerializableSteelVal::HeapAllocated(v.as_ptr_usize()))
+                    Ok(SerializableSteelVal::HeapAllocatedVector(v.as_ptr_usize()))
                 }
             }
         }

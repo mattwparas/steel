@@ -336,6 +336,9 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         .map(|(key, value)| (key, SerializedHeapRefVector::Serialized(Some(value))))
         .collect();
 
+    dbg!(&mapping);
+    dbg!(&vector_mapping);
+
     // Have these values point to the new place
     let mut patcher = HashMap::new();
     let mut vector_patcher = HashMap::new();
@@ -396,10 +399,10 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         serializer.thread.insert_binding(idx, deserialized);
     }
 
-    let original_value = std::mem::replace(&mut inner.value, SerializableSteelVal::Void);
-    let deserialized = from_serializable_value(&mut serializer, original_value);
+    // let original_value = std::mem::replace(&mut inner.value, SerializableSteelVal::Void);
+    // let deserialized = from_serializable_value(&mut serializer, original_value);
 
-    for (key, value) in serializer.values_to_fill_in {
+    for (key, value) in serializer.values_to_fill_in.iter_mut() {
         if let Some(cycled) = serializer.fake_heap.get(key) {
             match cycled {
                 SerializedHeapRef::Serialized(_) => todo!(),
@@ -412,6 +415,23 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
             todo!()
         }
     }
+
+    for (key, value) in serializer.vectors_to_fill_in.iter_mut() {
+        if let Some(cycled) = serializer.fake_vector_heap.get(key) {
+            match cycled {
+                SerializedHeapRefVector::Serialized(_) => todo!(),
+                // Patch over the cycle
+                SerializedHeapRefVector::Closed(c) => {
+                    value.set(c.get());
+                }
+            }
+        } else {
+            todo!()
+        }
+    }
+
+    let original_value = std::mem::replace(&mut inner.value, SerializableSteelVal::Void);
+    let deserialized = from_serializable_value(&mut serializer, original_value);
 
     Ok(deserialized)
 }
@@ -569,7 +589,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
         serialized_vec_heap: initial_vector_map,
     };
 
-    // dbg!(&value);
+    dbg!(&value);
 
     value.into_steelval()
 }
