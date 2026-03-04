@@ -585,7 +585,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
         }
     }
 
-    println!("Done");
+    // println!("Done");
 
     let value = SerializedValue {
         value: serialized_value,
@@ -596,7 +596,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
         serialized_vec_heap: initial_vector_map,
     };
 
-    dbg!(&value);
+    // dbg!(&value);
 
     value.into_steelval()
 }
