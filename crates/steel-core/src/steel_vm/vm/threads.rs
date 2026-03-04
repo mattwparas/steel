@@ -15,7 +15,7 @@ use crate::{
     steel_vm::{builtin::BuiltInModule, engine::ModuleContainer, register_fn::RegisterFn},
     values::{
         functions::SerializedLambdaPrototype,
-        structs::{SendableVTableEntry, StructTypeDescriptor, VTable},
+        structs::{SendableVTableEntry, VTable},
     },
 };
 
@@ -336,9 +336,6 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         .map(|(key, value)| (key, SerializedHeapRefVector::Serialized(Some(value))))
         .collect();
 
-    dbg!(&mapping);
-    dbg!(&vector_mapping);
-
     // Have these values point to the new place
     let mut patcher = HashMap::new();
     let mut vector_patcher = HashMap::new();
@@ -353,7 +350,22 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         global_mapping: HashMap::new(),
         fake_vector_heap: &mut vector_mapping,
         vectors_to_fill_in: &mut vector_patcher,
+        struct_map: HashMap::new(),
     };
+
+    // Map the struct type descriptors between the two
+
+    for entry in std::mem::take(&mut inner.vtable_entries) {
+        // Assert that the things in the vtable are the same.
+
+        let old = entry.desc;
+
+        let new = VTable::get_by_sendable_entry(&entry).ok_or_else(
+            throw!(Generic => "Struct not defined yet in this environment: {:?}", entry),
+        )?;
+
+        serializer.struct_map.insert(old, new);
+    }
 
     // Populate the symbol maps, using all of the values
     // that exist.

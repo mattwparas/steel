@@ -60,6 +60,7 @@ pub struct VTableEntry {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct SendableVTableEntry {
+    pub(crate) desc: StructTypeDescriptor,
     pub(crate) module: Option<String>,
     pub(crate) name: InternedString,
     pub(crate) properties: Vec<(SerializableSteelVal, SerializableSteelVal)>,
@@ -865,6 +866,42 @@ impl VTable {
     }
 
     #[cfg(feature = "sync")]
+    pub fn get_by_sendable_entry(entry: &SendableVTableEntry) -> Option<StructTypeDescriptor> {
+        let guard = STATIC_VTABLE.read();
+
+        for (idx, existing_entry) in guard.entries.iter().enumerate() {
+            if existing_entry.module.as_ref().map(|x| x.as_str())
+                == entry.module.as_ref().map(|x| x.as_str())
+                && existing_entry.name == entry.name
+            {
+                return Some(StructTypeDescriptor(idx));
+            }
+        }
+
+        None
+    }
+
+    #[cfg(not(feature = "sync"))]
+    pub fn get_by_sendable_entry(entry: SendableVTableEntry) -> Option<StructTypeDescriptor> {
+        let guard = VTABLE.read();
+
+        VTABLE.with(|x| {
+            let guard = x.borrow();
+
+            for (idx, existing_entry) in guard.entries.iter().enumerate() {
+                if existing_entry.module.as_ref().map(|x| x.as_str())
+                    == entry.module.as_ref().map(|x| x.as_str())
+                    && existing_entry.name == entry.name
+                {
+                    return Some(StructTypeDescriptor(idx));
+                }
+            }
+
+            None
+        })
+    }
+
+    #[cfg(feature = "sync")]
     pub(crate) fn sendable_entries_for(
         ctx: &mut SerializationContext,
         reachable_structs: HashSet<StructTypeDescriptor>,
@@ -877,6 +914,7 @@ impl VTable {
             .filter(|(idx, _)| reachable_structs.contains(&StructTypeDescriptor(*idx)))
             .map(|(idx, entry)| {
                 Ok(SendableVTableEntry {
+                    desc: StructTypeDescriptor(idx),
                     module: entry.module.as_ref().map(|x| x.as_str().to_owned()),
                     name: entry.name,
                     proc: entry.proc,
@@ -910,6 +948,7 @@ impl VTable {
                 .filter(|(idx, _)| reachable_structs.contains(&StructTypeDescriptor(*idx)))
                 .map(|(idx, entry)| {
                     Ok(SendableVTableEntry {
+                        desc: StructTypeDescriptor(idx),
                         module: entry.module.as_ref().map(|x| x.as_str().to_owned()),
                         name: entry.name,
                         proc: entry.proc,

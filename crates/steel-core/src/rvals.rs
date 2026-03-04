@@ -1068,6 +1068,8 @@ pub struct HeapSerializer<'a> {
     pub function_mapping: std::collections::HashMap<u32, u32>,
 
     pub global_mapping: std::collections::HashMap<usize, usize>,
+
+    pub struct_map: std::collections::HashMap<StructTypeDescriptor, StructTypeDescriptor>,
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
@@ -1230,7 +1232,11 @@ pub fn from_serializable_value(
         SerializableSteelVal::ByteVectorV(bytes) => {
             Ok(SteelVal::ByteVector(SteelByteVector::new(bytes)))
         }
-        SerializableSteelVal::StructConstructorSpec(spec) => Ok(fetch_from_type_map(spec).unwrap()),
+        SerializableSteelVal::StructConstructorSpec(mut spec) => {
+            // First, we need to patch any existing type descriptors to the new one.
+            spec.descriptor = *ctx.struct_map.get(&spec.descriptor).unwrap();
+            Ok(fetch_from_type_map(spec).unwrap())
+        }
         SerializableSteelVal::ModuleSpec(m) => ctx
             .thread
             .compiler
