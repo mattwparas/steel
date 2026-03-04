@@ -965,7 +965,7 @@ impl VTable {
     pub(crate) fn initialize_new_thread(
         values: Vec<SendableVTableEntry>,
         heap: &mut HeapSerializer,
-    ) {
+    ) -> Result<()> {
         for (index, entry) in values.into_iter().enumerate() {
             Self::new_entry(entry.name, entry.proc, None);
 
@@ -974,16 +974,18 @@ impl VTable {
                     .properties
                     .into_iter()
                     .map(|(k, v)| {
-                        (
-                            from_serializable_value(heap, k),
-                            from_serializable_value(heap, v),
-                        )
+                        Ok((
+                            from_serializable_value(heap, k)?,
+                            from_serializable_value(heap, v)?,
+                        ))
                     })
-                    .collect(),
+                    .collect::<Result<_>>()?,
             );
 
             Self::set_entry(&StructTypeDescriptor(index), entry.proc, properties);
         }
+
+        Ok(())
     }
 
     // Returns a type descriptor, in this case it is just a usize

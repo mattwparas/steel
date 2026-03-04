@@ -392,7 +392,7 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
             continue;
         }
 
-        let deserialized = from_serializable_value(&mut serializer, global);
+        let deserialized = from_serializable_value(&mut serializer, global)?;
         let idx = serializer.global_mapping[&index];
 
         // Make the new global point to the new, deserialized value
@@ -431,7 +431,7 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
     }
 
     let original_value = std::mem::replace(&mut inner.value, SerializableSteelVal::Void);
-    let deserialized = from_serializable_value(&mut serializer, original_value);
+    let deserialized = from_serializable_value(&mut serializer, original_value)?;
 
     Ok(deserialized)
 }
@@ -497,8 +497,6 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
             if old_mapping.contains_key(&idx) {
                 continue;
             }
-
-            // println!("Serializing: {} @ {}", ident, idx);
 
             let resolved = ident.resolve();
 

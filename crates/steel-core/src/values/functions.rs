@@ -274,7 +274,10 @@ impl ByteCodeLambda {
         }
     }
 
-    pub(crate) fn from_serialized(heap: &mut HeapSerializer, mut value: SerializedLambda) -> Self {
+    pub(crate) fn from_serialized(
+        heap: &mut HeapSerializer,
+        mut value: SerializedLambda,
+    ) -> Result<Self, SteelErr> {
         // Map the old to the new
         let id = fresh_function_id();
         heap.function_mapping.insert(value.id, id as _);
@@ -309,7 +312,7 @@ impl ByteCodeLambda {
                 OpCode::PUSHCONST => {
                     let old_index = instr.payload_size.to_usize();
                     let old_value = value.constants.get(&old_index).cloned().unwrap();
-                    let deserialized_constant = from_serializable_value(heap, old_value);
+                    let deserialized_constant = from_serializable_value(heap, old_value)?;
                     let new_index = heap
                         .thread
                         .compiler
@@ -341,7 +344,7 @@ impl ByteCodeLambda {
             new_body[idx].payload_size = u24::from_u32(id);
         }
 
-        ByteCodeLambda::new(
+        Ok(ByteCodeLambda::new(
             value.id,
             new_body.into(),
             value.arity,
@@ -350,8 +353,8 @@ impl ByteCodeLambda {
                 .captures
                 .into_iter()
                 .map(|x| from_serializable_value(heap, x))
-                .collect(),
-        )
+                .collect::<Result<_, _>>()?,
+        ))
     }
 
     pub fn rooted(instructions: StandardShared<[DenseInstruction]>) -> ByteCodeLambda {

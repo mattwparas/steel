@@ -266,4 +266,80 @@ mod serialization_tests {
             expected
         );
     }
+
+    #[test]
+    fn round_trip_vectors_and_functions() {
+        let mut engine = Engine::new();
+
+        engine
+            .run(
+                r#"
+(define (round-trip value)
+  (~> value serialize-value deserialize-value))
+            "#,
+            )
+            .unwrap();
+
+        engine.run(r#"
+(define foo (let ((a (vector 10 20 30))) (lambda () (vector-set! a 0 (+ (vector-ref a 0) 100)) (vector-ref a 0))))
+            "#).unwrap();
+
+        engine
+            .run(
+                r#"
+(define new (round-trip foo))
+            "#,
+            )
+            .unwrap();
+
+        engine
+            .run(
+                r#"
+(new)
+(new)
+(new)
+(new)
+(new)
+(assert! (equal? 610 (new)))
+            "#,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn round_trip_values() {
+        let mut engine = Engine::new();
+
+        engine
+            .run(
+                r#"
+(define (round-trip value)
+  (~> value serialize-value deserialize-value))
+            "#,
+            )
+            .unwrap();
+
+        engine
+            .run(
+                r#"
+(define foo (list 10 20 30 40))
+            "#,
+            )
+            .unwrap();
+
+        engine
+            .run(
+                r#"
+(define new (round-trip foo))
+            "#,
+            )
+            .unwrap();
+
+        engine
+            .run(
+                r#"(assert! (equal? (list 10 20 30 40) new))
+            "#,
+            )
+            .unwrap();
+    }
 }
