@@ -1,4 +1,5 @@
 use crate::compiler::compiler::Compiler;
+use crate::compiler::modules::fully_qualified_to_relative;
 use crate::compiler::passes::VisitorMutRefUnit;
 use crate::core::instructions::{pretty_print_dense_instructions, u24};
 use crate::env::SharedVectorWrapper;
@@ -5619,6 +5620,24 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
+#[steel_derive::context(name = "debug-globals", arity = "Exact(0)")]
+fn debug_globals(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(debug_global_env(ctx, args))
+}
+
+fn debug_global_env(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
+    let compiler = ctx.thread.compiler.read();
+
+    let symbols = compiler.symbol_map.values();
+    let globals = &ctx.thread.global_env.roots();
+
+    for (key, value) in symbols.iter().zip(globals.iter()) {
+        println!("{} = {}", key, value);
+    }
+
+    Ok(SteelVal::Void)
+}
+
 fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
     // Can we have this... not lower?
     let mut expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[0])?;
@@ -5854,6 +5873,29 @@ fn get_module_context(
         .unwrap_or(SteelVal::BoolV(false));
 
     Some(Ok(last))
+}
+
+#[steel_derive::context(name = "current-module-relative", arity = "Exact(0)")]
+fn get_module_relative_context(
+    ctx: &mut crate::steel_vm::vm::VmCore,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    let last = ctx
+        .thread
+        .module_context
+        .last()
+        .cloned()
+        .map(|x| PathBuf::from(x.as_str()));
+
+    let Some(last) = last else {
+        return Some(Ok(SteelVal::BoolV(false)));
+    };
+
+    let dirs = &ctx.thread.compiler.read().search_dirs;
+
+    let relative = fully_qualified_to_relative(last, dirs).unwrap();
+
+    Some(Ok(SteelVal::StringV(relative.to_str().unwrap().into())))
 }
 
 #[steel_derive::context(name = "#%push-module-context", arity = "Exact(1)")]

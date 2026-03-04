@@ -59,8 +59,13 @@ use crate::{
     steel_vm::{
         builtin::{get_function_metadata, get_function_name, BuiltInFunctionType},
         vm::{
-            threads::threading_module, GET_MODULE_CONTEXT_DEFINITION,
-            POP_MODULE_CONTEXT_DEFINITION, PUSH_MODULE_CONTEXT_DEFINITION,
+            threads::{
+                threading_module, BYTES_TO_SERIALIZED_DEFINITION, DESERIALIZE_VALUE_DEFINITION,
+                SERIALIZED_TO_BYTES_DEFINITION, SERIALIZE_VALUE_DEFINITION,
+            },
+            DEBUG_GLOBALS_DEFINITION, GET_MODULE_CONTEXT_DEFINITION,
+            GET_MODULE_RELATIVE_CONTEXT_DEFINITION, POP_MODULE_CONTEXT_DEFINITION,
+            PUSH_MODULE_CONTEXT_DEFINITION,
         },
     },
     values::{
@@ -533,6 +538,7 @@ pub fn bootstrap_globals(engine: &mut Engine) {
         PUSH_MODULE_CONTEXT_DEFINITION,
         POP_MODULE_CONTEXT_DEFINITION,
         GET_MODULE_CONTEXT_DEFINITION,
+        GET_MODULE_RELATIVE_CONTEXT_DEFINITION,
         SET_BOX_DEFINITION,
         UNBOX_DEFINITION,
     ] {
@@ -550,27 +556,29 @@ pub fn bootstrap_globals(engine: &mut Engine) {
     }
 }
 
-pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
-    engine.register_value("std::env::args", SteelVal::ListV(List::new()));
+pub fn private_prim_module() -> BuiltInModule {
+    let mut module = BuiltInModule::new("#%private/steel/primitives");
 
-    engine.register_fn("##__module-get", BuiltInModule::get);
-    engine.register_fn("%module-get%", BuiltInModule::get);
-    engine.register_fn("%#maybe-module-get", BuiltInModule::try_get);
+    module.register_value("std::env::args", SteelVal::ListV(List::new()));
 
-    engine.register_fn("load-from-module!", BuiltInModule::get);
+    module.register_fn("##__module-get", BuiltInModule::get);
+    module.register_fn("%module-get%", BuiltInModule::get);
+    module.register_fn("%#maybe-module-get", BuiltInModule::try_get);
 
-    engine.register_fn("#%void", || SteelVal::Void);
+    module.register_fn("load-from-module!", BuiltInModule::get);
+
+    module.register_fn("#%void", || SteelVal::Void);
 
     // Registering values in modules
-    engine.register_fn("#%module", BuiltInModule::new::<String>);
-    engine.register_fn(
+    module.register_fn("#%module", BuiltInModule::new::<String>);
+    module.register_fn(
         "#%module-add",
         |module: &mut BuiltInModule, name: SteelString, value: SteelVal| {
             module.register_value(&name, value);
         },
     );
 
-    engine.register_fn(
+    module.register_fn(
         "#%module-add-doc",
         |module: &mut BuiltInModule, name: SteelString, value: String| {
             module.register_doc(
@@ -580,29 +588,40 @@ pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
         },
     );
 
-    engine.register_fn("%doc?", BuiltInModule::get_doc);
-    engine.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
-    engine.register_fn("%module/lookup-function", BuiltInModule::search);
-    engine.register_fn("%string->render-markdown", render_as_md);
-    engine.register_fn(
+    module.register_fn("%doc?", BuiltInModule::get_doc);
+    module.register_value("%list-modules!", SteelVal::BuiltIn(list_modules));
+    module.register_fn("%module/lookup-function", BuiltInModule::search);
+    module.register_fn("%string->render-markdown", render_as_md);
+    module.register_fn(
         "%module-bound-identifiers->list",
         BuiltInModule::bound_identifiers,
     );
-    engine.register_value("%proto-hash%", HM_CONSTRUCT);
-    engine.register_value("%proto-hash-insert%", HM_INSERT);
-    engine.register_value("%proto-hash-get%", HM_GET);
-    engine.register_value("error!", ControlOperations::error());
+    module.register_value("%proto-hash%", HM_CONSTRUCT);
+    module.register_value("%proto-hash-insert%", HM_INSERT);
+    module.register_value("%proto-hash-get%", HM_GET);
+    module.register_value("error!", ControlOperations::error());
 
-    engine.register_value("error", ControlOperations::error());
+    module.register_value("error", ControlOperations::error());
 
-    engine.register_value("#%error", ControlOperations::error());
+    module.register_value("#%error", ControlOperations::error());
 
-    engine.register_value(
+    module.register_value(
         "%memo-table",
         WeakMemoizationTable::new().into_steelval().unwrap(),
     );
-    engine.register_fn("%memo-table-ref", WeakMemoizationTable::get);
-    engine.register_fn("%memo-table-set!", WeakMemoizationTable::insert);
+    module.register_fn("%memo-table-ref", WeakMemoizationTable::get);
+    module.register_fn("%memo-table-set!", WeakMemoizationTable::insert);
+
+    module
+}
+
+pub fn register_builtin_modules(engine: &mut Engine, sandbox: bool) {
+    let prims = private_prim_module();
+    engine.register_module(prims.clone());
+
+    for (key, value) in prims.inner_map().iter() {
+        engine.register_value(key, value.clone());
+    }
 
     #[cfg(feature = "sync")]
     {
@@ -1914,12 +1933,21 @@ impl crate::rvals::Custom for MutableVector {
     }
 }
 
+#[derive(Clone)]
 struct Reader {
     buffer: String,
     offset: usize,
 }
 
-impl crate::rvals::Custom for Reader {}
+impl crate::rvals::Custom for Reader {
+    fn into_serializable_steelval(&mut self) -> Option<crate::rvals::SerializableSteelVal> {
+        // Some(crate::rvals::SerializableSteelVal::Custom(Box::new(
+        //     self.clone(),
+        // )))
+
+        None
+    }
+}
 
 impl Reader {
     fn create_reader() -> Reader {
@@ -2238,6 +2266,12 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(CALL_CC_DEFINITION)
         .register_native_fn_definition(EVAL_DEFINITION)
         .register_native_fn_definition(EVAL_FILE_DEFINITION)
+        .register_native_fn_definition(DEBUG_GLOBALS_DEFINITION)
+        // .register_native_fn_definition(SERIALIZE_THREAD_DEFINITION)
+        .register_native_fn_definition(DESERIALIZE_VALUE_DEFINITION)
+        .register_native_fn_definition(SERIALIZED_TO_BYTES_DEFINITION)
+        .register_native_fn_definition(BYTES_TO_SERIALIZED_DEFINITION)
+        .register_native_fn_definition(SERIALIZE_VALUE_DEFINITION)
         .register_native_fn_definition(EXPAND_SYNTAX_OBJECTS_DEFINITION)
         .register_native_fn_definition(MATCH_SYNTAX_CASE_DEFINITION)
         .register_native_fn_definition(EXPAND_SYNTAX_CASE_DEFINITION)
@@ -2339,6 +2373,7 @@ fn meta_module() -> BuiltInModule {
         .register_native_fn_definition(PUSH_MODULE_CONTEXT_DEFINITION)
         .register_native_fn_definition(POP_MODULE_CONTEXT_DEFINITION)
         .register_native_fn_definition(GET_MODULE_CONTEXT_DEFINITION)
+        .register_native_fn_definition(GET_MODULE_RELATIVE_CONTEXT_DEFINITION)
         .register_native_fn_definition(MODULE_EXPORTS_DEFINITION);
 
     module

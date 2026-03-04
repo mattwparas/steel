@@ -4,7 +4,9 @@
 use crate::steel_vm::primitives::{steel_unbox_mutable, unbox_mutable};
 use crate::values::HashMap;
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
+use rustc_hash::FxHashMap;
+use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
 use crate::compiler::map::SymbolMap;
@@ -12,7 +14,7 @@ use crate::parser::interner::InternedString;
 use crate::rerrs::ErrorKind;
 use crate::rvals::{
     from_serializable_value, into_serializable_value, Custom, HeapSerializer, SerializableSteelVal,
-    SerializedHeapRef, SteelHashMap,
+    SerializationContext, SerializedHeapRef, SteelHashMap,
 };
 use crate::rvals::{FromSteelVal, IntoSteelVal};
 use crate::steel_vm::register_fn::RegisterFn;
@@ -29,7 +31,7 @@ use crate::{steel_vm::builtin::BuiltInModule, stop};
 use alloc::sync::Arc;
 use core::hash::Hash;
 use core::ops::Deref;
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::{
     cell::{Ref, RefCell},
     rc::Rc,
@@ -47,6 +49,8 @@ enum StringOrMagicNumber {
 
 // #[derive(Debug)]
 pub struct VTableEntry {
+    // Get the originating module?
+    pub(crate) module: Option<SteelString>,
     pub(crate) name: InternedString,
     pub(crate) properties: Gc<HashMap<SteelVal, SteelVal>>,
     pub(crate) proc: Option<usize>,
@@ -54,7 +58,10 @@ pub struct VTableEntry {
     pub(crate) mutable: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct SendableVTableEntry {
+    pub(crate) desc: StructTypeDescriptor,
+    pub(crate) module: Option<String>,
     pub(crate) name: InternedString,
     pub(crate) properties: Vec<(SerializableSteelVal, SerializableSteelVal)>,
     pub(crate) proc: Option<usize>,
@@ -62,9 +69,27 @@ pub(crate) struct SendableVTableEntry {
     pub(crate) mutable: bool,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum StructFunctionType {
+    Constructor,
+    Predicate,
+    GetterProto,
+    GetterProtoVec(usize),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StructConstructorRefSpec {
+    // This isn't any use if we don't have the original context, since
+    // we have to map this back to something from the original description
+    // of the struct.
+    pub descriptor: StructTypeDescriptor,
+    pub typ: StructFunctionType,
+}
+
 impl VTableEntry {
-    pub fn new(name: InternedString, proc: Option<usize>) -> Self {
+    pub fn new(name: InternedString, proc: Option<usize>, module: Option<SteelString>) -> Self {
         Self {
+            module,
             name,
             proc,
             properties: DEFAULT_PROPERTIES.with(|x| x.clone()),
@@ -91,13 +116,14 @@ impl Properties {
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
 // Wrap the usize, store this and this only. We use this as an index into the VTable.
 pub struct StructTypeDescriptor(usize);
 
 impl Custom for StructTypeDescriptor {
     fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
-        Some(SerializableSteelVal::Custom(Box::new(*self)))
+        // Some(SerializableSteelVal::Custom(Box::new(*self)))
+        None
     }
 }
 
@@ -124,6 +150,7 @@ impl StructTypeDescriptor {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializableUserDefinedStruct {
     pub(crate) fields: Vec<SerializableSteelVal>,
 
@@ -565,8 +592,8 @@ fn populate_fields_offsets<'a>(
 }
 
 pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
-    if args.len() != 2 {
-        stop!(ArityMismatch => "make-struct-type expects 2 args, found: {}", args.len())
+    if !(args.len() == 2 || args.len() == 3) {
+        stop!(ArityMismatch => "make-struct-type expects 2 or 3 args, found: {}", args.len())
     }
 
     // Convert the string into an Arc'd string - this now makes the generated functions
@@ -579,13 +606,15 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
         stop!(TypeMismatch => format!("make-struct-type expected an integer for the field count, found: {}", &args[0]));
     };
 
+    let relative_module = args.get(2).and_then(|x| x.as_string()).cloned();
+
     let (
         struct_type_descriptor,
         struct_constructor,
         struct_predicate,
         getter_prototype,
         getter_prototypes,
-    ) = make_struct_type_inner(name.as_str(), *field_count as usize);
+    ) = make_struct_type_inner(name.as_str(), *field_count as usize, relative_module);
 
     Ok(SteelVal::ListV(
         vec![
@@ -602,21 +631,154 @@ pub fn make_struct_type(args: &[SteelVal]) -> Result<SteelVal> {
 }
 
 pub fn make_struct_singleton(name: &str) -> (SteelVal, StructTypeDescriptor) {
-    let (descriptor, _, _, _, _) = make_struct_type_inner(name, 0);
+    let (descriptor, _, _, _, _) = make_struct_type_inner(name, 0, None);
 
     let instance = UserDefinedStruct::new(descriptor, &[]);
 
     (SteelVal::CustomStruct(Gc::new(instance)), descriptor)
 }
 
+// TODO: Insider this in the VTable entry so that
+// it can be fetched for images later
+struct SteelStructTypePayload {
+    constructor: SteelVal,
+    predicate: SteelVal,
+    getter_prototype: SteelVal,
+    getter_prototypes: Vec<SteelVal>,
+}
+
+#[cfg(feature = "sync")]
+static STRUCT_MAP: Lazy<Mutex<FxHashMap<StructTypeDescriptor, SteelStructTypePayload>>> =
+    Lazy::new(|| Mutex::new(Default::default()));
+
+#[cfg(feature = "sync")]
+pub fn fetch_from_type_map(
+    StructConstructorRefSpec { descriptor, typ }: StructConstructorRefSpec,
+) -> Option<SteelVal> {
+    let guard = STRUCT_MAP.lock();
+
+    let payload = guard.get(&descriptor)?;
+
+    match typ {
+        StructFunctionType::Constructor => Some(payload.constructor.clone()),
+        StructFunctionType::Predicate => Some(payload.predicate.clone()),
+        StructFunctionType::GetterProto => Some(payload.getter_prototype.clone()),
+        StructFunctionType::GetterProtoVec(index) => Some(payload.getter_prototypes[index].clone()),
+    }
+}
+
+thread_local! {
+    #[cfg(not(feature = "sync"))]
+    static STRUCT_MAP: RefCell<FxHashMap<StructTypeDescriptor, SteelStructTypePayload>> =
+        RefCell::new(Default::default());
+}
+
+#[cfg(not(feature = "sync"))]
+pub fn fetch_from_type_map(
+    StructConstructorRefSpec { descriptor, typ }: StructConstructorRefSpec,
+) -> Option<SteelVal> {
+    STRUCT_MAP.with_borrow(|guard| {
+        let payload = guard.get(&descriptor)?;
+        match typ {
+            StructFunctionType::Constructor => Some(payload.constructor.clone()),
+            StructFunctionType::Predicate => Some(payload.predicate.clone()),
+            StructFunctionType::GetterProto => Some(payload.getter_prototype.clone()),
+            StructFunctionType::GetterProtoVec(index) => {
+                Some(payload.getter_prototypes[index].clone())
+            }
+        }
+    })
+}
+
+#[cfg(feature = "sync")]
+pub(crate) fn create_struct_spec(func: SteelVal) -> Option<StructConstructorRefSpec> {
+    let guard = STRUCT_MAP.lock();
+
+    for (descriptor, value) in guard.iter() {
+        let descriptor = *descriptor;
+        if value.constructor == func {
+            return Some(StructConstructorRefSpec {
+                descriptor,
+                typ: StructFunctionType::Constructor,
+            });
+        }
+
+        if value.predicate == func {
+            return Some(StructConstructorRefSpec {
+                descriptor,
+                typ: StructFunctionType::Predicate,
+            });
+        }
+
+        if value.getter_prototype == func {
+            return Some(StructConstructorRefSpec {
+                descriptor,
+                typ: StructFunctionType::GetterProto,
+            });
+        }
+
+        for (i, g) in value.getter_prototypes.iter().enumerate() {
+            if g == &func {
+                return Some(StructConstructorRefSpec {
+                    descriptor,
+                    typ: StructFunctionType::GetterProtoVec(i),
+                });
+            }
+        }
+    }
+
+    None
+}
+
+#[cfg(not(feature = "sync"))]
+pub(crate) fn create_struct_spec(func: SteelVal) -> Option<StructConstructorRefSpec> {
+    STRUCT_MAP.with_borrow(|guard| {
+        for (descriptor, value) in guard.iter() {
+            let descriptor = *descriptor;
+            if value.constructor == func {
+                return Some(StructConstructorRefSpec {
+                    descriptor,
+                    typ: StructFunctionType::Constructor,
+                });
+            }
+
+            if value.predicate == func {
+                return Some(StructConstructorRefSpec {
+                    descriptor,
+                    typ: StructFunctionType::Predicate,
+                });
+            }
+
+            if value.getter_prototype == func {
+                return Some(StructConstructorRefSpec {
+                    descriptor,
+                    typ: StructFunctionType::GetterProto,
+                });
+            }
+
+            for (i, g) in value.getter_prototypes.iter().enumerate() {
+                if g == &func {
+                    return Some(StructConstructorRefSpec {
+                        descriptor,
+                        typ: StructFunctionType::GetterProtoVec(i),
+                    });
+                }
+            }
+        }
+
+        None
+    })
+}
+
 fn make_struct_type_inner(
     name: &str,
     field_count: usize,
+    module: Option<SteelString>,
 ) -> (StructTypeDescriptor, SteelVal, SteelVal, SteelVal, SteelVal) {
     let name = InternedString::from(name);
 
     // Make a slot in the VTable for this struct
-    let struct_type_descriptor = VTable::new_entry(name, None);
+    let struct_type_descriptor = VTable::new_entry(name, None, module);
 
     // Build out the constructor and the predicate
     let struct_constructor =
@@ -632,6 +794,35 @@ fn make_struct_type_inner(
             struct_type_descriptor,
             i,
         ));
+    }
+
+    // Just find all the structs that we need?
+    #[cfg(feature = "sync")]
+    {
+        STRUCT_MAP.lock().insert(
+            struct_type_descriptor,
+            SteelStructTypePayload {
+                constructor: struct_constructor.clone(),
+                predicate: struct_predicate.clone(),
+                getter_prototype: getter_prototype.clone(),
+                getter_prototypes: getter_prototypes.clone(),
+            },
+        );
+    }
+
+    #[cfg(not(feature = "sync"))]
+    {
+        STRUCT_MAP.with_borrow_mut(|x| {
+            x.insert(
+                struct_type_descriptor,
+                SteelStructTypePayload {
+                    constructor: struct_constructor.clone(),
+                    predicate: struct_predicate.clone(),
+                    getter_prototype: getter_prototype.clone(),
+                    getter_prototypes: getter_prototypes.clone(),
+                },
+            );
+        })
     }
 
     (
@@ -674,9 +865,112 @@ impl VTable {
         VTABLE.with(|x| x.borrow().map.get(name).cloned())
     }
 
+    #[cfg(feature = "sync")]
+    pub fn get_by_sendable_entry(entry: &SendableVTableEntry) -> Option<StructTypeDescriptor> {
+        let guard = STATIC_VTABLE.read();
+
+        for (idx, existing_entry) in guard.entries.iter().enumerate() {
+            if existing_entry.module.as_ref().map(|x| x.as_str())
+                == entry.module.as_ref().map(|x| x.as_str())
+                && existing_entry.name == entry.name
+            {
+                return Some(StructTypeDescriptor(idx));
+            }
+        }
+
+        None
+    }
+
+    #[cfg(not(feature = "sync"))]
+    pub fn get_by_sendable_entry(entry: &SendableVTableEntry) -> Option<StructTypeDescriptor> {
+        VTABLE.with(|x| {
+            let guard = x.borrow();
+
+            for (idx, existing_entry) in guard.entries.iter().enumerate() {
+                if existing_entry.module.as_ref().map(|x| x.as_str())
+                    == entry.module.as_ref().map(|x| x.as_str())
+                    && existing_entry.name == entry.name
+                {
+                    return Some(StructTypeDescriptor(idx));
+                }
+            }
+
+            None
+        })
+    }
+
+    #[cfg(feature = "sync")]
+    pub(crate) fn sendable_entries_for(
+        ctx: &mut SerializationContext,
+        reachable_structs: HashSet<StructTypeDescriptor>,
+    ) -> Result<Vec<SendableVTableEntry>> {
+        STATIC_VTABLE
+            .read()
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| reachable_structs.contains(&StructTypeDescriptor(*idx)))
+            .map(|(idx, entry)| {
+                Ok(SendableVTableEntry {
+                    desc: StructTypeDescriptor(idx),
+                    module: entry.module.as_ref().map(|x| x.as_str().to_owned()),
+                    name: entry.name,
+                    proc: entry.proc,
+                    transparent: entry.transparent,
+                    mutable: entry.mutable,
+                    properties: entry
+                        .properties
+                        .iter()
+                        .map(|(key, value)| {
+                            Ok((
+                                into_serializable_value(key.clone(), ctx)?,
+                                into_serializable_value(value.clone(), ctx)?,
+                            ))
+                        })
+                        .collect::<Result<Vec<_>>>()?,
+                })
+            })
+            .collect()
+    }
+
+    #[cfg(not(feature = "sync"))]
+    pub(crate) fn sendable_entries_for(
+        ctx: &mut SerializationContext,
+        reachable_structs: HashSet<StructTypeDescriptor>,
+    ) -> Result<Vec<SendableVTableEntry>> {
+        VTABLE.with(|x| {
+            x.borrow()
+                .entries
+                .iter()
+                .enumerate()
+                .filter(|(idx, _)| reachable_structs.contains(&StructTypeDescriptor(*idx)))
+                .map(|(idx, entry)| {
+                    Ok(SendableVTableEntry {
+                        desc: StructTypeDescriptor(idx),
+                        module: entry.module.as_ref().map(|x| x.as_str().to_owned()),
+                        name: entry.name,
+                        proc: entry.proc,
+                        transparent: entry.transparent,
+                        mutable: entry.mutable,
+                        properties: entry
+                            .properties
+                            .iter()
+                            .map(|(key, value)| {
+                                Ok((
+                                    into_serializable_value(key.clone(), ctx)?,
+                                    into_serializable_value(value.clone(), ctx)?,
+                                ))
+                            })
+                            .collect::<Result<Vec<_>>>()?,
+                    })
+                })
+                .collect()
+        })
+    }
+
+    /*
     pub(crate) fn sendable_entries(
-        serializer: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-        visited: &mut std::collections::HashSet<usize>,
+        ctx: &mut SerializationContext,
     ) -> Result<Vec<SendableVTableEntry>> {
         VTABLE.with(|x| {
             x.borrow()
@@ -693,8 +987,8 @@ impl VTable {
                             .iter()
                             .map(|(key, value)| {
                                 Ok((
-                                    into_serializable_value(key.clone(), serializer, visited)?,
-                                    into_serializable_value(value.clone(), serializer, visited)?,
+                                    into_serializable_value(key.clone(), ctx)?,
+                                    into_serializable_value(value.clone(), ctx)?,
                                 ))
                             })
                             .collect::<Result<Vec<_>>>()?,
@@ -703,49 +997,60 @@ impl VTable {
                 .collect()
         })
     }
+    */
 
     pub(crate) fn initialize_new_thread(
         values: Vec<SendableVTableEntry>,
         heap: &mut HeapSerializer,
-    ) {
+    ) -> Result<()> {
         for (index, entry) in values.into_iter().enumerate() {
-            Self::new_entry(entry.name, entry.proc);
+            Self::new_entry(entry.name, entry.proc, None);
 
             let properties = Gc::new(
                 entry
                     .properties
                     .into_iter()
                     .map(|(k, v)| {
-                        (
-                            from_serializable_value(heap, k),
-                            from_serializable_value(heap, v),
-                        )
+                        Ok((
+                            from_serializable_value(heap, k)?,
+                            from_serializable_value(heap, v)?,
+                        ))
                     })
-                    .collect(),
+                    .collect::<Result<_>>()?,
             );
 
             Self::set_entry(&StructTypeDescriptor(index), entry.proc, properties);
         }
+
+        Ok(())
     }
 
     // Returns a type descriptor, in this case it is just a usize
     #[cfg(not(feature = "sync"))]
-    pub fn new_entry(name: InternedString, proc: Option<usize>) -> StructTypeDescriptor {
+    pub fn new_entry(
+        name: InternedString,
+        proc: Option<usize>,
+        module: Option<SteelString>,
+    ) -> StructTypeDescriptor {
         VTABLE.with(|x| {
             let mut guard = x.borrow_mut();
             let length = guard.entries.len();
 
-            guard.entries.push(VTableEntry::new(name, proc));
+            guard.entries.push(VTableEntry::new(name, proc, module));
 
             StructTypeDescriptor(length)
         })
     }
 
     #[cfg(feature = "sync")]
-    pub fn new_entry(name: InternedString, proc: Option<usize>) -> StructTypeDescriptor {
+    pub fn new_entry(
+        name: InternedString,
+        proc: Option<usize>,
+        module: Option<SteelString>,
+    ) -> StructTypeDescriptor {
         let mut guard = STATIC_VTABLE.write();
         let length = guard.entries.len();
-        guard.entries.push(VTableEntry::new(name, proc));
+        guard.entries.push(VTableEntry::new(name, proc, module));
         StructTypeDescriptor(length)
     }
 
@@ -856,13 +1161,13 @@ pub static STATIC_FIELDS_KEY: Lazy<SteelVal> =
     Lazy::new(|| SteelVal::SymbolV("#:transparent".into()));
 
 pub static STATIC_OK_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*OK_RESULT_LABEL, None));
+    Lazy::new(|| VTable::new_entry(*OK_RESULT_LABEL, None, None));
 pub static STATIC_ERR_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*ERR_RESULT_LABEL, None));
+    Lazy::new(|| VTable::new_entry(*ERR_RESULT_LABEL, None, None));
 pub static STATIC_SOME_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*SOME_OPTION_LABEL, None));
+    Lazy::new(|| VTable::new_entry(*SOME_OPTION_LABEL, None, None));
 pub static STATIC_NONE_DESCRIPTOR: Lazy<StructTypeDescriptor> =
-    Lazy::new(|| VTable::new_entry(*NONE_OPTION_LABEL, None));
+    Lazy::new(|| VTable::new_entry(*NONE_OPTION_LABEL, None, None));
 
 // TODO: Just make these Arc'd and lazy static instead of thread local.
 thread_local! {
@@ -924,10 +1229,10 @@ thread_local! {
             SteelVal::SymbolV("#:transparent".into()) => SteelVal::BoolV(true),
     });
 
-    pub static OK_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*OK_RESULT_LABEL, None);
-    pub static ERR_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*ERR_RESULT_LABEL, None);
-    pub static SOME_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*SOME_OPTION_LABEL, None);
-    pub static NONE_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*NONE_OPTION_LABEL, None);
+    pub static OK_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*OK_RESULT_LABEL, None, None);
+    pub static ERR_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*ERR_RESULT_LABEL, None, None);
+    pub static SOME_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*SOME_OPTION_LABEL, None, None);
+    pub static NONE_DESCRIPTOR: StructTypeDescriptor = VTable::new_entry(*NONE_OPTION_LABEL, None, None);
 
 
     pub static OK_CONSTRUCTOR: Rc<Box<dyn Fn(&[SteelVal]) -> Result<SteelVal>>> = {
@@ -979,7 +1284,7 @@ pub(crate) fn build_type_id_module() -> BuiltInModule {
 
     let name = *TYPE_ID;
 
-    let type_descriptor = VTable::new_entry(name, None);
+    let type_descriptor = VTable::new_entry(name, None, None);
 
     // Build the getter for the first index
     let getter = UserDefinedStruct::getter_prototype_index(type_descriptor, 0);

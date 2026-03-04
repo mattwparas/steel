@@ -433,7 +433,7 @@ pub struct Compiler {
     analysis: Analysis,
     shadowed_variable_renamer: RenameShadowedVariables,
 
-    search_dirs: Vec<PathBuf>,
+    pub(crate) search_dirs: Vec<PathBuf>,
 
     // Include all the sources, module container, and constants
     // so that we can reference those at runtime. We probably should

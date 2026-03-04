@@ -67,13 +67,7 @@ struct CommandMessenger {
     receiver: Receiver<RequestResult>,
 }
 
-impl Custom for CommandMessenger {
-    fn into_serializable_steelval(&mut self) -> Option<steel::rvals::SerializableSteelVal> {
-        Some(steel::rvals::SerializableSteelVal::Custom(Box::new(
-            self.clone(),
-        )))
-    }
-}
+impl Custom for CommandMessenger {}
 
 impl CommandMessenger {
     pub fn new(sender: Sender<Request>, receiver: Receiver<RequestResult>) -> Self {
@@ -102,13 +96,7 @@ impl WrappedReceiver {
     }
 }
 
-impl Custom for WrappedReceiver {
-    fn into_serializable_steelval(&mut self) -> Option<steel::rvals::SerializableSteelVal> {
-        Some(steel::rvals::SerializableSteelVal::Custom(Box::new(
-            self.clone(),
-        )))
-    }
-}
+impl Custom for WrappedReceiver {}
 
 #[derive(Clone)]
 struct WrappedSender {
@@ -138,13 +126,7 @@ impl WrappedSender {
     }
 }
 
-impl Custom for WrappedSender {
-    fn into_serializable_steelval(&mut self) -> Option<steel::rvals::SerializableSteelVal> {
-        Some(steel::rvals::SerializableSteelVal::Custom(Box::new(
-            self.clone(),
-        )))
-    }
-}
+impl Custom for WrappedSender {}
 
 fn setup_channels() -> Vec<FFIValue> {
     let (command_sender, vm_receiver) = unbounded();
@@ -171,11 +153,7 @@ enum RequestResult {
     Err(String),
 }
 
-impl Custom for RequestResult {
-    fn into_serializable_steelval(&mut self) -> Option<steel::rvals::SerializableSteelVal> {
-        Some(SerializableSteelVal::Custom(Box::new(self.clone())))
-    }
-}
+impl Custom for RequestResult {}
 
 pub fn build_module() -> FFIModule {
     let mut module = FFIModule::new("dylib/steel/webserver");

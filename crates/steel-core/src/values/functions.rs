@@ -9,9 +9,14 @@ use std::{
 };
 
 use rustc_hash::FxHashSet;
+use serde::{Deserialize, Serialize};
 
 use crate::{
-    core::{instructions::DenseInstruction, opcode::OpCode},
+    compiler::code_gen::fresh_function_id,
+    core::{
+        instructions::{u24, DenseInstruction},
+        opcode::OpCode,
+    },
     gc::{
         shared::{MutContainer, ShareableMut, StandardShared},
         Gc, Shared, SharedMut,
@@ -25,9 +30,7 @@ use crate::{
         register_fn::SendSyncStatic,
         vm::{BlockMetadata, BlockPattern, BuiltInSignature},
     },
-    // values::contracts::ContractedFunction,
-    SteelErr,
-    SteelVal,
+    SteelErr, SteelVal,
 };
 
 use super::{
@@ -35,22 +38,28 @@ use super::{
     structs::UserDefinedStruct,
 };
 
-// pub(crate) enum Function {
-//     BoxedFunction(BoxedFunctionSignature),
-//     Closure(Gc<ByteCodeLambda>),
-//     FuncV(FunctionSignature),
-//     ContractedFunction(Gc<ContractedFunction>),
-//     MutFuncV(MutFunctionSignature),
-//     Builtin(BuiltInSignature),
-// }
-
-// Keep track of this metadata table for getting the docs associated
-// with a given function?
+// Keeps track of this metadata table for getting the docs associated
+// with a given function
+#[derive(Clone)]
 pub struct LambdaMetadataTable {
     fn_ptr_table: HashMap<usize, SteelString>,
 }
 
-impl Custom for LambdaMetadataTable {}
+// Note: If this is getting deserialized, we need something better than
+// just the function pointer to this, since its possible that the function
+// pointer now changes across images. We'll have to reconstruct it
+// on bootup.
+//
+// What that might mean is we record the pointer address of every function
+// pointer, and then when re initializating, we map that back to the value
+// that it had later.
+impl Custom for LambdaMetadataTable {
+    fn into_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
+        // Some(SerializableSteelVal::Custom(Box::new(self.clone())))
+
+        None
+    }
+}
 
 impl LambdaMetadataTable {
     pub fn new() -> Self {
@@ -157,6 +166,7 @@ impl core::hash::Hash for ByteCodeLambda {
 
 // Can this be moved across threads? What does it cost to execute a closure in another thread?
 // Engine instances be deep cloned?
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializedLambda {
     pub id: u32,
     pub body_exp: Vec<DenseInstruction>,
@@ -165,6 +175,8 @@ pub struct SerializedLambda {
     // TODO: Go ahead and create a ThreadSafeSteelVal where we will just deep clone everything, move
     // it across the thread, and reconstruct on the other side.
     pub captures: Vec<SerializableSteelVal>,
+
+    pub constants: HashMap<usize, SerializableSteelVal>,
 }
 
 #[derive(Clone)]
@@ -173,6 +185,7 @@ pub struct SerializedLambdaPrototype {
     pub body_exp: Vec<DenseInstruction>,
     pub arity: usize,
     pub is_multi_arity: bool,
+    pub constants: HashMap<usize, SerializableSteelVal>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -261,18 +274,87 @@ impl ByteCodeLambda {
         }
     }
 
-    pub(crate) fn from_serialized(heap: &mut HeapSerializer, value: SerializedLambda) -> Self {
-        ByteCodeLambda::new(
+    pub(crate) fn from_serialized(
+        heap: &mut HeapSerializer,
+        mut value: SerializedLambda,
+    ) -> Result<Self, SteelErr> {
+        // Map the old to the new
+        let id = fresh_function_id();
+        heap.function_mapping.insert(value.id, id as _);
+
+        let mut new_body = Vec::with_capacity(value.body_exp.len());
+        let mut closures_to_rewrite = Vec::new();
+
+        for (idx, instr) in value.body_exp.iter().enumerate() {
+            let mut instr = *instr;
+
+            // TODO: Rewrite the closures these reference as well.
+            // If there is an SCLOSURE or something, then a new closure
+            // will get created (or maybe, was already created) that pointed
+            // to the old one?
+            match instr.op_code {
+                // If this instruction touches this global variable,
+                // then we want to mark it as possibly referenced here.
+                OpCode::CALLGLOBAL
+                | OpCode::CALLPRIMITIVE
+                | OpCode::PUSH
+                | OpCode::CALLGLOBALTAIL
+                | OpCode::CALLGLOBALNOARITY
+                | OpCode::CALLGLOBALTAILNOARITY => {
+                    instr.payload_size = u24::from_usize(
+                        *heap
+                            .global_mapping
+                            .get(&instr.payload_size.to_usize())
+                            .unwrap(),
+                    );
+                }
+
+                OpCode::PUSHCONST => {
+                    let old_index = instr.payload_size.to_usize();
+                    let old_value = value.constants.get(&old_index).cloned().unwrap();
+                    let deserialized_constant = from_serializable_value(heap, old_value)?;
+                    let new_index = heap
+                        .thread
+                        .compiler
+                        .write()
+                        .constant_map
+                        .add_or_get(deserialized_constant);
+                    instr.payload_size = u24::from_usize(new_index);
+                }
+
+                // TODO: Find the ip of the closure, and then go allocate a _new_ closure
+                // for this one, since the values are going to now be rewritten.
+                OpCode::NEWSCLOSURE => {
+                    // closure IP
+                    let closure_id = value.body_exp.get(idx + 2).unwrap().payload_size.to_u32();
+
+                    if let Some(old) = heap.function_mapping.get(&closure_id) {
+                        closures_to_rewrite.push((idx + 2, *old));
+                    } else {
+                        closures_to_rewrite.push((idx + 2, fresh_function_id() as _));
+                    }
+                }
+                _ => {}
+            }
+
+            new_body.push(instr);
+        }
+
+        for (idx, id) in closures_to_rewrite {
+            new_body[idx].payload_size = u24::from_u32(id);
+        }
+
+        Ok(ByteCodeLambda::new(
             value.id,
-            value.body_exp.into(),
+            new_body.into(),
             value.arity,
             value.is_multi_arity,
             value
                 .captures
                 .into_iter()
                 .map(|x| from_serializable_value(heap, x))
-                .collect(),
-        )
+                .collect::<Result<_, _>>()?,
+        ))
     }
 
     pub fn rooted(instructions: StandardShared<[DenseInstruction]>) -> ByteCodeLambda {

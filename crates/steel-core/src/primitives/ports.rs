@@ -40,6 +40,7 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(WRITE_CHAR_DEFINITION)
         .register_native_fn_definition(FLUSH_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_STRING_DEFINITION)
+        .register_native_fn_definition(READ_PORT_TO_BYTES_DEFINITION)
         .register_native_fn_definition(READ_LINE_DEFINITION)
         .register_native_fn_definition(READ_LINE_FROM_PORT_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_STRING_DEFINITION)
@@ -86,6 +87,7 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
         .register_native_fn_definition(WRITE_CHAR_DEFINITION)
         .register_native_fn_definition(FLUSH_OUTPUT_PORT_DEFINITION)
         .register_native_fn_definition(READ_PORT_TO_STRING_DEFINITION)
+        .register_native_fn_definition(READ_PORT_TO_BYTES_DEFINITION)
         .register_native_fn_definition(READ_LINE_DEFINITION)
         .register_native_fn_definition(READ_LINE_FROM_PORT_DEFINITION)
         .register_native_fn_definition(GET_OUTPUT_STRING_DEFINITION)
@@ -195,7 +197,7 @@ pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
     let mut options = OpenOptions::new();
 
     // We want to write the file no matter what in this context
-    options.write(true).create(true);
+    options.write(true).create_new(true);
 
     match exists_flag {
         Some(flag) => {
@@ -209,6 +211,8 @@ pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
                     options.truncate(false)
                 }
                 "truncate" => options.truncate(true),
+                // Default behavior
+                "error" => options.create_new(true),
                 _ => stop!(Generic => "unexpected option provided to open options"),
             };
         }
@@ -316,6 +320,17 @@ pub fn open_input_bytevector(bytes: &SteelByteVector) -> SteelVal {
 pub fn read_port_to_string(port: &SteelPort) -> Result<SteelVal> {
     let (_, result) = port.read_all_str()?;
     Ok(SteelVal::StringV(result.into()))
+}
+
+/// Takes a port and reads the entire content into a byte vector
+///
+/// (read-port-to-bytes port) -> string?
+///
+/// * port : input-port?
+#[function(name = "read-port-to-bytes")]
+pub fn read_port_to_bytes(port: &SteelPort) -> Result<SteelVal> {
+    let (_, result) = port.read_all_bytes()?;
+    Ok(SteelVal::ByteVector(SteelByteVector::new(result)))
 }
 
 /// Checks if a given value is an input port

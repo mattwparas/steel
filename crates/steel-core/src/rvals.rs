@@ -1,6 +1,7 @@
 pub mod cycles;
 
 use crate::{
+    compiler::{constants::ConstantMap, map::SymbolMap, modules::ModuleManager},
     gc::{
         shared::{
             MappedScopedReadContainer, MappedScopedWriteContainer, ScopedReadContainer,
@@ -17,21 +18,30 @@ use crate::{
     },
     primitives::numbers::realp,
     rerrs::{ErrorKind, SteelErr},
-    steel_vm::vm::{
-        threads::closure_into_serializable, BuiltInSignature, Continuation, ContinuationMark,
+    steel_vm::{
+        engine::ModuleContainer,
+        vm::{
+            threads::closure_into_serializable, BuiltInSignature, Continuation, ContinuationMark,
+            SteelThread,
+        },
     },
     values::{
-        closed::{Heap, HeapRef, MarkAndSweepContext},
+        closed::{HeapRef, MarkAndSweepContext},
         functions::{BoxedDynFunction, ByteCodeLambda},
-        lazy_stream::LazyStream,
+        lazy_stream::{LazyStream, SerializableStream},
         lists::Pair,
         port::{SendablePort, SteelPort},
-        structs::{SerializableUserDefinedStruct, UserDefinedStruct},
+        serde::call_deserializer_by_name,
+        structs::{
+            create_struct_spec, fetch_from_type_map, SerializableUserDefinedStruct,
+            StructConstructorRefSpec, StructTypeDescriptor, UserDefinedStruct,
+        },
         transducers::{Reducer, Transducer},
         HashMapConsumingIter, HashSetConsumingIter, SteelPortRepr, VectorConsumingIter,
     },
 };
 use alloc::vec::IntoIter;
+use serde::{Deserialize, Serialize};
 use std::{
     any::{Any, TypeId},
     cell::RefCell,
@@ -248,6 +258,19 @@ pub trait CustomType: MaybeSendSyncStatic {
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
     }
+
+    fn as_serializable_steelval_with_ctx(
+        &mut self,
+        ctx: &mut SerializationContext,
+    ) -> Option<Result<SerializableSteelVal>> {
+        use crate::values::serde::call_serializer;
+        call_serializer::<Self>(ctx, &self).map(|x| {
+            x.map(|x| {
+                SerializableSteelVal::NativeStruct(core::any::type_name::<Self>().to_string(), x)
+            })
+        })
+    }
+
     fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
     fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
     // TODO: Add this back at some point
@@ -288,6 +311,22 @@ pub trait CustomType {
     fn as_serializable_steelval(&mut self) -> Option<SerializableSteelVal> {
         None
     }
+
+    fn as_serializable_steelval_with_ctx(
+        &mut self,
+        ctx: &mut SerializationContext,
+    ) -> Option<Result<SerializableSteelVal>>
+    where
+        Self: 'static,
+    {
+        use crate::values::serde::call_serializer;
+        call_serializer::<Self>(ctx, &self).map(|x| {
+            x.map(|x| {
+                SerializableSteelVal::NativeStruct(core::any::type_name::<Self>().to_string(), x)
+            })
+        })
+    }
+
     fn drop_mut(&mut self, _drop_handler: &mut IterativeDropHandler) {}
     fn visit_children(&self, _context: &mut MarkAndSweepContext) {}
     fn visit_children_for_equality(&self, _visitor: &mut cycles::EqualityVisitor) {}
@@ -916,15 +955,9 @@ impl From<Syntax> for SteelVal {
     }
 }
 
-// TODO:
-// This needs to be a method on the runtime: in order to properly support
-// threads
-// Tracking issue here: https://github.com/mattwparas/steel/issues/98
+pub struct SerializedNativeStructSpec {}
 
-// Values which can be sent to another thread.
-// If it cannot be sent to another thread, then we'll error out on conversion.
-// TODO: Add boxed dyn functions to this.
-// #[derive(PartialEq)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum SerializableSteelVal {
     Closure(crate::values::functions::SerializedLambda),
     BoolV(bool),
@@ -933,224 +966,450 @@ pub enum SerializableSteelVal {
     CharV(char),
     Void,
     StringV(String),
-    FuncV(FunctionSignature),
-    MutFunc(MutFunctionSignature),
     HashMapV(Vec<(SerializableSteelVal, SerializableSteelVal)>),
+    HashSet(Vec<SerializableSteelVal>),
     ListV(Vec<SerializableSteelVal>),
     Pair(Box<(SerializableSteelVal, SerializableSteelVal)>),
     VectorV(Vec<SerializableSteelVal>),
     ByteVectorV(Vec<u8>),
-    BoxedDynFunction(BoxedDynFunction),
-    BuiltIn(BuiltInSignature),
     SymbolV(String),
-    Custom(Box<dyn CustomType + Send>),
+    // Genuinely serializable... if possible?
+    // Custom(Box<dyn CustomType + Send>),
     CustomStruct(SerializableUserDefinedStruct),
     // Attempt to reuse the storage if possible
     HeapAllocated(usize),
+    HeapAllocatedVector(usize),
+    // Ports can't really be serialized either?
     Port(SendablePort),
     Rational(Rational32),
+    Stream(Box<SerializableStream>),
+    NativeRef(NativeRefSpec),
+    StructConstructorSpec(StructConstructorRefSpec),
+    ModuleSpec(String),
+    GlobalRef(String),
+    BuiltinSteelModuleRef(String, String),
+
+    NativeStruct(String, Vec<u8>),
 }
 
+impl std::fmt::Debug for SerializableSteelVal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SerializableSteelVal::Closure(serialized_lambda) => {
+                write!(f, "{:?}", serialized_lambda)
+            }
+            SerializableSteelVal::BoolV(x) => write!(f, "{}", x),
+            SerializableSteelVal::NumV(x) => write!(f, "{}", x),
+            SerializableSteelVal::IntV(x) => write!(f, "{}", x),
+            SerializableSteelVal::CharV(x) => write!(f, "{}", x),
+            SerializableSteelVal::Void => write!(f, "SteelVal::Void"),
+            SerializableSteelVal::StringV(x) => write!(f, "{}", x),
+            SerializableSteelVal::HashMapV(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::HashSet(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::ListV(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::Pair(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::VectorV(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::ByteVectorV(items) => write!(f, "{:?}", items),
+            SerializableSteelVal::SymbolV(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::CustomStruct(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::HeapAllocated(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::Rational(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::Stream(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::NativeRef(x) => write!(f, "{:?}", x),
+            SerializableSteelVal::StructConstructorSpec(struct_constructor_ref_spec) => {
+                write!(f, "{:?}", struct_constructor_ref_spec)
+            }
+            SerializableSteelVal::ModuleSpec(x) => write!(f, "#<module:{}>", x),
+            SerializableSteelVal::GlobalRef(x) => write!(f, "#<global:{}>", x),
+            SerializableSteelVal::BuiltinSteelModuleRef(m, n) => {
+                write!(f, "#<builtin-module:{}:{}>", m, n)
+            }
+            SerializableSteelVal::Port(sendable_port) => write!(f, "#<port:{:?}>", sendable_port),
+            SerializableSteelVal::NativeStruct(n, _) => write!(f, "#<native:{}>", n),
+            SerializableSteelVal::HeapAllocatedVector(_) => write!(f, "#<mutable-vector>"),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NativeRefSpec {
+    pub module: String,
+    pub key: String,
+    // This should also include some metadata about what the type was _before_
+    // going in, and what it will be after
+    // pub pointer_addr: Option<usize>,
+}
+
+#[derive(Debug)]
 pub enum SerializedHeapRef {
     Serialized(Option<SerializableSteelVal>),
     Closed(HeapRef<SteelVal>),
 }
 
+#[derive(Debug)]
+pub enum SerializedHeapRefVector {
+    Serialized(Option<Vec<SerializableSteelVal>>),
+    Closed(HeapRef<Vec<SteelVal>>),
+}
+
 pub struct HeapSerializer<'a> {
-    pub heap: &'a mut Heap,
     pub fake_heap: &'a mut std::collections::HashMap<usize, SerializedHeapRef>,
+    pub fake_vector_heap: &'a mut std::collections::HashMap<usize, SerializedHeapRefVector>,
     // After the conversion, we go back through, and patch the values from the fake heap
     // in to each of the values listed here - otherwise, we'll miss cycles
     pub values_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<SteelVal>>,
+    pub vectors_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<Vec<SteelVal>>>,
 
     // Cache the functions that get built
     pub built_functions: &'a mut std::collections::HashMap<u32, Gc<ByteCodeLambda>>,
+
+    pub thread: &'a mut SteelThread,
+
+    pub function_mapping: std::collections::HashMap<u32, u32>,
+
+    pub global_mapping: std::collections::HashMap<usize, usize>,
+
+    pub struct_map: std::collections::HashMap<StructTypeDescriptor, StructTypeDescriptor>,
 }
 
 // Once crossed over the line, convert BACK into a SteelVal
 // This should be infallible.
-pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelVal) -> SteelVal {
+pub fn from_serializable_value(
+    ctx: &mut HeapSerializer,
+    val: SerializableSteelVal,
+) -> Result<SteelVal> {
     match val {
         SerializableSteelVal::Closure(c) => {
             if c.captures.is_empty() {
-                if let Some(already_made) = ctx.built_functions.get(&c.id) {
-                    SteelVal::Closure(already_made.clone())
+                if let Some(already_made) = ctx
+                    .function_mapping
+                    .get(&c.id)
+                    .and_then(|x| ctx.built_functions.get(x))
+                {
+                    Ok(SteelVal::Closure(already_made.clone()))
                 } else {
-                    let id = c.id;
-                    let value = Gc::new(ByteCodeLambda::from_serialized(ctx, c));
+                    let value = Gc::new(ByteCodeLambda::from_serialized(ctx, c)?);
+                    let id = value.id;
 
                     // Save those as well
                     // Probably need to just do this for all
                     ctx.built_functions.insert(id, value.clone());
-                    SteelVal::Closure(value)
+                    Ok(SteelVal::Closure(value))
                 }
             } else {
-                SteelVal::Closure(Gc::new(ByteCodeLambda::from_serialized(ctx, c)))
+                Ok(SteelVal::Closure(Gc::new(ByteCodeLambda::from_serialized(
+                    ctx, c,
+                )?)))
             }
         }
-        SerializableSteelVal::BoolV(b) => SteelVal::BoolV(b),
-        SerializableSteelVal::NumV(n) => SteelVal::NumV(n),
-        SerializableSteelVal::IntV(i) => SteelVal::IntV(i),
-        SerializableSteelVal::CharV(c) => SteelVal::CharV(c),
-        SerializableSteelVal::Void => SteelVal::Void,
-        SerializableSteelVal::Rational(r) => SteelVal::Rational(r),
-        SerializableSteelVal::StringV(s) => SteelVal::StringV(s.into()),
-        SerializableSteelVal::FuncV(f) => SteelVal::FuncV(f),
-        SerializableSteelVal::MutFunc(f) => SteelVal::MutFunc(f),
-        SerializableSteelVal::HashMapV(h) => SteelVal::HashMapV(
+        SerializableSteelVal::BoolV(b) => Ok(SteelVal::BoolV(b)),
+        SerializableSteelVal::NumV(n) => Ok(SteelVal::NumV(n)),
+        SerializableSteelVal::IntV(i) => Ok(SteelVal::IntV(i)),
+        SerializableSteelVal::CharV(c) => Ok(SteelVal::CharV(c)),
+        SerializableSteelVal::Void => Ok(SteelVal::Void),
+        SerializableSteelVal::Rational(r) => Ok(SteelVal::Rational(r)),
+        SerializableSteelVal::StringV(s) => Ok(SteelVal::StringV(s.into())),
+        SerializableSteelVal::HashMapV(h) => Ok(SteelVal::HashMapV(
             Gc::new(
                 h.into_iter()
                     .map(|(k, v)| {
-                        (
-                            from_serializable_value(ctx, k),
-                            from_serializable_value(ctx, v),
-                        )
+                        Ok((
+                            from_serializable_value(ctx, k)?,
+                            from_serializable_value(ctx, v)?,
+                        ))
                     })
-                    .collect::<HashMap<_, _>>(),
+                    .collect::<Result<HashMap<_, _>>>()?,
             )
             .into(),
-        ),
-        SerializableSteelVal::ListV(v) => SteelVal::ListV(
+        )),
+        SerializableSteelVal::HashSet(h) => Ok(SteelVal::HashSetV(
+            Gc::new(
+                h.into_iter()
+                    .map(|k| from_serializable_value(ctx, k))
+                    .collect::<Result<HashSet<_>>>()?,
+            )
+            .into(),
+        )),
+        SerializableSteelVal::ListV(v) => Ok(SteelVal::ListV(
             v.into_iter()
                 .map(|x| from_serializable_value(ctx, x))
-                .collect(),
-        ),
-        SerializableSteelVal::VectorV(v) => SteelVal::VectorV(SteelVector(Gc::new(
+                .collect::<Result<_>>()?,
+        )),
+        SerializableSteelVal::VectorV(v) => Ok(SteelVal::VectorV(SteelVector(Gc::new(
             v.into_iter()
                 .map(|x| from_serializable_value(ctx, x))
-                .collect(),
-        ))),
-        SerializableSteelVal::BoxedDynFunction(f) => SteelVal::BoxedFunction(Gc::new(f)),
-        SerializableSteelVal::BuiltIn(f) => SteelVal::BuiltIn(f),
-        SerializableSteelVal::SymbolV(s) => SteelVal::SymbolV(s.into()),
-        SerializableSteelVal::Custom(b) => SteelVal::Custom(Gc::new_mut(b)),
+                .collect::<Result<_>>()?,
+        )))),
+        SerializableSteelVal::SymbolV(s) => Ok(SteelVal::SymbolV(s.into())),
         SerializableSteelVal::CustomStruct(s) => {
-            SteelVal::CustomStruct(Gc::new(UserDefinedStruct {
+            Ok(SteelVal::CustomStruct(Gc::new(UserDefinedStruct {
                 fields: {
                     let fields = s
                         .fields
                         .into_iter()
                         .map(|x| from_serializable_value(ctx, x));
 
-                    // fields.collect()
-
-                    // let mut recycle: crate::values::recycler::Recycle<Vec<_>> =
-                    //     crate::values::recycler::Recycle::new();
-
                     let mut recycle: crate::values::recycler::Recycle<SmallVec<_>> =
                         crate::values::recycler::Recycle::new();
 
-                    recycle.extend(fields);
+                    for value in fields {
+                        recycle.push(value?);
+                    }
 
                     recycle
                 },
                 type_descriptor: s.type_descriptor,
-            }))
+            })))
         }
-        SerializableSteelVal::Port(p) => SteelVal::PortV(SteelPort::from_sendable_port(p)),
         SerializableSteelVal::HeapAllocated(v) => {
-            // todo!()
-
             if let Some(mut guard) = ctx.fake_heap.get_mut(&v) {
                 match &mut guard {
                     SerializedHeapRef::Serialized(value) => {
-                        let value = core::mem::take(value);
-
+                        let value = std::mem::take(value);
                         if let Some(value) = value {
-                            let _ = from_serializable_value(ctx, value);
+                            let value = from_serializable_value(ctx, value)?;
 
-                            todo!()
-                            // let allocation = ctx.heap.allocate_without_collection(value);
+                            let allocation =
+                                ctx.thread.heap.lock().allocate_without_collection(value);
 
-                            // ctx.fake_heap
-                            //     .insert(v, SerializedHeapRef::Closed(allocation.clone()));
+                            ctx.fake_heap
+                                .insert(v, SerializedHeapRef::Closed(allocation.clone()));
 
-                            // SteelVal::HeapAllocated(allocation)
+                            Ok(SteelVal::HeapAllocated(allocation))
                         } else {
-                            // println!("If we're getting here - it means the value from the heap has already
-                            // been converting. if so, we should do something...");
+                            match ctx.fake_heap.get(&v).unwrap() {
+                                SerializedHeapRef::Serialized(_) => {
+                                    // Introduce a third value: a sentinal value that will get patched back
+                                    // to the requisite value later.
+                                    let allocation = ctx
+                                        .thread
+                                        .heap
+                                        .lock()
+                                        .allocate_without_collection(SteelVal::Void);
 
-                            todo!()
+                                    ctx.values_to_fill_in.insert(v, allocation.clone());
 
-                            // let fake_allocation =
-                            //     ctx.heap.allocate_without_collection(SteelVal::Void);
-
-                            // ctx.values_to_fill_in.insert(v, fake_allocation.clone());
-
-                            // SteelVal::HeapAllocated(fake_allocation)
+                                    Ok(SteelVal::HeapAllocated(allocation))
+                                }
+                                SerializedHeapRef::Closed(heap_ref) => {
+                                    Ok(SteelVal::HeapAllocated(heap_ref.clone()))
+                                }
+                            }
                         }
                     }
 
-                    SerializedHeapRef::Closed(c) => SteelVal::HeapAllocated(c.clone()),
+                    SerializedHeapRef::Closed(c) => Ok(SteelVal::HeapAllocated(c.clone())),
                 }
             } else {
                 // Shouldn't silently fail here, but we will... for now
-
-                // let allocation = ctx.heap.allocate_without_collection(SteelVal::Void);
-
-                // ctx.fake_heap
-                //     .insert(v, SerializedHeapRef::Closed(allocation.clone()));
-
-                // SteelVal::HeapAllocated(allocation)
-
-                todo!()
+                panic!()
             }
         }
         SerializableSteelVal::Pair(pair) => {
             let (car, cdr) = *pair;
 
-            crate::values::lists::Pair::cons(
-                from_serializable_value(ctx, car),
-                from_serializable_value(ctx, cdr),
+            Ok(crate::values::lists::Pair::cons(
+                from_serializable_value(ctx, car)?,
+                from_serializable_value(ctx, cdr)?,
             )
-            .into()
+            .into())
+        }
+        SerializableSteelVal::Stream(value) => Ok(SteelVal::StreamV(Gc::new(LazyStream {
+            initial_value: from_serializable_value(ctx, value.initial_value)?,
+            stream_thunk: from_serializable_value(ctx, value.stream_thunk)?,
+            empty_stream: value.empty_stream,
+        }))),
+        SerializableSteelVal::NativeRef(s) => {
+            let guard = ctx.thread.compiler.read();
+            let module_map = guard.builtin_modules.inner();
+
+            if let Some(m) = module_map.get(s.module.as_str()) {
+                return Ok(m.get(s.key));
+            }
+
+            panic!("Unable to find value in module map: {:#?}", s);
         }
         SerializableSteelVal::ByteVectorV(bytes) => {
-            SteelVal::ByteVector(SteelByteVector::new(bytes))
+            Ok(SteelVal::ByteVector(SteelByteVector::new(bytes)))
+        }
+        SerializableSteelVal::StructConstructorSpec(mut spec) => {
+            // First, we need to patch any existing type descriptors to the new one.
+            spec.descriptor = *ctx.struct_map.get(&spec.descriptor).unwrap();
+            Ok(fetch_from_type_map(spec).unwrap())
+        }
+        SerializableSteelVal::ModuleSpec(m) => ctx
+            .thread
+            .compiler
+            .read()
+            .builtin_modules
+            .inner()
+            .get(m.as_str())
+            .unwrap()
+            .clone()
+            .into_steelval(),
+        SerializableSteelVal::GlobalRef(s) => {
+            let interned = s.into();
+            // Find the index of this thing:
+            let idx = ctx
+                .thread
+                .compiler
+                .read()
+                .symbol_map
+                .get(&interned)
+                .unwrap();
+            Ok(ctx.thread.global_env.roots()[idx].clone())
+        }
+        SerializableSteelVal::BuiltinSteelModuleRef(_, _) => todo!(),
+        SerializableSteelVal::Port(sendable_port) => Ok(SteelVal::PortV(
+            SteelPort::from_sendable_port(sendable_port),
+        )),
+        SerializableSteelVal::NativeStruct(name, items) => {
+            call_deserializer_by_name(ctx, &name, &items)
+                .expect("Unable to find the deserializer for this type")
+        }
+        SerializableSteelVal::HeapAllocatedVector(v) => {
+            if let Some(guard) = ctx.fake_vector_heap.get_mut(&v) {
+                match guard {
+                    SerializedHeapRefVector::Serialized(value) => {
+                        let value = std::mem::take(value);
+                        if let Some(value) = value {
+                            let mut converted = Vec::with_capacity(value.len());
+
+                            for v in value {
+                                converted.push(from_serializable_value(ctx, v)?);
+                            }
+
+                            let allocation = ctx
+                                .thread
+                                .heap
+                                .lock()
+                                .allocate_vec_without_collection(converted);
+
+                            ctx.fake_vector_heap
+                                .insert(v, SerializedHeapRefVector::Closed(allocation.clone()));
+
+                            Ok(SteelVal::MutableVector(allocation))
+                        } else {
+                            match ctx.fake_vector_heap.get(&v).unwrap() {
+                                SerializedHeapRefVector::Serialized(_) => {
+                                    // Introduce a third value: a sentinal value that will get patched back
+                                    // to the requisite value later.
+                                    let allocation = ctx
+                                        .thread
+                                        .heap
+                                        .lock()
+                                        .allocate_vec_without_collection(Vec::new());
+
+                                    ctx.vectors_to_fill_in.insert(v, allocation.clone());
+
+                                    Ok(SteelVal::MutableVector(allocation))
+                                }
+                                SerializedHeapRefVector::Closed(heap_ref) => {
+                                    Ok(SteelVal::MutableVector(heap_ref.clone()))
+                                }
+                            }
+                        }
+                    }
+
+                    SerializedHeapRefVector::Closed(c) => Ok(SteelVal::MutableVector(c.clone())),
+                }
+            } else {
+                // Shouldn't silently fail here, but we will... for now
+                panic!()
+            }
         }
     }
+}
+
+pub struct SerializationContext<'a> {
+    pub builtin_modules: &'a ModuleContainer,
+    pub serialized_heap: &'a mut std::collections::HashMap<usize, SerializableSteelVal>,
+    pub serialized_heap_vectors:
+        &'a mut std::collections::HashMap<usize, Vec<SerializableSteelVal>>,
+    pub visited: &'a mut std::collections::HashSet<usize>,
+    pub globals: &'a [SteelVal],
+    pub symbol_map: &'a SymbolMap,
+    pub constants: &'a ConstantMap,
+    pub reachable_globals: std::collections::HashSet<usize>,
+    pub reachable_structs: std::collections::HashSet<StructTypeDescriptor>,
+    pub compiled_modules: &'a ModuleManager,
 }
 
 // The serializable value needs to refer to the original heap -
 // that way can reference the original stuff easily.
 
 // TODO: Use the cycle detector instead
+
 pub fn into_serializable_value(
     val: SteelVal,
-    serialized_heap: &mut std::collections::HashMap<usize, SerializableSteelVal>,
-    visited: &mut std::collections::HashSet<usize>,
+    ctx: &mut SerializationContext,
 ) -> Result<SerializableSteelVal> {
-    // dbg!(&serialized_heap);
-
     match val {
-        SteelVal::Closure(c) => closure_into_serializable(&c, serialized_heap, visited)
-            .map(SerializableSteelVal::Closure),
+        SteelVal::Closure(c) => {
+            closure_into_serializable(&c, ctx).map(SerializableSteelVal::Closure)
+        }
         SteelVal::BoolV(b) => Ok(SerializableSteelVal::BoolV(b)),
         SteelVal::NumV(n) => Ok(SerializableSteelVal::NumV(n)),
         SteelVal::IntV(n) => Ok(SerializableSteelVal::IntV(n)),
         SteelVal::CharV(c) => Ok(SerializableSteelVal::CharV(c)),
         SteelVal::Void => Ok(SerializableSteelVal::Void),
         SteelVal::StringV(s) => Ok(SerializableSteelVal::StringV(s.to_string())),
-        SteelVal::FuncV(f) => Ok(SerializableSteelVal::FuncV(f)),
+        SteelVal::FuncV(_) | SteelVal::BuiltIn(_) | SteelVal::MutFunc(_) => {
+            Ok(SerializableSteelVal::NativeRef(
+                // TODO: Native ref spec for anything that is native
+                // and truly can't be serialized between runtimes, such as native
+                // functions.
+                crate::steel_vm::vm::threads::create_native_ref(&ctx.builtin_modules, val.clone())
+                    .expect(&format!("Unable to find: {}", val)),
+            ))
+        }
         SteelVal::ListV(l) => Ok(SerializableSteelVal::ListV(
             l.into_iter()
-                .map(|x| into_serializable_value(x, serialized_heap, visited))
+                .map(|x| into_serializable_value(x, ctx))
                 .collect::<Result<_>>()?,
         )),
         SteelVal::Pair(pair) => Ok(SerializableSteelVal::Pair(Box::new((
-            into_serializable_value(pair.car.clone(), serialized_heap, visited)?,
-            into_serializable_value(pair.cdr.clone(), serialized_heap, visited)?,
+            into_serializable_value(pair.car.clone(), ctx)?,
+            into_serializable_value(pair.cdr.clone(), ctx)?,
         )))),
-        SteelVal::BoxedFunction(f) => Ok(SerializableSteelVal::BoxedDynFunction((*f).clone())),
-        SteelVal::BuiltIn(f) => Ok(SerializableSteelVal::BuiltIn(f)),
+        // This is going to be an issue with structs, probably. The generated functions there
+        // will need to be handled separately from this.
+        SteelVal::BoxedFunction(_) => {
+            // First, attempt a native ref:
+
+            if let Some(spec) =
+                crate::steel_vm::vm::threads::create_native_ref(&ctx.builtin_modules, val.clone())
+            {
+                Ok(SerializableSteelVal::NativeRef(spec))
+            } else if let Some(spec) = create_struct_spec(val.clone()) {
+                Ok(SerializableSteelVal::StructConstructorSpec(spec))
+
+                // Attempt to discover it from the struct registry
+                // todo!("{}", val)
+            } else {
+                // Check the globals:
+
+                for (idx, v) in ctx.globals.iter().enumerate() {
+                    if v.ptr_eq(&val) {
+                        // Get the name:
+                        let name = ctx.symbol_map.values()[idx];
+                        return Ok(SerializableSteelVal::GlobalRef(name.resolve().to_string()));
+                    }
+                }
+
+                panic!();
+            }
+        }
+
+        // TODO: These will also need to be interned, probably can do this through
+        // some constant pool and get back an index.
         SteelVal::SymbolV(s) => Ok(SerializableSteelVal::SymbolV(s.to_string())),
-        SteelVal::MutFunc(f) => Ok(SerializableSteelVal::MutFunc(f)),
         SteelVal::HashMapV(v) => Ok(SerializableSteelVal::HashMapV(
             v.0.unwrap()
                 .into_iter()
                 .map(|(k, v)| {
-                    let kprime = into_serializable_value(k, serialized_heap, visited)?;
-                    let vprime = into_serializable_value(v, serialized_heap, visited)?;
+                    let kprime = into_serializable_value(k, ctx)?;
+                    let vprime = into_serializable_value(v, ctx)?;
 
                     Ok((kprime, vprime))
                 })
@@ -1158,60 +1417,55 @@ pub fn into_serializable_value(
         )),
 
         SteelVal::Custom(c) => {
-            if let Some(output) = c.write().as_serializable_steelval() {
+            let mut guard = c.write();
+
+            if let Some(output) = guard.as_serializable_steelval() {
                 Ok(output)
+            } else
+            // Check the tags that exist for serialization:
+            if let Some(value) = guard.as_serializable_steelval_with_ctx(ctx) {
+                value
             } else {
-                stop!(Generic => "Custom type not allowed to be moved across threads!")
+                stop!(Generic => "Custom type not allowed to be moved across threads!: {}", guard.name())
             }
         }
 
-        SteelVal::CustomStruct(s) => Ok(SerializableSteelVal::CustomStruct(
-            SerializableUserDefinedStruct {
-                fields: s
-                    .fields
-                    .iter()
-                    .cloned()
-                    .map(|x| into_serializable_value(x, serialized_heap, visited))
-                    .collect::<Result<Vec<_>>>()?,
-                type_descriptor: s.type_descriptor,
-            },
-        )),
+        SteelVal::CustomStruct(s) => {
+            // Mark that we visited this, and that it will need to be
+            // present on the other side.
+            ctx.reachable_structs.insert(s.type_descriptor);
+
+            Ok(SerializableSteelVal::CustomStruct(
+                SerializableUserDefinedStruct {
+                    fields: s
+                        .fields
+                        .iter()
+                        .cloned()
+                        .map(|x| into_serializable_value(x, ctx))
+                        .collect::<Result<Vec<_>>>()?,
+                    type_descriptor: s.type_descriptor,
+                },
+            ))
+        }
 
         SteelVal::PortV(p) => SendablePort::from_port(p).map(SerializableSteelVal::Port),
+        // SteelVal::PortV(p) => Ok(SerializableSteelVal::Void),
 
         // If there is a cycle, this could cause problems?
         SteelVal::HeapAllocated(h) => {
             // We should pick it up on the way back the recursion
-            if visited.contains(&h.as_ptr_usize())
-                && !serialized_heap.contains_key(&h.as_ptr_usize())
+            if ctx.visited.contains(&h.as_ptr_usize())
+                && !ctx.serialized_heap.contains_key(&h.as_ptr_usize())
             {
-                // println!("Already visited: {}", h.as_ptr_usize());
-
                 Ok(SerializableSteelVal::HeapAllocated(h.as_ptr_usize()))
             } else {
-                visited.insert(h.as_ptr_usize());
+                ctx.visited.insert(h.as_ptr_usize());
 
-                if serialized_heap.contains_key(&h.as_ptr_usize()) {
-                    // println!("Already exists in map: {}", h.as_ptr_usize());
-
+                if ctx.serialized_heap.contains_key(&h.as_ptr_usize()) {
                     Ok(SerializableSteelVal::HeapAllocated(h.as_ptr_usize()))
                 } else {
-                    // println!("Trying to insert: {} @ {}", h.get(), h.as_ptr_usize());
-
-                    let value = into_serializable_value(h.get(), serialized_heap, visited);
-
-                    let value = match value {
-                        Ok(v) => v,
-                        Err(e) => {
-                            // println!("{}", e);
-                            return Err(e);
-                        }
-                    };
-
-                    serialized_heap.insert(h.as_ptr_usize(), value);
-
-                    // println!("Inserting: {}", h.as_ptr_usize());
-
+                    let value = into_serializable_value(h.get(), ctx)?;
+                    ctx.serialized_heap.insert(h.as_ptr_usize(), value);
                     Ok(SerializableSteelVal::HeapAllocated(h.as_ptr_usize()))
                 }
             }
@@ -1221,7 +1475,7 @@ pub fn into_serializable_value(
             vector
                 .iter()
                 .cloned()
-                .map(|val| into_serializable_value(val, serialized_heap, visited))
+                .map(|val| into_serializable_value(val, ctx))
                 .collect::<Result<_>>()?,
         )),
 
@@ -1230,6 +1484,48 @@ pub fn into_serializable_value(
         }
 
         SteelVal::Rational(r) => Ok(SerializableSteelVal::Rational(r)),
+
+        SteelVal::StreamV(s) => Ok(SerializableSteelVal::Stream(Box::new(SerializableStream {
+            initial_value: into_serializable_value(s.initial_value.clone(), ctx)?,
+            stream_thunk: into_serializable_value(s.stream_thunk.clone(), ctx)?,
+            empty_stream: s.empty_stream,
+        }))),
+
+        SteelVal::HashSetV(s) => Ok(SerializableSteelVal::HashSet(
+            s.iter()
+                .cloned()
+                .map(|val| into_serializable_value(val, ctx))
+                .collect::<Result<_>>()?,
+        )),
+
+        SteelVal::MutableVector(v) => {
+            // We should pick it up on the way back the recursion
+            if ctx.visited.contains(&v.as_ptr_usize())
+                && !ctx.serialized_heap_vectors.contains_key(&v.as_ptr_usize())
+            {
+                Ok(SerializableSteelVal::HeapAllocatedVector(v.as_ptr_usize()))
+            } else {
+                ctx.visited.insert(v.as_ptr_usize());
+
+                if ctx.serialized_heap.contains_key(&v.as_ptr_usize()) {
+                    Ok(SerializableSteelVal::HeapAllocatedVector(v.as_ptr_usize()))
+                } else {
+                    // Let values:
+
+                    let guard = v.strong_ptr();
+                    let read_guard = guard.read();
+
+                    let mut values = Vec::with_capacity(read_guard.value.len());
+
+                    for v in read_guard.value.iter() {
+                        values.push(into_serializable_value(v.clone(), ctx)?);
+                    }
+
+                    ctx.serialized_heap_vectors.insert(v.as_ptr_usize(), values);
+                    Ok(SerializableSteelVal::HeapAllocatedVector(v.as_ptr_usize()))
+                }
+            }
+        }
 
         illegal => stop!(Generic => "Type not allowed to be moved across threads!: {}", illegal),
     }
