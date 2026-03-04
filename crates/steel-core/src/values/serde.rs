@@ -123,6 +123,22 @@ pub fn call_deserializer_by_name(
         .call_by_name(name, serializer, bytes)
 }
 
+pub fn steel_serialize<T: ?Sized>(value: &T) -> Result<Vec<u8>>
+where
+    T: serde::Serialize,
+{
+    bincode::serialize::<T>(value)
+        .map_err(|e| throw!(Generic => "Unable to serialize value: {}", e)())
+}
+
+pub fn steel_deserialize<'a, T>(bytes: &'a [u8]) -> Result<T>
+where
+    T: serde::de::Deserialize<'a>,
+{
+    bincode::deserialize::<T>(bytes)
+        .map_err(|e| throw!(Generic => "Unable to deserialize value: {}", e)())
+}
+
 #[cfg(test)]
 mod serialization_tests {
     use serde::{Deserialize, Serialize};
@@ -166,15 +182,12 @@ mod serialization_tests {
                 baz: value.baz.clone(),
             };
 
-            bincode::serialize(&the_rest)
-                .map_err(|e| throw!(Generic => "Unable to serialize value: {}", e)())
+            steel_serialize(&the_rest)
         });
 
         handlers.register_deserializer::<TestSerializationValue>(|ctx, bytes| {
-            let value: SerializableTestValue = bincode::deserialize(bytes)
-                .map_err(|e| throw!(Generic => "Unable to deserialize value: {}", e)())?;
-
-            let new_value = from_serializable_value(ctx, value.value);
+            let value: SerializableTestValue = steel_deserialize(bytes)?;
+            let new_value = from_serializable_value(ctx, value.value)?;
 
             TestSerializationValue {
                 value: new_value,
@@ -204,7 +217,7 @@ mod serialization_tests {
             let value: SerializableTestValue = bincode::deserialize(bytes)
                 .map_err(|e| throw!(Generic => "Unable to deserialize value: {}", e)())?;
 
-            let new_value = from_serializable_value(ctx, value.value);
+            let new_value = from_serializable_value(ctx, value.value)?;
 
             TestSerializationValue {
                 value: new_value,

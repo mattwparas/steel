@@ -30,7 +30,9 @@ pub use crate::values::{HashMap, HashSet, Vector};
 pub use im_lists::list::List;
 pub use primitives::UnRecoverableResult;
 pub use steel_derive::steel_quote;
-pub use values::serde::{register_deserializer, register_serializer};
+pub use values::serde::{
+    register_deserializer, register_serializer, steel_deserialize, steel_serialize,
+};
 pub use values::LambdaMetadataTable;
 pub use values::RootToken;
 pub use values::RootedSteelVal;

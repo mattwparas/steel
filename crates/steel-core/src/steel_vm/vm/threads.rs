@@ -18,6 +18,7 @@ use crate::{
         structs::{SendableVTableEntry, VTable},
     },
 };
+use crate::{steel_deserialize, steel_serialize};
 
 use super::*;
 
@@ -451,7 +452,7 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
 #[steel_derive::function(name = "serialized->bytes")]
 fn serialized_to_bytes(value: &SteelVal) -> Result<SteelVal> {
     let inner = SerializedValue::as_ref(value)?;
-    let bytes = bincode::serialize(inner.deref()).unwrap();
+    let bytes = steel_serialize(inner.deref())?;
     Ok(SteelVal::ByteVector(crate::rvals::SteelByteVector::new(
         bytes,
     )))
@@ -459,11 +460,7 @@ fn serialized_to_bytes(value: &SteelVal) -> Result<SteelVal> {
 
 #[steel_derive::function(name = "bytes->serialized")]
 fn bytes_to_serialized(value: &SteelByteVector) -> Result<SteelVal> {
-    let serde =
-        bincode::deserialize::<SerializedValue>(value.vec.read().as_slice()).map_err(|_| {
-            throw!(Generic => "Unable to convert bytes into deserialized steel value")()
-        })?;
-
+    let serde = steel_deserialize::<SerializedValue>(value.vec.read().as_slice())?;
     serde.into_steelval()
 }
 
@@ -493,8 +490,8 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
     let serialized_value = into_serializable_value(value, &mut sctx)?;
 
     // Somehow, figure out structs as well
-    println!("Succeeded in serializing the value");
-    println!("Going through the reachable globals");
+    // println!("Succeeded in serializing the value");
+    // println!("Going through the reachable globals");
 
     let mut symbol_index_map = HashMap::new();
 
@@ -560,28 +557,28 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
             symbol_index_map.insert(idx, ident);
         }
 
-        println!("Finished serializing globals");
-        println!(
-            "Remaining globals to check: {}",
-            sctx.reachable_globals.len()
-        );
+        // println!("Finished serializing globals");
+        // println!(
+        //     "Remaining globals to check: {}",
+        //     sctx.reachable_globals.len()
+        // );
 
         let reachable_structs = std::mem::take(&mut sctx.reachable_structs);
 
-        println!("Checking structs: {}", reachable_structs.len());
+        // println!("Checking structs: {}", reachable_structs.len());
 
         let local_entries = VTable::sendable_entries_for(&mut sctx, reachable_structs)?;
 
         entries.extend(local_entries);
 
-        println!("Entries: {}", entries.len());
+        // println!("Entries: {}", entries.len());
 
-        println!("Checking if we need to do another pass...");
-        println!(
-            "Remaining globals to check: {}",
-            sctx.reachable_globals.len()
-        );
-        println!("Checking structs: {}", sctx.reachable_structs.len());
+        // println!("Checking if we need to do another pass...");
+        // println!(
+        //     "Remaining globals to check: {}",
+        //     sctx.reachable_globals.len()
+        // );
+        // println!("Checking structs: {}", sctx.reachable_structs.len());
 
         if sctx.reachable_globals.len() == 0 && sctx.reachable_structs.len() == 0 {
             break;
