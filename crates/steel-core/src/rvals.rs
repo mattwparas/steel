@@ -978,6 +978,7 @@ pub enum SerializableSteelVal {
     CustomStruct(SerializableUserDefinedStruct),
     // Attempt to reuse the storage if possible
     HeapAllocated(usize),
+    HeapAllocatedVector(usize),
     // Ports can't really be serialized either?
     Port(SendablePort),
     Rational(Rational32),
@@ -1025,6 +1026,7 @@ impl std::fmt::Debug for SerializableSteelVal {
             }
             SerializableSteelVal::Port(sendable_port) => write!(f, "#<port:{:?}>", sendable_port),
             SerializableSteelVal::NativeStruct(n, _) => write!(f, "#<native:{}>", n),
+            SerializableSteelVal::HeapAllocatedVector(_) => write!(f, "#<mutable-vector>"),
         }
     }
 }
@@ -1044,11 +1046,19 @@ pub enum SerializedHeapRef {
     Closed(HeapRef<SteelVal>),
 }
 
+#[derive(Debug)]
+pub enum SerializedHeapRefVector {
+    Serialized(Option<Vec<SerializableSteelVal>>),
+    Closed(HeapRef<Vec<SteelVal>>),
+}
+
 pub struct HeapSerializer<'a> {
     pub fake_heap: &'a mut std::collections::HashMap<usize, SerializedHeapRef>,
+    pub fake_vector_heap: &'a mut std::collections::HashMap<usize, SerializedHeapRefVector>,
     // After the conversion, we go back through, and patch the values from the fake heap
     // in to each of the values listed here - otherwise, we'll miss cycles
     pub values_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<SteelVal>>,
+    pub vectors_to_fill_in: &'a mut std::collections::HashMap<usize, HeapRef<Vec<SteelVal>>>,
 
     // Cache the functions that get built
     pub built_functions: &'a mut std::collections::HashMap<u32, Gc<ByteCodeLambda>>,
@@ -1132,11 +1142,6 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                         .into_iter()
                         .map(|x| from_serializable_value(ctx, x));
 
-                    // fields.collect()
-
-                    // let mut recycle: crate::values::recycler::Recycle<Vec<_>> =
-                    //     crate::values::recycler::Recycle::new();
-
                     let mut recycle: crate::values::recycler::Recycle<SmallVec<_>> =
                         crate::values::recycler::Recycle::new();
 
@@ -1148,15 +1153,10 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             }))
         }
         SerializableSteelVal::HeapAllocated(v) => {
-            // todo!()
-
             if let Some(mut guard) = ctx.fake_heap.get_mut(&v) {
                 match &mut guard {
                     SerializedHeapRef::Serialized(value) => {
-                        // println!("Visiting: {} -> {:?}", v, value);
-
                         let value = std::mem::take(value);
-
                         if let Some(value) = value {
                             let value = from_serializable_value(ctx, value);
 
@@ -1166,21 +1166,12 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                             ctx.fake_heap
                                 .insert(v, SerializedHeapRef::Closed(allocation.clone()));
 
-                            // println!("patching: {}", v);
-
                             SteelVal::HeapAllocated(allocation)
                         } else {
-                            // println!("If we're getting here - it means the value from the heap has already
-                            // been converting. if so, we should do something...");
-
-                            // todo!()
-
                             match ctx.fake_heap.get(&v).unwrap() {
                                 SerializedHeapRef::Serialized(_) => {
                                     // Introduce a third value: a sentinal value that will get patched back
                                     // to the requisite value later.
-                                    // panic!("Found a cycle: {} = {:?}", v, serializable_steel_val);
-
                                     let allocation = ctx
                                         .thread
                                         .heap
@@ -1195,13 +1186,6 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                                     SteelVal::HeapAllocated(heap_ref.clone())
                                 }
                             }
-
-                            // let fake_allocation =
-                            //     ctx.heap.allocate_without_collection(SteelVal::Void);
-
-                            // ctx.values_to_fill_in.insert(v, fake_allocation.clone());
-
-                            // SteelVal::HeapAllocated(fake_allocation)
                         }
                     }
 
@@ -1209,15 +1193,7 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
                 }
             } else {
                 // Shouldn't silently fail here, but we will... for now
-
-                // let allocation = ctx.heap.allocate_without_collection(SteelVal::Void);
-
-                // ctx.fake_heap
-                //     .insert(v, SerializedHeapRef::Closed(allocation.clone()));
-
-                // SteelVal::HeapAllocated(allocation)
-
-                todo!()
+                panic!()
             }
         }
         SerializableSteelVal::Pair(pair) => {
@@ -1279,6 +1255,57 @@ pub fn from_serializable_value(ctx: &mut HeapSerializer, val: SerializableSteelV
             call_deserializer_by_name(ctx, &name, &items)
                 .expect("Unable to find the deserializer for this type")
                 .expect("Unable to deserialize the value properly")
+        }
+        SerializableSteelVal::HeapAllocatedVector(v) => {
+            if let Some(guard) = ctx.fake_vector_heap.get_mut(&v) {
+                match guard {
+                    SerializedHeapRefVector::Serialized(value) => {
+                        let value = std::mem::take(value);
+                        if let Some(value) = value {
+                            let mut converted = Vec::with_capacity(value.len());
+
+                            for v in value {
+                                converted.push(from_serializable_value(ctx, v));
+                            }
+
+                            let allocation = ctx
+                                .thread
+                                .heap
+                                .lock()
+                                .allocate_vec_without_collection(converted);
+
+                            ctx.fake_vector_heap
+                                .insert(v, SerializedHeapRefVector::Closed(allocation.clone()));
+
+                            SteelVal::MutableVector(allocation)
+                        } else {
+                            match ctx.fake_vector_heap.get(&v).unwrap() {
+                                SerializedHeapRefVector::Serialized(_) => {
+                                    // Introduce a third value: a sentinal value that will get patched back
+                                    // to the requisite value later.
+                                    let allocation = ctx
+                                        .thread
+                                        .heap
+                                        .lock()
+                                        .allocate_vec_without_collection(Vec::new());
+
+                                    ctx.vectors_to_fill_in.insert(v, allocation.clone());
+
+                                    SteelVal::MutableVector(allocation)
+                                }
+                                SerializedHeapRefVector::Closed(heap_ref) => {
+                                    SteelVal::MutableVector(heap_ref.clone())
+                                }
+                            }
+                        }
+                    }
+
+                    SerializedHeapRefVector::Closed(c) => SteelVal::MutableVector(c.clone()),
+                }
+            } else {
+                // Shouldn't silently fail here, but we will... for now
+                panic!()
+            }
         }
     }
 }
@@ -1419,33 +1446,15 @@ pub fn into_serializable_value(
             if ctx.visited.contains(&h.as_ptr_usize())
                 && !ctx.serialized_heap.contains_key(&h.as_ptr_usize())
             {
-                // println!("Already visited: {}", h.as_ptr_usize());
-
                 Ok(SerializableSteelVal::HeapAllocated(h.as_ptr_usize()))
             } else {
                 ctx.visited.insert(h.as_ptr_usize());
 
                 if ctx.serialized_heap.contains_key(&h.as_ptr_usize()) {
-                    // println!("Already exists in map: {}", h.as_ptr_usize());
-
                     Ok(SerializableSteelVal::HeapAllocated(h.as_ptr_usize()))
                 } else {
-                    // println!("Trying to insert: {} @ {}", h.get(), h.as_ptr_usize());
-
-                    let value = into_serializable_value(h.get(), ctx);
-
-                    let value = match value {
-                        Ok(v) => v,
-                        Err(e) => {
-                            // println!("{}", e);
-                            return Err(e);
-                        }
-                    };
-
+                    let value = into_serializable_value(h.get(), ctx)?;
                     ctx.serialized_heap.insert(h.as_ptr_usize(), value);
-
-                    // println!("Inserting: {}", h.as_ptr_usize());
-
                     Ok(SerializableSteelVal::HeapAllocated(h.as_ptr_usize()))
                 }
             }
@@ -1478,10 +1487,33 @@ pub fn into_serializable_value(
                 .collect::<Result<_>>()?,
         )),
 
-        // TODO: Implement mutable vector in the graph as well
         SteelVal::MutableVector(v) => {
-            println!("Skipping mutable vector for now");
-            Ok(SerializableSteelVal::Void)
+            // We should pick it up on the way back the recursion
+            if ctx.visited.contains(&v.as_ptr_usize())
+                && !ctx.serialized_heap_vectors.contains_key(&v.as_ptr_usize())
+            {
+                Ok(SerializableSteelVal::HeapAllocatedVector(v.as_ptr_usize()))
+            } else {
+                ctx.visited.insert(v.as_ptr_usize());
+
+                if ctx.serialized_heap.contains_key(&v.as_ptr_usize()) {
+                    Ok(SerializableSteelVal::HeapAllocatedVector(v.as_ptr_usize()))
+                } else {
+                    // Let values:
+
+                    let guard = v.strong_ptr();
+                    let read_guard = guard.read();
+
+                    let mut values = Vec::with_capacity(read_guard.value.len());
+
+                    for v in read_guard.value.iter() {
+                        values.push(into_serializable_value(v.clone(), ctx)?);
+                    }
+
+                    ctx.serialized_heap_vectors.insert(v.as_ptr_usize(), values);
+                    Ok(SerializableSteelVal::HeapAllocated(v.as_ptr_usize()))
+                }
+            }
         }
 
         illegal => stop!(Generic => "Type not allowed to be moved across threads!: {}", illegal),

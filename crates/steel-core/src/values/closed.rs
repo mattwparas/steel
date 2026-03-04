@@ -1655,6 +1655,13 @@ impl Heap {
         self.memory_free_list.allocate(value)
     }
 
+    pub fn allocate_vec_without_collection(
+        &mut self,
+        value: Vec<SteelVal>,
+    ) -> HeapRef<Vec<SteelVal>> {
+        self.vector_free_list.allocate(value)
+    }
+
     // Clean up the values?
     pub fn allocate<'a>(
         &mut self,

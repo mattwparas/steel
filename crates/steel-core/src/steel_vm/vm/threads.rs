@@ -5,7 +5,7 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use steel_derive::function;
 
-use crate::rvals::from_serializable_value;
+use crate::rvals::{from_serializable_value, SerializedHeapRefVector};
 use crate::{
     compiler::modules::{BUILT_INS, MANGLER_PREFIX, MANGLER_SEPARATOR},
     rvals::{
@@ -315,6 +315,8 @@ struct SerializedValue {
     vtable_entries: Vec<SendableVTableEntry>,
 
     serialized_heap: HashMap<usize, SerializableSteelVal>,
+
+    serialized_vec_heap: HashMap<usize, Vec<SerializableSteelVal>>,
 }
 
 impl Custom for SerializedValue {}
@@ -329,8 +331,14 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         .map(|(key, value)| (key, SerializedHeapRef::Serialized(Some(value))))
         .collect();
 
+    let mut vector_mapping = std::mem::take(&mut inner.serialized_vec_heap)
+        .into_iter()
+        .map(|(key, value)| (key, SerializedHeapRefVector::Serialized(Some(value))))
+        .collect();
+
     // Have these values point to the new place
     let mut patcher = HashMap::new();
+    let mut vector_patcher = HashMap::new();
     let mut built_functions = HashMap::new();
 
     let mut serializer = HeapSerializer {
@@ -340,6 +348,8 @@ fn deserialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Res
         thread: &mut ctx.thread,
         function_mapping: HashMap::new(),
         global_mapping: HashMap::new(),
+        fake_vector_heap: &mut vector_mapping,
+        vectors_to_fill_in: &mut vector_patcher,
     };
 
     // Populate the symbol maps, using all of the values
@@ -556,6 +566,7 @@ fn serialize_individual_value_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Resul
         referenced_globals: old_mapping,
         vtable_entries: entries,
         serialized_heap: initial_map,
+        serialized_vec_heap: initial_vector_map,
     };
 
     // dbg!(&value);
