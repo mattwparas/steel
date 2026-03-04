@@ -128,7 +128,8 @@ declare_builtins!(
     "#%private/steel/reader" => "../scheme/modules/reader.scm",
     "#%private/steel/stdlib" => "../scheme/stdlib.scm",
     "#%private/steel/match" => "../scheme/modules/match.scm",
-    "#%private/steel/sort" => "../scheme/modules/sort.scm"
+    "#%private/steel/sort" => "../scheme/modules/sort.scm",
+    "steel/serde" => "../scheme/modules/serde.scm"
 );
 
 create_prelude!(
