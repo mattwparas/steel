@@ -883,8 +883,6 @@ impl VTable {
 
     #[cfg(not(feature = "sync"))]
     pub fn get_by_sendable_entry(entry: SendableVTableEntry) -> Option<StructTypeDescriptor> {
-        let guard = VTABLE.read();
-
         VTABLE.with(|x| {
             let guard = x.borrow();
 
