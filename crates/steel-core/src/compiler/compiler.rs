@@ -1368,7 +1368,11 @@ impl Compiler {
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
 
-        if std::env::var("STEEL_CLOSURE_LIFTING").is_ok() {
+        if std::env::var("STEEL_CLOSURE_LIFTING")
+            .as_ref()
+            .map(|x| x.as_str())
+            != Ok("false")
+        {
             semantic.lift_closures();
         }
 
