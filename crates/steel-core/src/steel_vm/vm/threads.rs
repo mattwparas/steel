@@ -206,7 +206,7 @@ pub fn closure_into_serializable(
             }
         }
 
-        let prototype = SerializedLambdaPrototype {
+        let mut prototype = SerializedLambdaPrototype {
             id: c.id,
 
             body_exp: c.body_exp.iter().cloned().collect(),
@@ -215,6 +215,10 @@ pub fn closure_into_serializable(
             is_multi_arity: c.is_multi_arity,
             constants,
         };
+
+        if let Some(header) = c.header {
+            prototype.body_exp[0].op_code = header;
+        }
 
         CACHED_CLOSURES.with(|x| x.borrow_mut().insert(c.id, prototype.clone()));
 
