@@ -144,7 +144,7 @@ jobs:
       - uses: actions-rs/cargo@v1
         env:
           STEEL_HOME: ${{ env.STEEL_HOME }}
-          STEEL_JIT: "false"
+          STEEL_JIT: false
         with:
           command: test
           args: --all

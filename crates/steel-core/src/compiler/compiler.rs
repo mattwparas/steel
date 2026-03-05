@@ -1358,16 +1358,8 @@ impl Compiler {
         // analysis.populate_captures(&expanded_statements);
         // Do this again
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
-
         semantic.replace_anonymous_function_calls_with_plain_lets();
-
         semantic.refresh_variables();
-
-        // Lets see what this does...
-        // semantic.analyze_arity_checks();
-
-        // Flatten the empty lets
-        // semantic.flatten_empty_lets();
 
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
@@ -1379,9 +1371,6 @@ impl Compiler {
         {
             semantic.lift_closures();
         }
-
-        // semantic.inline_idents_across_module_boundaries()?;
-        // semantic.refresh_variables();
 
         // TODO: Configure inlining function size
 
@@ -1425,10 +1414,6 @@ impl Compiler {
             self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;
 
         SingleExprOptimizer::run(&mut expanded_statements);
-
-        // if std::env::var("STEEL_DEBUG_AST").is_ok() {
-        //     steel_parser::ast::AstTools::pretty_print_log(&expanded_statements);
-        // }
 
         Ok(expanded_statements)
 
