@@ -5478,11 +5478,12 @@ fn handle_new_start_closure(ctx: *mut VmCore, ip: usize, offset: usize) -> Steel
         ctx.thread.function_interner.spans.insert(closure_id, spans);
 
         #[cfg(feature = "jit2")]
-        let mut constructed_lambda = if std::env::var("STEEL_JIT").is_ok() {
-            jit::jit_compile_lambda(ctx, constructed_lambda)
-        } else {
-            constructed_lambda
-        };
+        let mut constructed_lambda =
+            if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
+                jit::jit_compile_lambda(ctx, constructed_lambda)
+            } else {
+                constructed_lambda
+            };
 
         ctx.thread
             .function_interner
