@@ -1335,7 +1335,11 @@ impl Compiler {
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
         // Inline across module boundaries
-        if std::env::var("STEEL_MODULE_INLINE").is_ok() {
+        if std::env::var("STEEL_MODULE_INLINE")
+            .as_ref()
+            .map(|x| x.as_str())
+            != Ok("false")
+        {
             semantic.inline_idents_across_module_boundaries(self.modules())?;
             semantic.refresh_variables();
         }
