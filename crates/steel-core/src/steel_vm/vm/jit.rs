@@ -76,8 +76,6 @@ pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> 
 
     func.body_exp = Arc::from(instructions.into_boxed_slice());
 
-    // println!("Compiled: {}", func.id);
-
     func
 }
 
