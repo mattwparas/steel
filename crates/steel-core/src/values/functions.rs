@@ -141,8 +141,10 @@ pub struct ByteCodeLambda {
 
     #[cfg(feature = "jit2")]
     pub(crate) super_instructions: Option<fn(&mut crate::steel_vm::vm::VmCore)>,
-    // #[cfg(feature = "jit2")]
-    // pub(crate) tail_call: bool,
+
+    // In the event this is serialized and its been jit compiled, replace
+    // the first instruction with this, since this is what is was originally
+    pub(crate) header: Option<OpCode>,
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -269,8 +271,8 @@ impl ByteCodeLambda {
 
             #[cfg(feature = "jit2")]
             super_instructions: None,
-            // #[cfg(feature = "jit2")]
-            // tail_call: false,
+
+            header: None,
         }
     }
 

@@ -67,6 +67,11 @@ pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> 
     func.super_instructions = super_instructions;
 
     let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
+
+    // Save the entry instruction in the event we end up serializing this
+    // later.
+    func.header = Some(instructions[0].op_code);
+
     instructions[0].op_code = OpCode::DynSuperInstruction;
 
     func.body_exp = Arc::from(instructions.into_boxed_slice());
