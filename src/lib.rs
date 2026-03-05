@@ -588,7 +588,7 @@ fn syntax_test_suite() {
 #[test]
 fn serde_roundtrip() {
     let args = SteelCliArgs {
-        action: none,
+        action: None,
         default_file: Some(PathBuf::from("tests/roundtrip.scm")),
         arguments: vec![],
     };
