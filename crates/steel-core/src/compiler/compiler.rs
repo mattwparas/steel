@@ -1367,7 +1367,7 @@ impl Compiler {
         if std::env::var("STEEL_CLOSURE_LIFTING")
             .as_ref()
             .map(|x| x.as_str())
-            == Ok("false")
+            != Ok("false")
         {
             semantic.lift_closures();
         }

@@ -5482,7 +5482,7 @@ fn handle_new_start_closure(ctx: *mut VmCore, ip: usize, offset: usize) -> Steel
 
         #[cfg(feature = "jit2")]
         let mut constructed_lambda =
-            if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) == Ok("1") {
+            if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
                 jit::jit_compile_lambda(ctx, constructed_lambda)
             } else {
                 constructed_lambda
