@@ -77,7 +77,30 @@ impl<'a> Lexer<'a> {
             }
         }
     }
-
+    fn read_here_string(&mut self) -> Result<TokenType<InternedString>>{
+        let mut buf = String::new();
+        let mut delim = String::new();
+        // read delimiter string
+        while let Some(&c) = self.chars.peek(){
+            self.eat();
+            match c {
+                '\n' => break,
+                w if w.is_whitespace() => return Err(TokenError::UnexpectedChar(w)),
+                _ => delim.push(c),
+            }
+        }
+        // now that we know what the delimiter is, we eat until we find it
+        while let Some(&c) = self.chars.peek() {
+            self.eat();
+            buf.push(c);
+            if buf.ends_with(&delim){
+                buf.truncate(buf.len()-delim.len());
+                return Ok(TokenType::StringLiteral(buf.into()))
+            }
+        }
+        Err(TokenError::IncompleteString)
+    }
+    
     fn read_string(&mut self) -> Result<TokenType<InternedString>> {
         // Skip the opening quote.
         self.eat();
@@ -788,6 +811,16 @@ impl<'a> Iterator for Lexer<'a> {
                     Some('#') => {
                         self.eat();
                         Err(TokenError::UnexpectedChar('#'))
+                    }
+                    Some('<') => {
+                        self.eat();
+                        let next = self.chars.peek().copied();
+                        match next {
+                            Some('<') => {
+                                self.eat();
+                                self.read_here_string()}
+                            _ => self.read_word()
+                        }
                     }
                     _ => self.read_hash_value(),
                 };
