@@ -1370,6 +1370,7 @@ impl Compiler {
             != Ok("false")
         {
             semantic.lift_closures();
+            semantic.refresh_variables();
         }
 
         // TODO: Configure inlining function size
