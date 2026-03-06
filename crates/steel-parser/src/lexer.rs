@@ -85,6 +85,7 @@ impl<'a> Lexer<'a> {
             self.eat();
             match c {
                 '\n' => break,
+                '\r' => {},
                 w if w.is_whitespace() => return Err(TokenError::UnexpectedChar(w)),
                 _ => delim.push(c),
             }
