@@ -4395,7 +4395,7 @@ impl<'a> VmCore<'a> {
 
             #[cfg(feature = "jit2")]
             let constructed_lambda =
-                if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
+                if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) == Ok("1") {
                     jit::jit_compile_lambda(self, constructed_lambda)
                 } else {
                     constructed_lambda

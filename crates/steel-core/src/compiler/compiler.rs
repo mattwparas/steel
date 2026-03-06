@@ -1338,7 +1338,7 @@ impl Compiler {
         if std::env::var("STEEL_MODULE_INLINE")
             .as_ref()
             .map(|x| x.as_str())
-            != Ok("false")
+            == Ok("1")
         {
             semantic.inline_idents_across_module_boundaries(self.modules())?;
             semantic.refresh_variables();
@@ -1367,7 +1367,7 @@ impl Compiler {
         if std::env::var("STEEL_CLOSURE_LIFTING")
             .as_ref()
             .map(|x| x.as_str())
-            != Ok("false")
+            == Ok("false")
         {
             semantic.lift_closures();
         }
