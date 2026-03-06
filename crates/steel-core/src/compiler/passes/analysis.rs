@@ -1307,10 +1307,14 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
         let mut stack_offset = self.stack_offset;
         let rollback_offset = stack_offset;
 
+        let defining_context = self.defining_context.take();
+
         for expr in l.expression_arguments() {
             self.visit(expr);
             self.stack_offset += 1;
         }
+
+        self.defining_context = defining_context;
 
         self.tail_call_eligible = eligibility;
 
