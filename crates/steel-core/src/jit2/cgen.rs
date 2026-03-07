@@ -3088,8 +3088,6 @@ impl FunctionTranslator<'_> {
                         .ins()
                         .load(types::I32, MemFlags::new(), pointer_value, 16);
 
-                self.call_function_args_no_context("#%debug-count", &[length]);
-
                 let is_empty = self.builder.ins().icmp_imm(IntCC::Equal, length, 0);
                 self.builder.ins().jump(merge_block, &[is_empty]);
 
