@@ -2136,8 +2136,8 @@ pub fn set_box(value: &GcMut<SteelVal>, update_to: SteelVal) {
     *value.write() = update_to;
 }
 
-pub fn black_box(_: &[SteelVal]) -> Result<SteelVal> {
-    Ok(SteelVal::Void)
+pub fn black_box(a: &[SteelVal]) -> Result<SteelVal> {
+    Ok(a.get(0).cloned().unwrap_or(SteelVal::Void))
 }
 
 #[steel_derive::function(name = "struct->list")]

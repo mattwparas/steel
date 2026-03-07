@@ -2879,6 +2879,7 @@ impl FunctionTranslator<'_> {
 
     fn drop_tagged_value(&mut self, value: Value) {
         let tag = self.get_tag(value);
+
         let mut switch = Switch::new();
 
         let rc_block = self.builder.create_block();
@@ -2928,67 +2929,95 @@ impl FunctionTranslator<'_> {
         // as an argument to the JIT. For now we're not going to do that
         // while I figure out if we can even do this thing properly.
 
-        // let test = self.encode_integer(12345);
-        // let unboxed = self.unbox_value_to_pointer(test);
-        // self.call_function_args_no_context("#%debug-value", &[unboxed]);
-
-        // self.call_function_args_no_context("#%debug-steel-value", &[tagged_value]);
-
         let value = self.unbox_value_to_pointer(tagged_value);
-        let tag = self.get_tag(tagged_value);
 
-        let local_count =
+        // TODO: Do we even need the tag?
+        // let tag = self.get_tag(tagged_value);
+
+        let thread_id = self.get_thread_id();
+        let obj_thread_id =
             self.builder
                 .ins()
-                .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+                .load(Type::int(64).unwrap(), MemFlags::new(), value, 0);
 
-        let one = self.builder.ins().iconst(Type::int(32).unwrap(), 1);
-
-        let sub_one = self.builder.ins().isub(local_count, one);
-
-        // self.call_function_args_no_context("#%debug-count", &[local_count]);
-        // self.call_function_args_no_context("#%debug-count", &[sub_one]);
-        // self.call_function_args_no_context("#%debug-tag", &[tag]);
-
-        // println!("{:?}", self.builder.func.dfg.value_type(sub_one));
-
-        self.builder.ins().store(MemFlags::new(), sub_one, value, 8);
-
-        // self.call_function_args_no_context("#%debug-steel-value", &[tagged_value]);
-
-        let yes_drop = self.builder.create_block();
-        let merge_block = self.builder.create_block();
-
-        let updated_count =
-            self.builder
-                .ins()
-                .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
-
-        // self.call_function_args_no_context("#%debug-count", &[updated_count]);
-        // self.call_function_args_no_context("#%debug-steel-value", &[tagged_value]);
-
-        // Then we need to check if its greater than 0:
-
-        let should_continue = self
+        // Now, we're going to check if the value is local to this thread:
+        let is_thread_local = self
             .builder
             .ins()
-            .icmp_imm(IntCC::SignedGreaterThan, sub_one, 0);
+            .icmp(IntCC::Equal, thread_id, obj_thread_id);
 
-        // Merge block because we need to jump back and continue
+        // Make two kinds of blocks:
+        let yes_tl = self.builder.create_block();
+        let no_tl = self.builder.create_block();
+
+        let total_merge = self.builder.create_block();
+
         self.builder
             .ins()
-            .brif(should_continue, merge_block, &[], yes_drop, &[]);
+            .brif(is_thread_local, yes_tl, &[], no_tl, &[]);
 
-        self.builder.switch_to_block(yes_drop);
-        self.builder.seal_block(yes_drop);
+        self.builder.switch_to_block(yes_tl);
+        self.builder.seal_block(yes_tl);
 
-        // Drop the value after we've determined that we can inline the drop function.
-        self.call_function_args_no_context("drop-value-post-fast-dec", &[tagged_value]);
+        // Yes block
+        {
+            let local_count =
+                self.builder
+                    .ins()
+                    .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
 
-        self.builder.ins().jump(merge_block, &[]);
+            let one = self.builder.ins().iconst(Type::int(32).unwrap(), 1);
 
-        self.builder.switch_to_block(merge_block);
-        self.builder.seal_block(merge_block);
+            let sub_one = self.builder.ins().isub(local_count, one);
+
+            self.builder.ins().store(MemFlags::new(), sub_one, value, 8);
+
+            let yes_drop = self.builder.create_block();
+            let merge_block = self.builder.create_block();
+
+            let updated_count =
+                self.builder
+                    .ins()
+                    .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+
+            // Then we need to check if its greater than 0:
+
+            let should_continue = self
+                .builder
+                .ins()
+                .icmp_imm(IntCC::SignedGreaterThan, sub_one, 0);
+
+            // Merge block because we need to jump back and continue
+            self.builder
+                .ins()
+                .brif(should_continue, merge_block, &[], yes_drop, &[]);
+
+            self.builder.switch_to_block(yes_drop);
+            self.builder.seal_block(yes_drop);
+
+            // Drop the value after we've determined that we can inline the drop function.
+            self.call_function_args_no_context("drop-value-post-fast-dec", &[tagged_value]);
+
+            self.builder.ins().jump(merge_block, &[]);
+
+            self.builder.switch_to_block(merge_block);
+            self.builder.seal_block(merge_block);
+
+            self.builder.ins().jump(total_merge, &[]);
+        }
+
+        // Slow drop with decrement included
+        {
+            self.builder.switch_to_block(no_tl);
+            self.builder.seal_block(no_tl);
+
+            self.call_function_args_no_context("drop-value-slow-dec", &[tagged_value]);
+
+            self.builder.ins().jump(total_merge, &[]);
+        }
+
+        self.builder.switch_to_block(total_merge);
+        self.builder.seal_block(total_merge);
     }
 
     // TODO: Replace this with a more sophisticated implementation that doesn't necessarily
@@ -3007,7 +3036,7 @@ impl FunctionTranslator<'_> {
             // branching - if this is used in the test position
             // of an if statement, we should encode the type checking
             // through.
-            Value(stack_value) if false => {
+            Value(stack_value) => {
                 self.shadow_stack.pop();
                 // If we've already inferrred this type as a pair,
                 // we can skip the code generation for checking the tags
@@ -3032,6 +3061,7 @@ impl FunctionTranslator<'_> {
                 let value = stack_value.as_steelval(self);
                 // Encode this manually:
                 let tag = self.get_tag(value);
+
                 let list_tag = self.tag(23);
 
                 // Compare these tags:
@@ -3052,11 +3082,13 @@ impl FunctionTranslator<'_> {
                 self.builder.switch_to_block(pair_block);
                 self.builder.seal_block(pair_block);
 
-                let value = self.unbox_value_to_pointer(value);
-                let length = self
-                    .builder
-                    .ins()
-                    .load(types::I64, MemFlags::new(), value, 16);
+                let pointer_value = self.unbox_value_to_pointer(value);
+                let length =
+                    self.builder
+                        .ins()
+                        .load(types::I32, MemFlags::new(), pointer_value, 16);
+
+                self.call_function_args_no_context("#%debug-count", &[length]);
 
                 let is_empty = self.builder.ins().icmp_imm(IntCC::Equal, length, 0);
                 self.builder.ins().jump(merge_block, &[is_empty]);
@@ -4495,6 +4527,16 @@ impl FunctionTranslator<'_> {
         return result;
     }
 
+    fn get_thread_id(&mut self) -> Value {
+        let ctx = self.get_ctx();
+        let thread_id =
+            self.builder
+                .ins()
+                .load(Type::int(64).unwrap(), MemFlags::trusted(), ctx, 8);
+
+        thread_id
+    }
+
     fn check_deopt_ptr_load(&mut self) -> Value {
         let ctx = self.get_ctx();
         let is_native = self
@@ -4503,53 +4545,6 @@ impl FunctionTranslator<'_> {
             .load(Type::int(8).unwrap(), MemFlags::trusted(), ctx, 0);
 
         is_native
-    }
-
-    fn _check_deopt_new(&mut self) {
-        let result = self.check_deopt_ptr_load();
-        let then_block = self.builder.create_block();
-
-        self.builder
-            .ins()
-            .brif(result, then_block, &[], self.exit_block, &[]);
-
-        // let else_block = self.builder.create_block();
-        // let merge_block = self.builder.create_block();
-        // self.builder
-        //     .append_block_param(merge_block, Type::int(8).unwrap());
-        // Do the thing.
-        // self.builder
-        //     .ins()
-        //     .brif(result, then_block, &[], else_block, &[]);
-        self.builder.switch_to_block(then_block);
-        self.builder.seal_block(then_block);
-        // let then_return = BlockArg::Value(self.builder.ins().iconst(Type::int(8).unwrap(), 1));
-
-        // Just... translate instructions?
-        // self.stack_to_ssa();
-
-        // if self.tco {
-        //     self.ip = self.instructions.len() + 1;
-        //     self.builder.ins().jump(self.exit_block, &[]);
-        //     return;
-        // }
-
-        // Jump to the merge block, passing it the block return value.
-        // self.builder.ins().jump(merge_block, &[then_return]);
-        // self.builder.switch_to_block(else_block);
-        // self.builder.seal_block(else_block);
-
-        // Set the IP to the new spot:
-        // {
-        //     self.set_ctx_ip(self.ip);
-        // }
-
-        // // TODO: Update with the proper return value
-        // let else_return = self.create_i128(0);
-        // self.builder.ins().return_(&[]);
-        // self.builder.switch_to_block(merge_block);
-        // // // We've now seen all the predecessors of the merge block.
-        // self.builder.seal_block(merge_block);
     }
 
     fn check_deopt(&mut self) {
