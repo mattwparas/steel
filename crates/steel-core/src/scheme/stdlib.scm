@@ -845,7 +845,6 @@
             (map-many function '() lists)))))
 
 (define (foldl func accum lst)
-  (stdout-simple-displayln "CALLING FOLDL with" func accum lst)
   (if (null? lst)
       accum
       (foldl func (func (car lst) accum) (cdr lst))))

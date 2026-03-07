@@ -3733,7 +3733,6 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                             if let Some(ExprKind::List(il)) = l.first() {
                                 if il.first_ident().copied() == Some(*UNBOX) {
                                     if il.second_ident().copied() == Some(self.unbox_var) {
-                                        println!("Found value that escapes: {}", self.unbox_var);
                                         self.escapes = true;
                                         return;
                                     }
