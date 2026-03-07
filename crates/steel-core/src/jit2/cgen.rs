@@ -3089,6 +3089,7 @@ impl FunctionTranslator<'_> {
                         .load(types::I32, MemFlags::new(), pointer_value, 16);
 
                 let is_empty = self.builder.ins().icmp_imm(IntCC::Equal, length, 0);
+
                 self.builder.ins().jump(merge_block, &[is_empty]);
 
                 self.builder.switch_to_block(not_pair_block);
@@ -3173,19 +3174,6 @@ impl FunctionTranslator<'_> {
                 // Encode this manually:
                 let tag = self.get_tag(value);
 
-                // TODO: Encode these tags in a better way besides manually
-                // doing this here
-                // let pair_tag = self.tag(24);
-                // let list_tag = self.tag(23);
-
-                // Compare these tags:
-                // TODO: Also - we'll need to check the length of the list!
-                // this should be able to be done inline as well, we just have to load
-                // the index of the list.
-                // let is_list = self.builder.ins().icmp(IntCC::Equal, tag, list_tag);
-                // let is_pair = self.builder.ins().icmp(IntCC::Equal, tag, pair_tag);
-                // let comparison = self.builder.ins().bor(is_list, is_pair);
-
                 let mut switch = Switch::new();
                 let pair_block = self.builder.create_block();
                 let list_block = self.builder.create_block();
@@ -3211,10 +3199,12 @@ impl FunctionTranslator<'_> {
                     self.builder.seal_block(list_block);
 
                     let value = self.unbox_value_to_pointer(value);
+
+                    // Its not a pair if its an empty list
                     let length = self
                         .builder
                         .ins()
-                        .load(types::I64, MemFlags::new(), value, 16);
+                        .load(types::I32, MemFlags::new(), value, 16);
 
                     let not_empty = self.builder.ins().icmp_imm(IntCC::NotEqual, length, 0);
 
