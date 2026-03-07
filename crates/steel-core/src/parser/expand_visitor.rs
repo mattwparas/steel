@@ -470,6 +470,10 @@ impl<'a> VisitorMutRef for Expander<'a> {
 
                         // println!("Getting here: {}", l);
 
+                        if l.args.len() == 1 {
+                            stop!(BadSyntax => "define has neither head nor body"; l.location);
+                        }
+
                         match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {
                                 self.in_scope_values.define(*l.first_ident().unwrap());
@@ -874,6 +878,10 @@ impl<'a> VisitorMutRef for ExpanderMany<'a> {
                         // todo!()
 
                         // println!("Getting here: {}", l);
+
+                        if l.args.len() == 1 {
+                            stop!(BadSyntax => "define has neither head nor body"; l.location);
+                        }
 
                         match &l.args[1] {
                             ExprKind::List(l) if l.first_ident().is_some() => {
