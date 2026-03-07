@@ -1,11 +1,12 @@
 use steel::{
+    gc::Shared,
     rvals::Custom,
     steel_vm::ffi::{FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
 };
 
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
 
-use syntect::highlighting::{Color, ThemeSet};
+use syntect::highlighting::ThemeSet;
 use syntect::{html::highlighted_html_for_string, parsing::SyntaxSet};
 
 // fn main() {
@@ -43,7 +44,11 @@ impl Custom for SyntaxHighlighter {}
 
 #[derive(Debug)]
 struct SyntectError(syntect::Error);
-impl Custom for SyntectError {}
+impl Custom for SyntectError {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(format!("{:?}", self.0)))
+    }
+}
 
 impl SyntaxHighlighter {
     pub fn new() -> Self {
@@ -87,7 +92,11 @@ pub struct MarkdownEndTag {
 }
 
 impl Custom for MarkdownTag {}
-impl Custom for MarkdownEndTag {}
+impl Custom for MarkdownEndTag {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(format!("{:?} @ {:?}", self.tag, self.source)))
+    }
+}
 impl Custom for MarkdownEvent {}
 
 impl MarkdownEvent {

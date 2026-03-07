@@ -183,6 +183,25 @@ fn install_pgo() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn dist_source_rename() -> Result<(), Box<dyn Error>> {
+    std::process::Command::new("git")
+        .args(&[
+            "archive",
+            "--prefix=source/",
+            "--format",
+            "tar.gz",
+            "HEAD",
+            "-o",
+            "steel-source.tar.gz",
+        ])
+        .spawn()
+        .unwrap()
+        .wait()
+        .unwrap();
+
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let task = std::env::args().nth(1);
     match task {
@@ -193,6 +212,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "docgen" => generate_docs()?,
             "test" => run_tests()?,
             "pgo" => install_pgo()?,
+            "dist-source-rename" => dist_source_rename()?,
             invalid => return Err(format!("Invalid task name: {}", invalid).into()),
         },
     };

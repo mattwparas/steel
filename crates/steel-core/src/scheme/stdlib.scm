@@ -173,8 +173,7 @@
 
     ;; What the heck is going on here?
     [(quasisyntax #%internal-crunch (syntax x))
-     (begin
-       (#%syntax/raw (quote x) (quasisyntax #%internal-crunch x) (#%syntax-span x)))]
+     (#%syntax/raw (quote x) (quasisyntax #%internal-crunch x) (#%syntax-span x))]
 
     [(quasisyntax #%internal-crunch ((unsyntax x) xs ...))
      (cons (list 'unsyntax (quasisyntax #%internal-crunch x))
@@ -188,13 +187,26 @@
 
     [(quasisyntax #%internal-crunch (#%unsyntax x)) x]
 
+    ; [(quasisyntax #%internal-crunch (#%unsyntax-splicing x xs ...))
+    ;  (#%syntax/raw (quote x) (append (syntax-e x) '()) (#%syntax-span x))]
+
+    ; (let ([evald x])
+    ;   (begin
+    ;     (stdout-simple-displayln "first case" evald)
+    ;     (#%syntax/raw (quote x) evald (#%syntax-span x))))
+    [(quasisyntax #%internal-crunch (#%unsyntax-splicing x)) x]
+
     [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x)))
-     (#%syntax/raw (quote x) (append (syntax-e x) '()) (#%syntax-span x))]
+     (let ([evald x]) (#%syntax/raw (quote x) evald (#%syntax-span x)))]
 
     [(quasisyntax #%internal-crunch ((#%unsyntax-splicing x) xs ...))
-     (#%syntax/raw (quote (xs ...))
-                   (append (syntax-e x) (syntax-e (quasisyntax #%internal-crunch (xs ...))))
-                   (#%syntax-span (xs ...)))]
+     (let ([evald x])
+       (#%syntax/raw (quote (xs ...))
+                     (append (if (list? evald)
+                                 evald
+                                 (syntax-e evald))
+                             (syntax-e (quasisyntax #%internal-crunch (xs ...))))
+                     (#%syntax-span (xs ...))))]
 
     ;; TODO: Do unquote-splicing as well, follow the same rules as unquote
     [(quasisyntax #%internal-crunch ((unsyntax-splicing x)))
@@ -222,12 +234,19 @@
          (#%syntax/raw '() '() (#%syntax-span x))
          (#%syntax/raw 'x 'x (#%syntax-span x)))]
 
+    ;; This is the absolute worst!
+    [(quasisyntax (x))
+     (syntax (#%syntax/raw (quote (x)) (quasisyntax #%internal-crunch x) (#%syntax-span (x xs ...))))]
+
     [(quasisyntax (x xs ...))
      (syntax (#%syntax/raw (quote (x xs ...))
                            (cons (quasisyntax #%internal-crunch x)
                                  (syntax-e (quasisyntax #%internal-crunch (xs ...))))
                            (#%syntax-span (x xs ...))))]
 
+    ;; If x is something like (lambda (x) ...)
+    ;; it won't match properly, because the lambda is not getting
+    ;; destructed into a list.
     [(quasisyntax x)
      (if (empty? 'x)
          (#%syntax/raw '() '() (#%syntax-span x))
@@ -1127,6 +1146,11 @@
       0
       (abs (* b (floor (/ a (gcd a b)))))))
 
+(define (#%for-each func2 lst2)
+  (unless (null? lst2)
+    (func2 (car lst2))
+    (#%for-each func2 (cdr lst2))))
+
 ;;@doc
 ;; Applies a procedure to all elements of a list
 ;;
@@ -1143,9 +1167,7 @@
 (define (for-each func lst)
   (if (function? func)
       (if (list? lst)
-          (unless (null? lst)
-            (func (car lst))
-            (for-each func (cdr lst)))
+          (#%for-each func lst)
           (error-with-span (current-function-span) "for-each expected a list, found: " lst))
       (error-with-span (current-function-span) "for-each expected a function, found: " func)))
 

@@ -6,6 +6,7 @@ use rustyline::{
 };
 use steel::compiler::modules::steel_home;
 use steel::rvals::{Custom, SteelString};
+use steel::steel_vm::builtin::BuiltInModule;
 
 use std::borrow::Cow;
 use std::error::Error;
@@ -282,7 +283,15 @@ impl<S: Display, P: AsRef<Path> + Debug> Repl<S, P> {
             tx.lock().unwrap().send(()).unwrap();
         };
 
-        self.vm.register_fn("quit", cancellation_function);
+        let mut module = BuiltInModule::new("#%private/steel/repl");
+        module.register_fn("quit", cancellation_function);
+
+        for (key, value) in module.inner_map().iter() {
+            self.vm.register_value(key, value.clone());
+        }
+
+        self.vm.register_module(module);
+
         let safepoint = self.vm.get_thread_state_controller();
 
         let globals = Arc::new(Mutex::new(self.vm.globals().iter().copied().collect()));

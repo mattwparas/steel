@@ -129,7 +129,7 @@
     (displayln "-----> Entrypoint name:" executable-name)
     (displayln "-----> Resulting executable location:" destination-binary)
 
-    (let ([binary-file (open-output-file destination-binary)])
+    (let ([binary-file (open-output-file destination-binary #:exists 'truncate)])
 
       (write-string (shebang-line) binary-file)
       (newline binary-file)

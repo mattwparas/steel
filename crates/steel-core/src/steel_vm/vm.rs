@@ -1,11 +1,17 @@
 use crate::compiler::compiler::Compiler;
+use crate::compiler::modules::fully_qualified_to_relative;
+use crate::compiler::passes::VisitorMutRefUnit;
 use crate::core::instructions::{pretty_print_dense_instructions, u24};
 use crate::env::SharedVectorWrapper;
 use crate::gc::shared::{
     MutContainer, ShareableMut, Shared, StandardShared, StandardSharedMut, WeakShared,
     WeakSharedMut,
 };
+use crate::parser::expand_visitor::GlobalMap;
 use crate::parser::expander::BindingKind;
+use crate::parser::kernel::{
+    GlobalSymbolMap, ParentScopeSet, TOP_LEVEL_GLOBAL_MAP, TOP_LEVEL_SCOPE_MAP,
+};
 use crate::parser::replace_idents::expand_template;
 use crate::primitives::lists::car;
 use crate::primitives::lists::cdr;
@@ -14,7 +20,6 @@ use crate::primitives::lists::steel_cons;
 use crate::primitives::lists::steel_list_ref;
 use crate::primitives::numbers::add_two_fallible;
 use crate::primitives::vectors::vec_ref;
-use crate::rvals::as_underlying_type;
 use crate::rvals::cycles::BreadthFirstSearchSteelValVisitor;
 use crate::rvals::number_equality;
 use crate::rvals::AsRefMutSteelVal;
@@ -22,6 +27,7 @@ use crate::rvals::AsRefSteelVal;
 use crate::rvals::BoxedAsyncFunctionSignature;
 use crate::rvals::FromSteelVal as _;
 use crate::rvals::SteelString;
+use crate::rvals::{as_underlying_type, AsRefSteelValFromRef};
 use crate::steel_vm::primitives::steel_set_box_mutable;
 use crate::steel_vm::primitives::steel_unbox_mutable;
 use crate::steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive, steel_not};
@@ -60,6 +66,7 @@ use std::io::Read as _;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
+use steel_parser::ast::Atom;
 
 use super::engine::EngineId;
 
@@ -1895,7 +1902,12 @@ impl<'a> VmCore<'a> {
         Continuation {
             inner: StandardShared::new(MutContainer::new(ContinuationMark::Open(
                 OpenContinuationMark {
-                    current_frame: self.thread.stack_frames.last().unwrap().clone(),
+                    current_frame: self
+                        .thread
+                        .stack_frames
+                        .last()
+                        .cloned()
+                        .unwrap_or_else(|| self.thread.current_frame.clone()),
                     stack_frame_offset: self.thread.stack.len(),
                     current_stack_values: self.thread.stack[offset..].to_vec(),
                     instructions: self.instructions.clone(),
@@ -1914,7 +1926,12 @@ impl<'a> VmCore<'a> {
         ClosedContinuation {
             stack: self.thread.stack.clone(),
             instructions: self.instructions.clone(),
-            current_frame: self.thread.stack_frames.last().unwrap().clone(),
+            current_frame: self
+                .thread
+                .stack_frames
+                .last()
+                .cloned()
+                .unwrap_or_else(|| self.thread.current_frame.clone()),
             stack_frames: self.thread.stack_frames.clone(),
             ip: self.ip,
             sp: self.sp,
@@ -1948,24 +1965,24 @@ impl<'a> VmCore<'a> {
 
     pub fn snapshot_stack_trace(&self) -> DehydratedStackTrace {
         let last = self.thread.stack_frames.len();
-
         DehydratedStackTrace::new(
             self.thread
                 .stack_frames
                 .iter()
                 .enumerate()
-                .map(|(index, x)| {
+                .map(|(index, frame)| {
                     DehydratedCallContext::new(
                         self.thread
                             .function_interner
                             .spans
-                            .get(&x.function.id)
+                            .get(&frame.function.id)
                             .and_then(|x| {
-                                x.get(if index == last {
+                                let ip = if index == last - 1 {
                                     self.ip
                                 } else {
-                                    self.ip.saturating_sub(1)
-                                })
+                                    frame.ip.saturating_sub(1) as _
+                                };
+                                x.get(ip).or_else(|| self.root_spans.get(ip))
                             })
                             .copied(),
                     )
@@ -4389,11 +4406,12 @@ impl<'a> VmCore<'a> {
                 .insert(closure_id, spans);
 
             #[cfg(feature = "jit2")]
-            let constructed_lambda = if std::env::var("STEEL_JIT").is_ok() {
-                jit::jit_compile_lambda(self, constructed_lambda)
-            } else {
-                constructed_lambda
-            };
+            let constructed_lambda =
+                if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
+                    jit::jit_compile_lambda(self, constructed_lambda)
+                } else {
+                    constructed_lambda
+                };
 
             let constructed_lambda = Gc::new(constructed_lambda);
 
@@ -4647,6 +4665,7 @@ impl<'a> VmCore<'a> {
 
     // Set local value:
     // this thing needs to be spilled? Does this work properly?
+    #[cfg(feature = "jit2")]
     fn handle_set_local_value(&mut self, index: usize, value_to_set: SteelVal) -> SteelVal {
         let offset = self.get_offset();
         // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
@@ -5614,8 +5633,29 @@ pub fn call_cc(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> 
     Some(Ok(SteelVal::ContinuationFunction(continuation)))
 }
 
+#[steel_derive::context(name = "debug-globals", arity = "Exact(0)")]
+fn debug_globals(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<SteelVal>> {
+    Some(debug_global_env(ctx, args))
+}
+
+fn debug_global_env(ctx: &mut VmCore, _args: &[SteelVal]) -> Result<SteelVal> {
+    let compiler = ctx.thread.compiler.read();
+
+    let symbols = compiler.symbol_map.values();
+    let globals = &ctx.thread.global_env.roots();
+
+    for (key, value) in symbols.iter().zip(globals.iter()) {
+        println!("{} = {}", key, value);
+    }
+
+    Ok(SteelVal::Void)
+}
+
 fn eval_impl(ctx: &mut crate::steel_vm::vm::VmCore, args: &[SteelVal]) -> Result<SteelVal> {
-    let expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+    // Can we have this... not lower?
+    let mut expr = crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[0])?;
+
+    expr = steel_parser::parser::lower_macro_and_require_definitions(expr)?;
 
     let maybe_path = ctx
         .thread
@@ -5848,6 +5888,29 @@ fn get_module_context(
     Some(Ok(last))
 }
 
+#[steel_derive::context(name = "current-module-relative", arity = "Exact(0)")]
+fn get_module_relative_context(
+    ctx: &mut crate::steel_vm::vm::VmCore,
+    args: &[SteelVal],
+) -> Option<Result<SteelVal>> {
+    let last = ctx
+        .thread
+        .module_context
+        .last()
+        .cloned()
+        .map(|x| PathBuf::from(x.as_str()));
+
+    let Some(last) = last else {
+        return Some(Ok(SteelVal::BoolV(false)));
+    };
+
+    let dirs = &ctx.thread.compiler.read().search_dirs;
+
+    let relative = fully_qualified_to_relative(last, dirs).unwrap();
+
+    Some(Ok(SteelVal::StringV(relative.to_str().unwrap().into())))
+}
+
 #[steel_derive::context(name = "#%push-module-context", arity = "Exact(1)")]
 fn push_module_context(
     ctx: &mut crate::steel_vm::vm::VmCore,
@@ -6033,6 +6096,21 @@ pub(crate) fn environment_offset(ctx: &mut VmCore, _args: &[SteelVal]) -> Option
 // back and forth will probably hamper performance significantly. That being said,
 // it is entirely at compile time, so probably _okay_
 pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Result<SteelVal> {
+    let (scope_value, global_value) = {
+        let guard = ctx.thread.compiler.read();
+        let scope_index = guard
+            .symbol_map
+            .get(&(InternedString::from(TOP_LEVEL_SCOPE_MAP)));
+        let global_index = guard
+            .symbol_map
+            .get(&(InternedString::from(TOP_LEVEL_GLOBAL_MAP)));
+
+        let scope_value = scope_index.map(|x| ctx.thread.global_env.repl_lookup_idx(x));
+        let global_value = global_index.map(|x| ctx.thread.global_env.repl_lookup_idx(x));
+
+        (scope_value, global_value)
+    };
+
     let mut bindings: rustc_hash::FxHashMap<_, _> = if let SteelVal::HashMapV(h) = &args[1] {
         h.iter()
             .map(|(k, v)| match (k, v) {
@@ -6070,16 +6148,61 @@ pub(crate) fn expand_syntax_case_impl(ctx: &mut VmCore, args: &[SteelVal]) -> Re
         if let SteelVal::SyntaxObject(_) = &args[0] {
             return Ok(args[0].clone());
         } else {
-            let template = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+            let template =
+                crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[0])?;
             return crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(
                 template,
             );
         }
     }
 
-    let mut template = crate::parser::ast::TryFromSteelValVisitorForExprKind::root(&args[0])?;
+    // println!(
+    //     "CALLING EXPAND SYNTAX CASE - kernel: {}",
+    //     ctx.thread.compiler.read().kernel.is_none()
+    // );
 
-    expand_template(&mut template, &mut bindings, &mut binding_kind)?;
+    // println!("Template: {}", &args[0]);
+
+    let mut template =
+        crate::parser::ast::TryFromSteelValVisitorForExprKind::root_quoted(&args[0])?;
+
+    struct UnresolvedByMacro;
+    impl VisitorMutRefUnit for UnresolvedByMacro {
+        fn visit_atom(&mut self, a: &mut Atom) {
+            a.syn.unresolved = true;
+        }
+    }
+
+    UnresolvedByMacro.visit(&mut template);
+
+    match (scope_value, global_value) {
+        (Ok(scope_value), Ok(map_value)) => {
+            let scope_guard = ParentScopeSet::as_ref_from_ref(&scope_value)?;
+            let map_guard = GlobalSymbolMap::as_ref_from_ref(&map_value)?;
+
+            expand_template(
+                &mut template,
+                &mut bindings,
+                &mut binding_kind,
+                &scope_guard.as_ro().set,
+                *map_guard.as_ro().map,
+            )?;
+        }
+        _ => {
+            expand_template(
+                &mut template,
+                &mut bindings,
+                &mut binding_kind,
+                &Default::default(),
+                GlobalMap::Map(&Default::default()),
+            )?;
+        }
+    }
+
+    // TODO: Pass a reference from the parent symbol map
+    // down to the child one, as well as "whatever" values are currently
+    // in scope at the call site. This can be tracked as well from the
+    // kernel expansion level.
 
     let mut res =
         crate::parser::tryfrom_visitor::SyntaxObjectFromExprKind::try_from_expr_kind(template);

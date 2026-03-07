@@ -3,10 +3,18 @@
 (require "download.scm")
 
 (define (list-packages index)
+  ; width of the "Package" string
+  (define package-width (string-length "Package"))
+  ; maximum length of the names of the packages,
+  ; clamped to the `package-width`
   (define package-name-width
-    (apply max
-           (map (lambda (package) (string-length (symbol->string (hash-ref package 'package-name))))
-                (hash-values->list index))))
+    (if (hash-empty? index)
+        package-width
+        (max package-width
+             (apply max
+                    (map (lambda (package)
+                           (string-length (symbol->string (hash-ref package 'package-name))))
+                         (hash-values->list index))))))
 
   (define version-width (string-length "Version"))
 
@@ -14,7 +22,7 @@
   (displayln)
 
   (display "Package")
-  (display (make-string (- package-name-width (string-length "Package")) #\SPACE))
+  (display (make-string (- package-name-width package-width) #\SPACE))
   (display "  ")
   (displayln "Version")
 

@@ -44,6 +44,7 @@ impl MemoizationTable {
     }
 }
 
+#[derive(Clone)]
 pub struct WeakMemoizationTable {
     #[cfg(not(feature = "sync"))]
     table: WeakKeyHashMap<alloc::rc::Weak<ByteCodeLambda>, HashMap<List<SteelVal>, SteelVal>>,
@@ -51,6 +52,8 @@ pub struct WeakMemoizationTable {
     #[cfg(feature = "sync")]
     table: WeakKeyHashMap<std::sync::Weak<ByteCodeLambda>, HashMap<List<SteelVal>, SteelVal>>,
 }
+
+impl Custom for WeakMemoizationTable {}
 
 impl WeakMemoizationTable {
     pub fn new() -> Self {
@@ -97,5 +100,3 @@ impl WeakMemoizationTable {
         }
     }
 }
-
-impl Custom for WeakMemoizationTable {}

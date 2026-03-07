@@ -900,8 +900,9 @@ impl<'a> VisitorMut for CodeGenerator<'a> {
         heap_allocated_arguments.sort_by_key(|x| x.stack_offset);
 
         for var in heap_allocated_arguments {
-            // println!("Found a var that is both mutated and captured");
-            // println!("{:#?}", var);
+            println!("Found a var that is both mutated and captured");
+            println!("{:#?}", var);
+            println!("{}", info.arguments.iter().find(|x| x.1 == var).unwrap().0);
 
             self.push(
                 LabeledInstruction::builder(OpCode::ALLOC).payload(var.stack_offset.unwrap() as _),

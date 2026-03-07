@@ -367,11 +367,12 @@ impl NonInteractiveProgramImage {
 
 pub struct LifetimeGuard<'a> {
     engine: &'a mut Engine,
+    count: usize,
 }
 
 impl<'a> Drop for LifetimeGuard<'a> {
     fn drop(&mut self) {
-        crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::free_all();
+        crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::free_n(self.count);
     }
 }
 
@@ -381,7 +382,7 @@ impl<'a> LifetimeGuard<'a> {
         T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
         EXT: CustomReference + 'static,
     >(
-        self,
+        mut self,
         obj: &'a T,
     ) -> Self {
         assert_eq!(
@@ -392,6 +393,7 @@ impl<'a> LifetimeGuard<'a> {
         crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::allocate_ro_object::<T, EXT>(
             obj,
         );
+        self.count += 1;
 
         self
     }
@@ -401,7 +403,7 @@ impl<'a> LifetimeGuard<'a> {
         T: CustomReference + ReferenceMarker<'b, Static = EXT> + 'b,
         EXT: CustomReference + 'static,
     >(
-        self,
+        mut self,
         obj: &'a mut T,
     ) -> Self {
         assert_eq!(
@@ -412,19 +414,21 @@ impl<'a> LifetimeGuard<'a> {
             obj,
         );
 
+        self.count += 1;
+
         self
     }
 
     pub fn consume<T>(self, mut thunk: impl FnMut(&mut Engine, Vec<SteelVal>) -> T) -> T {
         let values =
-            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_weak_references_to_steelvals();
+            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_weak_references_to_steelvals(self.count);
 
         thunk(self.engine, values)
     }
 
     pub fn consume_once<T>(self, mut thunk: impl FnOnce(&mut Engine, Vec<SteelVal>) -> T) -> T {
         let values =
-            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_weak_references_to_steelvals();
+            crate::gc::unsafe_erased_pointers::OpaqueReferenceNursery::drain_weak_references_to_steelvals(self.count);
 
         thunk(self.engine, values)
     }
@@ -1385,7 +1389,10 @@ impl Engine {
             obj,
         );
 
-        LifetimeGuard { engine: self }
+        LifetimeGuard {
+            engine: self,
+            count: 1,
+        }
     }
 
     pub fn with_mut_reference<
@@ -1406,7 +1413,10 @@ impl Engine {
             obj,
         );
 
-        LifetimeGuard { engine: self }
+        LifetimeGuard {
+            engine: self,
+            count: 1,
+        }
     }
 
     // Tie the lifetime of this object to the scope of this execution
@@ -2742,7 +2752,7 @@ fn test_raw_engine() {
 fn test_ctx_func() {
     let mut engine = Engine::new();
 
-    let mut module = BuiltInModule::new("test/module");
+    let mut module = BuiltInModule::new("test/module-ctx-func");
 
     module.register_fn("foo", |implicit: SteelVal| {
         println!("Called with implicit: {}", implicit);
@@ -2754,7 +2764,9 @@ fn test_ctx_func() {
 
     engine.register_module(module);
 
-    engine.run("(require-builtin test/module)").unwrap();
+    engine
+        .run("(require-builtin test/module-ctx-func)")
+        .unwrap();
     engine.run("(foo)").unwrap();
     engine.update_value("global-context", SteelVal::IntV(10));
     engine.run("(foo)").unwrap();
@@ -2764,7 +2776,7 @@ fn test_ctx_func() {
 fn test_ctx_func_registration() {
     let mut engine = Engine::new();
 
-    let mut module = BuiltInModule::new("test/module-func");
+    let mut module = BuiltInModule::new("test/module-ctx-func-registration");
     engine.register_value("global-context", SteelVal::StringV("Hello world!".into()));
 
     module.register_fn_with_ctx("global-context", "foo", |implicit: SteelVal| {
@@ -2773,7 +2785,9 @@ fn test_ctx_func_registration() {
 
     engine.register_module(module);
 
-    engine.run("(require-builtin test/module-func)").unwrap();
+    engine
+        .run("(require-builtin test/module-ctx-func-registration)")
+        .unwrap();
     engine.run("(foo)").unwrap();
     engine.update_value("global-context", SteelVal::IntV(10));
     engine.run("(foo)").unwrap();
@@ -2783,7 +2797,7 @@ fn test_ctx_func_registration() {
 fn test_ctx_func_registration_multiple() {
     let mut engine = Engine::new();
 
-    let mut module = BuiltInModule::new("test/module-ctx");
+    let mut module = BuiltInModule::new("test/module-ctx-func-registration-multiple");
     engine.register_value("global-context", SteelVal::StringV("Hello world!".into()));
 
     module.register_fn_with_ctx("global-context", "foo", |implicit: SteelVal| {
@@ -2800,7 +2814,9 @@ fn test_ctx_func_registration_multiple() {
 
     engine.register_module(module);
 
-    engine.run("(require-builtin test/module-ctx)").unwrap();
+    engine
+        .run("(require-builtin test/module-ctx-func-registration-multiple)")
+        .unwrap();
     engine.run("(bar 10)").unwrap();
     engine.update_value("global-context", SteelVal::IntV(10));
     engine.run("(bar 100)").unwrap();

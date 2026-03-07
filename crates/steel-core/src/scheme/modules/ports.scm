@@ -32,8 +32,8 @@
 ;;
 ;; - file : string?
 ;; - proc : procedure?
-(define (call-with-output-file file proc)
-  (call-with-port (open-output-file file) proc))
+(define (call-with-output-file file proc #:exists [exists 'error])
+  (call-with-port (open-output-file file #:exists exists) proc))
 
 ;;@doc
 ;; Calls the given *proc* with an input port obtained opening *file*.
@@ -54,11 +54,12 @@
 ;;
 ;; - file : string?
 ;; - thunk : procedure?
-(define (with-output-to-file file thunk)
+(define (with-output-to-file file thunk #:exists [exists 'error])
   (call-with-output-file file
                          (lambda (port)
                            (parameterize ([current-output-port port])
-                             (thunk)))))
+                             (thunk)))
+                         #:exists exists))
 
 ;;@doc
 ;; Similar to `call-with-input-file`, but installs the newly opened port as the `current-input-port` instead of passing it as an argument.

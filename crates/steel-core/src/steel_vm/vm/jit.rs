@@ -67,11 +67,14 @@ pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> 
     func.super_instructions = super_instructions;
 
     let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
+
+    // Save the entry instruction in the event we end up serializing this
+    // later.
+    func.header = Some(instructions[0].op_code);
+
     instructions[0].op_code = OpCode::DynSuperInstruction;
 
     func.body_exp = Arc::from(instructions.into_boxed_slice());
-
-    // println!("Compiled: {}", func.id);
 
     func
 }
@@ -5728,11 +5731,12 @@ fn handle_new_start_closure(ctx: *mut VmCore, ip: usize, offset: usize) -> Steel
         ctx.thread.function_interner.spans.insert(closure_id, spans);
 
         #[cfg(feature = "jit2")]
-        let mut constructed_lambda = if std::env::var("STEEL_JIT").is_ok() {
-            jit::jit_compile_lambda(ctx, constructed_lambda)
-        } else {
-            constructed_lambda
-        };
+        let mut constructed_lambda =
+            if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
+                jit::jit_compile_lambda(ctx, constructed_lambda)
+            } else {
+                constructed_lambda
+            };
 
         ctx.thread
             .function_interner

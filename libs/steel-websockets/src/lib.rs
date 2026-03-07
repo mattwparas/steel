@@ -69,7 +69,11 @@ impl WebSocketMessage {
 }
 
 struct WebSocketResponse(Response);
-impl Custom for WebSocketResponse {}
+impl Custom for WebSocketResponse {
+    fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
+        Some(Ok(format!("{:?}", self.0)))
+    }
+}
 
 #[derive(Debug)]
 struct WebSocketError(tungstenite::Error);

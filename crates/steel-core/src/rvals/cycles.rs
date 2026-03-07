@@ -2582,6 +2582,7 @@ impl PartialEq for SteelVal {
             (CharV(l), CharV(r)) => l == r,
             (FuncV(l), FuncV(r)) => *l as usize == *r as usize,
             (ByteVector(l), ByteVector(r)) => l == r,
+            (BoxedFunction(l), BoxedFunction(r)) => Gc::ptr_eq(l, r),
             // (VectorV(l), VectorV(r)) => l == r,
             // (ListV(l), ListV(r)) => l == r,
             // (HashSetV(l), HashSetV(r)) => l == r,

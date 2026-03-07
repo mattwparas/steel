@@ -714,23 +714,61 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     fn visit_list(&mut self, l: super::ast::List) -> Self::Output {
         let raw = TryFromExprKindForSteelVal::try_from_expr_kind_quoted(ExprKind::List(l.clone()))?;
 
-        let items: core::result::Result<List<_>, SteelErr> =
-            l.args.into_iter().map(|x| self.visit(x)).collect();
+        let (items, span) = if !l.improper {
+            let items: core::result::Result<List<_>, SteelErr> =
+                l.args.into_iter().map(|x| self.visit(x)).collect();
 
-        let items = items?;
+            let items = items?;
 
-        let span_vec = items
-            .iter()
-            .map(|x| {
-                if let SteelVal::SyntaxObject(s) = x {
-                    s.syntax_loc()
-                } else {
-                    unreachable!()
-                }
-            })
-            .collect::<Vec<_>>();
+            let span_vec = items
+                .iter()
+                .map(|x| {
+                    if let SteelVal::SyntaxObject(s) = x {
+                        s.syntax_loc()
+                    } else {
+                        unreachable!()
+                    }
+                })
+                .collect::<Vec<_>>();
 
-        let span = Span::coalesce_span(&span_vec);
+            let span = Span::coalesce_span(&span_vec);
+
+            let items: SteelVal = items.into();
+
+            (items, span)
+        } else {
+            debug_assert!(l.args.len() >= 2);
+
+            if l.args.len() < 2 {
+                stop!(Generic => "internal compiler error - unexpected malformed improper list");
+            };
+
+            let items: core::result::Result<Vec<_>, SteelErr> =
+                l.args.into_iter().map(|x| self.visit(x)).collect();
+
+            let items = items?;
+
+            let span_vec = items
+                .iter()
+                .map(|x| {
+                    if let SteelVal::SyntaxObject(s) = x {
+                        s.syntax_loc()
+                    } else {
+                        unreachable!()
+                    }
+                })
+                .collect::<Vec<_>>();
+
+            let pair = items
+                .into_iter()
+                .rev()
+                .reduce(|cdr, car| crate::values::lists::Pair::cons(car, cdr).into())
+                .unwrap();
+
+            let span = Span::coalesce_span(&span_vec);
+
+            (pair, span)
+        };
 
         // TODO: we're currently erasing the source here... This isn't what we want to do but we don't have
         // a great model to access the source otherwise
@@ -742,29 +780,6 @@ impl ConsumingVisitor for SyntaxObjectFromExprKind {
     }
 
     fn visit_syntax_rules(&mut self, _s: Box<super::ast::SyntaxRules>) -> Self::Output {
-        // Ok(SteelVal::ListV(
-        //     vec![
-        //         SteelVal::SymbolV("syntax-rules".into()),
-        //         SteelVal::ListV(
-        //             s.syntax
-        //                 .into_iter()
-        //                 .map(|x| self.visit(x))
-        //                 .collect::<Result<_>>()?,
-        //         ),
-        //         SteelVal::ListV(
-        //             s.patterns
-        //                 .into_iter()
-        //                 .map(|x| {
-        //                     Ok(SteelVal::ListV(
-        //                         vec![self.visit(x.pattern)?, self.visit(x.body)?].into(),
-        //                     ))
-        //                 })
-        //                 .collect::<Result<_>>()?,
-        //         ),
-        //     ]
-        //     .into(),
-        // ))
-
         // TODO
         stop!(Generic => "internal compiler error - could not translate syntax-rules to steel value")
     }

@@ -30,7 +30,12 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rustc_hash::{FxHashMap, FxHashSet};
 // use smallvec::SmallVec;
-use steel_parser::{ast::PROTO_HASH_GET, expr_list, parser::SourceId, span::Span};
+use steel_parser::{
+    ast::{AstTools, PROTO_HASH_GET},
+    expr_list,
+    parser::SourceId,
+    span::Span,
+};
 
 use thin_vec::{thin_vec, ThinVec};
 
@@ -79,6 +84,7 @@ macro_rules! declare_builtins {
             $( ($name, include_str!($path)), )*
         ];
 
+        // TODO: Why was this an issue? Bugs with static string internment issues?
         pub(crate) fn intern_modules() {
             $(
                 let _ = InternedString::from($name);
@@ -127,7 +133,8 @@ declare_builtins!(
     "#%private/steel/reader" => "../scheme/modules/reader.scm",
     "#%private/steel/stdlib" => "../scheme/stdlib.scm",
     "#%private/steel/match" => "../scheme/modules/match.scm",
-    "#%private/steel/sort" => "../scheme/modules/sort.scm"
+    "#%private/steel/sort" => "../scheme/modules/sort.scm",
+    "steel/serde" => "../scheme/modules/serde.scm"
 );
 
 create_prelude!(
@@ -142,6 +149,33 @@ create_prelude!(
     for_syntax "#%private/steel/control",
     for_syntax "#%private/steel/contract"
 );
+
+/// Takes a fully qualified path, and resolves it to a relative path,
+/// for use in determining a unique module name irrespective of where the
+/// module was loaded.
+pub(crate) fn fully_qualified_to_relative(
+    path: PathBuf,
+    search_dirs: &[PathBuf],
+) -> std::io::Result<PathBuf> {
+    // First, check if the path is relative:
+    let working_dir = std::env::current_dir()?;
+
+    if let Ok(p) = path.strip_prefix(&working_dir) {
+        if p.exists() {
+            return Ok(p.to_path_buf());
+        }
+    }
+
+    for p in search_dirs {
+        if let Ok(p) = p.strip_prefix(&working_dir) {
+            if p.exists() {
+                return Ok(p.to_path_buf());
+            }
+        }
+    }
+
+    Ok(path)
+}
 
 #[cfg(not(target_family = "wasm"))]
 pub static STEEL_SEARCH_PATHS: Lazy<Option<Vec<PathBuf>>> = Lazy::new(|| {
@@ -217,7 +251,7 @@ pub fn steel_home() -> Option<String> {
 /// Also keeps track of the metadata for each file in order to determine
 /// if it needs to be recompiled
 #[derive(Clone)]
-pub(crate) struct ModuleManager {
+pub struct ModuleManager {
     pub(crate) compiled_modules: CompiledModuleCache,
     pub(crate) file_metadata: crate::HashMap<PathBuf, SystemTime>,
     visited: FxHashSet<PathBuf>,
@@ -346,7 +380,7 @@ impl ModuleManager {
         // For instance, (cond) is global, but (define-syntax blagh) might be local to main
         // if a module then defines a function (blagh) that is used inside its scope, this would expand the macro in that scope
         // which we do not want
-        extract_macro_defs(&mut exprs, global_macro_map)?;
+        extract_macro_defs(&mut exprs, global_macro_map, global_map)?;
 
         let mut module_builder = ModuleBuilder::main(
             path,
@@ -652,7 +686,7 @@ impl ModuleManager {
                         // We don't need to expand those here
                         ModuleContainer::default(),
                         &module_name,
-                        // &kernel_macros_in_scope,
+                        GlobalMap::Set(&name_mangler.globals),
                     )?;
 
                     if changed {
@@ -772,6 +806,10 @@ impl ModuleManager {
             let mut module_ast = module.ast.clone();
 
             name_mangler.mangle_vars(&mut module_ast);
+
+            println!("PRINTING MANGLED AST");
+
+            module_ast.pretty_print();
 
             mangled_asts.append(&mut module_ast);
         }
@@ -936,6 +974,8 @@ pub struct CompiledModule {
     cached_prefix: CompactString,
     downstream: Vec<PathBuf>,
     downstream_builtins: Vec<PathBuf>,
+
+    pub(crate) compiled_ast: Option<ExprKind>,
 }
 
 pub static MANGLER_PREFIX: &str = "##mm";
@@ -1044,12 +1084,17 @@ impl CompiledModule {
             cached_prefix: base,
             downstream,
             downstream_builtins,
+            compiled_ast: None,
         }
     }
 
     // TODO: Should cache this
     pub fn prefix(&self) -> CompactString {
         self.cached_prefix.clone()
+    }
+
+    pub fn get_compiled_ast(&self) -> &Option<ExprKind> {
+        &self.compiled_ast
     }
 
     pub fn get_macros(&self) -> Arc<FxHashMap<InternedString, SteelMacro>> {
@@ -1081,7 +1126,7 @@ impl CompiledModule {
     }
 
     fn to_top_level_module(
-        &self,
+        &mut self,
         modules: &crate::HashMap<PathBuf, CompiledModule>,
         global_macro_map: &FxHashMap<InternedString, SteelMacro>,
     ) -> Result<ExprKind> {
@@ -1527,19 +1572,15 @@ impl CompiledModule {
         //     provide_definitions.append(&mut exprs);
         // }
 
-        // Try this out?
-        // let mut analysis = Analysis::from_exprs(&provide_definitions);
-        // let mut semantic = SemanticAnalysis::from_analysis(&mut provide_definitions, analysis);
-
-        // // This is definitely broken still
-        // semantic.remove_unused_globals_with_prefix("mangler");
-        // .replace_non_shadowed_globals_with_builtins()
-        // .remove_unused_globals_with_prefix("mangler");
-
-        Ok(ExprKind::Begin(Box::new(Begin::new(
+        let res = ExprKind::Begin(Box::new(Begin::new(
             exprs,
             SyntaxObject::default(TokenType::Begin),
-        ))))
+        )));
+
+        // Don't include this... yet
+        // self.compiled_ast = Some(res.clone());
+
+        Ok(res)
     }
 
     // Turn the module into the AST node that represents the macro module in the stdlib
@@ -2366,6 +2407,7 @@ impl<'a> ModuleBuilder<'a> {
                     self.builtin_modules.clone(),
                     // Expanding macros in the environment?
                     self.name.to_str().unwrap(),
+                    globals,
                 )?;
 
                 expand(expr, &self.macro_map, globals)?;
@@ -2383,6 +2425,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.builtin_modules.clone(),
                 // Expanding macros in the environment?
                 self.name.to_str().unwrap(),
+                globals,
             )?;
             // })
         }
@@ -2462,6 +2505,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.builtin_modules.clone(),
                 // Expanding macros in the environment?
                 self.name.to_str().unwrap(),
+                globals,
             )?;
 
             expand(expr, &many_expander.map, globals)?;
@@ -2481,6 +2525,7 @@ impl<'a> ModuleBuilder<'a> {
                         // We don't need to expand those here
                         ModuleContainer::default(),
                         &req_macro.module_name,
+                        globals,
                     )?;
 
                     if local_changed {
@@ -2523,6 +2568,7 @@ impl<'a> ModuleBuilder<'a> {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 self.name.to_str().unwrap(),
+                globals,
             )?;
         }
 

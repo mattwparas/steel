@@ -18,6 +18,11 @@
          (contract/out unwrap-err (->/c Err? any/c))
          (contract/out map-ok (->/c Result? (->/c any/c any/c) Result?))
          (contract/out map-err (->/c Result? (->/c any/c any/c) Result?))
+
+         ; unwrap-err
+         ; map-ok
+         ; map-err
+
          unwrap-or
          ok-and-then)
 
@@ -60,7 +65,9 @@
     [(Err? result) (Err (func (Err->value result)))]))
 
 (define (unwrap-or result value)
-  (if (Ok? result) (Ok->value result) value))
+  (if (Ok? result)
+      (Ok->value result)
+      value))
 
 ; (define-syntax contract/out/test
 ;   (syntax-rules ()

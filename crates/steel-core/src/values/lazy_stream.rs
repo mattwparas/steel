@@ -1,9 +1,18 @@
-use crate::rvals::SteelVal;
+use serde::{Deserialize, Serialize};
+
+use crate::rvals::{SerializableSteelVal, SteelVal};
 
 #[derive(Clone)]
 pub struct LazyStream {
     pub initial_value: SteelVal, // argument to stream
     pub stream_thunk: SteelVal,  // function to get the next value
+    pub empty_stream: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SerializableStream {
+    pub initial_value: SerializableSteelVal,
+    pub stream_thunk: SerializableSteelVal,
     pub empty_stream: bool,
 }
 

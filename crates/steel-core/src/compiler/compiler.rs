@@ -433,7 +433,7 @@ pub struct Compiler {
     analysis: Analysis,
     shadowed_variable_renamer: RenameShadowedVariables,
 
-    search_dirs: Vec<PathBuf>,
+    pub(crate) search_dirs: Vec<PathBuf>,
 
     // Include all the sources, module container, and constants
     // so that we can reference those at runtime. We probably should
@@ -942,6 +942,7 @@ impl Compiler {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
+                GlobalMap::Map(self.symbol_map.map()),
             )?;
             crate::parser::expand_visitor::expand(
                 expr,
@@ -971,6 +972,7 @@ impl Compiler {
                     self.kernel.as_mut(),
                     self.builtin_modules.clone(),
                     module,
+                    GlobalMap::Map(self.symbol_map.map()),
                 )?;
 
                 if changed {
@@ -983,6 +985,7 @@ impl Compiler {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
+                GlobalMap::Map(self.symbol_map.map()),
             )?;
 
             // TODO: If we have this, then we have to lower all of the expressions again
@@ -1107,6 +1110,10 @@ impl Compiler {
 
         let mut expanded_statements = self.expand_expressions(exprs, path)?;
 
+        // println!("---- Post expansion ----");
+        // expanded_statements.pretty_print();
+        // println!("{:#?}", expanded_statements);
+
         #[cfg(feature = "profiling")]
         log::debug!(target: "pipeline_time", "Phase 1 module expansion time: {:?}", now.elapsed());
 
@@ -1126,6 +1133,7 @@ impl Compiler {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
+                GlobalMap::Map(self.symbol_map.map()),
             )?;
             crate::parser::expand_visitor::expand(
                 expr,
@@ -1157,6 +1165,7 @@ impl Compiler {
                     self.kernel.as_mut(),
                     self.builtin_modules.clone(),
                     module,
+                    GlobalMap::Map(self.symbol_map.map()),
                 )?;
 
                 if changed {
@@ -1169,6 +1178,7 @@ impl Compiler {
                 self.kernel.as_mut(),
                 self.builtin_modules.clone(),
                 "top-level",
+                GlobalMap::Map(self.symbol_map.map()),
             )?;
 
             // TODO: If we have this, then we have to lower all of the expressions again
@@ -1242,6 +1252,10 @@ impl Compiler {
             .lift_pure_local_functions()
             .lift_all_local_functions();
 
+        // Here:
+
+        // Discover modules:
+
         // debug!("About to expand defines");
 
         log::debug!(target: "expansion-phase", "Flattening begins, converting internal defines to let expressions");
@@ -1289,6 +1303,27 @@ impl Compiler {
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements, false);
 
+        let module_context: InternedString = "#%prim.#%push-module-context".into();
+        for top_expr in expanded_statements.iter() {
+            if let ExprKind::Begin(b) = top_expr {
+                for expr in &b.exprs {
+                    if expr.list().and_then(|x| x.first_ident()).copied() == Some(module_context) {
+                        if let Some(found) = expr
+                            .list()
+                            .and_then(|x| x.get(1))
+                            .and_then(|x| x.to_string_literal())
+                        {
+                            let p = PathBuf::from(found);
+                            if let Some(m) = self.module_manager.modules_mut().get_mut(&p) {
+                                m.compiled_ast = Some(top_expr.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // TODO - make sure I want to keep this
         // let mut expanded_statements =
 
@@ -1299,9 +1334,19 @@ impl Compiler {
         analysis.populate_captures(&expanded_statements);
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
 
+        // Inline across module boundaries
+        if std::env::var("STEEL_MODULE_INLINE")
+            .as_ref()
+            .map(|x| x.as_str())
+            == Ok("1")
+        {
+            semantic.inline_idents_across_module_boundaries(self.modules())?;
+            semantic.refresh_variables();
+        }
+
         // Do this, and then inline everything. Do it again
         // TODO: Configure the amount that we inline?
-        semantic.inline_function_calls(None)?;
+        semantic.inline_function_calls(None, self.modules())?;
         semantic.refresh_variables();
 
         let mut analysis = semantic.into_analysis();
@@ -1313,38 +1358,27 @@ impl Compiler {
         // analysis.populate_captures(&expanded_statements);
         // Do this again
         let mut semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
-
         semantic.replace_anonymous_function_calls_with_plain_lets();
-
         semantic.refresh_variables();
-
-        // Lets see what this does...
-        // semantic.analyze_arity_checks();
-
-        // Flatten the empty lets
-        // semantic.flatten_empty_lets();
 
         #[cfg(feature = "profiling")]
         log::info!(target: "pipeline_time", "CAT time: {:?}", now.elapsed());
 
-        if std::env::var("STEEL_CLOSURE_LIFTING").is_ok() {
+        if std::env::var("STEEL_CLOSURE_LIFTING")
+            .as_ref()
+            .map(|x| x.as_str())
+            != Ok("false")
+        {
             semantic.lift_closures();
+            semantic.refresh_variables();
         }
-
-        // self.shadowed_variable_renamer
-        //     .rename_shadowed_variables(&mut semantic.exprs, false);
-
-        // analysis.fresh_from_exprs(&expanded_statements);
-        // semantic.analysis.fresh_from_exprs(&semantic.exprs);
-
-        // semantic.fresh
 
         // TODO: Configure inlining function size
 
         // Loop unrolling. That is probably what we need?
         // Inlining?
         if std::env::var("STEEL_INLINE").is_ok() {
-            semantic.inline_function_calls(Some(75))?;
+            semantic.inline_function_calls(Some(75), self.modules())?;
             semantic.refresh_variables();
             let mut analysis = semantic.into_analysis();
             self.shadowed_variable_renamer
@@ -1381,10 +1415,6 @@ impl Compiler {
             self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;
 
         SingleExprOptimizer::run(&mut expanded_statements);
-
-        // if std::env::var("STEEL_DEBUG_AST").is_ok() {
-        //     steel_parser::ast::AstTools::pretty_print_log(&expanded_statements);
-        // }
 
         Ok(expanded_statements)
 

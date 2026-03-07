@@ -1339,11 +1339,27 @@ pub mod unsafe_erased_pointers {
             NURSERY.with(|x| x.weak_values.write().clear());
         }
 
-        pub(crate) fn drain_weak_references_to_steelvals() -> Vec<SteelVal> {
+        pub(crate) fn free_n(count: usize) {
+            NURSERY.with(|x| {
+                let mut guard = x.memory.write();
+                for i in 0..count {
+                    guard.pop();
+                }
+            });
+            NURSERY.with(|x| {
+                let mut guard = x.weak_values.write();
+                for i in 0..count {
+                    guard.pop();
+                }
+            });
+        }
+
+        pub(crate) fn drain_weak_references_to_steelvals(count: usize) -> Vec<SteelVal> {
             let res = NURSERY.with(|x| {
-                x.weak_values
-                    .write()
-                    .drain(..)
+                let mut guard = x.weak_values.write();
+                let idx = guard.len() - count;
+                guard
+                    .drain(idx..)
                     .map(Gc::new)
                     .map(SteelVal::Reference)
                     .collect()
