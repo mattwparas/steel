@@ -4,19 +4,24 @@
 
 use cranelift::{
     codegen::ir::{ArgumentPurpose, FuncRef, GlobalValue, StackSlot, Type},
+    frontend::Switch,
     prelude::{isa::CallConv, *},
 };
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module};
-use std::collections::{HashMap, VecDeque};
 use std::{collections::HashSet, slice};
+use std::{
+    collections::{HashMap, VecDeque},
+    mem::ManuallyDrop,
+};
+use steel_derive::cross_platform_fn;
 use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
     compiler::constants::ConstantMap,
     core::instructions::{pretty_print_dense_instructions, DenseInstruction},
     primitives::{
-        lists::steel_pair,
+        lists::{steel_is_empty, steel_pair},
         ports::{eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char},
         strings::{char_equals_binop, steel_char_equals},
         vectors::steel_mut_vec_set,
@@ -24,44 +29,7 @@ use crate::{
     rvals::FunctionSignature,
     steel_vm::{
         primitives::steel_eq,
-        vm::{
-            jit::{
-                _push_to_vm_stack_function_spill, box_handler_c,
-                call_global_function_deopt_no_arity_spilled, call_global_function_deopt_spilled,
-                callglobal_handler_deopt_c, callglobal_tail_handler_deopt_spilled, car_handler_reg,
-                car_handler_reg_no_check, car_handler_value, cdr_handler_mut_reg,
-                cdr_handler_mut_reg_no_check, cdr_handler_reg, cdr_handler_reg_no_check,
-                cdr_handler_value, check_callable, check_callable_spill, check_callable_tail,
-                check_callable_value, check_callable_value_tail, cons_handler_value, drop_value,
-                eq_reg_1, eq_reg_2, eq_value, equal_binop, extern_c_add_four, extern_c_add_three,
-                extern_c_add_two, extern_c_add_two_binop_register,
-                extern_c_add_two_binop_register_both, extern_c_div_two, extern_c_gt_two,
-                extern_c_gte_two, extern_c_lt_two, extern_c_lt_two_int, extern_c_lte_two,
-                extern_c_lte_two_int, extern_c_mult_three, extern_c_mult_two, extern_c_negate,
-                extern_c_null_handler, extern_c_sub_three, extern_c_sub_two, extern_c_sub_two_int,
-                extern_c_sub_two_int_reg, extern_handle_pop, handle_new_start_closure,
-                handle_pure_function, if_handler_raw_value, if_handler_register, if_handler_value,
-                is_pair_c_reg, let_end_scope_c, list_handler_c, list_ref_handler_c,
-                move_read_local_0_value_c, move_read_local_1_value_c, move_read_local_2_value_c,
-                move_read_local_3_value_c, move_read_local_any_value_c, not_handler_raw_value,
-                num_equal_int, num_equal_value, num_equal_value_unboxed, pop_value,
-                push_const_value_c, push_const_value_index_c, push_global, push_to_vm_stack,
-                push_to_vm_stack_let_var, push_to_vm_stack_two, read_captured_c,
-                read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
-                read_local_3_value_c, read_local_any_value_c, self_tail_call_handler,
-                self_tail_call_handler_loop, set_handler_c, set_local_any_c, setbox_handler_c,
-                should_spill, should_spill_value, tcojmp_handler, unbox_handler_c, vec_handler_c,
-                vector_ref_handler_c, vector_ref_handler_register, vector_ref_handler_register_two,
-                vector_set_handler_register_one, vector_set_handler_register_three,
-                vector_set_handler_register_two, vector_set_handler_stack, CallFunctionDefinitions,
-                CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
-                CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
-                CallPrimitiveDefinitions, CallPrimitiveFixedDefinitions,
-                CallPrimitiveMutDefinitions, CallSelfTailCallNoArityDefinitions,
-                CallSelfTailCallNoArityLoopDefinitions, ListHandlerDefinitions,
-            },
-            VmCore,
-        },
+        vm::{jit::*, VmCore},
     },
     SteelVal,
 };
@@ -359,6 +327,34 @@ macro_rules! abi {
     };
 }
 
+#[cross_platform_fn]
+fn debug_count(value: i32) {
+    println!("Count: {}", value);
+}
+
+#[cross_platform_fn]
+fn debug_int(value: i64) {
+    println!("Value: {}", value);
+}
+
+#[cross_platform_fn]
+fn debug_value(value: SteelVal) {
+    let mut value = ManuallyDrop::new(value);
+
+    if let SteelVal::ListV(l) = &mut *value {
+        println!("Found a list");
+        println!("{:?}", l.inner_ptr_mut().0.get_box().rcword);
+        println!("{:?}", l);
+    }
+
+    // println!("Value: {}", &*value);
+}
+
+#[cross_platform_fn]
+fn debug_tag(value: i8) {
+    println!("Tag: {}", value);
+}
+
 impl Default for JIT {
     fn default() -> Self {
         let mut flag_builder = settings::builder();
@@ -395,9 +391,29 @@ impl Default for JIT {
             return_type_hints: HashMap::new(),
         };
 
+        map.add_func2("#%debug-steel-value", abi! { debug_value as fn(SteelVal) });
+        map.add_func2("#%debug-value", abi! { debug_int as fn(i64) });
+        map.add_func2("#%debug-count", abi! { debug_count as fn(i32) });
+        map.add_func2("#%debug-tag", abi! { debug_tag as fn(i8) });
+
         map.add_func(
             "pair?",
             abi! { is_pair_c_reg as fn(*mut VmCore, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "pair?-value",
+            abi! { is_pair_value as fn(SteelVal) -> SteelVal },
+        );
+
+        map.add_func(
+            "empty?",
+            abi! { is_empty_c_reg as fn(*mut VmCore, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "empty?-value",
+            abi! { is_empty_value as fn(SteelVal) -> SteelVal },
         );
 
         map.add_func(
@@ -479,6 +495,18 @@ impl Default for JIT {
         map.add_func(
             "drop-value",
             abi! { drop_value as fn(*mut VmCore, SteelVal) },
+        );
+
+        map.add_func2("drop-one", abi! { drop_one as fn(SteelVal) });
+
+        map.add_func2(
+            "drop-value-post-fast-dec",
+            abi! { drop_value_post_fast_decrement as fn(SteelVal) },
+        );
+
+        map.add_func2(
+            "drop-value-slow-dec",
+            abi! { drop_value_slow_decrement as fn(SteelVal) },
         );
 
         map.add_func(
@@ -1223,6 +1251,8 @@ pub enum InferredType {
     Function,
 
     Char,
+
+    String,
 }
 
 // #[derive(Debug, Clone, Copy)]
@@ -1764,6 +1794,8 @@ impl FunctionTranslator<'_> {
                             // Explicitly want the unboxed value here
                             let test_bool = last_ref.unwrap().value;
 
+                            // dbg!(self.builder.func.dfg.value_type(test_bool));
+
                             self.shadow_stack.pop();
 
                             self.translate_if_else_value(
@@ -2159,7 +2191,6 @@ impl FunctionTranslator<'_> {
                             if f == crate::primitives::strings::steel_char_equals
                                 as FunctionSignature
                                 && arity == 2
-                                && false
                             {
                                 self.char_equals(arity);
                             }
@@ -2171,21 +2202,17 @@ impl FunctionTranslator<'_> {
                                 self.read_char(arity);
                             }
                             */
-                            else if f == steel_eof_objectp as FunctionSignature
-                                && arity == 1
-                                && false
-                            {
+                            else if f == steel_eof_objectp as FunctionSignature && arity == 1 {
                                 // Encode the object... Any others we can encode in this way?
                                 self.eof_object()
-                            } else if f == steel_mut_vec_set as FunctionSignature
-                                && arity == 3
-                                && false
-                            {
+                            } else if f == steel_mut_vec_set as FunctionSignature && arity == 3 {
                                 self.vector_set()
-                            } else if f == steel_eq as FunctionSignature && arity == 2 && false {
+                            } else if f == steel_eq as FunctionSignature && arity == 2 {
                                 self.eq()
-                            } else if f == steel_pair as FunctionSignature && arity == 1 && false {
+                            } else if f == steel_pair as FunctionSignature && arity == 1 {
                                 self.is_pair()
+                            } else if f == steel_is_empty as FunctionSignature && arity == 1 {
+                                self.is_empty()
                             } else {
                                 let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
@@ -2702,7 +2729,7 @@ impl FunctionTranslator<'_> {
 
                     if last_ref.map(|x| x.inferred_type) == Some(InferredType::UnboxedBool) {
                         let test = last_ref.unwrap().value;
-                        let test = self.builder.ins().uextend(types::I64, test);
+                        // let test = self.builder.ins().uextend(types::I64, test);
                         self.shadow_stack.pop();
                         let value = self.builder.ins().icmp_imm(IntCC::Equal, test, 0);
                         self.push(value, InferredType::UnboxedBool);
@@ -2850,6 +2877,259 @@ impl FunctionTranslator<'_> {
         todo!()
     }
 
+    fn drop_tagged_value(&mut self, value: Value) {
+        let tag = self.get_tag(value);
+
+        let mut switch = Switch::new();
+
+        let rc_block = self.builder.create_block();
+        let non_rc_block = self.builder.create_block();
+        let no_drop = self.builder.create_block();
+
+        // Resulting path of execution
+        let merge_block = self.builder.create_block();
+
+        for tag in SteelVal::SPECIAL_RC_TAGS {
+            switch.set_entry(tag as _, rc_block);
+        }
+
+        for tag in SteelVal::UNBOXED_TAGS {
+            switch.set_entry(tag as _, no_drop);
+        }
+
+        for tag in SteelVal::STANDARD_RC_TAGS {
+            switch.set_entry(tag as _, non_rc_block);
+        }
+
+        switch.emit(&mut self.builder, tag, non_rc_block);
+
+        self.builder.switch_to_block(rc_block);
+        self.builder.seal_block(rc_block);
+        self.drop_biased_rc(value);
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(non_rc_block);
+        self.builder.seal_block(non_rc_block);
+        self.drop_value(value);
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(no_drop);
+        self.builder.seal_block(no_drop);
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(merge_block);
+        self.builder.seal_block(merge_block);
+    }
+
+    fn drop_biased_rc(&mut self, tagged_value: Value) {
+        // First, we need to get the pointer to the box,
+        // load it, and then we'll inline the calls for decrement.
+        //
+        // That will also mean we'll need to add the thread id
+        // as an argument to the JIT. For now we're not going to do that
+        // while I figure out if we can even do this thing properly.
+
+        let value = self.unbox_value_to_pointer(tagged_value);
+
+        // TODO: Do we even need the tag?
+        // let tag = self.get_tag(tagged_value);
+
+        let thread_id = self.get_thread_id();
+        let obj_thread_id =
+            self.builder
+                .ins()
+                .load(Type::int(64).unwrap(), MemFlags::new(), value, 0);
+
+        // Now, we're going to check if the value is local to this thread:
+        let is_thread_local = self
+            .builder
+            .ins()
+            .icmp(IntCC::Equal, thread_id, obj_thread_id);
+
+        // Make two kinds of blocks:
+        let yes_tl = self.builder.create_block();
+        let no_tl = self.builder.create_block();
+
+        let total_merge = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(is_thread_local, yes_tl, &[], no_tl, &[]);
+
+        self.builder.switch_to_block(yes_tl);
+        self.builder.seal_block(yes_tl);
+
+        // Yes block
+        {
+            let local_count =
+                self.builder
+                    .ins()
+                    .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+
+            let one = self.builder.ins().iconst(Type::int(32).unwrap(), 1);
+
+            let sub_one = self.builder.ins().isub(local_count, one);
+
+            self.builder.ins().store(MemFlags::new(), sub_one, value, 8);
+
+            let yes_drop = self.builder.create_block();
+            let merge_block = self.builder.create_block();
+
+            let updated_count =
+                self.builder
+                    .ins()
+                    .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+
+            // Then we need to check if its greater than 0:
+
+            let should_continue = self
+                .builder
+                .ins()
+                .icmp_imm(IntCC::SignedGreaterThan, sub_one, 0);
+
+            // Merge block because we need to jump back and continue
+            self.builder
+                .ins()
+                .brif(should_continue, merge_block, &[], yes_drop, &[]);
+
+            self.builder.switch_to_block(yes_drop);
+            self.builder.seal_block(yes_drop);
+
+            // Drop the value after we've determined that we can inline the drop function.
+            self.call_function_args_no_context("drop-value-post-fast-dec", &[tagged_value]);
+
+            self.builder.ins().jump(merge_block, &[]);
+
+            self.builder.switch_to_block(merge_block);
+            self.builder.seal_block(merge_block);
+
+            self.builder.ins().jump(total_merge, &[]);
+        }
+
+        // Slow drop with decrement included
+        {
+            self.builder.switch_to_block(no_tl);
+            self.builder.seal_block(no_tl);
+
+            self.call_function_args_no_context("drop-value-slow-dec", &[tagged_value]);
+
+            self.builder.ins().jump(total_merge, &[]);
+        }
+
+        self.builder.switch_to_block(total_merge);
+        self.builder.seal_block(total_merge);
+    }
+
+    // TODO: Replace this with a more sophisticated implementation that doesn't necessarily
+    // need the call if we have something like that
+    fn drop_value(&mut self, value: Value) {
+        self.call_function_args_no_context("drop-one", &[value]);
+    }
+
+    fn is_empty(&mut self) {
+        use MaybeStackValue::*;
+
+        let last = self.shadow_stack.last().unwrap().clone();
+
+        match last {
+            // TODO: Encode the result of the evaluation into the
+            // branching - if this is used in the test position
+            // of an if statement, we should encode the type checking
+            // through.
+            Value(stack_value) => {
+                self.shadow_stack.pop();
+                // If we've already inferrred this type as a pair,
+                // we can skip the code generation for checking the tags
+                // and actually invoking the function since we know
+                // it will be a pair.
+                // match stack_value.inferred_type {
+                //     InferredType::List | InferredType::Pair | InferredType::ListOrPair if false => {
+                //         let res = self.builder.ins().iconst(types::I64, 1);
+                //         let boolean =
+                //             self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+                //         // TODO: Also - we'll need to check the length of the list!
+                //         // this should be able to be done inline as well, we just have to load
+                //         // the index of the list.
+                //         self.push(boolean, InferredType::Bool);
+                //         self.ip += 1;
+                //         self.drop_tagged_value(stack_value.value);
+                //         return;
+                //     }
+                //     _ => {}
+                // }
+
+                let value = stack_value.as_steelval(self);
+                // Encode this manually:
+                let tag = self.get_tag(value);
+
+                let list_tag = self.tag(23);
+
+                // Compare these tags:
+                // TODO: Also - we'll need to check the length of the list!
+                // this should be able to be done inline as well, we just have to load
+                // the index of the list.
+                let is_list = self.builder.ins().icmp(IntCC::Equal, tag, list_tag);
+
+                let pair_block = self.builder.create_block();
+                let not_pair_block = self.builder.create_block();
+                let merge_block = self.builder.create_block();
+                self.builder.append_block_param(merge_block, types::I8);
+
+                self.builder
+                    .ins()
+                    .brif(is_list, pair_block, &[], not_pair_block, &[]);
+
+                self.builder.switch_to_block(pair_block);
+                self.builder.seal_block(pair_block);
+
+                let pointer_value = self.unbox_value_to_pointer(value);
+                let length =
+                    self.builder
+                        .ins()
+                        .load(types::I32, MemFlags::new(), pointer_value, 16);
+
+                let is_empty = self.builder.ins().icmp_imm(IntCC::Equal, length, 0);
+
+                self.builder.ins().jump(merge_block, &[is_empty]);
+
+                self.builder.switch_to_block(not_pair_block);
+                self.builder.seal_block(not_pair_block);
+
+                let false_value = self.builder.ins().iconst(types::I8, 0);
+                self.builder.ins().jump(merge_block, &[false_value]);
+
+                self.builder.switch_to_block(merge_block);
+                let result = self.builder.block_params(merge_block)[0];
+                self.push(result, InferredType::UnboxedBool);
+
+                // self.push(comparison, InferredType::UnboxedBool);
+
+                self.drop_tagged_value(value);
+
+                self.ip += 1;
+            }
+            MutRegister(p) | Register(p) => {
+                let register = self.register_index(p);
+                self.shadow_stack.pop();
+                let res = self.call_function_returns_value_args("empty?", &[register]);
+
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+
+            // Depending on what the constant is, we can do this evaluation here
+            // Constant(constant_value) => todo!(),
+            _ => {
+                // TODO: Check the inferred type here as well, maybe do unboxed bools
+                let (value, inferred_type) = self.shadow_pop();
+                let res =
+                    self.call_function_returns_value_args_no_context("empty?-value", &[value]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+        }
+    }
+
     // do the thing:
     fn is_pair(&mut self) {
         use MaybeStackValue::*;
@@ -2869,17 +3149,23 @@ impl FunctionTranslator<'_> {
                 // and actually invoking the function since we know
                 // it will be a pair.
                 match stack_value.inferred_type {
-                    InferredType::List | InferredType::Pair | InferredType::ListOrPair => {
+                    InferredType::List | InferredType::Pair | InferredType::ListOrPair if false => {
                         let res = self.builder.ins().iconst(types::I64, 1);
 
                         let boolean =
                             self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
 
+                        // TODO: Also - we'll need to check the length of the list!
+                        // this should be able to be done inline as well, we just have to load
+                        // the index of the list.
                         self.push(boolean, InferredType::Bool);
                         self.ip += 1;
 
+                        self.drop_tagged_value(stack_value.value);
+
                         return;
                     }
+
                     _ => {}
                 }
 
@@ -2888,22 +3174,59 @@ impl FunctionTranslator<'_> {
                 // Encode this manually:
                 let tag = self.get_tag(value);
 
-                // TODO: Encode these tags in a better way besides manually
-                // doing this here
-                let pair_tag = self.tag(24);
-                let list_tag = self.tag(23);
+                let mut switch = Switch::new();
+                let pair_block = self.builder.create_block();
+                let list_block = self.builder.create_block();
+                let else_block = self.builder.create_block();
+                let merge_block = self.builder.create_block();
+                self.builder.append_block_param(merge_block, types::I8);
 
-                // Compare these tags:
-                let is_list = self.builder.ins().icmp(IntCC::Equal, tag, list_tag);
-                let is_pair = self.builder.ins().icmp(IntCC::Equal, tag, pair_tag);
+                switch.set_entry(SteelVal::LIST_TAG as _, list_block);
+                switch.set_entry(SteelVal::PAIR_TAG as _, pair_block);
 
-                let comparison = self.builder.ins().bor(is_list, is_pair);
+                switch.emit(&mut self.builder, tag, else_block);
+                {
+                    // Is a pair
+                    self.builder.switch_to_block(pair_block);
+                    self.builder.seal_block(pair_block);
+                    let true_val = self.builder.ins().iconst(types::I8, 1);
+                    self.builder.ins().jump(merge_block, &[true_val]);
+                }
 
-                // let res = self.builder.ins().uextend(types::I64, comparison);
-                // let boolean = self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
-                // self.push(boolean, InferredType::Bool);
+                {
+                    // Is a list
+                    self.builder.switch_to_block(list_block);
+                    self.builder.seal_block(list_block);
 
-                self.push(comparison, InferredType::UnboxedBool);
+                    let value = self.unbox_value_to_pointer(value);
+
+                    // Its not a pair if its an empty list
+                    let length = self
+                        .builder
+                        .ins()
+                        .load(types::I32, MemFlags::new(), value, 16);
+
+                    let not_empty = self.builder.ins().icmp_imm(IntCC::NotEqual, length, 0);
+
+                    self.builder.ins().jump(merge_block, &[not_empty]);
+                }
+
+                {
+                    // Else case, not a list or pair
+                    self.builder.switch_to_block(else_block);
+                    self.builder.seal_block(else_block);
+                    let false_val = self.builder.ins().iconst(types::I8, 0);
+                    self.builder.ins().jump(merge_block, &[false_val]);
+                }
+
+                {
+                    self.builder.switch_to_block(merge_block);
+                    self.builder.seal_block(merge_block);
+                    let result = self.builder.block_params(merge_block)[0];
+                    self.push(result, InferredType::UnboxedBool);
+                }
+
+                self.drop_tagged_value(value);
 
                 self.ip += 1;
             }
@@ -2919,8 +3242,11 @@ impl FunctionTranslator<'_> {
             // Depending on what the constant is, we can do this evaluation here
             // Constant(constant_value) => todo!(),
             _ => {
-                todo!();
-                // Fall back to checking is pair
+                // TODO: Check the inferred type here as well, maybe do unboxed bools
+                let (value, inferred_type) = self.shadow_pop();
+                let res = self.call_function_returns_value_args_no_context("pair?-value", &[value]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
             }
         }
     }
@@ -3125,7 +3451,7 @@ impl FunctionTranslator<'_> {
 
         let all_chars = additional_args.iter().all(|x| x.1 == InferredType::Char);
 
-        if all_chars {
+        if all_chars && false {
             // println!("Found all characters, applying equality");
             // Just... compare for equality?
 
@@ -4189,6 +4515,16 @@ impl FunctionTranslator<'_> {
         return result;
     }
 
+    fn get_thread_id(&mut self) -> Value {
+        let ctx = self.get_ctx();
+        let thread_id =
+            self.builder
+                .ins()
+                .load(Type::int(64).unwrap(), MemFlags::trusted(), ctx, 8);
+
+        thread_id
+    }
+
     fn check_deopt_ptr_load(&mut self) -> Value {
         let ctx = self.get_ctx();
         let is_native = self
@@ -4197,53 +4533,6 @@ impl FunctionTranslator<'_> {
             .load(Type::int(8).unwrap(), MemFlags::trusted(), ctx, 0);
 
         is_native
-    }
-
-    fn _check_deopt_new(&mut self) {
-        let result = self.check_deopt_ptr_load();
-        let then_block = self.builder.create_block();
-
-        self.builder
-            .ins()
-            .brif(result, then_block, &[], self.exit_block, &[]);
-
-        // let else_block = self.builder.create_block();
-        // let merge_block = self.builder.create_block();
-        // self.builder
-        //     .append_block_param(merge_block, Type::int(8).unwrap());
-        // Do the thing.
-        // self.builder
-        //     .ins()
-        //     .brif(result, then_block, &[], else_block, &[]);
-        self.builder.switch_to_block(then_block);
-        self.builder.seal_block(then_block);
-        // let then_return = BlockArg::Value(self.builder.ins().iconst(Type::int(8).unwrap(), 1));
-
-        // Just... translate instructions?
-        // self.stack_to_ssa();
-
-        // if self.tco {
-        //     self.ip = self.instructions.len() + 1;
-        //     self.builder.ins().jump(self.exit_block, &[]);
-        //     return;
-        // }
-
-        // Jump to the merge block, passing it the block return value.
-        // self.builder.ins().jump(merge_block, &[then_return]);
-        // self.builder.switch_to_block(else_block);
-        // self.builder.seal_block(else_block);
-
-        // Set the IP to the new spot:
-        // {
-        //     self.set_ctx_ip(self.ip);
-        // }
-
-        // // TODO: Update with the proper return value
-        // let else_return = self.create_i128(0);
-        // self.builder.ins().return_(&[]);
-        // self.builder.switch_to_block(merge_block);
-        // // // We've now seen all the predecessors of the merge block.
-        // self.builder.seal_block(merge_block);
     }
 
     fn check_deopt(&mut self) {
@@ -4892,6 +5181,12 @@ impl FunctionTranslator<'_> {
         encoded_rhs
     }
 
+    fn unbox_value_to_pointer(&mut self, value: Value) -> Value {
+        let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
+        let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
+        self.builder.ins().ireduce(types::I64, encoded_rhs)
+    }
+
     fn get_tag(&mut self, value: Value) -> Value {
         // Split the value into two:
         self.builder.ins().ireduce(types::I8, value)
@@ -5433,6 +5728,11 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &args);
         let result = self.builder.inst_results(call)[0];
         result
+    }
+
+    fn call_function_args_no_context(&mut self, name: &str, args: &[Value]) {
+        let local_callee = self.get_local_callee(name);
+        let _ = self.builder.ins().call(local_callee, &args);
     }
 }
 

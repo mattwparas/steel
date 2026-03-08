@@ -1,5 +1,4 @@
 use steel::{
-    gc::Shared,
     rvals::Custom,
     steel_vm::ffi::{FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
 };
@@ -32,6 +31,8 @@ use syntect::{html::highlighted_html_for_string, parsing::SyntaxSet};
 // println!("{}", html);
 // println!("</body>");
 // }
+
+type Shared<T> = std::sync::Arc<T>;
 
 struct SyntaxHighlighter {
     ss: SyntaxSet,
@@ -87,13 +88,12 @@ pub struct MarkdownTag {
 
 pub struct MarkdownEndTag {
     tag: TagEnd,
-    source: Shared<str>,
 }
 
 impl Custom for MarkdownTag {}
 impl Custom for MarkdownEndTag {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        Some(Ok(format!("{:?} @ {:?}", self.tag, self.source)))
+        Some(Ok(format!("{:?}", self.tag)))
     }
 }
 impl Custom for MarkdownEvent {}
@@ -191,14 +191,7 @@ impl MarkdownEvent {
 
     fn as_end_tag(&self) -> Option<FFIValue> {
         if let Event::End(tag) = self.event.clone() {
-            Some(
-                MarkdownEndTag {
-                    tag,
-                    source: self.source.clone(),
-                }
-                .into_ffi_val()
-                .unwrap(),
-            )
+            Some(MarkdownEndTag { tag }.into_ffi_val().unwrap())
         } else {
             None
         }
@@ -229,6 +222,16 @@ impl MarkdownCodeBlockKind {
 }
 
 impl Custom for MarkdownCodeBlockKind {}
+
+impl MarkdownEndTag {
+    fn as_code_block(&self) -> Option<FFIValue> {
+        if let TagEnd::CodeBlock = &self.tag {
+            Some(MarkdownEndTag { tag: self.tag }.into_ffi_val().unwrap())
+        } else {
+            None
+        }
+    }
+}
 
 impl MarkdownTag {
     fn is_paragraph(&self) -> bool {
@@ -431,6 +434,7 @@ pub fn build_module() -> FFIModule {
         .register_fn("tag-image?", MarkdownTag::is_image)
         .register_fn("tag->heading", MarkdownTag::as_heading)
         .register_fn("tag->code-block", MarkdownTag::as_code_block)
+        .register_fn("tag->end-code-block", MarkdownEndTag::as_code_block)
         .register_fn("code-block-indented?", MarkdownCodeBlockKind::is_indented)
         .register_fn("code-block-fenced?", MarkdownCodeBlockKind::is_fenced)
         .register_fn("code-block->fenced", MarkdownCodeBlockKind::as_fenced)
