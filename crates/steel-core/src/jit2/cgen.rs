@@ -3232,11 +3232,23 @@ impl FunctionTranslator<'_> {
             }
             MutRegister(p) | Register(p) => {
                 let register = self.register_index(p);
-                self.shadow_stack.pop();
-                let res = self.call_function_returns_value_args("pair?", &[register]);
 
-                self.push(res, InferredType::Bool);
-                self.ip += 1;
+                match self.properties.get(&ValueOrRegister::Register(p)) {
+                    // Elide the call entirely if its a non empty list
+                    Some(Properties::NonEmptyList) => {
+                        self.shadow_stack.pop();
+                        let res = self.builder.ins().iconst(types::I8, 1);
+                        self.push(res, InferredType::UnboxedBool);
+                        self.ip += 1;
+                    }
+                    _ => {
+                        self.shadow_stack.pop();
+                        let res = self.call_function_returns_value_args("pair?", &[register]);
+
+                        self.push(res, InferredType::Bool);
+                        self.ip += 1;
+                    }
+                }
             }
 
             // Depending on what the constant is, we can do this evaluation here
