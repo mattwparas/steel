@@ -77,6 +77,30 @@ impl<'a> Lexer<'a> {
             }
         }
     }
+    fn read_here_string(&mut self) -> Result<TokenType<InternedString>> {
+        let mut buf = String::new();
+        let mut delim = String::new();
+        // read delimiter string
+        while let Some(&c) = self.chars.peek() {
+            self.eat();
+            match c {
+                '\n' => break,
+                '\r' => {}
+                w if w.is_whitespace() => return Err(TokenError::UnexpectedChar(w)),
+                _ => delim.push(c),
+            }
+        }
+        // now that we know what the delimiter is, we eat until we find it
+        while let Some(&c) = self.chars.peek() {
+            self.eat();
+            buf.push(c);
+            if buf.ends_with(&delim) {
+                buf.truncate(buf.len() - delim.len());
+                return Ok(TokenType::StringLiteral(buf.into()));
+            }
+        }
+        Err(TokenError::IncompleteString)
+    }
 
     fn read_string(&mut self) -> Result<TokenType<InternedString>> {
         // Skip the opening quote.
@@ -789,6 +813,17 @@ impl<'a> Iterator for Lexer<'a> {
                         self.eat();
                         Err(TokenError::UnexpectedChar('#'))
                     }
+                    Some('<') => {
+                        self.eat();
+                        let next = self.chars.peek().copied();
+                        match next {
+                            Some('<') => {
+                                self.eat();
+                                self.read_here_string()
+                            }
+                            _ => self.read_word(),
+                        }
+                    }
                     _ => self.read_hash_value(),
                 };
 
@@ -1191,7 +1226,26 @@ mod lexer_tests {
             }
         );
     }
-
+    #[test]
+    fn test_here_string() {
+        let mut s = token_stream(" #<<''\nHello Here String\n'' #<<EOF\nEnd Of File StringEOF");
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: StringLiteral("Hello Here String\n".into()),
+                source: "#<<''\nHello Here String\n''",
+                span: Span::new(1, 27, SourceId::none())
+            }
+        );
+        assert_eq!(
+            s.next().unwrap(),
+            Token {
+                ty: StringLiteral("End Of File String".into()),
+                source: "#<<EOF\nEnd Of File StringEOF",
+                span: Span::new(28, 56, SourceId::none())
+            }
+        );
+    }
     #[test]
     fn test_unexpected_char() {
         let mut s = token_stream("($)");

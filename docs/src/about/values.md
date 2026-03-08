@@ -2,7 +2,6 @@
 
 Steel values include numbers, characters, booleans, strings, byte vectors, and symbols.
 
-
 ## Numbers
 
 Steel has support for the numeric tower, and as a result, many different kinds of numbers
@@ -10,8 +9,8 @@ and their conversions between each other are supported. They can be written as f
 
 ```scheme
 1 ;; i64
-3.14 ;; f64 
-1/2 ;; 32 bit rational 
+3.14 ;; f64
+1/2 ;; 32 bit rational
 6.02e+23 ;; f64
 1+2i ;; Imaginary
 9999999999999999999999 ;; Big num (heap allocated integer)
@@ -39,6 +38,16 @@ Unicode is supported for strings as well, as well as within symbols.
 ```scheme
 "😂😂💯"
 ```
+
+Here strings can be written with a custom delimiter:
+
+```scheme
+#<<EOF
+This is a string where I can use "" and ''
+EOF
+```
+
+Where `EOF` is the custom delimiter.
 
 ## Symbols
 
