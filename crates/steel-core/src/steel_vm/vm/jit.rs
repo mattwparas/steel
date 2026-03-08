@@ -14,7 +14,7 @@ use crate::{
         vectors::{mut_vec_set, steel_mut_vec_set},
     },
     rvals::Result,
-    steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive},
+    steel_vm::primitives::{gt_primitive, gte_primitive, listp, lt_primitive},
     SteelVal,
 };
 
@@ -652,6 +652,24 @@ fn list_ref_handler_c(ctx: *mut VmCore, list: SteelVal, index: SteelVal) -> Stee
 }
 
 #[cross_platform_fn]
+fn is_string_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
+    use crate::steel_vm::primitives::stringp;
+
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let value = &guard.thread.stack[offset + register];
+    SteelVal::BoolV(stringp(value))
+}
+
+#[cross_platform_fn]
+fn is_list_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let value = &guard.thread.stack[offset + register];
+    SteelVal::BoolV(listp(value))
+}
+
+#[cross_platform_fn]
 fn is_pair_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
     let offset = guard.get_offset();
@@ -662,6 +680,18 @@ fn is_pair_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
 #[cross_platform_fn]
 fn is_pair_value(value: SteelVal) -> SteelVal {
     SteelVal::BoolV(crate::primitives::lists::pair(&value))
+}
+
+#[cross_platform_fn]
+fn is_list_value(value: SteelVal) -> SteelVal {
+    SteelVal::BoolV(listp(&value))
+}
+
+#[cross_platform_fn]
+fn is_string_value(value: SteelVal) -> SteelVal {
+    use crate::steel_vm::primitives::stringp;
+
+    SteelVal::BoolV(stringp(&value))
 }
 
 #[cross_platform_fn]

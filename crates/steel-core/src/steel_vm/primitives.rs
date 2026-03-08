@@ -983,7 +983,7 @@ fn vector_module() -> BuiltInModule {
 /// #false
 /// ```
 #[steel_derive::function(name = "not", constant = true)]
-fn not(value: &SteelVal) -> bool {
+pub fn not(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoolV(false))
 }
 
@@ -1002,7 +1002,7 @@ fn not(value: &SteelVal) -> bool {
 /// #false
 /// ```
 #[steel_derive::function(name = "string?", constant = true)]
-fn stringp(value: &SteelVal) -> bool {
+pub fn stringp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::StringV(_))
 }
 
@@ -1021,7 +1021,7 @@ fn stringp(value: &SteelVal) -> bool {
 /// #false
 /// ```
 #[steel_derive::function(name = "list?", constant = true)]
-fn listp(value: &SteelVal) -> bool {
+pub fn listp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::ListV(_))
 }
 
@@ -1040,7 +1040,7 @@ fn listp(value: &SteelVal) -> bool {
 /// #false
 /// ```
 #[steel_derive::function(name = "vector?", constant = true)]
-fn vectorp(value: &SteelVal) -> bool {
+pub fn vectorp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::VectorV(_) | SteelVal::MutableVector(_))
 }
 
@@ -1059,7 +1059,7 @@ fn vectorp(value: &SteelVal) -> bool {
 /// #false
 /// ```
 #[steel_derive::function(name = "symbol?", constant = true)]
-fn symbolp(value: &SteelVal) -> bool {
+pub fn symbolp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::SymbolV(_))
 }
 
@@ -1097,12 +1097,12 @@ fn hashp(value: &SteelVal) -> bool {
 /// #false
 /// ```
 #[steel_derive::function(name = "set?", constant = true)]
-fn hashsetp(value: &SteelVal) -> bool {
+pub fn hashsetp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::HashSetV(_))
 }
 
 #[steel_derive::function(name = "continuation?", constant = true)]
-fn continuationp(value: &SteelVal) -> bool {
+pub fn continuationp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::ContinuationFunction(_))
 }
 
@@ -1124,7 +1124,7 @@ fn continuationp(value: &SteelVal) -> bool {
 /// #false
 /// ```
 #[steel_derive::function(name = "boolean?", constant = true)]
-fn booleanp(value: &SteelVal) -> bool {
+pub fn booleanp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoolV(_))
 }
 
@@ -1143,7 +1143,7 @@ fn booleanp(value: &SteelVal) -> bool {
 /// #false
 /// ```
 #[steel_derive::function(name = "bool?", constant = true)]
-fn boolp(value: &SteelVal) -> bool {
+pub fn boolp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::BoolV(_))
 }
 
@@ -1162,12 +1162,12 @@ fn boolp(value: &SteelVal) -> bool {
 /// #false
 /// ```
 #[steel_derive::function(name = "void?", constant = true)]
-fn voidp(value: &SteelVal) -> bool {
+pub fn voidp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::Void)
 }
 
 #[steel_derive::function(name = "struct?", constant = true)]
-fn structp(value: &SteelVal) -> bool {
+pub fn structp(value: &SteelVal) -> bool {
     if let SteelVal::CustomStruct(s) = value {
         s.is_transparent()
     } else {
@@ -1176,17 +1176,17 @@ fn structp(value: &SteelVal) -> bool {
 }
 
 #[steel_derive::function(name = "port?", constant = true)]
-fn portp(value: &SteelVal) -> bool {
+pub fn portp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::PortV(..))
 }
 
 #[steel_derive::function(name = "#%private-struct?", constant = true)]
-fn private_structp(value: &SteelVal) -> bool {
+pub fn private_structp(value: &SteelVal) -> bool {
     matches!(value, SteelVal::CustomStruct(_))
 }
 
 #[steel_derive::function(name = "error-object?", constant = true)]
-fn error_objectp(value: &SteelVal) -> bool {
+pub fn error_objectp(value: &SteelVal) -> bool {
     let SteelVal::Custom(val) = value else {
         return false;
     };
@@ -1196,7 +1196,7 @@ fn error_objectp(value: &SteelVal) -> bool {
 }
 
 #[steel_derive::function(name = "#%function-pointer?")]
-fn is_function_pointer(value: &SteelVal) -> bool {
+pub fn is_function_pointer(value: &SteelVal) -> bool {
     matches!(value, |SteelVal::FuncV(_)| SteelVal::BoxedFunction(_)
         | SteelVal::MutFunc(_))
 }
@@ -1219,12 +1219,11 @@ fn is_function_pointer(value: &SteelVal) -> bool {
 /// #false
 /// ```
 #[steel_derive::function(name = "function?", constant = true)]
-fn functionp(value: &SteelVal) -> bool {
+pub fn functionp(value: &SteelVal) -> bool {
     matches!(
         value,
         SteelVal::Closure(_)
             | SteelVal::FuncV(_)
-            // | SteelVal::ContractedFunction(_)
             | SteelVal::BoxedFunction(_)
             | SteelVal::ContinuationFunction(_)
             | SteelVal::MutFunc(_)
@@ -1233,7 +1232,7 @@ fn functionp(value: &SteelVal) -> bool {
 }
 
 #[steel_derive::function(name = "procedure?", constant = true)]
-fn procedurep(value: &SteelVal) -> bool {
+pub fn procedurep(value: &SteelVal) -> bool {
     if let SteelVal::CustomStruct(s) = value {
         return s.maybe_proc().map(|x| procedurep(x)).unwrap_or(false);
     }

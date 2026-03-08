@@ -28,7 +28,7 @@ use crate::{
     },
     rvals::FunctionSignature,
     steel_vm::{
-        primitives::steel_eq,
+        primitives::{steel_eq, steel_listp, steel_stringp},
         vm::{jit::*, VmCore},
     },
     SteelVal,
@@ -404,6 +404,26 @@ impl Default for JIT {
         map.add_func2(
             "pair?-value",
             abi! { is_pair_value as fn(SteelVal) -> SteelVal },
+        );
+
+        map.add_func(
+            "list?",
+            abi! { is_list_c_reg as fn(*mut VmCore, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "list?-value",
+            abi! { is_list_value as fn(SteelVal) -> SteelVal },
+        );
+
+        map.add_func(
+            "string?",
+            abi! { is_string_c_reg as fn(*mut VmCore, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "string?-value",
+            abi! { is_string_value as fn(SteelVal) -> SteelVal },
         );
 
         map.add_func(
@@ -1390,6 +1410,20 @@ enum Properties {
     // then we're both going to be listed as a proper list type,
     // and also this will successfully return without error.
     NonEmptyList,
+
+    // Assuming coming in to this we didn't know the type,
+    // after running an identity via something like `list?`,
+    // then we can tag the value for use later on. This is helpful
+    // when reaching a phi node where the type might not be known
+    // across branches. If the type is found to be true, then during
+    // the true branch, we can assert that this is the type,
+    // and skip a bunch of extraneous type checks. So in this case,
+    // this is a conditional check, attached to a boolean or unboxed
+    // boolean, stating that its possible that this value may be
+    // true or false.
+    CheckedString,
+    CheckedList,
+    CheckedPair,
 }
 
 impl MaybeStackValue {
@@ -2202,7 +2236,11 @@ impl FunctionTranslator<'_> {
                                 self.read_char(arity);
                             }
                             */
-                            else if f == steel_eof_objectp as FunctionSignature && arity == 1 {
+                            else if f == steel_stringp as FunctionSignature && arity == 1 {
+                                self.is_string()
+                            } else if f == steel_listp as FunctionSignature && arity == 1 {
+                                self.is_list()
+                            } else if f == steel_eof_objectp as FunctionSignature && arity == 1 {
                                 // Encode the object... Any others we can encode in this way?
                                 self.eof_object()
                             } else if f == steel_mut_vec_set as FunctionSignature && arity == 3 {
@@ -3130,6 +3168,102 @@ impl FunctionTranslator<'_> {
         }
     }
 
+    fn is_type(&mut self, value: Value, check_tag: u8) -> Value {
+        let tag = self.get_tag(value);
+        self.builder
+            .ins()
+            .icmp_imm(IntCC::Equal, tag, check_tag as i64)
+    }
+
+    // TODO: Figure out how to handle this a bit better?
+    fn is_string(&mut self) {
+        use MaybeStackValue::*;
+
+        let last = self.shadow_stack.last().unwrap().clone();
+
+        match last {
+            Value(stack_value) => {
+                self.shadow_stack.pop();
+                let value = stack_value.as_steelval(self);
+                let is_list = self.is_type(value, SteelVal::STRING_TAG);
+                self.drop_tagged_value(value);
+                self.push(is_list, InferredType::UnboxedBool);
+                self.ip += 1;
+            }
+            MutRegister(p) | Register(p) => {
+                let register = self.register_index(p);
+
+                match self.local_to_value_map.get(&p) {
+                    // Elide the call entirely if its a non empty list
+                    Some(InferredType::String) => {
+                        self.shadow_stack.pop();
+                        let res = self.builder.ins().iconst(types::I8, 1);
+                        self.push(res, InferredType::UnboxedBool);
+                        self.ip += 1;
+                    }
+                    _ => {
+                        self.shadow_stack.pop();
+                        let res = self.call_function_returns_value_args("string?", &[register]);
+
+                        self.push(res, InferredType::Bool);
+                        self.ip += 1;
+                    }
+                }
+            }
+            Constant(constant_value) => {
+                let (value, inferred_type) = self.shadow_pop();
+                let res =
+                    self.call_function_returns_value_args_no_context("string?-value", &[value]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+        }
+    }
+
+    // Checking tag
+    fn is_list(&mut self) {
+        use MaybeStackValue::*;
+
+        let last = self.shadow_stack.last().unwrap().clone();
+
+        match last {
+            Value(stack_value) => {
+                self.shadow_stack.pop();
+                let value = stack_value.as_steelval(self);
+                let is_list = self.is_type(value, SteelVal::LIST_TAG);
+                self.drop_tagged_value(value);
+                self.push(is_list, InferredType::UnboxedBool);
+                self.ip += 1;
+            }
+            MutRegister(p) | Register(p) => {
+                let register = self.register_index(p);
+
+                match self.properties.get(&ValueOrRegister::Register(p)) {
+                    // Elide the call entirely if its a non empty list
+                    Some(Properties::NonEmptyList) => {
+                        self.shadow_stack.pop();
+                        let res = self.builder.ins().iconst(types::I8, 1);
+                        self.push(res, InferredType::UnboxedBool);
+                        self.ip += 1;
+                    }
+                    _ => {
+                        self.shadow_stack.pop();
+                        let res = self.call_function_returns_value_args("list?", &[register]);
+
+                        self.push(res, InferredType::Bool);
+                        self.ip += 1;
+                    }
+                }
+            }
+            Constant(constant_value) => {
+                let (value, inferred_type) = self.shadow_pop();
+                let res = self.call_function_returns_value_args_no_context("list?-value", &[value]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+        }
+    }
+
     // do the thing:
     fn is_pair(&mut self) {
         use MaybeStackValue::*;
@@ -3148,26 +3282,26 @@ impl FunctionTranslator<'_> {
                 // we can skip the code generation for checking the tags
                 // and actually invoking the function since we know
                 // it will be a pair.
-                match stack_value.inferred_type {
-                    InferredType::List | InferredType::Pair | InferredType::ListOrPair if false => {
-                        let res = self.builder.ins().iconst(types::I64, 1);
+                // match stack_value.inferred_type {
+                //     InferredType::List | InferredType::Pair | InferredType::ListOrPair if false => {
+                //         let res = self.builder.ins().iconst(types::I64, 1);
 
-                        let boolean =
-                            self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+                //         let boolean =
+                //             self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
 
-                        // TODO: Also - we'll need to check the length of the list!
-                        // this should be able to be done inline as well, we just have to load
-                        // the index of the list.
-                        self.push(boolean, InferredType::Bool);
-                        self.ip += 1;
+                //         // TODO: Also - we'll need to check the length of the list!
+                //         // this should be able to be done inline as well, we just have to load
+                //         // the index of the list.
+                //         self.push(boolean, InferredType::Bool);
+                //         self.ip += 1;
 
-                        self.drop_tagged_value(stack_value.value);
+                //         self.drop_tagged_value(stack_value.value);
 
-                        return;
-                    }
+                //         return;
+                //     }
 
-                    _ => {}
-                }
+                //     _ => {}
+                // }
 
                 let value = stack_value.as_steelval(self);
 
