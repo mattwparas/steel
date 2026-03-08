@@ -1,5 +1,4 @@
 use steel::{
-    gc::Shared,
     rvals::Custom,
     steel_vm::ffi::{FFIModule, FFIValue, IntoFFIVal, RegisterFFIFn},
 };
@@ -94,7 +93,7 @@ pub struct MarkdownEndTag {
 impl Custom for MarkdownTag {}
 impl Custom for MarkdownEndTag {
     fn fmt(&self) -> Option<std::result::Result<String, std::fmt::Error>> {
-        Some(Ok(format!("{:?} @ {:?}", self.tag, self.source)))
+        Some(Ok(format!("{:?}", self.tag)))
     }
 }
 impl Custom for MarkdownEvent {}
