@@ -2,7 +2,9 @@
 (require "#%private/steel/control")
 
 (provide read-port-to-string
+         port->string
          read-port-to-bytes
+         port->bytes
          read-line
          read-byte
          read-u8
@@ -39,6 +41,10 @@
     [(port) (#%read-port-to-string port)]))
 
 ;;@doc
+;; Alias of `read-port-to-string`.
+(define port->string read-port-to-string)
+
+;;@doc
 ;; Reads the entire content of an input port into a byte vector.
 ;;
 ;; (read-port-to-bytes [port]) -> string?
@@ -48,6 +54,10 @@
   (case-lambda
     [() (#%read-port-to-bytes (current-input-port))]
     [(port) (#%read-port-to-bytes port)]))
+
+;;@doc
+;; Alias of `read-port-to-bytes`.
+(define port->bytes read-port-to-bytes)
 
 ;;@doc
 ;; Reads a line from an input port.
