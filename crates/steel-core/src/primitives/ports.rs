@@ -311,24 +311,26 @@ pub fn open_input_bytevector(bytes: &SteelByteVector) -> SteelVal {
     let vec: &Vec<u8> = &*bytes.vec.read();
     SteelVal::PortV(SteelPort::new_input_port_bytevector(vec.clone()))
 }
-/// Takes a port and reads the entire content into a string
+/// Reads the entire content of an input port into a string.
 ///
-/// (read-port-to-string port) -> string?
+/// (read-port-to-string [port]) -> string?
 ///
-/// * port : input-port?
+/// * [port] : input-port? = (current-input-port)
 #[function(name = "read-port-to-string")]
-pub fn read_port_to_string(port: &SteelPort) -> Result<SteelVal> {
+pub fn read_port_to_string(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = input_args(rest)?;
     let (_, result) = port.read_all_str()?;
     Ok(SteelVal::StringV(result.into()))
 }
 
-/// Takes a port and reads the entire content into a byte vector
+/// Reads the entire content of an input port into a byte vector.
 ///
-/// (read-port-to-bytes port) -> string?
+/// (read-port-to-bytes [port]) -> string?
 ///
-/// * port : input-port?
+/// * [port] : input-port? = (current-input-port)
 #[function(name = "read-port-to-bytes")]
-pub fn read_port_to_bytes(port: &SteelPort) -> Result<SteelVal> {
+pub fn read_port_to_bytes(rest: RestArgsIter<&SteelPort>) -> Result<SteelVal> {
+    let port = input_args(rest)?;
     let (_, result) = port.read_all_bytes()?;
     Ok(SteelVal::ByteVector(SteelByteVector::new(result)))
 }
