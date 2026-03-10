@@ -7,9 +7,11 @@ use std::{
 use crate::{
     compiler::{
         modules::{CompiledModule, MANGLER_PREFIX, MODULE_PREFIX},
-        program::{SETBOX, UNBOX},
+        program::{
+            PRIM_CONST_LIST, PRIM_PLIST_TRY_GET, PRIM_PLIST_TRY_GET_POSITIONAL, SETBOX, UNBOX,
+        },
     },
-    parser::ast::List,
+    parser::{ast::List, tryfrom_visitor::TryFromExprKindForSteelVal},
     values::HashMap as ImmutableHashMap,
 };
 use quickscope::ScopeMap;
@@ -3274,11 +3276,56 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
 // expansion is completely elided
 struct LowerRestArguments<'a> {
     analysis: &'a Analysis,
+    bindings: FxHashMap<InternedString, SteelVal>,
+    usage_counter: FxHashMap<InternedString, usize>,
 }
 
 impl<'a> LowerRestArguments<'a> {
     pub fn new(analysis: &'a Analysis) -> Self {
-        Self { analysis }
+        Self {
+            analysis,
+            bindings: Default::default(),
+            usage_counter: Default::default(),
+        }
+    }
+}
+
+impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
+    fn visit_let(&mut self, l: &mut Let) {
+        // Check each of these bindings
+
+        for (key, value) in &l.bindings {
+            if let Some(key) = key.atom_identifier() {
+                if let Some(maybe_const_list) = value.list().and_then(|x| x.first_ident()) {
+                    if *maybe_const_list == *PRIM_CONST_LIST {
+                        let expr: ThinVec<_> = value.list().unwrap().args.get(1..).unwrap().into();
+
+                        let value = TryFromExprKindForSteelVal::try_from_expr_kind(ExprKind::List(
+                            List::new(expr),
+                        ))
+                        .unwrap();
+
+                        self.bindings.insert(*key, value);
+                    }
+
+                    if *maybe_const_list == *PRIM_PLIST_TRY_GET {
+                        todo!()
+                    }
+
+                    if *maybe_const_list == *PRIM_PLIST_TRY_GET_POSITIONAL {
+                        todo!()
+                    }
+                }
+            }
+        }
+
+        self.visit(&mut l.body_expr);
+
+        for (key, _) in &l.bindings {
+            if let Some(key) = key.atom_identifier() {
+                self.bindings.remove(key);
+            }
+        }
     }
 }
 

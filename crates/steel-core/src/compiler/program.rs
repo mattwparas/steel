@@ -695,6 +695,8 @@ define_symbols! {
     LIST_SYMBOL => "list",
     PRIM_LIST_SYMBOL => "#%prim.list",
     PRIM_CONST_LIST => "#%prim.#%const-list",
+    PRIM_PLIST_TRY_GET => "#%prim.plist-try-get",
+    PRIM_PLIST_TRY_GET_POSITIONAL => "#%prim.plist-try-get-positional-arg",
     PRIM_LIST_REF => "#%prim.list-ref",
     PRIM_VECTOR_REF => "#%prim.vector-ref",
     BOX => "#%box",

@@ -1,5 +1,7 @@
 use crate::compiler::program::PRIM_CONST_LIST;
-use crate::primitives::lists::{plist_try_get_positional, steel_plist_try_get_positional};
+use crate::primitives::lists::{
+    plist_try_get_positional, steel_plist_try_get_positional, steel_plist_validate_args,
+};
 use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::{
     compiler::compiler::OptLevel,
@@ -747,24 +749,16 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             }
             if arguments.len() == args.len() {
                 if let Some(evaluated_func) = self.to_constant(&func_expr) {
-                    // if let SteelVal::FuncV(evaluated_func) = evaluated_func {
-                    //     // Try get positional args
-                    //     if evaluated_func == steel_plist_try_get_positional {
-                    //         // Wrap in a thing
-                    //         let res = self.eval_function(
-                    //             SteelVal::FuncV(evaluated_func),
-                    //             func_expr,
-                    //             args,
-                    //             &mut arguments,
-                    //         );
-                    //         let mut vec = ThinVec::new();
-                    //         vec.push(ExprKind::ident("##constant-list-wrapper"));
-                    //         vec.push(res?);
-                    //         return Ok(ExprKind::List(List::new(vec)));
-                    //     }
-                    // }
-                    // println!("Evaluating: {}", func_expr);
-                    return self.eval_function(evaluated_func, func_expr, args, &mut arguments);
+                    if let SteelVal::FuncV(evaluated_func) = evaluated_func {
+                        if evaluated_func == steel_plist_validate_args {
+                            return self.eval_function(
+                                SteelVal::FuncV(evaluated_func),
+                                func_expr,
+                                args,
+                                &mut arguments,
+                            );
+                        }
+                    }
                 }
             }
         }
