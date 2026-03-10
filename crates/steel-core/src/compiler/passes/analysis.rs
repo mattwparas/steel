@@ -5462,17 +5462,21 @@ impl<'a> SemanticAnalysis<'a> {
                     let original_id = l.syntax_object_id;
                     let l = l.clone();
 
+                    // if l.rest {
+                    //     println!("Found multi arity function to inline: {}", l);
+                    // }
+
                     // TODO: Investigate bug with multi arity functions and inlining?
-                    if !l.rest {
-                        funcs.insert(
-                            *d.name.atom_identifier().unwrap(),
-                            Box::new(move |_: &Analysis, lst: &mut List| {
-                                if lst.syntax_object_id > original_id {
-                                    lst.args[0] = ExprKind::LambdaFunction(l.clone());
-                                }
-                            }),
-                        );
-                    }
+                    // if !l.rest {
+                    funcs.insert(
+                        *d.name.atom_identifier().unwrap(),
+                        Box::new(move |_: &Analysis, lst: &mut List| {
+                            if lst.syntax_object_id > original_id {
+                                lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                            }
+                        }),
+                    );
+                    // }
                 }
             }
         }
@@ -6013,10 +6017,10 @@ impl<'a> SemanticAnalysis<'a> {
             if let ExprKind::List(l) = anon {
                 // Don't replace anonymous function calls that have rest args - those are not yet handled
                 // with a blind let replacement
-                if let ExprKind::LambdaFunction(f) = l.args.first().unwrap() {
-                    if f.rest {
-                        return false;
-                    }
+                if let ExprKind::LambdaFunction(_) = l.args.first().unwrap() {
+                    // if f.rest {
+                    //     // return false;
+                    // }
                 } else {
                     return false;
                 }
@@ -6029,12 +6033,26 @@ impl<'a> SemanticAnalysis<'a> {
                     let mut function_body = ExprKind::List(List::empty());
                     core::mem::swap(&mut f.body, &mut function_body);
 
+                    let mut args = core::mem::take(&mut l.args);
+
+                    if f.rest {
+                        // println!("{} - {}", f, l);
+                        // println!("args: {:?}", args);
+                        let arity = f.args.len().saturating_sub(1);
+                        // println!("Arity: {}", arity);
+                        let mut remaining = args.split_off(arity);
+                        remaining.insert(0, ExprKind::ident("#%prim.#%const-list"));
+                        args.push(ExprKind::List(List::new(remaining)));
+                        // println!("Args after: {:?}", args);
+
+                        // if args.is_empty() {
+                        //     let remaining = thin_vec![ExprKind::ident("#%prim.list")];
+                        //     args.push(ExprKind::List(List::new(remaining)));
+                        // }
+                    }
+
                     let let_expr = Let::new(
-                        f.args
-                            .into_iter()
-                            .zip(core::mem::take(&mut l.args))
-                            .map(|x| (x.0, x.1))
-                            .collect(),
+                        f.args.into_iter().zip(args).map(|x| (x.0, x.1)).collect(),
                         function_body,
                         f.location.clone(),
                     );

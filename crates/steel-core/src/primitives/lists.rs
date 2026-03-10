@@ -57,6 +57,7 @@ pub fn list_module() -> BuiltInModule {
 
     module
         .register_native_fn_definition(NEW_DEFINITION)
+        .register_native_fn_definition(NEW_CONST_DEFINITION)
         .register_native_fn_definition(CONS_DEFINITION)
         .register_native_fn_definition(RANGE_DEFINITION)
         .register_native_fn_definition(LENGTH_DEFINITION)
@@ -389,6 +390,26 @@ pub fn new(args: &[SteelVal]) -> Result<SteelVal> {
     Ok(SteelVal::ListV(args.iter().cloned().collect()))
 }
 
+/// Returns a list containing the vs as its elements.
+///
+/// Note, this function is eligible to be evaluated at compile time.
+///
+/// (#%const-list v ...) -> list?
+///
+/// * v : any/c
+///
+/// # Examples
+///
+/// ```scheme
+/// > (#%const-list 1 2 3 4 5) ;; => '(1 2 3 4 5)
+/// > (#%const-list (#%const-list 1 2) (#%const-list 3 4)) ;; => '((1 2) (3 4))
+/// ```
+#[steel_derive::native(name = "#%const-list", arity = "AtLeast(0)", constant = true)]
+pub fn new_const(args: &[SteelVal]) -> Result<SteelVal> {
+    println!("EVALUATING CONSTANT LIST: {:?}", args);
+    Ok(SteelVal::ListV(args.iter().cloned().collect()))
+}
+
 /// Checks if the list is empty
 ///
 /// (empty? lst) -> bool?
@@ -531,7 +552,7 @@ fn range(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```scheme
 /// > (length (list 10 20 30)) ;; => 3
 /// ```
-#[steel_derive::function(name = "length")]
+#[steel_derive::function(name = "length", constant = true)]
 fn length(list: &List<SteelVal>) -> usize {
     list.len()
 }

@@ -1059,7 +1059,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         let res = ExprKind::Let(l);
 
-        // println!("-----> {}", res.to_pretty(60));
+        println!("-----> {}", res.to_pretty(60));
 
         Ok(res)
     }
