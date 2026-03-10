@@ -694,6 +694,7 @@ define_symbols! {
     PRIM_CONS_SYMBOL => "#%prim.cons",
     LIST_SYMBOL => "list",
     PRIM_LIST_SYMBOL => "#%prim.list",
+    PRIM_CONST_LIST => "#%prim.#%const-list",
     PRIM_LIST_REF => "#%prim.list-ref",
     PRIM_VECTOR_REF => "#%prim.vector-ref",
     BOX => "#%box",
@@ -706,6 +707,7 @@ define_symbols! {
     BEGIN_FOR_SYNTAX => "begin-for-syntax",
     ELLIPSES_SYMBOL => "...",
     DOT => ".",
+    CONSTANT_LIST_WRAPPER => "##constant-list-wrapper",
 }
 
 pub fn flatten_equal_const(instructions: &mut [Instruction]) {

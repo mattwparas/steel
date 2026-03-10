@@ -406,7 +406,6 @@ pub fn new(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```
 #[steel_derive::native(name = "#%const-list", arity = "AtLeast(0)", constant = true)]
 pub fn new_const(args: &[SteelVal]) -> Result<SteelVal> {
-    println!("EVALUATING CONSTANT LIST: {:?}", args);
     Ok(SteelVal::ListV(args.iter().cloned().collect()))
 }
 
@@ -898,7 +897,7 @@ where
 }
 
 // Find the arg by index, skipping keyword pairs
-#[steel_derive::function(name = "plist-get-positional-arg-list")]
+#[steel_derive::function(name = "plist-get-positional-arg-list", constant = true)]
 pub fn plist_get_positional_list(list: &List<SteelVal>, index: usize) -> Result<SteelVal> {
     let mut iter = list.iter();
     let mut positional_arg_offset = 0;
@@ -925,7 +924,10 @@ pub fn plist_get_positional_list(list: &List<SteelVal>, index: usize) -> Result<
     Ok(SteelVal::ListV(List::new()))
 }
 
-#[steel_derive::function(name = "plist-validate-args")]
+// Note: This is important that this is constant,
+// because we want these values to get eliminated via constant folding
+// in the event this is a list.
+#[steel_derive::function(name = "plist-validate-args", constant = true)]
 pub fn plist_validate_args(
     list: &List<SteelVal>,
     required_keyword_arg_count: usize,
@@ -967,7 +969,7 @@ pub fn plist_validate_args(
 }
 
 // Find the arg by index, skipping keyword pairs
-#[steel_derive::function(name = "plist-get-positional-arg")]
+#[steel_derive::function(name = "plist-get-positional-arg", constant = true)]
 pub fn plist_get_positional(list: &List<SteelVal>, index: usize) -> Result<SteelVal> {
     let mut iter = list.iter();
     let mut positional_arg_offset = 0;
@@ -992,7 +994,7 @@ pub fn plist_get_positional(list: &List<SteelVal>, index: usize) -> Result<Steel
 }
 
 // Find the arg by index, skipping keyword pairs
-#[steel_derive::function(name = "plist-try-get-positional-arg")]
+#[steel_derive::function(name = "plist-try-get-positional-arg", constant = true)]
 pub fn plist_try_get_positional(
     list: &List<SteelVal>,
     index: usize,

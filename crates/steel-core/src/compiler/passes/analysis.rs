@@ -3270,6 +3270,18 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
     }
 }
 
+// TODO: Lower the rest arguments such that any rest argument
+// expansion is completely elided
+struct LowerRestArguments<'a> {
+    analysis: &'a Analysis,
+}
+
+impl<'a> LowerRestArguments<'a> {
+    pub fn new(analysis: &'a Analysis) -> Self {
+        Self { analysis }
+    }
+}
+
 struct LiftClosuresToGlobalScope<'a> {
     analysis: &'a Analysis,
     lifted_functions: Vec<ExprKind>,
@@ -6435,6 +6447,18 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         Ok(self)
+    }
+
+    // When its a constant list, and its been used once
+    pub fn lower_rest_arguments(&mut self) -> &mut Self {
+        let mut lower = LowerRestArguments::new(&self.analysis);
+        // for expr in self.exprs.iter_mut() {
+        //     lower.visit(expr);
+        // }
+
+        self.analysis.fresh_from_exprs(self.exprs);
+
+        self
     }
 
     pub fn lift_closures(&mut self) -> &mut Self {
