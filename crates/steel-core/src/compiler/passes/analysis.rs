@@ -8,8 +8,9 @@ use crate::{
     compiler::{
         modules::{CompiledModule, MANGLER_PREFIX, MODULE_PREFIX},
         program::{
-            PRIM_APPLY, PRIM_CONST_LIST, PRIM_PLIST_TRY_GET, PRIM_PLIST_TRY_GET_POSITIONAL, SETBOX,
-            UNBOX,
+            PRIM_APPLY, PRIM_CONST_LIST, PRIM_PLIST_GET_KWARG, PRIM_PLIST_GET_POSITIONAL_ARG,
+            PRIM_PLIST_GET_POSITIONAL_ARG_LIST, PRIM_PLIST_TRY_GET, PRIM_PLIST_TRY_GET_POSITIONAL,
+            SETBOX, UNBOX,
         },
     },
     parser::ast::List,
@@ -3338,6 +3339,128 @@ impl<'a> LowerRestArguments<'a> {
 
         None
     }
+
+    fn handle_plist_get_positional_arg_list(
+        &mut self,
+        binding_expr_replace: &mut Vec<(usize, ExprKind)>,
+        index: usize,
+        value: &ExprKind,
+    ) -> Option<()> {
+        None
+    }
+
+    fn handle_plist_get_positional_arg(
+        &mut self,
+        binding_expr_replace: &mut Vec<(usize, ExprKind)>,
+        index: usize,
+        value: &ExprKind,
+    ) -> Option<()> {
+        None
+    }
+
+    fn handle_plist_get_kwarg(
+        &mut self,
+        binding_expr_replace: &mut Vec<(usize, ExprKind)>,
+        index: usize,
+        value: &ExprKind,
+    ) -> Option<()> {
+        None
+
+        // TODO: @Matt - This could actually fail, so we need
+        // to be careful about how we do this pass. We might want to check
+        // first that its a valid transformation entirely, and only then
+        // can we remove it. If the keywords aren't present for example,
+        // this might fail.
+
+        // let lst = value.list()?;
+
+        // let ident = lst.get(1)?.atom_identifier()?;
+        // let key = lst.get(2)?.int_literal()?;
+        // let default_value = lst.get(3)?;
+
+        // let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
+        // let mut iter = const_list.iter();
+        // let mut positional_arg_offset = 0;
+
+        // while let Some(next) = iter.next() {
+        //     if next.atom_keyword().is_some() {
+        //         iter.next();
+        //     } else {
+        //         if int_index == positional_arg_offset {
+        //             binding_expr_replace.push((index, next.clone()));
+        //             return Some(());
+        //         }
+
+        //         positional_arg_offset += 1;
+        //     }
+        // }
+
+        // binding_expr_replace.push((index, default_value.clone()));
+
+        // Some(())
+    }
+
+    fn handle_plist_try_get_positional(
+        &mut self,
+        binding_expr_replace: &mut Vec<(usize, ExprKind)>,
+        index: usize,
+        value: &ExprKind,
+    ) -> Option<()> {
+        let lst = value.list()?;
+
+        let ident = lst.get(1)?.atom_identifier()?;
+        let int_index = lst.get(2)?.int_literal()?;
+        let default_value = lst.get(3)?;
+
+        let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
+        let mut iter = const_list.iter();
+        let mut positional_arg_offset = 0;
+
+        while let Some(next) = iter.next() {
+            if next.atom_keyword().is_some() {
+                iter.next();
+            } else {
+                if int_index == positional_arg_offset {
+                    binding_expr_replace.push((index, next.clone()));
+                    return Some(());
+                }
+
+                positional_arg_offset += 1;
+            }
+        }
+
+        binding_expr_replace.push((index, default_value.clone()));
+
+        Some(())
+    }
+
+    fn handle_plist_try_get(
+        &mut self,
+        binding_expr_replace: &mut Vec<(usize, ExprKind)>,
+        index: usize,
+        value: &ExprKind,
+    ) -> Option<()> {
+        // Just replace it with the right thing:
+        let ident = value
+            .list()
+            .unwrap()
+            .get(1)
+            .and_then(|x| x.atom_identifier())?;
+
+        let key = value.list().unwrap().get(2)?;
+        let default_value = value.list().unwrap().get(3)?;
+
+        let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
+        let mut iter = const_list.iter();
+        let expr_to_replace = iter
+            .find(|x| x.atom_identifier() == key.atom_identifier())
+            .and_then(|_| iter.next())
+            .unwrap_or(default_value);
+
+        binding_expr_replace.push((index, expr_to_replace.clone()));
+
+        Some(())
+    }
 }
 
 impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
@@ -3358,7 +3481,12 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
             ExprKind::Let(l) => {
                 let original_bindings_length = l.bindings.len();
 
-                for (key, value) in &l.bindings {
+                // Remove the bindings
+                let mut binding_indices_to_remove = Vec::new();
+
+                let mut binding_expr_replace = Vec::new();
+
+                for (index, (key, value)) in l.bindings.iter().enumerate() {
                     if let Some(key) = key.atom_identifier() {
                         if let Some(maybe_const_list) = value.list().and_then(|x| x.first_ident()) {
                             if *maybe_const_list == *PRIM_CONST_LIST {
@@ -3368,17 +3496,38 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                                 let value = ExprKind::List(List::new(expr));
                                 // Find the const list, which is directly from the
                                 self.bindings.insert(*key, value);
+
+                                binding_indices_to_remove.push(index);
                             }
 
-                            /*
+                            // Constructing prim plist try get
                             if *maybe_const_list == *PRIM_PLIST_TRY_GET {
-                                todo!()
+                                self.handle_plist_try_get(&mut binding_expr_replace, index, value);
+                            } else if *maybe_const_list == *PRIM_PLIST_TRY_GET_POSITIONAL {
+                                self.handle_plist_try_get_positional(
+                                    &mut binding_expr_replace,
+                                    index,
+                                    value,
+                                );
+                            } else if *maybe_const_list == *PRIM_PLIST_GET_POSITIONAL_ARG_LIST {
+                                self.handle_plist_get_positional_arg_list(
+                                    &mut binding_expr_replace,
+                                    index,
+                                    value,
+                                );
+                            } else if *maybe_const_list == *PRIM_PLIST_GET_POSITIONAL_ARG {
+                                self.handle_plist_get_positional_arg(
+                                    &mut binding_expr_replace,
+                                    index,
+                                    value,
+                                );
+                            } else if *maybe_const_list == *PRIM_PLIST_GET_KWARG {
+                                self.handle_plist_get_kwarg(
+                                    &mut binding_expr_replace,
+                                    index,
+                                    value,
+                                );
                             }
-
-                            if *maybe_const_list == *PRIM_PLIST_TRY_GET_POSITIONAL {
-                                todo!()
-                            }
-                            */
                         }
                     }
                 }
@@ -3425,6 +3574,15 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                 if lower_apply {
                     if should_eliminate && original_bindings_length == 1 {
                         *expr = std::mem::take(&mut l.body_expr);
+                    }
+                } else {
+                    for index in binding_indices_to_remove.into_iter().rev() {
+                        println!("Would remove: {}", l.bindings[index].1);
+                        //     l.bindings.remove(index);
+                    }
+
+                    for (index, value) in binding_expr_replace {
+                        l.bindings[index].1 = value;
                     }
                 }
             }

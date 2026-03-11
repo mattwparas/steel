@@ -352,6 +352,35 @@ impl ExprKind {
         }
     }
 
+    pub fn atom_keyword(&self) -> Option<&InternedString> {
+        match self {
+            Self::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Keyword(s),
+                        ..
+                    },
+            }) => Some(s),
+            _ => None,
+        }
+    }
+
+    pub fn int_literal(&self) -> Option<isize> {
+        match self {
+            Self::Atom(Atom {
+                syn:
+                    SyntaxObject {
+                        ty: TokenType::Number(n),
+                        ..
+                    },
+            }) => match n.resolve() {
+                NumberLiteral::Real(RealLiteral::Int(IntLiteral::Small(n))) => Some(n),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     pub fn string_literal(&self) -> Option<&str> {
         match self {
             Self::Atom(Atom {
