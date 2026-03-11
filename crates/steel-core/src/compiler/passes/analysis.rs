@@ -12,7 +12,7 @@ use crate::{
             UNBOX,
         },
     },
-    parser::{ast::List, tryfrom_visitor::TryFromExprKindForSteelVal},
+    parser::ast::List,
     values::HashMap as ImmutableHashMap,
 };
 use quickscope::ScopeMap;
@@ -3290,7 +3290,7 @@ impl<'a> LowerRestArguments<'a> {
         }
     }
 
-    fn should_transform_let(
+    fn should_transform_let_apply(
         &mut self,
         apply_body: &mut List,
     ) -> Option<(InternedString, ExprKind)> {
@@ -3356,6 +3356,8 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
             ExprKind::Set(s) => self.visit_set(s),
             ExprKind::Require(r) => self.visit_require(r),
             ExprKind::Let(l) => {
+                let original_bindings_length = l.bindings.len();
+
                 for (key, value) in &l.bindings {
                     if let Some(key) = key.atom_identifier() {
                         if let Some(maybe_const_list) = value.list().and_then(|x| x.first_ident()) {
@@ -3383,13 +3385,16 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
 
                 self.visit(&mut l.body_expr);
 
+                let mut lower_apply = false;
+
                 if let ExprKind::List(apply_body) = &mut l.body_expr {
-                    if let Some((should_transfrom, func)) = self.should_transform_let(apply_body) {
-                        // List(#%prim.const-list x y z)
+                    if let Some((should_transform, func)) =
+                        self.should_transform_let_apply(apply_body)
+                    {
                         if let Some(ExprKind::List(const_list)) =
-                            self.bindings.remove(&should_transfrom)
+                            self.bindings.remove(&should_transform)
                         {
-                            self.used_bindings.insert(should_transfrom);
+                            self.used_bindings.insert(should_transform);
 
                             if let ExprKind::LambdaFunction(f) = func {
                                 let args =
@@ -3398,6 +3403,8 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                                 // Lifted the arguments up
                                 l.bindings = args;
                                 l.body_expr = f.body;
+
+                                lower_apply = true;
                             }
                         }
                     }
@@ -3414,8 +3421,11 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                         self.bindings.remove(key);
                     }
                 }
-                if should_eliminate {
-                    *expr = std::mem::take(&mut l.body_expr);
+
+                if lower_apply {
+                    if should_eliminate && original_bindings_length == 1 {
+                        *expr = std::mem::take(&mut l.body_expr);
+                    }
                 }
             }
             ExprKind::Vector(v) => self.visit_vector(v),
