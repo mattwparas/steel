@@ -786,13 +786,13 @@ impl SteelPort {
         self.port.read().is_output()
     }
 
-    pub fn default_current_input_port() -> Self {
+    pub fn default_input_port() -> Self {
         SteelPort {
             port: Gc::new_lock(SteelPortRepr::StdInput(Peekable::new(io::stdin()))),
         }
     }
 
-    pub fn default_current_output_port() -> Self {
+    pub fn default_output_port() -> Self {
         if cfg!(test) {
             // Write out to thread safe port
             SteelPort {
@@ -807,7 +807,7 @@ impl SteelPort {
         }
     }
 
-    pub fn default_current_error_port() -> Self {
+    pub fn default_error_port() -> Self {
         if cfg!(test) {
             // Write out to thread safe port
             SteelPort {
