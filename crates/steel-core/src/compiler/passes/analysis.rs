@@ -8,7 +8,8 @@ use crate::{
     compiler::{
         modules::{CompiledModule, MANGLER_PREFIX, MODULE_PREFIX},
         program::{
-            PRIM_CONST_LIST, PRIM_PLIST_TRY_GET, PRIM_PLIST_TRY_GET_POSITIONAL, SETBOX, UNBOX,
+            PRIM_APPLY, PRIM_CONST_LIST, PRIM_PLIST_TRY_GET, PRIM_PLIST_TRY_GET_POSITIONAL, SETBOX,
+            UNBOX,
         },
     },
     parser::{ast::List, tryfrom_visitor::TryFromExprKindForSteelVal},
@@ -3276,8 +3277,8 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
 // expansion is completely elided
 struct LowerRestArguments<'a> {
     analysis: &'a Analysis,
-    bindings: FxHashMap<InternedString, SteelVal>,
-    usage_counter: FxHashMap<InternedString, usize>,
+    bindings: FxHashMap<InternedString, ExprKind>,
+    used_bindings: FxHashSet<InternedString>,
 }
 
 impl<'a> LowerRestArguments<'a> {
@@ -3285,46 +3286,139 @@ impl<'a> LowerRestArguments<'a> {
         Self {
             analysis,
             bindings: Default::default(),
-            usage_counter: Default::default(),
+            used_bindings: Default::default(),
         }
     }
-}
 
-impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
-    fn visit_let(&mut self, l: &mut Let) {
-        // Check each of these bindings
+    fn should_transform_let(
+        &mut self,
+        apply_body: &mut List,
+    ) -> Option<(InternedString, ExprKind)> {
+        let ident = apply_body.first_ident()?;
+        if *ident == *PRIM_APPLY {
+            println!("Found prim apply body: {}", apply_body);
 
-        for (key, value) in &l.bindings {
-            if let Some(key) = key.atom_identifier() {
-                if let Some(maybe_const_list) = value.list().and_then(|x| x.first_ident()) {
-                    if *maybe_const_list == *PRIM_CONST_LIST {
-                        let expr: ThinVec<_> = value.list().unwrap().args.get(1..).unwrap().into();
+            /*
+            Before:
+            (%plain-let ((####args2 (#%prim.#%const-list
+                         (#%prim.box 10)
+                         (#%prim.box 20))))
+                    (%plain-let ()
+                      (#%prim.apply
+                         (λ (##arg14 ##arg24)
+                           (##mm5133__%#__displayln ##arg14 ##arg24))
+                         ####args2)))
 
-                        let value = TryFromExprKindForSteelVal::try_from_expr_kind(ExprKind::List(
-                            List::new(expr),
-                        ))
-                        .unwrap();
+            After:
+            (%plain-let ((##arg14 (#%prim.box 10))
+                         (##arg24 (#%prim.box 20)))
+                   (##mm5133__%#__displayln ##arg14 ##arg24))
 
-                        self.bindings.insert(*key, value);
-                    }
+            */
 
-                    if *maybe_const_list == *PRIM_PLIST_TRY_GET {
-                        todo!()
-                    }
+            let ident = apply_body.get(2).and_then(|x| x.atom_syntax_object())?;
+            let ty = ident.ty.identifier()?;
+            // This refers to the actual interned string pointing to the
+            // const list.
 
-                    if *maybe_const_list == *PRIM_PLIST_TRY_GET_POSITIONAL {
-                        todo!()
+            if self.bindings.contains_key(ty) {
+                let analysis = self.analysis.get(ident)?;
+                let refers_to = analysis.refers_to;
+
+                let original_ident = refers_to.and_then(|x| self.analysis.info.get(&x))?;
+                if original_ident.usage_count == 1 {
+                    let ty = *ty;
+                    let func = apply_body.args.get_mut(1);
+                    if let Some(f @ ExprKind::LambdaFunction(_)) = func {
+                        return Some((ty, std::mem::take(f)));
                     }
                 }
             }
         }
 
-        self.visit(&mut l.body_expr);
+        None
+    }
+}
 
-        for (key, _) in &l.bindings {
-            if let Some(key) = key.atom_identifier() {
-                self.bindings.remove(key);
+impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => {
+                for (key, value) in &l.bindings {
+                    if let Some(key) = key.atom_identifier() {
+                        if let Some(maybe_const_list) = value.list().and_then(|x| x.first_ident()) {
+                            if *maybe_const_list == *PRIM_CONST_LIST {
+                                println!("Found const list");
+                                let expr: ThinVec<_> =
+                                    value.list().unwrap().args.get(1..).unwrap().into();
+                                let value = ExprKind::List(List::new(expr));
+                                // Find the const list, which is directly from the
+                                self.bindings.insert(*key, value);
+                            }
+
+                            /*
+                            if *maybe_const_list == *PRIM_PLIST_TRY_GET {
+                                todo!()
+                            }
+
+                            if *maybe_const_list == *PRIM_PLIST_TRY_GET_POSITIONAL {
+                                todo!()
+                            }
+                            */
+                        }
+                    }
+                }
+
+                self.visit(&mut l.body_expr);
+
+                if let ExprKind::List(apply_body) = &mut l.body_expr {
+                    if let Some((should_transfrom, func)) = self.should_transform_let(apply_body) {
+                        // List(#%prim.const-list x y z)
+                        if let Some(ExprKind::List(const_list)) =
+                            self.bindings.remove(&should_transfrom)
+                        {
+                            self.used_bindings.insert(should_transfrom);
+
+                            if let ExprKind::LambdaFunction(f) = func {
+                                let args =
+                                    f.args.into_iter().zip(const_list.args).collect::<Vec<_>>();
+
+                                // Lifted the arguments up
+                                l.bindings = args;
+                                l.body_expr = f.body;
+                            }
+                        }
+                    }
+                }
+
+                let mut should_eliminate = false;
+
+                for (key, _) in &l.bindings {
+                    if let Some(key) = key.atom_identifier() {
+                        if self.used_bindings.contains(key) {
+                            should_eliminate = true;
+                        }
+
+                        self.bindings.remove(key);
+                    }
+                }
+                if should_eliminate {
+                    *expr = std::mem::take(&mut l.body_expr);
+                }
             }
+            ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
 }
@@ -6499,9 +6593,9 @@ impl<'a> SemanticAnalysis<'a> {
     // When its a constant list, and its been used once
     pub fn lower_rest_arguments(&mut self) -> &mut Self {
         let mut lower = LowerRestArguments::new(&self.analysis);
-        // for expr in self.exprs.iter_mut() {
-        //     lower.visit(expr);
-        // }
+        for expr in self.exprs.iter_mut() {
+            lower.visit(expr);
+        }
 
         self.analysis.fresh_from_exprs(self.exprs);
 

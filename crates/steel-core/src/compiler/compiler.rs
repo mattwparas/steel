@@ -1403,11 +1403,11 @@ impl Compiler {
             semantic.replace_anonymous_function_calls_with_plain_lets();
         }
 
-        self.analysis = semantic.into_analysis();
+        let mut analysis = semantic.into_analysis();
 
         // We don't want to leave this allocate memory just hanging around, but leave enough for
         // interactive usages
-        self.analysis.shrink_capacity();
+        // self.analysis.shrink_capacity();
 
         // Run const analysis one more time:
 
@@ -1415,6 +1415,16 @@ impl Compiler {
             self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;
 
         SingleExprOptimizer::run(&mut expanded_statements);
+
+        analysis.fresh_from_exprs(&expanded_statements);
+
+        semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+
+        // This might have to run later?
+        semantic.lower_rest_arguments();
+
+        self.analysis = semantic.into_analysis();
+        self.analysis.shrink_capacity();
 
         Ok(expanded_statements)
 
