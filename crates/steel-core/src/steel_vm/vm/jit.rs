@@ -1806,17 +1806,20 @@ fn extern_c_sub_two_int_reg(ctx: *mut VmCore, reg: usize, b: SteelVal) -> SteelV
                 res.into_steelval().unwrap()
             }
         },
-        SteelVal::BigNum(n) => {
-            todo!("found big: {:?}", n);
-        }
-        _ => {
-            todo!("{}", a)
-        }
+        _ => match subtract_primitive(&[a.clone(), SteelVal::IntV(rhs)]) {
+            Ok(v) => v,
+            Err(e) => {
+                ctx.result = Some(Err(e));
+                ctx.is_native = false;
+                SteelVal::Void
+            }
+        },
     }
 }
 
 #[cross_platform_fn]
-fn extern_c_sub_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
+fn extern_c_sub_two_int(ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
+    let ctx = unsafe { &mut *ctx };
     // let a = ManuallyDrop::new(a);
     let rhs = if let SteelVal::IntV(i) = b {
         i
@@ -1832,12 +1835,14 @@ fn extern_c_sub_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
                 res.into_steelval().unwrap()
             }
         },
-        SteelVal::BigNum(n) => {
-            todo!("found big: {:?}", n);
-        }
-        _ => {
-            todo!("{}", a)
-        }
+        _ => match subtract_primitive(&[a.clone(), SteelVal::IntV(rhs)]) {
+            Ok(v) => v,
+            Err(e) => {
+                ctx.result = Some(Err(e));
+                ctx.is_native = false;
+                SteelVal::Void
+            }
+        },
     }
 }
 
