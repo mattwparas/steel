@@ -1,8 +1,7 @@
+#![allow(unpredictable_function_pointer_comparisons)]
+
 use crate::compiler::program::PRIM_CONST_LIST;
-use crate::primitives::lists::{
-    plist_try_get_positional, steel_length, steel_plist_try_get_positional,
-    steel_plist_validate_args,
-};
+use crate::primitives::lists::{steel_length, steel_plist_validate_args};
 use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::{
     compiler::compiler::OptLevel,
