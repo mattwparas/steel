@@ -3364,40 +3364,40 @@ impl<'a> LowerRestArguments<'a> {
         index: usize,
         value: &ExprKind,
     ) -> Option<()> {
-        None
+        let lst = value.list()?;
 
-        // TODO: @Matt - This could actually fail, so we need
-        // to be careful about how we do this pass. We might want to check
-        // first that its a valid transformation entirely, and only then
-        // can we remove it. If the keywords aren't present for example,
-        // this might fail.
+        let ident = lst.get(1)?.atom_identifier()?;
+        let key = lst.get(2)?.atom_keyword()?;
+        let func_name = lst.get(3)?;
 
-        // let lst = value.list()?;
+        let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
+        let mut iter = const_list.iter();
 
-        // let ident = lst.get(1)?.atom_identifier()?;
-        // let key = lst.get(2)?.int_literal()?;
-        // let default_value = lst.get(3)?;
+        let sym = iter.find(|x| x.atom_keyword() == Some(key));
 
-        // let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
-        // let mut iter = const_list.iter();
-        // let mut positional_arg_offset = 0;
+        let mut missing_symbol_error = None;
 
-        // while let Some(next) = iter.next() {
-        //     if next.atom_keyword().is_some() {
-        //         iter.next();
-        //     } else {
-        //         if int_index == positional_arg_offset {
-        //             binding_expr_replace.push((index, next.clone()));
-        //             return Some(());
-        //         }
+        if sym.is_none() {
+            missing_symbol_error = Some(ExprKind::List(List::new(thin_vec![
+                ExprKind::ident("#%prim.error"),
+                ExprKind::string_lit(format!("{} : Key not found: {}", func_name, key))
+            ])));
+        }
 
-        //         positional_arg_offset += 1;
-        //     }
-        // }
+        let value = iter
+            .next()
+            .cloned()
+            .or(missing_symbol_error)
+            .unwrap_or_else(|| {
+                ExprKind::List(List::new(thin_vec![
+                    ExprKind::ident("#%prim.error"),
+                    ExprKind::string_lit(format!("{} : Missing value for key: {}", func_name, key))
+                ]))
+            });
 
-        // binding_expr_replace.push((index, default_value.clone()));
+        binding_expr_replace.push((index, value));
 
-        // Some(())
+        Some(())
     }
 
     fn handle_plist_try_get_positional(
@@ -3447,13 +3447,13 @@ impl<'a> LowerRestArguments<'a> {
             .get(1)
             .and_then(|x| x.atom_identifier())?;
 
-        let key = value.list().unwrap().get(2)?;
+        let key = value.list().unwrap().get(2)?.atom_identifier()?;
         let default_value = value.list().unwrap().get(3)?;
 
         let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
         let mut iter = const_list.iter();
         let expr_to_replace = iter
-            .find(|x| x.atom_identifier() == key.atom_identifier())
+            .find(|x| x.atom_identifier() == Some(key))
             .and_then(|_| iter.next())
             .unwrap_or(default_value);
 
