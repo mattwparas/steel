@@ -1033,8 +1033,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                         ))
                         .unwrap();
 
-                        dbg!(&value);
-
                         new_env.bind_const_list(identifier, value);
                     }
                 }

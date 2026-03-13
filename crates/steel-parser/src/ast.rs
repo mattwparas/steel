@@ -361,6 +361,9 @@ impl ExprKind {
                         ..
                     },
             }) => Some(s),
+
+            Self::Quote(q) => q.expr.atom_keyword(),
+
             _ => None,
         }
     }

@@ -3297,8 +3297,6 @@ impl<'a> LowerRestArguments<'a> {
     ) -> Option<(InternedString, ExprKind)> {
         let ident = apply_body.first_ident()?;
         if *ident == *PRIM_APPLY {
-            println!("Found prim apply body: {}", apply_body);
-
             /*
             Before:
             (%plain-let ((####args2 (#%prim.#%const-list
@@ -3346,8 +3344,17 @@ impl<'a> LowerRestArguments<'a> {
         index: usize,
         value: &ExprKind,
     ) -> Option<()> {
+        println!("plist-get-positional-arg-list start: {} - {}", index, value);
+
         let lst = value.list()?;
-        let mut iter = lst.iter();
+
+        let ident = lst.get(1)?.atom_identifier()?;
+        self.used_bindings.insert(*ident);
+        let found_index = lst.get(2)?.int_literal()?;
+
+        let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
+        let mut iter = const_list.iter();
+
         let mut positional_arg_offset = 0;
 
         while let Some(next) = iter.next() {
@@ -3356,10 +3363,12 @@ impl<'a> LowerRestArguments<'a> {
                 continue;
             }
 
-            if index == positional_arg_offset {
+            if found_index == positional_arg_offset {
                 let mut remaining = thin_vec![ExprKind::ident("#%prim.list"), next.clone()];
                 remaining.extend(iter.cloned());
                 let lst = ExprKind::List(List::new(remaining));
+
+                // println!("plist-get-positional-arg-list: {}", lst);
                 binding_expr_replace.push((index, lst));
                 return Some(());
             }
@@ -3380,7 +3389,14 @@ impl<'a> LowerRestArguments<'a> {
         value: &ExprKind,
     ) -> Option<()> {
         let lst = value.list()?;
-        let mut iter = lst.iter();
+
+        let ident = lst.get(1)?.atom_identifier()?;
+        self.used_bindings.insert(*ident);
+        let found_index = lst.get(2)?.int_literal()?;
+
+        let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
+        let mut iter = const_list.iter();
+
         let mut positional_arg_offset = 0;
 
         while let Some(next) = iter.next() {
@@ -3389,7 +3405,7 @@ impl<'a> LowerRestArguments<'a> {
                 continue;
             }
 
-            if index == positional_arg_offset {
+            if found_index == positional_arg_offset {
                 binding_expr_replace.push((index, next.clone()));
                 return Some(());
             }
@@ -3415,6 +3431,7 @@ impl<'a> LowerRestArguments<'a> {
         let lst = value.list()?;
 
         let ident = lst.get(1)?.atom_identifier()?;
+        self.used_bindings.insert(*ident);
         let key = lst.get(2)?.atom_keyword()?;
         let func_name = lst.get(3)?;
 
@@ -3457,6 +3474,9 @@ impl<'a> LowerRestArguments<'a> {
         let lst = value.list()?;
 
         let ident = lst.get(1)?.atom_identifier()?;
+
+        self.used_bindings.insert(*ident);
+
         let int_index = lst.get(2)?.int_literal()?;
         let default_value = lst.get(3)?;
 
@@ -3488,20 +3508,21 @@ impl<'a> LowerRestArguments<'a> {
         index: usize,
         value: &ExprKind,
     ) -> Option<()> {
-        // Just replace it with the right thing:
-        let ident = value
-            .list()
-            .unwrap()
-            .get(1)
-            .and_then(|x| x.atom_identifier())?;
+        let lst = value.list()?;
 
-        let key = value.list().unwrap().get(2)?.atom_identifier()?;
-        let default_value = value.list().unwrap().get(3)?;
+        // Just replace it with the right thing:
+        let ident = lst.get(1).and_then(|x| x.atom_identifier())?;
+        self.used_bindings.insert(*ident);
+
+        // dbg!(lst.get(2)?);
+
+        let key = lst.get(2)?.atom_keyword()?;
+        let default_value = lst.get(3)?;
 
         let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
         let mut iter = const_list.iter();
         let expr_to_replace = iter
-            .find(|x| x.atom_identifier() == Some(key))
+            .find(|x| x.atom_identifier() == Some(key) || x.atom_keyword() == Some(key))
             .and_then(|_| iter.next())
             .unwrap_or(default_value);
 
@@ -3538,14 +3559,15 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                     if let Some(key) = key.atom_identifier() {
                         if let Some(maybe_const_list) = value.list().and_then(|x| x.first_ident()) {
                             if *maybe_const_list == *PRIM_CONST_LIST {
-                                println!("Found const list");
+                                // println!("Found const list");
                                 let expr: ThinVec<_> =
                                     value.list().unwrap().args.get(1..).unwrap().into();
                                 let value = ExprKind::List(List::new(expr));
                                 // Find the const list, which is directly from the
                                 self.bindings.insert(*key, value);
 
-                                binding_indices_to_remove.push(index);
+                                // TODO: Only do this if it was touched!
+                                // binding_indices_to_remove.push(index);
                             }
 
                             // Constructing prim plist try get
@@ -3609,10 +3631,11 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
 
                 let mut should_eliminate = false;
 
-                for (key, _) in &l.bindings {
+                for (index, (key, _)) in l.bindings.iter().enumerate() {
                     if let Some(key) = key.atom_identifier() {
                         if self.used_bindings.contains(key) {
                             should_eliminate = true;
+                            binding_indices_to_remove.push(index);
                         }
 
                         self.bindings.remove(key);
@@ -3624,9 +3647,14 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                         *expr = std::mem::take(&mut l.body_expr);
                     }
                 } else {
+                    // println!(
+                    //     "{} - {}",
+                    //     binding_indices_to_remove.len(),
+                    //     binding_expr_replace.len()
+                    // );
+
                     for index in binding_indices_to_remove.into_iter().rev() {
-                        println!("Would remove: {}", l.bindings[index].1);
-                        //     l.bindings.remove(index);
+                        l.bindings.remove(index);
                     }
 
                     for (index, value) in binding_expr_replace {
