@@ -451,7 +451,7 @@ pub mod shared {
 /// It does not expose the full functionality of the `Rc` type
 /// but it does allow for some
 #[derive(PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
-// pub struct Gc<T: ?Sized>(pub(crate) Shared<T>);
+#[repr(transparent)]
 pub struct Gc<T: ?Sized + 'static>(pub(crate) Shared<T>);
 
 impl<T: ?Sized> Pointer for Gc<T> {

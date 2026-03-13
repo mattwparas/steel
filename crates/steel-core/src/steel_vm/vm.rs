@@ -1472,6 +1472,7 @@ impl Continuation {
 }
 
 #[derive(Clone, Debug)]
+#[repr(C)]
 pub struct Continuation {
     // TODO: This _might_ need to be a weak reference. We'll see!
     pub(crate) inner: StandardSharedMut<ContinuationMark>,
@@ -1546,95 +1547,15 @@ impl<'a> VmContext for VmCore<'a> {
     }
 }
 
-// TODO: Make dynamic block use this
-// enum FunctionBlock {
-//     Specialized(for<'r> fn(&'r mut VmCore<'_>) -> Result<()>),
-//     Unrolled(Rc<[for<'r> fn(&'r mut VmCore<'_>) -> Result<()>]>),
-// }
-
-// Construct a basic block for a series of instructions
-// Note: A call to either apply or call/cc should invalidate this, as it fundamentally
-// violates the principle of a basic block.
-// #[derive(Clone)]
-// pub struct DynamicBlock {
-//     basic_block: InstructionPattern,
-//     entry_inst: DenseInstruction,
-//     header_func: Option<for<'r> fn(&'r mut VmCore<'_>, usize) -> Result<()>>,
-//     handlers: Rc<[for<'r> fn(&'r mut VmCore<'_>) -> Result<()>]>,
-//     specialized: Option<for<'r> fn(&'r mut VmCore<'_>, usize) -> Result<()>>,
-// }
-
-// impl DynamicBlock {
-// fn call(&self, context: &mut VmCore<'_>) -> Result<()> {
-//     // println!("---- Entering dynamic block ----");
-//     // println!("{:#?}", self.basic_block);
-
-//     if let Some(specialized) = self.specialized {
-//         specialized(context, self.entry_inst.payload_size.to_usize())?;
-//     } else {
-//         if let Some(header) = self.header_func {
-//             // println!("Calling special entry block");
-//             header(context, self.entry_inst.payload_size.to_usize())?;
-//         }
-
-//         for func in self.handlers.iter() {
-//             func(context)?;
-//         }
-//     }
-
-//     Ok(())
-// }
-
-//     #[cfg(feature = "dynamic")]
-//     fn construct_basic_block(head: DenseInstruction, basic_block: InstructionPattern) -> Self {
-//         // TODO: Drop the first
-//         let mut handlers = basic_block.block.iter().peekable();
-//         // .map(|x| OP_CODE_TABLE[x.to_usize()]);
-//         // .collect();
-
-//         let mut header_func = None;
-
-//         log::debug!(target: "super-instructions", "{basic_block:#?}");
-
-//         if let Some(first) = handlers.peek() {
-//             header_func = op_code_requires_payload(first.0);
-//         }
-
-//         if header_func.is_some() {
-//             handlers.next();
-//         }
-
-//         let op_codes: Vec<_> = handlers.clone().copied().collect();
-
-//         let specialized = dynamic::DYNAMIC_SUPER_PATTERNS.get(&op_codes);
-
-//         if specialized.is_some() {
-//             println!("Found specialized function!");
-//         }
-
-//         let handlers = handlers.map(|x| OP_CODE_TABLE[x.0.to_usize()]).collect();
-
-//         Self {
-//             basic_block,
-//             handlers,
-//             entry_inst: head,
-//             header_func,
-//             // TODO: Come back and add the specialized ones back in
-//             specialized,
-//         }
-//     }
-// }
-
 #[repr(C)]
 pub struct VmCore<'a> {
     pub(crate) is_native: bool,
+    #[cfg(feature = "biased")]
+    pub(crate) thread_id: Option<steel_rc::ThreadId>,
     pub(crate) ip: usize,
     pub(crate) sp: usize,
     pub(crate) thread: &'a mut SteelThread,
     pub(crate) instructions: RootedInstructions,
-    // TODO: Replace this with a thread local constant map!
-    // that way reads are fast - and any updates to it are
-    // broadcast from the shared constant map.
     pub(crate) constants: ConstantMap,
     pub(crate) pop_count: usize,
     pub(crate) depth: usize,
@@ -1644,8 +1565,6 @@ pub struct VmCore<'a> {
     pub(crate) result: Option<Result<SteelVal>>,
 }
 
-// TODO: Delete this entirely, and just have the run function live on top of the SteelThread.
-//
 impl<'a> VmCore<'a> {
     fn new_unchecked(
         instructions: RootedInstructions,
@@ -1655,6 +1574,8 @@ impl<'a> VmCore<'a> {
     ) -> VmCore<'a> {
         VmCore {
             instructions,
+            #[cfg(feature = "biased")]
+            thread_id: Some(steel_rc::ThreadId::current_thread()),
             constants,
             ip: 0,
             sp: 0,
@@ -1680,6 +1601,8 @@ impl<'a> VmCore<'a> {
 
         Ok(VmCore {
             instructions,
+            #[cfg(feature = "biased")]
+            thread_id: Some(steel_rc::ThreadId::current_thread()),
             constants,
             ip: 0,
             sp: 0,
@@ -2615,6 +2538,11 @@ impl<'a> VmCore<'a> {
 
                     // #[cfg(debug_assertions)]
                     // let stack_count = self.thread.stack_frames.len();
+
+                    #[cfg(feature = "biased")]
+                    {
+                        self.thread_id = Some(steel_rc::ThreadId::current_thread());
+                    }
 
                     self.thread
                         .stack_frames
