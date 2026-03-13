@@ -3346,7 +3346,31 @@ impl<'a> LowerRestArguments<'a> {
         index: usize,
         value: &ExprKind,
     ) -> Option<()> {
-        None
+        let lst = value.list()?;
+        let mut iter = lst.iter();
+        let mut positional_arg_offset = 0;
+
+        while let Some(next) = iter.next() {
+            if next.atom_keyword().is_some() {
+                iter.next();
+                continue;
+            }
+
+            if index == positional_arg_offset {
+                let mut remaining = thin_vec![ExprKind::ident("#%prim.list"), next.clone()];
+                remaining.extend(iter.cloned());
+                let lst = ExprKind::List(List::new(remaining));
+                binding_expr_replace.push((index, lst));
+                return Some(());
+            }
+
+            positional_arg_offset += 1;
+        }
+
+        let error = ExprKind::List(List::new(thin_vec![ExprKind::ident("#%prim.list"),]));
+        binding_expr_replace.push((index, error));
+
+        Some(())
     }
 
     fn handle_plist_get_positional_arg(
@@ -3355,7 +3379,31 @@ impl<'a> LowerRestArguments<'a> {
         index: usize,
         value: &ExprKind,
     ) -> Option<()> {
-        None
+        let lst = value.list()?;
+        let mut iter = lst.iter();
+        let mut positional_arg_offset = 0;
+
+        while let Some(next) = iter.next() {
+            if next.atom_keyword().is_some() {
+                iter.next();
+                continue;
+            }
+
+            if index == positional_arg_offset {
+                binding_expr_replace.push((index, next.clone()));
+                return Some(());
+            }
+
+            positional_arg_offset += 1;
+        }
+
+        let error = ExprKind::List(List::new(thin_vec![
+            ExprKind::ident("#%prim.error"),
+            ExprKind::string_lit("Missing positional arg".to_string())
+        ]));
+        binding_expr_replace.push((index, error));
+
+        Some(())
     }
 
     fn handle_plist_get_kwarg(
