@@ -16,7 +16,7 @@ use crate::{
     parser::ast::List,
     values::HashMap as ImmutableHashMap,
 };
-use quickscope::ScopeMap;
+use quickscope::{ScopeMap, ScopeSet};
 use smallvec::SmallVec;
 use steel_parser::{
     ast::{Begin, PROTO_HASH_GET},
@@ -3278,8 +3278,8 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
 // expansion is completely elided
 struct LowerRestArguments<'a> {
     analysis: &'a Analysis,
-    bindings: FxHashMap<InternedString, ExprKind>,
-    used_bindings: FxHashSet<InternedString>,
+    bindings: ScopeMap<InternedString, ExprKind, FxBuildHasher>,
+    used_bindings: ScopeSet<InternedString, FxBuildHasher>,
 }
 
 impl<'a> LowerRestArguments<'a> {
@@ -3349,7 +3349,7 @@ impl<'a> LowerRestArguments<'a> {
         let lst = value.list()?;
 
         let ident = lst.get(1)?.atom_identifier()?;
-        self.used_bindings.insert(*ident);
+        self.used_bindings.define(*ident);
         let found_index = lst.get(2)?.int_literal()?;
 
         let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
@@ -3391,7 +3391,7 @@ impl<'a> LowerRestArguments<'a> {
         let lst = value.list()?;
 
         let ident = lst.get(1)?.atom_identifier()?;
-        self.used_bindings.insert(*ident);
+        self.used_bindings.define(*ident);
         let found_index = lst.get(2)?.int_literal()?;
 
         let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
@@ -3431,7 +3431,7 @@ impl<'a> LowerRestArguments<'a> {
         let lst = value.list()?;
 
         let ident = lst.get(1)?.atom_identifier()?;
-        self.used_bindings.insert(*ident);
+        self.used_bindings.define(*ident);
         let key = lst.get(2)?.atom_keyword()?;
         let func_name = lst.get(3)?;
 
@@ -3475,7 +3475,7 @@ impl<'a> LowerRestArguments<'a> {
 
         let ident = lst.get(1)?.atom_identifier()?;
 
-        self.used_bindings.insert(*ident);
+        self.used_bindings.define(*ident);
 
         let int_index = lst.get(2)?.int_literal()?;
         let default_value = lst.get(3)?;
@@ -3512,7 +3512,7 @@ impl<'a> LowerRestArguments<'a> {
 
         // Just replace it with the right thing:
         let ident = lst.get(1).and_then(|x| x.atom_identifier())?;
-        self.used_bindings.insert(*ident);
+        self.used_bindings.define(*ident);
 
         // dbg!(lst.get(2)?);
 
@@ -3555,16 +3555,17 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
 
                 let mut binding_expr_replace = Vec::new();
 
+                self.bindings.push_layer();
+
                 for (index, (key, value)) in l.bindings.iter().enumerate() {
                     if let Some(key) = key.atom_identifier() {
                         if let Some(maybe_const_list) = value.list().and_then(|x| x.first_ident()) {
                             if *maybe_const_list == *PRIM_CONST_LIST {
-                                // println!("Found const list");
                                 let expr: ThinVec<_> =
                                     value.list().unwrap().args.get(1..).unwrap().into();
                                 let value = ExprKind::List(List::new(expr));
                                 // Find the const list, which is directly from the
-                                self.bindings.insert(*key, value);
+                                self.bindings.define(*key, value);
 
                                 // TODO: Only do this if it was touched!
                                 // binding_indices_to_remove.push(index);
@@ -3602,6 +3603,8 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                     }
                 }
 
+                self.used_bindings.push_layer();
+
                 self.visit(&mut l.body_expr);
 
                 let mut lower_apply = false;
@@ -3613,7 +3616,7 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                         if let Some(ExprKind::List(const_list)) =
                             self.bindings.remove(&should_transform)
                         {
-                            self.used_bindings.insert(should_transform);
+                            self.used_bindings.define(should_transform);
 
                             if let ExprKind::LambdaFunction(f) = func {
                                 let args =
@@ -3634,13 +3637,19 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                 for (index, (key, _)) in l.bindings.iter().enumerate() {
                     if let Some(key) = key.atom_identifier() {
                         if self.used_bindings.contains(key) {
+                            // println!("Used bindings: {:?}", self.used_bindings);
+
                             should_eliminate = true;
                             binding_indices_to_remove.push(index);
                         }
 
-                        self.bindings.remove(key);
+                        // self.bindings.remove(key);
+                        // self.used_bindings.remove(key);
                     }
                 }
+
+                self.used_bindings.pop_layer();
+                self.bindings.pop_layer();
 
                 if lower_apply {
                     if should_eliminate && original_bindings_length == 1 {
