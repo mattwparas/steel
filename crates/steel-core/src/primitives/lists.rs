@@ -404,9 +404,16 @@ pub fn new(args: &[SteelVal]) -> Result<SteelVal> {
 /// > (#%const-list 1 2 3 4 5) ;; => '(1 2 3 4 5)
 /// > (#%const-list (#%const-list 1 2) (#%const-list 3 4)) ;; => '((1 2) (3 4))
 /// ```
-#[steel_derive::native(name = "#%const-list", arity = "AtLeast(0)", constant = true)]
-pub fn new_const(args: &[SteelVal]) -> Result<SteelVal> {
-    Ok(SteelVal::ListV(args.iter().cloned().collect()))
+#[steel_derive::native_mut(name = "#%const-list", arity = "AtLeast(0)", constant = true)]
+pub fn new_const(args: &mut [SteelVal]) -> Result<SteelVal> {
+    // Note: This signature needs to be different than the above list
+    // in order to not have issues with function pointer comparison
+    log::trace!("calling const list");
+    Ok(SteelVal::ListV(
+        args.iter_mut()
+            .map(|x| std::mem::replace(x, SteelVal::Void))
+            .collect(),
+    ))
 }
 
 /// Checks if the list is empty

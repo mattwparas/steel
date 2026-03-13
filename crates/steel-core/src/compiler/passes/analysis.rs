@@ -3669,6 +3669,15 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                     for (index, value) in binding_expr_replace {
                         l.bindings[index].1 = value;
                     }
+
+                    // For whatever is left:
+                    for (_, rhs) in &mut l.bindings {
+                        if let Some(lst) = rhs.list_mut().and_then(|x| x.first_ident_mut()) {
+                            if *lst == *PRIM_CONST_LIST {
+                                *lst = "#%prim.list".into();
+                            }
+                        }
+                    }
                 }
             }
             ExprKind::Vector(v) => self.visit_vector(v),
