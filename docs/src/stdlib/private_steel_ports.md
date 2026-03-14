@@ -51,6 +51,12 @@ Peeks the next character from an input port.
 (peek-char [port]) -> char?
 
 * port : input-port? = (current-input-port)
+### **peek-u8**
+Alias of `peek-byte`.
+### **port->bytes**
+Alias of `read-port-to-bytes`.
+### **port->string**
+Alias of `read-port-to-string`.
 ### **read-byte**
 Reads a single byte from an input port.
 
@@ -72,6 +78,8 @@ Reads bytes from an input port into a given buffer.
 * buf : bytes?
 * amt : (and positive? int?)
 * port : input-port? = (current-input-port)
+### **read-bytevector**
+Alias of `read-bytes`.
 ### **read-char**
 Reads the next character from an input port.
 
@@ -96,6 +104,8 @@ Reads the entire content of an input port into a string.
 (read-port-to-string [port]) -> string?
 
 * [port] : input-port? = (current-input-port)
+### **read-u8**
+Alias of `read-byte`.
 ### **with-input-from-file**
 Similar to `call-with-input-file`, but installs the newly opened port as the `current-input-port` instead of passing it as an argument.
 If *thunk* returns, then the temporary port will be closed and the return value of *thunk* returned.
@@ -141,3 +151,7 @@ Writes the contents of a bytevector into an output port.
 
 * buf : bytes?
 * port : output-port? = (current-output-port)
+### **write-bytevector**
+Alias of `write-bytes`.
+### **write-u8**
+Alias of `write-byte`.

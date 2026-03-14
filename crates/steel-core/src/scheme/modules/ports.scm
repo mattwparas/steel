@@ -2,14 +2,21 @@
 (require "#%private/steel/control")
 
 (provide read-port-to-string
+         port->string
          read-port-to-bytes
+         port->bytes
          read-line
          read-byte
+         read-u8
          peek-byte
+         peek-u8
          read-bytes
+         read-bytevector
          read-bytes-into-buf
          write-byte
+         write-u8
          write-bytes
+         write-bytevector
          read-char
          peek-char
          call-with-port
@@ -34,6 +41,10 @@
     [(port) (#%read-port-to-string port)]))
 
 ;;@doc
+;; Alias of `read-port-to-string`.
+(define port->string read-port-to-string)
+
+;;@doc
 ;; Reads the entire content of an input port into a byte vector.
 ;;
 ;; (read-port-to-bytes [port]) -> string?
@@ -43,6 +54,10 @@
   (case-lambda
     [() (#%read-port-to-bytes (current-input-port))]
     [(port) (#%read-port-to-bytes port)]))
+
+;;@doc
+;; Alias of `read-port-to-bytes`.
+(define port->bytes read-port-to-bytes)
 
 ;;@doc
 ;; Reads a line from an input port.
@@ -67,6 +82,10 @@
     [(port) (#%read-byte port)]))
 
 ;;@doc
+;; Alias of `read-byte`.
+(define read-u8 read-byte)
+
+;;@doc
 ;; Peeks the next byte from an input port.
 ;;
 ;; (peek-byte [port]) -> byte?
@@ -76,6 +95,10 @@
   (case-lambda
     [() (#%peek-byte (current-input-port))]
     [(port) (#%peek-byte port)]))
+
+;;@doc
+;; Alias of `peek-byte`.
+(define peek-u8 peek-byte)
 
 ;;@doc
 ;; Reads bytes from an input port.
@@ -88,6 +111,10 @@
   (case-lambda
     [(amt) (#%read-bytes amt (current-input-port))]
     [(amt port) (#%read-bytes amt port)]))
+
+;;@doc
+;; Alias of `read-bytes`.
+(define read-bytevector read-bytes)
 
 ;;@doc
 ;; Reads bytes from an input port into a given buffer.
@@ -115,6 +142,10 @@
     [(byte port) (#%write-byte byte port)]))
 
 ;;@doc
+;; Alias of `write-byte`.
+(define write-u8 write-byte)
+
+;;@doc
 ;; Writes the contents of a bytevector into an output port.
 ;;
 ;; (write-bytes buf [port])
@@ -125,6 +156,10 @@
   (case-lambda
     [(bytes) (#%write-bytes bytes (current-output-port))]
     [(bytes port) (#%write-bytes bytes port)]))
+
+;;@doc
+;; Alias of `write-bytes`.
+(define write-bytevector write-bytes)
 
 ;;@doc
 ;; Reads the next character from an input port.
