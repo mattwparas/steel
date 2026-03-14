@@ -1288,10 +1288,6 @@ impl Compiler {
         semantic.populate_captures();
         semantic.populate_captures();
 
-        if std::env::var("STEEL_DEBUG_AST").is_ok() {
-            steel_parser::ast::AstTools::pretty_print(&semantic.exprs);
-        }
-
         semantic.replace_mutable_captured_variables_with_boxes();
 
         log::debug!(target: "expansion-phase", "Expanding multiple arity functions");
@@ -1425,6 +1421,10 @@ impl Compiler {
 
         self.analysis = semantic.into_analysis();
         self.analysis.shrink_capacity();
+
+        if std::env::var("STEEL_DEBUG_AST").is_ok() {
+            steel_parser::ast::AstTools::pretty_print(&expanded_statements);
+        }
 
         Ok(expanded_statements)
 

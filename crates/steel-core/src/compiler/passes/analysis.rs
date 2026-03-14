@@ -3566,9 +3566,6 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                                 let value = ExprKind::List(List::new(expr));
                                 // Find the const list, which is directly from the
                                 self.bindings.define(*key, value);
-
-                                // TODO: Only do this if it was touched!
-                                // binding_indices_to_remove.push(index);
                             }
 
                             // Constructing prim plist try get
@@ -3614,13 +3611,15 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                         self.should_transform_let_apply(apply_body)
                     {
                         if let Some(ExprKind::List(const_list)) =
-                            self.bindings.remove(&should_transform)
+                            self.bindings.get_mut(&should_transform)
                         {
                             self.used_bindings.define(should_transform);
 
+                            let const_list_args = std::mem::take(&mut const_list.args);
+
                             if let ExprKind::LambdaFunction(f) = func {
                                 let args =
-                                    f.args.into_iter().zip(const_list.args).collect::<Vec<_>>();
+                                    f.args.into_iter().zip(const_list_args).collect::<Vec<_>>();
 
                                 // Lifted the arguments up
                                 l.bindings = args;
@@ -3671,13 +3670,13 @@ impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
                     }
 
                     // For whatever is left:
-                    for (_, rhs) in &mut l.bindings {
-                        if let Some(lst) = rhs.list_mut().and_then(|x| x.first_ident_mut()) {
-                            if *lst == *PRIM_CONST_LIST {
-                                *lst = "#%prim.list".into();
-                            }
-                        }
-                    }
+                    // for (_, rhs) in &mut l.bindings {
+                    //     if let Some(lst) = rhs.list_mut().and_then(|x| x.first_ident_mut()) {
+                    //         if *lst == *PRIM_CONST_LIST {
+                    //             *lst = "#%prim.list".into();
+                    //         }
+                    //     }
+                    // }
                 }
             }
             ExprKind::Vector(v) => self.visit_vector(v),
