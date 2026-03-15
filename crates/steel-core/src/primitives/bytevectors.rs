@@ -67,7 +67,7 @@ pub fn bytevector(args: &[SteelVal]) -> Result<SteelVal> {
 /// ```scheme
 /// (bytes 65 112 112 108 101)
 /// ```
-#[steel_derive::native(name = "bytes", arity = "AtLeast(0)")]
+#[steel_derive::native(name = "bytes", alias = "bytevector", arity = "AtLeast(0)")]
 pub fn bytes(args: &[SteelVal]) -> Result<SteelVal> {
     args.iter()
         .map(|x| u8::from_steelval(x))
@@ -83,7 +83,7 @@ pub fn bytes(args: &[SteelVal]) -> Result<SteelVal> {
 /// (bytes? (bytes 0 1 2)) ;; => #t
 /// (bytes? (list 10 20 30)) ;; => #f
 /// ```
-#[steel_derive::function(name = "bytes?")]
+#[steel_derive::function(name = "bytes?", alias = "bytevector?")]
 pub fn is_bytes(arg: &SteelVal) -> bool {
     matches!(arg, SteelVal::ByteVector(_))
 }
@@ -101,10 +101,10 @@ pub fn is_bytes(arg: &SteelVal) -> bool {
 /// ```scheme
 /// (define vec (bytes 1 2 3 4 5))
 ///
-/// (bytevector-copy vec) ;; => (bytes 1 2 3 4 5)
-/// (bytevector-copy vec 1 3) ;; => (bytes 2 3)
+/// (bytes-copy vec) ;; => (bytes 1 2 3 4 5)
+/// (bytes-copy vec 1 3) ;; => (bytes 2 3)
 /// ```
-#[steel_derive::function(name = "bytevector-copy")]
+#[steel_derive::function(name = "bytes-copy", alias = "bytevector-copy")]
 pub fn bytevector_copy_new(
     bytevector: &SteelByteVector,
     mut rest: RestArgsIter<'_, isize>,
@@ -153,7 +153,7 @@ pub fn bytevector_copy_new(
 /// ```scheme
 /// (make-bytes 6 42) ;; => (bytes 42 42 42 42 42)
 /// ```
-#[function(name = "make-bytes")]
+#[function(name = "make-bytes", alias = "make-bytevector")]
 pub fn make_bytes(k: usize, mut c: RestArgsIter<'_, isize>) -> Result<SteelVal> {
     let default = c.next();
 
@@ -203,7 +203,7 @@ pub fn is_byte(value: &SteelVal) -> bool {
 /// ```scheme
 /// (bytes-length (bytes 1 2 3 4 5)) ;; => 5
 /// ```
-#[function(name = "bytes-length")]
+#[function(name = "bytes-length", alias = "bytevector-length")]
 pub fn bytes_length(value: &SteelByteVector) -> usize {
     value.vec.read().len()
 }
@@ -221,7 +221,7 @@ pub fn bytes_length(value: &SteelByteVector) -> usize {
 /// (bytes-ref (bytes 0 1 2 3 4 5) 3) ;; => 4
 /// (bytes-ref (bytes) 10) ;; error
 /// ```
-#[function(name = "bytes-ref")]
+#[function(name = "bytes-ref", alias = "bytevector-u8-ref")]
 pub fn bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
     let guard = value.vec.read();
     guard
@@ -247,7 +247,7 @@ pub fn bytes_ref(value: &SteelByteVector, index: usize) -> Result<SteelVal> {
 /// (bytes-set! my-bytes 0 100)
 /// (bytes-ref my-bytes 0) ;; => 100
 /// ```
-#[function(name = "bytes-set!")]
+#[function(name = "bytes-set!", alias = "bytevector-u8-set!")]
 pub fn bytes_set(value: &mut SteelByteVector, index: usize, byte: u8) -> Result<SteelVal> {
     let mut guard = value.vec.write();
 
@@ -313,7 +313,7 @@ pub fn list_to_bytes(value: Vec<u8>) -> Result<SteelVal> {
 ///
 /// (bytes-append #u8(0) #u8(1) #u8() #u8(2)) ;; => #u8(#x00 #x01 #x02)
 /// ```
-#[function(name = "bytes-append")]
+#[function(name = "bytes-append", alias = "bytevector-append")]
 pub fn bytes_append(mut rest: RestArgsIter<'_, &SteelByteVector>) -> Result<SteelVal> {
     let mut vector = vec![];
 
