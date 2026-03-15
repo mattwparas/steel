@@ -2359,8 +2359,7 @@ impl FunctionTranslator<'_> {
                     // of getting something running
                     let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
 
-                    let result =
-                        self.call_function_returns_value_args_no_context("sub-binop-int", &args);
+                    let result = self.call_function_returns_value_args("sub-binop-int", &args);
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::Number);
