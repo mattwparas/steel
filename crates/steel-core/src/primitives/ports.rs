@@ -63,6 +63,7 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(WRITE_BYTES_DEFINITION)
         .register_native_fn_definition(PEEK_BYTE_DEFINITION)
         .register_native_fn_definition(READ_BYTES_DEFINITION)
+        .register_native_fn_definition(READ_BYTES_INTO_DEFINITION)
         .register_native_fn_definition(READ_BYTES_INTO_BUF_DEFINITION)
         .register_native_fn_definition(WOULD_BLOCK_OBJECTP_DEFINITION)
         .register_native_fn_definition(WOULD_BLOCK_OBJECT_DEFINITION);
@@ -108,6 +109,7 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
         .register_native_fn_definition(WRITE_BYTES_DEFINITION)
         .register_native_fn_definition(PEEK_BYTE_DEFINITION)
         .register_native_fn_definition(READ_BYTES_DEFINITION)
+        .register_native_fn_definition(READ_BYTES_INTO_DEFINITION)
         .register_native_fn_definition(READ_BYTES_INTO_BUF_DEFINITION)
         .register_native_fn_definition(WOULD_BLOCK_OBJECTP_DEFINITION)
         .register_native_fn_definition(WOULD_BLOCK_OBJECT_DEFINITION)
@@ -696,6 +698,26 @@ pub fn read_bytes_into_buf(
     let res = port.read_bytes_into_buf(&mut guard)?;
 
     match res {
+        crate::values::port::MaybeBlocking::Nonblocking(amt) => Ok(SteelVal::IntV(amt as _)),
+        crate::values::port::MaybeBlocking::WouldBlock => Ok(SteelVal::Void),
+    }
+}
+
+#[function(name = "#%read-bytes!")]
+pub fn read_bytes_into(
+    buf: &SteelByteVector,
+    port: &SteelPort,
+    start: usize,
+    end: usize,
+) -> Result<SteelVal> {
+    let mut guard = buf.vec.write();
+    let Some(slice) = guard.get_mut(start..end) else {
+        stop!(ContractViolation => "start and end indices are not valid for the provided buffer");
+    };
+
+    let res = port.read_bytes_into_buf(slice)?;
+    match res {
+        crate::values::port::MaybeBlocking::Nonblocking(0) => Ok(eof_object()),
         crate::values::port::MaybeBlocking::Nonblocking(amt) => Ok(SteelVal::IntV(amt as _)),
         crate::values::port::MaybeBlocking::WouldBlock => Ok(SteelVal::Void),
     }

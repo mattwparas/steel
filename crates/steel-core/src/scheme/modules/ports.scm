@@ -13,6 +13,8 @@
          read-bytes
          read-bytevector
          read-bytes-into-buf
+         read-bytes!
+         read-bytevector!
          write-byte
          write-u8
          write-bytes
@@ -128,6 +130,26 @@
   (case-lambda
     [(buf amt) (#%read-bytes-into-buf buf amt (current-input-port))]
     [(buf amt port) (#%read-bytes-into-buf buf amt port)]))
+
+;;@doc
+;; Reads *end* - *start* bytes from an input port into a given buffer.
+;;
+;; (read-bytes! buf [port] [start] [end])
+;;
+;; * buf : bytes?
+;; * port : input-port? = (current-input-port)
+;; * start : (and positive? int?) = 0
+;; * end : (and positive? int?) = (bytes-length buf)
+(define read-bytes!
+  (case-lambda
+    [(buf) (#%read-bytes! buf (current-input-port) 0 (bytes-length buf))]
+    [(buf port) (#%read-bytes! buf port 0 (bytes-length buf))]
+    [(buf port start) (#%read-bytes! buf port start (bytes-length buf))]
+    [(buf port start end) (#%read-bytes! buf port start end)]))
+
+;;@doc
+;; Alias of `read-bytes!`.
+(define read-bytevector! read-bytes!)
 
 ;;@doc
 ;; Writes a single byte to an output port.
