@@ -64,7 +64,6 @@ pub fn port_module() -> BuiltInModule {
         .register_native_fn_definition(PEEK_BYTE_DEFINITION)
         .register_native_fn_definition(READ_BYTES_DEFINITION)
         .register_native_fn_definition(READ_BYTES_INTO_DEFINITION)
-        .register_native_fn_definition(READ_BYTES_INTO_BUF_DEFINITION)
         .register_native_fn_definition(WOULD_BLOCK_OBJECTP_DEFINITION)
         .register_native_fn_definition(WOULD_BLOCK_OBJECT_DEFINITION);
     module
@@ -110,7 +109,6 @@ pub fn port_module_without_filesystem() -> BuiltInModule {
         .register_native_fn_definition(PEEK_BYTE_DEFINITION)
         .register_native_fn_definition(READ_BYTES_DEFINITION)
         .register_native_fn_definition(READ_BYTES_INTO_DEFINITION)
-        .register_native_fn_definition(READ_BYTES_INTO_BUF_DEFINITION)
         .register_native_fn_definition(WOULD_BLOCK_OBJECTP_DEFINITION)
         .register_native_fn_definition(WOULD_BLOCK_OBJECT_DEFINITION)
         .register_native_fn_definition(IS_STRING_INPUT_DEFINITION)
@@ -673,33 +671,6 @@ pub fn read_bytes(amt: usize, port: &SteelPort) -> Result<SteelVal> {
             }
         }
         crate::values::port::MaybeBlocking::WouldBlock => Ok(would_block_object()),
-    }
-}
-
-/// Reads bytes from an input port into a given buffer.
-///
-/// (read-bytes-into-buf buf amt [port]) -> int?
-///
-/// * buf : bytes?
-/// * amt : (and positive? int?)
-/// * port : input-port? = (current-input-port)
-#[function(name = "#%read-bytes-into-buf")]
-pub fn read_bytes_into_buf(
-    buf: &SteelByteVector,
-    amt: usize,
-    port: &SteelPort,
-) -> Result<SteelVal> {
-    let mut guard = buf.vec.write();
-
-    if guard.len() < amt {
-        stop!(ContractViolation => "read-bytes-into-buf expects a buffer with the capacity to fill the buffer with the specified amount");
-    }
-
-    let res = port.read_bytes_into_buf(&mut guard)?;
-
-    match res {
-        crate::values::port::MaybeBlocking::Nonblocking(amt) => Ok(SteelVal::IntV(amt as _)),
-        crate::values::port::MaybeBlocking::WouldBlock => Ok(SteelVal::Void),
     }
 }
 

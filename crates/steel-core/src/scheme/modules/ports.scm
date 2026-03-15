@@ -119,7 +119,7 @@
 (define read-bytevector read-bytes)
 
 ;;@doc
-;; Reads bytes from an input port into a given buffer.
+;; Reads *amt* bytes from an input port into a given buffer.
 ;;
 ;; (read-bytes-into-buf buf amt [port]) -> int?
 ;;
@@ -128,8 +128,8 @@
 ;; * port : input-port? = (current-input-port)
 (define read-bytes-into-buf
   (case-lambda
-    [(buf amt) (#%read-bytes-into-buf buf amt (current-input-port))]
-    [(buf amt port) (#%read-bytes-into-buf buf amt port)]))
+    [(buf amt) (#%read-bytes! buf (current-input-port) 0 amt)]
+    [(buf amt port) (#%read-bytes! buf port 0 amt)]))
 
 ;;@doc
 ;; Reads *end* - *start* bytes from an input port into a given buffer.
