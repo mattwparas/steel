@@ -1033,7 +1033,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             .collect::<Result<_>>()?;
 
         for ((var, pre_visit_arg), arg) in bindings.iter().zip(args.iter()) {
-            println!("{} -> {}", var, arg);
             let identifier = var.atom_identifier_or_else(
                     throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); l.location.span),
                 )?;
@@ -1178,8 +1177,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         // println!("{:?} - {:?}", non_constant_arguments, values);
 
         let res = ExprKind::Let(l);
-
-        println!("-----> {}", res.to_pretty(60));
 
         Ok(res)
     }
