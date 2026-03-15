@@ -749,23 +749,17 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             }
             if arguments.len() == args.len() {
                 if let Some(evaluated_func) = self.to_constant(&func_expr) {
-                    println!(
-                        "TRYING TO EVALUATE with const list against: {} -> {:?}",
-                        evaluated_func, arguments
-                    );
                     if let SteelVal::FuncV(evaluated_func) = evaluated_func {
                         if evaluated_func == steel_plist_validate_args
                             || evaluated_func == steel_length
                         {
-                            return dbg!(self.eval_function(
+                            return self.eval_function(
                                 SteelVal::FuncV(evaluated_func),
                                 func_expr,
                                 args,
                                 &mut arguments,
-                            ));
+                            );
                         }
-                    } else {
-                        println!("Unable to evaluate.");
                     }
                 }
             }
@@ -1032,7 +1026,7 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             .map(|x| self.visit(x.1.clone()))
             .collect::<Result<_>>()?;
 
-        for ((var, pre_visit_arg), arg) in bindings.iter().zip(args.iter()) {
+        for (var, arg) in bindings.iter().map(|x| &x.0).zip(args.iter()) {
             let identifier = var.atom_identifier_or_else(
                     throw!(BadSyntax => format!("lambda expects an identifier for the arguments: {var}"); l.location.span),
                 )?;
@@ -1048,31 +1042,12 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                         ))
                         .unwrap();
 
-                        println!("BINDING const list {} -> {}", identifier, value);
-
                         new_env.bind_const_list(identifier, value);
                     }
                 }
 
                 new_env.bind_non_constant(identifier);
             }
-
-            // In the event this constant list was bound previously
-            // if let Some(maybe_const_list) = pre_visit_arg.list().and_then(|x| x.first_ident()) {
-            //     if *maybe_const_list == *PRIM_CONST_LIST {
-            //         let expr: ThinVec<_> =
-            //             pre_visit_arg.list().unwrap().args.get(1..).unwrap().into();
-
-            //         let value = TryFromExprKindForSteelVal::try_from_expr_kind(ExprKind::List(
-            //             List::new(expr),
-            //         ))
-            //         .unwrap();
-
-            //         println!("BINDING const list {} -> {}", identifier, value);
-
-            //         new_env.bind_const_list(identifier, value);
-            //     }
-            // }
         }
 
         let parent = Rc::clone(&self.bindings);
