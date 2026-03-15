@@ -1288,10 +1288,6 @@ impl Compiler {
         semantic.populate_captures();
         semantic.populate_captures();
 
-        if std::env::var("STEEL_DEBUG_AST").is_ok() {
-            steel_parser::ast::AstTools::pretty_print(&semantic.exprs);
-        }
-
         semantic.replace_mutable_captured_variables_with_boxes();
 
         log::debug!(target: "expansion-phase", "Expanding multiple arity functions");
@@ -1338,7 +1334,7 @@ impl Compiler {
         if std::env::var("STEEL_MODULE_INLINE")
             .as_ref()
             .map(|x| x.as_str())
-            == Ok("1")
+            != Ok("false")
         {
             semantic.inline_idents_across_module_boundaries(self.modules())?;
             semantic.refresh_variables();
@@ -1403,11 +1399,11 @@ impl Compiler {
             semantic.replace_anonymous_function_calls_with_plain_lets();
         }
 
-        self.analysis = semantic.into_analysis();
+        let mut analysis = semantic.into_analysis();
 
         // We don't want to leave this allocate memory just hanging around, but leave enough for
         // interactive usages
-        self.analysis.shrink_capacity();
+        // self.analysis.shrink_capacity();
 
         // Run const analysis one more time:
 
@@ -1415,6 +1411,20 @@ impl Compiler {
             self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;
 
         SingleExprOptimizer::run(&mut expanded_statements);
+
+        analysis.fresh_from_exprs(&expanded_statements);
+
+        semantic = SemanticAnalysis::from_analysis(&mut expanded_statements, analysis);
+
+        // This might have to run later?
+        semantic.lower_rest_arguments();
+
+        self.analysis = semantic.into_analysis();
+        self.analysis.shrink_capacity();
+
+        if std::env::var("STEEL_DEBUG_AST").is_ok() {
+            steel_parser::ast::AstTools::pretty_print(&expanded_statements);
+        }
 
         Ok(expanded_statements)
 
