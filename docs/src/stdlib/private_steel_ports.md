@@ -70,8 +70,17 @@ Reads bytes from an input port.
 
 * amt : (and positive? int?)
 * port : input-port? = (current-input-port)
+### **read-bytes!**
+Reads *end* - *start* bytes from an input port into a given buffer.
+
+(read-bytes! buf [port] [start] [end])
+
+* buf : bytes?
+* port : input-port? = (current-input-port)
+* start : (and positive? int?) = 0
+* end : (and positive? int?) = (bytes-length buf)
 ### **read-bytes-into-buf**
-Reads bytes from an input port into a given buffer.
+Reads *amt* bytes from an input port into a given buffer.
 
 (read-bytes-into-buf buf amt [port]) -> int?
 
@@ -80,6 +89,8 @@ Reads bytes from an input port into a given buffer.
 * port : input-port? = (current-input-port)
 ### **read-bytevector**
 Alias of `read-bytes`.
+### **read-bytevector!**
+Alias of `read-bytes!`.
 ### **read-char**
 Reads the next character from an input port.
 
