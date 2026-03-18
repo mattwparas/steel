@@ -678,6 +678,16 @@ fn is_pair_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
 }
 
 #[cross_platform_fn]
+fn is_void_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
+    use crate::steel_vm::primitives::voidp;
+
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let value = &guard.thread.stack[offset + register];
+    SteelVal::BoolV(voidp(value))
+}
+
+#[cross_platform_fn]
 fn is_pair_value(value: SteelVal) -> SteelVal {
     SteelVal::BoolV(crate::primitives::lists::pair(&value))
 }
@@ -685,6 +695,13 @@ fn is_pair_value(value: SteelVal) -> SteelVal {
 #[cross_platform_fn]
 fn is_list_value(value: SteelVal) -> SteelVal {
     SteelVal::BoolV(listp(&value))
+}
+
+#[cross_platform_fn]
+fn is_void_value(value: SteelVal) -> SteelVal {
+    use crate::steel_vm::primitives::voidp;
+
+    SteelVal::BoolV(voidp(&value))
 }
 
 #[cross_platform_fn]

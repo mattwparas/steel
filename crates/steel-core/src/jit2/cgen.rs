@@ -30,7 +30,7 @@ use crate::{
     },
     rvals::FunctionSignature,
     steel_vm::{
-        primitives::{steel_eq, steel_listp, steel_stringp},
+        primitives::{steel_eq, steel_listp, steel_stringp, steel_voidp},
         vm::{jit::*, VmCore},
     },
     SteelVal,
@@ -416,6 +416,16 @@ impl Default for JIT {
         map.add_func2(
             "list?-value",
             abi! { is_list_value as fn(SteelVal) -> SteelVal },
+        );
+
+        map.add_func(
+            "void?",
+            abi! { is_void_c_reg as fn(*mut VmCore, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "void?-value",
+            abi! { is_void_value as fn(SteelVal) -> SteelVal },
         );
 
         map.add_func(
@@ -2251,6 +2261,10 @@ impl FunctionTranslator<'_> {
 
                                 f if f == steel_listp as FunctionSignature && arity == 1 => {
                                     self.is_list()
+                                }
+
+                                f if f == steel_voidp as FunctionSignature && arity == 1 => {
+                                    self.is_void()
                                 }
 
                                 f if f == steel_eof_objectp as FunctionSignature && arity == 1 => {
