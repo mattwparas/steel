@@ -812,9 +812,9 @@ impl Default for JIT {
             InferredType::Number,
         );
 
-        map.add_func_hint2(
+        map.add_func_hint(
             "sub-binop-int",
-            extern_c_sub_two_int as BinOp,
+            extern_c_sub_two_int as VmBinOp,
             InferredType::Number,
         );
 
@@ -2417,7 +2417,18 @@ impl FunctionTranslator<'_> {
                             == Some(InferredType::Int) =>
                 {
                     // Call the func
-                    self.func_ret_val_named("sub-binop-int", payload, 2, InferredType::Number);
+
+                    let args = self.split_off(payload);
+
+                    // TODO: Use the type hints! For now we're not going to for the sake
+                    // of getting something running
+                    let args = args.into_iter().map(|x| x.0).collect::<Vec<_>>();
+
+                    let result = self.call_function_returns_value_args("sub-binop-int", &args);
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::Number);
+                    self.ip += 2;
                 }
 
                 // Specializing addition such that we'll handle when the first argument

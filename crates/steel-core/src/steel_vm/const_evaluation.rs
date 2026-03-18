@@ -1,3 +1,7 @@
+#![allow(unpredictable_function_pointer_comparisons)]
+
+use crate::compiler::program::PRIM_CONST_LIST;
+use crate::primitives::lists::{steel_length, steel_plist_validate_args};
 use crate::rvals::{IntoSteelVal, Result, SteelVal};
 use crate::{
     compiler::compiler::OptLevel,
@@ -41,6 +45,11 @@ struct ConstantEnv {
     bindings: HashMap<InternedString, SteelVal, FxBuildHasher>,
     used_bindings: HashSet<InternedString, FxBuildHasher>,
     non_constant_bound: HashSet<InternedString, FxBuildHasher>,
+
+    // We're not suggesting that we can completely eliminate the args,
+    // but we could in theory eliminate the values for the
+    constant_lists: HashMap<InternedString, SteelVal>,
+
     parent: Option<Weak<RefCell<ConstantEnv>>>,
 }
 
@@ -50,6 +59,7 @@ impl ConstantEnv {
             bindings,
             used_bindings: HashSet::default(),
             non_constant_bound: HashSet::default(),
+            constant_lists: Default::default(),
             parent: None,
         }
     }
@@ -59,6 +69,7 @@ impl ConstantEnv {
             bindings: HashMap::default(),
             used_bindings: HashSet::default(),
             non_constant_bound: HashSet::default(),
+            constant_lists: Default::default(),
             parent: Some(parent),
         }
     }
@@ -69,6 +80,10 @@ impl ConstantEnv {
 
     fn bind_non_constant(&mut self, ident: &InternedString) {
         self.non_constant_bound.insert(*ident);
+    }
+
+    fn bind_const_list(&mut self, ident: &InternedString, expr: SteelVal) {
+        self.constant_lists.insert(*ident, expr);
     }
 
     fn get(&mut self, ident: &InternedString) -> Option<SteelVal> {
@@ -86,6 +101,20 @@ impl ConstantEnv {
                 .get(ident)
         } else {
             self.used_bindings.insert(*ident);
+            value.cloned()
+        }
+    }
+
+    fn get_constant_list(&self, ident: &InternedString) -> Option<SteelVal> {
+        let value = self.constant_lists.get(ident);
+        if value.is_none() {
+            self.parent
+                .as_ref()?
+                .upgrade()
+                .expect("Constant environment freed early")
+                .borrow()
+                .get_constant_list(ident)
+        } else {
             value.cloned()
         }
     }
@@ -367,6 +396,14 @@ impl<'a> ConstantEvaluator<'a> {
         exprs.iter().map(|x| self.to_constant(x)).collect()
     }
 
+    fn is_constant_list(&self, expr: Option<&ExprKind>) -> Option<SteelVal> {
+        if let Some(arg) = expr.and_then(|x| x.atom_identifier()) {
+            return self.bindings.borrow().get_constant_list(arg);
+        }
+
+        None
+    }
+
     fn eval_kernel_function(
         &mut self,
         ident: InternedString,
@@ -500,16 +537,13 @@ impl<'a> ConstantEvaluator<'a> {
                 lst,
                 SyntaxObject::new(TokenType::Quote, get_span(&func)),
             )));
-            // debug!(
+            // println!(
             //     "Const evaluation of a function resulted in a quoted value: {}",
             //     output
             // );
             Ok(output)
         } else {
-            // debug!(
-            //     "Unable to convert constant-evalutable function output to value: {}",
-            //     evaluated_func
-            // );
+            // println!("Unable to convert constant-evalutable function output to value",);
             // Something went wrong
             raw_args.insert(0, func);
             Ok(ExprKind::List(List::new(raw_args)))
@@ -701,6 +735,35 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         let func_expr = args.next().expect("Function missing");
         let mut args: ThinVec<_> = args.map(|x| self.visit(x)).collect::<Result<_>>()?;
+
+        // This means we're evaluating a function where the arg is a constant
+        // list, AND the rest of the args are constant.
+        if let Some(v) = self.is_constant_list(args.first()) {
+            let mut arguments = vec![v];
+            if let Some(remaining) = args.get(1..) {
+                for x in remaining {
+                    if let Some(c) = self.to_constant(x) {
+                        arguments.push(c);
+                    }
+                }
+            }
+            if arguments.len() == args.len() {
+                if let Some(evaluated_func) = self.to_constant(&func_expr) {
+                    if let SteelVal::FuncV(evaluated_func) = evaluated_func {
+                        if evaluated_func == steel_plist_validate_args
+                            || evaluated_func == steel_length
+                        {
+                            return self.eval_function(
+                                SteelVal::FuncV(evaluated_func),
+                                func_expr,
+                                args,
+                                &mut arguments,
+                            );
+                        }
+                    }
+                }
+            }
+        }
 
         // Resolve the arguments - if they're all constants, we have a chance to do constant evaluation
         if let Some(mut arguments) = self.all_to_constant(&args) {
@@ -949,6 +1012,15 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
 
         let mut new_env = ConstantEnv::new_subexpression(Rc::downgrade(&self.bindings));
 
+        // println!(
+        //     "Visiting let with bindings: {} - {:?}",
+        //     l,
+        //     bindings
+        //         .iter()
+        //         .map(|x| format!("{} -> {}", x.0, x.1))
+        //         .collect::<Vec<_>>()
+        // );
+
         let args: Vec<_> = bindings
             .iter()
             .map(|x| self.visit(x.1.clone()))
@@ -961,6 +1033,19 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
             if let Some(c) = self.to_constant(arg) {
                 new_env.bind(identifier, c);
             } else {
+                if let Some(maybe_const_list) = arg.list().and_then(|x| x.first_ident()) {
+                    if *maybe_const_list == *PRIM_CONST_LIST {
+                        let expr: ThinVec<_> = arg.list().unwrap().args.get(1..).unwrap().into();
+
+                        let value = TryFromExprKindForSteelVal::try_from_expr_kind(ExprKind::List(
+                            List::new(expr),
+                        ))
+                        .unwrap();
+
+                        new_env.bind_const_list(identifier, value);
+                    }
+                }
+
                 new_env.bind_non_constant(identifier);
             }
         }
@@ -1001,7 +1086,8 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
                 indices_to_retain.push(index);
             } else if self.to_constant(arg).is_none() {
                 // actually_used_variables.push(var.clone());
-                // println!("Found a non constant argument: {}", arg);
+                // println!("Found a non constant argument: {} -> {}", var, arg);
+
                 non_constant_arguments.push(arg);
 
                 indices_to_retain.push(index);
@@ -1038,6 +1124,13 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         //     bindings
         // };
 
+        // TODO: @Matt
+        // The issue here is that the bindings with transformed
+        // right hand sides are not actually getting substituted
+        // back in. What we need to do is replace the RHS
+        // with the now visited constant evaluation, assuming its still
+        // remaining.
+
         drop(actually_used_arguments);
         drop(actually_used_variables);
         drop(non_constant_arguments);
@@ -1045,8 +1138,9 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         l.bindings = bindings
             .into_iter()
             .enumerate()
-            .filter(|x| indices_to_retain.contains(&x.0))
-            .map(|x| x.1)
+            .zip(args)
+            .filter(|x| indices_to_retain.contains(&x.0 .0))
+            .map(|x| (x.0 .1 .0, x.1))
             .collect();
 
         // let values = l
@@ -1058,8 +1152,6 @@ impl<'a> ConsumingVisitor for ConstantEvaluator<'a> {
         // println!("{:?} - {:?}", non_constant_arguments, values);
 
         let res = ExprKind::Let(l);
-
-        // println!("-----> {}", res.to_pretty(60));
 
         Ok(res)
     }

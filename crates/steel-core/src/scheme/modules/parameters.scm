@@ -154,7 +154,10 @@
 (define (simple-display x)
   (#%raw-display x (current-output-port)))
 
-(define write-string #%raw-write-string)
+(define write-string
+  (case-lambda
+    [(arg) (#%raw-write-string arg (current-output-port))]
+    [(arg port) (#%raw-write-string arg port)]))
 
 (define newline
   (case-lambda
@@ -165,7 +168,10 @@
   (simple-display x)
   (newline))
 
-(define write-char #%raw-write-char)
+(define write-char
+  (case-lambda
+    [(char) (#%raw-write-char char (current-output-port))]
+    [(char port) (#%raw-write-char char port)]))
 
 (define write
   (case-lambda

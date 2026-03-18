@@ -59,9 +59,6 @@ Resume a suspended thread. This does nothing if the thread is already joined.
 Suspend the thread. Note, this will _not_ interrupt any native code that is
 potentially running in the thread, and will attempt to block at the next
 bytecode instruction that is running.
-### **channel->recv**
-### **channel->send**
-### **channel->try-recv**
 ### **channel/recv**
 ### **channel/send**
 ### **channel/try-recv**
@@ -69,6 +66,5 @@ bytecode instruction that is running.
 ### **channels-sender**
 ### **channels/new**
 ### **current-thread-id**
-### **make-channels**
 ### **thread/available-parallelism**
 ### **thread::current/id**

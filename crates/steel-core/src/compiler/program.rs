@@ -694,6 +694,13 @@ define_symbols! {
     PRIM_CONS_SYMBOL => "#%prim.cons",
     LIST_SYMBOL => "list",
     PRIM_LIST_SYMBOL => "#%prim.list",
+    PRIM_CONST_LIST => "#%prim.#%const-list",
+    PRIM_PLIST_TRY_GET => "#%prim.plist-try-get",
+    PRIM_PLIST_TRY_GET_POSITIONAL => "#%prim.plist-try-get-positional-arg",
+    PRIM_PLIST_GET_POSITIONAL_ARG_LIST => "#%prim.plist-get-positional-arg-list",
+    PRIM_PLIST_GET_POSITIONAL_ARG => "#%prim.plist-get-positional-arg",
+    PRIM_PLIST_GET_KWARG => "#%prim.plist.get-kward",
+    PRIM_APPLY => "#%prim.apply",
     PRIM_LIST_REF => "#%prim.list-ref",
     PRIM_VECTOR_REF => "#%prim.vector-ref",
     BOX => "#%box",
@@ -706,6 +713,7 @@ define_symbols! {
     BEGIN_FOR_SYNTAX => "begin-for-syntax",
     ELLIPSES_SYMBOL => "...",
     DOT => ".",
+    CONSTANT_LIST_WRAPPER => "##constant-list-wrapper",
 }
 
 pub fn flatten_equal_const(instructions: &mut [Instruction]) {

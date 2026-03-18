@@ -2528,18 +2528,6 @@ Checks if a path exists.
 > (path-exists? "logs") ;; => #true
 > (path-exists? "backup/logs") ;; => #false
 ```
-### **peek-byte**
-Peeks the next byte from an input port.
-
-(peek-byte [port]) -> byte?
-
-* port : input-port? = (current-input-port)
-### **peek-char**
-Peeks the next character from an input port.
-
-(peek-char [port]) -> char?
-
-* port : input-port? = (current-input-port)
 ### **pop-front**
 Returns the first element of the given vector.
 
@@ -2653,33 +2641,6 @@ Examples:
 > (rational? 6/10) ;; => #t
 > (rational? +nan.0) ;; => #f
 ```
-### **read-byte**
-Reads a single byte from an input port.
-
-(read-byte [port]) -> byte?
-
-* port : input-port? = (current-input-port)
-### **read-bytes**
-Reads bytes from an input port.
-
-(read-bytes amt [port]) -> bytes?
-
-* amt : (and positive? int?)
-* port : input-port? = (current-input-port)
-### **read-bytes-into-buf**
-Reads bytes from an input port into a given buffer.
-
-(read-bytes-into-buf buf amt [port]) -> int?
-
-* buf : bytes?
-* amt : (and positive? int?)
-* port : input-port? = (current-input-port)
-### **read-char**
-Reads the next character from an input port.
-
-(read-char [port]) -> char?
-
-* port : input-port? = (current-input-port)
 ### **read-dir**
 Returns the contents of the directory as a list
 
@@ -2784,12 +2745,6 @@ Checks whether the given value is a #<ReadDir>
 (read-dir-iter? my-iter) ;; => #true
 (read-dir-iter "not an iter") ;; => #false
 ```
-### **read-line**
-Reads a line from an input port.
-
-(read-line [port]) -> string?
-
-* port : input-port? = (current-input-port)
 ### **read-line-from-port**
 Reads a line from the given port, including the '\n' at the end.
 
@@ -2797,12 +2752,6 @@ Use of this procedure is discouraged in favor of the (read-line) procedure,
 which is included in the scheme spec and therefore more portable.
 
 (read-line-from-port port?) -> string?
-### **read-port-to-string**
-Takes a port and reads the entire content into a string
-
-(read-port-to-string port) -> string?
-
-* port : input-port?
 ### **real-part**
 Returns the real part of a number
 
@@ -4142,20 +4091,6 @@ Removes an environment variable for the child.
 Returns `#t` if the value is an EOF object.
 
 (eof-object? any/c) -> bool?
-### **write-byte**
-Writes a single byte to an output port.
-
-(write-byte b [port])
-
-* b : byte?
-* port : output-port? = (current-output-port)
-### **write-bytes**
-Writes the contents of a bytevector into an output port.
-
-(write-bytes buf [port])
-
-* buf : bytes?
-* port : output-port? = (current-output-port)
 ### **zero?**
 Checks if the given real number is zero.
 
@@ -4211,6 +4146,7 @@ Create a zipping iterator
 ### **box**
 ### **box-strong**
 ### **breakpoint!**
+### **bytes->serialized**
 ### **bytes-clear!**
 ### **bytes-push!**
 ### **call-with-current-continuation**
@@ -4218,9 +4154,6 @@ Create a zipping iterator
 ### **call/cc**
 ### **callstack-hydrate-names**
 ### **cdr-null?**
-### **channel->recv**
-### **channel->send**
-### **channel->try-recv**
 ### **channel/recv**
 ### **channel/send**
 ### **channel/try-recv**
@@ -4232,8 +4165,11 @@ Create a zipping iterator
 ### **continuation?**
 ### **current-function-span**
 ### **current-module**
+### **current-module-relative**
 ### **current-os!**
 ### **current-thread-id**
+### **debug-globals**
+### **deserialize-value**
 ### **dump-profiler**
 ### **duration->micros**
 ### **duration->millis**
@@ -4288,11 +4224,11 @@ Create a zipping iterator
 ### **load-expanded**
 ### **local-executor/block-on**
 ### **make-callstack-profiler**
-### **make-channels**
 ### **make-struct-type**
 ### **make-will-executor**
 ### **maybe-get-env-var**
 ### **memory-address**
+### **module->exports**
 ### **multi-arity?**
 ### **mutable-vector?**
 ### **naive-current-date-local**
@@ -4321,6 +4257,8 @@ Create a zipping iterator
 ### **read!**
 ### **read-to-string**
 ### **run!**
+### **serialize-value**
+### **serialized->bytes**
 ### **set-box!**
 ### **set-piped-stdout!**
 ### **set-stdout-piped!**

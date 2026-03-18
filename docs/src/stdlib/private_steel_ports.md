@@ -39,6 +39,73 @@ If *proc* returns, then the port will be closed and the return value of *proc* r
 
 - port : port?
 - proc : procedure?
+### **peek-byte**
+Peeks the next byte from an input port.
+
+(peek-byte [port]) -> byte?
+
+* port : input-port? = (current-input-port)
+### **peek-char**
+Peeks the next character from an input port.
+
+(peek-char [port]) -> char?
+
+* port : input-port? = (current-input-port)
+### **peek-u8**
+Alias of `peek-byte`.
+### **port->bytes**
+Alias of `read-port-to-bytes`.
+### **port->string**
+Alias of `read-port-to-string`.
+### **read-byte**
+Reads a single byte from an input port.
+
+(read-byte [port]) -> byte?
+
+* port : input-port? = (current-input-port)
+### **read-bytes**
+Reads bytes from an input port.
+
+(read-bytes amt [port]) -> bytes?
+
+* amt : (and positive? int?)
+* port : input-port? = (current-input-port)
+### **read-bytes-into-buf**
+Reads bytes from an input port into a given buffer.
+
+(read-bytes-into-buf buf amt [port]) -> int?
+
+* buf : bytes?
+* amt : (and positive? int?)
+* port : input-port? = (current-input-port)
+### **read-bytevector**
+Alias of `read-bytes`.
+### **read-char**
+Reads the next character from an input port.
+
+(read-char [port]) -> char?
+
+* port : input-port? = (current-input-port)
+### **read-line**
+Reads a line from an input port.
+
+(read-line [port]) -> string?
+
+* port : input-port? = (current-input-port)
+### **read-port-to-bytes**
+Reads the entire content of an input port into a byte vector.
+
+(read-port-to-bytes [port]) -> string?
+
+* [port] : input-port? = (current-input-port)
+### **read-port-to-string**
+Reads the entire content of an input port into a string.
+
+(read-port-to-string [port]) -> string?
+
+* [port] : input-port? = (current-input-port)
+### **read-u8**
+Alias of `read-byte`.
 ### **with-input-from-file**
 Similar to `call-with-input-file`, but installs the newly opened port as the `current-input-port` instead of passing it as an argument.
 If *thunk* returns, then the temporary port will be closed and the return value of *thunk* returned.
@@ -70,3 +137,21 @@ If *thunk* returns, then the content from the string port will be returned.
 (with-output-to-string thunk) -> string?
 
 - thunk : procedure?
+### **write-byte**
+Writes a single byte to an output port.
+
+(write-byte b [port])
+
+* b : byte?
+* port : output-port? = (current-output-port)
+### **write-bytes**
+Writes the contents of a bytevector into an output port.
+
+(write-bytes buf [port])
+
+* buf : bytes?
+* port : output-port? = (current-output-port)
+### **write-bytevector**
+Alias of `write-bytes`.
+### **write-u8**
+Alias of `write-byte`.

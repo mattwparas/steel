@@ -7,12 +7,16 @@ use std::{
 use crate::{
     compiler::{
         modules::{CompiledModule, MANGLER_PREFIX, MODULE_PREFIX},
-        program::{SETBOX, UNBOX},
+        program::{
+            PRIM_APPLY, PRIM_CONST_LIST, PRIM_PLIST_GET_KWARG, PRIM_PLIST_GET_POSITIONAL_ARG,
+            PRIM_PLIST_GET_POSITIONAL_ARG_LIST, PRIM_PLIST_TRY_GET, PRIM_PLIST_TRY_GET_POSITIONAL,
+            SETBOX, UNBOX,
+        },
     },
     parser::ast::List,
     values::HashMap as ImmutableHashMap,
 };
-use quickscope::ScopeMap;
+use quickscope::{ScopeMap, ScopeSet};
 use smallvec::SmallVec;
 use steel_parser::{
     ast::{Begin, PROTO_HASH_GET},
@@ -3270,6 +3274,416 @@ impl<'a> VisitorMutUnitRef<'a> for UnusedArguments<'a> {
     }
 }
 
+// TODO: Lower the rest arguments such that any rest argument
+// expansion is completely elided
+struct LowerRestArguments<'a> {
+    analysis: &'a Analysis,
+    bindings: ScopeMap<InternedString, ExprKind, FxBuildHasher>,
+    used_bindings: ScopeSet<InternedString, FxBuildHasher>,
+}
+
+impl<'a> LowerRestArguments<'a> {
+    pub fn new(analysis: &'a Analysis) -> Self {
+        Self {
+            analysis,
+            bindings: Default::default(),
+            used_bindings: Default::default(),
+        }
+    }
+
+    fn should_transform_let_apply(
+        &mut self,
+        apply_body: &mut List,
+    ) -> Option<(InternedString, ExprKind)> {
+        let ident = apply_body.first_ident()?;
+        if *ident == *PRIM_APPLY {
+            /*
+            Before:
+            (%plain-let ((####args2 (#%prim.#%const-list
+                         (#%prim.box 10)
+                         (#%prim.box 20))))
+                    (%plain-let ()
+                      (#%prim.apply
+                         (λ (##arg14 ##arg24)
+                           (##mm5133__%#__displayln ##arg14 ##arg24))
+                         ####args2)))
+
+            After:
+            (%plain-let ((##arg14 (#%prim.box 10))
+                         (##arg24 (#%prim.box 20)))
+                   (##mm5133__%#__displayln ##arg14 ##arg24))
+
+            */
+
+            let ident = apply_body.get(2).and_then(|x| x.atom_syntax_object())?;
+            let ty = ident.ty.identifier()?;
+            // This refers to the actual interned string pointing to the
+            // const list.
+
+            if self.bindings.contains_key(ty) {
+                let analysis = self.analysis.get(ident)?;
+                let refers_to = analysis.refers_to;
+
+                let original_ident = refers_to.and_then(|x| self.analysis.info.get(&x))?;
+                if original_ident.usage_count == 1 {
+                    let ty = *ty;
+                    let func = apply_body.args.get_mut(1);
+                    if let Some(f @ ExprKind::LambdaFunction(_)) = func {
+                        return Some((ty, std::mem::take(f)));
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    fn handle_plist_get_positional_arg_list(
+        &mut self,
+        binding_expr_replace: &mut Vec<(usize, ExprKind)>,
+        index: usize,
+        value: &ExprKind,
+    ) -> Option<()> {
+        println!("plist-get-positional-arg-list start: {} - {}", index, value);
+
+        let lst = value.list()?;
+
+        let ident = lst.get(1)?.atom_identifier()?;
+        self.used_bindings.define(*ident);
+        let found_index = lst.get(2)?.int_literal()?;
+
+        let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
+        let mut iter = const_list.iter();
+
+        let mut positional_arg_offset = 0;
+
+        while let Some(next) = iter.next() {
+            if next.atom_keyword().is_some() {
+                iter.next();
+                continue;
+            }
+
+            if found_index == positional_arg_offset {
+                let mut remaining = thin_vec![ExprKind::ident("#%prim.list"), next.clone()];
+                remaining.extend(iter.cloned());
+                let lst = ExprKind::List(List::new(remaining));
+
+                // println!("plist-get-positional-arg-list: {}", lst);
+                binding_expr_replace.push((index, lst));
+                return Some(());
+            }
+
+            positional_arg_offset += 1;
+        }
+
+        let error = ExprKind::List(List::new(thin_vec![ExprKind::ident("#%prim.list"),]));
+        binding_expr_replace.push((index, error));
+
+        Some(())
+    }
+
+    fn handle_plist_get_positional_arg(
+        &mut self,
+        binding_expr_replace: &mut Vec<(usize, ExprKind)>,
+        index: usize,
+        value: &ExprKind,
+    ) -> Option<()> {
+        let lst = value.list()?;
+
+        let ident = lst.get(1)?.atom_identifier()?;
+        self.used_bindings.define(*ident);
+        let found_index = lst.get(2)?.int_literal()?;
+
+        let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
+        let mut iter = const_list.iter();
+
+        let mut positional_arg_offset = 0;
+
+        while let Some(next) = iter.next() {
+            if next.atom_keyword().is_some() {
+                iter.next();
+                continue;
+            }
+
+            if found_index == positional_arg_offset {
+                binding_expr_replace.push((index, next.clone()));
+                return Some(());
+            }
+
+            positional_arg_offset += 1;
+        }
+
+        let error = ExprKind::List(List::new(thin_vec![
+            ExprKind::ident("#%prim.error"),
+            ExprKind::string_lit("Missing positional arg".to_string())
+        ]));
+        binding_expr_replace.push((index, error));
+
+        Some(())
+    }
+
+    fn handle_plist_get_kwarg(
+        &mut self,
+        binding_expr_replace: &mut Vec<(usize, ExprKind)>,
+        index: usize,
+        value: &ExprKind,
+    ) -> Option<()> {
+        let lst = value.list()?;
+
+        let ident = lst.get(1)?.atom_identifier()?;
+        self.used_bindings.define(*ident);
+        let key = lst.get(2)?.atom_keyword()?;
+        let func_name = lst.get(3)?;
+
+        let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
+        let mut iter = const_list.iter();
+
+        let sym = iter.find(|x| x.atom_keyword() == Some(key));
+
+        let mut missing_symbol_error = None;
+
+        if sym.is_none() {
+            missing_symbol_error = Some(ExprKind::List(List::new(thin_vec![
+                ExprKind::ident("#%prim.error"),
+                ExprKind::string_lit(format!("{} : Key not found: {}", func_name, key))
+            ])));
+        }
+
+        let value = iter
+            .next()
+            .cloned()
+            .or(missing_symbol_error)
+            .unwrap_or_else(|| {
+                ExprKind::List(List::new(thin_vec![
+                    ExprKind::ident("#%prim.error"),
+                    ExprKind::string_lit(format!("{} : Missing value for key: {}", func_name, key))
+                ]))
+            });
+
+        binding_expr_replace.push((index, value));
+
+        Some(())
+    }
+
+    fn handle_plist_try_get_positional(
+        &mut self,
+        binding_expr_replace: &mut Vec<(usize, ExprKind)>,
+        index: usize,
+        value: &ExprKind,
+    ) -> Option<()> {
+        let lst = value.list()?;
+
+        let ident = lst.get(1)?.atom_identifier()?;
+
+        self.used_bindings.define(*ident);
+
+        let int_index = lst.get(2)?.int_literal()?;
+        let default_value = lst.get(3)?;
+
+        let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
+        let mut iter = const_list.iter();
+        let mut positional_arg_offset = 0;
+
+        while let Some(next) = iter.next() {
+            if next.atom_keyword().is_some() {
+                iter.next();
+            } else {
+                if int_index == positional_arg_offset {
+                    binding_expr_replace.push((index, next.clone()));
+                    return Some(());
+                }
+
+                positional_arg_offset += 1;
+            }
+        }
+
+        binding_expr_replace.push((index, default_value.clone()));
+
+        Some(())
+    }
+
+    fn handle_plist_try_get(
+        &mut self,
+        binding_expr_replace: &mut Vec<(usize, ExprKind)>,
+        index: usize,
+        value: &ExprKind,
+    ) -> Option<()> {
+        let lst = value.list()?;
+
+        // Just replace it with the right thing:
+        let ident = lst.get(1).and_then(|x| x.atom_identifier())?;
+        self.used_bindings.define(*ident);
+
+        // dbg!(lst.get(2)?);
+
+        let key = lst.get(2)?.atom_keyword()?;
+        let default_value = lst.get(3)?;
+
+        let const_list = self.bindings.get(ident).and_then(|x| x.list())?;
+        let mut iter = const_list.iter();
+        let expr_to_replace = iter
+            .find(|x| x.atom_identifier() == Some(key) || x.atom_keyword() == Some(key))
+            .and_then(|_| iter.next())
+            .unwrap_or(default_value);
+
+        binding_expr_replace.push((index, expr_to_replace.clone()));
+
+        Some(())
+    }
+}
+
+impl<'a> VisitorMutRefUnit for LowerRestArguments<'a> {
+    fn visit(&mut self, expr: &mut ExprKind) {
+        match expr {
+            ExprKind::If(f) => self.visit_if(f),
+            ExprKind::Define(d) => self.visit_define(d),
+            ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
+            ExprKind::Begin(b) => self.visit_begin(b),
+            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Quote(q) => self.visit_quote(q),
+            ExprKind::Macro(m) => self.visit_macro(m),
+            ExprKind::Atom(a) => self.visit_atom(a),
+            ExprKind::List(l) => self.visit_list(l),
+            ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
+            ExprKind::Set(s) => self.visit_set(s),
+            ExprKind::Require(r) => self.visit_require(r),
+            ExprKind::Let(l) => {
+                let original_bindings_length = l.bindings.len();
+
+                // Remove the bindings
+                let mut binding_indices_to_remove = Vec::new();
+
+                let mut binding_expr_replace = Vec::new();
+
+                self.bindings.push_layer();
+
+                for (index, (key, value)) in l.bindings.iter().enumerate() {
+                    if let Some(key) = key.atom_identifier() {
+                        if let Some(maybe_const_list) = value.list().and_then(|x| x.first_ident()) {
+                            if *maybe_const_list == *PRIM_CONST_LIST {
+                                let expr: ThinVec<_> =
+                                    value.list().unwrap().args.get(1..).unwrap().into();
+                                let value = ExprKind::List(List::new(expr));
+                                // Find the const list, which is directly from the
+                                self.bindings.define(*key, value);
+                            }
+
+                            // Constructing prim plist try get
+                            if *maybe_const_list == *PRIM_PLIST_TRY_GET {
+                                self.handle_plist_try_get(&mut binding_expr_replace, index, value);
+                            } else if *maybe_const_list == *PRIM_PLIST_TRY_GET_POSITIONAL {
+                                self.handle_plist_try_get_positional(
+                                    &mut binding_expr_replace,
+                                    index,
+                                    value,
+                                );
+                            } else if *maybe_const_list == *PRIM_PLIST_GET_POSITIONAL_ARG_LIST {
+                                self.handle_plist_get_positional_arg_list(
+                                    &mut binding_expr_replace,
+                                    index,
+                                    value,
+                                );
+                            } else if *maybe_const_list == *PRIM_PLIST_GET_POSITIONAL_ARG {
+                                self.handle_plist_get_positional_arg(
+                                    &mut binding_expr_replace,
+                                    index,
+                                    value,
+                                );
+                            } else if *maybe_const_list == *PRIM_PLIST_GET_KWARG {
+                                self.handle_plist_get_kwarg(
+                                    &mut binding_expr_replace,
+                                    index,
+                                    value,
+                                );
+                            }
+                        }
+                    }
+                }
+
+                self.used_bindings.push_layer();
+
+                self.visit(&mut l.body_expr);
+
+                let mut lower_apply = false;
+
+                if let ExprKind::List(apply_body) = &mut l.body_expr {
+                    if let Some((should_transform, func)) =
+                        self.should_transform_let_apply(apply_body)
+                    {
+                        if let Some(ExprKind::List(const_list)) =
+                            self.bindings.get_mut(&should_transform)
+                        {
+                            self.used_bindings.define(should_transform);
+
+                            let const_list_args = std::mem::take(&mut const_list.args);
+
+                            if let ExprKind::LambdaFunction(f) = func {
+                                let args =
+                                    f.args.into_iter().zip(const_list_args).collect::<Vec<_>>();
+
+                                // Lifted the arguments up
+                                l.bindings = args;
+                                l.body_expr = f.body;
+
+                                lower_apply = true;
+                            }
+                        }
+                    }
+                }
+
+                let mut should_eliminate = false;
+
+                for (index, (key, _)) in l.bindings.iter().enumerate() {
+                    if let Some(key) = key.atom_identifier() {
+                        if self.used_bindings.contains(key) {
+                            // println!("Used bindings: {:?}", self.used_bindings);
+
+                            should_eliminate = true;
+                            binding_indices_to_remove.push(index);
+                        }
+
+                        // self.bindings.remove(key);
+                        // self.used_bindings.remove(key);
+                    }
+                }
+
+                self.used_bindings.pop_layer();
+                self.bindings.pop_layer();
+
+                if lower_apply {
+                    if should_eliminate && original_bindings_length == 1 {
+                        *expr = std::mem::take(&mut l.body_expr);
+                    }
+                } else {
+                    // println!(
+                    //     "{} - {}",
+                    //     binding_indices_to_remove.len(),
+                    //     binding_expr_replace.len()
+                    // );
+
+                    for index in binding_indices_to_remove.into_iter().rev() {
+                        l.bindings.remove(index);
+                    }
+
+                    for (index, value) in binding_expr_replace {
+                        l.bindings[index].1 = value;
+                    }
+
+                    // For whatever is left:
+                    // for (_, rhs) in &mut l.bindings {
+                    //     if let Some(lst) = rhs.list_mut().and_then(|x| x.first_ident_mut()) {
+                    //         if *lst == *PRIM_CONST_LIST {
+                    //             *lst = "#%prim.list".into();
+                    //         }
+                    //     }
+                    // }
+                }
+            }
+            ExprKind::Vector(v) => self.visit_vector(v),
+        }
+    }
+}
+
 struct LiftClosuresToGlobalScope<'a> {
     analysis: &'a Analysis,
     lifted_functions: Vec<ExprKind>,
@@ -5462,17 +5876,21 @@ impl<'a> SemanticAnalysis<'a> {
                     let original_id = l.syntax_object_id;
                     let l = l.clone();
 
+                    // if l.rest {
+                    //     println!("Found multi arity function to inline: {}", l);
+                    // }
+
                     // TODO: Investigate bug with multi arity functions and inlining?
-                    if !l.rest {
-                        funcs.insert(
-                            *d.name.atom_identifier().unwrap(),
-                            Box::new(move |_: &Analysis, lst: &mut List| {
-                                if lst.syntax_object_id > original_id {
-                                    lst.args[0] = ExprKind::LambdaFunction(l.clone());
-                                }
-                            }),
-                        );
-                    }
+                    // if !l.rest {
+                    funcs.insert(
+                        *d.name.atom_identifier().unwrap(),
+                        Box::new(move |_: &Analysis, lst: &mut List| {
+                            if lst.syntax_object_id > original_id {
+                                lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                            }
+                        }),
+                    );
+                    // }
                 }
             }
         }
@@ -6013,10 +6431,10 @@ impl<'a> SemanticAnalysis<'a> {
             if let ExprKind::List(l) = anon {
                 // Don't replace anonymous function calls that have rest args - those are not yet handled
                 // with a blind let replacement
-                if let ExprKind::LambdaFunction(f) = l.args.first().unwrap() {
-                    if f.rest {
-                        return false;
-                    }
+                if let ExprKind::LambdaFunction(_) = l.args.first().unwrap() {
+                    // if f.rest {
+                    //     // return false;
+                    // }
                 } else {
                     return false;
                 }
@@ -6029,12 +6447,26 @@ impl<'a> SemanticAnalysis<'a> {
                     let mut function_body = ExprKind::List(List::empty());
                     core::mem::swap(&mut f.body, &mut function_body);
 
+                    let mut args = core::mem::take(&mut l.args);
+
+                    if f.rest {
+                        // println!("{} - {}", f, l);
+                        // println!("args: {:?}", args);
+                        let arity = f.args.len().saturating_sub(1);
+                        // println!("Arity: {}", arity);
+                        let mut remaining = args.split_off(arity);
+                        remaining.insert(0, ExprKind::ident("#%prim.#%const-list"));
+                        args.push(ExprKind::List(List::new(remaining)));
+                        // println!("Args after: {:?}", args);
+
+                        // if args.is_empty() {
+                        //     let remaining = thin_vec![ExprKind::ident("#%prim.list")];
+                        //     args.push(ExprKind::List(List::new(remaining)));
+                        // }
+                    }
+
                     let let_expr = Let::new(
-                        f.args
-                            .into_iter()
-                            .zip(core::mem::take(&mut l.args))
-                            .map(|x| (x.0, x.1))
-                            .collect(),
+                        f.args.into_iter().zip(args).map(|x| (x.0, x.1)).collect(),
                         function_body,
                         f.location.clone(),
                     );
@@ -6417,6 +6849,18 @@ impl<'a> SemanticAnalysis<'a> {
         }
 
         Ok(self)
+    }
+
+    // When its a constant list, and its been used once
+    pub fn lower_rest_arguments(&mut self) -> &mut Self {
+        let mut lower = LowerRestArguments::new(&self.analysis);
+        for expr in self.exprs.iter_mut() {
+            lower.visit(expr);
+        }
+
+        self.analysis.fresh_from_exprs(self.exprs);
+
+        self
     }
 
     pub fn lift_closures(&mut self) -> &mut Self {
