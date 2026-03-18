@@ -2,6 +2,8 @@
 #![allow(improper_ctypes_definitions)]
 #![allow(unpredictable_function_pointer_comparisons)]
 
+mod native;
+
 use cranelift::{
     codegen::ir::{ArgumentPurpose, FuncRef, GlobalValue, StackSlot, Type},
     frontend::Switch,
@@ -2222,12 +2224,12 @@ impl FunctionTranslator<'_> {
                             let arity = self.instructions[self.ip].payload_size.to_usize();
 
                             // Install lots of lookups for this stuff
-                            if f == crate::primitives::strings::steel_char_equals
-                                as FunctionSignature
-                                && arity == 2
-                            {
-                                self.char_equals(arity);
-                            }
+                            // if f == crate::primitives::strings::steel_char_equals
+                            //     as FunctionSignature
+                            //     && arity == 2
+                            // {
+                            //     self.char_equals(arity);
+                            // }
                             /*
                             else if f == steel_read_char as FunctionSignature
                                 && arity == 1
@@ -2236,53 +2238,73 @@ impl FunctionTranslator<'_> {
                                 self.read_char(arity);
                             }
                             */
-                            else if f == steel_stringp as FunctionSignature && arity == 1 {
-                                self.is_string()
-                            } else if f == steel_listp as FunctionSignature && arity == 1 {
-                                self.is_list()
-                            } else if f == steel_eof_objectp as FunctionSignature && arity == 1 {
-                                // Encode the object... Any others we can encode in this way?
-                                self.eof_object()
-                            } else if f == steel_mut_vec_set as FunctionSignature && arity == 3 {
-                                self.vector_set()
-                            } else if f == steel_eq as FunctionSignature && arity == 2 {
-                                self.eq()
-                            } else if f == steel_pair as FunctionSignature && arity == 1 {
-                                self.is_pair()
-                            } else if f == steel_is_empty as FunctionSignature && arity == 1 {
-                                self.is_empty()
-                            } else {
-                                let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
-                                if let Some(name) = name {
-                                    // attempt to move forward with it
-                                    let additional_args = self.split_off(arity);
-
-                                    let function = self.builder.ins().iconst(
-                                        self.module.target_config().pointer_type(),
-                                        // f as *const fn(&[SteelVal]) -> Result<SteelVal, crate::SteelErr>
-                                        //     as i64,
-                                        f as i64,
-                                    );
-
-                                    let fallback_ip = self
-                                        .builder
-                                        .ins()
-                                        .iconst(Type::int(64).unwrap(), self.ip as i64);
-
-                                    let mut args = vec![function, fallback_ip];
-
-                                    args.extend(additional_args.into_iter().map(|x| x.0));
-
-                                    let result = self.call_function_returns_value_args(name, &args);
-                                    self.push(result, InferredType::Any);
-                                    self.ip += 1;
-                                    self.check_deopt();
-                                } else {
-                                    self.ip -= 1;
-                                    self.call_global_impl(payload);
+                            // TODO: Can we abstract this into its own thing?
+                            match f {
+                                f if f == steel_stringp as FunctionSignature && arity == 1 => {
+                                    self.is_string()
                                 }
-                            }
+
+                                f if f == steel_char_equals as FunctionSignature && arity == 2 => {
+                                    self.char_equals(arity)
+                                }
+
+                                f if f == steel_listp as FunctionSignature && arity == 1 => {
+                                    self.is_list()
+                                }
+
+                                f if f == steel_eof_objectp as FunctionSignature && arity == 1 => {
+                                    self.eof_object()
+                                }
+
+                                f if f == steel_mut_vec_set as FunctionSignature && arity == 3 => {
+                                    self.vector_set()
+                                }
+
+                                f if f == steel_eq as FunctionSignature && arity == 2 => self.eq(),
+
+                                f if f == steel_pair as FunctionSignature && arity == 1 => {
+                                    self.is_pair()
+                                }
+
+                                f if f == steel_is_empty as FunctionSignature && arity == 1 => {
+                                    self.is_empty()
+                                }
+
+                                _ => {
+                                    let name = CallPrimitiveDefinitions::arity_to_name(arity);
+
+                                    if let Some(name) = name {
+                                        // attempt to move forward with it
+                                        let additional_args = self.split_off(arity);
+
+                                        let function = self.builder.ins().iconst(
+                                            self.module.target_config().pointer_type(),
+                                            // f as *const fn(&[SteelVal]) -> Result<SteelVal, crate::SteelErr>
+                                            //     as i64,
+                                            f as i64,
+                                        );
+
+                                        let fallback_ip = self
+                                            .builder
+                                            .ins()
+                                            .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+                                        let mut args = vec![function, fallback_ip];
+
+                                        args.extend(additional_args.into_iter().map(|x| x.0));
+
+                                        let result =
+                                            self.call_function_returns_value_args(name, &args);
+                                        self.push(result, InferredType::Any);
+                                        self.ip += 1;
+                                        self.check_deopt();
+                                    } else {
+                                        self.ip -= 1;
+                                        self.call_global_impl(payload);
+                                    }
+                                }
+                            };
                         }
 
                         Some(SteelVal::MutFunc(f)) => {
