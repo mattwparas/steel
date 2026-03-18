@@ -195,7 +195,7 @@ pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
     let mut options = OpenOptions::new();
 
     // We want to write the file no matter what in this context
-    options.write(true).create_new(true);
+    options.write(true);
 
     match exists_flag {
         Some(flag) => {
