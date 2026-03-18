@@ -206,9 +206,10 @@ pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
             match flag {
                 "append" => {
                     options.append(true);
-                    options.truncate(false)
+                    options.truncate(false);
+                    options.create(true)
                 }
-                "truncate" => options.truncate(true),
+                "truncate" => options.truncate(true).create(true),
                 // Default behavior
                 "error" => options.create_new(true),
                 _ => stop!(Generic => "unexpected option provided to open options"),
