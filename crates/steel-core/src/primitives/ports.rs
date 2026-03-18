@@ -214,7 +214,9 @@ pub fn create_open_options(args: &[SteelVal]) -> Result<OpenOptions> {
                 _ => stop!(Generic => "unexpected option provided to open options"),
             };
         }
-        None => {}
+        None => {
+            options.create_new(true);
+        }
     }
 
     Ok(options)
