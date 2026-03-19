@@ -5881,16 +5881,16 @@ impl<'a> SemanticAnalysis<'a> {
                     // }
 
                     // TODO: Investigate bug with multi arity functions and inlining?
-                    // if !l.rest {
-                    funcs.insert(
-                        *d.name.atom_identifier().unwrap(),
-                        Box::new(move |_: &Analysis, lst: &mut List| {
-                            if lst.syntax_object_id > original_id {
-                                lst.args[0] = ExprKind::LambdaFunction(l.clone());
-                            }
-                        }),
-                    );
-                    // }
+                    if !l.rest {
+                        funcs.insert(
+                            *d.name.atom_identifier().unwrap(),
+                            Box::new(move |_: &Analysis, lst: &mut List| {
+                                if lst.syntax_object_id > original_id {
+                                    lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                                }
+                            }),
+                        );
+                    }
                 }
             }
         }
