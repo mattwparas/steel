@@ -5876,12 +5876,6 @@ impl<'a> SemanticAnalysis<'a> {
                     let original_id = l.syntax_object_id;
                     let l = l.clone();
 
-                    // if l.rest {
-                    //     println!("Found multi arity function to inline: {}", l);
-                    // }
-
-                    // TODO: Investigate bug with multi arity functions and inlining?
-                    // if !l.rest {
                     funcs.insert(
                         *d.name.atom_identifier().unwrap(),
                         Box::new(move |_: &Analysis, lst: &mut List| {
@@ -5890,7 +5884,6 @@ impl<'a> SemanticAnalysis<'a> {
                             }
                         }),
                     );
-                    // }
                 }
             }
         }
