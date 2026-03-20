@@ -661,6 +661,17 @@ fn is_string_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
     SteelVal::BoolV(stringp(value))
 }
 
+// TODOO: Abstract these into a macro?
+#[cross_platform_fn]
+fn is_symbol_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
+    use crate::steel_vm::primitives::symbolp;
+
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let value = &guard.thread.stack[offset + register];
+    SteelVal::BoolV(symbolp(value))
+}
+
 #[cross_platform_fn]
 fn is_list_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
@@ -709,6 +720,13 @@ fn is_string_value(value: SteelVal) -> SteelVal {
     use crate::steel_vm::primitives::stringp;
 
     SteelVal::BoolV(stringp(&value))
+}
+
+#[cross_platform_fn]
+fn is_symbol_value(value: SteelVal) -> SteelVal {
+    use crate::steel_vm::primitives::symbolp;
+
+    SteelVal::BoolV(symbolp(&value))
 }
 
 #[cross_platform_fn]

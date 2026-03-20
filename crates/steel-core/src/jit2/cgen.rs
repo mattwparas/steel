@@ -30,7 +30,7 @@ use crate::{
     },
     rvals::FunctionSignature,
     steel_vm::{
-        primitives::{steel_eq, steel_listp, steel_stringp, steel_voidp},
+        primitives::{steel_eq, steel_listp, steel_stringp, steel_symbolp, steel_voidp},
         vm::{jit::*, VmCore},
     },
     SteelVal,
@@ -436,6 +436,16 @@ impl Default for JIT {
         map.add_func2(
             "string?-value",
             abi! { is_string_value as fn(SteelVal) -> SteelVal },
+        );
+
+        map.add_func(
+            "symbol?",
+            abi! { is_symbol_c_reg as fn(*mut VmCore, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "symbol?-value",
+            abi! { is_symbol_value as fn(SteelVal) -> SteelVal },
         );
 
         map.add_func(
@@ -1250,12 +1260,18 @@ impl JIT {
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 pub enum InferredType {
+    // If we know this is an i64 concretely
+    Int64,
+
     // Could be either an i64 or a big int
     Int,
     // Is just straight up, unboxed, meaning
     // its represented by a u8 on the stack on not
     // a 128.
     UnboxedBool,
+
+    // when we know its a floating point
+    Float,
 
     // Generic number, could be anything
     Number,
@@ -1285,6 +1301,8 @@ pub enum InferredType {
     Char,
 
     String,
+
+    Symbol,
 }
 
 // #[derive(Debug, Clone, Copy)]
@@ -2271,6 +2289,10 @@ impl FunctionTranslator<'_> {
                                     self.eof_object()
                                 }
 
+                                f if f == steel_symbolp as FunctionSignature && arity == 1 => {
+                                    self.is_symbol()
+                                }
+
                                 f if f == steel_mut_vec_set as FunctionSignature && arity == 3 => {
                                     self.vector_set()
                                 }
@@ -2520,6 +2542,29 @@ impl FunctionTranslator<'_> {
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::Number);
+
+                    self.ip += 2;
+                }
+
+                OpCode::ADD
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[MaybeStackValue::Value(_), MaybeStackValue::Value(_)])
+                        ) =>
+                {
+                    let MaybeStackValue::Value(r) = self.shadow_stack.pop().unwrap() else {
+                        panic!()
+                    };
+                    let MaybeStackValue::Value(l) = self.shadow_stack.pop().unwrap() else {
+                        panic!()
+                    };
+
+                    // TODO: Might be worth attempting to figure out what the inferred type
+                    // for function calls are, to propagate downward in the calls
+                    let (res, t) = self.binop_add_value(l, r);
+
+                    self.push(res, t);
 
                     self.ip += 2;
                 }
