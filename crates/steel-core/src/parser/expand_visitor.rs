@@ -497,7 +497,6 @@ impl<'a> VisitorMutRef for Expander<'a> {
                             SyntaxObject {
                                 ty: TokenType::Identifier(s),
                                 span: sp,
-                                introduced_via_macro,
                                 unresolved,
                                 ..
                             },
