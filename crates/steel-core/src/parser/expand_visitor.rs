@@ -497,6 +497,7 @@ impl<'a> VisitorMutRef for Expander<'a> {
                             SyntaxObject {
                                 ty: TokenType::Identifier(s),
                                 span: sp,
+                                unresolved,
                                 ..
                             },
                     })) => {
@@ -507,6 +508,7 @@ impl<'a> VisitorMutRef for Expander<'a> {
                                 // the local binding and do not expand the macro
                                 if !self.in_scope_values.contains(s) && self.source_id.is_none()
                                     || sp.source_id() == m.location.source_id()
+                                    || *unresolved
                                 {
                                     let span = *sp;
 
