@@ -2407,6 +2407,7 @@ where
     fn visit_quote(&mut self, _quote: &mut Quote) {}
 }
 
+// NOTE: We want to pessimize anything that encounters a return statement. That makes it a no go.
 #[derive(Default)]
 struct FunctionSizeEstimator {
     count: usize,
@@ -2417,13 +2418,18 @@ struct FunctionSizeEstimator {
 
 impl<'a> VisitorMutUnitRef<'a> for FunctionSizeEstimator {
     fn visit(&mut self, expr: &ExprKind) {
-        self.count += 1;
+        self.count = self.count.saturating_add(1);
         match expr {
             ExprKind::If(f) => self.visit_if(f),
             ExprKind::Define(d) => self.visit_define(d),
             ExprKind::LambdaFunction(l) => self.visit_lambda_function(l),
             ExprKind::Begin(b) => self.visit_begin(b),
-            ExprKind::Return(r) => self.visit_return(r),
+            ExprKind::Return(r) => {
+                // TODO: @matt there needs to be a better way
+                // to pessimize this
+                self.count = std::usize::MAX;
+                self.visit_return(r)
+            }
             ExprKind::Quote(q) => self.visit_quote(q),
             ExprKind::Macro(m) => self.visit_macro(m),
             ExprKind::Atom(a) => self.visit_atom(a),
@@ -2462,7 +2468,9 @@ impl<'a> VisitorMutUnitRef<'a> for FunctionSizeEstimator {
         self.map
             .insert(SyntaxObjectId(lambda_function.syntax_object_id), self.count);
 
-        self.count = current_count;
+        if self.count != std::usize::MAX {
+            self.count = current_count;
+        }
     }
 }
 
