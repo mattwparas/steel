@@ -63,6 +63,7 @@ pub fn complexp(value: &SteelVal) -> bool {
 /// > (real? "hello") ;; => #f
 /// ```
 #[steel_derive::function(name = "real?", constant = true)]
+#[inline(always)]
 pub fn realp(value: &SteelVal) -> bool {
     matches!(
         value,
@@ -295,6 +296,18 @@ pub fn subtract_primitive(args: &[SteelVal]) -> Result<SteelVal> {
             add_two(x, &y)
         }
     }
+}
+
+pub fn sub_two(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
+    if !numberp(l) {
+        stop!(TypeMismatch => "- expects a number, found: {:?}", l);
+    }
+
+    if !numberp(r) {
+        stop!(TypeMismatch => "- expects a number, found: {:?}", r);
+    }
+    let y = negate(r)?;
+    add_two(l, &y)
 }
 
 #[inline(always)]

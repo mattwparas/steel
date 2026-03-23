@@ -20,10 +20,9 @@ use crate::{
 
 use super::*;
 
-pub const TRAMPOLINE: bool = true;
-
+#[inline(always)]
 fn should_trampoline(ctx: &mut VmCore) -> bool {
-    TRAMPOLINE && ctx.thread.stack_frames.len() < 100
+    ctx.thread.stack_frames.len() < 100
 }
 
 pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> ByteCodeLambda {
@@ -2103,9 +2102,10 @@ fn extern_c_add_two_binop_register_both(ctx: *mut VmCore, reg1: usize, reg2: usi
 #[cross_platform_fn]
 fn extern_c_sub_two_int_reg(ctx: *mut VmCore, reg: usize, b: SteelVal) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
-    // let a = ManuallyDrop::new(a);
-    let rhs = if let SteelVal::IntV(i) = b {
-        i
+    // Lets try to avoid the drop glue getting generated here?
+    let b = std::mem::ManuallyDrop::new(b);
+    let rhs = if let SteelVal::IntV(i) = &*b {
+        *i
     } else {
         panic!()
     };
@@ -2129,6 +2129,25 @@ fn extern_c_sub_two_int_reg(ctx: *mut VmCore, reg: usize, b: SteelVal) -> SteelV
                 SteelVal::Void
             }
         },
+    }
+}
+
+#[cross_platform_fn]
+fn extern_c_sub_two_reg(ctx: *mut VmCore, reg: usize, b: SteelVal) -> SteelVal {
+    use crate::primitives::numbers::sub_two;
+
+    let ctx = unsafe { &mut *ctx };
+
+    let offset = ctx.get_offset();
+    let a = &ctx.thread.stack[reg + offset];
+
+    match sub_two(a, &b) {
+        Ok(v) => v,
+        Err(e) => {
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+            SteelVal::Void
+        }
     }
 }
 
@@ -2203,6 +2222,61 @@ fn extern_c_lt_two(_ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
 fn extern_c_lte_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
     assert!(matches!(b, SteelVal::IntV(_)));
     SteelVal::BoolV(a <= b)
+}
+
+#[cross_platform_fn]
+fn extern_c_lte_register(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
+    use crate::primitives::numbers::realp;
+
+    let mut ctx = unsafe { &mut *ctx };
+    let offset = ctx.get_offset();
+    let a = &ctx.thread.stack[reg + offset];
+
+    if realp(a) && realp(&b) {
+        a <= &b
+    } else {
+        let e = SteelErr::new(
+            ErrorKind::TypeMismatch,
+            format!("expected real numbers, found: {} - {}", a, b),
+        );
+
+        unsafe {
+            let guard = &mut *ctx;
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+        }
+
+        false
+    }
+}
+
+#[cross_platform_fn]
+fn extern_c_lte_register_int(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
+    use crate::primitives::numbers::realp;
+
+    assert!(matches!(b, SteelVal::IntV(_)));
+    let mut ctx = unsafe { &mut *ctx };
+    let offset = ctx.get_offset();
+    let a = &ctx.thread.stack[reg + offset];
+
+    if realp(a) {
+        // Avoid the drop glue. We've already asserted that this is an integer
+        let b = ManuallyDrop::new(b);
+        a <= &b
+    } else {
+        let e = SteelErr::new(
+            ErrorKind::TypeMismatch,
+            format!("expected real numbers, found: {} and {}", a, b),
+        );
+
+        unsafe {
+            let guard = &mut *ctx;
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+        }
+
+        false
+    }
 }
 
 #[cross_platform_fn]

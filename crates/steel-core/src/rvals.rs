@@ -2838,6 +2838,7 @@ pub fn number_equality(left: &SteelVal, right: &SteelVal) -> Result<SteelVal> {
 }
 
 impl PartialOrd for SteelVal {
+    #[inline(always)]
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         // TODO: Attempt to avoid converting to f64 for cases below as it may lead to precision loss
         // at tiny and large values.

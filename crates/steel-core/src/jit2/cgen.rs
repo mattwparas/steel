@@ -847,6 +847,13 @@ impl Default for JIT {
             InferredType::Number,
         );
 
+        map.add_func_hint(
+            "sub-binop-reg",
+            abi! { extern_c_sub_two_reg
+            as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
+            InferredType::Number,
+        );
+
         map.add_func_hint("lt-binop", extern_c_lt_two as VmBinOp, InferredType::Bool);
 
         map.add_func_hint("lte-binop", extern_c_lte_two as VmBinOp, InferredType::Bool);
@@ -855,6 +862,18 @@ impl Default for JIT {
             "lte-binop-int",
             extern_c_lte_two_int as BinOp,
             InferredType::Bool,
+        );
+
+        map.add_func_hint(
+            "lte-register-int",
+            abi! { extern_c_lte_register as fn(*mut VmCore, usize, SteelVal) -> bool },
+            InferredType::UnboxedBool,
+        );
+
+        map.add_func_hint(
+            "lte-register-int",
+            abi! { extern_c_lte_register_int as fn(*mut VmCore, usize, SteelVal) -> bool },
+            InferredType::UnboxedBool,
         );
 
         map.add_func_hint2(
@@ -2442,6 +2461,8 @@ impl FunctionTranslator<'_> {
                     self.call_end_scope_handler(payload);
                 }
 
+                // TODO: Depending on the inferred type, we can save a lot of
+                // operations here.
                 OpCode::SUB
                     if payload == 2
                         && matches!(
@@ -2465,6 +2486,32 @@ impl FunctionTranslator<'_> {
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::Number);
+
+                    self.ip += 2;
+                }
+
+                OpCode::SUB
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[
+                                MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
+                                MaybeStackValue::Value(StackValue { .. })
+                            ])
+                        ) =>
+                {
+                    let value = self.shadow_stack.pop().unwrap().into_value();
+                    let register = self.shadow_stack.pop().unwrap().into_index();
+
+                    let register = self.builder.ins().iconst(types::I64, register as i64);
+
+                    let args = [register, value.as_steelval(self)];
+                    let result = self.call_function_returns_value_args("sub-binop-reg", &args);
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::Number);
+
+                    self.check_deopt();
 
                     self.ip += 2;
                 }
@@ -2602,6 +2649,82 @@ impl FunctionTranslator<'_> {
                     // TODO: This isn't quite right. This doesn not check the input
                     // type properly
                     self.func_ret_val_named("lt-binop-int", payload, 2, InferredType::Bool);
+                }
+
+                // When the value is a mutable register, or register, and we're comparing
+                // it to a known constant / etc
+                OpCode::LTE
+                    if payload == 2
+                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
+                            == Some(InferredType::Int)
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2),
+                            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
+                        ) =>
+                {
+                    if payload == 2 {
+                        for arg in self
+                            .shadow_stack
+                            .get(self.shadow_stack.len() - payload..)
+                            .unwrap()
+                            .to_vec()
+                        {
+                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
+                        }
+                    }
+
+                    let rhs_int = self.shadow_stack.pop().unwrap().into_value();
+                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+
+                    // dbg!(self.local_to_value_map.get(&register_r));
+                    // dbg!(self.local_to_value_map.get(&register_l));
+
+                    let register_l = self.builder.ins().iconst(types::I64, register_l as i64);
+
+                    let args = [register_l, rhs_int.value];
+                    let result = self.call_function_returns_value_args("lte-register-int", &args);
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::UnboxedBool);
+
+                    self.check_deopt();
+
+                    self.ip += 2;
+                }
+
+                OpCode::LTE
+                    if payload == 2
+                        && matches!(self.shadow_stack.last(), Some(MaybeStackValue::Value(_)))
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2),
+                            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
+                        ) =>
+                {
+                    if payload == 2 {
+                        for arg in self
+                            .shadow_stack
+                            .get(self.shadow_stack.len() - payload..)
+                            .unwrap()
+                            .to_vec()
+                        {
+                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
+                        }
+                    }
+
+                    let rhs_int = self.shadow_stack.pop().unwrap().into_value();
+                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+
+                    let register_l = self.builder.ins().iconst(types::I64, register_l as i64);
+
+                    let args = [register_l, rhs_int.value];
+                    let result = self.call_function_returns_value_args("lte-register", &args);
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::UnboxedBool);
+
+                    self.check_deopt();
+
+                    self.ip += 2;
                 }
 
                 OpCode::LTE
@@ -3743,58 +3866,65 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ {
-            match op {
-                OpCode::READLOCAL0
-                | OpCode::READLOCAL1
-                | OpCode::READLOCAL2
-                | OpCode::READLOCAL3 => MaybeStackValue::Register(payload),
-                OpCode::MOVEREADLOCAL0
-                | OpCode::MOVEREADLOCAL1
-                | OpCode::MOVEREADLOCAL2
-                | OpCode::MOVEREADLOCAL3 => {
-                    for index in 0..self.shadow_stack.len() {
-                        let item = self.shadow_stack.get_mut(index).unwrap();
-
-                        match item {
-                            MaybeStackValue::Register(i) if *i == payload => {
-                                let (value, typ) = self.immutable_register_to_value(payload);
-
-                                self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
-                                    value,
-                                    inferred_type: typ,
-                                    spilled: false,
-                                });
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    MaybeStackValue::MutRegister(payload)
-                }
-                _ => panic!(),
+        // if payload < self.arity as _ {
+        match op {
+            OpCode::READLOCAL0 | OpCode::READLOCAL1 | OpCode::READLOCAL2 | OpCode::READLOCAL3 => {
+                MaybeStackValue::Register(payload)
             }
-        } else {
-            // Replace this... with just reading from the vector?
-            let value = self.call_func_or_immediate(op, payload);
+            OpCode::MOVEREADLOCAL0
+            | OpCode::MOVEREADLOCAL1
+            | OpCode::MOVEREADLOCAL2
+            | OpCode::MOVEREADLOCAL3 => {
+                for index in 0..self.shadow_stack.len() {
+                    let item = self.shadow_stack.get_mut(index).unwrap();
 
-            self.value_to_local_map.insert(value, payload);
+                    match item {
+                        MaybeStackValue::Register(i) if *i == payload => {
+                            let (value, typ) = self.immutable_register_to_value(payload);
 
-            let inferred_type = if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
-                *inferred_type
-            } else {
-                InferredType::Any
-            };
-            MaybeStackValue::Value(StackValue {
-                value,
-                inferred_type,
-                spilled: false,
-            })
+                            self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                                value,
+                                inferred_type: typ,
+                                spilled: false,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+
+                MaybeStackValue::MutRegister(payload)
+            }
+            _ => panic!(),
         }
+        // } else {
+        // TODO: Have this just read the value itself
+
+        // println!(
+        //     "Getting here -> Reading a local value, instead of generating a register instruction"
+        // );
+
+        // Replace this... with just reading from the vector?
+        // let value = self.call_func_or_immediate(op, payload);
+
+        // self.value_to_local_map.insert(value, payload);
+
+        // let inferred_type = if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
+        //     *inferred_type
+        // } else {
+        //     InferredType::Any
+        // };
+        // MaybeStackValue::Value(StackValue {
+        //     value,
+        //     inferred_type,
+        //     spilled: false,
+        // })
+
+        // MaybeStackValue::Register(())
+        // }
     }
 
     fn read_local_fixed_no_spill(&mut self, op: OpCode, payload: usize) -> (Value, InferredType) {
-        assert!(payload < self.arity as _);
+        // assert!(payload < self.arity as _);
 
         // Replace this... with just reading from the vector?
         let value = self.call_func_or_immediate(op, payload);

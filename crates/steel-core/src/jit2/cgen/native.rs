@@ -8,8 +8,8 @@ impl<'a> FunctionTranslator<'a> {
     fn converging_if(
         &mut self,
         test_condition: Value,
-        then: impl FnOnce(&mut Self) -> Value,
-        else_thunk: impl FnOnce(&mut Self) -> Value,
+        then: impl Fn(&mut Self) -> Value,
+        else_thunk: impl Fn(&mut Self) -> Value,
     ) -> Value {
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
@@ -51,35 +51,60 @@ impl<'a> FunctionTranslator<'a> {
         match (left, right) {
             // If they're both int 64, then we can continue comfortably. No error handling
             // necessary
-            (
-                StackValue {
-                    inferred_type: InferredType::Int64,
-                    value: lv,
-                    ..
-                },
-                StackValue {
-                    inferred_type: InferredType::Int64,
-                    value: rv,
-                    ..
-                },
-            ) => {
-                todo!()
-            }
-
+            // (
+            //     StackValue {
+            //         inferred_type: InferredType::Int64,
+            //         value: lv,
+            //         ..
+            //     },
+            //     StackValue {
+            //         inferred_type: InferredType::Int64,
+            //         value: rv,
+            //         ..
+            //     },
+            // ) => {
+            //     todo!()
+            // }
             (StackValue { value: lv, .. }, StackValue { value: rv, .. }) => {
                 let left_is_int = self.is_type(lv, SteelVal::INT_TAG);
                 let right_is_int = self.is_type(rv, SteelVal::INT_TAG);
 
-                let both_int = self.builder.ins().
+                // Just make sure they're both equal to 1 by adding them,
+                let both_int = self.builder.ins().band(left_is_int, right_is_int);
 
-                // This is pointer sized, we're good to shrink it down
-                // to a pointer
-                let left_payload = self.unbox_value_to_pointer(lv);
-                let right_payload = self.unbox_value_to_pointer(rv);
+                let sp = |ctx: &mut Self| {
+                    let function_name = op_to_name_payload(OpCode::ADD, 2);
+                    let args = [lv, rv];
+                    let result = ctx.call_function_returns_value_args(function_name, &args);
+                    result
+                };
 
-                // Both have to be int tag, otherwise we fall back:
+                let res = self.converging_if(
+                    both_int,
+                    |ctx| {
+                        // This is pointer sized, we're good to shrink it down
+                        // to a pointer. both have to be int tag, otherwise we fall back to
+                        // a function, and we'll return the usual
+                        let left_payload = ctx.unbox_value_to_pointer(lv);
+                        let right_payload = ctx.unbox_value_to_pointer(rv);
 
-                todo!()
+                        // Add the values, did they overflow?
+                        let (added, overflow_flag) =
+                            ctx.builder.ins().uadd_overflow(left_payload, right_payload);
+
+                        ctx.converging_if(overflow_flag, sp, |ctx| {
+                            // Happy path, just return the boxed integer value.
+                            ctx.encode_value(SteelVal::INT_TAG as _, added)
+                        })
+                    },
+                    |ctx| {
+                        let res = sp(ctx);
+                        ctx.check_deopt();
+                        res
+                    },
+                );
+
+                (res, InferredType::Number)
             }
         }
     }
