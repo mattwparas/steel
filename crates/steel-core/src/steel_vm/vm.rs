@@ -115,7 +115,9 @@ const STACK_LIMIT: usize = 10000000;
 const _JIT_THRESHOLD: usize = 100;
 
 const _USE_SUPER_INSTRUCTIONS: bool = false;
-const CHECK_STACK_OVERFLOW: bool = true;
+
+// Don't check stack overflow?
+const CHECK_STACK_OVERFLOW: bool = false;
 
 #[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq)]
@@ -2455,6 +2457,7 @@ impl<'a> VmCore<'a> {
         }
 
         loop {
+            // Maybe take this out?
             self.safepoint_or_interrupt()?;
 
             #[cfg(feature = "op-code-profiling")]
@@ -2477,28 +2480,6 @@ impl<'a> VmCore<'a> {
                 log::debug!(target: "super-instructions", "Found a hot pattern, creating super instruction...");
 
                 log::debug!(target: "super-instructions", "{:#?}", pat);
-
-                // if USE_SUPER_INSTRUCTIONS {
-                //     // Index of the starting opcode
-                //     let start = pat.pattern.start;
-
-                //     let id = self.thread.super_instructions.len();
-
-                //     let guard = self.thread.stack_frames.last_mut().unwrap();
-
-                //     // Next run should get the new sequence of opcodes
-                //     let (head, _) = guard.function.update_to_super_instruction(start, id);
-
-                //     let block = DynamicBlock::construct_basic_block(head, pat);
-
-                //     self.thread.super_instructions.push(Rc::new(block));
-                // }
-                // self.thread.super_instructions.push(Rc::new(|ctx| {
-                //     block.call(ctx);
-                // }))
-
-                // let
-                // }
             }
 
             // println!("{:?}", self.instructions[self.ip]);
@@ -2520,8 +2501,6 @@ impl<'a> VmCore<'a> {
 
             let instr = self.instructions[self.ip];
 
-            // dbg!(&instr);
-
             match instr {
                 #[cfg(feature = "jit2")]
                 DenseInstruction {
@@ -2533,11 +2512,6 @@ impl<'a> VmCore<'a> {
                     // runtime, which tells the function to just return and let
                     // the runtime do the thing now.
                     self.is_native = true;
-
-                    // println!(">> Entering");
-
-                    // #[cfg(debug_assertions)]
-                    // let stack_count = self.thread.stack_frames.len();
 
                     #[cfg(feature = "biased")]
                     {
@@ -2555,48 +2529,11 @@ impl<'a> VmCore<'a> {
 
                     self.is_native = false;
 
-                    // #[cfg(debug_assertions)]
-                    // if self.ip == 0 {
-                    //     assert_eq!(self.thread.stack_frames.len(), stack_count + 1);
-                    // } else {
-                    //     assert_eq!(self.thread.stack_frames.len(), stack_count);
-                    // }
-
-                    // pretty_print_dense_instructions(&self.instructions);
-
-                    // println!(
-                    //     "<< Exiting: {} - {:#?}",
-                    //     self.ip, self.instructions[self.ip]
-                    // );
-
-                    // println!("Stack: {:#?}", self.thread.stack);
-                    // println!("Current scope stack: {:?}", &self.thread.stack[self.sp..]);
-
-                    // if let Some(last) = self.thread.stack_frames.last().map(|x| x.function.clone())
-                    // {
-                    //     inspect(self, &[SteelVal::Closure(last.clone())]);
-                    // }
-
                     if let Some(res) = self.result.take() {
-                        // println!("Found result: {:?}", res);
-
                         return res;
                     }
                 }
 
-                // DenseInstruction {
-                //     op_code: OpCode::DynSuperInstruction,
-                //     payload_size,
-                //     ..
-                // } => {
-                //     self.cut_sequence();
-
-                //     // TODO: Store in a different spot? So that we can avoid cloning on every iteration?
-                //     let super_instruction =
-                //         { self.thread.super_instructions[payload_size.to_usize()].clone() };
-
-                //     super_instruction.call(self)?;
-                // }
                 DenseInstruction {
                     op_code: OpCode::POPN,
                     payload_size,
@@ -3981,16 +3918,6 @@ impl<'a> VmCore<'a> {
             //     self.thread.delayed_dropper.push(value);
             // }
 
-            // TODO: Delay running the destructors until a safepoint?
-            // for value in values {
-            //     match value {
-            //         SteelVal::ListV(_) => {
-            //             DROP_THREAD.send(value).unwrap();
-            //         }
-            //         _ => {}
-            //     }
-            // }
-
             self.ip = last.ip as _;
             self.instructions = last.instructions;
 
@@ -5016,6 +4943,8 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
+    // TODO: We could also check if the frame is like, the existing one,
+    // and if the locals are empty, we could fast path? Reuse the frames here?
     #[inline(always)]
     fn handle_function_call_closure_jit_no_arity(
         &mut self,

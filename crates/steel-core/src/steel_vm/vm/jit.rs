@@ -1,6 +1,6 @@
 #![allow(improper_ctypes_definitions, unused)]
 
-use core::mem::ManuallyDrop;
+use core::{hint::unreachable_unchecked, mem::ManuallyDrop};
 
 use steel_derive::cross_platform_fn;
 use steel_gen::opcode::{MAX_OPCODE_SIZE, OPCODES_ARRAY};
@@ -2107,21 +2107,21 @@ fn extern_c_sub_two_int_reg(ctx: *mut VmCore, reg: usize, b: SteelVal) -> SteelV
     let rhs = if let SteelVal::IntV(i) = &*b {
         *i
     } else {
-        panic!()
+        unsafe { unreachable_unchecked() }
     };
 
     let offset = ctx.get_offset();
     let a = &ctx.thread.stack[reg + offset];
 
     match a {
-        SteelVal::IntV(l) => match (*l).checked_sub(rhs) {
+        SteelVal::IntV(l) => match (*l).checked_sub(rhs as _) {
             Some(x) => SteelVal::IntV(x),
             None => {
                 let res = BigInt::from(*l) - rhs;
                 res.into_steelval().unwrap()
             }
         },
-        _ => match subtract_primitive(&[a.clone(), SteelVal::IntV(rhs)]) {
+        _ => match subtract_primitive(&[a.clone(), SteelVal::IntV(rhs as _)]) {
             Ok(v) => v,
             Err(e) => {
                 ctx.result = Some(Err(e));
@@ -4389,7 +4389,10 @@ macro_rules! make_call_global_function_deopt_no_arity {
 
                             if should_trampoline(ctx) {
                                 if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                                    #[cfg(debug_assertions)]
                                     let pop_count = ctx.pop_count;
+
+                                    #[cfg(debug_assertions)]
                                     let depth = ctx.thread.stack_frames.len();
 
                                     // println!("Calling function from context @ ip: {}", ctx.ip);
@@ -4416,8 +4419,12 @@ macro_rules! make_call_global_function_deopt_no_arity {
                                             // println!("{}", ctx.ip);
                                             // println!("{:?}", ctx.instructions[ctx.ip]);
                                         // }
-                                        debug_assert_eq!(ctx.pop_count, pop_count);
-                                        debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
+
+                                        #[cfg(debug_assertions)]
+                                        {
+                                            debug_assert_eq!(ctx.pop_count, pop_count);
+                                            debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
+                                        }
 
                                         // Don't deopt?
                                         Ok(ctx.thread.stack.pop().unwrap())

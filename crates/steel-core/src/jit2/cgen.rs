@@ -2481,7 +2481,11 @@ impl FunctionTranslator<'_> {
 
                     let register = self.builder.ins().iconst(types::I64, register as i64);
 
-                    let args = [register, value.as_steelval(self)];
+                    // Do the shift here, in an effort to avoid passing more stuff?
+                    let value = value.as_steelval(self);
+                    // let integer = self.unbox_value_to_pointer(value);
+
+                    let args = [register, value];
                     let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
 
                     // Check the inferred type, if we know of it
@@ -5554,6 +5558,16 @@ impl FunctionTranslator<'_> {
         let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
         self.builder.ins().ireduce(types::I64, encoded_rhs)
     }
+
+    // fn unbox_value_to_pointer(&mut self, value: Value) -> Value {
+    //     let (_lo, hi) = self.builder.ins().isplit(value);
+    //     hi
+
+    //     // self.builder.ins().isplit(x)
+    //     // let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
+    //     // let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
+    //     // self.builder.ins().ireduce(types::I64, encoded_rhs)
+    // }
 
     fn get_tag(&mut self, value: Value) -> Value {
         // Split the value into two:
