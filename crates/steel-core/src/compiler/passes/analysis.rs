@@ -5800,30 +5800,34 @@ impl<'a> SemanticAnalysis<'a> {
         // Only do this for functions in which the arity is exactly known
         let mut funcs: HashMap<InternedString, Box<dyn Fn(&Analysis, &mut List)>> = HashMap::new();
 
-        for (_, module) in module_map {
-            if let Some(ast) = module.get_compiled_ast() {
-                match ast {
-                    ExprKind::Define(d) => {
-                        if let ControlFlow::Break(_) =
-                            self.inline_handle_define(&estimator, threshold, &mut funcs, &d)
-                        {
-                            continue;
+        // Only inline across the modules _if_ the number of expressions warrants it. Otherwise
+        // this is a log of needless allocation. Consider caching this for the future.
+        if self.exprs.len() > 10 {
+            for (_, module) in module_map {
+                if let Some(ast) = module.get_compiled_ast() {
+                    match ast {
+                        ExprKind::Define(d) => {
+                            if let ControlFlow::Break(_) =
+                                self.inline_handle_define(&estimator, threshold, &mut funcs, &d)
+                            {
+                                continue;
+                            }
                         }
-                    }
 
-                    ExprKind::Begin(b) => {
-                        for expr in b.exprs.iter() {
-                            if let ExprKind::Define(d) = expr {
-                                if let ControlFlow::Break(_) =
-                                    self.inline_handle_define(&estimator, threshold, &mut funcs, d)
-                                {
-                                    continue;
+                        ExprKind::Begin(b) => {
+                            for expr in b.exprs.iter() {
+                                if let ExprKind::Define(d) = expr {
+                                    if let ControlFlow::Break(_) = self
+                                        .inline_handle_define(&estimator, threshold, &mut funcs, d)
+                                    {
+                                        continue;
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    _ => {}
+                        _ => {}
+                    }
                 }
             }
         }
