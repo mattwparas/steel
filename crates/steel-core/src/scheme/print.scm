@@ -126,7 +126,9 @@
        (simple-display ")"))]
     [(#%private-struct? obj)
      (let ([printer (#%struct-property-ref obj '#:printer)])
-       (if (function? printer) (printer obj (λ (x) (#%print x collector))) (simple-display obj)))]
+       (if (function? printer)
+           (printer obj (λ (x) (#%print x collector)))
+           (simple-display obj)))]
     [else (simple-display obj)]))
 
 (define (#%print obj collector)
@@ -201,7 +203,9 @@
        (simple-display ")"))]
     [(#%private-struct? obj)
      (let ([printer (#%struct-property-ref obj '#:printer)])
-       (if (function? printer) (printer obj (λ (x) (#%print x collector))) (simple-display obj)))]
+       (if (function? printer)
+           (printer obj (λ (x) (#%print x collector)))
+           (simple-display obj)))]
     [else (simple-display obj)]))
 
 (define (display-impl obj)

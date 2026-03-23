@@ -139,9 +139,9 @@ impl<'a> FunctionTranslator<'a> {
             Value(stack_value) => {
                 self.shadow_stack.pop();
                 let value = stack_value.as_steelval(self);
-                let is_list = self.is_type(value, SteelVal::SYMBOL_TAG);
+                let is_symbol = self.is_type(value, SteelVal::SYMBOL_TAG);
                 self.drop_tagged_value(value);
-                self.push(is_list, InferredType::UnboxedBool);
+                self.push(is_symbol, InferredType::UnboxedBool);
                 self.ip += 1;
             }
             MutRegister(p) | Register(p) => {
