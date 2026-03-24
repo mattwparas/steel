@@ -3955,20 +3955,18 @@ impl<'a> VmCore<'a> {
         self.handle_global_function_call_no_stack(func, payload_size)
     }
 
-    #[inline(always)]
-    fn handle_tail_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
-        let stack_func = self.thread.global_env.repl_lookup_idx(index);
-        self.ip += 1;
-        self.handle_tail_call(stack_func, payload_size)
-    }
+    // #[inline(always)]
+    // fn handle_tail_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
+    //     let stack_func = self.thread.global_env.repl_lookup_idx(index);
+    //     self.ip += 1;
+    //     self.handle_tail_call(stack_func, payload_size)
+    // }
 
     // #[inline(always)]
     // fn handle_tail_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
     //     let func = self.thread.global_env.repl_lookup_idx(index);
     //     self.ip += 1;
-
     //     // self.handle_tail_call(func, payload_size)
-
     // }
 
     #[inline(always)]

@@ -1,8 +1,12 @@
+use core::{fmt, slice};
 use std::alloc::{self, Layout};
-use std::marker::PhantomData;
-use std::mem;
-use std::ops::{Deref, DerefMut};
+use std::ops::{Deref, DerefMut, Range, RangeBounds};
 use std::ptr::{self, NonNull};
+use std::{mem, ops};
+
+use crate::drain::Drain;
+
+mod drain;
 
 #[repr(C)]
 struct RawVec<T> {
@@ -23,6 +27,22 @@ impl<T> RawVec<T> {
             ptr: NonNull::dangling(),
             cap,
         }
+    }
+
+    fn with_capacity(capacity: usize) -> Self {
+        let new_cap = capacity;
+        let new_layout = Layout::array::<T>(capacity);
+        let new_layout = new_layout.expect("Allocation too large");
+
+        let new_ptr = unsafe { alloc::alloc(new_layout) };
+
+        // If allocation fails, `new_ptr` will be null, in which case we abort.
+        let ptr = match NonNull::new(new_ptr as *mut T) {
+            Some(p) => p,
+            None => alloc::handle_alloc_error(new_layout),
+        };
+
+        Self { ptr, cap: new_cap }
     }
 
     fn grow(&mut self) {
@@ -81,6 +101,22 @@ pub struct Vec<T> {
     len: usize,
 }
 
+impl<T: Clone> Clone for Vec<T> {
+    fn clone(&self) -> Self {
+        let len = self.len();
+        let mut new_vec = Vec::<T>::with_capacity(len);
+        let mut data_raw = new_vec.ptr();
+        for x in self.iter() {
+            unsafe {
+                ptr::write(data_raw, x.clone());
+                data_raw = data_raw.add(1);
+            }
+        }
+        new_vec.len = len;
+        new_vec
+    }
+}
+
 impl<T> Vec<T> {
     fn ptr(&self) -> *mut T {
         self.buf.ptr.as_ptr()
@@ -104,6 +140,49 @@ impl<T> Vec<T> {
             len: 0,
         }
     }
+
+    pub fn grow_capacity(&mut self) {
+        self.buf.grow();
+    }
+
+    pub fn with_capacity(cap: usize) -> Self {
+        Self {
+            buf: RawVec::with_capacity(cap),
+            len: 0,
+        }
+    }
+
+    pub fn split_off(&mut self, at: usize) -> Self
+    where
+        T: Clone,
+    {
+        #[cold]
+        #[track_caller]
+        fn assert_failed(at: usize, len: usize) -> ! {
+            panic!("`at` split index (is {at}) should be <= len (is {len})");
+        }
+
+        if at > self.len() {
+            assert_failed(at, self.len());
+        }
+
+        let other_len = self.len - at;
+        let mut other = Vec::with_capacity(other_len);
+
+        // Unsafely `set_len` and copy items to `other`.
+        unsafe {
+            self.set_len(at);
+            other.set_len(other_len);
+
+            ptr::copy_nonoverlapping(self.as_ptr().add(at), other.as_mut_ptr(), other.len());
+        }
+        other
+    }
+
+    pub unsafe fn set_len(&mut self, new_len: usize) {
+        self.len = new_len;
+    }
+
     pub fn push(&mut self, elem: T) {
         if self.len == self.cap() {
             self.buf.grow();
@@ -160,17 +239,104 @@ impl<T> Vec<T> {
         }
     }
 
-    pub fn drain(&mut self) -> Drain<'_, T> {
-        let iter = unsafe { RawValIter::new(&self) };
+    // pub fn drain(&mut self) -> Drain<'_, T> {
+    //     let iter = unsafe { RawValIter::new(&self) };
 
-        // this is a mem::forget safety thing. If Drain is forgotten, we just
-        // leak the whole Vec's contents. Also we need to do this *eventually*
-        // anyway, so why not do it now?
-        self.len = 0;
+    //     // this is a mem::forget safety thing. If Drain is forgotten, we just
+    //     // leak the whole Vec's contents. Also we need to do this *eventually*
+    //     // anyway, so why not do it now?
+    //     self.len = 0;
 
-        Drain {
-            iter,
-            vec: PhantomData,
+    //     Drain {
+    //         iter,
+    //         vec: PhantomData,
+    //     }
+    // }
+
+    pub fn drain<R>(&mut self, range: R) -> Drain<'_, T>
+    where
+        R: RangeBounds<usize>,
+    {
+        // Memory safety
+        //
+        // When the Drain is first created, it shortens the length of
+        // the source vector to make sure no uninitialized or moved-from elements
+        // are accessible at all if the Drain's destructor never gets to run.
+        //
+        // Drain will ptr::read out the values to remove.
+        // When finished, remaining tail of the vec is copied back to cover
+        // the hole, and the vector length is restored to the new length.
+        //
+        let len = self.len();
+
+        fn slice_index_fail(start: usize, end: usize, len: usize) -> ! {
+            if start > len {
+                panic!(
+                    "slice start index is out of range for slice: range start index {start} out of range for slice of length {len}"
+                )
+            }
+
+            if end > len {
+                panic!(
+                    "slice end index is out of range for slice: range end index {end} out of range for slice of length {len}",
+                )
+            }
+
+            if start > end {
+                panic!(
+                    "slice index start is larger than end: slice index starts at {start} but ends at {end}",
+                )
+            }
+
+            // Only reachable if the range was a `RangeInclusive` or a
+            // `RangeToInclusive`, with `end == len`.
+            panic!(
+                "slice end index is out of range for slice:  range end index {end} out of range for slice of length {len}",
+            )
+        }
+
+        pub fn slice_range<R>(range: R, bounds: ops::RangeTo<usize>) -> ops::Range<usize>
+        where
+            R: ops::RangeBounds<usize>,
+        {
+            let len = bounds.end;
+
+            let end = match range.end_bound() {
+                ops::Bound::Included(&end) if end >= len => slice_index_fail(0, end, len),
+                // Cannot overflow because `end < len` implies `end < usize::MAX`.
+                ops::Bound::Included(&end) => end + 1,
+
+                ops::Bound::Excluded(&end) if end > len => slice_index_fail(0, end, len),
+                ops::Bound::Excluded(&end) => end,
+                ops::Bound::Unbounded => len,
+            };
+
+            let start = match range.start_bound() {
+                ops::Bound::Excluded(&start) if start >= end => slice_index_fail(start, end, len),
+                // Cannot overflow because `start < end` implies `start < usize::MAX`.
+                ops::Bound::Excluded(&start) => start + 1,
+
+                ops::Bound::Included(&start) if start > end => slice_index_fail(start, end, len),
+                ops::Bound::Included(&start) => start,
+
+                ops::Bound::Unbounded => 0,
+            };
+
+            ops::Range { start, end }
+        }
+
+        let Range { start, end } = slice_range(range, ..len);
+
+        unsafe {
+            // set self.vec length's to start, to be safe in case Drain is leaked
+            self.set_len(start);
+            let range_slice = slice::from_raw_parts(self.as_ptr().add(start), end - start);
+            Drain {
+                tail_start: end,
+                tail_len: len - end,
+                iter: range_slice.iter(),
+                vec: NonNull::from(self),
+            }
         }
     }
 
@@ -195,7 +361,61 @@ impl<T> Vec<T> {
             ptr::drop_in_place(s);
         }
     }
+
+    // pub fn as_mut_slice(&mut self) -> &mut [T] {
+    //     // SAFETY: `slice::from_raw_parts_mut` requires pointee is a contiguous, aligned buffer of
+    //     // size `len` containing properly-initialized `T`s. Data must not be accessed through any
+    //     // other pointer for the returned lifetime. Further, `len * size_of::<T>` <=
+    //     // `ISIZE::MAX` and allocation does not "wrap" through overflowing memory addresses.
+    //     //
+    //     // * Vec API guarantees that self.buf:
+    //     //      * contains only properly-initialized items within 0..len
+    //     //      * is aligned, contiguous, and valid for `len` reads
+    //     //      * obeys size and address-wrapping constraints
+    //     //
+    //     // * We only construct references to `self.buf` through `&self` and `&mut self` methods;
+    //     //   borrow-check ensures that it is not possible to construct a reference to `self.buf`
+    //     //   within the returned lifetime.
+    //     unsafe {
+    //         // normally this would use `slice::from_raw_parts_mut`, but it's
+    //         // instantiated often enough that avoiding the UB check is worth it
+    //         &mut *core::intrinsics::aggregate_raw_ptr::<*mut [T], _, _>(self.as_mut_ptr(), self.len)
+    //     }
+    // }
+
+    pub fn clear(&mut self) {
+        let elems: *mut [T] = &mut self[..];
+
+        // SAFETY:
+        // - `elems` comes directly from `as_mut_slice` and is therefore valid.
+        // - Setting `self.len` before calling `drop_in_place` means that,
+        //   if an element's `Drop` impl panics, the vector's `Drop` impl will
+        //   do nothing (leaking the rest of the elements) instead of dropping
+        //   some twice.
+        unsafe {
+            self.len = 0;
+            ptr::drop_in_place(elems);
+        }
+    }
 }
+
+impl<T: fmt::Debug> fmt::Debug for Vec<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<A, B> PartialEq<Vec<B>> for Vec<A>
+where
+    A: PartialEq<B>,
+{
+    #[inline]
+    fn eq(&self, other: &Vec<B>) -> bool {
+        self[..] == other[..]
+    }
+}
+
+impl<T> Eq for Vec<T> where T: Eq {}
 
 impl<T> Drop for Vec<T> {
     fn drop(&mut self) {
@@ -226,6 +446,14 @@ impl<T> IntoIterator for Vec<T> {
         mem::forget(self);
 
         IntoIter { iter, _buf: buf }
+    }
+}
+
+impl<'a, T> IntoIterator for &'a Vec<T> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
@@ -321,30 +549,30 @@ impl<T> Drop for IntoIter<T> {
     }
 }
 
-pub struct Drain<'a, T: 'a> {
-    vec: PhantomData<&'a mut Vec<T>>,
-    iter: RawValIter<T>,
-}
+// pub struct Drain<'a, T: 'a> {
+//     vec: PhantomData<&'a mut Vec<T>>,
+//     iter: RawValIter<T>,
+// }
 
-impl<'a, T> Iterator for Drain<'a, T> {
-    type Item = T;
-    fn next(&mut self) -> Option<T> {
-        self.iter.next()
-    }
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.iter.size_hint()
-    }
-}
+// impl<'a, T> Iterator for Drain<'a, T> {
+//     type Item = T;
+//     fn next(&mut self) -> Option<T> {
+//         self.iter.next()
+//     }
+//     fn size_hint(&self) -> (usize, Option<usize>) {
+//         self.iter.size_hint()
+//     }
+// }
 
-impl<'a, T> DoubleEndedIterator for Drain<'a, T> {
-    fn next_back(&mut self) -> Option<T> {
-        self.iter.next_back()
-    }
-}
+// impl<'a, T> DoubleEndedIterator for Drain<'a, T> {
+//     fn next_back(&mut self) -> Option<T> {
+//         self.iter.next_back()
+//     }
+// }
 
-impl<'a, T> Drop for Drain<'a, T> {
-    fn drop(&mut self) {
-        // pre-drain the iter
-        for _ in &mut *self {}
-    }
-}
+// impl<'a, T> Drop for Drain<'a, T> {
+//     fn drop(&mut self) {
+//         // pre-drain the iter
+//         for _ in &mut *self {}
+//     }
+// }
