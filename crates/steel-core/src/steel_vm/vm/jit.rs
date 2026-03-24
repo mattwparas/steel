@@ -458,6 +458,12 @@ fn drop_value_post_fast_decrement(arg: SteelVal) {
 }
 
 #[cross_platform_fn]
+fn grow_stack_slow(ctx: *mut VmCore) {
+    let mut ctx = unsafe { &mut *ctx };
+    ctx.thread.stack.grow_capacity();
+}
+
+#[cross_platform_fn]
 fn drop_value_slow_decrement(arg: SteelVal) {
     use SteelVal::*;
 

@@ -4,6 +4,7 @@
 
 mod native;
 
+use core::mem::offset_of;
 use cranelift::{
     codegen::ir::{ArgumentPurpose, FuncRef, GlobalValue, StackSlot, Type},
     frontend::Switch,
@@ -31,7 +32,7 @@ use crate::{
     rvals::FunctionSignature,
     steel_vm::{
         primitives::{steel_eq, steel_listp, steel_stringp, steel_symbolp, steel_voidp},
-        vm::{jit::*, VmCore},
+        vm::{jit::*, SteelThread, VmCore},
     },
     SteelVal,
 };
@@ -549,6 +550,11 @@ impl Default for JIT {
         map.add_func2(
             "drop-value-slow-dec",
             abi! { drop_value_slow_decrement as fn(SteelVal) },
+        );
+
+        map.add_func(
+            "slow-grow-stack",
+            abi! { grow_stack_slow as fn(*mut VmCore) },
         );
 
         map.add_func(
@@ -2124,7 +2130,7 @@ impl FunctionTranslator<'_> {
                     // we need to check if this is actually spilled or not.
                     //
                     // It shouldn't be though
-                    self.push_to_vm_stack_let_var(last);
+                    self.push_to_vm_stack_let_var_new(last);
                 }
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
@@ -5085,7 +5091,9 @@ impl FunctionTranslator<'_> {
         if spilled {
             let value = self.shadow_stack[index].into_value();
             let steelval = value.as_steelval(self);
-            self.push_to_vm_stack_spill(steelval);
+            // self.push_to_vm_stack_spill(steelval);
+
+            self.push_to_vm_stack(steelval);
         }
 
         Some(())
@@ -6015,6 +6023,10 @@ impl FunctionTranslator<'_> {
     // }
 
     fn push_to_vm_stack(&mut self, value: Value) {
+        self.push_to_vm_stack_let_var_new(value);
+    }
+
+    fn push_to_vm_stack_old(&mut self, value: Value) {
         let name = "push-to-vm-stack";
 
         let local_callee = self.get_local_callee(name);
@@ -6052,6 +6064,87 @@ impl FunctionTranslator<'_> {
         let ctx = self.get_ctx();
         let arg_values = [ctx, value];
         let _call = self.builder.ins().call(local_callee, &arg_values);
+    }
+
+    // Attempt to push this to the VM stack inline:
+    fn push_to_vm_stack_let_var_new(&mut self, value: Value) {
+        let ctx = self.get_ctx();
+        let thread_offset = offset_of!(VmCore, thread);
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let capacity_offset = steel_vec::Vec::<SteelVal>::capacity_offset();
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+
+        // This is the actual stack, steel_vec::Vec<SteelVal>
+        let stack_capacity = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + capacity_offset) as i32,
+        );
+
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        // Then, we'll say _if_ the values are equal, we can do something,
+        // otherwise we really just have to write the value in and call
+        // it a day. Lets see if this is any faster... odds are that its not,
+        // but then we can start eliding all sorts of good things because
+        // we have direct access to the stack.
+
+        let at_capacity = self
+            .builder
+            .ins()
+            .icmp(IntCC::Equal, stack_capacity, stack_length);
+
+        self.converging_if_no_else_no_value(
+            at_capacity,
+            // If at capacity, call grow
+            |ctx| ctx.call_function_no_return("slow-grow-stack"),
+            |ctx| {
+                // Write the value:
+                let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+                let buf_ptr = ctx.builder.ins().load(
+                    Type::int(64).unwrap(),
+                    MemFlags::trusted(),
+                    thread_pointer,
+                    (stack_offset + ptr_offset) as i32,
+                );
+
+                let size: i64 = std::mem::size_of::<SteelVal>() as _;
+                let offset = ctx.builder.ins().imul_imm(stack_length, size);
+                let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
+
+                ctx.builder
+                    .ins()
+                    .store(MemFlags::trusted(), value, slot_ptr, 0);
+
+                // Add one to the length:
+                let new_length = ctx.builder.ins().iadd_imm(stack_length, 1);
+
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    new_length,
+                    thread_pointer,
+                    (stack_offset + len_offset) as i32,
+                );
+            },
+        );
     }
 
     fn push_to_vm_stack_let_var(&mut self, value: Value) {
@@ -6100,6 +6193,13 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
+    }
+
+    fn call_function_no_return(&mut self, name: &str) {
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
+        let arg_values = [ctx];
+        let call = self.builder.ins().call(local_callee, &arg_values);
     }
 
     fn get_signature(&self, name: &str) -> Signature {

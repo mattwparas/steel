@@ -122,12 +122,16 @@ impl<T> Vec<T> {
         self.buf.ptr.as_ptr()
     }
 
-    pub const fn buf_offset(&self) -> usize {
+    pub const fn buf_offset() -> usize {
         std::mem::offset_of!(Vec<T>, buf)
     }
 
-    pub const fn len_offset(&self) -> usize {
+    pub const fn len_offset() -> usize {
         std::mem::offset_of!(Vec<T>, len)
+    }
+
+    pub const fn capacity_offset() -> usize {
+        std::mem::offset_of!(RawVec<T>, cap) + Self::buf_offset()
     }
 
     fn cap(&self) -> usize {

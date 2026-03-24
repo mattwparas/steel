@@ -334,6 +334,7 @@ pub struct SteelThread {
     pub(crate) global_env: Env,
     // pub(crate) stack: Vec<SteelVal>,
     pub(crate) stack: steel_vec::Vec<SteelVal>,
+    pub(crate) stack_frames: Vec<StackFrame>,
 
     #[cfg(feature = "dynamic")]
     profiler: OpCodeOccurenceProfiler,
@@ -342,7 +343,6 @@ pub struct SteelThread {
     pub(crate) heap: Arc<parking_lot::Mutex<Heap>>,
     pub(crate) runtime_options: RunTimeOptions,
     pub(crate) current_frame: StackFrame,
-    pub(crate) stack_frames: Vec<StackFrame>,
     pub(crate) constant_map: ConstantMap,
     pub(crate) interrupted: Option<Arc<AtomicBool>>,
     pub(crate) synchronizer: Synchronizer,
@@ -1493,6 +1493,12 @@ pub struct VmCore<'a> {
     pub(crate) thread_id: Option<steel_rc::ThreadId>,
     pub(crate) ip: usize,
     pub(crate) sp: usize,
+    // TODO: Maybe remove this level of indirection.
+    // This extra pointer chase to the stack might be
+    // costly? Could be worth just embedding the thread
+    // inside the Vm struct directly, and then extracting
+    // it out when finished, i.e. pass the thread around
+    // directly rather than by reference.
     pub(crate) thread: &'a mut SteelThread,
     pub(crate) instructions: RootedInstructions,
     pub(crate) constants: ConstantMap,

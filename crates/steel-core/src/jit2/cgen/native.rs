@@ -5,6 +5,32 @@ impl<'a> FunctionTranslator<'a> {
         self.shadow_stack.last().unwrap().clone()
     }
 
+    pub(super) fn converging_if_no_else_no_value(
+        &mut self,
+        test_condition: Value,
+        then: impl Fn(&mut Self),
+        merge: impl Fn(&mut Self),
+    ) {
+        let then_block = self.builder.create_block();
+        let merge_block = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(test_condition, then_block, &[], merge_block, &[]);
+
+        self.builder.switch_to_block(then_block);
+        self.builder.seal_block(then_block);
+
+        then(self);
+
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(merge_block);
+        self.builder.seal_block(merge_block);
+
+        merge(self);
+    }
+
     fn converging_if(
         &mut self,
         test_condition: Value,
