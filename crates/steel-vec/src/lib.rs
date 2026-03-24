@@ -239,20 +239,6 @@ impl<T> Vec<T> {
         }
     }
 
-    // pub fn drain(&mut self) -> Drain<'_, T> {
-    //     let iter = unsafe { RawValIter::new(&self) };
-
-    //     // this is a mem::forget safety thing. If Drain is forgotten, we just
-    //     // leak the whole Vec's contents. Also we need to do this *eventually*
-    //     // anyway, so why not do it now?
-    //     self.len = 0;
-
-    //     Drain {
-    //         iter,
-    //         vec: PhantomData,
-    //     }
-    // }
-
     pub fn drain<R>(&mut self, range: R) -> Drain<'_, T>
     where
         R: RangeBounds<usize>,
@@ -362,27 +348,6 @@ impl<T> Vec<T> {
         }
     }
 
-    // pub fn as_mut_slice(&mut self) -> &mut [T] {
-    //     // SAFETY: `slice::from_raw_parts_mut` requires pointee is a contiguous, aligned buffer of
-    //     // size `len` containing properly-initialized `T`s. Data must not be accessed through any
-    //     // other pointer for the returned lifetime. Further, `len * size_of::<T>` <=
-    //     // `ISIZE::MAX` and allocation does not "wrap" through overflowing memory addresses.
-    //     //
-    //     // * Vec API guarantees that self.buf:
-    //     //      * contains only properly-initialized items within 0..len
-    //     //      * is aligned, contiguous, and valid for `len` reads
-    //     //      * obeys size and address-wrapping constraints
-    //     //
-    //     // * We only construct references to `self.buf` through `&self` and `&mut self` methods;
-    //     //   borrow-check ensures that it is not possible to construct a reference to `self.buf`
-    //     //   within the returned lifetime.
-    //     unsafe {
-    //         // normally this would use `slice::from_raw_parts_mut`, but it's
-    //         // instantiated often enough that avoiding the UB check is worth it
-    //         &mut *core::intrinsics::aggregate_raw_ptr::<*mut [T], _, _>(self.as_mut_ptr(), self.len)
-    //     }
-    // }
-
     pub fn clear(&mut self) {
         let elems: *mut [T] = &mut self[..];
 
@@ -396,6 +361,10 @@ impl<T> Vec<T> {
             self.len = 0;
             ptr::drop_in_place(elems);
         }
+    }
+
+    pub fn append(&mut self, other: &mut Vec<T>) {
+        self.extend(other.drain(..))
     }
 }
 
@@ -549,30 +518,35 @@ impl<T> Drop for IntoIter<T> {
     }
 }
 
-// pub struct Drain<'a, T: 'a> {
-//     vec: PhantomData<&'a mut Vec<T>>,
-//     iter: RawValIter<T>,
-// }
+impl<T> Extend<T> for Vec<T> {
+    #[inline]
+    fn extend<I>(&mut self, iter: I)
+    where
+        I: IntoIterator<Item = T>,
+    {
+        let iter = iter.into_iter();
+        // let hint = iter.size_hint().0;
+        // TODO: @matt - add the reserve implementation here!
+        // if hint > 0 {
+        //     self.reserve(hint);
+        // }
+        for x in iter {
+            self.push(x);
+        }
+    }
+}
 
-// impl<'a, T> Iterator for Drain<'a, T> {
-//     type Item = T;
-//     fn next(&mut self) -> Option<T> {
-//         self.iter.next()
-//     }
-//     fn size_hint(&self) -> (usize, Option<usize>) {
-//         self.iter.size_hint()
-//     }
-// }
+impl<T> FromIterator<T> for Vec<T> {
+    #[inline]
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Vec<T> {
+        let mut vec = Vec::new();
+        vec.extend(iter);
+        vec
+    }
+}
 
-// impl<'a, T> DoubleEndedIterator for Drain<'a, T> {
-//     fn next_back(&mut self) -> Option<T> {
-//         self.iter.next_back()
-//     }
-// }
-
-// impl<'a, T> Drop for Drain<'a, T> {
-//     fn drop(&mut self) {
-//         // pre-drain the iter
-//         for _ in &mut *self {}
-//     }
-// }
+impl<T> Default for Vec<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}

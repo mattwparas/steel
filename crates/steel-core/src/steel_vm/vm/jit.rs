@@ -2780,7 +2780,7 @@ fn push_to_vm_stack_let_var(ctx: *mut VmCore, value: SteelVal) {
 fn push_to_vm_stack_two(ctx: *mut VmCore, value: SteelVal, value2: SteelVal) {
     unsafe {
         let guard = &mut *ctx;
-        guard.thread.stack.reserve_exact(2);
+        // guard.thread.stack.reserve_exact(2);
         guard.thread.stack.push(value);
         guard.thread.stack.push(value2);
     }
@@ -3125,8 +3125,11 @@ debug_stack_handlers!(
 fn list_handler_c(ctx: *mut VmCore<'_>, payload: usize) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
     let last_index = ctx.thread.stack.len() - payload;
-    let remaining = ctx.thread.stack.split_off(last_index);
-    SteelVal::ListV(remaining.into())
+    // let remaining = ctx.thread.stack.split_off(last_index);
+
+    let remaining = ctx.thread.stack.drain(last_index..).collect();
+
+    SteelVal::ListV(remaining)
 }
 
 #[cross_platform_fn]
@@ -3136,7 +3139,13 @@ fn vec_handler_c(ctx: *mut VmCore<'_>, payload: usize) -> SteelVal {
     let len = payload / 2;
     let bytes = payload % 2 != 0;
 
-    let args = ctx.thread.stack.split_off(ctx.thread.stack.len() - len);
+    // let args = ctx.thread.stack.split_off(ctx.thread.stack.len() - len);
+
+    let args = ctx
+        .thread
+        .stack
+        .drain(ctx.thread.stack.len() - len..)
+        .collect::<Vec<_>>();
 
     let val = if bytes {
         let buffer: Vec<_> = args
@@ -5984,7 +5993,13 @@ fn vec_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let len = payload / 2;
     let bytes = payload % 2 != 0;
 
-    let args = ctx.thread.stack.split_off(ctx.thread.stack.len() - len);
+    // let args = ctx.thread.stack.split_off(ctx.thread.stack.len() - len);
+
+    let args = ctx
+        .thread
+        .stack
+        .drain(ctx.thread.stack.len() - len..)
+        .collect::<Vec<_>>();
 
     let val = if bytes {
         let buffer: Vec<_> = args

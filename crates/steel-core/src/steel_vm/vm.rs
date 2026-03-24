@@ -332,7 +332,8 @@ pub struct SteelThread {
     // means we can get away with one environment that is
     // shared, but in reality this should just be
     pub(crate) global_env: Env,
-    pub(crate) stack: Vec<SteelVal>,
+    // pub(crate) stack: Vec<SteelVal>,
+    pub(crate) stack: steel_vec::Vec<SteelVal>,
 
     #[cfg(feature = "dynamic")]
     profiler: OpCodeOccurenceProfiler,
@@ -706,7 +707,7 @@ impl SteelThread {
 
         SteelThread {
             global_env: Env::root(),
-            stack: Vec::with_capacity(128),
+            stack: steel_vec::Vec::with_capacity(128),
 
             #[cfg(feature = "dynamic")]
             profiler: OpCodeOccurenceProfiler::new(),
@@ -1207,7 +1208,7 @@ pub struct OpenContinuationMark {
 
     // Captured at creation, everything on the stack
     // from the current frame
-    pub(crate) current_stack_values: Vec<SteelVal>,
+    pub(crate) current_stack_values: steel_vec::Vec<SteelVal>,
 
     ip: usize,
     sp: usize,
@@ -1439,7 +1440,7 @@ impl WeakContinuation {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClosedContinuation {
-    pub(crate) stack: Vec<SteelVal>,
+    pub(crate) stack: steel_vec::Vec<SteelVal>,
     pub(crate) current_frame: StackFrame,
     instructions: RootedInstructions,
     pub(crate) stack_frames: Vec<StackFrame>,
@@ -1763,7 +1764,8 @@ impl<'a> VmCore<'a> {
                         .cloned()
                         .unwrap_or_else(|| self.thread.current_frame.clone()),
                     stack_frame_offset: self.thread.stack.len(),
-                    current_stack_values: self.thread.stack[offset..].to_vec(),
+                    // current_stack_values: self.thread.stack[offset..].to_vec(),
+                    current_stack_values: self.thread.stack[offset..].iter().cloned().collect(),
                     instructions: self.instructions.clone(),
                     ip: self.ip,
                     sp: self.sp,
@@ -3619,7 +3621,13 @@ impl<'a> VmCore<'a> {
                     let len = payload / 2;
                     let bytes = payload % 2 != 0;
 
-                    let args = self.thread.stack.split_off(self.thread.stack.len() - len);
+                    // let args = self.thread.stack.split_off(self.thread.stack.len() - len);
+
+                    let args = self
+                        .thread
+                        .stack
+                        .drain(self.thread.stack.len() - len..)
+                        .collect::<Vec<_>>();
 
                     let val = if bytes {
                         let buffer: Vec<_> = args
@@ -7227,8 +7235,11 @@ fn listref_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 fn list_handler(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     // handler_inline_primitive_payload!(ctx, new_list, payload);
     let last_index = ctx.thread.stack.len() - payload;
-    let remaining = ctx.thread.stack.split_off(last_index);
-    let list = SteelVal::ListV(remaining.into());
+    // let remaining = ctx.thread.stack.split_off(last_index);
+
+    let remaining = ctx.thread.stack.drain(last_index..).collect();
+
+    let list = SteelVal::ListV(remaining);
     ctx.thread.stack.push(list);
 
     ctx.ip += 2;
