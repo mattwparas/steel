@@ -2325,7 +2325,6 @@ impl FunctionTranslator<'_> {
                                 f if f == steel_is_empty as FunctionSignature && arity == 1 => {
                                     self.is_empty()
                                 }
-
                                 _ => {
                                     let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
@@ -2453,10 +2452,36 @@ impl FunctionTranslator<'_> {
 
                     self.let_var_stack.pop().unwrap();
 
-                    // if last != payload {
-                    //     pretty_print_dense_instructions(&self.instructions);
-                    //     assert_eq!(last, payload);
-                    // }
+                    for index in 0..self.shadow_stack.len() {
+                        let v = self.shadow_stack.get_mut(index).unwrap();
+                        match v {
+                            MaybeStackValue::MutRegister(r) if *r >= payload as usize => {
+                                let r = *r;
+                                let (value, _) = self.mut_register_to_value(r);
+
+                                self.properties.remove(&ValueOrRegister::Register(r));
+
+                                self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                                    value,
+                                    inferred_type: InferredType::Any,
+                                    spilled: false,
+                                });
+                            }
+                            MaybeStackValue::Register(r) if *r >= payload as usize => {
+                                let r = *r;
+                                let (value, _) = self.immutable_register_to_value(r);
+
+                                self.properties.remove(&ValueOrRegister::Register(r));
+
+                                self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                                    value,
+                                    inferred_type: InferredType::Any,
+                                    spilled: false,
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
 
                     self.call_end_scope_handler(payload);
                 }
@@ -2792,7 +2817,7 @@ impl FunctionTranslator<'_> {
                 // Cdr reg no type check, should be faster
                 OpCode::CDR => {
                     if let Some(last) = self.shadow_stack.last().copied() {
-                        self.shadow_mark_local_type_from_var(last, InferredType::List);
+                        self.shadow_mark_local_type_from_var(last, InferredType::ListOrPair);
                     }
 
                     match self.shadow_stack.last().unwrap().clone() {
@@ -2812,7 +2837,8 @@ impl FunctionTranslator<'_> {
                             };
 
                             let res = self.call_function_returns_value_args(func, &[reg]);
-                            self.push(res, InferredType::List);
+                            self.push(res, InferredType::Any);
+                            self.check_deopt();
                             self.ip += 2;
                         }
 
@@ -2832,12 +2858,14 @@ impl FunctionTranslator<'_> {
 
                             let reg = self.register_index(reg);
                             let res = self.call_function_returns_value_args(func, &[reg]);
-                            self.push(res, InferredType::List);
+                            self.push(res, InferredType::Any);
+                            self.check_deopt();
                             self.ip += 2;
                         }
 
                         _ => {
-                            self.func_ret_val(op, 1, 2, InferredType::List);
+                            self.func_ret_val(op, 1, 2, InferredType::Any);
+                            self.check_deopt();
                         }
                     }
                 }
@@ -2907,7 +2935,7 @@ impl FunctionTranslator<'_> {
                 // the read local operations.
                 OpCode::CAR => {
                     if let Some(last) = self.shadow_stack.last().copied() {
-                        self.shadow_mark_local_type_from_var(last, InferredType::List);
+                        self.shadow_mark_local_type_from_var(last, InferredType::ListOrPair);
                     }
 
                     match self.shadow_stack.last().unwrap().clone() {
@@ -2938,10 +2966,13 @@ impl FunctionTranslator<'_> {
                                 self.push(res, InferredType::Any);
                                 self.ip += 2;
                             }
+
+                            self.check_deopt();
                         }
 
                         _ => {
                             self.func_ret_val(op, 1, 2, InferredType::Any);
+                            self.check_deopt();
                         }
                     }
                 }
@@ -3458,8 +3489,8 @@ impl FunctionTranslator<'_> {
                 let register = self.register_index(p);
 
                 match self.properties.get(&ValueOrRegister::Register(p)) {
-                    // Elide the call entirely if its a non empty list
-                    Some(Properties::NonEmptyList) => {
+                    // Elide the call entirely if its a non empty list. NOTE: We can't do this here.
+                    Some(Properties::NonEmptyList) if false => {
                         self.shadow_stack.pop();
                         let res = self.builder.ins().iconst(types::I8, 1);
                         self.push(res, InferredType::UnboxedBool);
@@ -3588,7 +3619,9 @@ impl FunctionTranslator<'_> {
 
                 match self.properties.get(&ValueOrRegister::Register(p)) {
                     // Elide the call entirely if its a non empty list
-                    Some(Properties::NonEmptyList) => {
+                    Some(Properties::NonEmptyList) if false => {
+                        println!("Found non empty list!");
+
                         self.shadow_stack.pop();
                         let res = self.builder.ins().iconst(types::I8, 1);
                         self.push(res, InferredType::UnboxedBool);
@@ -3870,61 +3903,68 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        // if payload < self.arity as _ {
-        match op {
-            OpCode::READLOCAL0 | OpCode::READLOCAL1 | OpCode::READLOCAL2 | OpCode::READLOCAL3 => {
-                MaybeStackValue::Register(payload)
-            }
-            OpCode::MOVEREADLOCAL0
-            | OpCode::MOVEREADLOCAL1
-            | OpCode::MOVEREADLOCAL2
-            | OpCode::MOVEREADLOCAL3 => {
-                for index in 0..self.shadow_stack.len() {
-                    let item = self.shadow_stack.get_mut(index).unwrap();
+        // TODO: @Matt -> This is a big deal!
+        if payload < self.arity as _ || true {
+            match op {
+                OpCode::READLOCAL0
+                | OpCode::READLOCAL1
+                | OpCode::READLOCAL2
+                | OpCode::READLOCAL3 => MaybeStackValue::Register(payload),
+                OpCode::MOVEREADLOCAL0
+                | OpCode::MOVEREADLOCAL1
+                | OpCode::MOVEREADLOCAL2
+                | OpCode::MOVEREADLOCAL3 => {
+                    for index in 0..self.shadow_stack.len() {
+                        let item = self.shadow_stack.get_mut(index).unwrap();
 
-                    match item {
-                        MaybeStackValue::Register(i) if *i == payload => {
-                            let (value, typ) = self.immutable_register_to_value(payload);
+                        match item {
+                            MaybeStackValue::Register(i) if *i == payload => {
+                                let (value, typ) = self.immutable_register_to_value(payload);
 
-                            self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
-                                value,
-                                inferred_type: typ,
-                                spilled: false,
-                            });
+                                self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                                    value,
+                                    inferred_type: typ,
+                                    spilled: false,
+                                });
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
+
+                    MaybeStackValue::MutRegister(payload)
                 }
-
-                MaybeStackValue::MutRegister(payload)
+                _ => panic!(),
             }
-            _ => panic!(),
+        } else {
+            // TODO: Have this just read the value itself
+            //
+            // TODO: On let end scope, if a value is left as a register reference, then
+            // what we need to do is replace the values on the stack directly if any of those values
+            // are remaining. So in the let var end scope, check if any of the remaining things on the
+            // stack references those things. If they do, spill them then dynamically? Wouldn't mutable
+            // references to that already? Maybe not?
+            // println!(
+            //     "Getting here -> Reading a local value, instead of generating a register instruction: {:?}", op
+            // );
+
+            // Replace this... with just reading from the vector?
+            let value = self.call_func_or_immediate(op, payload);
+
+            self.value_to_local_map.insert(value, payload);
+
+            let inferred_type = if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
+                *inferred_type
+            } else {
+                InferredType::Any
+            };
+            MaybeStackValue::Value(StackValue {
+                value,
+                inferred_type,
+                spilled: false,
+            })
+
+            // MaybeStackValue::Register(())
         }
-        // } else {
-        // TODO: Have this just read the value itself
-
-        // println!(
-        //     "Getting here -> Reading a local value, instead of generating a register instruction"
-        // );
-
-        // Replace this... with just reading from the vector?
-        // let value = self.call_func_or_immediate(op, payload);
-
-        // self.value_to_local_map.insert(value, payload);
-
-        // let inferred_type = if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
-        //     *inferred_type
-        // } else {
-        //     InferredType::Any
-        // };
-        // MaybeStackValue::Value(StackValue {
-        //     value,
-        //     inferred_type,
-        //     spilled: false,
-        // })
-
-        // MaybeStackValue::Register(())
-        // }
     }
 
     fn read_local_fixed_no_spill(&mut self, op: OpCode, payload: usize) -> (Value, InferredType) {
