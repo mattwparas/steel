@@ -1493,12 +1493,6 @@ pub struct VmCore<'a> {
     pub(crate) thread_id: Option<steel_rc::ThreadId>,
     pub(crate) ip: usize,
     pub(crate) sp: usize,
-    // TODO: Maybe remove this level of indirection.
-    // This extra pointer chase to the stack might be
-    // costly? Could be worth just embedding the thread
-    // inside the Vm struct directly, and then extracting
-    // it out when finished, i.e. pass the thread around
-    // directly rather than by reference.
     pub(crate) thread: &'a mut SteelThread,
     pub(crate) instructions: RootedInstructions,
     pub(crate) constants: ConstantMap,

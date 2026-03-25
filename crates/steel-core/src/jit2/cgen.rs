@@ -343,14 +343,7 @@ fn debug_int(value: i64) {
 #[cross_platform_fn]
 fn debug_value(value: SteelVal) {
     let mut value = ManuallyDrop::new(value);
-
-    if let SteelVal::ListV(l) = &mut *value {
-        println!("Found a list");
-        println!("{:?}", l.inner_ptr_mut().0.get_box().rcword);
-        println!("{:?}", l);
-    }
-
-    // println!("Value: {}", &*value);
+    println!("Value: {}", &*value);
 }
 
 #[cross_platform_fn]
@@ -871,7 +864,7 @@ impl Default for JIT {
         );
 
         map.add_func_hint(
-            "lte-register-int",
+            "lte-register",
             abi! { extern_c_lte_register as fn(*mut VmCore, usize, SteelVal) -> bool },
             InferredType::UnboxedBool,
         );
@@ -2508,16 +2501,45 @@ impl FunctionTranslator<'_> {
                         ) =>
                 {
                     let value = self.shadow_stack.pop().unwrap().into_value();
-                    let register = self.shadow_stack.pop().unwrap().into_index();
-
-                    let register = self.builder.ins().iconst(types::I64, register as i64);
+                    let register_index = self.shadow_stack.pop().unwrap().into_index();
 
                     // Do the shift here, in an effort to avoid passing more stuff?
                     let value = value.as_steelval(self);
-                    // let integer = self.unbox_value_to_pointer(value);
 
-                    let args = [register, value];
-                    let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
+                    let local_value = self.read_from_vm_stack(register_index);
+                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
+
+                    let sp = |ctx: &mut Self| {
+                        let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
+                        let args = [register, value];
+                        let result =
+                            ctx.call_function_returns_value_args("sub-binop-int-reg", &args);
+
+                        result
+                    };
+
+                    let result = self.converging_if(
+                        is_int,
+                        |ctx| {
+                            // If its an int, then we'll do checked subtraction:
+                            let lhs = ctx.unbox_value_to_pointer(local_value);
+                            let rhs = ctx.unbox_value_to_pointer(value);
+
+                            let (subbed, overflow_flag) = ctx.builder.ins().ssub_overflow(lhs, rhs);
+
+                            ctx.converging_if(
+                                overflow_flag,
+                                sp,
+                                |ctx| ctx.encode_value(SteelVal::INT_TAG as _, subbed),
+                                types::I128,
+                            )
+                        },
+                        sp,
+                        types::I128,
+                    );
+
+                    // let args = [register, value];
+                    // let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::Number);
@@ -2711,18 +2733,47 @@ impl FunctionTranslator<'_> {
                     let rhs_int = self.shadow_stack.pop().unwrap().into_value();
                     let register_l = self.shadow_stack.pop().unwrap().into_index();
 
+                    // Happy path, lets check the type of the lhs. If its an integer tag, then we can go ahead and do the thing.
+                    // Otherwise, we'll bail and fall through:
+
+                    let local_value = self.read_from_vm_stack(register_l);
+                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
+
+                    let result = self.converging_if(
+                        is_int,
+                        |ctx| {
+                            // Just do less than or equal on the value:
+                            let lhs = ctx.unbox_value_to_pointer(local_value);
+                            let rhs = ctx.unbox_value_to_pointer(rhs_int.value);
+
+                            let res =
+                                ctx.builder
+                                    .ins()
+                                    .icmp(IntCC::SignedLessThanOrEqual, lhs, rhs);
+
+                            res
+                        },
+                        |ctx| {
+                            let register_l =
+                                ctx.builder.ins().iconst(types::I64, register_l as i64);
+                            let args = [register_l, rhs_int.value];
+                            let result =
+                                ctx.call_function_returns_value_args("lte-register-int", &args);
+                            ctx.check_deopt();
+
+                            result
+                        },
+                        types::I8,
+                    );
+
                     // dbg!(self.local_to_value_map.get(&register_r));
                     // dbg!(self.local_to_value_map.get(&register_l));
 
-                    let register_l = self.builder.ins().iconst(types::I64, register_l as i64);
-
-                    let args = [register_l, rhs_int.value];
-                    let result = self.call_function_returns_value_args("lte-register-int", &args);
+                    // let local_value = self.read_from_vm_stack(register_l);
+                    // self.call_function_args_no_context("#%debug-steel-value", &[local_value]);
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::UnboxedBool);
-
-                    self.check_deopt();
 
                     self.ip += 2;
                 }
@@ -6064,6 +6115,53 @@ impl FunctionTranslator<'_> {
         let ctx = self.get_ctx();
         let arg_values = [ctx, value];
         let _call = self.builder.ins().call(local_callee, &arg_values);
+    }
+
+    // Note: This value should _not_ be dropped!
+    fn read_from_vm_stack(&mut self, index: usize) -> Value {
+        let stack_pointer_offset = offset_of!(VmCore, sp);
+        // Lets do the thing?
+
+        let ctx = self.get_ctx();
+        let sp = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            ctx,
+            stack_pointer_offset as i32,
+        );
+
+        let thread_offset = offset_of!(VmCore, thread);
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+        let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
+        let offset = self.builder.ins().imul_imm(local_offset, size);
+
+        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+        let local_value = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+
+        local_value
     }
 
     // Attempt to push this to the VM stack inline:

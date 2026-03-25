@@ -31,17 +31,18 @@ impl<'a> FunctionTranslator<'a> {
         merge(self);
     }
 
-    fn converging_if(
+    pub(super) fn converging_if(
         &mut self,
         test_condition: Value,
         then: impl Fn(&mut Self) -> Value,
         else_thunk: impl Fn(&mut Self) -> Value,
+        typ: Type,
     ) -> Value {
         let then_block = self.builder.create_block();
         let else_block = self.builder.create_block();
         let merge_block = self.builder.create_block();
 
-        self.builder.append_block_param(merge_block, self.int);
+        self.builder.append_block_param(merge_block, typ);
 
         self.builder
             .ins()
@@ -123,6 +124,8 @@ impl<'a> FunctionTranslator<'a> {
                     result
                 };
 
+                let typ = self.int;
+
                 let res = self.converging_if(
                     both_int,
                     |ctx| {
@@ -139,16 +142,22 @@ impl<'a> FunctionTranslator<'a> {
                         let (added, overflow_flag) =
                             ctx.builder.ins().uadd_overflow(left_payload, right_payload);
 
-                        ctx.converging_if(overflow_flag, sp, |ctx| {
-                            // Happy path, just return the boxed integer value.
-                            ctx.encode_value(SteelVal::INT_TAG as _, added)
-                        })
+                        ctx.converging_if(
+                            overflow_flag,
+                            sp,
+                            |ctx| {
+                                // Happy path, just return the boxed integer value.
+                                ctx.encode_value(SteelVal::INT_TAG as _, added)
+                            },
+                            typ,
+                        )
                     },
                     |ctx| {
                         let res = sp(ctx);
                         ctx.check_deopt();
                         res
                     },
+                    typ,
                 );
 
                 (res, InferredType::Number)
