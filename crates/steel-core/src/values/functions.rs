@@ -107,9 +107,16 @@ pub type CaptureVec = Vec<SteelVal>;
 #[cfg(feature = "inline-captures")]
 pub type CaptureVec = smallvec::SmallVec<[SteelVal; INLINE_CAPTURE_SIZE]>;
 
-#[derive(Clone, Debug)]
+#[repr(C)]
+#[derive(Clone, Debug, Default)]
 pub struct ByteCodeLambda {
     pub(crate) id: u32,
+    pub(crate) arity: u16,
+    pub(crate) is_multi_arity: bool,
+    // In the event this is serialized and its been jit compiled, replace
+    // the first instruction with this, since this is what is was originally
+    pub(crate) header: Option<OpCode>,
+
     /// body of the function with identifiers yet to be bound
     #[cfg(feature = "dynamic")]
     pub(crate) body_exp: RefCell<Shared<[DenseInstruction]>>,
@@ -117,12 +124,8 @@ pub struct ByteCodeLambda {
     #[cfg(not(feature = "dynamic"))]
     pub(crate) body_exp: StandardShared<[DenseInstruction]>,
 
-    pub(crate) arity: u16,
-
     #[cfg(feature = "dynamic")]
     call_count: Cell<usize>,
-
-    pub(crate) is_multi_arity: bool,
 
     // Store... some amount inline?
     // pub(crate) captures: Vec<SteelVal>,
@@ -141,10 +144,6 @@ pub struct ByteCodeLambda {
 
     #[cfg(feature = "jit2")]
     pub(crate) super_instructions: Option<fn(&mut crate::steel_vm::vm::VmCore)>,
-
-    // In the event this is serialized and its been jit compiled, replace
-    // the first instruction with this, since this is what is was originally
-    pub(crate) header: Option<OpCode>,
 }
 
 impl PartialEq for ByteCodeLambda {

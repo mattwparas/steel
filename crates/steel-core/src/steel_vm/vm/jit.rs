@@ -25,7 +25,12 @@ fn should_trampoline(ctx: &mut VmCore) -> bool {
     ctx.thread.stack_frames.len() < 100
 }
 
-pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> ByteCodeLambda {
+pub(crate) fn jit_compile_lambda(
+    ctx: &mut VmCore,
+    mut func: ByteCodeLambda,
+    self_slot: Option<&Gc<ByteCodeLambda>>,
+    maybe_index: Option<usize>,
+) -> ByteCodeLambda {
     if func
         .body_exp
         .iter()
@@ -53,7 +58,8 @@ pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> 
         &func.body_exp,
         &ctx.thread.global_env.roots(),
         &ctx.thread.constant_map,
-        None,
+        maybe_index,
+        self_slot,
     );
 
     let fn_pointer = if let Ok(fn_pointer) = fn_pointer {
@@ -112,6 +118,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                             &func.body_exp,
                             &ctx.thread.global_env.roots(),
                             &ctx.thread.constant_map,
+                            None,
                             None,
                         )
                         .unwrap();
@@ -179,6 +186,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
                 &ctx.thread.global_env.roots(),
                 &ctx.thread.constant_map,
                 function_name,
+                None,
             )
             .unwrap();
 
@@ -4551,6 +4559,157 @@ make_call_global_function_deopt_no_arity!(
     )
 );
 
+macro_rules! make_call_self_function_deopt_no_arity {
+    ($(($name:tt, $($typ:ident),*)),*) => {
+
+        pub struct CallSelfNoArityFunctionDefinitions;
+
+        impl CallSelfNoArityFunctionDefinitions {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
+                $(
+                    #[cfg(target_os = "windows")]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: Gc<ByteCodeLambda>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore,  func: Gc<ByteCodeLambda>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+            #[cross_platform_fn]
+            fn $name(
+                ctx: *mut VmCore,
+                func: Gc<ByteCodeLambda>,
+                fallback_ip: usize,
+                $($typ: SteelVal),*
+            ) -> SteelVal {
+                let ctx = unsafe { &mut *ctx };
+                let func = ManuallyDrop::new(func);
+
+                // Make it exist
+                let func = (&*func).clone();
+
+                let should_yield = !should_trampoline(ctx);
+
+                // Deopt -> Meaning, check the return value if we're done - so we just
+                // will eventually check the stashed error.
+                // let should_yield = match &func {
+                //     SteelVal::Closure(c) if c.0.super_instructions.is_some() && should_trampoline(ctx) => false,
+                //     SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) | SteelVal::CustomStruct(_) => true,
+                //     _ => false,
+                // };
+
+                debug_assert!(ctx.is_native);
+
+                if should_yield {
+                    ctx.ip = fallback_ip;
+                    ctx.is_native = false;
+                } else {
+                    ctx.ip = fallback_ip;
+                }
+
+
+                fn inner_handle_global_function_call_with_args_no_arity(
+                    ctx: &mut VmCore,
+                    closure: Gc<ByteCodeLambda>,
+                    should_yield: bool,
+                    $($typ: SteelVal),*
+                ) -> Result<SteelVal> {
+                    // TODO: Consider reserving the amount?
+                    $(
+                        ctx.thread.stack.push($typ);
+                    )*
+
+                    if !should_yield {
+                        if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                            #[cfg(debug_assertions)]
+                            let pop_count = ctx.pop_count;
+
+                            #[cfg(debug_assertions)]
+                            let depth = ctx.thread.stack_frames.len();
+
+                            // Install the function, so that way we can just trampoline
+                            // without needing to spill the stack
+                            ctx.handle_function_call_closure_jit_no_arity(closure)
+                                .unwrap();
+
+                            (func)(ctx);
+
+                            if ctx.is_native {
+                                #[cfg(debug_assertions)]
+                                {
+                                    debug_assert_eq!(ctx.pop_count, pop_count);
+                                    debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
+                                }
+
+                                // Don't deopt?
+                                Ok(ctx.thread.stack.pop().unwrap())
+                            } else {
+                                Ok(SteelVal::Void)
+                            }
+                        } else {
+                            // We're going to de-opt in this case - unless we intend to do some fun inlining business
+                            ctx.handle_function_call_closure_jit_no_arity(closure)?;
+                            Ok(SteelVal::Void)
+                        }
+                    } else {
+                        ctx.handle_function_call_closure_jit_no_arity(closure)?;
+                        Ok(SteelVal::Void)
+                    }
+                }
+
+
+                match inner_handle_global_function_call_with_args_no_arity(ctx, func, should_yield, $($typ),*) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        ctx.is_native = false;
+                        ctx.result = Some(Err(e));
+                        return SteelVal::Void;
+                    }
+                }
+            }
+        )*
+    };
+}
+
+make_call_self_function_deopt_no_arity!(
+    (call_self_function_deopt_0_no_arity,),
+    (call_self_function_deopt_1_no_arity, a),
+    (call_self_function_deopt_2_no_arity, a, b),
+    (call_self_function_deopt_3_no_arity, a, b, c),
+    (call_self_function_deopt_4_no_arity, a, b, c, d),
+    (call_self_function_deopt_5_no_arity, a, b, c, d, e),
+    (call_self_function_deopt_6_no_arity, a, b, c, d, e, f),
+    (call_self_function_deopt_7_no_arity, a, b, c, d, e, f, g),
+    (call_self_function_deopt_8_no_arity, a, b, c, d, e, f, g, h)
+);
+
 #[cross_platform_fn]
 fn call_global_function_deopt_no_arity_spilled(
     ctx: *mut VmCore,
@@ -5701,7 +5860,7 @@ fn handle_pure_function(ctx: *mut VmCore, ip: usize, offset: usize) -> SteelVal 
         ctx.thread.function_interner.spans.insert(closure_id, spans);
 
         #[cfg(feature = "jit2")]
-        let constructed_lambda = jit::jit_compile_lambda(ctx, constructed_lambda);
+        let constructed_lambda = jit::jit_compile_lambda(ctx, constructed_lambda, None, None);
 
         let constructed_lambda = Gc::new(constructed_lambda);
 
@@ -5899,7 +6058,7 @@ fn handle_new_start_closure(ctx: *mut VmCore, ip: usize, offset: usize) -> Steel
         #[cfg(feature = "jit2")]
         let mut constructed_lambda =
             if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
-                jit::jit_compile_lambda(ctx, constructed_lambda)
+                jit::jit_compile_lambda(ctx, constructed_lambda, None, None)
             } else {
                 constructed_lambda
             };

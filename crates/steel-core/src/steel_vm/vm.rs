@@ -3804,6 +3804,15 @@ impl<'a> VmCore<'a> {
 
             self.sp = self.get_last_stack_frame_sp();
 
+            /*
+            let attachments = last.attachments.take();
+            if attachments.is_some() {
+                drop(attachments)
+            } else {
+                std::mem::forget(attachments);
+            }
+            */
+
             None
         } else {
             // let ret_val = self.thread.stack.pop().ok_or_else(|| {
@@ -4190,22 +4199,35 @@ impl<'a> VmCore<'a> {
                 .spans
                 .insert(closure_id, spans);
 
+            let mut slot = Gc::new(ByteCodeLambda::default());
+
+            // Maybe slot:
+            let maybe_bind = self
+                .instructions
+                .get(forward_index + 1)
+                .map(|x| x.payload_size.to_usize());
+
             #[cfg(feature = "jit2")]
             let constructed_lambda =
                 if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
-                    jit::jit_compile_lambda(self, constructed_lambda)
+                    jit::jit_compile_lambda(self, constructed_lambda, Some(&slot), maybe_bind)
                 } else {
                     constructed_lambda
                 };
 
-            let constructed_lambda = Gc::new(constructed_lambda);
+            // Explicitly make the old slot available, such that we can fuss
+            // with the new one while jit compiling.
+
+            unsafe {
+                *steel_rc::BiasedRc::get_mut_unchecked(&mut slot.0) = constructed_lambda;
+            }
 
             self.thread
                 .function_interner
                 .pure_function_interner
-                .insert(closure_id, Gc::clone(&constructed_lambda));
+                .insert(closure_id, Gc::clone(&slot));
 
-            constructed_lambda
+            slot
         };
 
         let value = SteelVal::Closure(constructed_lambda);

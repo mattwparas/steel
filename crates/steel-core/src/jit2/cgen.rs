@@ -23,6 +23,7 @@ use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 use crate::{
     compiler::constants::ConstantMap,
     core::instructions::{pretty_print_dense_instructions, DenseInstruction},
+    gc::Gc,
     primitives::{
         lists::{steel_is_empty, steel_pair},
         ports::{eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char},
@@ -34,6 +35,7 @@ use crate::{
         primitives::{steel_eq, steel_listp, steel_stringp, steel_symbolp, steel_voidp},
         vm::{jit::*, SteelThread, VmCore},
     },
+    values::functions::ByteCodeLambda,
     SteelVal,
 };
 
@@ -570,6 +572,8 @@ impl Default for JIT {
             abi! { handle_pure_function as fn(*mut VmCore, usize, usize) -> SteelVal },
         );
 
+        CallSelfNoArityFunctionDefinitions::register(&mut map);
+
         CallGlobalFunctionDefinitions::register(&mut map);
         CallGlobalNoArityFunctionDefinitions::register(&mut map);
         CallFunctionDefinitions::register(&mut map);
@@ -997,6 +1001,7 @@ unsafe fn compile_bytecode(
     globals: &[SteelVal],
     constants: &ConstantMap,
     function_index: Option<usize>,
+    slot: Option<&Gc<ByteCodeLambda>>,
 ) -> Result<fn(&mut VmCore), String> {
     // Pass the string to the JIT, and it returns a raw pointer to machine code.
     // TODO: We'll want to do two different functions.
@@ -1009,7 +1014,7 @@ unsafe fn compile_bytecode(
     // The only difference I believe will be the signature, and we'll have to
     // take the parameters into account in this case - they won't come from the VM
     // stack but will instead come from the native stack.
-    let code_ptr = jit.compile(name, arity, code, globals, constants, function_index)?;
+    let code_ptr = jit.compile(name, arity, code, globals, constants, function_index, slot)?;
     // Cast the raw pointer to a typed function pointer. This is unsafe, because
     // this is the critical point where you have to trust that the generated code
     // is safe to be called.
@@ -1026,8 +1031,20 @@ impl JIT {
         globals: &[SteelVal],
         constants: &ConstantMap,
         function_index: Option<usize>,
+        slot: Option<&Gc<ByteCodeLambda>>,
     ) -> Result<fn(&mut VmCore), String> {
-        unsafe { compile_bytecode(self, name, arity, code, globals, constants, function_index) }
+        unsafe {
+            compile_bytecode(
+                self,
+                name,
+                arity,
+                code,
+                globals,
+                constants,
+                function_index,
+                slot,
+            )
+        }
     }
 }
 
@@ -1063,6 +1080,7 @@ impl JIT {
         globals: &[SteelVal],
         constants: &ConstantMap,
         function_index: Option<usize>,
+        slot: Option<&Gc<ByteCodeLambda>>,
     ) -> Result<*const u8, String> {
         // self.ctx.set_disasm(true);
 
@@ -1099,6 +1117,7 @@ impl JIT {
             globals,
             constants,
             function_index,
+            slot,
         )?;
 
         if let Err(e) = cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
@@ -1159,7 +1178,8 @@ impl JIT {
         bytecode: &[DenseInstruction],
         globals: &[SteelVal], // stmts: Vec<Expr>,
         constants: &ConstantMap,
-        _function_context: Option<usize>,
+        function_context: Option<usize>,
+        slot: Option<&Gc<ByteCodeLambda>>,
     ) -> Result<(), String> {
         // println!("----- Compiling function ----");
 
@@ -1251,6 +1271,8 @@ impl JIT {
             if_stack: Vec::new(),
             if_bound: None,
             vm_context,
+            slot,
+            function_context,
             // cloned_stack: false,
             // generators: Default::default(),
         };
@@ -1561,6 +1583,8 @@ struct FunctionTranslator<'a> {
     vm_context: GlobalValue,
     // vm_context: StackSlot,
     // generators: LazyInstructionGenerators,
+    slot: Option<&'a Gc<ByteCodeLambda>>,
+    function_context: Option<usize>,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -2235,9 +2259,52 @@ impl FunctionTranslator<'_> {
                     let function_index = payload;
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
+
+                    // Okay, lets do a few things:
+                    //
+                    // We should attach some context for whether or not this is a closure.
+                    //
+                    // If its not a closure (i.e. has no captured values) then we can actually
+                    // embed the function directly into the call site. This should in theory,
+                    // make things a lot faster since now we'll be able to avoid dispatches
+                    // on the global environment.
+                    //
+                    // The biggest issue now, is that the function pointer that we pass to _this_
+                    // is not necessarily bound yet at the VM level. What we can do though is probably
+                    // eagerly determine for pure functions what index we're going to bind to.
+                    //
+                    // If its bound to a pure function, then we can embed the pointer directly
+                    // into the value, and then also leak the ref count here and embed it
+                    // directly into the generated code, so that we can call the function
+                    // without needing to look it up?
                     let name = CallGlobalNoArityFunctionDefinitions::arity_to_name(arity);
 
-                    if let Some(name) = name {
+                    // We have a few choices here. In a world in which this is a known
+                    // entity, i.e. this is a call global no arity, and this value is defined,
+                    // realistically we can just dispatch to the requisite value here without
+                    // needing to do a lookup in the globals table.
+                    // println!("{:?}", self._globals.get(payload));
+                    println!("Self slot exists: {}", self.slot.is_some());
+
+                    let self_name = CallSelfNoArityFunctionDefinitions::arity_to_name(arity);
+
+                    // Okay, lets try to install the self call if we have the ability to.
+                    //
+                    // We're also going to commit some very nasty crimes by just arbitrarily passing
+                    // the value to the function as is, and hope for the best :)
+                    if self.slot.is_some()
+                        && self_name.is_some()
+                        && self._globals.get(payload).is_none()
+                        && self.function_context == Some(function_index)
+                    // && false
+                    {
+                        let slot = self.slot.unwrap().clone();
+                        let result =
+                            self.call_self_function(arity, self_name.unwrap(), slot, false);
+
+                        // Assuming this worked, we'll want to push this result on to the stack.
+                        self.push(result, InferredType::Any);
+                    } else if let Some(name) = name {
                         let result = self.call_global_function(arity, name, function_index, false);
 
                         // Assuming this worked, we'll want to push this result on to the stack.
@@ -4669,6 +4736,47 @@ impl FunctionTranslator<'_> {
         result
     }
 
+    fn call_self_function(
+        &mut self,
+        arity: usize,
+        name: &str,
+        func: Gc<ByteCodeLambda>,
+        tail: bool,
+    ) -> Value {
+        let local_callee = self.get_local_callee(name);
+
+        let ctx = self.get_ctx();
+
+        // Horrendous crimes, but we'll allow it
+        let lookup_index = self.builder.ins().iconst(Type::int(64).unwrap(), unsafe {
+            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(func)
+        });
+
+        let fallback_ip = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+        // Advance to the next thing
+        self.ip += 1;
+
+        let mut arg_values = vec![ctx, lookup_index, fallback_ip];
+
+        let args_off_the_stack = self.split_off(arity);
+
+        arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
+
+        if tail {
+            self.spill_cloned_stack();
+        } else {
+            self.spill_stack();
+        }
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+    }
+
     fn call_global_function(
         &mut self,
         arity: usize,
@@ -4695,92 +4803,9 @@ impl FunctionTranslator<'_> {
 
         let mut arg_values = vec![ctx, lookup_index, fallback_ip];
 
-        // If any of these have been spilled, we have to pop them off
-        // of the shadow stack and use them
-        // let mut args_off_the_stack = self
-        //     .stack
-        //     .drain(self.stack.len() - arity..)
-        //     .collect::<Vec<_>>();
-
         let args_off_the_stack = self.split_off(arity);
 
-        // self.maybe_patch_from_stack(&mut args_off_the_stack);
-
-        // for arg in &args_off_the_stack {
-        //     assert!(!arg.spilled);
-        // }
-
-        // assert_eq!(args_off_the_stack.len(), arity);
-
         arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
-
-        /*
-                let is_function = self.check_function(lookup_index, tail);
-                {
-                    let then_block = self.builder.create_block();
-                    let else_block = self.builder.create_block();
-                    let merge_block = self.builder.create_block();
-
-                    self.builder.append_block_param(merge_block, self.int);
-
-                    self.builder
-                        .ins()
-                        .brif(is_function, then_block, &[], else_block, &[]);
-
-                    self.builder.switch_to_block(then_block);
-                    self.builder.seal_block(then_block);
-
-                    // Do nothing
-                    let then_return = BlockArg::Value(self.create_i128(0));
-
-                    // Check callable - TODO: Insert these checks elsewhere too!
-                    let should_spill = self.check_should_spill(lookup_index);
-
-                    let spill_block = self.builder.create_block();
-
-                    self.builder
-                        .ins()
-                        .brif(should_spill, spill_block, &[], merge_block, &[then_return]);
-
-                    self.builder.switch_to_block(spill_block);
-                    self.builder.seal_block(spill_block);
-
-                    // for c in self.stack.clone() {
-                    //     if !c.spilled {
-                    //         self.push_to_vm_stack_function_spill(c.value);
-                    //     }
-                    // }
-
-                    if tail {
-                        self.spill_cloned_stack();
-                    } else {
-                        self.spill_stack();
-                    }
-                    // self.spill_cloned_stack();
-                    // self.spill_stack();
-
-                    self.builder.ins().jump(merge_block, &[then_return]);
-
-                    self.builder.switch_to_block(else_block);
-                    self.builder.seal_block(else_block);
-
-                    // if tail {
-                    //     self.spill_cloned_stack();
-                    // } else {
-                    //     self.spill_stack();
-                    // }
-
-                    let else_return = BlockArg::Value(self.create_i128(0));
-
-                    self.builder.ins().jump(merge_block, &[else_return]);
-
-                    // Switch to the merge block for subsequent statements.
-                    self.builder.switch_to_block(merge_block);
-
-                    // We've now seen all the predecessors of the merge block.
-                    self.builder.seal_block(merge_block);
-                }
-        */
 
         if tail {
             self.spill_cloned_stack();
