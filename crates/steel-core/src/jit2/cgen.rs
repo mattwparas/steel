@@ -33,7 +33,7 @@ use crate::{
     rvals::FunctionSignature,
     steel_vm::{
         primitives::{steel_eq, steel_listp, steel_stringp, steel_symbolp, steel_voidp},
-        vm::{jit::*, SteelThread, VmCore},
+        vm::{jit::*, StackFrame, SteelThread, VmCore},
     },
     values::functions::ByteCodeLambda,
     SteelVal,
@@ -349,6 +349,39 @@ fn debug_value(value: SteelVal) {
 }
 
 #[cross_platform_fn]
+fn debug_stack_frames(ctx: *mut VmCore) {
+    let ctx = unsafe { &mut *ctx };
+    println!("Stack frame length: {}", ctx.thread.stack_frames.len());
+
+    let last_frame = ctx.thread.stack_frames.last();
+
+    if let Some(last) = last_frame {
+        println!("sp: {}", last.sp);
+        println!("ip: {}", last.ip);
+    } else {
+        println!("No frame on stack")
+    }
+}
+
+#[cross_platform_fn]
+fn debug_stack_before(ctx: *mut VmCore) {
+    let ctx = unsafe { &mut *ctx };
+    println!("Stack length before: {}", ctx.thread.stack.len());
+}
+
+#[cross_platform_fn]
+fn debug_stack_after(ctx: *mut VmCore) {
+    let ctx = unsafe { &mut *ctx };
+    println!("Stack length after: {}", ctx.thread.stack.len());
+}
+
+#[cross_platform_fn]
+fn debug_is_native(ctx: *mut VmCore) {
+    let ctx = unsafe { &mut *ctx };
+    println!("vm is native: {}", ctx.is_native);
+}
+
+#[cross_platform_fn]
 fn debug_tag(value: i8) {
     println!("Tag: {}", value);
 }
@@ -393,6 +426,24 @@ impl Default for JIT {
         map.add_func2("#%debug-value", abi! { debug_int as fn(i64) });
         map.add_func2("#%debug-count", abi! { debug_count as fn(i32) });
         map.add_func2("#%debug-tag", abi! { debug_tag as fn(i8) });
+
+        map.add_func(
+            "#%debug-stack-frames",
+            abi! { debug_stack_frames as fn(*mut VmCore) },
+        );
+
+        map.add_func(
+            "#%debug-stack-before",
+            abi! { debug_stack_before as fn(*mut VmCore) },
+        );
+        map.add_func(
+            "#%debug-stack-after",
+            abi! { debug_stack_after as fn(*mut VmCore) },
+        );
+        map.add_func(
+            "#%debug-is-native",
+            abi! { debug_is_native as fn(*mut VmCore) },
+        );
 
         map.add_func(
             "pair?",
@@ -547,9 +598,24 @@ impl Default for JIT {
             abi! { drop_value_slow_decrement as fn(SteelVal) },
         );
 
+        map.add_func2(
+            "raw-slow-increment",
+            abi! { increment_ref_count_slow as fn(SteelVal) },
+        );
+
+        map.add_func2(
+            "raw-slow-increment-closure",
+            abi! { increment_ref_count_slow_closure as fn(Gc<ByteCodeLambda>) },
+        );
+
         map.add_func(
             "slow-grow-stack",
             abi! { grow_stack_slow as fn(*mut VmCore) },
+        );
+
+        map.add_func(
+            "slow-grow-frame-stack",
+            abi! { grow_frame_stack_slow as fn(*mut VmCore) },
         );
 
         map.add_func(
@@ -570,6 +636,11 @@ impl Default for JIT {
         map.add_func(
             "pure-func",
             abi! { handle_pure_function as fn(*mut VmCore, usize, usize) -> SteelVal },
+        );
+
+        map.add_func(
+            "#%setup-closure",
+            abi! { setup_closure_call as fn(*mut VmCore, Gc<ByteCodeLambda>) -> SteelVal },
         );
 
         CallSelfNoArityFunctionDefinitions::register(&mut map);
@@ -2289,14 +2360,27 @@ impl FunctionTranslator<'_> {
                         && self_name.is_some()
                         && self._globals.get(payload).is_none()
                         && self.function_context == Some(function_index)
-                    // && false
                     {
-                        let slot = self.slot.unwrap().clone();
-                        let result =
-                            self.call_self_function(arity, self_name.unwrap(), slot, false);
+                        const USE_EXPERIMENTAL_CALL: bool = true;
 
-                        // Assuming this worked, we'll want to push this result on to the stack.
-                        self.push(result, InferredType::Any);
+                        if USE_EXPERIMENTAL_CALL {
+                            let slot = self.slot.unwrap().clone();
+
+                            let result = self.call_self_function_experimental(
+                                arity,
+                                self_name.unwrap(),
+                                slot,
+                            );
+
+                            self.push(result, InferredType::Any);
+                        } else {
+                            let slot = self.slot.unwrap().clone();
+                            let result =
+                                self.call_self_function(arity, self_name.unwrap(), slot, false);
+
+                            // Assuming this worked, we'll want to push this result on to the stack.
+                            self.push(result, InferredType::Any);
+                        }
                     } else if let Some(name) = name {
                         let result = self.call_global_function(arity, name, function_index, false);
 
@@ -3326,19 +3410,7 @@ impl FunctionTranslator<'_> {
         self.builder.seal_block(merge_block);
     }
 
-    fn drop_biased_rc(&mut self, tagged_value: Value) {
-        // First, we need to get the pointer to the box,
-        // load it, and then we'll inline the calls for decrement.
-        //
-        // That will also mean we'll need to add the thread id
-        // as an argument to the JIT. For now we're not going to do that
-        // while I figure out if we can even do this thing properly.
-
-        let value = self.unbox_value_to_pointer(tagged_value);
-
-        // TODO: Do we even need the tag?
-        // let tag = self.get_tag(tagged_value);
-
+    fn check_value_tl(&mut self, value: Value) -> Value {
         let thread_id = self.get_thread_id();
         let obj_thread_id =
             self.builder
@@ -3350,6 +3422,21 @@ impl FunctionTranslator<'_> {
             .builder
             .ins()
             .icmp(IntCC::Equal, thread_id, obj_thread_id);
+
+        is_thread_local
+    }
+
+    fn drop_biased_rc(&mut self, tagged_value: Value) {
+        // First, we need to get the pointer to the box,
+        // load it, and then we'll inline the calls for decrement.
+        //
+        // That will also mean we'll need to add the thread id
+        // as an argument to the JIT. For now we're not going to do that
+        // while I figure out if we can even do this thing properly.
+
+        let value = self.unbox_value_to_pointer(tagged_value);
+
+        let is_thread_local = self.check_value_tl(value);
 
         // Make two kinds of blocks:
         let yes_tl = self.builder.create_block();
@@ -3371,9 +3458,9 @@ impl FunctionTranslator<'_> {
                     .ins()
                     .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
 
-            let one = self.builder.ins().iconst(Type::int(32).unwrap(), 1);
+            // let one = self.builder.ins().iconst(Type::int(32).unwrap(), 1);
 
-            let sub_one = self.builder.ins().isub(local_count, one);
+            let sub_one = self.builder.ins().iadd_imm(local_count, -1);
 
             self.builder.ins().store(MemFlags::new(), sub_one, value, 8);
 
@@ -4727,6 +4814,55 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
+    }
+
+    fn call_self_function_experimental(
+        &mut self,
+        arity: usize,
+        name: &str,
+        func: Gc<ByteCodeLambda>,
+    ) -> Value {
+        // let local_callee = self.get_local_callee(name);
+
+        let ctx = self.get_ctx();
+        let id = func.id;
+
+        // Horrendous crimes, but we'll allow it
+        let lookup_index = self.builder.ins().iconst(Type::int(64).unwrap(), unsafe {
+            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(func)
+        });
+
+        // let fallback_ip = self
+        //     .builder
+        //     .ins()
+        //     .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+        let fallback_ip = self.ip;
+
+        // Advance to the next thing
+        self.ip += 1;
+
+        // let mut arg_values = vec![ctx, lookup_index, fallback_ip];
+
+        let args_off_the_stack = self
+            .split_off(arity)
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<_>>();
+
+        self.inline_call_global_function(id, lookup_index, fallback_ip, &args_off_the_stack)
+
+        // if tail {
+        //     self.spill_cloned_stack();
+        // } else {
+        //     self.spill_stack();
+        // }
+
+        // todo!()
+
+        // let call = self.builder.ins().call(local_callee, &arg_values);
+        // let result = self.builder.inst_results(call)[0];
+        // result
     }
 
     fn call_self_function(
@@ -6182,6 +6318,436 @@ impl FunctionTranslator<'_> {
         local_value
     }
 
+    // ctx.thread.stack_frames.len() < 100
+    fn check_should_trampoline(&mut self, ctx: Value) -> Value {
+        let thread_offset = offset_of!(VmCore, thread);
+
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            ctx,
+            thread_offset as i32,
+        );
+
+        // Stack frame offset:
+        let stack_frame_offset = offset_of!(SteelThread, stack_frames);
+        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
+
+        let stack_frame_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_frame_offset + len_offset) as i32,
+        );
+
+        self.builder
+            .ins()
+            .icmp_imm(IntCC::UnsignedLessThan, stack_frame_length, 100)
+    }
+
+    fn inline_call_global_function(
+        &mut self,
+        id: u32,
+        func: Value,
+        fallback_ip: usize,
+        args: &[Value],
+    ) -> Value {
+        let vm_ctx = self.get_ctx();
+        let should_trampoline = self.check_should_trampoline(vm_ctx);
+
+        // self.call_function_args_no_context("#%debug-tag", &[should_trampoline]);
+
+        let should_yield = self.builder.ins().bxor_imm(should_trampoline, 1);
+
+        self.update_ip_native_if_yield(vm_ctx, should_yield, fallback_ip);
+
+        let typ = self.int;
+        let arity = args.len();
+
+        // Push each value on to the stack:
+        for arg in args {
+            self.push_to_vm_stack_let_var_new(*arg);
+        }
+
+        self.converging_if(
+            should_trampoline,
+            |ctx| {
+                // Increment the ref count before we go in
+                ctx.increment_ref_count_closure(func);
+
+                // ctx.call_function_no_return("#%debug-stack-frames");
+
+                // TODO: Consider moving this up before things are pushed on in order
+                // to capture the stack length without needing to compute the value
+                ctx.push_stack_frame(arity as _, func);
+
+                // ctx.call_function_no_return("#%debug-stack-frames");
+                // ctx.call_function_no_return("#%debug-stack");
+
+                let jit_func = ctx.get_jit_func(id);
+                ctx.builder.ins().call(jit_func, &[vm_ctx]);
+
+                // ctx.call_function_no_return("#%debug-is-native");
+
+                // let n = ctx.builder.ins().iconst(types::I32, 99999);
+                // Somehow... handle this?
+                // ctx.call_function_args_no_context("#%debug-count", &[n]);
+
+                // Check if native still:
+                let is_still_native = ctx.builder.ins().load(
+                    types::I8,
+                    MemFlags::trusted(),
+                    vm_ctx,
+                    offset_of!(VmCore, is_native) as i32,
+                );
+
+                ctx.converging_if(
+                    is_still_native,
+                    |ctx| ctx.inline_pop_from_stack(vm_ctx),
+                    |ctx| {
+                        let void = SteelVal::Void;
+                        ctx.create_i128(encode(void))
+                    },
+                    typ,
+                )
+            },
+            |ctx| ctx.call_function_returns_value_args("#%setup-closure", &[func]),
+            typ,
+        )
+    }
+
+    fn inline_pop_from_stack(&mut self, vm_ctx: Value) -> Value {
+        // self.call_function_no_return("#%debug-stack-before");
+
+        let thread_offset = offset_of!(VmCore, thread);
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            vm_ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let capacity_offset = steel_vec::Vec::<SteelVal>::capacity_offset();
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+
+        // This is the actual stack, steel_vec::Vec<SteelVal>
+        let stack_capacity = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + capacity_offset) as i32,
+        );
+
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let new_length = self.builder.ins().iadd_imm(stack_length, -1);
+
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            new_length,
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+        let offset = self.builder.ins().imul_imm(new_length, size);
+        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+        let res = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+
+        // self.call_function_no_return("#%debug-stack-after");
+
+        res
+    }
+
+    // TODO: Might want to merge this with some of the
+    // other instructions as to avoid generating extra instructions
+    fn update_ip_native_if_yield(
+        &mut self,
+        vm_ctx: Value,
+        should_yield: Value,
+        fallback_ip: usize,
+    ) {
+        self.converging_if_no_else_no_value(
+            should_yield,
+            |ctx| {
+                let zero = ctx.builder.ins().iconst(types::I8, 0);
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    zero,
+                    vm_ctx,
+                    offset_of!(VmCore, is_native) as i32,
+                );
+            },
+            |ctx| {
+                let ip = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    ip,
+                    vm_ctx,
+                    offset_of!(VmCore, ip) as i32,
+                );
+            },
+        );
+    }
+
+    fn increment_ref_count_closure(&mut self, value: Value) {
+        let is_thread_local = self.check_value_tl(value);
+
+        self.converging_if_no_value(
+            is_thread_local,
+            |ctx| {
+                // Fast path increment the counter
+                // TODO: Panic here if u32 == max?
+                let local_count =
+                    ctx.builder
+                        .ins()
+                        .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+
+                let add_one = ctx.builder.ins().iadd_imm(local_count, 1);
+
+                ctx.builder.ins().store(MemFlags::new(), add_one, value, 8);
+            },
+            |ctx| {
+                // Slow path increment the counter
+                ctx.call_function_args_no_context("raw-slow-increment-closure", &[value]);
+            },
+        );
+    }
+
+    // Note: The function _must_ have been cloned already
+    fn push_stack_frame(&mut self, arity: i64, function: Value) {
+        let vm_ctx = self.get_ctx();
+        let thread_offset = offset_of!(VmCore, thread);
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            vm_ctx,
+            thread_offset as i32,
+        );
+
+        // Stack frame offset:
+        let stack_frame_offset = offset_of!(SteelThread, stack_frames);
+
+        let capacity_offset = steel_vec::Vec::<StackFrame>::capacity_offset();
+        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
+
+        // This is the actual stack, steel_vec::Vec<SteelVal>
+        let stack_capacity = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_frame_offset + capacity_offset) as i32,
+        );
+
+        let stack_frame_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_frame_offset + len_offset) as i32,
+        );
+
+        // Stack values, for figuring out where we have to put the sp
+        let stack_offset = offset_of!(SteelThread, stack);
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let at_capacity = self
+            .builder
+            .ins()
+            .icmp(IntCC::Equal, stack_capacity, stack_frame_length);
+
+        self.converging_if_no_else_no_value(
+            at_capacity,
+            // If at capacity, call grow
+            |ctx| ctx.call_function_no_return("slow-grow-frame-stack"),
+            |ctx| {
+                // Write the value:
+                let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+                let buf_ptr = ctx.builder.ins().load(
+                    Type::int(64).unwrap(),
+                    MemFlags::trusted(),
+                    thread_pointer,
+                    (stack_frame_offset + ptr_offset) as i32,
+                );
+
+                // Okay so here, now we're going to move things around
+                // such that we can snag values from things
+                let size: i64 = std::mem::size_of::<StackFrame>() as _;
+                let offset = ctx.builder.ins().imul_imm(stack_frame_length, size);
+                let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
+
+                let sp_offset = offset_of!(VmCore, sp);
+
+                let arity = -arity;
+
+                // TODO: Load the stack length, not the old sp!
+                // let old_sp = ctx.builder.ins().load(
+                //     types::I64,
+                //     MemFlags::trusted(),
+                //     vm_ctx,
+                //     sp_offset as i32,
+                // );
+                let new_sp = ctx.builder.ins().iadd_imm(stack_length, arity as i64);
+
+                // ctx.call_function_no_return("#%debug-stack");
+                // ctx.call_function_args_no_context("#%debug-value", &[stack_length]);
+                // ctx.call_function_args_no_context("#%debug-value", &[new_sp]);
+
+                ctx.builder
+                    .ins()
+                    .store(MemFlags::trusted(), new_sp, vm_ctx, sp_offset as i32);
+
+                // Reduce it before going in the stack frame
+                let new_sp = ctx.builder.ins().ireduce(types::I32, new_sp);
+
+                // Stack pointer:
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    new_sp,
+                    slot_ptr,
+                    offset_of!(StackFrame, sp) as i32,
+                );
+
+                // Instruction pointer:
+
+                let ip = ctx.builder.ins().load(
+                    types::I64,
+                    MemFlags::trusted(),
+                    vm_ctx,
+                    offset_of!(VmCore, ip) as i32,
+                );
+
+                // Reduce to 32 bits to store in the stack frame
+                let ip = ctx.builder.ins().ireduce(types::I32, ip);
+                let ip_plus_one = ctx.builder.ins().iadd_imm(ip, 1);
+
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    ip_plus_one,
+                    slot_ptr,
+                    offset_of!(StackFrame, ip) as i32,
+                );
+
+                // Instructions:
+
+                let current_instructions = ctx.builder.ins().load(
+                    types::I128,
+                    MemFlags::trusted(),
+                    vm_ctx,
+                    offset_of!(VmCore, instructions) as i32,
+                );
+
+                // Okay, now load the instructions from the function:
+                let instructions = ctx.builder.ins().load(
+                    types::I128,
+                    MemFlags::trusted(),
+                    function,
+                    offset_of!(ByteCodeLambda, body_exp) as i32,
+                );
+
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    current_instructions,
+                    slot_ptr,
+                    offset_of!(StackFrame, instructions) as i32,
+                );
+
+                // Store the instructions back to the VM pointer
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    instructions,
+                    vm_ctx,
+                    offset_of!(VmCore, instructions) as i32,
+                );
+
+                // Store the function itself
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    function,
+                    slot_ptr,
+                    offset_of!(StackFrame, function) as i32,
+                );
+
+                let null_pointer = ctx.builder.ins().iconst(types::I64, 0);
+
+                // Null for the attachments
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    null_pointer,
+                    slot_ptr,
+                    offset_of!(StackFrame, attachments) as i32,
+                );
+
+                let old_pop_count = ctx.builder.ins().load(
+                    types::I64,
+                    MemFlags::trusted(),
+                    vm_ctx,
+                    offset_of!(VmCore, pop_count) as i32,
+                );
+
+                // Increment pop count
+                let new_pop_count = ctx.builder.ins().iadd_imm(old_pop_count, 1);
+
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    new_pop_count,
+                    vm_ctx,
+                    offset_of!(VmCore, pop_count) as i32,
+                );
+
+                // Set ip to 0
+                let zero = ctx.builder.ins().iconst(types::I64, 0);
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    zero,
+                    vm_ctx,
+                    offset_of!(VmCore, ip) as i32,
+                );
+
+                // Add one to the length:
+                let new_length = ctx.builder.ins().iadd_imm(stack_frame_length, 1);
+
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    new_length,
+                    thread_pointer,
+                    (stack_frame_offset + len_offset) as i32,
+                );
+            },
+        );
+    }
+
     // Attempt to push this to the VM stack inline:
     fn push_to_vm_stack_let_var_new(&mut self, value: Value) {
         let ctx = self.get_ctx();
@@ -6332,6 +6898,30 @@ impl FunctionTranslator<'_> {
             .module
             .declare_function(&name, Linkage::Import, &sig)
             .expect("problem declaring function");
+        self.module.declare_func_in_func(callee, self.builder.func)
+    }
+
+    fn get_jit_func(&mut self, id: u32) -> FuncRef {
+        let mut sig = self.module.make_signature();
+
+        let mut param = AbiParam::new(self.module.target_config().pointer_type());
+
+        param.purpose = ArgumentPurpose::VMContext;
+
+        // VmCore pointer
+        sig.params.push(param);
+
+        if cfg!(target_os = "windows") {
+            sig.call_conv = CallConv::SystemV;
+        }
+
+        let name = id.to_string();
+
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+
         self.module.declare_func_in_func(callee, self.builder.func)
     }
 

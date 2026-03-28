@@ -1013,6 +1013,10 @@ impl<T: ?Sized + 'static> BiasedRc<T> {
         }
     }
 
+    pub fn raw_slow_increment(&mut self) {
+        self.get_box().slow_increment();
+    }
+
     pub fn fast_decrement_post_ref_count_dec(&mut self) {
         match self.get_box().fast_decrement_drop_impl() {
             DecrementAction::DoNothing => {}

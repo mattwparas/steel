@@ -31,6 +31,35 @@ impl<'a> FunctionTranslator<'a> {
         merge(self);
     }
 
+    pub(super) fn converging_if_no_value(
+        &mut self,
+        test_condition: Value,
+        then: impl Fn(&mut Self),
+        else_thunk: impl Fn(&mut Self),
+    ) {
+        let then_block = self.builder.create_block();
+        let else_block = self.builder.create_block();
+        let merge_block = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(test_condition, then_block, &[], else_block, &[]);
+
+        self.builder.switch_to_block(then_block);
+        self.builder.seal_block(then_block);
+
+        then(self);
+
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(else_block);
+        self.builder.seal_block(else_block);
+
+        else_thunk(self);
+        self.builder.ins().jump(merge_block, &[]);
+        self.builder.switch_to_block(merge_block);
+    }
+
     pub(super) fn converging_if(
         &mut self,
         test_condition: Value,
@@ -140,7 +169,7 @@ impl<'a> FunctionTranslator<'a> {
 
                         // Add the values, did they overflow?
                         let (added, overflow_flag) =
-                            ctx.builder.ins().uadd_overflow(left_payload, right_payload);
+                            ctx.builder.ins().sadd_overflow(left_payload, right_payload);
 
                         ctx.converging_if(
                             overflow_flag,

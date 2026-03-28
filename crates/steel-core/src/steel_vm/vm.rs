@@ -177,9 +177,9 @@ pub struct StackFrameAttachments {
 #[derive(Debug, Clone)]
 #[repr(C)]
 pub struct StackFrame {
-    sp: u32,
-    ip: u32,
-    instructions: RootedInstructions,
+    pub(crate) sp: u32,
+    pub(crate) ip: u32,
+    pub(crate) instructions: RootedInstructions,
     pub(crate) function: Gc<ByteCodeLambda>,
     pub(crate) attachments: Option<Box<StackFrameAttachments>>,
 }
@@ -331,7 +331,7 @@ pub struct SteelThread {
     pub(crate) global_env: Env,
     // pub(crate) stack: Vec<SteelVal>,
     pub(crate) stack: steel_vec::Vec<SteelVal>,
-    pub(crate) stack_frames: Vec<StackFrame>,
+    pub(crate) stack_frames: steel_vec::Vec<StackFrame>,
 
     #[cfg(feature = "dynamic")]
     profiler: OpCodeOccurenceProfiler,
@@ -713,7 +713,7 @@ impl SteelThread {
             // _super_instructions: Vec::new(),
             heap: Arc::new(parking_lot::Mutex::new(Heap::new())),
             runtime_options: RunTimeOptions::new(),
-            stack_frames: Vec::with_capacity(128),
+            stack_frames: steel_vec::Vec::with_capacity(128),
             current_frame: StackFrame::main(),
             // Should probably just have this be Option<ConstantMap> - but then every time we look up
             // something we'll have to deal with the fact that its wrapped in an option. Another options
@@ -1440,7 +1440,7 @@ pub struct ClosedContinuation {
     pub(crate) stack: steel_vec::Vec<SteelVal>,
     pub(crate) current_frame: StackFrame,
     instructions: RootedInstructions,
-    pub(crate) stack_frames: Vec<StackFrame>,
+    pub(crate) stack_frames: steel_vec::Vec<StackFrame>,
     ip: usize,
     sp: usize,
     pop_count: usize,
@@ -1489,6 +1489,8 @@ pub struct VmCore<'a> {
     #[cfg(feature = "biased")]
     pub(crate) thread_id: Option<steel_rc::ThreadId>,
     pub(crate) ip: usize,
+    // Can make this be a u32 now since
+    // we'll never have a stack that large
     pub(crate) sp: usize,
     pub(crate) thread: &'a mut SteelThread,
     pub(crate) instructions: RootedInstructions,
@@ -3969,20 +3971,6 @@ impl<'a> VmCore<'a> {
         self.handle_global_function_call_no_stack(func, payload_size)
     }
 
-    // #[inline(always)]
-    // fn handle_tail_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
-    //     let stack_func = self.thread.global_env.repl_lookup_idx(index);
-    //     self.ip += 1;
-    //     self.handle_tail_call(stack_func, payload_size)
-    // }
-
-    // #[inline(always)]
-    // fn handle_tail_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
-    //     let func = self.thread.global_env.repl_lookup_idx(index);
-    //     self.ip += 1;
-    //     // self.handle_tail_call(func, payload_size)
-    // }
-
     #[inline(always)]
     fn handle_push(&mut self, index: usize) -> Result<()> {
         // let value = self.thread.global_env.repl_lookup_idx(index);
@@ -4196,7 +4184,10 @@ impl<'a> VmCore<'a> {
                 .spans
                 .insert(closure_id, spans);
 
-            let mut slot = Gc::new(ByteCodeLambda::default());
+            let mut fake_lambda = ByteCodeLambda::default();
+            fake_lambda.id = closure_id;
+
+            let mut slot = Gc::new(fake_lambda);
 
             // Maybe slot:
             let maybe_bind = self

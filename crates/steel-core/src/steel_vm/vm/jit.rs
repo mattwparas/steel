@@ -472,6 +472,135 @@ fn grow_stack_slow(ctx: *mut VmCore) {
 }
 
 #[cross_platform_fn]
+fn grow_frame_stack_slow(ctx: *mut VmCore) {
+    let mut ctx = unsafe { &mut *ctx };
+    ctx.thread.stack_frames.grow_capacity();
+}
+
+#[cross_platform_fn]
+fn increment_ref_count_slow(arg: SteelVal) {
+    use SteelVal::*;
+
+    let mut arg = ManuallyDrop::new(arg);
+
+    match &mut *arg {
+        Closure(gc) => {
+            // Fast decrement
+            gc.0.raw_slow_increment();
+        }
+
+        VectorV(v) => {
+            v.0 .0.raw_slow_increment();
+        }
+
+        StringV(s) => {
+            s.0 .0.raw_slow_increment();
+        }
+
+        SymbolV(s) => {
+            s.0 .0.raw_slow_increment();
+        }
+
+        Custom(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        HashMapV(hm) => {
+            hm.0 .0.raw_slow_increment();
+        }
+
+        HashSetV(hs) => {
+            hs.0 .0.raw_slow_increment();
+        }
+
+        CustomStruct(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        PortV(gc) => {
+            gc.port.0.raw_slow_increment();
+        }
+
+        IterV(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        ReducerV(r) => {
+            r.0.raw_slow_increment();
+        }
+
+        StreamV(s) => {
+            s.0.raw_slow_increment();
+        }
+
+        BoxedFunction(f) => {
+            f.0.raw_slow_increment();
+        }
+
+        FutureFunc(f) => {
+            f.raw_slow_increment();
+        }
+
+        FutureV(v) => {
+            v.0.raw_slow_increment();
+        }
+
+        BoxedIterator(i) => {
+            i.0.raw_slow_increment();
+        }
+
+        SyntaxObject(s) => {
+            s.0.raw_slow_increment();
+        }
+
+        Reference(r) => {
+            r.0.raw_slow_increment();
+        }
+
+        ListV(l) => {
+            l.inner_ptr_mut().0.raw_slow_increment();
+        }
+
+        Pair(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        Boxed(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        BigNum(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        BigRational(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        Complex(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        ByteVector(bv) => {
+            bv.vec.0.raw_slow_increment();
+        }
+
+        _ => {
+            panic!("Calling increment ref count on a non pointer value");
+        }
+    }
+}
+
+#[cross_platform_fn]
+fn increment_ref_count_slow_closure(arg: Gc<ByteCodeLambda>) {
+    use SteelVal::*;
+
+    let mut arg = ManuallyDrop::new(arg);
+
+    arg.0.raw_slow_increment();
+}
+
+#[cross_platform_fn]
 fn drop_value_slow_decrement(arg: SteelVal) {
     use SteelVal::*;
 
@@ -4697,6 +4826,14 @@ macro_rules! make_call_self_function_deopt_no_arity {
             }
         )*
     };
+}
+
+#[cross_platform_fn]
+fn setup_closure_call(ctx: *mut VmCore, closure: Gc<ByteCodeLambda>) -> SteelVal {
+    let mut ctx = unsafe { &mut *ctx };
+    let closure = ManuallyDrop::new(closure);
+    ctx.handle_function_call_closure_jit_no_arity((&*closure).clone());
+    SteelVal::Void
 }
 
 make_call_self_function_deopt_no_arity!(
