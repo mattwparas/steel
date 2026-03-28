@@ -2279,13 +2279,6 @@ impl FunctionTranslator<'_> {
                     // without needing to look it up?
                     let name = CallGlobalNoArityFunctionDefinitions::arity_to_name(arity);
 
-                    // We have a few choices here. In a world in which this is a known
-                    // entity, i.e. this is a call global no arity, and this value is defined,
-                    // realistically we can just dispatch to the requisite value here without
-                    // needing to do a lookup in the globals table.
-                    // println!("{:?}", self._globals.get(payload));
-                    println!("Self slot exists: {}", self.slot.is_some());
-
                     let self_name = CallSelfNoArityFunctionDefinitions::arity_to_name(arity);
 
                     // Okay, lets try to install the self call if we have the ability to.
