@@ -6228,7 +6228,6 @@ impl FunctionTranslator<'_> {
         // it a day. Lets see if this is any faster... odds are that its not,
         // but then we can start eliding all sorts of good things because
         // we have direct access to the stack.
-
         let at_capacity = self
             .builder
             .ins()

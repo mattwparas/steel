@@ -4684,15 +4684,16 @@ macro_rules! make_call_self_function_deopt_no_arity {
                     }
                 }
 
+                inner_handle_global_function_call_with_args_no_arity(ctx, func, should_yield, $($typ),*).unwrap()
 
-                match inner_handle_global_function_call_with_args_no_arity(ctx, func, should_yield, $($typ),*) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        ctx.is_native = false;
-                        ctx.result = Some(Err(e));
-                        return SteelVal::Void;
-                    }
-                }
+                // match inner_handle_global_function_call_with_args_no_arity(ctx, func, should_yield, $($typ),*) {
+                //     Ok(v) => v,
+                //     Err(e) => {
+                //         ctx.is_native = false;
+                //         ctx.result = Some(Err(e));
+                //         return SteelVal::Void;
+                //     }
+                // }
             }
         )*
     };

@@ -175,15 +175,12 @@ pub struct StackFrameAttachments {
 // TODO: We'll need to add these functions to the GC as well
 
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct StackFrame {
     sp: u32,
-
-    pub(crate) function: Gc<ByteCodeLambda>,
-
     ip: u32,
-
     instructions: RootedInstructions,
-
+    pub(crate) function: Gc<ByteCodeLambda>,
     pub(crate) attachments: Option<Box<StackFrameAttachments>>,
 }
 
@@ -4217,7 +4214,6 @@ impl<'a> VmCore<'a> {
 
             // Explicitly make the old slot available, such that we can fuss
             // with the new one while jit compiling.
-
             unsafe {
                 *steel_rc::BiasedRc::get_mut_unchecked(&mut slot.0) = constructed_lambda;
             }
