@@ -28,7 +28,7 @@ fn should_trampoline(ctx: &mut VmCore) -> bool {
 pub(crate) fn jit_compile_lambda(
     ctx: &mut VmCore,
     mut func: ByteCodeLambda,
-    self_slot: Option<&Gc<ByteCodeLambda>>,
+    mut self_slot: Option<&mut Gc<ByteCodeLambda>>,
     maybe_index: Option<usize>,
 ) -> ByteCodeLambda {
     if func
@@ -49,6 +49,20 @@ pub(crate) fn jit_compile_lambda(
 
     let name = func.id.to_string();
 
+    let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
+
+    // Save the entry instruction in the event we end up serializing this
+    // later.
+    func.header = Some(instructions[0].op_code);
+    func.body_exp = Shared::from(instructions);
+
+    if let Some(self_slot) = self_slot.as_mut() {
+        unsafe {
+            steel_rc::BiasedRc::get_mut_unchecked(&mut self_slot.0).body_exp =
+                func.body_exp.clone();
+        }
+    }
+
     // inspect_impl(ctx, &[SteelVal::Closure(Gc::new(func.clone()))]);
 
     // let mut inner = func.unwrap();
@@ -59,7 +73,7 @@ pub(crate) fn jit_compile_lambda(
         &ctx.thread.global_env.roots(),
         &ctx.thread.constant_map,
         maybe_index,
-        self_slot,
+        self_slot.map(|x| &*x),
     );
 
     let fn_pointer = if let Ok(fn_pointer) = fn_pointer {
@@ -71,15 +85,12 @@ pub(crate) fn jit_compile_lambda(
     let super_instructions = Some(fn_pointer);
     func.super_instructions = super_instructions;
 
-    let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
+    unsafe {
+        steel_rc::BiasedRc::get_mut_unchecked(&mut func.body_exp)[0].op_code =
+            OpCode::DynSuperInstruction
+    };
 
-    // Save the entry instruction in the event we end up serializing this
-    // later.
-    func.header = Some(instructions[0].op_code);
-
-    instructions[0].op_code = OpCode::DynSuperInstruction;
-
-    func.body_exp = Arc::from(instructions.into_boxed_slice());
+    // func.body_exp.as_mut()[0].op_code = OpCode::DynSuperInstruction;
 
     func
 }
@@ -129,7 +140,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                     let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
                     instructions[0].op_code = OpCode::DynSuperInstruction;
 
-                    func.body_exp = Arc::from(instructions.into_boxed_slice());
+                    func.body_exp = Shared::from(instructions);
 
                     let return_func = Gc::new(func);
                     ctx.thread
@@ -196,7 +207,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
         let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
         instructions[0].op_code = OpCode::DynSuperInstruction;
 
-        func.body_exp = Arc::from(instructions.into_boxed_slice());
+        func.body_exp = Shared::from(instructions);
 
         let return_func = Gc::new(func);
         ctx.thread
@@ -474,6 +485,8 @@ fn grow_stack_slow(ctx: *mut VmCore) {
 #[cross_platform_fn]
 fn grow_frame_stack_slow(ctx: *mut VmCore) {
     let mut ctx = unsafe { &mut *ctx };
+    println!("GROWING FRAME STACK");
+    println!("Capacity: {}", ctx.thread.stack_frames.cap());
     ctx.thread.stack_frames.grow_capacity();
 }
 
@@ -1945,9 +1958,10 @@ fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> u8 {
 
 #[cross_platform_fn]
 fn extern_handle_pop(ctx: *mut VmCore, value: SteelVal) {
-    // println!("Calling pop from jit: {}", value);
+    println!("Calling pop from jit: {}", value);
     unsafe {
         let this = &mut *ctx;
+        println!("Pop count: {}", this.pop_count);
         let res = this.handle_pop_pure_value(value);
         // this.is_native = false;
         this.result = res;
@@ -4746,14 +4760,6 @@ macro_rules! make_call_self_function_deopt_no_arity {
 
                 let should_yield = !should_trampoline(ctx);
 
-                // Deopt -> Meaning, check the return value if we're done - so we just
-                // will eventually check the stashed error.
-                // let should_yield = match &func {
-                //     SteelVal::Closure(c) if c.0.super_instructions.is_some() && should_trampoline(ctx) => false,
-                //     SteelVal::Closure(_) | SteelVal::ContinuationFunction(_) | SteelVal::BuiltIn(_) | SteelVal::CustomStruct(_) => true,
-                //     _ => false,
-                // };
-
                 debug_assert!(ctx.is_native);
 
                 if should_yield {
@@ -4783,10 +4789,14 @@ macro_rules! make_call_self_function_deopt_no_arity {
                             #[cfg(debug_assertions)]
                             let depth = ctx.thread.stack_frames.len();
 
+                            println!("{:p}", closure.body_exp().inner);
+
                             // Install the function, so that way we can just trampoline
                             // without needing to spill the stack
                             ctx.handle_function_call_closure_jit_no_arity(closure)
                                 .unwrap();
+
+                            println!("{:?}", ctx.thread.stack_frames.last().map(|x| x.ip));
 
                             (func)(ctx);
 
@@ -4800,6 +4810,7 @@ macro_rules! make_call_self_function_deopt_no_arity {
                                 // Don't deopt?
                                 Ok(ctx.thread.stack.pop().unwrap())
                             } else {
+                                println!("HITTING THIS ELSE CASE");
                                 Ok(SteelVal::Void)
                             }
                         } else {
@@ -4815,14 +4826,6 @@ macro_rules! make_call_self_function_deopt_no_arity {
 
                 inner_handle_global_function_call_with_args_no_arity(ctx, func, should_yield, $($typ),*).unwrap()
 
-                // match inner_handle_global_function_call_with_args_no_arity(ctx, func, should_yield, $($typ),*) {
-                //     Ok(v) => v,
-                //     Err(e) => {
-                //         ctx.is_native = false;
-                //         ctx.result = Some(Err(e));
-                //         return SteelVal::Void;
-                //     }
-                // }
             }
         )*
     };

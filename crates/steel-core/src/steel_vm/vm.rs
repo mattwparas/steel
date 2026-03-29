@@ -215,7 +215,7 @@ fn check_sizes() {
 }
 
 thread_local! {
-    static THE_EMPTY_INSTRUCTION_SET: StandardShared<[DenseInstruction]> = StandardShared::from([]);
+    static THE_EMPTY_INSTRUCTION_SET: Shared<[DenseInstruction]> = Shared::from(vec![]);
 }
 
 impl StackFrame {
@@ -911,13 +911,7 @@ impl SteelThread {
         let result = instructions
             .iter()
             .zip(spans.iter())
-            .map(|x| {
-                self.execute(
-                    StandardShared::clone(x.0),
-                    constant_map.clone(),
-                    Shared::clone(x.1),
-                )
-            })
+            .map(|x| self.execute(Shared::clone(x.0), constant_map.clone(), Shared::clone(x.1)))
             .collect();
 
         // self.constant_map = DEFAULT_CONSTANT_MAP.with(|x| x.clone());
@@ -1063,7 +1057,7 @@ impl SteelThread {
 
     pub fn execute(
         &mut self,
-        instructions: StandardShared<[DenseInstruction]>,
+        instructions: Shared<[DenseInstruction]>,
         constant_map: ConstantMap,
         spans: Shared<[Span]>,
     ) -> Result<SteelVal> {
@@ -1078,7 +1072,7 @@ impl SteelThread {
         self.current_frame
             .set_function(Gc::new(ByteCodeLambda::rooted(keep_alive.clone())));
 
-        let raw_keep_alive = StandardShared::into_raw(keep_alive);
+        let raw_keep_alive = Shared::into_raw(keep_alive);
 
         // TODO: Figure out how to keep the first set of instructions around
         // during a continuation? Does it get allocated into something? If its the
@@ -4186,19 +4180,23 @@ impl<'a> VmCore<'a> {
 
             let mut fake_lambda = ByteCodeLambda::default();
             fake_lambda.id = closure_id;
+            fake_lambda.body_exp = constructed_lambda.body_exp.clone();
 
             let mut slot = Gc::new(fake_lambda);
 
             // Maybe slot:
-            let maybe_bind = self
-                .instructions
-                .get(forward_index + 1)
-                .map(|x| x.payload_size.to_usize());
+            let maybe_bind = self.instructions.get(forward_index + 1).and_then(|x| {
+                if matches!(x.op_code, OpCode::BIND) {
+                    Some(x.payload_size.to_usize())
+                } else {
+                    None
+                }
+            });
 
             #[cfg(feature = "jit2")]
             let constructed_lambda =
                 if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
-                    jit::jit_compile_lambda(self, constructed_lambda, Some(&slot), maybe_bind)
+                    jit::jit_compile_lambda(self, constructed_lambda, Some(&mut slot), maybe_bind)
                 } else {
                     constructed_lambda
                 };
@@ -5633,7 +5631,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
     let function_id = crate::compiler::code_gen::fresh_function_id();
     let function = Gc::new(ByteCodeLambda::new(
         function_id as _,
-        StandardShared::from(bytecode),
+        Shared::from(bytecode),
         0,
         false,
         CaptureVec::new(),

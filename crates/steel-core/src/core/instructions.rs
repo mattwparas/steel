@@ -106,6 +106,15 @@ pub struct DenseInstruction {
     pub payload_size: u24,
 }
 
+impl Default for DenseInstruction {
+    fn default() -> Self {
+        Self {
+            op_code: OpCode::PASS,
+            payload_size: u24::from_u32(0),
+        }
+    }
+}
+
 use core::ops::Add;
 
 #[derive(Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash, Serialize, Deserialize, Debug)]

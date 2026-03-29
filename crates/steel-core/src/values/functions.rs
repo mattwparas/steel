@@ -108,7 +108,7 @@ pub type CaptureVec = Vec<SteelVal>;
 pub type CaptureVec = smallvec::SmallVec<[SteelVal; INLINE_CAPTURE_SIZE]>;
 
 #[repr(C)]
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ByteCodeLambda {
     pub(crate) id: u32,
     pub(crate) arity: u16,
@@ -121,8 +121,10 @@ pub struct ByteCodeLambda {
     #[cfg(feature = "dynamic")]
     pub(crate) body_exp: RefCell<Shared<[DenseInstruction]>>,
 
+    // #[cfg(not(feature = "dynamic"))]
+    // pub(crate) body_exp: StandardShared<[DenseInstruction]>,
     #[cfg(not(feature = "dynamic"))]
-    pub(crate) body_exp: StandardShared<[DenseInstruction]>,
+    pub(crate) body_exp: Shared<[DenseInstruction]>,
 
     #[cfg(feature = "dynamic")]
     call_count: Cell<usize>,
@@ -144,6 +146,21 @@ pub struct ByteCodeLambda {
 
     #[cfg(feature = "jit2")]
     pub(crate) super_instructions: Option<fn(&mut crate::steel_vm::vm::VmCore)>,
+}
+
+impl Default for ByteCodeLambda {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            arity: 0,
+            is_multi_arity: false,
+            header: None,
+            body_exp: Vec::new().into(),
+            contract: SharedMut::new(MutContainer::new(None)),
+            captures: Default::default(),
+            super_instructions: None,
+        }
+    }
 }
 
 impl PartialEq for ByteCodeLambda {
@@ -190,11 +207,12 @@ pub struct SerializedLambdaPrototype {
 }
 
 #[derive(Clone, PartialEq, Eq)]
+#[repr(transparent)]
 pub struct RootedInstructions {
     #[cfg(feature = "rooted-instructions")]
-    inner: *const [DenseInstruction],
+    pub(crate) inner: *const [DenseInstruction],
     #[cfg(not(feature = "rooted-instructions"))]
-    inner: StandardShared<[DenseInstruction]>,
+    pub(crate) inner: Shared<[DenseInstruction]>,
 }
 
 #[cfg(feature = "rooted-instructions")]
@@ -205,10 +223,10 @@ unsafe impl Send for RootedInstructions {}
 unsafe impl Sync for RootedInstructions {}
 
 impl RootedInstructions {
-    pub fn new(instructions: StandardShared<[DenseInstruction]>) -> Self {
+    pub fn new(instructions: Shared<[DenseInstruction]>) -> Self {
         Self {
             #[cfg(feature = "rooted-instructions")]
-            inner: StandardShared::as_ptr(&instructions),
+            inner: Shared::as_ptr(&instructions),
             #[cfg(not(feature = "rooted-instructions"))]
             inner: instructions,
         }
@@ -238,7 +256,7 @@ impl core::ops::Deref for RootedInstructions {
 impl ByteCodeLambda {
     pub fn new(
         id: u32,
-        body_exp: StandardShared<[DenseInstruction]>,
+        body_exp: Shared<[DenseInstruction]>,
         arity: usize,
         is_multi_arity: bool,
         captures: CaptureVec,
@@ -358,7 +376,7 @@ impl ByteCodeLambda {
         ))
     }
 
-    pub fn rooted(instructions: StandardShared<[DenseInstruction]>) -> ByteCodeLambda {
+    pub fn rooted(instructions: Shared<[DenseInstruction]>) -> ByteCodeLambda {
         Self::new(
             SyntaxObjectId::fresh().into(),
             instructions,
@@ -397,21 +415,21 @@ impl ByteCodeLambda {
 
         #[cfg(not(feature = "rooted-instructions"))]
         return RootedInstructions {
-            inner: StandardShared::clone(&self.body_exp),
+            inner: Shared::clone(&self.body_exp),
         };
 
         #[cfg(feature = "rooted-instructions")]
         return RootedInstructions {
-            inner: StandardShared::as_ptr(&self.body_exp),
+            inner: Shared::as_ptr(&self.body_exp),
         };
     }
 
-    pub fn body_mut_exp(&mut self) -> StandardShared<[DenseInstruction]> {
+    pub fn body_mut_exp(&mut self) -> Shared<[DenseInstruction]> {
         #[cfg(feature = "dynamic")]
-        return StandardShared::clone(self.body_exp.get_mut());
+        return Shared::clone(self.body_exp.get_mut());
 
         #[cfg(not(feature = "dynamic"))]
-        StandardShared::clone(&self.body_exp)
+        Shared::clone(&self.body_exp)
     }
 
     // pub fn spans(&self) -> Rc<[Span]> {

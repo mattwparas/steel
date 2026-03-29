@@ -49,6 +49,7 @@ macro_rules! test_harness_success_module {
             $(
                 #[test]
                 fn $file_name() {
+                    println!("RUNNING: {}", stringify!($file_name));
                     let script = include_str!(concat!("success/", stringify!($file_name), ".scm"));
                     assert_script_module(stringify!($file_name), script);
                 }

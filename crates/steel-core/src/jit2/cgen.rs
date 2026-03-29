@@ -35,7 +35,7 @@ use crate::{
         primitives::{steel_eq, steel_listp, steel_stringp, steel_symbolp, steel_voidp},
         vm::{jit::*, StackFrame, SteelThread, VmCore},
     },
-    values::functions::ByteCodeLambda,
+    values::functions::{ByteCodeLambda, RootedInstructions},
     SteelVal,
 };
 
@@ -351,6 +351,7 @@ fn debug_value(value: SteelVal) {
 #[cross_platform_fn]
 fn debug_stack_frames(ctx: *mut VmCore) {
     let ctx = unsafe { &mut *ctx };
+    println!("--- after push stack frames ---");
     println!("Stack frame length: {}", ctx.thread.stack_frames.len());
 
     let last_frame = ctx.thread.stack_frames.last();
@@ -358,9 +359,22 @@ fn debug_stack_frames(ctx: *mut VmCore) {
     if let Some(last) = last_frame {
         println!("sp: {}", last.sp);
         println!("ip: {}", last.ip);
+        println!("instruction addr: {:p}", last.instructions.inner);
     } else {
         println!("No frame on stack")
     }
+}
+
+#[cross_platform_fn]
+fn debug_instructions_before(ctx: *mut VmCore) {
+    let ctx = unsafe { &mut *ctx };
+    println!("instructions before call: {:?}", ctx.instructions);
+}
+
+#[cross_platform_fn]
+fn debug_instructions_after(ctx: *mut VmCore) {
+    let ctx = unsafe { &mut *ctx };
+    println!("instructions after call: {:?}", ctx.instructions);
 }
 
 #[cross_platform_fn]
@@ -384,6 +398,16 @@ fn debug_is_native(ctx: *mut VmCore) {
 #[cross_platform_fn]
 fn debug_tag(value: i8) {
     println!("Tag: {}", value);
+}
+
+#[cross_platform_fn]
+fn debug_instructions(value: RootedInstructions) {
+    println!("Current instructions: {:?}", value);
+}
+
+#[cross_platform_fn]
+fn debug_instructions2(value: RootedInstructions) {
+    println!("fat pointer instructions: {:?}", value);
 }
 
 impl Default for JIT {
@@ -427,9 +451,28 @@ impl Default for JIT {
         map.add_func2("#%debug-count", abi! { debug_count as fn(i32) });
         map.add_func2("#%debug-tag", abi! { debug_tag as fn(i8) });
 
+        map.add_func2(
+            "#%debug-instructions",
+            abi! { debug_instructions as fn(RootedInstructions)},
+        );
+
+        map.add_func2(
+            "#%debug-instructions2",
+            abi! { debug_instructions2 as fn(RootedInstructions)},
+        );
+
         map.add_func(
             "#%debug-stack-frames",
             abi! { debug_stack_frames as fn(*mut VmCore) },
+        );
+
+        map.add_func(
+            "#%debug-instructions-before",
+            abi! { debug_instructions_before as fn(*mut VmCore) },
+        );
+        map.add_func(
+            "#%debug-instructions-after",
+            abi! { debug_instructions_after as fn(*mut VmCore) },
         );
 
         map.add_func(
@@ -2360,8 +2403,9 @@ impl FunctionTranslator<'_> {
                         && self_name.is_some()
                         && self._globals.get(payload).is_none()
                         && self.function_context == Some(function_index)
+                        && false
                     {
-                        const USE_EXPERIMENTAL_CALL: bool = true;
+                        const USE_EXPERIMENTAL_CALL: bool = false;
 
                         if USE_EXPERIMENTAL_CALL {
                             let slot = self.slot.unwrap().clone();
@@ -2431,6 +2475,7 @@ impl FunctionTranslator<'_> {
 
                             // TODO: Can we abstract this into its own thing?
                             match f {
+                                /*
                                 f if f == steel_stringp as FunctionSignature && arity == 1 => {
                                     self.is_string()
                                 }
@@ -2468,6 +2513,7 @@ impl FunctionTranslator<'_> {
                                 f if f == steel_is_empty as FunctionSignature && arity == 1 => {
                                     self.is_empty()
                                 }
+                                */
                                 _ => {
                                     let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
@@ -4827,7 +4873,14 @@ impl FunctionTranslator<'_> {
         let ctx = self.get_ctx();
         let id = func.id;
 
-        // Horrendous crimes, but we'll allow it
+        let _ = steel_rc::BiasedRc::into_raw(func.body_exp.clone());
+
+        let instr_fat_ptr = func.body_exp();
+        let instr_fat_ptr = self.create_i128(unsafe { std::mem::transmute(instr_fat_ptr) });
+
+        func.clone().into_raw();
+
+        // Horrendous crimes, but we'll allow it. We'll also leak the instructions...
         let lookup_index = self.builder.ins().iconst(Type::int(64).unwrap(), unsafe {
             std::mem::transmute::<Gc<ByteCodeLambda>, i64>(func)
         });
@@ -4850,19 +4903,15 @@ impl FunctionTranslator<'_> {
             .map(|x| x.0)
             .collect::<Vec<_>>();
 
-        self.inline_call_global_function(id, lookup_index, fallback_ip, &args_off_the_stack)
+        self.spill_stack();
 
-        // if tail {
-        //     self.spill_cloned_stack();
-        // } else {
-        //     self.spill_stack();
-        // }
-
-        // todo!()
-
-        // let call = self.builder.ins().call(local_callee, &arg_values);
-        // let result = self.builder.inst_results(call)[0];
-        // result
+        self.inline_call_global_function(
+            id,
+            lookup_index,
+            fallback_ip,
+            &args_off_the_stack,
+            instr_fat_ptr,
+        )
     }
 
     fn call_self_function(
@@ -4872,6 +4921,7 @@ impl FunctionTranslator<'_> {
         func: Gc<ByteCodeLambda>,
         tail: bool,
     ) -> Value {
+        println!("COMPILING CALLING SELF FUNCTION");
         let local_callee = self.get_local_callee(name);
 
         let ctx = self.get_ctx();
@@ -6351,6 +6401,7 @@ impl FunctionTranslator<'_> {
         func: Value,
         fallback_ip: usize,
         args: &[Value],
+        instr_fat_ptr: Value,
     ) -> Value {
         let vm_ctx = self.get_ctx();
         let should_trampoline = self.check_should_trampoline(vm_ctx);
@@ -6359,7 +6410,7 @@ impl FunctionTranslator<'_> {
 
         let should_yield = self.builder.ins().bxor_imm(should_trampoline, 1);
 
-        self.update_ip_native_if_yield(vm_ctx, should_yield, fallback_ip);
+        self.update_ip_native_if_yield(vm_ctx, should_yield, fallback_ip + 1);
 
         let typ = self.int;
         let arity = args.len();
@@ -6379,13 +6430,28 @@ impl FunctionTranslator<'_> {
 
                 // TODO: Consider moving this up before things are pushed on in order
                 // to capture the stack length without needing to compute the value
-                ctx.push_stack_frame(arity as _, func);
+                ctx.push_stack_frame(arity as _, func, instr_fat_ptr, fallback_ip);
+
+                ctx.call_function_no_return("#%debug-stack-frames");
 
                 // ctx.call_function_no_return("#%debug-stack-frames");
                 // ctx.call_function_no_return("#%debug-stack");
 
+                ctx.call_function_no_return("#%debug-instructions-before");
+
                 let jit_func = ctx.get_jit_func(id);
                 ctx.builder.ins().call(jit_func, &[vm_ctx]);
+
+                ctx.call_function_no_return("#%debug-instructions-after");
+
+                let ip = ctx.builder.ins().load(
+                    types::I64,
+                    MemFlags::trusted(),
+                    vm_ctx,
+                    offset_of!(VmCore, ip) as i32,
+                );
+
+                ctx.call_function_args_no_context("#%debug-value", &[ip]);
 
                 // ctx.call_function_no_return("#%debug-is-native");
 
@@ -6405,6 +6471,15 @@ impl FunctionTranslator<'_> {
                     is_still_native,
                     |ctx| ctx.inline_pop_from_stack(vm_ctx),
                     |ctx| {
+                        let fallback = ctx.builder.ins().iconst(types::I64, fallback_ip as i64 + 1);
+                        ctx.builder.ins().store(
+                            MemFlags::trusted(),
+                            fallback,
+                            vm_ctx,
+                            offset_of!(VmCore, ip) as i32,
+                        );
+
+                        println!("FOO BAR");
                         let void = SteelVal::Void;
                         ctx.create_i128(encode(void))
                     },
@@ -6432,16 +6507,7 @@ impl FunctionTranslator<'_> {
         // Stack offset:
         let stack_offset = offset_of!(SteelThread, stack);
 
-        let capacity_offset = steel_vec::Vec::<SteelVal>::capacity_offset();
         let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
-
-        // This is the actual stack, steel_vec::Vec<SteelVal>
-        let stack_capacity = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            thread_pointer,
-            (stack_offset + capacity_offset) as i32,
-        );
 
         let stack_length = self.builder.ins().load(
             Type::int(64).unwrap(),
@@ -6538,7 +6604,13 @@ impl FunctionTranslator<'_> {
     }
 
     // Note: The function _must_ have been cloned already
-    fn push_stack_frame(&mut self, arity: i64, function: Value) {
+    fn push_stack_frame(
+        &mut self,
+        arity: i64,
+        function: Value,
+        instr_fat_ptr: Value,
+        fallback_ip: usize,
+    ) {
         let vm_ctx = self.get_ctx();
         let thread_offset = offset_of!(VmCore, thread);
 
@@ -6556,6 +6628,12 @@ impl FunctionTranslator<'_> {
         let capacity_offset = steel_vec::Vec::<StackFrame>::capacity_offset();
         let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
 
+        println!(
+            "Offset of stackframe instuctions: {}",
+            offset_of!(StackFrame, instructions)
+        );
+        println!("StackFrame size: {}", std::mem::size_of::<StackFrame>());
+
         // This is the actual stack, steel_vec::Vec<SteelVal>
         let stack_capacity = self.builder.ins().load(
             Type::int(64).unwrap(),
@@ -6563,6 +6641,8 @@ impl FunctionTranslator<'_> {
             thread_pointer,
             (stack_frame_offset + capacity_offset) as i32,
         );
+
+        // self.call_function_args_no_context("#%debug-value", &[stack_capacity]);
 
         let stack_frame_length = self.builder.ins().load(
             Type::int(64).unwrap(),
@@ -6592,7 +6672,7 @@ impl FunctionTranslator<'_> {
             |ctx| ctx.call_function_no_return("slow-grow-frame-stack"),
             |ctx| {
                 // Write the value:
-                let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+                let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
 
                 let buf_ptr = ctx.builder.ins().load(
                     Type::int(64).unwrap(),
@@ -6650,7 +6730,15 @@ impl FunctionTranslator<'_> {
 
                 // Reduce to 32 bits to store in the stack frame
                 let ip = ctx.builder.ins().ireduce(types::I32, ip);
-                let ip_plus_one = ctx.builder.ins().iadd_imm(ip, 1);
+                // let ip_plus_one = ctx.builder.ins().iadd_imm(ip, 1);
+
+                let ip_plus_one = ctx
+                    .builder
+                    .ins()
+                    .iconst(types::I32, (fallback_ip + 1) as i64);
+
+                // ctx.call_function_args_no_context("#%debug-count", &[ip_plus_one]);
+                // println!("Calculated ip here: {}", ctx.ip);
 
                 ctx.builder.ins().store(
                     MemFlags::trusted(),
@@ -6668,13 +6756,24 @@ impl FunctionTranslator<'_> {
                     offset_of!(VmCore, instructions) as i32,
                 );
 
+                ctx.call_function_args_no_context("#%debug-instructions", &[current_instructions]);
+
+                ctx.call_function_args_no_context("#%debug-instructions2", &[instr_fat_ptr]);
+
+                // TODO: This doesn't work correctly; we need to
+                // construct a fat pointer here. So I need something
+                // that is FFI safe in order to construct a fat
+                // pointer to the *const [DenseInstruction]
+
                 // Okay, now load the instructions from the function:
-                let instructions = ctx.builder.ins().load(
-                    types::I128,
-                    MemFlags::trusted(),
-                    function,
-                    offset_of!(ByteCodeLambda, body_exp) as i32,
-                );
+                // let instructions = ctx.builder.ins().load(
+                //     types::I128,
+                //     MemFlags::trusted(),
+                //     function,
+                //     offset_of!(ByteCodeLambda, body_exp) as i32,
+                // );
+
+                let instructions = instr_fat_ptr;
 
                 ctx.builder.ins().store(
                     MemFlags::trusted(),

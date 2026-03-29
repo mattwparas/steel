@@ -104,7 +104,9 @@ pub struct Vec<T> {
 impl<T: Clone> Clone for Vec<T> {
     fn clone(&self) -> Self {
         let len = self.len();
-        let mut new_vec = Vec::<T>::with_capacity(len);
+        // TODO: Consider not cloning the capacity too?
+        // Just start with the length instead?
+        let mut new_vec = Vec::<T>::with_capacity(self.cap());
         let mut data_raw = new_vec.ptr();
         for x in self.iter() {
             unsafe {
@@ -134,7 +136,7 @@ impl<T> Vec<T> {
         std::mem::offset_of!(RawVec<T>, cap) + Self::buf_offset()
     }
 
-    fn cap(&self) -> usize {
+    pub fn cap(&self) -> usize {
         self.buf.cap
     }
 

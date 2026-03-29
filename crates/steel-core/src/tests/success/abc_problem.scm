@@ -42,6 +42,8 @@
 
 (define can-make-words '("A" "Bark" "TrEaT" "squaD" "CONFUSE"))
 
+(stdout-simple-displayln "========================> " (filter can-make-word? *words*))
+
 (assert! (equal? (filter can-make-word? *words*) can-make-words))
 
 ; (for-each
