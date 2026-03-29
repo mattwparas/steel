@@ -5888,14 +5888,16 @@ impl<'a> SemanticAnalysis<'a> {
                     let original_id = l.syntax_object_id;
                     let l = l.clone();
 
-                    funcs.insert(
-                        *d.name.atom_identifier().unwrap(),
-                        Box::new(move |_: &Analysis, lst: &mut List| {
-                            if lst.syntax_object_id > original_id {
-                                lst.args[0] = ExprKind::LambdaFunction(l.clone());
-                            }
-                        }),
-                    );
+                    if !l.rest {
+                        funcs.insert(
+                            *d.name.atom_identifier().unwrap(),
+                            Box::new(move |_: &Analysis, lst: &mut List| {
+                                if lst.syntax_object_id > original_id {
+                                    lst.args[0] = ExprKind::LambdaFunction(l.clone());
+                                }
+                            }),
+                        );
+                    }
                 }
             }
         }
