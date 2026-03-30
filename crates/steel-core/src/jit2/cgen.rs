@@ -1511,6 +1511,14 @@ enum ConstantValue {
     Index(usize),
 }
 
+struct StackFrameRepr {
+    sp: Value,
+    ip: Value,
+    instructions: Value,
+    function: Value,
+    attachments: Value,
+}
+
 impl ConstantValue {
     fn as_steelval(self) -> SteelVal {
         match self {
@@ -6741,6 +6749,86 @@ impl FunctionTranslator<'_> {
         // self.call_function_no_return("#%debug-stack-after");
 
         res
+    }
+
+    fn inline_pop_from_stack_frames(&mut self, vm_ctx: Value) -> StackFrameRepr {
+        let thread_offset = offset_of!(VmCore, thread);
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            vm_ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
+
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let new_length = self.builder.ins().iadd_imm(stack_length, -1);
+
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            new_length,
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let size: i64 = std::mem::size_of::<StackFrame>() as _;
+        let offset = self.builder.ins().imul_imm(new_length, size);
+        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+        // Load the stack frame. We're going to use this later.
+        StackFrameRepr {
+            sp: self.builder.ins().load(
+                types::I32,
+                MemFlags::trusted(),
+                slot_ptr,
+                offset_of!(StackFrame, sp) as i32,
+            ),
+            ip: self.builder.ins().load(
+                types::I32,
+                MemFlags::trusted(),
+                slot_ptr,
+                offset_of!(StackFrame, ip) as i32,
+            ),
+            instructions: self.builder.ins().load(
+                types::I128,
+                MemFlags::trusted(),
+                slot_ptr,
+                offset_of!(StackFrame, instructions) as i32,
+            ),
+            function: self.builder.ins().load(
+                types::I64,
+                MemFlags::trusted(),
+                slot_ptr,
+                offset_of!(StackFrame, function) as i32,
+            ),
+            attachments: self.builder.ins().load(
+                types::I64,
+                MemFlags::trusted(),
+                slot_ptr,
+                offset_of!(StackFrame, attachments) as i32,
+            ),
+        }
     }
 
     // TODO: Might want to merge this with some of the

@@ -1,7 +1,7 @@
 use crate::compiler::compiler::Compiler;
 use crate::compiler::modules::fully_qualified_to_relative;
 use crate::compiler::passes::VisitorMutRefUnit;
-use crate::core::instructions::{pretty_print_dense_instructions, u24};
+use crate::core::instructions::u24;
 use crate::env::SharedVectorWrapper;
 use crate::gc::shared::{
     MutContainer, ShareableMut, Shared, StandardShared, StandardSharedMut, WeakShared,
@@ -3784,22 +3784,67 @@ impl<'a> VmCore<'a> {
 
             self.sp = self.get_last_stack_frame_sp();
 
-            /*
-            let attachments = last.attachments.take();
-            if attachments.is_some() {
-                drop(attachments)
-            } else {
-                std::mem::forget(attachments);
+            None
+        } else {
+            let ret_val = Ok(value);
+
+            let rollback_index = last
+                .map(|x| {
+                    self.close_continuation_marks(&x);
+                    x.sp
+                })
+                .unwrap_or(0);
+
+            // Move forward past the pop
+            self.ip += 1;
+
+            self.thread.stack.truncate(rollback_index as _);
+            self.sp = 0;
+
+            Some(ret_val)
+        }
+    }
+
+    fn handle_pop_pure_value_extern(&mut self, value: SteelVal) -> Option<Result<SteelVal>> {
+        self.pop_count -= 1;
+
+        let last = self.thread.stack_frames.pop();
+
+        // let should_return = self.stack_frames.is_empty();
+        let should_continue = self.pop_count != 0;
+
+        // Inline should continue, outline everything else after that
+        if should_continue {
+            let last = last.unwrap();
+
+            let rollback_index = last.sp;
+
+            // TODO: Have everything after the first check be outlined
+            if let Some(cont_mark) = last.attachments.as_ref().and_then(|x| {
+                x.weak_continuation_mark
+                    .as_ref()
+                    .and_then(|x| WeakShared::upgrade(&x.inner))
+            }) {
+                cont_mark.write().close(self);
             }
+
+            self.thread.stack.truncate(rollback_index as _);
+            self.thread.stack.push(value);
+
+            self.ip = last.ip as _;
+            self.instructions = last.instructions;
+
+            /* That would be this code:
+            self.thread
+                .stack_frames
+                .last()
+                .map(|x| x.sp as _)
+                .unwrap_or(0)
             */
+            self.sp = self.get_last_stack_frame_sp();
 
             None
         } else {
-            // let ret_val = self.thread.stack.pop().ok_or_else(|| {
-            //     SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
-            //         .with_span(self.current_span())
-            // });
-
             let ret_val = Ok(value);
 
             let rollback_index = last
