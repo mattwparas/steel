@@ -2641,7 +2641,9 @@ impl FunctionTranslator<'_> {
 
                     // let last = self.let_var_stack.iter().sum::<usize>() + self.arity as usize;
 
-                    self.let_var_stack.pop().unwrap();
+                    let amt = self.let_var_stack.pop().unwrap();
+
+                    // println!("let end scope amount: {}", amt);
 
                     for index in 0..self.shadow_stack.len() {
                         let v = self.shadow_stack.get_mut(index).unwrap();
@@ -2674,7 +2676,13 @@ impl FunctionTranslator<'_> {
                         }
                     }
 
-                    self.call_end_scope_handler(payload);
+                    // If we know exactly how many elements we're dropping:
+
+                    // self.call_end_scope_handler(payload);
+
+                    self.inline_let_end_scope(payload, amt);
+
+                    // self.call_end_scope_handler_new(payload, amt);
                 }
 
                 // TODO: Depending on the inferred type, we can save a lot of
@@ -3431,41 +3439,60 @@ impl FunctionTranslator<'_> {
     fn drop_tagged_value(&mut self, value: Value) {
         let tag = self.get_tag(value);
 
-        let mut switch = Switch::new();
+        let mask = self
+            .builder
+            .ins()
+            .iconst(types::I64, SteelVal::UNBOXED_MASK as i64);
+        let shifted = self.builder.ins().ushr(mask, tag);
+        let is_unboxed = self.builder.ins().band_imm(shifted, 1);
 
-        let rc_block = self.builder.create_block();
-        let non_rc_block = self.builder.create_block();
-        let no_drop = self.builder.create_block();
-
-        // Resulting path of execution
+        let unboxed_block = self.builder.create_block();
+        let needs_drop = self.builder.create_block();
         let merge_block = self.builder.create_block();
 
-        for tag in SteelVal::SPECIAL_RC_TAGS {
-            switch.set_entry(tag as _, rc_block);
-        }
+        self.builder
+            .ins()
+            .brif(is_unboxed, unboxed_block, &[], needs_drop, &[]);
 
-        for tag in SteelVal::UNBOXED_TAGS {
-            switch.set_entry(tag as _, no_drop);
-        }
-
-        for tag in SteelVal::STANDARD_RC_TAGS {
-            switch.set_entry(tag as _, non_rc_block);
-        }
-
-        switch.emit(&mut self.builder, tag, non_rc_block);
-
-        self.builder.switch_to_block(rc_block);
-        self.builder.seal_block(rc_block);
-        self.drop_biased_rc(value);
+        // Unboxed, meaning there is nothing to do here
+        self.builder.switch_to_block(unboxed_block);
+        self.builder.seal_block(unboxed_block);
         self.builder.ins().jump(merge_block, &[]);
 
-        self.builder.switch_to_block(non_rc_block);
-        self.builder.seal_block(non_rc_block);
-        self.drop_value(value);
-        self.builder.ins().jump(merge_block, &[]);
+        self.builder.switch_to_block(needs_drop);
+        self.builder.seal_block(needs_drop);
 
-        self.builder.switch_to_block(no_drop);
-        self.builder.seal_block(no_drop);
+        let std_mask = self
+            .builder
+            .ins()
+            .iconst(types::I64, SteelVal::STANDARD_RC_MASK as i64);
+        let std_shifted = self.builder.ins().ushr(std_mask, tag);
+        let is_standard_rc = self.builder.ins().band_imm(std_shifted, 1);
+
+        let standard_rc_block = self.builder.create_block();
+        let special_rc_block = self.builder.create_block();
+        let drop_merge = self.builder.create_block();
+
+        self.builder.ins().brif(
+            is_standard_rc,
+            standard_rc_block,
+            &[],
+            special_rc_block,
+            &[],
+        );
+
+        self.builder.switch_to_block(standard_rc_block);
+        self.builder.seal_block(standard_rc_block);
+        self.drop_value(value); // straight RC decrement
+        self.builder.ins().jump(drop_merge, &[]);
+
+        self.builder.switch_to_block(special_rc_block);
+        self.builder.seal_block(special_rc_block);
+        self.drop_biased_rc(value); // TL-biased decrement
+        self.builder.ins().jump(drop_merge, &[]);
+
+        self.builder.switch_to_block(drop_merge);
+        self.builder.seal_block(drop_merge);
         self.builder.ins().jump(merge_block, &[]);
 
         self.builder.switch_to_block(merge_block);
@@ -3529,10 +3556,10 @@ impl FunctionTranslator<'_> {
             let yes_drop = self.builder.create_block();
             let merge_block = self.builder.create_block();
 
-            let updated_count =
-                self.builder
-                    .ins()
-                    .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+            // let updated_count =
+            //     self.builder
+            //         .ins()
+            //         .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
 
             // Then we need to check if its greater than 0:
 
@@ -6532,6 +6559,131 @@ impl FunctionTranslator<'_> {
             |ctx| ctx.call_function_returns_value_args("#%setup-closure", &[func]),
             typ,
         )
+    }
+
+    fn inline_let_end_scope(&mut self, amt: usize, count: usize) {
+        let vm_ctx = self.get_ctx();
+        let offset = self.builder.ins().load(
+            types::I64,
+            MemFlags::trusted(),
+            vm_ctx,
+            offset_of!(VmCore, sp) as i32,
+        );
+
+        let beginning_scope = self.builder.ins().iconst(types::I64, amt as i64);
+
+        let rollback_index = self.builder.ins().iadd(beginning_scope, offset);
+
+        self.truncate_stack(vm_ctx, rollback_index, count as _);
+    }
+
+    fn truncate_stack(&mut self, vm_ctx: Value, index: Value, count: i32) {
+        let thread_offset = offset_of!(VmCore, thread);
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            vm_ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+
+        // Current stack length:
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let difference = self.builder.ins().isub(stack_length, index);
+
+        // let new_length = self.builder.ins().iconst(types::, N)
+
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            index,
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+
+        // Go through each value, drop it:
+        // let offset = self.builder.ins().imul_imm(index, size);
+        // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+        // This count is dynamic: have to do a loop?
+        // for x in 0i32..count {
+        //     // Drop the values
+        //     let res = self.builder.ins().load(
+        //         types::I128,
+        //         MemFlags::trusted(),
+        //         slot_ptr,
+        //         x * std::mem::size_of::<SteelVal>() as i32,
+        //     );
+
+        //     self.drop_tagged_value(res);
+        // }
+
+        let count = self.builder.ins().iconst(types::I64, count as i64);
+        {
+            // Emit a loop over [0, count)
+            let loop_header = self.builder.create_block();
+            let loop_body = self.builder.create_block();
+            let loop_exit = self.builder.create_block();
+
+            self.builder.append_block_param(loop_header, types::I64); // i
+
+            let zero = self.builder.ins().iconst(types::I64, 0);
+            self.builder.ins().jump(loop_header, &[zero]);
+
+            self.builder.switch_to_block(loop_header);
+            // self.builder.seal_block(loop_header); // NOT yet — seal after back-edge
+            let i = self.builder.block_params(loop_header)[0];
+
+            let done = self
+                .builder
+                .ins()
+                .icmp(IntCC::SignedGreaterThanOrEqual, i, count);
+            self.builder
+                .ins()
+                .brif(done, loop_exit, &[], loop_body, &[]);
+
+            self.builder.switch_to_block(loop_body);
+            self.builder.seal_block(loop_body);
+
+            let byte_offset = self.builder.ins().imul_imm(i, size_of::<SteelVal>() as i64);
+            let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
+            let val = self
+                .builder
+                .ins()
+                .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+            self.drop_tagged_value(val);
+
+            let i_next = self.builder.ins().iadd_imm(i, 1);
+            self.builder.ins().jump(loop_header, &[i_next]);
+
+            // Seal loop_header AFTER the back-edge is defined
+            self.builder.seal_block(loop_header);
+
+            self.builder.switch_to_block(loop_exit);
+            self.builder.seal_block(loop_exit);
+        }
     }
 
     fn inline_pop_from_stack(&mut self, vm_ctx: Value) -> Value {

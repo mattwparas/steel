@@ -2731,7 +2731,7 @@ impl SteelVal {
     pub const COMPLEX_TAG: u8 = 35;
     pub const BYTEVECTOR_TAG: u8 = 36;
 
-    pub const SPECIAL_RC_TAGS: [u8; 24] = [
+    pub const SPECIAL_RC_TAGS: [u8; 25] = [
         SteelVal::CLOSURE_TAG,
         SteelVal::VECTOR_TAG,
         SteelVal::STRING_TAG,
@@ -2756,6 +2756,7 @@ impl SteelVal {
         SteelVal::BIG_RATIONAL_TAG,
         SteelVal::COMPLEX_TAG,
         SteelVal::BYTEVECTOR_TAG,
+        SteelVal::BOXED_FUNCTION_TAG,
     ];
 
     pub const STANDARD_RC_TAGS: [u8; 3] = [
@@ -2775,6 +2776,20 @@ impl SteelVal {
         Self::FUNCTION_POINTER_TAG,
         Self::BUILTIN_FUNCTION_TAG,
     ];
+
+    pub const UNBOXED_MASK: u64 = (1 << SteelVal::BOOL_TAG)
+        | (1 << SteelVal::FLOAT_TAG)
+        | (1 << SteelVal::INT_TAG)
+        | (1 << SteelVal::RATIO_TAG)
+        | (1 << SteelVal::CHAR_TAG)
+        | (1 << SteelVal::VOID_TAG)
+        | (1 << SteelVal::MUT_FUNCTION_TAG)
+        | (1 << SteelVal::FUNCTION_POINTER_TAG)
+        | (1 << SteelVal::BUILTIN_FUNCTION_TAG);
+
+    pub const STANDARD_RC_MASK: u64 = (1 << SteelVal::CONTINUATION_TAG)
+        | (1 << SteelVal::HEAP_REF_VECTOR_TAG)
+        | (1 << SteelVal::HEAP_REF_VALUE_TAG);
 }
 
 impl Eq for SteelVal {}

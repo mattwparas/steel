@@ -3772,25 +3772,12 @@ impl<'a> VmCore<'a> {
 
         if should_continue {
             let last = last.unwrap();
-            // let last = unsafe { last.unwrap_unchecked() };
 
             let rollback_index = last.sp;
 
             self.close_continuation_marks(&last);
-
-            // println!("Stack at pop: {:#?}", self.thread.stack);
-
-            // let _ = self
-            //     .thread
-            //     .stack
-            //     .drain(rollback_index..self.thread.stack.len() - 1);
-
             self.thread.stack.truncate(rollback_index as _);
-
             self.thread.stack.push(value);
-
-            // println!("Stack after pop: {:#?}", self.thread.stack);
-            // println!("rollback index: {}", rollback_index);
 
             self.ip = last.ip as _;
             self.instructions = last.instructions;
@@ -7070,19 +7057,6 @@ fn let_end_scope_handler_with_payload(ctx: &mut VmCore<'_>, beginning_scope: usi
     // let offset = ctx.sp;
 
     let rollback_index = beginning_scope + offset;
-
-    if rollback_index > ctx.thread.stack.len() {
-        println!("ip: {}", ctx.ip);
-        println!("beginning scope: {}", beginning_scope);
-        println!("Offset: {}", offset);
-
-        println!(
-            "Previous stack offset: {:?}",
-            ctx.thread.stack_frames.last().map(|x| x.sp)
-        );
-
-        pretty_print_dense_instructions(&ctx.instructions);
-    }
 
     ctx.ip += 1;
 
