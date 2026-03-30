@@ -1958,10 +1958,8 @@ fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> u8 {
 
 #[cross_platform_fn]
 fn extern_handle_pop(ctx: *mut VmCore, value: SteelVal) {
-    println!("Calling pop from jit: {}", value);
     unsafe {
         let this = &mut *ctx;
-        println!("Pop count: {}", this.pop_count);
         let res = this.handle_pop_pure_value(value);
         // this.is_native = false;
         this.result = res;

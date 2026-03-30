@@ -2408,9 +2408,8 @@ impl FunctionTranslator<'_> {
                         && self_name.is_some()
                         && self._globals.get(payload).is_none()
                         && self.function_context == Some(function_index)
-                        && false
                     {
-                        const USE_EXPERIMENTAL_CALL: bool = false;
+                        const USE_EXPERIMENTAL_CALL: bool = true;
 
                         if USE_EXPERIMENTAL_CALL {
                             let slot = self.slot.unwrap().clone();
