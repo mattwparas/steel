@@ -2722,9 +2722,14 @@ impl FunctionTranslator<'_> {
                         let (test, _) = self.shadow_pop();
                         // If this matches SteelVal::BoolV(false)
                         // exactly, then we're done.
-                        let false_value = self.create_i128(encode(SteelVal::BoolV(false)));
+                        let payload = self.unbox_value(test);
+                        let test_condition = self.builder.ins().ireduce(types::I8, payload);
+                        let false_value = self.builder.ins().iconst(types::I8, 0);
+                        let comparison =
+                            self.builder
+                                .ins()
+                                .icmp(IntCC::Equal, test_condition, false_value);
 
-                        let comparison = self.builder.ins().icmp(IntCC::Equal, test, false_value);
                         let res = self.builder.ins().uextend(types::I64, comparison);
                         let boolean =
                             self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
