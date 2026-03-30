@@ -6768,7 +6768,11 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(loop_body);
             self.builder.seal_block(loop_body);
 
-            let byte_offset = self.builder.ins().imul_imm(i, size_of::<SteelVal>() as i64);
+            let slot_index = self.builder.ins().iadd(index, i);
+            let byte_offset = self
+                .builder
+                .ins()
+                .imul_imm(slot_index, size_of::<SteelVal>() as i64);
             let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
             let val = self
                 .builder
@@ -7198,11 +7202,11 @@ impl FunctionTranslator<'_> {
         let capacity_offset = steel_vec::Vec::<StackFrame>::capacity_offset();
         let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
 
-        println!(
-            "Offset of stackframe instuctions: {}",
-            offset_of!(StackFrame, instructions)
-        );
-        println!("StackFrame size: {}", std::mem::size_of::<StackFrame>());
+        // println!(
+        //     "Offset of stackframe instuctions: {}",
+        //     offset_of!(StackFrame, instructions)
+        // );
+        // println!("StackFrame size: {}", std::mem::size_of::<StackFrame>());
 
         // This is the actual stack, steel_vec::Vec<SteelVal>
         let stack_capacity = self.builder.ins().load(
