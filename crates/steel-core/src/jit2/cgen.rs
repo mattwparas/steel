@@ -33,7 +33,7 @@ use crate::{
     rvals::FunctionSignature,
     steel_vm::{
         primitives::{steel_eq, steel_listp, steel_stringp, steel_symbolp, steel_voidp},
-        vm::{jit::*, StackFrame, SteelThread, VmCore},
+        vm::{jit::*, StackFrame, StackFrameAttachments, SteelThread, VmCore},
     },
     values::functions::{ByteCodeLambda, RootedInstructions},
     SteelVal,
@@ -649,6 +649,16 @@ impl Default for JIT {
         map.add_func2(
             "raw-slow-increment-closure",
             abi! { increment_ref_count_slow_closure as fn(Gc<ByteCodeLambda>) },
+        );
+
+        map.add_func(
+            "#%handle-attachments",
+            abi! { handle_attachments_pop as fn(*mut VmCore, Option<Box<StackFrameAttachments>>) },
+        );
+
+        map.add_func(
+            "#%pop-slow-path-finish",
+            abi! { pop_slow_path_finish as fn(*mut VmCore, value: SteelVal) },
         );
 
         map.add_func(
@@ -6313,12 +6323,16 @@ impl FunctionTranslator<'_> {
         phi
     }
 
-    fn vm_pop(&mut self, value: Value) {
+    fn vm_pop_old(&mut self, value: Value) {
         let name = "handle-pop!";
         let local_callee = self.get_local_callee(name);
         let ctx = self.get_ctx();
         let arg_values = [ctx, value];
         let _call = self.builder.ins().call(local_callee, &arg_values);
+    }
+
+    fn vm_pop(&mut self, value: Value) {
+        self.inline_handle_pop(value);
     }
 
     // fn push_to_vm_stack_two(&mut self, value: Value, value2: Value) {
@@ -6582,10 +6596,10 @@ impl FunctionTranslator<'_> {
 
         let rollback_index = self.builder.ins().iadd(beginning_scope, offset);
 
-        self.truncate_stack(vm_ctx, rollback_index, count as _);
+        self.truncate_stack(vm_ctx, rollback_index, Some(count as _));
     }
 
-    fn truncate_stack(&mut self, vm_ctx: Value, index: Value, count: i32) {
+    fn truncate_stack(&mut self, vm_ctx: Value, index: Value, count: Option<i32>) {
         let thread_offset = offset_of!(VmCore, thread);
 
         // This represents the first part of the thread
@@ -6609,8 +6623,7 @@ impl FunctionTranslator<'_> {
             (stack_offset + len_offset) as i32,
         );
 
-        let difference = self.builder.ins().isub(stack_length, index);
-
+        // let difference = self.builder.ins().isub(stack_length, index);
         // let new_length = self.builder.ins().iconst(types::, N)
 
         self.builder.ins().store(
@@ -6631,26 +6644,11 @@ impl FunctionTranslator<'_> {
 
         let size: i64 = std::mem::size_of::<SteelVal>() as _;
 
-        // Go through each value, drop it:
-        // let offset = self.builder.ins().imul_imm(index, size);
-        // let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
-
-        // This count is dynamic: have to do a loop?
-        // for x in 0i32..count {
-        //     // Drop the values
-        //     let res = self.builder.ins().load(
-        //         types::I128,
-        //         MemFlags::trusted(),
-        //         slot_ptr,
-        //         x * std::mem::size_of::<SteelVal>() as i32,
-        //     );
-
-        //     self.drop_tagged_value(res);
-        // }
-
-        let count = self.builder.ins().iconst(types::I64, count as i64);
+        // Use the calculated difference if thats what we have to do
+        let count = count
+            .map(|count| self.builder.ins().iconst(types::I64, count as i64))
+            .unwrap_or_else(|| self.builder.ins().isub(stack_length, index));
         {
-            // Emit a loop over [0, count)
             let loop_header = self.builder.create_block();
             let loop_body = self.builder.create_block();
             let loop_exit = self.builder.create_block();
@@ -6661,7 +6659,6 @@ impl FunctionTranslator<'_> {
             self.builder.ins().jump(loop_header, &[zero]);
 
             self.builder.switch_to_block(loop_header);
-            // self.builder.seal_block(loop_header); // NOT yet — seal after back-edge
             let i = self.builder.block_params(loop_header)[0];
 
             let done = self
@@ -6686,7 +6683,6 @@ impl FunctionTranslator<'_> {
             let i_next = self.builder.ins().iadd_imm(i, 1);
             self.builder.ins().jump(loop_header, &[i_next]);
 
-            // Seal loop_header AFTER the back-edge is defined
             self.builder.seal_block(loop_header);
 
             self.builder.switch_to_block(loop_exit);
@@ -6751,6 +6747,165 @@ impl FunctionTranslator<'_> {
         res
     }
 
+    // Subtract one from the pop count, returns
+    // the new pop count
+    fn sub_one_pop_count(&mut self, vm_ctx: Value) -> Value {
+        let current_pop_count = self.builder.ins().load(
+            types::I64,
+            MemFlags::trusted(),
+            vm_ctx,
+            offset_of!(VmCore, pop_count) as i32,
+        );
+        let sub_one = self.builder.ins().iadd_imm(current_pop_count, -1);
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            sub_one,
+            vm_ctx,
+            offset_of!(VmCore, pop_count) as i32,
+        );
+        sub_one
+    }
+
+    fn inline_handle_pop(&mut self, value: Value) {
+        let vm_ctx = self.get_ctx();
+        let new_pop_count = self.sub_one_pop_count(vm_ctx);
+        let should_continue = self.pop_count_should_continue(new_pop_count);
+
+        // TODO: Figure out what the return type is! We don't really need
+        // to return anything. The result should just be assigned to the result
+        // on the VM context; In the else case, we assign the result
+        // on to the VM value. In the former case, we don't need to do anything.
+        self.converging_if_no_value(
+            should_continue,
+            |ctx| {
+                // This is the frame itself. We'll need to call drop
+                // on it properly -> specifically on the function
+                // and possibly the attachments, depending on whether
+                // its null or not. If it is, we'll want to pass the frame
+                // by value in, call drop on it, and close the things as needed
+                // in order for drop to get called.
+                let popped_frame = ctx.inline_pop_from_stack_frames(vm_ctx);
+
+                // first, we'll check if the attachments isn't null.
+                // And then, we'll invoke drop on the frame for the attachments.
+
+                let attachment_exists =
+                    ctx.builder
+                        .ins()
+                        .icmp_imm(IntCC::NotEqual, popped_frame.attachments, 0);
+
+                ctx.converging_if_no_else_no_value(
+                    attachment_exists,
+                    |ctx| {
+                        // If the attachments exist, then we need to:
+                        // 1. Call the rust function to close the frame
+                        // 2. Close the destructor.
+                        ctx.call_function_args_no_return(
+                            "#%handle-attachments",
+                            &[popped_frame.attachments],
+                        );
+                    },
+                    |ctx| {
+                        // The rest:
+                        // Truncate the stack, and then push the new value one.
+                        //
+                        // Then, we restore the ip, instructions, and sp
+                        // on to the requisite spots on the VM context
+
+                        let sp = ctx.builder.ins().uextend(types::I64, popped_frame.sp);
+                        ctx.truncate_stack(vm_ctx, sp, None);
+                        ctx.push_to_vm_stack(value);
+
+                        let ip = ctx.builder.ins().uextend(types::I64, popped_frame.ip);
+                        ctx.builder.ins().store(
+                            MemFlags::trusted(),
+                            ip,
+                            vm_ctx,
+                            offset_of!(VmCore, ip) as i32,
+                        );
+
+                        ctx.builder.ins().store(
+                            MemFlags::trusted(),
+                            popped_frame.instructions,
+                            vm_ctx,
+                            offset_of!(VmCore, instructions) as i32,
+                        );
+
+                        let sp = ctx.read_last_sp(vm_ctx);
+
+                        ctx.builder.ins().store(
+                            MemFlags::trusted(),
+                            sp,
+                            vm_ctx,
+                            offset_of!(VmCore, sp) as i32,
+                        );
+                    },
+                );
+            },
+            |ctx| ctx.call_function_args_no_return("#%pop-slow-path-finish", &[value]),
+        );
+    }
+
+    // Whether we should continue running:
+    fn pop_count_should_continue(&mut self, pop_count: Value) -> Value {
+        self.builder.ins().icmp_imm(IntCC::NotEqual, pop_count, 0)
+    }
+
+    // TODO:
+    // Extend by a certain amount - we probably can
+    // make this better by passing in the length from
+    // the previous read so we don't have to read all
+    // this stuff. Its already read from before.
+    fn read_last_sp(&mut self, vm_ctx: Value) -> Value {
+        let thread_offset = offset_of!(VmCore, thread);
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            vm_ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack_frames);
+
+        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
+
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        // Last thing
+        let new_length = self.builder.ins().iadd_imm(stack_length, -1);
+
+        let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let size: i64 = std::mem::size_of::<StackFrame>() as _;
+        let offset = self.builder.ins().imul_imm(new_length, size);
+        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+        // Load the stack frame. We're going to use this later.
+        let value = self.builder.ins().load(
+            types::I32,
+            MemFlags::trusted(),
+            slot_ptr,
+            offset_of!(StackFrame, sp) as i32,
+        );
+
+        self.builder.ins().uextend(types::I64, value)
+    }
+
     fn inline_pop_from_stack_frames(&mut self, vm_ctx: Value) -> StackFrameRepr {
         let thread_offset = offset_of!(VmCore, thread);
 
@@ -6763,7 +6918,7 @@ impl FunctionTranslator<'_> {
         );
 
         // Stack offset:
-        let stack_offset = offset_of!(SteelThread, stack);
+        let stack_offset = offset_of!(SteelThread, stack_frames);
 
         let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
 
@@ -6783,7 +6938,7 @@ impl FunctionTranslator<'_> {
             (stack_offset + len_offset) as i32,
         );
 
-        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+        let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
 
         let buf_ptr = self.builder.ins().load(
             Type::int(64).unwrap(),
@@ -7330,6 +7485,15 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
+    }
+
+    fn call_function_args_no_return(&mut self, name: &str, args: &[Value]) {
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
+
+        let mut arg_values = vec![ctx];
+        arg_values.extend(args.iter());
+        self.builder.ins().call(local_callee, &arg_values);
     }
 
     fn call_function_returns_value_args_no_context(&mut self, name: &str, args: &[Value]) -> Value {

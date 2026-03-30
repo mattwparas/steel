@@ -3805,65 +3805,6 @@ impl<'a> VmCore<'a> {
         }
     }
 
-    fn handle_pop_pure_value_extern(&mut self, value: SteelVal) -> Option<Result<SteelVal>> {
-        self.pop_count -= 1;
-
-        let last = self.thread.stack_frames.pop();
-
-        // let should_return = self.stack_frames.is_empty();
-        let should_continue = self.pop_count != 0;
-
-        // Inline should continue, outline everything else after that
-        if should_continue {
-            let last = last.unwrap();
-
-            let rollback_index = last.sp;
-
-            // TODO: Have everything after the first check be outlined
-            if let Some(cont_mark) = last.attachments.as_ref().and_then(|x| {
-                x.weak_continuation_mark
-                    .as_ref()
-                    .and_then(|x| WeakShared::upgrade(&x.inner))
-            }) {
-                cont_mark.write().close(self);
-            }
-
-            self.thread.stack.truncate(rollback_index as _);
-            self.thread.stack.push(value);
-
-            self.ip = last.ip as _;
-            self.instructions = last.instructions;
-
-            /* That would be this code:
-            self.thread
-                .stack_frames
-                .last()
-                .map(|x| x.sp as _)
-                .unwrap_or(0)
-            */
-            self.sp = self.get_last_stack_frame_sp();
-
-            None
-        } else {
-            let ret_val = Ok(value);
-
-            let rollback_index = last
-                .map(|x| {
-                    self.close_continuation_marks(&x);
-                    x.sp
-                })
-                .unwrap_or(0);
-
-            // Move forward past the pop
-            self.ip += 1;
-
-            self.thread.stack.truncate(rollback_index as _);
-            self.sp = 0;
-
-            Some(ret_val)
-        }
-    }
-
     #[inline(always)]
     fn handle_pop_pure(&mut self) -> Option<Result<SteelVal>> {
         // Check that the amount we're looking to pop and the function stack length are equivalent

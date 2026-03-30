@@ -477,6 +477,38 @@ fn drop_value_post_fast_decrement(arg: SteelVal) {
 }
 
 #[cross_platform_fn]
+fn handle_attachments_pop(ctx: *mut VmCore, attachments: Option<Box<StackFrameAttachments>>) {
+    let mut ctx = unsafe { &mut *ctx };
+
+    if let Some(cont_mark) = attachments.as_ref().and_then(|x| {
+        x.weak_continuation_mark
+            .as_ref()
+            .and_then(|x| WeakShared::upgrade(&x.inner))
+    }) {
+        cont_mark.write().close(ctx);
+    }
+}
+
+#[cross_platform_fn]
+fn pop_slow_path_finish(ctx: *mut VmCore, value: SteelVal) {
+    let ctx = unsafe { &mut *ctx };
+    let last = ctx.thread.stack_frames.pop();
+
+    let rollback_index = last
+        .map(|x| {
+            ctx.close_continuation_marks(&x);
+            x.sp
+        })
+        .unwrap_or(0);
+
+    // Move forward past the pop
+    ctx.ip += 1;
+    ctx.thread.stack.truncate(rollback_index as _);
+    ctx.sp = 0;
+    ctx.result = Some(Ok(value));
+}
+
+#[cross_platform_fn]
 fn grow_stack_slow(ctx: *mut VmCore) {
     let mut ctx = unsafe { &mut *ctx };
     ctx.thread.stack.grow_capacity();
@@ -485,8 +517,6 @@ fn grow_stack_slow(ctx: *mut VmCore) {
 #[cross_platform_fn]
 fn grow_frame_stack_slow(ctx: *mut VmCore) {
     let mut ctx = unsafe { &mut *ctx };
-    println!("GROWING FRAME STACK");
-    println!("Capacity: {}", ctx.thread.stack_frames.cap());
     ctx.thread.stack_frames.grow_capacity();
 }
 
