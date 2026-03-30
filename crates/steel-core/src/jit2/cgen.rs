@@ -1546,7 +1546,8 @@ impl ConstantValue {
             // what the type is based on the values coming in
             ConstantValue::Index(p) => (ctx.push_const_index(p), InferredType::Any),
             _ => {
-                let value = ctx.create_i128(encode(self.as_steelval()));
+                // let value = ctx.create_i128(encode(self.as_steelval()));
+                let value = ctx.encode_void();
                 (value, self.as_typ())
             }
         }
@@ -1963,8 +1964,10 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::VOID => {
                     // Push void onto stack?
-                    let void = SteelVal::Void;
-                    let value = self.create_i128(encode(void));
+                    // let void = SteelVal::Void;
+                    // let value = self.create_i128(encode(void));
+
+                    let value = self.encode_void();
 
                     self.push(value, InferredType::Void);
 
@@ -2321,7 +2324,9 @@ impl FunctionTranslator<'_> {
                     // TODO: Move back to using loop?
                     // let _ = self.translate_tco_jmp_no_arity_without_spill(payload);
 
-                    // let _ = self.translate_tco_jmp_no_arity(payload);
+                    // let _ = self._translate_tco_jmp_no_arity(payload);
+
+                    // self.translate_tco_jmp(payload);
                     // Jump to out of bounds so signal we're done
                     self.ip = self.instructions.len() + 1;
 
@@ -2475,7 +2480,6 @@ impl FunctionTranslator<'_> {
 
                             // TODO: Can we abstract this into its own thing?
                             match f {
-                                /*
                                 f if f == steel_stringp as FunctionSignature && arity == 1 => {
                                     self.is_string()
                                 }
@@ -2513,7 +2517,6 @@ impl FunctionTranslator<'_> {
                                 f if f == steel_is_empty as FunctionSignature && arity == 1 => {
                                     self.is_empty()
                                 }
-                                */
                                 _ => {
                                     let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
@@ -3069,10 +3072,12 @@ impl FunctionTranslator<'_> {
 
                     match self.shadow_stack.last().unwrap().clone() {
                         MaybeStackValue::Register(reg) => {
-                            let can_skip_bounds_check = matches!(
-                                self.properties.get(&ValueOrRegister::Register(reg)),
-                                Some(Properties::NonEmptyList)
-                            );
+                            // let can_skip_bounds_check = matches!(
+                            //     self.properties.get(&ValueOrRegister::Register(reg)),
+                            //     Some(Properties::NonEmptyList)
+                            // );
+
+                            let can_skip_bounds_check = false;
 
                             self.shadow_stack.pop();
                             let reg = self.register_index(reg);
@@ -3090,10 +3095,12 @@ impl FunctionTranslator<'_> {
                         }
 
                         MaybeStackValue::MutRegister(reg) => {
-                            let can_skip_bounds_check = matches!(
-                                self.properties.get(&ValueOrRegister::Register(reg)),
-                                Some(Properties::NonEmptyList)
-                            );
+                            // let can_skip_bounds_check = matches!(
+                            //     self.properties.get(&ValueOrRegister::Register(reg)),
+                            //     Some(Properties::NonEmptyList)
+                            // );
+
+                            let can_skip_bounds_check = false;
 
                             self.shadow_stack.pop();
 
@@ -3187,10 +3194,12 @@ impl FunctionTranslator<'_> {
 
                     match self.shadow_stack.last().unwrap().clone() {
                         MaybeStackValue::MutRegister(reg) | MaybeStackValue::Register(reg) => {
-                            let can_skip_bounds_check = matches!(
-                                self.properties.get(&ValueOrRegister::Register(reg)),
-                                Some(Properties::NonEmptyList)
-                            );
+                            // let can_skip_bounds_check = matches!(
+                            //     self.properties.get(&ValueOrRegister::Register(reg)),
+                            //     Some(Properties::NonEmptyList)
+                            // );
+
+                            let can_skip_bounds_check = false;
 
                             if can_skip_bounds_check {
                                 self.shadow_stack.pop();
@@ -3202,10 +3211,10 @@ impl FunctionTranslator<'_> {
                             } else {
                                 // If its a non empty list, the next time we use it, we can skip bounds
                                 // checks since we know that it has a cdr.
-                                self.properties.insert(
-                                    ValueOrRegister::Register(reg),
-                                    Properties::NonEmptyList,
-                                );
+                                // self.properties.insert(
+                                //     ValueOrRegister::Register(reg),
+                                //     Properties::NonEmptyList,
+                                // );
 
                                 self.shadow_stack.pop();
                                 let reg = self.register_index(reg);
@@ -3266,16 +3275,24 @@ impl FunctionTranslator<'_> {
                         let test = last_ref.unwrap().value;
                         // let test = self.builder.ins().uextend(types::I64, test);
                         self.shadow_stack.pop();
-                        let value = self.builder.ins().icmp_imm(IntCC::Equal, test, 0);
+                        // let value = self.builder.ins().icmp_imm(IntCC::Equal, test, 0);
+
+                        let value = self.builder.ins().bxor_imm(test, 1);
+
                         self.push(value, InferredType::UnboxedBool);
                         self.ip += 2;
                     } else if last_ref.map(|x| x.inferred_type) == Some(InferredType::Bool) {
                         let (test, _) = self.shadow_pop();
                         // If this matches SteelVal::BoolV(false)
                         // exactly, then we're done.
-                        let false_value = self.create_i128(encode(SteelVal::BoolV(false)));
+                        let payload = self.unbox_value(test);
+                        let test_condition = self.builder.ins().ireduce(types::I8, payload);
+                        let false_value = self.builder.ins().iconst(types::I8, 0);
+                        let comparison =
+                            self.builder
+                                .ins()
+                                .icmp(IntCC::Equal, test_condition, false_value);
 
-                        let comparison = self.builder.ins().icmp(IntCC::Equal, test, false_value);
                         let res = self.builder.ins().uextend(types::I64, comparison);
                         let boolean =
                             self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
@@ -5793,9 +5810,22 @@ impl FunctionTranslator<'_> {
                 let constant = self.constants.get_value(payload);
 
                 match &constant {
-                    SteelVal::BoolV(_) | SteelVal::IntV(_) | SteelVal::CharV(_) => {
-                        self.create_i128(encode(constant))
+                    // SteelVal::CharV(_) => self.create_i128(encode(constant)),
+                    SteelVal::CharV(c) => {
+                        let res = self.builder.ins().iconst(Type::int(64).unwrap(), *c as i64);
+                        self.encode_value(SteelVal::CHAR_TAG as _, res)
                     }
+
+                    SteelVal::BoolV(b) => {
+                        if *b {
+                            self.encode_true()
+                        } else {
+                            self.encode_false()
+                        }
+                    }
+
+                    SteelVal::IntV(i) => self.encode_integer(*i as _),
+
                     _ => self.push_const_index(payload),
                     // _ => self.call_function_returns_value(op_to_name_payload(op1, payload)),
                 }
@@ -5838,6 +5868,11 @@ impl FunctionTranslator<'_> {
         let res = self.builder.ins().iconst(Type::int(64).unwrap(), 0);
         let boolean = self.encode_value(discriminant(&SteelVal::BoolV(false)) as i64, res);
         boolean
+    }
+
+    fn encode_void(&mut self) -> Value {
+        let res = self.builder.ins().iconst(Type::int(64).unwrap(), 0);
+        self.encode_value(discriminant(&SteelVal::Void) as i64, res)
     }
 
     fn encode_integer(&mut self, integer: i64) -> Value {
@@ -6013,8 +6048,9 @@ impl FunctionTranslator<'_> {
 
         let then_return = if then_out_of_bounds {
             // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
-            self.create_i128(encode(SteelVal::IntV(12345)))
+            // self.create_i128(encode(SteelVal::IntV(12345)))
 
+            self.encode_integer(12345)
             // BlockArg::Value(
             //     self.maybe_shadow_pop()
             //         .map(|x| {
@@ -6087,7 +6123,8 @@ impl FunctionTranslator<'_> {
         // Returned, therefore we don't need to do anything.
         let else_return = if else_out_of_bounds {
             // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
-            self.create_i128(encode(SteelVal::IntV(12345)))
+
+            self.encode_integer(12345)
 
             // BlockArg::Value(
             //     self.maybe_shadow_pop()
@@ -6159,7 +6196,9 @@ impl FunctionTranslator<'_> {
 
                 self.if_bound = last_bound;
 
-                self.create_i128(encode(SteelVal::Void))
+                // self.create_i128(encode(SteelVal::Void))
+
+                self.encode_void()
             }
             (false, true) => {
                 // Jump to the merge block, passing it the block return value.
@@ -6184,7 +6223,9 @@ impl FunctionTranslator<'_> {
 
                 self.if_bound = last_bound;
 
-                self.create_i128(encode(SteelVal::Void))
+                // self.create_i128(encode(SteelVal::Void))
+
+                self.encode_void()
             }
             (false, false) => {
                 // TODO:
@@ -6279,6 +6320,7 @@ impl FunctionTranslator<'_> {
 
     fn push_to_vm_stack(&mut self, value: Value) {
         self.push_to_vm_stack_let_var_new(value);
+        // self.push_to_vm_stack_let_var(value);
     }
 
     fn push_to_vm_stack_old(&mut self, value: Value) {
@@ -6481,7 +6523,9 @@ impl FunctionTranslator<'_> {
 
                         println!("FOO BAR");
                         let void = SteelVal::Void;
-                        ctx.create_i128(encode(void))
+                        // ctx.create_i128(encode(void))
+
+                        ctx.encode_void()
                     },
                     typ,
                 )
