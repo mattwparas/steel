@@ -637,8 +637,18 @@ impl Default for JIT {
         );
 
         map.add_func2(
+            "drop-value-post-fast-dec-closure",
+            abi! { drop_value_post_fast_decrement_closure as fn(Gc<ByteCodeLambda>) },
+        );
+
+        map.add_func2(
             "drop-value-slow-dec",
             abi! { drop_value_slow_decrement as fn(SteelVal) },
+        );
+
+        map.add_func2(
+            "drop-value-slow-dec-closure",
+            abi! { drop_value_slow_decrement_closure as fn(Gc<ByteCodeLambda>) },
         );
 
         map.add_func2(
@@ -3611,6 +3621,92 @@ impl FunctionTranslator<'_> {
             self.builder.seal_block(no_tl);
 
             self.call_function_args_no_context("drop-value-slow-dec", &[tagged_value]);
+
+            self.builder.ins().jump(total_merge, &[]);
+        }
+
+        self.builder.switch_to_block(total_merge);
+        self.builder.seal_block(total_merge);
+    }
+
+    fn drop_biased_rc_unboxed_closure(&mut self, value: Value) {
+        // First, we need to get the pointer to the box,
+        // load it, and then we'll inline the calls for decrement.
+        //
+        // That will also mean we'll need to add the thread id
+        // as an argument to the JIT. For now we're not going to do that
+        // while I figure out if we can even do this thing properly.
+
+        // let value = self.unbox_value_to_pointer(tagged_value);
+
+        let is_thread_local = self.check_value_tl(value);
+
+        // Make two kinds of blocks:
+        let yes_tl = self.builder.create_block();
+        let no_tl = self.builder.create_block();
+
+        let total_merge = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(is_thread_local, yes_tl, &[], no_tl, &[]);
+
+        self.builder.switch_to_block(yes_tl);
+        self.builder.seal_block(yes_tl);
+
+        // Yes block
+        {
+            let local_count =
+                self.builder
+                    .ins()
+                    .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+
+            // let one = self.builder.ins().iconst(Type::int(32).unwrap(), 1);
+
+            let sub_one = self.builder.ins().iadd_imm(local_count, -1);
+
+            self.builder.ins().store(MemFlags::new(), sub_one, value, 8);
+
+            let yes_drop = self.builder.create_block();
+            let merge_block = self.builder.create_block();
+
+            // let updated_count =
+            //     self.builder
+            //         .ins()
+            //         .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+
+            // Then we need to check if its greater than 0:
+
+            let should_continue = self
+                .builder
+                .ins()
+                .icmp_imm(IntCC::SignedGreaterThan, sub_one, 0);
+
+            // Merge block because we need to jump back and continue
+            self.builder
+                .ins()
+                .brif(should_continue, merge_block, &[], yes_drop, &[]);
+
+            self.builder.switch_to_block(yes_drop);
+            self.builder.seal_block(yes_drop);
+
+            // Drop the value after we've determined that we can inline the drop function.
+            self.call_function_args_no_context("drop-value-post-fast-dec-closure", &[value]);
+
+            self.builder.ins().jump(merge_block, &[]);
+
+            self.builder.switch_to_block(merge_block);
+            self.builder.seal_block(merge_block);
+
+            self.builder.ins().jump(total_merge, &[]);
+        }
+
+        // Slow drop with decrement included
+        {
+            self.builder.switch_to_block(no_tl);
+            self.builder.seal_block(no_tl);
+
+            self.call_function_args_no_context("drop-value-slow-dec-closure", &[value]);
 
             self.builder.ins().jump(total_merge, &[]);
         }
@@ -6784,7 +6880,7 @@ impl FunctionTranslator<'_> {
                 // its null or not. If it is, we'll want to pass the frame
                 // by value in, call drop on it, and close the things as needed
                 // in order for drop to get called.
-                let popped_frame = ctx.inline_pop_from_stack_frames(vm_ctx);
+                let (popped_frame, fat_ptr) = ctx.inline_pop_from_stack_frames(vm_ctx);
 
                 // first, we'll check if the attachments isn't null.
                 // And then, we'll invoke drop on the frame for the attachments.
@@ -6813,6 +6909,13 @@ impl FunctionTranslator<'_> {
                         // on to the requisite spots on the VM context
 
                         let sp = ctx.builder.ins().uextend(types::I64, popped_frame.sp);
+
+                        // TODO: Keep track of the new length, pass that in
+                        // to push to vm stack in order to simply just write to
+                        // the new location; or alternatively, fuse these operations
+                        // together, where I can just truncate and then immediately
+                        // write this value to the end, eliminate a store of the length
+                        // changing twice.
                         ctx.truncate_stack(vm_ctx, sp, None);
                         ctx.push_to_vm_stack(value);
 
@@ -6831,7 +6934,15 @@ impl FunctionTranslator<'_> {
                             offset_of!(VmCore, instructions) as i32,
                         );
 
-                        let sp = ctx.read_last_sp(vm_ctx);
+                        // let sp = ctx.read_last_sp(vm_ctx, Some(fat_ptr));
+                        let sp = ctx.read_last_sp(vm_ctx, None);
+
+                        // TODO: @Matt
+                        // Call drop on the function here!
+                        // We don't need to totally encode the function here like this
+                        // let func =
+                        //     ctx.encode_value(SteelVal::CLOSURE_TAG as _, popped_frame.function);
+                        ctx.drop_biased_rc_unboxed_closure(popped_frame.function);
 
                         ctx.builder.ins().store(
                             MemFlags::trusted(),
@@ -6856,7 +6967,12 @@ impl FunctionTranslator<'_> {
     // make this better by passing in the length from
     // the previous read so we don't have to read all
     // this stuff. Its already read from before.
-    fn read_last_sp(&mut self, vm_ctx: Value) -> Value {
+    fn read_last_sp(&mut self, vm_ctx: Value, fat_ptr: Option<(Value, Value)>) -> Value {
+        // let (buf_ptr, new_length) = if let Some((buf_ptr, length)) = fat_ptr {
+        //     let new_length = self.builder.ins().iadd_imm(length, -1);
+
+        //     (buf_ptr, new_length)
+        // } else {
         let thread_offset = offset_of!(VmCore, thread);
 
         // This represents the first part of the thread
@@ -6869,7 +6985,6 @@ impl FunctionTranslator<'_> {
 
         // Stack offset:
         let stack_offset = offset_of!(SteelThread, stack_frames);
-
         let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
 
         let stack_length = self.builder.ins().load(
@@ -6879,34 +6994,46 @@ impl FunctionTranslator<'_> {
             (stack_offset + len_offset) as i32,
         );
 
-        // Last thing
-        let new_length = self.builder.ins().iadd_imm(stack_length, -1);
+        // (buf_ptr, new_length)
+        // };
 
-        let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
+        let condition = self.builder.ins().icmp_imm(IntCC::Equal, stack_length, 0);
 
-        let buf_ptr = self.builder.ins().load(
-            Type::int(64).unwrap(),
-            MemFlags::trusted(),
-            thread_pointer,
-            (stack_offset + ptr_offset) as i32,
-        );
+        self.converging_if(
+            condition,
+            |ctx| ctx.builder.ins().iconst(types::I64, 0),
+            |ctx| {
+                // Last thing
+                let new_length = ctx.builder.ins().iadd_imm(stack_length, -1);
 
-        let size: i64 = std::mem::size_of::<StackFrame>() as _;
-        let offset = self.builder.ins().imul_imm(new_length, size);
-        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+                let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
 
-        // Load the stack frame. We're going to use this later.
-        let value = self.builder.ins().load(
-            types::I32,
-            MemFlags::trusted(),
-            slot_ptr,
-            offset_of!(StackFrame, sp) as i32,
-        );
+                let buf_ptr = ctx.builder.ins().load(
+                    Type::int(64).unwrap(),
+                    MemFlags::trusted(),
+                    thread_pointer,
+                    (stack_offset + ptr_offset) as i32,
+                );
 
-        self.builder.ins().uextend(types::I64, value)
+                let size: i64 = std::mem::size_of::<StackFrame>() as _;
+                let offset = ctx.builder.ins().imul_imm(new_length, size);
+                let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
+
+                // Load the stack frame. We're going to use this later.
+                let value = ctx.builder.ins().load(
+                    types::I32,
+                    MemFlags::trusted(),
+                    slot_ptr,
+                    offset_of!(StackFrame, sp) as i32,
+                );
+
+                ctx.builder.ins().uextend(types::I64, value)
+            },
+            types::I64,
+        )
     }
 
-    fn inline_pop_from_stack_frames(&mut self, vm_ctx: Value) -> StackFrameRepr {
+    fn inline_pop_from_stack_frames(&mut self, vm_ctx: Value) -> (StackFrameRepr, (Value, Value)) {
         let thread_offset = offset_of!(VmCore, thread);
 
         // This represents the first part of the thread
@@ -6951,39 +7078,44 @@ impl FunctionTranslator<'_> {
         let offset = self.builder.ins().imul_imm(new_length, size);
         let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
 
+        let sp_offset = (buf_ptr, new_length);
+
         // Load the stack frame. We're going to use this later.
-        StackFrameRepr {
-            sp: self.builder.ins().load(
-                types::I32,
-                MemFlags::trusted(),
-                slot_ptr,
-                offset_of!(StackFrame, sp) as i32,
-            ),
-            ip: self.builder.ins().load(
-                types::I32,
-                MemFlags::trusted(),
-                slot_ptr,
-                offset_of!(StackFrame, ip) as i32,
-            ),
-            instructions: self.builder.ins().load(
-                types::I128,
-                MemFlags::trusted(),
-                slot_ptr,
-                offset_of!(StackFrame, instructions) as i32,
-            ),
-            function: self.builder.ins().load(
-                types::I64,
-                MemFlags::trusted(),
-                slot_ptr,
-                offset_of!(StackFrame, function) as i32,
-            ),
-            attachments: self.builder.ins().load(
-                types::I64,
-                MemFlags::trusted(),
-                slot_ptr,
-                offset_of!(StackFrame, attachments) as i32,
-            ),
-        }
+        (
+            StackFrameRepr {
+                sp: self.builder.ins().load(
+                    types::I32,
+                    MemFlags::trusted(),
+                    slot_ptr,
+                    offset_of!(StackFrame, sp) as i32,
+                ),
+                ip: self.builder.ins().load(
+                    types::I32,
+                    MemFlags::trusted(),
+                    slot_ptr,
+                    offset_of!(StackFrame, ip) as i32,
+                ),
+                instructions: self.builder.ins().load(
+                    types::I128,
+                    MemFlags::trusted(),
+                    slot_ptr,
+                    offset_of!(StackFrame, instructions) as i32,
+                ),
+                function: self.builder.ins().load(
+                    types::I64,
+                    MemFlags::trusted(),
+                    slot_ptr,
+                    offset_of!(StackFrame, function) as i32,
+                ),
+                attachments: self.builder.ins().load(
+                    types::I64,
+                    MemFlags::trusted(),
+                    slot_ptr,
+                    offset_of!(StackFrame, attachments) as i32,
+                ),
+            },
+            sp_offset,
+        )
     }
 
     // TODO: Might want to merge this with some of the

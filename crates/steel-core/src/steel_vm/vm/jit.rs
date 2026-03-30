@@ -477,6 +477,13 @@ fn drop_value_post_fast_decrement(arg: SteelVal) {
 }
 
 #[cross_platform_fn]
+fn drop_value_post_fast_decrement_closure(arg: Gc<ByteCodeLambda>) {
+    use SteelVal::*;
+    let mut arg = ManuallyDrop::new(arg);
+    arg.0.fast_decrement_post_ref_count_dec();
+}
+
+#[cross_platform_fn]
 fn handle_attachments_pop(ctx: *mut VmCore, attachments: Option<Box<StackFrameAttachments>>) {
     let mut ctx = unsafe { &mut *ctx };
 
@@ -756,6 +763,14 @@ fn drop_value_slow_decrement(arg: SteelVal) {
         }
     };
 }
+
+#[cross_platform_fn]
+fn drop_value_slow_decrement_closure(arg: Gc<ByteCodeLambda>) {
+    use SteelVal::*;
+    let mut arg = ManuallyDrop::new(arg);
+    arg.0.raw_slow_decrement();
+}
+
 #[cross_platform_fn]
 fn pop_value(ctx: *mut VmCore) -> SteelVal {
     unsafe { &mut *ctx }.thread.stack.pop().unwrap()
