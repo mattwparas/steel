@@ -6473,17 +6473,17 @@ impl FunctionTranslator<'_> {
                 // to capture the stack length without needing to compute the value
                 ctx.push_stack_frame(arity as _, func, instr_fat_ptr, fallback_ip);
 
-                ctx.call_function_no_return("#%debug-stack-frames");
+                // ctx.call_function_no_return("#%debug-stack-frames");
 
                 // ctx.call_function_no_return("#%debug-stack-frames");
                 // ctx.call_function_no_return("#%debug-stack");
 
-                ctx.call_function_no_return("#%debug-instructions-before");
+                // ctx.call_function_no_return("#%debug-instructions-before");
 
                 let jit_func = ctx.get_jit_func(id);
                 ctx.builder.ins().call(jit_func, &[vm_ctx]);
 
-                ctx.call_function_no_return("#%debug-instructions-after");
+                // ctx.call_function_no_return("#%debug-instructions-after");
 
                 let ip = ctx.builder.ins().load(
                     types::I64,
@@ -6492,7 +6492,7 @@ impl FunctionTranslator<'_> {
                     offset_of!(VmCore, ip) as i32,
                 );
 
-                ctx.call_function_args_no_context("#%debug-value", &[ip]);
+                // ctx.call_function_args_no_context("#%debug-value", &[ip]);
 
                 // ctx.call_function_no_return("#%debug-is-native");
 
@@ -6512,16 +6512,16 @@ impl FunctionTranslator<'_> {
                     is_still_native,
                     |ctx| ctx.inline_pop_from_stack(vm_ctx),
                     |ctx| {
-                        let fallback = ctx.builder.ins().iconst(types::I64, fallback_ip as i64 + 1);
-                        ctx.builder.ins().store(
-                            MemFlags::trusted(),
-                            fallback,
-                            vm_ctx,
-                            offset_of!(VmCore, ip) as i32,
-                        );
+                        // let fallback = ctx.builder.ins().iconst(types::I64, fallback_ip as i64 + 1);
+                        // ctx.builder.ins().store(
+                        //     MemFlags::trusted(),
+                        //     fallback,
+                        //     vm_ctx,
+                        //     offset_of!(VmCore, ip) as i32,
+                        // );
 
-                        println!("FOO BAR");
-                        let void = SteelVal::Void;
+                        // println!("FOO BAR");
+                        // let void = SteelVal::Void;
                         // ctx.create_i128(encode(void))
 
                         ctx.encode_void()
@@ -6799,9 +6799,9 @@ impl FunctionTranslator<'_> {
                     offset_of!(VmCore, instructions) as i32,
                 );
 
-                ctx.call_function_args_no_context("#%debug-instructions", &[current_instructions]);
+                // ctx.call_function_args_no_context("#%debug-instructions", &[current_instructions]);
 
-                ctx.call_function_args_no_context("#%debug-instructions2", &[instr_fat_ptr]);
+                // ctx.call_function_args_no_context("#%debug-instructions2", &[instr_fat_ptr]);
 
                 // TODO: This doesn't work correctly; we need to
                 // construct a fat pointer here. So I need something
