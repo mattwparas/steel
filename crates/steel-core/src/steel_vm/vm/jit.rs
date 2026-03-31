@@ -4875,7 +4875,6 @@ macro_rules! make_call_self_function_deopt_no_arity {
 fn setup_closure_call(ctx: *mut VmCore, closure: Gc<ByteCodeLambda>) -> SteelVal {
     let mut ctx = unsafe { &mut *ctx };
     let closure = ManuallyDrop::new(closure);
-    println!("Calling closure call with is_native: {}", ctx.is_native);
     ctx.ip += 1;
     ctx.handle_function_call_closure_jit_no_arity((&*closure).clone());
     SteelVal::Void
