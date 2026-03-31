@@ -3059,6 +3059,10 @@ impl FunctionTranslator<'_> {
                     self.func_ret_val_named("lte-binop-int", payload, 2, InferredType::Bool);
                 }
 
+                // TODO: @Matt
+                //
+                // This is where we have to be better; use the registers, use the constants,
+                // and inline the numeric ops since these are likely to be extremely common.
                 OpCode::NUMEQUAL
                     if payload == 2
                         && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
