@@ -4832,14 +4832,11 @@ macro_rules! make_call_self_function_deopt_no_arity {
                             #[cfg(debug_assertions)]
                             let depth = ctx.thread.stack_frames.len();
 
-                            println!("{:p}", closure.body_exp().inner);
-
                             // Install the function, so that way we can just trampoline
                             // without needing to spill the stack
                             ctx.handle_function_call_closure_jit_no_arity(closure)
                                 .unwrap();
 
-                            println!("{:?}", ctx.thread.stack_frames.last().map(|x| x.ip));
 
                             (func)(ctx);
 
@@ -4878,6 +4875,8 @@ macro_rules! make_call_self_function_deopt_no_arity {
 fn setup_closure_call(ctx: *mut VmCore, closure: Gc<ByteCodeLambda>) -> SteelVal {
     let mut ctx = unsafe { &mut *ctx };
     let closure = ManuallyDrop::new(closure);
+    println!("Calling closure call with is_native: {}", ctx.is_native);
+    ctx.ip += 1;
     ctx.handle_function_call_closure_jit_no_arity((&*closure).clone());
     SteelVal::Void
 }
