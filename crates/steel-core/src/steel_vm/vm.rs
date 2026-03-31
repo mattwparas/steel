@@ -1,7 +1,7 @@
 use crate::compiler::compiler::Compiler;
 use crate::compiler::modules::fully_qualified_to_relative;
 use crate::compiler::passes::VisitorMutRefUnit;
-use crate::core::instructions::{pretty_print_dense_instructions, u24};
+use crate::core::instructions::u24;
 use crate::env::SharedVectorWrapper;
 use crate::gc::shared::{
     MutContainer, ShareableMut, Shared, StandardShared, StandardSharedMut, WeakShared,
@@ -4394,12 +4394,14 @@ impl<'a> VmCore<'a> {
                 .insert(closure_id, spans);
 
             #[cfg(feature = "jit2")]
-            let constructed_lambda =
-                if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
-                    jit::jit_compile_lambda(self, constructed_lambda)
-                } else {
-                    constructed_lambda
-                };
+            let constructed_lambda = if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str())
+                != Ok("false")
+                && cfg!(not(all(target_os = "windows", target_arch = "aarch64")))
+            {
+                jit::jit_compile_lambda(self, constructed_lambda)
+            } else {
+                constructed_lambda
+            };
 
             let constructed_lambda = Gc::new(constructed_lambda);
 
