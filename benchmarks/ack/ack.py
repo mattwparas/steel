@@ -9,7 +9,7 @@ def ack1(M, N):
 
 
 start = time.time()
-for i in range(50):
+for i in range(10000):
     ack1(3, 3)
 end = time.time()
 

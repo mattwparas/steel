@@ -610,6 +610,11 @@ impl Default for JIT {
         );
 
         map.add_func(
+            "num-equal-int-register",
+            abi! { num_equal_int_register as fn(*mut VmCore, usize, SteelVal) -> bool },
+        );
+
+        map.add_func(
             "equal-binop",
             abi! { equal_binop as fn(*mut VmCore, SteelVal, SteelVal) -> SteelVal },
         );
@@ -2837,15 +2842,68 @@ impl FunctionTranslator<'_> {
                         ) =>
                 {
                     let value = self.shadow_stack.pop().unwrap().into_value();
+
+                    let value_as_steelval = value.as_steelval(self);
+
                     let register = self.shadow_stack.pop().unwrap().into_index();
 
-                    let register = self.builder.ins().iconst(types::I64, register as i64);
+                    // Lets check the left hand size, handle overflow as necessary:
 
-                    let args = [register, value.as_steelval(self)];
-                    let result = self.call_function_returns_value_args("add-binop-reg", &args);
+                    let register_value = self.read_from_vm_stack(register);
+                    let left_is_int = self.is_type(register_value, SteelVal::INT_TAG);
 
-                    // Check the inferred type, if we know of it
-                    self.push(result, InferredType::Number);
+                    // If the right hand side is already classified as an int, then
+                    // we can skip checking if its an integer.
+                    let both_int = if value.inferred_type == InferredType::Int {
+                        left_is_int
+                    } else {
+                        let right_is_int = self.is_type(value_as_steelval, SteelVal::INT_TAG);
+                        let both_int = self.builder.ins().band(left_is_int, right_is_int);
+                        both_int
+                    };
+
+                    let typ = self.int;
+
+                    let mut sp = |ctx: &mut Self| {
+                        let register = ctx.builder.ins().iconst(types::I64, register as i64);
+                        let args = [register, value_as_steelval];
+                        let result = ctx.call_function_returns_value_args("add-binop-reg", &args);
+
+                        result
+                    };
+
+                    let res = self.converging_if(
+                        both_int,
+                        |ctx| {
+                            // This is pointer sized, we're good to shrink it down
+                            // to a pointer. both have to be int tag, otherwise we fall back to
+                            // a function, and we'll return the usual
+                            let left_payload = ctx.unbox_value_to_pointer(register_value);
+                            let right_payload = ctx.unbox_value_to_pointer(value_as_steelval);
+
+                            // Add the values, did they overflow?
+                            let (added, overflow_flag) =
+                                ctx.builder.ins().sadd_overflow(left_payload, right_payload);
+
+                            ctx.converging_if(
+                                overflow_flag,
+                                sp,
+                                |ctx| {
+                                    // Happy path, just return the boxed integer value.
+                                    ctx.encode_value(SteelVal::INT_TAG as _, added)
+                                },
+                                typ,
+                            )
+                        },
+                        |ctx| {
+                            let res = sp(ctx);
+                            ctx.check_deopt();
+                            res
+                        },
+                        typ,
+                    );
+
+                    self.push(res, InferredType::Number);
 
                     self.ip += 2;
                 }
@@ -3059,6 +3117,70 @@ impl FunctionTranslator<'_> {
                     self.func_ret_val_named("lte-binop-int", payload, 2, InferredType::Bool);
                 }
 
+                // In the event they're register @ value, we can probably just flip it
+                OpCode::NUMEQUAL
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[
+                                MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
+                                MaybeStackValue::Value(_),
+                            ])
+                        )
+                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
+                            == Some(InferredType::Int) =>
+                {
+                    // Lets assume, for now, that we'll happy path the case where they're both
+                    // ints. We would need to implement something more sophisticated for checking
+                    // otherwise.
+
+                    // This will be our constant value:
+                    let last = self.shadow_stack.pop().unwrap().into_value();
+
+                    // This is now our register; this is where the values will live.
+                    let register = self.shadow_stack.pop().unwrap().into_index();
+                    let register_value = self.read_from_vm_stack(register);
+
+                    // Check if the tags are the same, and they're numeric:
+                    let is_register_int = self.is_type(register_value, SteelVal::INT_TAG);
+
+                    // Just check equality of the unboxed values
+
+                    let res = self.converging_if(
+                        is_register_int,
+                        |ctx| {
+                            // We can't rely on the tag matching in this world unfortunately.
+                            // Tags coming from rust land in debug mode could have garbage in the
+                            // padding that otherwise isn't there in the release build.
+                            let register_payload = ctx.unbox_value_to_pointer(register_value);
+                            let rhs = ctx.unbox_value_to_pointer(last.value);
+                            ctx.builder.ins().icmp(IntCC::Equal, register_payload, rhs)
+                        },
+                        |ctx| {
+                            // Handle the else case here as well
+                            // todo!();
+
+                            let register_int =
+                                ctx.builder.ins().iconst(types::I64, register as i64);
+
+                            let vm_ctx = ctx.get_ctx();
+
+                            let res = ctx.call_function_returns_value_args_no_context(
+                                "num-equal-int-register",
+                                &[vm_ctx, register_int, last.value],
+                            );
+
+                            // Make sure to check the deopt case here
+                            ctx.check_deopt();
+
+                            res
+                        },
+                        types::I8,
+                    );
+
+                    self.push(res, InferredType::UnboxedBool);
+                    self.ip += 2;
+                }
                 // TODO: @Matt
                 //
                 // This is where we have to be better; use the registers, use the constants,

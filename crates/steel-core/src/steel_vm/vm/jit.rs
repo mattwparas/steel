@@ -2065,6 +2065,26 @@ fn num_equal_int(left: SteelVal, right: SteelVal) -> SteelVal {
 }
 
 #[cross_platform_fn]
+fn num_equal_int_register(ctx: *mut VmCore, i: usize, right: SteelVal) -> bool {
+    assert!(matches!(right, SteelVal::IntV(_) | SteelVal::BigNum(_)));
+    let ctx = unsafe { &mut *ctx };
+
+    let offset = ctx.get_offset();
+    let left = &ctx.thread.stack[i + offset];
+
+    match number_equality(&left, &right) {
+        Ok(SteelVal::BoolV(b)) => b,
+        Err(e) => unsafe {
+            let guard = &mut *ctx;
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+            false
+        },
+        _ => unreachable!(),
+    }
+}
+
+#[cross_platform_fn]
 fn equal_binop(_ctx: *mut VmCore, left: SteelVal, right: SteelVal) -> SteelVal {
     SteelVal::BoolV(left == right)
 }

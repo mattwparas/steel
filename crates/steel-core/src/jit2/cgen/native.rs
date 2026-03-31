@@ -130,20 +130,6 @@ impl<'a> FunctionTranslator<'a> {
             (StackValue { value: lv, .. }, StackValue { value: rv, .. }) => {
                 let left_is_int = self.is_type(lv, SteelVal::INT_TAG);
                 let right_is_int = self.is_type(rv, SteelVal::INT_TAG);
-
-                // let (ltag, left_payload) = self.get_tag_and_payload(lv);
-                // let (rtag, right_payload) = self.get_tag_and_payload(rv);
-
-                // let left_is_int =
-                //     self.builder
-                //         .ins()
-                //         .icmp_imm(IntCC::Equal, ltag, SteelVal::INT_TAG as i64);
-
-                // let right_is_int =
-                //     self.builder
-                //         .ins()
-                //         .icmp_imm(IntCC::Equal, rtag, SteelVal::INT_TAG as i64);
-
                 let both_int = self.builder.ins().band(left_is_int, right_is_int);
 
                 let sp = |ctx: &mut Self| {
@@ -163,9 +149,6 @@ impl<'a> FunctionTranslator<'a> {
                         // a function, and we'll return the usual
                         let left_payload = ctx.unbox_value_to_pointer(lv);
                         let right_payload = ctx.unbox_value_to_pointer(rv);
-
-                        // let left_payload = lv;
-                        // let right_payload = rv;
 
                         // Add the values, did they overflow?
                         let (added, overflow_flag) =
