@@ -35,7 +35,10 @@ use std::{
 
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use steel_parser::{ast::PROVIDE, span::Span};
+use steel_parser::{
+    ast::{AstTools, PROVIDE},
+    span::Span,
+};
 
 use crate::rvals::{Result, SteelVal};
 
@@ -1202,6 +1205,7 @@ impl Compiler {
         let expanded_statements =
             self.apply_const_evaluation(constant_primitives(), expanded_statements, false)?;
 
+        // TODO: Because this runs here, we're losing the ability to lift pure local functions.
         let expanded_statements = flatten_begins_and_expand_defines(expanded_statements)?;
 
         // TODO: Move this to its own function
@@ -1210,18 +1214,9 @@ impl Compiler {
         #[cfg(feature = "profiling")]
         let now = Instant::now();
 
-        // println!("--- Before renaming: ----");
-        // expanded_statements.pretty_print();
-
         // TODO: Probably lift this above the const evaluation anyway
         self.shadowed_variable_renamer
             .rename_shadowed_variables(&mut expanded_statements, true);
-
-        // println!("--- After renaming: ----");
-        // expanded_statements.pretty_print();
-
-        // let mut expanded_statements =
-        //     self.apply_const_evaluation(constants.clone(), expanded_statements, false)?;
 
         let mut analysis = core::mem::take(&mut self.analysis);
 
@@ -1251,12 +1246,6 @@ impl Compiler {
             )
             .lift_pure_local_functions()
             .lift_all_local_functions();
-
-        // Here:
-
-        // Discover modules:
-
-        // debug!("About to expand defines");
 
         log::debug!(target: "expansion-phase", "Flattening begins, converting internal defines to let expressions");
 

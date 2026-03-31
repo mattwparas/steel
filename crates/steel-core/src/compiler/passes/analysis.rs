@@ -19,7 +19,7 @@ use crate::{
 use quickscope::{ScopeMap, ScopeSet};
 use smallvec::SmallVec;
 use steel_parser::{
-    ast::{Begin, PROTO_HASH_GET},
+    ast::{AstTools, Begin, PROTO_HASH_GET},
     parser::SourceId,
     tokens::{IntLiteral, NumberLiteral, RealLiteral},
 };
@@ -3790,6 +3790,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
             for mut escape_checker in found_escape_checkers {
                 if escape_checker.check_let(l) {
+                    println!("Escape checker: {}", escape_checker.unbox_var);
                     return;
                 }
             }
@@ -3827,6 +3828,10 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                             for (index, expr) in b.exprs.iter_mut().enumerate() {
                                 if let Some(found_escape_checker) = &mut found_escape_checker {
                                     if found_escape_checker.check(expr) {
+                                        println!(
+                                            "3831: Escape checker invalidated expression: {}",
+                                            expression
+                                        );
                                         return;
                                     }
                                 }
@@ -3854,6 +3859,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
                                                     // First, check the function:
                                                     if escape_checker.check(expression) {
+                                                        println!("3859: Escape checker invalidated expression: {}", expression);
                                                         return;
                                                     }
 
@@ -4144,27 +4150,29 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                                 }
                             }
 
+                            println!("Validated call to: {}", self.unbox_var);
+
                             return;
                         }
                     }
                 }
 
                 if let Some(rest) = l.args.get(1..) {
+                    println!("Original list: {}", l);
                     for arg in rest {
-                        if let ExprKind::List(l) = arg {
-                            if let Some(ExprKind::List(il)) = l.first() {
-                                if il.first_ident().copied() == Some(*UNBOX) {
-                                    if il.second_ident().copied() == Some(self.unbox_var) {
-                                        self.escapes = true;
-                                        return;
-                                    }
+                        if let ExprKind::List(il) = arg {
+                            if il.first_ident().copied() == Some(*UNBOX) {
+                                if il.second_ident().copied() == Some(self.unbox_var) {
+                                    self.escapes = true;
+                                    println!("Escapes at: {}", l);
+                                    return;
                                 }
                             }
                         }
                     }
                 }
 
-                self.visit_list(l)
+                self.visit_list(l);
             }
             ExprKind::SyntaxRules(s) => self.visit_syntax_rules(s),
             ExprKind::Set(s) => self.visit_set(s),
@@ -4175,11 +4183,11 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
     }
 
     fn visit_atom(&mut self, a: &'a Atom) {
-        if let Some(identifier) = a.ident() {
-            if *identifier == self.unbox_var {
-                self.escapes = true;
-            }
-        }
+        // if let Some(identifier) = a.ident() {
+        //     if *identifier == self.unbox_var {
+        //         self.escapes = true;
+        //     }
+        // }
     }
 }
 
@@ -4665,7 +4673,8 @@ impl<'a> VisitorMutRefUnit for LiftLocallyDefinedFunctions<'a> {
 
                             // println!("{}", define.body);
                         } else {
-                            log::trace!(target: "lambda-lifting", "Found a pure local function: {}", define.name);
+                            // log::trace!(target: "lambda-lifting", "Found a pure local function: {}", define.name);
+                            println!("Found a pure local function: {}", define.name);
                             functions.push((
                                 index,
                                 define.name.atom_identifier().unwrap().to_string(),
@@ -6869,11 +6878,14 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     pub fn lift_closures(&mut self) -> &mut Self {
+        self.exprs.pretty_print();
         let mut lifter = LiftClosuresToGlobalScope::new(&self.analysis);
         for expr in self.exprs.iter_mut() {
             lifter.visit(expr);
             lifter.found_funcs.clear();
         }
+
+        println!("Lifted functions: {}", lifter.lifted_functions.len());
 
         lifter.lifted_functions.append(&mut self.exprs);
         *self.exprs = lifter.lifted_functions;

@@ -4593,7 +4593,10 @@ impl<'a> VmCore<'a> {
         }
     }
 
-    // #[inline(always)]
+    // TODO: This is a bit of a concern; we're just going to clone
+    // needlessly off the stack, only for the values to just get dropped
+    // again on the other side. It might make a bit more sense (although)
+    // it would be a chore - to instead move values?
     fn call_boxed_func(
         &mut self,
         func: &dyn Fn(&[SteelVal]) -> Result<SteelVal>,

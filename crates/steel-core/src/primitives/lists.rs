@@ -467,12 +467,15 @@ pub fn pair(list: &SteelVal) -> bool {
 /// ```
 #[steel_derive::function(name = "cons", arity = "Exact(2)")]
 pub fn cons(arg: &mut SteelVal, arg2: &mut SteelVal) -> Result<SteelVal> {
-    match (core::mem::replace(arg, SteelVal::Void), arg2) {
-        (left, SteelVal::ListV(right)) => {
+    match (
+        core::mem::replace(arg, SteelVal::Void),
+        core::mem::replace(arg2, SteelVal::Void),
+    ) {
+        (left, SteelVal::ListV(mut right)) => {
             right.cons_mut(left);
 
             // Consider moving in a default value instead of cloning?
-            Ok(SteelVal::ListV(right.clone()))
+            Ok(SteelVal::ListV(right))
         }
         // Silly, but this then gives us a special "pair" that is different
         // from a real bonafide list

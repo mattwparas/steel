@@ -807,10 +807,6 @@ impl ModuleManager {
 
             name_mangler.mangle_vars(&mut module_ast);
 
-            println!("PRINTING MANGLED AST");
-
-            module_ast.pretty_print();
-
             mangled_asts.append(&mut module_ast);
         }
 
