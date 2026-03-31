@@ -11,7 +11,7 @@
 ; (set! ackermann ackermann)
 
 (define (loop x)
-  (if (equal? x 100)
+  (if (equal? x 10000)
       #true
       (begin
         (ackermann 3 3)
@@ -22,7 +22,7 @@
 
 ; (ackermann 1 1)
 
-(loop 50)
+; (loop 50)
 
 ; 0     DynSuperInstruction : 0       ;; m
 ; 1     LOADINT0            : 563     ;; 0

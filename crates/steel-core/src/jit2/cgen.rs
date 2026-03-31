@@ -2,67 +2,40 @@
 #![allow(improper_ctypes_definitions)]
 #![allow(unpredictable_function_pointer_comparisons)]
 
+mod native;
+
+use core::mem::offset_of;
 use cranelift::{
     codegen::ir::{ArgumentPurpose, FuncRef, GlobalValue, StackSlot, Type},
+    frontend::Switch,
     prelude::{isa::CallConv, *},
 };
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, FuncId, Linkage, Module};
-use std::collections::{HashMap, VecDeque};
 use std::{collections::HashSet, slice};
+use std::{
+    collections::{HashMap, VecDeque},
+    mem::ManuallyDrop,
+};
+use steel_derive::cross_platform_fn;
 use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
 
 use crate::{
     compiler::constants::ConstantMap,
     core::instructions::{pretty_print_dense_instructions, DenseInstruction},
+    gc::Gc,
     primitives::{
-        lists::steel_pair,
+        lists::{steel_is_empty, steel_pair},
         ports::{eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char},
         strings::{char_equals_binop, steel_char_equals},
         vectors::steel_mut_vec_set,
     },
     rvals::FunctionSignature,
     steel_vm::{
-        primitives::steel_eq,
-        vm::{
-            jit::{
-                _push_to_vm_stack_function_spill, box_handler_c,
-                call_global_function_deopt_no_arity_spilled, call_global_function_deopt_spilled,
-                callglobal_handler_deopt_c, callglobal_tail_handler_deopt_spilled, car_handler_reg,
-                car_handler_reg_no_check, car_handler_value, cdr_handler_mut_reg,
-                cdr_handler_mut_reg_no_check, cdr_handler_reg, cdr_handler_reg_no_check,
-                cdr_handler_value, check_callable, check_callable_spill, check_callable_tail,
-                check_callable_value, check_callable_value_tail, cons_handler_value, drop_value,
-                eq_reg_1, eq_reg_2, eq_value, equal_binop, extern_c_add_four, extern_c_add_three,
-                extern_c_add_two, extern_c_add_two_binop_register,
-                extern_c_add_two_binop_register_both, extern_c_div_two, extern_c_gt_two,
-                extern_c_gte_two, extern_c_lt_two, extern_c_lt_two_int, extern_c_lte_two,
-                extern_c_lte_two_int, extern_c_mult_three, extern_c_mult_two, extern_c_negate,
-                extern_c_null_handler, extern_c_sub_three, extern_c_sub_two, extern_c_sub_two_int,
-                extern_c_sub_two_int_reg, extern_handle_pop, handle_new_start_closure,
-                handle_pure_function, if_handler_raw_value, if_handler_register, if_handler_value,
-                is_pair_c_reg, let_end_scope_c, list_handler_c, list_ref_handler_c,
-                move_read_local_0_value_c, move_read_local_1_value_c, move_read_local_2_value_c,
-                move_read_local_3_value_c, move_read_local_any_value_c, not_handler_raw_value,
-                num_equal_int, num_equal_value, num_equal_value_unboxed, pop_value,
-                push_const_value_c, push_const_value_index_c, push_global, push_to_vm_stack,
-                push_to_vm_stack_let_var, push_to_vm_stack_two, read_captured_c,
-                read_local_0_value_c, read_local_1_value_c, read_local_2_value_c,
-                read_local_3_value_c, read_local_any_value_c, self_tail_call_handler,
-                self_tail_call_handler_loop, set_handler_c, set_local_any_c, setbox_handler_c,
-                should_spill, should_spill_value, tcojmp_handler, unbox_handler_c, vec_handler_c,
-                vector_ref_handler_c, vector_ref_handler_register, vector_ref_handler_register_two,
-                vector_set_handler_register_one, vector_set_handler_register_three,
-                vector_set_handler_register_two, vector_set_handler_stack, CallFunctionDefinitions,
-                CallFunctionTailDefinitions, CallGlobalFunctionDefinitions,
-                CallGlobalNoArityFunctionDefinitions, CallGlobalTailFunctionDefinitions,
-                CallPrimitiveDefinitions, CallPrimitiveFixedDefinitions,
-                CallPrimitiveMutDefinitions, CallSelfTailCallNoArityDefinitions,
-                CallSelfTailCallNoArityLoopDefinitions, ListHandlerDefinitions,
-            },
-            VmCore,
-        },
+        primitives::{steel_eq, steel_listp, steel_stringp, steel_symbolp, steel_voidp},
+        vm::{jit::*, StackFrame, StackFrameAttachments, SteelThread, VmCore},
     },
+    values::functions::{ByteCodeLambda, RootedInstructions},
     SteelVal,
 };
 
@@ -359,6 +332,84 @@ macro_rules! abi {
     };
 }
 
+#[cross_platform_fn]
+fn debug_count(value: i32) {
+    println!("Count: {}", value);
+}
+
+#[cross_platform_fn]
+fn debug_int(value: i64) {
+    println!("Value: {}", value);
+}
+
+#[cross_platform_fn]
+fn debug_value(value: SteelVal) {
+    let mut value = ManuallyDrop::new(value);
+    println!("Value: {}", &*value);
+}
+
+#[cross_platform_fn]
+fn debug_stack_frames(ctx: *mut VmCore) {
+    let ctx = unsafe { &mut *ctx };
+    println!("--- after push stack frames ---");
+    println!("Stack frame length: {}", ctx.thread.stack_frames.len());
+
+    let last_frame = ctx.thread.stack_frames.last();
+
+    if let Some(last) = last_frame {
+        println!("sp: {}", last.sp);
+        println!("ip: {}", last.ip);
+        println!("instruction addr: {:p}", last.instructions.inner);
+    } else {
+        println!("No frame on stack")
+    }
+}
+
+#[cross_platform_fn]
+fn debug_instructions_before(ctx: *mut VmCore) {
+    let ctx = unsafe { &mut *ctx };
+    println!("instructions before call: {:?}", ctx.instructions);
+}
+
+#[cross_platform_fn]
+fn debug_instructions_after(ctx: *mut VmCore) {
+    let ctx = unsafe { &mut *ctx };
+    println!("instructions after call: {:?}", ctx.instructions);
+}
+
+#[cross_platform_fn]
+fn debug_stack_before(ctx: *mut VmCore) {
+    let ctx = unsafe { &mut *ctx };
+    println!("Stack length before: {}", ctx.thread.stack.len());
+}
+
+#[cross_platform_fn]
+fn debug_stack_after(ctx: *mut VmCore) {
+    let ctx = unsafe { &mut *ctx };
+    println!("Stack length after: {}", ctx.thread.stack.len());
+}
+
+#[cross_platform_fn]
+fn debug_is_native(ctx: *mut VmCore) {
+    let ctx = unsafe { &mut *ctx };
+    println!("vm is native: {}", ctx.is_native);
+}
+
+#[cross_platform_fn]
+fn debug_tag(value: i8) {
+    println!("Tag: {}", value);
+}
+
+#[cross_platform_fn]
+fn debug_instructions(value: RootedInstructions) {
+    println!("Current instructions: {:?}", value);
+}
+
+#[cross_platform_fn]
+fn debug_instructions2(value: RootedInstructions) {
+    println!("fat pointer instructions: {:?}", value);
+}
+
 impl Default for JIT {
     fn default() -> Self {
         let mut flag_builder = settings::builder();
@@ -395,9 +446,106 @@ impl Default for JIT {
             return_type_hints: HashMap::new(),
         };
 
+        map.add_func2("#%debug-steel-value", abi! { debug_value as fn(SteelVal) });
+        map.add_func2("#%debug-value", abi! { debug_int as fn(i64) });
+        map.add_func2("#%debug-count", abi! { debug_count as fn(i32) });
+        map.add_func2("#%debug-tag", abi! { debug_tag as fn(i8) });
+
+        map.add_func2(
+            "#%debug-instructions",
+            abi! { debug_instructions as fn(RootedInstructions)},
+        );
+
+        map.add_func2(
+            "#%debug-instructions2",
+            abi! { debug_instructions2 as fn(RootedInstructions)},
+        );
+
+        map.add_func(
+            "#%debug-stack-frames",
+            abi! { debug_stack_frames as fn(*mut VmCore) },
+        );
+
+        map.add_func(
+            "#%debug-instructions-before",
+            abi! { debug_instructions_before as fn(*mut VmCore) },
+        );
+        map.add_func(
+            "#%debug-instructions-after",
+            abi! { debug_instructions_after as fn(*mut VmCore) },
+        );
+
+        map.add_func(
+            "#%debug-stack-before",
+            abi! { debug_stack_before as fn(*mut VmCore) },
+        );
+        map.add_func(
+            "#%debug-stack-after",
+            abi! { debug_stack_after as fn(*mut VmCore) },
+        );
+        map.add_func(
+            "#%debug-is-native",
+            abi! { debug_is_native as fn(*mut VmCore) },
+        );
+
         map.add_func(
             "pair?",
             abi! { is_pair_c_reg as fn(*mut VmCore, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "pair?-value",
+            abi! { is_pair_value as fn(SteelVal) -> SteelVal },
+        );
+
+        map.add_func(
+            "list?",
+            abi! { is_list_c_reg as fn(*mut VmCore, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "list?-value",
+            abi! { is_list_value as fn(SteelVal) -> SteelVal },
+        );
+
+        map.add_func(
+            "void?",
+            abi! { is_void_c_reg as fn(*mut VmCore, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "void?-value",
+            abi! { is_void_value as fn(SteelVal) -> SteelVal },
+        );
+
+        map.add_func(
+            "string?",
+            abi! { is_string_c_reg as fn(*mut VmCore, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "string?-value",
+            abi! { is_string_value as fn(SteelVal) -> SteelVal },
+        );
+
+        map.add_func(
+            "symbol?",
+            abi! { is_symbol_c_reg as fn(*mut VmCore, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "symbol?-value",
+            abi! { is_symbol_value as fn(SteelVal) -> SteelVal },
+        );
+
+        map.add_func(
+            "empty?",
+            abi! { is_empty_c_reg as fn(*mut VmCore, usize) -> SteelVal },
+        );
+
+        map.add_func2(
+            "empty?-value",
+            abi! { is_empty_value as fn(SteelVal) -> SteelVal },
         );
 
         map.add_func(
@@ -481,6 +629,58 @@ impl Default for JIT {
             abi! { drop_value as fn(*mut VmCore, SteelVal) },
         );
 
+        map.add_func2("drop-one", abi! { drop_one as fn(SteelVal) });
+
+        map.add_func2(
+            "drop-value-post-fast-dec",
+            abi! { drop_value_post_fast_decrement as fn(SteelVal) },
+        );
+
+        map.add_func2(
+            "drop-value-post-fast-dec-closure",
+            abi! { drop_value_post_fast_decrement_closure as fn(Gc<ByteCodeLambda>) },
+        );
+
+        map.add_func2(
+            "drop-value-slow-dec",
+            abi! { drop_value_slow_decrement as fn(SteelVal) },
+        );
+
+        map.add_func2(
+            "drop-value-slow-dec-closure",
+            abi! { drop_value_slow_decrement_closure as fn(Gc<ByteCodeLambda>) },
+        );
+
+        map.add_func2(
+            "raw-slow-increment",
+            abi! { increment_ref_count_slow as fn(SteelVal) },
+        );
+
+        map.add_func2(
+            "raw-slow-increment-closure",
+            abi! { increment_ref_count_slow_closure as fn(Gc<ByteCodeLambda>) },
+        );
+
+        map.add_func(
+            "#%handle-attachments",
+            abi! { handle_attachments_pop as fn(*mut VmCore, Option<Box<StackFrameAttachments>>) },
+        );
+
+        map.add_func(
+            "#%pop-slow-path-finish",
+            abi! { pop_slow_path_finish as fn(*mut VmCore, value: SteelVal) },
+        );
+
+        map.add_func(
+            "slow-grow-stack",
+            abi! { grow_stack_slow as fn(*mut VmCore) },
+        );
+
+        map.add_func(
+            "slow-grow-frame-stack",
+            abi! { grow_frame_stack_slow as fn(*mut VmCore) },
+        );
+
         map.add_func(
             "pop-from-stack",
             abi! { pop_value as fn(*mut VmCore) -> SteelVal },
@@ -500,6 +700,13 @@ impl Default for JIT {
             "pure-func",
             abi! { handle_pure_function as fn(*mut VmCore, usize, usize) -> SteelVal },
         );
+
+        map.add_func(
+            "#%setup-closure",
+            abi! { setup_closure_call as fn(*mut VmCore, Gc<ByteCodeLambda>) -> SteelVal },
+        );
+
+        CallSelfNoArityFunctionDefinitions::register(&mut map);
 
         CallGlobalFunctionDefinitions::register(&mut map);
         CallGlobalNoArityFunctionDefinitions::register(&mut map);
@@ -777,6 +984,13 @@ impl Default for JIT {
             InferredType::Number,
         );
 
+        map.add_func_hint(
+            "sub-binop-reg",
+            abi! { extern_c_sub_two_reg
+            as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
+            InferredType::Number,
+        );
+
         map.add_func_hint("lt-binop", extern_c_lt_two as VmBinOp, InferredType::Bool);
 
         map.add_func_hint("lte-binop", extern_c_lte_two as VmBinOp, InferredType::Bool);
@@ -785,6 +999,18 @@ impl Default for JIT {
             "lte-binop-int",
             extern_c_lte_two_int as BinOp,
             InferredType::Bool,
+        );
+
+        map.add_func_hint(
+            "lte-register",
+            abi! { extern_c_lte_register as fn(*mut VmCore, usize, SteelVal) -> bool },
+            InferredType::UnboxedBool,
+        );
+
+        map.add_func_hint(
+            "lte-register-int",
+            abi! { extern_c_lte_register_int as fn(*mut VmCore, usize, SteelVal) -> bool },
+            InferredType::UnboxedBool,
         );
 
         map.add_func_hint2(
@@ -909,6 +1135,7 @@ unsafe fn compile_bytecode(
     globals: &[SteelVal],
     constants: &ConstantMap,
     function_index: Option<usize>,
+    slot: Option<&Gc<ByteCodeLambda>>,
 ) -> Result<fn(&mut VmCore), String> {
     // Pass the string to the JIT, and it returns a raw pointer to machine code.
     // TODO: We'll want to do two different functions.
@@ -921,7 +1148,7 @@ unsafe fn compile_bytecode(
     // The only difference I believe will be the signature, and we'll have to
     // take the parameters into account in this case - they won't come from the VM
     // stack but will instead come from the native stack.
-    let code_ptr = jit.compile(name, arity, code, globals, constants, function_index)?;
+    let code_ptr = jit.compile(name, arity, code, globals, constants, function_index, slot)?;
     // Cast the raw pointer to a typed function pointer. This is unsafe, because
     // this is the critical point where you have to trust that the generated code
     // is safe to be called.
@@ -938,8 +1165,20 @@ impl JIT {
         globals: &[SteelVal],
         constants: &ConstantMap,
         function_index: Option<usize>,
+        slot: Option<&Gc<ByteCodeLambda>>,
     ) -> Result<fn(&mut VmCore), String> {
-        unsafe { compile_bytecode(self, name, arity, code, globals, constants, function_index) }
+        unsafe {
+            compile_bytecode(
+                self,
+                name,
+                arity,
+                code,
+                globals,
+                constants,
+                function_index,
+                slot,
+            )
+        }
     }
 }
 
@@ -975,6 +1214,7 @@ impl JIT {
         globals: &[SteelVal],
         constants: &ConstantMap,
         function_index: Option<usize>,
+        slot: Option<&Gc<ByteCodeLambda>>,
     ) -> Result<*const u8, String> {
         // self.ctx.set_disasm(true);
 
@@ -1011,6 +1251,7 @@ impl JIT {
             globals,
             constants,
             function_index,
+            slot,
         )?;
 
         if let Err(e) = cranelift::codegen::verify_function(&self.ctx.func, self.module.isa()) {
@@ -1071,7 +1312,8 @@ impl JIT {
         bytecode: &[DenseInstruction],
         globals: &[SteelVal], // stmts: Vec<Expr>,
         constants: &ConstantMap,
-        _function_context: Option<usize>,
+        function_context: Option<usize>,
+        slot: Option<&Gc<ByteCodeLambda>>,
     ) -> Result<(), String> {
         // println!("----- Compiling function ----");
 
@@ -1163,6 +1405,8 @@ impl JIT {
             if_stack: Vec::new(),
             if_bound: None,
             vm_context,
+            slot,
+            function_context,
             // cloned_stack: false,
             // generators: Default::default(),
         };
@@ -1190,12 +1434,18 @@ impl JIT {
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 pub enum InferredType {
+    // If we know this is an i64 concretely
+    Int64,
+
     // Could be either an i64 or a big int
     Int,
     // Is just straight up, unboxed, meaning
     // its represented by a u8 on the stack on not
     // a 128.
     UnboxedBool,
+
+    // when we know its a floating point
+    Float,
 
     // Generic number, could be anything
     Number,
@@ -1223,6 +1473,10 @@ pub enum InferredType {
     Function,
 
     Char,
+
+    String,
+
+    Symbol,
 }
 
 // #[derive(Debug, Clone, Copy)]
@@ -1277,6 +1531,14 @@ enum ConstantValue {
     Index(usize),
 }
 
+struct StackFrameRepr {
+    sp: Value,
+    ip: Value,
+    instructions: Value,
+    function: Value,
+    attachments: Value,
+}
+
 impl ConstantValue {
     fn as_steelval(self) -> SteelVal {
         match self {
@@ -1312,7 +1574,8 @@ impl ConstantValue {
             // what the type is based on the values coming in
             ConstantValue::Index(p) => (ctx.push_const_index(p), InferredType::Any),
             _ => {
-                let value = ctx.create_i128(encode(self.as_steelval()));
+                // let value = ctx.create_i128(encode(self.as_steelval()));
+                let value = ctx.encode_void();
                 (value, self.as_typ())
             }
         }
@@ -1360,6 +1623,20 @@ enum Properties {
     // then we're both going to be listed as a proper list type,
     // and also this will successfully return without error.
     NonEmptyList,
+
+    // Assuming coming in to this we didn't know the type,
+    // after running an identity via something like `list?`,
+    // then we can tag the value for use later on. This is helpful
+    // when reaching a phi node where the type might not be known
+    // across branches. If the type is found to be true, then during
+    // the true branch, we can assert that this is the type,
+    // and skip a bunch of extraneous type checks. So in this case,
+    // this is a conditional check, attached to a boolean or unboxed
+    // boolean, stating that its possible that this value may be
+    // true or false.
+    CheckedString,
+    CheckedList,
+    CheckedPair,
 }
 
 impl MaybeStackValue {
@@ -1449,6 +1726,8 @@ struct FunctionTranslator<'a> {
     vm_context: GlobalValue,
     // vm_context: StackSlot,
     // generators: LazyInstructionGenerators,
+    slot: Option<&'a Gc<ByteCodeLambda>>,
+    function_context: Option<usize>,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -1713,8 +1992,10 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::VOID => {
                     // Push void onto stack?
-                    let void = SteelVal::Void;
-                    let value = self.create_i128(encode(void));
+                    // let void = SteelVal::Void;
+                    // let value = self.create_i128(encode(void));
+
+                    let value = self.encode_void();
 
                     self.push(value, InferredType::Void);
 
@@ -1763,6 +2044,8 @@ impl FunctionTranslator<'_> {
 
                             // Explicitly want the unboxed value here
                             let test_bool = last_ref.unwrap().value;
+
+                            // dbg!(self.builder.func.dfg.value_type(test_bool));
 
                             self.shadow_stack.pop();
 
@@ -2009,7 +2292,7 @@ impl FunctionTranslator<'_> {
                     // we need to check if this is actually spilled or not.
                     //
                     // It shouldn't be though
-                    self.push_to_vm_stack_let_var(last);
+                    self.push_to_vm_stack_let_var_new(last);
                 }
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
@@ -2069,7 +2352,9 @@ impl FunctionTranslator<'_> {
                     // TODO: Move back to using loop?
                     // let _ = self.translate_tco_jmp_no_arity_without_spill(payload);
 
-                    // let _ = self.translate_tco_jmp_no_arity(payload);
+                    // let _ = self._translate_tco_jmp_no_arity(payload);
+
+                    // self.translate_tco_jmp(payload);
                     // Jump to out of bounds so signal we're done
                     self.ip = self.instructions.len() + 1;
 
@@ -2121,9 +2406,58 @@ impl FunctionTranslator<'_> {
                     let function_index = payload;
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
+
+                    // Okay, lets do a few things:
+                    //
+                    // We should attach some context for whether or not this is a closure.
+                    //
+                    // If its not a closure (i.e. has no captured values) then we can actually
+                    // embed the function directly into the call site. This should in theory,
+                    // make things a lot faster since now we'll be able to avoid dispatches
+                    // on the global environment.
+                    //
+                    // The biggest issue now, is that the function pointer that we pass to _this_
+                    // is not necessarily bound yet at the VM level. What we can do though is probably
+                    // eagerly determine for pure functions what index we're going to bind to.
+                    //
+                    // If its bound to a pure function, then we can embed the pointer directly
+                    // into the value, and then also leak the ref count here and embed it
+                    // directly into the generated code, so that we can call the function
+                    // without needing to look it up?
                     let name = CallGlobalNoArityFunctionDefinitions::arity_to_name(arity);
 
-                    if let Some(name) = name {
+                    let self_name = CallSelfNoArityFunctionDefinitions::arity_to_name(arity);
+
+                    // Okay, lets try to install the self call if we have the ability to.
+                    //
+                    // We're also going to commit some very nasty crimes by just arbitrarily passing
+                    // the value to the function as is, and hope for the best :)
+                    if self.slot.is_some()
+                        && self_name.is_some()
+                        && self._globals.get(payload).is_none()
+                        && self.function_context == Some(function_index)
+                    {
+                        const USE_EXPERIMENTAL_CALL: bool = true;
+
+                        if USE_EXPERIMENTAL_CALL {
+                            let slot = self.slot.unwrap().clone();
+
+                            let result = self.call_self_function_experimental(
+                                arity,
+                                self_name.unwrap(),
+                                slot,
+                            );
+
+                            self.push(result, InferredType::Any);
+                        } else {
+                            let slot = self.slot.unwrap().clone();
+                            let result =
+                                self.call_self_function(arity, self_name.unwrap(), slot, false);
+
+                            // Assuming this worked, we'll want to push this result on to the stack.
+                            self.push(result, InferredType::Any);
+                        }
+                    } else if let Some(name) = name {
                         let result = self.call_global_function(arity, name, function_index, false);
 
                         // Assuming this worked, we'll want to push this result on to the stack.
@@ -2156,13 +2490,12 @@ impl FunctionTranslator<'_> {
                             let arity = self.instructions[self.ip].payload_size.to_usize();
 
                             // Install lots of lookups for this stuff
-                            if f == crate::primitives::strings::steel_char_equals
-                                as FunctionSignature
-                                && arity == 2
-                                && false
-                            {
-                                self.char_equals(arity);
-                            }
+                            // if f == crate::primitives::strings::steel_char_equals
+                            //     as FunctionSignature
+                            //     && arity == 2
+                            // {
+                            //     self.char_equals(arity);
+                            // }
                             /*
                             else if f == steel_read_char as FunctionSignature
                                 && arity == 1
@@ -2171,53 +2504,80 @@ impl FunctionTranslator<'_> {
                                 self.read_char(arity);
                             }
                             */
-                            else if f == steel_eof_objectp as FunctionSignature
-                                && arity == 1
-                                && false
-                            {
-                                // Encode the object... Any others we can encode in this way?
-                                self.eof_object()
-                            } else if f == steel_mut_vec_set as FunctionSignature
-                                && arity == 3
-                                && false
-                            {
-                                self.vector_set()
-                            } else if f == steel_eq as FunctionSignature && arity == 2 && false {
-                                self.eq()
-                            } else if f == steel_pair as FunctionSignature && arity == 1 && false {
-                                self.is_pair()
-                            } else {
-                                let name = CallPrimitiveDefinitions::arity_to_name(arity);
 
-                                if let Some(name) = name {
-                                    // attempt to move forward with it
-                                    let additional_args = self.split_off(arity);
-
-                                    let function = self.builder.ins().iconst(
-                                        self.module.target_config().pointer_type(),
-                                        // f as *const fn(&[SteelVal]) -> Result<SteelVal, crate::SteelErr>
-                                        //     as i64,
-                                        f as i64,
-                                    );
-
-                                    let fallback_ip = self
-                                        .builder
-                                        .ins()
-                                        .iconst(Type::int(64).unwrap(), self.ip as i64);
-
-                                    let mut args = vec![function, fallback_ip];
-
-                                    args.extend(additional_args.into_iter().map(|x| x.0));
-
-                                    let result = self.call_function_returns_value_args(name, &args);
-                                    self.push(result, InferredType::Any);
-                                    self.ip += 1;
-                                    self.check_deopt();
-                                } else {
-                                    self.ip -= 1;
-                                    self.call_global_impl(payload);
+                            // TODO: Can we abstract this into its own thing?
+                            match f {
+                                f if f == steel_stringp as FunctionSignature && arity == 1 => {
+                                    self.is_string()
                                 }
-                            }
+
+                                f if f == steel_char_equals as FunctionSignature && arity == 2 => {
+                                    self.char_equals(arity)
+                                }
+
+                                f if f == steel_listp as FunctionSignature && arity == 1 => {
+                                    self.is_list()
+                                }
+
+                                f if f == steel_voidp as FunctionSignature && arity == 1 => {
+                                    self.is_void()
+                                }
+
+                                f if f == steel_eof_objectp as FunctionSignature && arity == 1 => {
+                                    self.eof_object()
+                                }
+
+                                f if f == steel_symbolp as FunctionSignature && arity == 1 => {
+                                    self.is_symbol()
+                                }
+
+                                f if f == steel_mut_vec_set as FunctionSignature && arity == 3 => {
+                                    self.vector_set()
+                                }
+
+                                f if f == steel_eq as FunctionSignature && arity == 2 => self.eq(),
+
+                                f if f == steel_pair as FunctionSignature && arity == 1 => {
+                                    self.is_pair()
+                                }
+
+                                f if f == steel_is_empty as FunctionSignature && arity == 1 => {
+                                    self.is_empty()
+                                }
+                                _ => {
+                                    let name = CallPrimitiveDefinitions::arity_to_name(arity);
+
+                                    if let Some(name) = name {
+                                        // attempt to move forward with it
+                                        let additional_args = self.split_off(arity);
+
+                                        let function = self.builder.ins().iconst(
+                                            self.module.target_config().pointer_type(),
+                                            // f as *const fn(&[SteelVal]) -> Result<SteelVal, crate::SteelErr>
+                                            //     as i64,
+                                            f as i64,
+                                        );
+
+                                        let fallback_ip = self
+                                            .builder
+                                            .ins()
+                                            .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+                                        let mut args = vec![function, fallback_ip];
+
+                                        args.extend(additional_args.into_iter().map(|x| x.0));
+
+                                        let result =
+                                            self.call_function_returns_value_args(name, &args);
+                                        self.push(result, InferredType::Any);
+                                        self.ip += 1;
+                                        self.check_deopt();
+                                    } else {
+                                        self.ip -= 1;
+                                        self.call_global_impl(payload);
+                                    }
+                                }
+                            };
                         }
 
                         Some(SteelVal::MutFunc(f)) => {
@@ -2309,16 +2669,52 @@ impl FunctionTranslator<'_> {
 
                     // let last = self.let_var_stack.iter().sum::<usize>() + self.arity as usize;
 
-                    self.let_var_stack.pop().unwrap();
+                    let amt = self.let_var_stack.pop().unwrap();
 
-                    // if last != payload {
-                    //     pretty_print_dense_instructions(&self.instructions);
-                    //     assert_eq!(last, payload);
-                    // }
+                    // println!("let end scope amount: {}", amt);
 
-                    self.call_end_scope_handler(payload);
+                    for index in 0..self.shadow_stack.len() {
+                        let v = self.shadow_stack.get_mut(index).unwrap();
+                        match v {
+                            MaybeStackValue::MutRegister(r) if *r >= payload as usize => {
+                                let r = *r;
+                                let (value, _) = self.mut_register_to_value(r);
+
+                                self.properties.remove(&ValueOrRegister::Register(r));
+
+                                self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                                    value,
+                                    inferred_type: InferredType::Any,
+                                    spilled: false,
+                                });
+                            }
+                            MaybeStackValue::Register(r) if *r >= payload as usize => {
+                                let r = *r;
+                                let (value, _) = self.immutable_register_to_value(r);
+
+                                self.properties.remove(&ValueOrRegister::Register(r));
+
+                                self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
+                                    value,
+                                    inferred_type: InferredType::Any,
+                                    spilled: false,
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // If we know exactly how many elements we're dropping:
+
+                    // self.call_end_scope_handler(payload);
+
+                    self.inline_let_end_scope(payload, amt);
+
+                    // self.call_end_scope_handler_new(payload, amt);
                 }
 
+                // TODO: Depending on the inferred type, we can save a lot of
+                // operations here.
                 OpCode::SUB
                     if payload == 2
                         && matches!(
@@ -2333,15 +2729,74 @@ impl FunctionTranslator<'_> {
                         ) =>
                 {
                     let value = self.shadow_stack.pop().unwrap().into_value();
+                    let register_index = self.shadow_stack.pop().unwrap().into_index();
+
+                    // Do the shift here, in an effort to avoid passing more stuff?
+                    let value = value.as_steelval(self);
+
+                    let local_value = self.read_from_vm_stack(register_index);
+                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
+
+                    let sp = |ctx: &mut Self| {
+                        let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
+                        let args = [register, value];
+                        let result =
+                            ctx.call_function_returns_value_args("sub-binop-int-reg", &args);
+
+                        result
+                    };
+
+                    let result = self.converging_if(
+                        is_int,
+                        |ctx| {
+                            // If its an int, then we'll do checked subtraction:
+                            let lhs = ctx.unbox_value_to_pointer(local_value);
+                            let rhs = ctx.unbox_value_to_pointer(value);
+
+                            let (subbed, overflow_flag) = ctx.builder.ins().ssub_overflow(lhs, rhs);
+
+                            ctx.converging_if(
+                                overflow_flag,
+                                sp,
+                                |ctx| ctx.encode_value(SteelVal::INT_TAG as _, subbed),
+                                types::I128,
+                            )
+                        },
+                        sp,
+                        types::I128,
+                    );
+
+                    // let args = [register, value];
+                    // let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::Number);
+
+                    self.ip += 2;
+                }
+
+                OpCode::SUB
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[
+                                MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
+                                MaybeStackValue::Value(StackValue { .. })
+                            ])
+                        ) =>
+                {
+                    let value = self.shadow_stack.pop().unwrap().into_value();
                     let register = self.shadow_stack.pop().unwrap().into_index();
 
                     let register = self.builder.ins().iconst(types::I64, register as i64);
 
                     let args = [register, value.as_steelval(self)];
-                    let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
+                    let result = self.call_function_returns_value_args("sub-binop-reg", &args);
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::Number);
+
+                    self.check_deopt();
 
                     self.ip += 2;
                 }
@@ -2423,6 +2878,29 @@ impl FunctionTranslator<'_> {
                     self.ip += 2;
                 }
 
+                OpCode::ADD
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[MaybeStackValue::Value(_), MaybeStackValue::Value(_)])
+                        ) =>
+                {
+                    let MaybeStackValue::Value(r) = self.shadow_stack.pop().unwrap() else {
+                        panic!()
+                    };
+                    let MaybeStackValue::Value(l) = self.shadow_stack.pop().unwrap() else {
+                        panic!()
+                    };
+
+                    // TODO: Might be worth attempting to figure out what the inferred type
+                    // for function calls are, to propagate downward in the calls
+                    let (res, t) = self.binop_add_value(l, r);
+
+                    self.push(res, t);
+
+                    self.ip += 2;
+                }
+
                 // TODO: Specialize this a bit more. If we know that the RHS is some kind
                 // of constant, we can probably encode that a little bit more effectively
                 // in the generated code.
@@ -2458,6 +2936,111 @@ impl FunctionTranslator<'_> {
                     self.func_ret_val_named("lt-binop-int", payload, 2, InferredType::Bool);
                 }
 
+                // When the value is a mutable register, or register, and we're comparing
+                // it to a known constant / etc
+                OpCode::LTE
+                    if payload == 2
+                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
+                            == Some(InferredType::Int)
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2),
+                            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
+                        ) =>
+                {
+                    if payload == 2 {
+                        for arg in self
+                            .shadow_stack
+                            .get(self.shadow_stack.len() - payload..)
+                            .unwrap()
+                            .to_vec()
+                        {
+                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
+                        }
+                    }
+
+                    let rhs_int = self.shadow_stack.pop().unwrap().into_value();
+                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+
+                    // Happy path, lets check the type of the lhs. If its an integer tag, then we can go ahead and do the thing.
+                    // Otherwise, we'll bail and fall through:
+
+                    let local_value = self.read_from_vm_stack(register_l);
+                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
+
+                    let result = self.converging_if(
+                        is_int,
+                        |ctx| {
+                            // Just do less than or equal on the value:
+                            let lhs = ctx.unbox_value_to_pointer(local_value);
+                            let rhs = ctx.unbox_value_to_pointer(rhs_int.value);
+
+                            let res =
+                                ctx.builder
+                                    .ins()
+                                    .icmp(IntCC::SignedLessThanOrEqual, lhs, rhs);
+
+                            res
+                        },
+                        |ctx| {
+                            let register_l =
+                                ctx.builder.ins().iconst(types::I64, register_l as i64);
+                            let args = [register_l, rhs_int.value];
+                            let result =
+                                ctx.call_function_returns_value_args("lte-register-int", &args);
+                            ctx.check_deopt();
+
+                            result
+                        },
+                        types::I8,
+                    );
+
+                    // dbg!(self.local_to_value_map.get(&register_r));
+                    // dbg!(self.local_to_value_map.get(&register_l));
+
+                    // let local_value = self.read_from_vm_stack(register_l);
+                    // self.call_function_args_no_context("#%debug-steel-value", &[local_value]);
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::UnboxedBool);
+
+                    self.ip += 2;
+                }
+
+                OpCode::LTE
+                    if payload == 2
+                        && matches!(self.shadow_stack.last(), Some(MaybeStackValue::Value(_)))
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2),
+                            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
+                        ) =>
+                {
+                    if payload == 2 {
+                        for arg in self
+                            .shadow_stack
+                            .get(self.shadow_stack.len() - payload..)
+                            .unwrap()
+                            .to_vec()
+                        {
+                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
+                        }
+                    }
+
+                    let rhs_int = self.shadow_stack.pop().unwrap().into_value();
+                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+
+                    let register_l = self.builder.ins().iconst(types::I64, register_l as i64);
+
+                    let args = [register_l, rhs_int.value];
+                    let result = self.call_function_returns_value_args("lte-register", &args);
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::UnboxedBool);
+
+                    self.check_deopt();
+
+                    self.ip += 2;
+                }
+
                 OpCode::LTE
                     if payload == 2
                         && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
@@ -2476,6 +3059,10 @@ impl FunctionTranslator<'_> {
                     self.func_ret_val_named("lte-binop-int", payload, 2, InferredType::Bool);
                 }
 
+                // TODO: @Matt
+                //
+                // This is where we have to be better; use the registers, use the constants,
+                // and inline the numeric ops since these are likely to be extremely common.
                 OpCode::NUMEQUAL
                     if payload == 2
                         && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
@@ -2519,15 +3106,17 @@ impl FunctionTranslator<'_> {
                 // Cdr reg no type check, should be faster
                 OpCode::CDR => {
                     if let Some(last) = self.shadow_stack.last().copied() {
-                        self.shadow_mark_local_type_from_var(last, InferredType::List);
+                        self.shadow_mark_local_type_from_var(last, InferredType::ListOrPair);
                     }
 
                     match self.shadow_stack.last().unwrap().clone() {
                         MaybeStackValue::Register(reg) => {
-                            let can_skip_bounds_check = matches!(
-                                self.properties.get(&ValueOrRegister::Register(reg)),
-                                Some(Properties::NonEmptyList)
-                            );
+                            // let can_skip_bounds_check = matches!(
+                            //     self.properties.get(&ValueOrRegister::Register(reg)),
+                            //     Some(Properties::NonEmptyList)
+                            // );
+
+                            let can_skip_bounds_check = false;
 
                             self.shadow_stack.pop();
                             let reg = self.register_index(reg);
@@ -2539,15 +3128,18 @@ impl FunctionTranslator<'_> {
                             };
 
                             let res = self.call_function_returns_value_args(func, &[reg]);
-                            self.push(res, InferredType::List);
+                            self.push(res, InferredType::Any);
+                            self.check_deopt();
                             self.ip += 2;
                         }
 
                         MaybeStackValue::MutRegister(reg) => {
-                            let can_skip_bounds_check = matches!(
-                                self.properties.get(&ValueOrRegister::Register(reg)),
-                                Some(Properties::NonEmptyList)
-                            );
+                            // let can_skip_bounds_check = matches!(
+                            //     self.properties.get(&ValueOrRegister::Register(reg)),
+                            //     Some(Properties::NonEmptyList)
+                            // );
+
+                            let can_skip_bounds_check = false;
 
                             self.shadow_stack.pop();
 
@@ -2559,12 +3151,14 @@ impl FunctionTranslator<'_> {
 
                             let reg = self.register_index(reg);
                             let res = self.call_function_returns_value_args(func, &[reg]);
-                            self.push(res, InferredType::List);
+                            self.push(res, InferredType::Any);
+                            self.check_deopt();
                             self.ip += 2;
                         }
 
                         _ => {
-                            self.func_ret_val(op, 1, 2, InferredType::List);
+                            self.func_ret_val(op, 1, 2, InferredType::Any);
+                            self.check_deopt();
                         }
                     }
                 }
@@ -2634,15 +3228,17 @@ impl FunctionTranslator<'_> {
                 // the read local operations.
                 OpCode::CAR => {
                     if let Some(last) = self.shadow_stack.last().copied() {
-                        self.shadow_mark_local_type_from_var(last, InferredType::List);
+                        self.shadow_mark_local_type_from_var(last, InferredType::ListOrPair);
                     }
 
                     match self.shadow_stack.last().unwrap().clone() {
                         MaybeStackValue::MutRegister(reg) | MaybeStackValue::Register(reg) => {
-                            let can_skip_bounds_check = matches!(
-                                self.properties.get(&ValueOrRegister::Register(reg)),
-                                Some(Properties::NonEmptyList)
-                            );
+                            // let can_skip_bounds_check = matches!(
+                            //     self.properties.get(&ValueOrRegister::Register(reg)),
+                            //     Some(Properties::NonEmptyList)
+                            // );
+
+                            let can_skip_bounds_check = false;
 
                             if can_skip_bounds_check {
                                 self.shadow_stack.pop();
@@ -2654,10 +3250,10 @@ impl FunctionTranslator<'_> {
                             } else {
                                 // If its a non empty list, the next time we use it, we can skip bounds
                                 // checks since we know that it has a cdr.
-                                self.properties.insert(
-                                    ValueOrRegister::Register(reg),
-                                    Properties::NonEmptyList,
-                                );
+                                // self.properties.insert(
+                                //     ValueOrRegister::Register(reg),
+                                //     Properties::NonEmptyList,
+                                // );
 
                                 self.shadow_stack.pop();
                                 let reg = self.register_index(reg);
@@ -2665,10 +3261,13 @@ impl FunctionTranslator<'_> {
                                 self.push(res, InferredType::Any);
                                 self.ip += 2;
                             }
+
+                            self.check_deopt();
                         }
 
                         _ => {
                             self.func_ret_val(op, 1, 2, InferredType::Any);
+                            self.check_deopt();
                         }
                     }
                 }
@@ -2713,9 +3312,12 @@ impl FunctionTranslator<'_> {
 
                     if last_ref.map(|x| x.inferred_type) == Some(InferredType::UnboxedBool) {
                         let test = last_ref.unwrap().value;
-                        let test = self.builder.ins().uextend(types::I64, test);
+                        // let test = self.builder.ins().uextend(types::I64, test);
                         self.shadow_stack.pop();
-                        let value = self.builder.ins().icmp_imm(IntCC::Equal, test, 0);
+                        // let value = self.builder.ins().icmp_imm(IntCC::Equal, test, 0);
+
+                        let value = self.builder.ins().bxor_imm(test, 1);
+
                         self.push(value, InferredType::UnboxedBool);
                         self.ip += 2;
                     } else if last_ref.map(|x| x.inferred_type) == Some(InferredType::Bool) {
@@ -2866,6 +3468,463 @@ impl FunctionTranslator<'_> {
         todo!()
     }
 
+    fn drop_tagged_value(&mut self, value: Value) {
+        let tag = self.get_tag(value);
+
+        let mask = self
+            .builder
+            .ins()
+            .iconst(types::I64, SteelVal::UNBOXED_MASK as i64);
+        let shifted = self.builder.ins().ushr(mask, tag);
+        let is_unboxed = self.builder.ins().band_imm(shifted, 1);
+
+        let unboxed_block = self.builder.create_block();
+        let needs_drop = self.builder.create_block();
+        let merge_block = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(is_unboxed, unboxed_block, &[], needs_drop, &[]);
+
+        // Unboxed, meaning there is nothing to do here
+        self.builder.switch_to_block(unboxed_block);
+        self.builder.seal_block(unboxed_block);
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(needs_drop);
+        self.builder.seal_block(needs_drop);
+
+        let std_mask = self
+            .builder
+            .ins()
+            .iconst(types::I64, SteelVal::STANDARD_RC_MASK as i64);
+        let std_shifted = self.builder.ins().ushr(std_mask, tag);
+        let is_standard_rc = self.builder.ins().band_imm(std_shifted, 1);
+
+        let standard_rc_block = self.builder.create_block();
+        let special_rc_block = self.builder.create_block();
+        let drop_merge = self.builder.create_block();
+
+        self.builder.ins().brif(
+            is_standard_rc,
+            standard_rc_block,
+            &[],
+            special_rc_block,
+            &[],
+        );
+
+        self.builder.switch_to_block(standard_rc_block);
+        self.builder.seal_block(standard_rc_block);
+        self.drop_value(value); // straight RC decrement
+        self.builder.ins().jump(drop_merge, &[]);
+
+        self.builder.switch_to_block(special_rc_block);
+        self.builder.seal_block(special_rc_block);
+        self.drop_biased_rc(value); // TL-biased decrement
+        self.builder.ins().jump(drop_merge, &[]);
+
+        self.builder.switch_to_block(drop_merge);
+        self.builder.seal_block(drop_merge);
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(merge_block);
+        self.builder.seal_block(merge_block);
+    }
+
+    fn check_value_tl(&mut self, value: Value) -> Value {
+        let thread_id = self.get_thread_id();
+        let obj_thread_id =
+            self.builder
+                .ins()
+                .load(Type::int(64).unwrap(), MemFlags::new(), value, 0);
+
+        // Now, we're going to check if the value is local to this thread:
+        let is_thread_local = self
+            .builder
+            .ins()
+            .icmp(IntCC::Equal, thread_id, obj_thread_id);
+
+        is_thread_local
+    }
+
+    fn drop_biased_rc(&mut self, tagged_value: Value) {
+        // First, we need to get the pointer to the box,
+        // load it, and then we'll inline the calls for decrement.
+        //
+        // That will also mean we'll need to add the thread id
+        // as an argument to the JIT. For now we're not going to do that
+        // while I figure out if we can even do this thing properly.
+
+        let value = self.unbox_value_to_pointer(tagged_value);
+
+        let is_thread_local = self.check_value_tl(value);
+
+        // Make two kinds of blocks:
+        let yes_tl = self.builder.create_block();
+        let no_tl = self.builder.create_block();
+
+        let total_merge = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(is_thread_local, yes_tl, &[], no_tl, &[]);
+
+        self.builder.switch_to_block(yes_tl);
+        self.builder.seal_block(yes_tl);
+
+        // Yes block
+        {
+            let local_count =
+                self.builder
+                    .ins()
+                    .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+
+            // let one = self.builder.ins().iconst(Type::int(32).unwrap(), 1);
+
+            let sub_one = self.builder.ins().iadd_imm(local_count, -1);
+
+            self.builder.ins().store(MemFlags::new(), sub_one, value, 8);
+
+            let yes_drop = self.builder.create_block();
+            let merge_block = self.builder.create_block();
+
+            // let updated_count =
+            //     self.builder
+            //         .ins()
+            //         .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+
+            // Then we need to check if its greater than 0:
+
+            let should_continue = self
+                .builder
+                .ins()
+                .icmp_imm(IntCC::SignedGreaterThan, sub_one, 0);
+
+            // Merge block because we need to jump back and continue
+            self.builder
+                .ins()
+                .brif(should_continue, merge_block, &[], yes_drop, &[]);
+
+            self.builder.switch_to_block(yes_drop);
+            self.builder.seal_block(yes_drop);
+
+            // Drop the value after we've determined that we can inline the drop function.
+            self.call_function_args_no_context("drop-value-post-fast-dec", &[tagged_value]);
+
+            self.builder.ins().jump(merge_block, &[]);
+
+            self.builder.switch_to_block(merge_block);
+            self.builder.seal_block(merge_block);
+
+            self.builder.ins().jump(total_merge, &[]);
+        }
+
+        // Slow drop with decrement included
+        {
+            self.builder.switch_to_block(no_tl);
+            self.builder.seal_block(no_tl);
+
+            self.call_function_args_no_context("drop-value-slow-dec", &[tagged_value]);
+
+            self.builder.ins().jump(total_merge, &[]);
+        }
+
+        self.builder.switch_to_block(total_merge);
+        self.builder.seal_block(total_merge);
+    }
+
+    fn drop_biased_rc_unboxed_closure(&mut self, value: Value) {
+        // First, we need to get the pointer to the box,
+        // load it, and then we'll inline the calls for decrement.
+        //
+        // That will also mean we'll need to add the thread id
+        // as an argument to the JIT. For now we're not going to do that
+        // while I figure out if we can even do this thing properly.
+
+        // let value = self.unbox_value_to_pointer(tagged_value);
+
+        let is_thread_local = self.check_value_tl(value);
+
+        // Make two kinds of blocks:
+        let yes_tl = self.builder.create_block();
+        let no_tl = self.builder.create_block();
+
+        let total_merge = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(is_thread_local, yes_tl, &[], no_tl, &[]);
+
+        self.builder.switch_to_block(yes_tl);
+        self.builder.seal_block(yes_tl);
+
+        // Yes block
+        {
+            let local_count =
+                self.builder
+                    .ins()
+                    .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+
+            // let one = self.builder.ins().iconst(Type::int(32).unwrap(), 1);
+
+            let sub_one = self.builder.ins().iadd_imm(local_count, -1);
+
+            self.builder.ins().store(MemFlags::new(), sub_one, value, 8);
+
+            let yes_drop = self.builder.create_block();
+            let merge_block = self.builder.create_block();
+
+            // let updated_count =
+            //     self.builder
+            //         .ins()
+            //         .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+
+            // Then we need to check if its greater than 0:
+
+            let should_continue = self
+                .builder
+                .ins()
+                .icmp_imm(IntCC::SignedGreaterThan, sub_one, 0);
+
+            // Merge block because we need to jump back and continue
+            self.builder
+                .ins()
+                .brif(should_continue, merge_block, &[], yes_drop, &[]);
+
+            self.builder.switch_to_block(yes_drop);
+            self.builder.seal_block(yes_drop);
+
+            // Drop the value after we've determined that we can inline the drop function.
+            self.call_function_args_no_context("drop-value-post-fast-dec-closure", &[value]);
+
+            self.builder.ins().jump(merge_block, &[]);
+
+            self.builder.switch_to_block(merge_block);
+            self.builder.seal_block(merge_block);
+
+            self.builder.ins().jump(total_merge, &[]);
+        }
+
+        // Slow drop with decrement included
+        {
+            self.builder.switch_to_block(no_tl);
+            self.builder.seal_block(no_tl);
+
+            self.call_function_args_no_context("drop-value-slow-dec-closure", &[value]);
+
+            self.builder.ins().jump(total_merge, &[]);
+        }
+
+        self.builder.switch_to_block(total_merge);
+        self.builder.seal_block(total_merge);
+    }
+
+    // TODO: Replace this with a more sophisticated implementation that doesn't necessarily
+    // need the call if we have something like that
+    fn drop_value(&mut self, value: Value) {
+        self.call_function_args_no_context("drop-one", &[value]);
+    }
+
+    fn is_empty(&mut self) {
+        use MaybeStackValue::*;
+
+        let last = self.shadow_stack.last().unwrap().clone();
+
+        match last {
+            // TODO: Encode the result of the evaluation into the
+            // branching - if this is used in the test position
+            // of an if statement, we should encode the type checking
+            // through.
+            Value(stack_value) => {
+                self.shadow_stack.pop();
+                // If we've already inferrred this type as a pair,
+                // we can skip the code generation for checking the tags
+                // and actually invoking the function since we know
+                // it will be a pair.
+                // match stack_value.inferred_type {
+                //     InferredType::List | InferredType::Pair | InferredType::ListOrPair if false => {
+                //         let res = self.builder.ins().iconst(types::I64, 1);
+                //         let boolean =
+                //             self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+                //         // TODO: Also - we'll need to check the length of the list!
+                //         // this should be able to be done inline as well, we just have to load
+                //         // the index of the list.
+                //         self.push(boolean, InferredType::Bool);
+                //         self.ip += 1;
+                //         self.drop_tagged_value(stack_value.value);
+                //         return;
+                //     }
+                //     _ => {}
+                // }
+
+                let value = stack_value.as_steelval(self);
+                // Encode this manually:
+                let tag = self.get_tag(value);
+
+                let list_tag = self.tag(23);
+
+                // Compare these tags:
+                // TODO: Also - we'll need to check the length of the list!
+                // this should be able to be done inline as well, we just have to load
+                // the index of the list.
+                let is_list = self.builder.ins().icmp(IntCC::Equal, tag, list_tag);
+
+                let pair_block = self.builder.create_block();
+                let not_pair_block = self.builder.create_block();
+                let merge_block = self.builder.create_block();
+                self.builder.append_block_param(merge_block, types::I8);
+
+                self.builder
+                    .ins()
+                    .brif(is_list, pair_block, &[], not_pair_block, &[]);
+
+                self.builder.switch_to_block(pair_block);
+                self.builder.seal_block(pair_block);
+
+                let pointer_value = self.unbox_value_to_pointer(value);
+                let length =
+                    self.builder
+                        .ins()
+                        .load(types::I32, MemFlags::new(), pointer_value, 16);
+
+                let is_empty = self.builder.ins().icmp_imm(IntCC::Equal, length, 0);
+
+                self.builder.ins().jump(merge_block, &[is_empty]);
+
+                self.builder.switch_to_block(not_pair_block);
+                self.builder.seal_block(not_pair_block);
+
+                let false_value = self.builder.ins().iconst(types::I8, 0);
+                self.builder.ins().jump(merge_block, &[false_value]);
+
+                self.builder.switch_to_block(merge_block);
+                let result = self.builder.block_params(merge_block)[0];
+                self.push(result, InferredType::UnboxedBool);
+
+                // self.push(comparison, InferredType::UnboxedBool);
+
+                self.drop_tagged_value(value);
+
+                self.ip += 1;
+            }
+            MutRegister(p) | Register(p) => {
+                let register = self.register_index(p);
+                self.shadow_stack.pop();
+                let res = self.call_function_returns_value_args("empty?", &[register]);
+
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+
+            // Depending on what the constant is, we can do this evaluation here
+            // Constant(constant_value) => todo!(),
+            _ => {
+                // TODO: Check the inferred type here as well, maybe do unboxed bools
+                let (value, inferred_type) = self.shadow_pop();
+                let res =
+                    self.call_function_returns_value_args_no_context("empty?-value", &[value]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+        }
+    }
+
+    fn is_type(&mut self, value: Value, check_tag: u8) -> Value {
+        let tag = self.get_tag(value);
+        self.builder
+            .ins()
+            .icmp_imm(IntCC::Equal, tag, check_tag as i64)
+    }
+
+    // TODO: Figure out how to handle this a bit better?
+    fn is_string(&mut self) {
+        use MaybeStackValue::*;
+
+        let last = self.shadow_stack.last().unwrap().clone();
+
+        match last {
+            Value(stack_value) => {
+                self.shadow_stack.pop();
+                let value = stack_value.as_steelval(self);
+                let is_list = self.is_type(value, SteelVal::STRING_TAG);
+                self.drop_tagged_value(value);
+                self.push(is_list, InferredType::UnboxedBool);
+                self.ip += 1;
+            }
+            MutRegister(p) | Register(p) => {
+                let register = self.register_index(p);
+
+                match self.local_to_value_map.get(&p) {
+                    // Elide the call entirely if its a non empty list
+                    Some(InferredType::String) => {
+                        self.shadow_stack.pop();
+                        let res = self.builder.ins().iconst(types::I8, 1);
+                        self.push(res, InferredType::UnboxedBool);
+                        self.ip += 1;
+                    }
+                    _ => {
+                        self.shadow_stack.pop();
+                        let res = self.call_function_returns_value_args("string?", &[register]);
+
+                        self.push(res, InferredType::Bool);
+                        self.ip += 1;
+                    }
+                }
+            }
+            Constant(constant_value) => {
+                let (value, inferred_type) = self.shadow_pop();
+                let res =
+                    self.call_function_returns_value_args_no_context("string?-value", &[value]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+        }
+    }
+
+    // Checking tag
+    fn is_list(&mut self) {
+        use MaybeStackValue::*;
+
+        let last = self.shadow_stack.last().unwrap().clone();
+
+        match last {
+            Value(stack_value) => {
+                self.shadow_stack.pop();
+                let value = stack_value.as_steelval(self);
+                let is_list = self.is_type(value, SteelVal::LIST_TAG);
+                self.drop_tagged_value(value);
+                self.push(is_list, InferredType::UnboxedBool);
+                self.ip += 1;
+            }
+            MutRegister(p) | Register(p) => {
+                let register = self.register_index(p);
+
+                match self.properties.get(&ValueOrRegister::Register(p)) {
+                    // Elide the call entirely if its a non empty list. NOTE: We can't do this here.
+                    Some(Properties::NonEmptyList) if false => {
+                        self.shadow_stack.pop();
+                        let res = self.builder.ins().iconst(types::I8, 1);
+                        self.push(res, InferredType::UnboxedBool);
+                        self.ip += 1;
+                    }
+                    _ => {
+                        self.shadow_stack.pop();
+                        let res = self.call_function_returns_value_args("list?", &[register]);
+
+                        self.push(res, InferredType::Bool);
+                        self.ip += 1;
+                    }
+                }
+            }
+            Constant(constant_value) => {
+                let (value, inferred_type) = self.shadow_pop();
+                let res = self.call_function_returns_value_args_no_context("list?-value", &[value]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+        }
+    }
+
     // do the thing:
     fn is_pair(&mut self) {
         use MaybeStackValue::*;
@@ -2884,59 +3943,119 @@ impl FunctionTranslator<'_> {
                 // we can skip the code generation for checking the tags
                 // and actually invoking the function since we know
                 // it will be a pair.
-                match stack_value.inferred_type {
-                    InferredType::List | InferredType::Pair | InferredType::ListOrPair => {
-                        let res = self.builder.ins().iconst(types::I64, 1);
+                // match stack_value.inferred_type {
+                //     InferredType::List | InferredType::Pair | InferredType::ListOrPair if false => {
+                //         let res = self.builder.ins().iconst(types::I64, 1);
 
-                        let boolean =
-                            self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+                //         let boolean =
+                //             self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
 
-                        self.push(boolean, InferredType::Bool);
-                        self.ip += 1;
+                //         // TODO: Also - we'll need to check the length of the list!
+                //         // this should be able to be done inline as well, we just have to load
+                //         // the index of the list.
+                //         self.push(boolean, InferredType::Bool);
+                //         self.ip += 1;
 
-                        return;
-                    }
-                    _ => {}
-                }
+                //         self.drop_tagged_value(stack_value.value);
+
+                //         return;
+                //     }
+
+                //     _ => {}
+                // }
 
                 let value = stack_value.as_steelval(self);
 
                 // Encode this manually:
                 let tag = self.get_tag(value);
 
-                // TODO: Encode these tags in a better way besides manually
-                // doing this here
-                let pair_tag = self.tag(24);
-                let list_tag = self.tag(23);
+                let mut switch = Switch::new();
+                let pair_block = self.builder.create_block();
+                let list_block = self.builder.create_block();
+                let else_block = self.builder.create_block();
+                let merge_block = self.builder.create_block();
+                self.builder.append_block_param(merge_block, types::I8);
 
-                // Compare these tags:
-                let is_list = self.builder.ins().icmp(IntCC::Equal, tag, list_tag);
-                let is_pair = self.builder.ins().icmp(IntCC::Equal, tag, pair_tag);
+                switch.set_entry(SteelVal::LIST_TAG as _, list_block);
+                switch.set_entry(SteelVal::PAIR_TAG as _, pair_block);
 
-                let comparison = self.builder.ins().bor(is_list, is_pair);
+                switch.emit(&mut self.builder, tag, else_block);
+                {
+                    // Is a pair
+                    self.builder.switch_to_block(pair_block);
+                    self.builder.seal_block(pair_block);
+                    let true_val = self.builder.ins().iconst(types::I8, 1);
+                    self.builder.ins().jump(merge_block, &[true_val]);
+                }
 
-                // let res = self.builder.ins().uextend(types::I64, comparison);
-                // let boolean = self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
-                // self.push(boolean, InferredType::Bool);
+                {
+                    // Is a list
+                    self.builder.switch_to_block(list_block);
+                    self.builder.seal_block(list_block);
 
-                self.push(comparison, InferredType::UnboxedBool);
+                    let value = self.unbox_value_to_pointer(value);
+
+                    // Its not a pair if its an empty list
+                    let length = self
+                        .builder
+                        .ins()
+                        .load(types::I32, MemFlags::new(), value, 16);
+
+                    let not_empty = self.builder.ins().icmp_imm(IntCC::NotEqual, length, 0);
+
+                    self.builder.ins().jump(merge_block, &[not_empty]);
+                }
+
+                {
+                    // Else case, not a list or pair
+                    self.builder.switch_to_block(else_block);
+                    self.builder.seal_block(else_block);
+                    let false_val = self.builder.ins().iconst(types::I8, 0);
+                    self.builder.ins().jump(merge_block, &[false_val]);
+                }
+
+                {
+                    self.builder.switch_to_block(merge_block);
+                    self.builder.seal_block(merge_block);
+                    let result = self.builder.block_params(merge_block)[0];
+                    self.push(result, InferredType::UnboxedBool);
+                }
+
+                self.drop_tagged_value(value);
 
                 self.ip += 1;
             }
             MutRegister(p) | Register(p) => {
                 let register = self.register_index(p);
-                self.shadow_stack.pop();
-                let res = self.call_function_returns_value_args("pair?", &[register]);
 
-                self.push(res, InferredType::Bool);
-                self.ip += 1;
+                match self.properties.get(&ValueOrRegister::Register(p)) {
+                    // Elide the call entirely if its a non empty list
+                    Some(Properties::NonEmptyList) if false => {
+                        println!("Found non empty list!");
+
+                        self.shadow_stack.pop();
+                        let res = self.builder.ins().iconst(types::I8, 1);
+                        self.push(res, InferredType::UnboxedBool);
+                        self.ip += 1;
+                    }
+                    _ => {
+                        self.shadow_stack.pop();
+                        let res = self.call_function_returns_value_args("pair?", &[register]);
+
+                        self.push(res, InferredType::Bool);
+                        self.ip += 1;
+                    }
+                }
             }
 
             // Depending on what the constant is, we can do this evaluation here
             // Constant(constant_value) => todo!(),
             _ => {
-                todo!();
-                // Fall back to checking is pair
+                // TODO: Check the inferred type here as well, maybe do unboxed bools
+                let (value, inferred_type) = self.shadow_pop();
+                let res = self.call_function_returns_value_args_no_context("pair?-value", &[value]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
             }
         }
     }
@@ -3141,7 +4260,7 @@ impl FunctionTranslator<'_> {
 
         let all_chars = additional_args.iter().all(|x| x.1 == InferredType::Char);
 
-        if all_chars {
+        if all_chars && false {
             // println!("Found all characters, applying equality");
             // Just... compare for equality?
 
@@ -3195,7 +4314,8 @@ impl FunctionTranslator<'_> {
             }
         }
 
-        if payload < self.arity as _ {
+        // TODO: @Matt -> This is a big deal!
+        if payload < self.arity as _ || true {
             match op {
                 OpCode::READLOCAL0
                 | OpCode::READLOCAL1
@@ -3227,6 +4347,17 @@ impl FunctionTranslator<'_> {
                 _ => panic!(),
             }
         } else {
+            // TODO: Have this just read the value itself
+            //
+            // TODO: On let end scope, if a value is left as a register reference, then
+            // what we need to do is replace the values on the stack directly if any of those values
+            // are remaining. So in the let var end scope, check if any of the remaining things on the
+            // stack references those things. If they do, spill them then dynamically? Wouldn't mutable
+            // references to that already? Maybe not?
+            // println!(
+            //     "Getting here -> Reading a local value, instead of generating a register instruction: {:?}", op
+            // );
+
             // Replace this... with just reading from the vector?
             let value = self.call_func_or_immediate(op, payload);
 
@@ -3242,11 +4373,13 @@ impl FunctionTranslator<'_> {
                 inferred_type,
                 spilled: false,
             })
+
+            // MaybeStackValue::Register(())
         }
     }
 
     fn read_local_fixed_no_spill(&mut self, op: OpCode, payload: usize) -> (Value, InferredType) {
-        assert!(payload < self.arity as _);
+        // assert!(payload < self.arity as _);
 
         // Replace this... with just reading from the vector?
         let value = self.call_func_or_immediate(op, payload);
@@ -3890,6 +5023,100 @@ impl FunctionTranslator<'_> {
         result
     }
 
+    fn call_self_function_experimental(
+        &mut self,
+        arity: usize,
+        name: &str,
+        func: Gc<ByteCodeLambda>,
+    ) -> Value {
+        // let local_callee = self.get_local_callee(name);
+
+        let ctx = self.get_ctx();
+        let id = func.id;
+
+        let _ = steel_rc::BiasedRc::into_raw(func.body_exp.clone());
+
+        let instr_fat_ptr = func.body_exp();
+        let instr_fat_ptr = self.create_i128(unsafe { std::mem::transmute(instr_fat_ptr) });
+
+        func.clone().into_raw();
+
+        // Horrendous crimes, but we'll allow it. We'll also leak the instructions...
+        let lookup_index = self.builder.ins().iconst(Type::int(64).unwrap(), unsafe {
+            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(func)
+        });
+
+        // let fallback_ip = self
+        //     .builder
+        //     .ins()
+        //     .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+        let fallback_ip = self.ip;
+
+        // Advance to the next thing
+        self.ip += 1;
+
+        // let mut arg_values = vec![ctx, lookup_index, fallback_ip];
+
+        let args_off_the_stack = self
+            .split_off(arity)
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<_>>();
+
+        self.spill_stack();
+
+        self.inline_call_global_function(
+            id,
+            lookup_index,
+            fallback_ip,
+            &args_off_the_stack,
+            instr_fat_ptr,
+        )
+    }
+
+    fn call_self_function(
+        &mut self,
+        arity: usize,
+        name: &str,
+        func: Gc<ByteCodeLambda>,
+        tail: bool,
+    ) -> Value {
+        println!("COMPILING CALLING SELF FUNCTION");
+        let local_callee = self.get_local_callee(name);
+
+        let ctx = self.get_ctx();
+
+        // Horrendous crimes, but we'll allow it
+        let lookup_index = self.builder.ins().iconst(Type::int(64).unwrap(), unsafe {
+            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(func)
+        });
+
+        let fallback_ip = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+        // Advance to the next thing
+        self.ip += 1;
+
+        let mut arg_values = vec![ctx, lookup_index, fallback_ip];
+
+        let args_off_the_stack = self.split_off(arity);
+
+        arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
+
+        if tail {
+            self.spill_cloned_stack();
+        } else {
+            self.spill_stack();
+        }
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+    }
+
     fn call_global_function(
         &mut self,
         arity: usize,
@@ -3916,92 +5143,9 @@ impl FunctionTranslator<'_> {
 
         let mut arg_values = vec![ctx, lookup_index, fallback_ip];
 
-        // If any of these have been spilled, we have to pop them off
-        // of the shadow stack and use them
-        // let mut args_off_the_stack = self
-        //     .stack
-        //     .drain(self.stack.len() - arity..)
-        //     .collect::<Vec<_>>();
-
         let args_off_the_stack = self.split_off(arity);
 
-        // self.maybe_patch_from_stack(&mut args_off_the_stack);
-
-        // for arg in &args_off_the_stack {
-        //     assert!(!arg.spilled);
-        // }
-
-        // assert_eq!(args_off_the_stack.len(), arity);
-
         arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
-
-        /*
-                let is_function = self.check_function(lookup_index, tail);
-                {
-                    let then_block = self.builder.create_block();
-                    let else_block = self.builder.create_block();
-                    let merge_block = self.builder.create_block();
-
-                    self.builder.append_block_param(merge_block, self.int);
-
-                    self.builder
-                        .ins()
-                        .brif(is_function, then_block, &[], else_block, &[]);
-
-                    self.builder.switch_to_block(then_block);
-                    self.builder.seal_block(then_block);
-
-                    // Do nothing
-                    let then_return = BlockArg::Value(self.create_i128(0));
-
-                    // Check callable - TODO: Insert these checks elsewhere too!
-                    let should_spill = self.check_should_spill(lookup_index);
-
-                    let spill_block = self.builder.create_block();
-
-                    self.builder
-                        .ins()
-                        .brif(should_spill, spill_block, &[], merge_block, &[then_return]);
-
-                    self.builder.switch_to_block(spill_block);
-                    self.builder.seal_block(spill_block);
-
-                    // for c in self.stack.clone() {
-                    //     if !c.spilled {
-                    //         self.push_to_vm_stack_function_spill(c.value);
-                    //     }
-                    // }
-
-                    if tail {
-                        self.spill_cloned_stack();
-                    } else {
-                        self.spill_stack();
-                    }
-                    // self.spill_cloned_stack();
-                    // self.spill_stack();
-
-                    self.builder.ins().jump(merge_block, &[then_return]);
-
-                    self.builder.switch_to_block(else_block);
-                    self.builder.seal_block(else_block);
-
-                    // if tail {
-                    //     self.spill_cloned_stack();
-                    // } else {
-                    //     self.spill_stack();
-                    // }
-
-                    let else_return = BlockArg::Value(self.create_i128(0));
-
-                    self.builder.ins().jump(merge_block, &[else_return]);
-
-                    // Switch to the merge block for subsequent statements.
-                    self.builder.switch_to_block(merge_block);
-
-                    // We've now seen all the predecessors of the merge block.
-                    self.builder.seal_block(merge_block);
-                }
-        */
 
         if tail {
             self.spill_cloned_stack();
@@ -4205,6 +5349,16 @@ impl FunctionTranslator<'_> {
         return result;
     }
 
+    fn get_thread_id(&mut self) -> Value {
+        let ctx = self.get_ctx();
+        let thread_id =
+            self.builder
+                .ins()
+                .load(Type::int(64).unwrap(), MemFlags::trusted(), ctx, 8);
+
+        thread_id
+    }
+
     fn check_deopt_ptr_load(&mut self) -> Value {
         let ctx = self.get_ctx();
         let is_native = self
@@ -4213,53 +5367,6 @@ impl FunctionTranslator<'_> {
             .load(Type::int(8).unwrap(), MemFlags::trusted(), ctx, 0);
 
         is_native
-    }
-
-    fn _check_deopt_new(&mut self) {
-        let result = self.check_deopt_ptr_load();
-        let then_block = self.builder.create_block();
-
-        self.builder
-            .ins()
-            .brif(result, then_block, &[], self.exit_block, &[]);
-
-        // let else_block = self.builder.create_block();
-        // let merge_block = self.builder.create_block();
-        // self.builder
-        //     .append_block_param(merge_block, Type::int(8).unwrap());
-        // Do the thing.
-        // self.builder
-        //     .ins()
-        //     .brif(result, then_block, &[], else_block, &[]);
-        self.builder.switch_to_block(then_block);
-        self.builder.seal_block(then_block);
-        // let then_return = BlockArg::Value(self.builder.ins().iconst(Type::int(8).unwrap(), 1));
-
-        // Just... translate instructions?
-        // self.stack_to_ssa();
-
-        // if self.tco {
-        //     self.ip = self.instructions.len() + 1;
-        //     self.builder.ins().jump(self.exit_block, &[]);
-        //     return;
-        // }
-
-        // Jump to the merge block, passing it the block return value.
-        // self.builder.ins().jump(merge_block, &[then_return]);
-        // self.builder.switch_to_block(else_block);
-        // self.builder.seal_block(else_block);
-
-        // Set the IP to the new spot:
-        // {
-        //     self.set_ctx_ip(self.ip);
-        // }
-
-        // // TODO: Update with the proper return value
-        // let else_return = self.create_i128(0);
-        // self.builder.ins().return_(&[]);
-        // self.builder.switch_to_block(merge_block);
-        // // // We've now seen all the predecessors of the merge block.
-        // self.builder.seal_block(merge_block);
     }
 
     fn check_deopt(&mut self) {
@@ -4400,7 +5507,9 @@ impl FunctionTranslator<'_> {
         if spilled {
             let value = self.shadow_stack[index].into_value();
             let steelval = value.as_steelval(self);
-            self.push_to_vm_stack_spill(steelval);
+            // self.push_to_vm_stack_spill(steelval);
+
+            self.push_to_vm_stack(steelval);
         }
 
         Some(())
@@ -4845,9 +5954,22 @@ impl FunctionTranslator<'_> {
                 let constant = self.constants.get_value(payload);
 
                 match &constant {
-                    SteelVal::BoolV(_) | SteelVal::IntV(_) | SteelVal::CharV(_) => {
-                        self.create_i128(encode(constant))
+                    // SteelVal::CharV(_) => self.create_i128(encode(constant)),
+                    SteelVal::CharV(c) => {
+                        let res = self.builder.ins().iconst(Type::int(64).unwrap(), *c as i64);
+                        self.encode_value(SteelVal::CHAR_TAG as _, res)
                     }
+
+                    SteelVal::BoolV(b) => {
+                        if *b {
+                            self.encode_true()
+                        } else {
+                            self.encode_false()
+                        }
+                    }
+
+                    SteelVal::IntV(i) => self.encode_integer(*i as _),
+
                     _ => self.push_const_index(payload),
                     // _ => self.call_function_returns_value(op_to_name_payload(op1, payload)),
                 }
@@ -4892,6 +6014,11 @@ impl FunctionTranslator<'_> {
         boolean
     }
 
+    fn encode_void(&mut self) -> Value {
+        let res = self.builder.ins().iconst(Type::int(64).unwrap(), 0);
+        self.encode_value(discriminant(&SteelVal::Void) as i64, res)
+    }
+
     fn encode_integer(&mut self, integer: i64) -> Value {
         let res = self
             .builder
@@ -4907,6 +6034,22 @@ impl FunctionTranslator<'_> {
         let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
         encoded_rhs
     }
+
+    fn unbox_value_to_pointer(&mut self, value: Value) -> Value {
+        let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
+        let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
+        self.builder.ins().ireduce(types::I64, encoded_rhs)
+    }
+
+    // fn unbox_value_to_pointer(&mut self, value: Value) -> Value {
+    //     let (_lo, hi) = self.builder.ins().isplit(value);
+    //     hi
+
+    //     // self.builder.ins().isplit(x)
+    //     // let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
+    //     // let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
+    //     // self.builder.ins().ireduce(types::I64, encoded_rhs)
+    // }
 
     fn get_tag(&mut self, value: Value) -> Value {
         // Split the value into two:
@@ -5049,8 +6192,9 @@ impl FunctionTranslator<'_> {
 
         let then_return = if then_out_of_bounds {
             // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
-            self.create_i128(encode(SteelVal::IntV(12345)))
+            // self.create_i128(encode(SteelVal::IntV(12345)))
 
+            self.encode_integer(12345)
             // BlockArg::Value(
             //     self.maybe_shadow_pop()
             //         .map(|x| {
@@ -5123,7 +6267,8 @@ impl FunctionTranslator<'_> {
         // Returned, therefore we don't need to do anything.
         let else_return = if else_out_of_bounds {
             // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
-            self.create_i128(encode(SteelVal::IntV(12345)))
+
+            self.encode_integer(12345)
 
             // BlockArg::Value(
             //     self.maybe_shadow_pop()
@@ -5195,7 +6340,9 @@ impl FunctionTranslator<'_> {
 
                 self.if_bound = last_bound;
 
-                self.create_i128(encode(SteelVal::Void))
+                // self.create_i128(encode(SteelVal::Void))
+
+                self.encode_void()
             }
             (false, true) => {
                 // Jump to the merge block, passing it the block return value.
@@ -5220,7 +6367,9 @@ impl FunctionTranslator<'_> {
 
                 self.if_bound = last_bound;
 
-                self.create_i128(encode(SteelVal::Void))
+                // self.create_i128(encode(SteelVal::Void))
+
+                self.encode_void()
             }
             (false, false) => {
                 // TODO:
@@ -5274,12 +6423,16 @@ impl FunctionTranslator<'_> {
         phi
     }
 
-    fn vm_pop(&mut self, value: Value) {
+    fn vm_pop_old(&mut self, value: Value) {
         let name = "handle-pop!";
         let local_callee = self.get_local_callee(name);
         let ctx = self.get_ctx();
         let arg_values = [ctx, value];
         let _call = self.builder.ins().call(local_callee, &arg_values);
+    }
+
+    fn vm_pop(&mut self, value: Value) {
+        self.inline_handle_pop(value);
     }
 
     // fn push_to_vm_stack_two(&mut self, value: Value, value2: Value) {
@@ -5314,6 +6467,11 @@ impl FunctionTranslator<'_> {
     // }
 
     fn push_to_vm_stack(&mut self, value: Value) {
+        self.push_to_vm_stack_let_var_new(value);
+        // self.push_to_vm_stack_let_var(value);
+    }
+
+    fn push_to_vm_stack_old(&mut self, value: Value) {
         let name = "push-to-vm-stack";
 
         let local_callee = self.get_local_callee(name);
@@ -5351,6 +6509,1000 @@ impl FunctionTranslator<'_> {
         let ctx = self.get_ctx();
         let arg_values = [ctx, value];
         let _call = self.builder.ins().call(local_callee, &arg_values);
+    }
+
+    // Note: This value should _not_ be dropped!
+    fn read_from_vm_stack(&mut self, index: usize) -> Value {
+        let stack_pointer_offset = offset_of!(VmCore, sp);
+        // Lets do the thing?
+
+        let ctx = self.get_ctx();
+        let sp = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            ctx,
+            stack_pointer_offset as i32,
+        );
+
+        let thread_offset = offset_of!(VmCore, thread);
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+        let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
+        let offset = self.builder.ins().imul_imm(local_offset, size);
+
+        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+        let local_value = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+
+        local_value
+    }
+
+    // ctx.thread.stack_frames.len() < 100
+    fn check_should_trampoline(&mut self, ctx: Value) -> Value {
+        let thread_offset = offset_of!(VmCore, thread);
+
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            ctx,
+            thread_offset as i32,
+        );
+
+        // Stack frame offset:
+        let stack_frame_offset = offset_of!(SteelThread, stack_frames);
+        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
+
+        let stack_frame_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_frame_offset + len_offset) as i32,
+        );
+
+        self.builder
+            .ins()
+            .icmp_imm(IntCC::UnsignedLessThan, stack_frame_length, 100)
+    }
+
+    fn inline_call_global_function(
+        &mut self,
+        id: u32,
+        func: Value,
+        fallback_ip: usize,
+        args: &[Value],
+        instr_fat_ptr: Value,
+    ) -> Value {
+        let vm_ctx = self.get_ctx();
+        let should_trampoline = self.check_should_trampoline(vm_ctx);
+
+        // self.call_function_args_no_context("#%debug-tag", &[should_trampoline]);
+
+        let should_yield = self.builder.ins().bxor_imm(should_trampoline, 1);
+
+        self.update_ip_native_if_yield(vm_ctx, should_yield, fallback_ip + 1);
+
+        let typ = self.int;
+        let arity = args.len();
+
+        // Push each value on to the stack:
+        for arg in args {
+            self.push_to_vm_stack_let_var_new(*arg);
+        }
+
+        self.converging_if(
+            should_trampoline,
+            |ctx| {
+                // Increment the ref count before we go in
+                ctx.increment_ref_count_closure(func);
+
+                // ctx.call_function_no_return("#%debug-stack-frames");
+
+                // TODO: Consider moving this up before things are pushed on in order
+                // to capture the stack length without needing to compute the value
+                ctx.push_stack_frame(arity as _, func, instr_fat_ptr, fallback_ip);
+
+                // ctx.call_function_no_return("#%debug-stack-frames");
+
+                // ctx.call_function_no_return("#%debug-stack-frames");
+                // ctx.call_function_no_return("#%debug-stack");
+
+                // ctx.call_function_no_return("#%debug-instructions-before");
+
+                let jit_func = ctx.get_jit_func(id);
+                ctx.builder.ins().call(jit_func, &[vm_ctx]);
+
+                // ctx.call_function_no_return("#%debug-instructions-after");
+
+                let ip = ctx.builder.ins().load(
+                    types::I64,
+                    MemFlags::trusted(),
+                    vm_ctx,
+                    offset_of!(VmCore, ip) as i32,
+                );
+
+                // ctx.call_function_args_no_context("#%debug-value", &[ip]);
+
+                // ctx.call_function_no_return("#%debug-is-native");
+
+                // let n = ctx.builder.ins().iconst(types::I32, 99999);
+                // Somehow... handle this?
+                // ctx.call_function_args_no_context("#%debug-count", &[n]);
+
+                // Check if native still:
+                let is_still_native = ctx.builder.ins().load(
+                    types::I8,
+                    MemFlags::trusted(),
+                    vm_ctx,
+                    offset_of!(VmCore, is_native) as i32,
+                );
+
+                ctx.converging_if(
+                    is_still_native,
+                    |ctx| ctx.inline_pop_from_stack(vm_ctx),
+                    |ctx| {
+                        // let fallback = ctx.builder.ins().iconst(types::I64, fallback_ip as i64 + 1);
+                        // ctx.builder.ins().store(
+                        //     MemFlags::trusted(),
+                        //     fallback,
+                        //     vm_ctx,
+                        //     offset_of!(VmCore, ip) as i32,
+                        // );
+
+                        // println!("FOO BAR");
+                        // let void = SteelVal::Void;
+                        // ctx.create_i128(encode(void))
+
+                        ctx.encode_void()
+                    },
+                    typ,
+                )
+            },
+            |ctx| ctx.call_function_returns_value_args("#%setup-closure", &[func]),
+            typ,
+        )
+    }
+
+    fn inline_let_end_scope(&mut self, amt: usize, count: usize) {
+        let vm_ctx = self.get_ctx();
+        let offset = self.builder.ins().load(
+            types::I64,
+            MemFlags::trusted(),
+            vm_ctx,
+            offset_of!(VmCore, sp) as i32,
+        );
+
+        let beginning_scope = self.builder.ins().iconst(types::I64, amt as i64);
+
+        let rollback_index = self.builder.ins().iadd(beginning_scope, offset);
+
+        self.truncate_stack(vm_ctx, rollback_index, Some(count as _));
+    }
+
+    fn truncate_stack(&mut self, vm_ctx: Value, index: Value, count: Option<i32>) {
+        let thread_offset = offset_of!(VmCore, thread);
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            vm_ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+
+        // Current stack length:
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        // let difference = self.builder.ins().isub(stack_length, index);
+        // let new_length = self.builder.ins().iconst(types::, N)
+
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            index,
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+
+        // Use the calculated difference if thats what we have to do
+        let count = count
+            .map(|count| self.builder.ins().iconst(types::I64, count as i64))
+            .unwrap_or_else(|| self.builder.ins().isub(stack_length, index));
+        {
+            let loop_header = self.builder.create_block();
+            let loop_body = self.builder.create_block();
+            let loop_exit = self.builder.create_block();
+
+            self.builder.append_block_param(loop_header, types::I64); // i
+
+            let zero = self.builder.ins().iconst(types::I64, 0);
+            self.builder.ins().jump(loop_header, &[zero]);
+
+            self.builder.switch_to_block(loop_header);
+            let i = self.builder.block_params(loop_header)[0];
+
+            let done = self
+                .builder
+                .ins()
+                .icmp(IntCC::SignedGreaterThanOrEqual, i, count);
+            self.builder
+                .ins()
+                .brif(done, loop_exit, &[], loop_body, &[]);
+
+            self.builder.switch_to_block(loop_body);
+            self.builder.seal_block(loop_body);
+
+            let slot_index = self.builder.ins().iadd(index, i);
+            let byte_offset = self
+                .builder
+                .ins()
+                .imul_imm(slot_index, size_of::<SteelVal>() as i64);
+            let slot_ptr = self.builder.ins().iadd(buf_ptr, byte_offset);
+            let val = self
+                .builder
+                .ins()
+                .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+            self.drop_tagged_value(val);
+
+            let i_next = self.builder.ins().iadd_imm(i, 1);
+            self.builder.ins().jump(loop_header, &[i_next]);
+
+            self.builder.seal_block(loop_header);
+
+            self.builder.switch_to_block(loop_exit);
+            self.builder.seal_block(loop_exit);
+        }
+    }
+
+    fn inline_pop_from_stack(&mut self, vm_ctx: Value) -> Value {
+        // self.call_function_no_return("#%debug-stack-before");
+
+        let thread_offset = offset_of!(VmCore, thread);
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            vm_ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let new_length = self.builder.ins().iadd_imm(stack_length, -1);
+
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            new_length,
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+        let offset = self.builder.ins().imul_imm(new_length, size);
+        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+        let res = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+
+        // self.call_function_no_return("#%debug-stack-after");
+
+        res
+    }
+
+    // Subtract one from the pop count, returns
+    // the new pop count
+    fn sub_one_pop_count(&mut self, vm_ctx: Value) -> Value {
+        let current_pop_count = self.builder.ins().load(
+            types::I64,
+            MemFlags::trusted(),
+            vm_ctx,
+            offset_of!(VmCore, pop_count) as i32,
+        );
+        let sub_one = self.builder.ins().iadd_imm(current_pop_count, -1);
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            sub_one,
+            vm_ctx,
+            offset_of!(VmCore, pop_count) as i32,
+        );
+        sub_one
+    }
+
+    fn inline_handle_pop(&mut self, value: Value) {
+        let vm_ctx = self.get_ctx();
+        let new_pop_count = self.sub_one_pop_count(vm_ctx);
+        let should_continue = self.pop_count_should_continue(new_pop_count);
+
+        // TODO: Figure out what the return type is! We don't really need
+        // to return anything. The result should just be assigned to the result
+        // on the VM context; In the else case, we assign the result
+        // on to the VM value. In the former case, we don't need to do anything.
+        self.converging_if_no_value(
+            should_continue,
+            |ctx| {
+                // This is the frame itself. We'll need to call drop
+                // on it properly -> specifically on the function
+                // and possibly the attachments, depending on whether
+                // its null or not. If it is, we'll want to pass the frame
+                // by value in, call drop on it, and close the things as needed
+                // in order for drop to get called.
+                let (popped_frame, fat_ptr) = ctx.inline_pop_from_stack_frames(vm_ctx);
+
+                // first, we'll check if the attachments isn't null.
+                // And then, we'll invoke drop on the frame for the attachments.
+
+                let attachment_exists =
+                    ctx.builder
+                        .ins()
+                        .icmp_imm(IntCC::NotEqual, popped_frame.attachments, 0);
+
+                ctx.converging_if_no_else_no_value(
+                    attachment_exists,
+                    |ctx| {
+                        // If the attachments exist, then we need to:
+                        // 1. Call the rust function to close the frame
+                        // 2. Close the destructor.
+                        ctx.call_function_args_no_return(
+                            "#%handle-attachments",
+                            &[popped_frame.attachments],
+                        );
+                    },
+                    |ctx| {
+                        // The rest:
+                        // Truncate the stack, and then push the new value one.
+                        //
+                        // Then, we restore the ip, instructions, and sp
+                        // on to the requisite spots on the VM context
+
+                        let sp = ctx.builder.ins().uextend(types::I64, popped_frame.sp);
+
+                        // TODO: Keep track of the new length, pass that in
+                        // to push to vm stack in order to simply just write to
+                        // the new location; or alternatively, fuse these operations
+                        // together, where I can just truncate and then immediately
+                        // write this value to the end, eliminate a store of the length
+                        // changing twice.
+                        ctx.truncate_stack(vm_ctx, sp, None);
+                        ctx.push_to_vm_stack(value);
+
+                        let ip = ctx.builder.ins().uextend(types::I64, popped_frame.ip);
+                        ctx.builder.ins().store(
+                            MemFlags::trusted(),
+                            ip,
+                            vm_ctx,
+                            offset_of!(VmCore, ip) as i32,
+                        );
+
+                        ctx.builder.ins().store(
+                            MemFlags::trusted(),
+                            popped_frame.instructions,
+                            vm_ctx,
+                            offset_of!(VmCore, instructions) as i32,
+                        );
+
+                        // let sp = ctx.read_last_sp(vm_ctx, Some(fat_ptr));
+                        let sp = ctx.read_last_sp(vm_ctx, None);
+
+                        // TODO: @Matt
+                        // Call drop on the function here!
+                        // We don't need to totally encode the function here like this
+                        // let func =
+                        //     ctx.encode_value(SteelVal::CLOSURE_TAG as _, popped_frame.function);
+                        ctx.drop_biased_rc_unboxed_closure(popped_frame.function);
+
+                        ctx.builder.ins().store(
+                            MemFlags::trusted(),
+                            sp,
+                            vm_ctx,
+                            offset_of!(VmCore, sp) as i32,
+                        );
+                    },
+                );
+            },
+            |ctx| ctx.call_function_args_no_return("#%pop-slow-path-finish", &[value]),
+        );
+    }
+
+    // Whether we should continue running:
+    fn pop_count_should_continue(&mut self, pop_count: Value) -> Value {
+        self.builder.ins().icmp_imm(IntCC::NotEqual, pop_count, 0)
+    }
+
+    // TODO:
+    // Extend by a certain amount - we probably can
+    // make this better by passing in the length from
+    // the previous read so we don't have to read all
+    // this stuff. Its already read from before.
+    fn read_last_sp(&mut self, vm_ctx: Value, fat_ptr: Option<(Value, Value)>) -> Value {
+        // let (buf_ptr, new_length) = if let Some((buf_ptr, length)) = fat_ptr {
+        //     let new_length = self.builder.ins().iadd_imm(length, -1);
+
+        //     (buf_ptr, new_length)
+        // } else {
+        let thread_offset = offset_of!(VmCore, thread);
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            vm_ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack_frames);
+        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
+
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        // (buf_ptr, new_length)
+        // };
+
+        let condition = self.builder.ins().icmp_imm(IntCC::Equal, stack_length, 0);
+
+        self.converging_if(
+            condition,
+            |ctx| ctx.builder.ins().iconst(types::I64, 0),
+            |ctx| {
+                // Last thing
+                let new_length = ctx.builder.ins().iadd_imm(stack_length, -1);
+
+                let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
+
+                let buf_ptr = ctx.builder.ins().load(
+                    Type::int(64).unwrap(),
+                    MemFlags::trusted(),
+                    thread_pointer,
+                    (stack_offset + ptr_offset) as i32,
+                );
+
+                let size: i64 = std::mem::size_of::<StackFrame>() as _;
+                let offset = ctx.builder.ins().imul_imm(new_length, size);
+                let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
+
+                // Load the stack frame. We're going to use this later.
+                let value = ctx.builder.ins().load(
+                    types::I32,
+                    MemFlags::trusted(),
+                    slot_ptr,
+                    offset_of!(StackFrame, sp) as i32,
+                );
+
+                ctx.builder.ins().uextend(types::I64, value)
+            },
+            types::I64,
+        )
+    }
+
+    fn inline_pop_from_stack_frames(&mut self, vm_ctx: Value) -> (StackFrameRepr, (Value, Value)) {
+        let thread_offset = offset_of!(VmCore, thread);
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            vm_ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack_frames);
+
+        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
+
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let new_length = self.builder.ins().iadd_imm(stack_length, -1);
+
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            new_length,
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let size: i64 = std::mem::size_of::<StackFrame>() as _;
+        let offset = self.builder.ins().imul_imm(new_length, size);
+        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+        let sp_offset = (buf_ptr, new_length);
+
+        // Load the stack frame. We're going to use this later.
+        (
+            StackFrameRepr {
+                sp: self.builder.ins().load(
+                    types::I32,
+                    MemFlags::trusted(),
+                    slot_ptr,
+                    offset_of!(StackFrame, sp) as i32,
+                ),
+                ip: self.builder.ins().load(
+                    types::I32,
+                    MemFlags::trusted(),
+                    slot_ptr,
+                    offset_of!(StackFrame, ip) as i32,
+                ),
+                instructions: self.builder.ins().load(
+                    types::I128,
+                    MemFlags::trusted(),
+                    slot_ptr,
+                    offset_of!(StackFrame, instructions) as i32,
+                ),
+                function: self.builder.ins().load(
+                    types::I64,
+                    MemFlags::trusted(),
+                    slot_ptr,
+                    offset_of!(StackFrame, function) as i32,
+                ),
+                attachments: self.builder.ins().load(
+                    types::I64,
+                    MemFlags::trusted(),
+                    slot_ptr,
+                    offset_of!(StackFrame, attachments) as i32,
+                ),
+            },
+            sp_offset,
+        )
+    }
+
+    // TODO: Might want to merge this with some of the
+    // other instructions as to avoid generating extra instructions
+    fn update_ip_native_if_yield(
+        &mut self,
+        vm_ctx: Value,
+        should_yield: Value,
+        fallback_ip: usize,
+    ) {
+        self.converging_if_no_else_no_value(
+            should_yield,
+            |ctx| {
+                let zero = ctx.builder.ins().iconst(types::I8, 0);
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    zero,
+                    vm_ctx,
+                    offset_of!(VmCore, is_native) as i32,
+                );
+            },
+            |ctx| {
+                let ip = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    ip,
+                    vm_ctx,
+                    offset_of!(VmCore, ip) as i32,
+                );
+            },
+        );
+    }
+
+    fn increment_ref_count_closure(&mut self, value: Value) {
+        let is_thread_local = self.check_value_tl(value);
+
+        self.converging_if_no_value(
+            is_thread_local,
+            |ctx| {
+                // Fast path increment the counter
+                // TODO: Panic here if u32 == max?
+                let local_count =
+                    ctx.builder
+                        .ins()
+                        .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+
+                let add_one = ctx.builder.ins().iadd_imm(local_count, 1);
+
+                ctx.builder.ins().store(MemFlags::new(), add_one, value, 8);
+            },
+            |ctx| {
+                // Slow path increment the counter
+                ctx.call_function_args_no_context("raw-slow-increment-closure", &[value]);
+            },
+        );
+    }
+
+    // Note: The function _must_ have been cloned already
+    fn push_stack_frame(
+        &mut self,
+        arity: i64,
+        function: Value,
+        instr_fat_ptr: Value,
+        fallback_ip: usize,
+    ) {
+        let vm_ctx = self.get_ctx();
+        let thread_offset = offset_of!(VmCore, thread);
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            vm_ctx,
+            thread_offset as i32,
+        );
+
+        // Stack frame offset:
+        let stack_frame_offset = offset_of!(SteelThread, stack_frames);
+
+        let capacity_offset = steel_vec::Vec::<StackFrame>::capacity_offset();
+        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
+
+        // println!(
+        //     "Offset of stackframe instuctions: {}",
+        //     offset_of!(StackFrame, instructions)
+        // );
+        // println!("StackFrame size: {}", std::mem::size_of::<StackFrame>());
+
+        // This is the actual stack, steel_vec::Vec<SteelVal>
+        let stack_capacity = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_frame_offset + capacity_offset) as i32,
+        );
+
+        // self.call_function_args_no_context("#%debug-value", &[stack_capacity]);
+
+        let stack_frame_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_frame_offset + len_offset) as i32,
+        );
+
+        // Stack values, for figuring out where we have to put the sp
+        let stack_offset = offset_of!(SteelThread, stack);
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        let at_capacity = self
+            .builder
+            .ins()
+            .icmp(IntCC::Equal, stack_capacity, stack_frame_length);
+
+        self.converging_if_no_else_no_value(
+            at_capacity,
+            // If at capacity, call grow
+            |ctx| ctx.call_function_no_return("slow-grow-frame-stack"),
+            |ctx| {
+                // Write the value:
+                let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
+
+                let buf_ptr = ctx.builder.ins().load(
+                    Type::int(64).unwrap(),
+                    MemFlags::trusted(),
+                    thread_pointer,
+                    (stack_frame_offset + ptr_offset) as i32,
+                );
+
+                // Okay so here, now we're going to move things around
+                // such that we can snag values from things
+                let size: i64 = std::mem::size_of::<StackFrame>() as _;
+                let offset = ctx.builder.ins().imul_imm(stack_frame_length, size);
+                let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
+
+                let sp_offset = offset_of!(VmCore, sp);
+
+                let arity = -arity;
+
+                // TODO: Load the stack length, not the old sp!
+                // let old_sp = ctx.builder.ins().load(
+                //     types::I64,
+                //     MemFlags::trusted(),
+                //     vm_ctx,
+                //     sp_offset as i32,
+                // );
+                let new_sp = ctx.builder.ins().iadd_imm(stack_length, arity as i64);
+
+                // ctx.call_function_no_return("#%debug-stack");
+                // ctx.call_function_args_no_context("#%debug-value", &[stack_length]);
+                // ctx.call_function_args_no_context("#%debug-value", &[new_sp]);
+
+                ctx.builder
+                    .ins()
+                    .store(MemFlags::trusted(), new_sp, vm_ctx, sp_offset as i32);
+
+                // Reduce it before going in the stack frame
+                let new_sp = ctx.builder.ins().ireduce(types::I32, new_sp);
+
+                // Stack pointer:
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    new_sp,
+                    slot_ptr,
+                    offset_of!(StackFrame, sp) as i32,
+                );
+
+                // Instruction pointer:
+
+                let ip = ctx.builder.ins().load(
+                    types::I64,
+                    MemFlags::trusted(),
+                    vm_ctx,
+                    offset_of!(VmCore, ip) as i32,
+                );
+
+                // Reduce to 32 bits to store in the stack frame
+                let ip = ctx.builder.ins().ireduce(types::I32, ip);
+                // let ip_plus_one = ctx.builder.ins().iadd_imm(ip, 1);
+
+                let ip_plus_one = ctx
+                    .builder
+                    .ins()
+                    .iconst(types::I32, (fallback_ip + 1) as i64);
+
+                // ctx.call_function_args_no_context("#%debug-count", &[ip_plus_one]);
+                // println!("Calculated ip here: {}", ctx.ip);
+
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    ip_plus_one,
+                    slot_ptr,
+                    offset_of!(StackFrame, ip) as i32,
+                );
+
+                // Instructions:
+
+                let current_instructions = ctx.builder.ins().load(
+                    types::I128,
+                    MemFlags::trusted(),
+                    vm_ctx,
+                    offset_of!(VmCore, instructions) as i32,
+                );
+
+                // ctx.call_function_args_no_context("#%debug-instructions", &[current_instructions]);
+
+                // ctx.call_function_args_no_context("#%debug-instructions2", &[instr_fat_ptr]);
+
+                // TODO: This doesn't work correctly; we need to
+                // construct a fat pointer here. So I need something
+                // that is FFI safe in order to construct a fat
+                // pointer to the *const [DenseInstruction]
+
+                // Okay, now load the instructions from the function:
+                // let instructions = ctx.builder.ins().load(
+                //     types::I128,
+                //     MemFlags::trusted(),
+                //     function,
+                //     offset_of!(ByteCodeLambda, body_exp) as i32,
+                // );
+
+                let instructions = instr_fat_ptr;
+
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    current_instructions,
+                    slot_ptr,
+                    offset_of!(StackFrame, instructions) as i32,
+                );
+
+                // Store the instructions back to the VM pointer
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    instructions,
+                    vm_ctx,
+                    offset_of!(VmCore, instructions) as i32,
+                );
+
+                // Store the function itself
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    function,
+                    slot_ptr,
+                    offset_of!(StackFrame, function) as i32,
+                );
+
+                let null_pointer = ctx.builder.ins().iconst(types::I64, 0);
+
+                // Null for the attachments
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    null_pointer,
+                    slot_ptr,
+                    offset_of!(StackFrame, attachments) as i32,
+                );
+
+                let old_pop_count = ctx.builder.ins().load(
+                    types::I64,
+                    MemFlags::trusted(),
+                    vm_ctx,
+                    offset_of!(VmCore, pop_count) as i32,
+                );
+
+                // Increment pop count
+                let new_pop_count = ctx.builder.ins().iadd_imm(old_pop_count, 1);
+
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    new_pop_count,
+                    vm_ctx,
+                    offset_of!(VmCore, pop_count) as i32,
+                );
+
+                // Set ip to 0
+                let zero = ctx.builder.ins().iconst(types::I64, 0);
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    zero,
+                    vm_ctx,
+                    offset_of!(VmCore, ip) as i32,
+                );
+
+                // Add one to the length:
+                let new_length = ctx.builder.ins().iadd_imm(stack_frame_length, 1);
+
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    new_length,
+                    thread_pointer,
+                    (stack_frame_offset + len_offset) as i32,
+                );
+            },
+        );
+    }
+
+    // Attempt to push this to the VM stack inline:
+    fn push_to_vm_stack_let_var_new(&mut self, value: Value) {
+        let ctx = self.get_ctx();
+        let thread_offset = offset_of!(VmCore, thread);
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let capacity_offset = steel_vec::Vec::<SteelVal>::capacity_offset();
+        let len_offset = steel_vec::Vec::<SteelVal>::len_offset();
+
+        // This is the actual stack, steel_vec::Vec<SteelVal>
+        let stack_capacity = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + capacity_offset) as i32,
+        );
+
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        // Then, we'll say _if_ the values are equal, we can do something,
+        // otherwise we really just have to write the value in and call
+        // it a day. Lets see if this is any faster... odds are that its not,
+        // but then we can start eliding all sorts of good things because
+        // we have direct access to the stack.
+        let at_capacity = self
+            .builder
+            .ins()
+            .icmp(IntCC::Equal, stack_capacity, stack_length);
+
+        self.converging_if_no_else_no_value(
+            at_capacity,
+            // If at capacity, call grow
+            |ctx| ctx.call_function_no_return("slow-grow-stack"),
+            |ctx| {
+                // Write the value:
+                let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+                let buf_ptr = ctx.builder.ins().load(
+                    Type::int(64).unwrap(),
+                    MemFlags::trusted(),
+                    thread_pointer,
+                    (stack_offset + ptr_offset) as i32,
+                );
+
+                let size: i64 = std::mem::size_of::<SteelVal>() as _;
+                let offset = ctx.builder.ins().imul_imm(stack_length, size);
+                let slot_ptr = ctx.builder.ins().iadd(buf_ptr, offset);
+
+                ctx.builder
+                    .ins()
+                    .store(MemFlags::trusted(), value, slot_ptr, 0);
+
+                // Add one to the length:
+                let new_length = ctx.builder.ins().iadd_imm(stack_length, 1);
+
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    new_length,
+                    thread_pointer,
+                    (stack_offset + len_offset) as i32,
+                );
+            },
+        );
     }
 
     fn push_to_vm_stack_let_var(&mut self, value: Value) {
@@ -5401,6 +7553,13 @@ impl FunctionTranslator<'_> {
         result
     }
 
+    fn call_function_no_return(&mut self, name: &str) {
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
+        let arg_values = [ctx];
+        let call = self.builder.ins().call(local_callee, &arg_values);
+    }
+
     fn get_signature(&self, name: &str) -> Signature {
         let mut sig = self.intrinsics.get_signature(name, &self.module);
         if cfg!(target_os = "windows") {
@@ -5416,6 +7575,30 @@ impl FunctionTranslator<'_> {
             .module
             .declare_function(&name, Linkage::Import, &sig)
             .expect("problem declaring function");
+        self.module.declare_func_in_func(callee, self.builder.func)
+    }
+
+    fn get_jit_func(&mut self, id: u32) -> FuncRef {
+        let mut sig = self.module.make_signature();
+
+        let mut param = AbiParam::new(self.module.target_config().pointer_type());
+
+        param.purpose = ArgumentPurpose::VMContext;
+
+        // VmCore pointer
+        sig.params.push(param);
+
+        if cfg!(target_os = "windows") {
+            sig.call_conv = CallConv::SystemV;
+        }
+
+        let name = id.to_string();
+
+        let callee = self
+            .module
+            .declare_function(&name, Linkage::Import, &sig)
+            .expect("problem declaring function");
+
         self.module.declare_func_in_func(callee, self.builder.func)
     }
 
@@ -5444,11 +7627,25 @@ impl FunctionTranslator<'_> {
         result
     }
 
+    fn call_function_args_no_return(&mut self, name: &str, args: &[Value]) {
+        let local_callee = self.get_local_callee(name);
+        let ctx = self.get_ctx();
+
+        let mut arg_values = vec![ctx];
+        arg_values.extend(args.iter());
+        self.builder.ins().call(local_callee, &arg_values);
+    }
+
     fn call_function_returns_value_args_no_context(&mut self, name: &str, args: &[Value]) -> Value {
         let local_callee = self.get_local_callee(name);
         let call = self.builder.ins().call(local_callee, &args);
         let result = self.builder.inst_results(call)[0];
         result
+    }
+
+    fn call_function_args_no_context(&mut self, name: &str, args: &[Value]) {
+        let local_callee = self.get_local_callee(name);
+        let _ = self.builder.ins().call(local_callee, &args);
     }
 }
 

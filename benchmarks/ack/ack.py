@@ -13,6 +13,6 @@ for i in range(50):
     ack1(3, 3)
 end = time.time()
 
-print(int(round((end - start) * 1000)))
+# print(int(round((end - start) * 1000)))
 
-# print(end - start)
+print(end - start)

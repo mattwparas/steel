@@ -1,6 +1,6 @@
 #![allow(improper_ctypes_definitions, unused)]
 
-use core::mem::ManuallyDrop;
+use core::{hint::unreachable_unchecked, mem::ManuallyDrop};
 
 use steel_derive::cross_platform_fn;
 use steel_gen::opcode::{MAX_OPCODE_SIZE, OPCODES_ARRAY};
@@ -14,19 +14,23 @@ use crate::{
         vectors::{mut_vec_set, steel_mut_vec_set},
     },
     rvals::Result,
-    steel_vm::primitives::{gt_primitive, gte_primitive, lt_primitive},
+    steel_vm::primitives::{gt_primitive, gte_primitive, listp, lt_primitive},
     SteelVal,
 };
 
 use super::*;
 
-pub const TRAMPOLINE: bool = true;
-
+#[inline(always)]
 fn should_trampoline(ctx: &mut VmCore) -> bool {
-    TRAMPOLINE && ctx.thread.stack_frames.len() < 100
+    ctx.thread.stack_frames.len() < 100
 }
 
-pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> ByteCodeLambda {
+pub(crate) fn jit_compile_lambda(
+    ctx: &mut VmCore,
+    mut func: ByteCodeLambda,
+    mut self_slot: Option<&mut Gc<ByteCodeLambda>>,
+    maybe_index: Option<usize>,
+) -> ByteCodeLambda {
     if func
         .body_exp
         .iter()
@@ -45,6 +49,20 @@ pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> 
 
     let name = func.id.to_string();
 
+    let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
+
+    // Save the entry instruction in the event we end up serializing this
+    // later.
+    func.header = Some(instructions[0].op_code);
+    func.body_exp = Shared::from(instructions);
+
+    if let Some(self_slot) = self_slot.as_mut() {
+        unsafe {
+            steel_rc::BiasedRc::get_mut_unchecked(&mut self_slot.0).body_exp =
+                func.body_exp.clone();
+        }
+    }
+
     // inspect_impl(ctx, &[SteelVal::Closure(Gc::new(func.clone()))]);
 
     // let mut inner = func.unwrap();
@@ -54,7 +72,8 @@ pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> 
         &func.body_exp,
         &ctx.thread.global_env.roots(),
         &ctx.thread.constant_map,
-        None,
+        maybe_index,
+        self_slot.map(|x| &*x),
     );
 
     let fn_pointer = if let Ok(fn_pointer) = fn_pointer {
@@ -66,15 +85,12 @@ pub(crate) fn jit_compile_lambda(ctx: &mut VmCore, mut func: ByteCodeLambda) -> 
     let super_instructions = Some(fn_pointer);
     func.super_instructions = super_instructions;
 
-    let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
+    unsafe {
+        steel_rc::BiasedRc::get_mut_unchecked(&mut func.body_exp)[0].op_code =
+            OpCode::DynSuperInstruction
+    };
 
-    // Save the entry instruction in the event we end up serializing this
-    // later.
-    func.header = Some(instructions[0].op_code);
-
-    instructions[0].op_code = OpCode::DynSuperInstruction;
-
-    func.body_exp = Arc::from(instructions.into_boxed_slice());
+    // func.body_exp.as_mut()[0].op_code = OpCode::DynSuperInstruction;
 
     func
 }
@@ -114,6 +130,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                             &ctx.thread.global_env.roots(),
                             &ctx.thread.constant_map,
                             None,
+                            None,
                         )
                         .unwrap();
 
@@ -123,7 +140,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                     let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
                     instructions[0].op_code = OpCode::DynSuperInstruction;
 
-                    func.body_exp = Arc::from(instructions.into_boxed_slice());
+                    func.body_exp = Shared::from(instructions);
 
                     let return_func = Gc::new(func);
                     ctx.thread
@@ -180,6 +197,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
                 &ctx.thread.global_env.roots(),
                 &ctx.thread.constant_map,
                 function_name,
+                None,
             )
             .unwrap();
 
@@ -189,7 +207,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
         let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
         instructions[0].op_code = OpCode::DynSuperInstruction;
 
-        func.body_exp = Arc::from(instructions.into_boxed_slice());
+        func.body_exp = Shared::from(instructions);
 
         let return_func = Gc::new(func);
         ctx.thread
@@ -340,6 +358,420 @@ fn drop_value(ctx: *mut VmCore, arg: SteelVal) {
 }
 
 #[cross_platform_fn]
+fn drop_one(arg: SteelVal) {
+    drop(arg);
+}
+
+#[cross_platform_fn]
+fn drop_value_post_fast_decrement(arg: SteelVal) {
+    use SteelVal::*;
+
+    let mut arg = ManuallyDrop::new(arg);
+
+    match &mut *arg {
+        Closure(gc) => {
+            // Fast decrement
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        VectorV(v) => {
+            v.0 .0.fast_decrement_post_ref_count_dec();
+        }
+
+        StringV(s) => {
+            s.0 .0.fast_decrement_post_ref_count_dec();
+        }
+
+        SymbolV(s) => {
+            s.0 .0.fast_decrement_post_ref_count_dec();
+        }
+
+        Custom(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        HashMapV(hm) => {
+            hm.0 .0.fast_decrement_post_ref_count_dec();
+        }
+
+        HashSetV(hs) => {
+            hs.0 .0.fast_decrement_post_ref_count_dec();
+        }
+
+        CustomStruct(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        PortV(gc) => {
+            gc.port.0.fast_decrement_post_ref_count_dec();
+        }
+
+        IterV(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        ReducerV(r) => {
+            r.0.fast_decrement_post_ref_count_dec();
+        }
+
+        StreamV(s) => {
+            s.0.fast_decrement_post_ref_count_dec();
+        }
+
+        BoxedFunction(f) => {
+            f.0.fast_decrement_post_ref_count_dec();
+        }
+
+        FutureFunc(f) => {
+            f.fast_decrement_post_ref_count_dec();
+        }
+
+        FutureV(v) => {
+            v.0.fast_decrement_post_ref_count_dec();
+        }
+
+        BoxedIterator(i) => {
+            i.0.fast_decrement_post_ref_count_dec();
+        }
+
+        SyntaxObject(s) => {
+            s.0.fast_decrement_post_ref_count_dec();
+        }
+
+        Reference(r) => {
+            r.0.fast_decrement_post_ref_count_dec();
+        }
+
+        ListV(l) => {
+            l.inner_ptr_mut().0.fast_decrement_post_ref_count_dec();
+        }
+
+        Pair(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        Boxed(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        BigNum(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        BigRational(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        Complex(gc) => {
+            gc.0.fast_decrement_post_ref_count_dec();
+        }
+
+        ByteVector(bv) => {
+            bv.vec.0.fast_decrement_post_ref_count_dec();
+        }
+
+        _ => {
+            panic!("Calling fast decrement post ref count on a non pointer value");
+        }
+    };
+}
+
+#[cross_platform_fn]
+fn drop_value_post_fast_decrement_closure(arg: Gc<ByteCodeLambda>) {
+    use SteelVal::*;
+    let mut arg = ManuallyDrop::new(arg);
+    arg.0.fast_decrement_post_ref_count_dec();
+}
+
+#[cross_platform_fn]
+fn handle_attachments_pop(ctx: *mut VmCore, attachments: Option<Box<StackFrameAttachments>>) {
+    let mut ctx = unsafe { &mut *ctx };
+
+    if let Some(cont_mark) = attachments.as_ref().and_then(|x| {
+        x.weak_continuation_mark
+            .as_ref()
+            .and_then(|x| WeakShared::upgrade(&x.inner))
+    }) {
+        cont_mark.write().close(ctx);
+    }
+}
+
+#[cross_platform_fn]
+fn pop_slow_path_finish(ctx: *mut VmCore, value: SteelVal) {
+    let ctx = unsafe { &mut *ctx };
+    let last = ctx.thread.stack_frames.pop();
+
+    let rollback_index = last
+        .map(|x| {
+            ctx.close_continuation_marks(&x);
+            x.sp
+        })
+        .unwrap_or(0);
+
+    // Move forward past the pop
+    ctx.ip += 1;
+    ctx.thread.stack.truncate(rollback_index as _);
+    ctx.sp = 0;
+    ctx.result = Some(Ok(value));
+}
+
+#[cross_platform_fn]
+fn grow_stack_slow(ctx: *mut VmCore) {
+    let mut ctx = unsafe { &mut *ctx };
+    ctx.thread.stack.grow_capacity();
+}
+
+#[cross_platform_fn]
+fn grow_frame_stack_slow(ctx: *mut VmCore) {
+    let mut ctx = unsafe { &mut *ctx };
+    ctx.thread.stack_frames.grow_capacity();
+}
+
+#[cross_platform_fn]
+fn increment_ref_count_slow(arg: SteelVal) {
+    use SteelVal::*;
+
+    let mut arg = ManuallyDrop::new(arg);
+
+    match &mut *arg {
+        Closure(gc) => {
+            // Fast decrement
+            gc.0.raw_slow_increment();
+        }
+
+        VectorV(v) => {
+            v.0 .0.raw_slow_increment();
+        }
+
+        StringV(s) => {
+            s.0 .0.raw_slow_increment();
+        }
+
+        SymbolV(s) => {
+            s.0 .0.raw_slow_increment();
+        }
+
+        Custom(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        HashMapV(hm) => {
+            hm.0 .0.raw_slow_increment();
+        }
+
+        HashSetV(hs) => {
+            hs.0 .0.raw_slow_increment();
+        }
+
+        CustomStruct(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        PortV(gc) => {
+            gc.port.0.raw_slow_increment();
+        }
+
+        IterV(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        ReducerV(r) => {
+            r.0.raw_slow_increment();
+        }
+
+        StreamV(s) => {
+            s.0.raw_slow_increment();
+        }
+
+        BoxedFunction(f) => {
+            f.0.raw_slow_increment();
+        }
+
+        FutureFunc(f) => {
+            f.raw_slow_increment();
+        }
+
+        FutureV(v) => {
+            v.0.raw_slow_increment();
+        }
+
+        BoxedIterator(i) => {
+            i.0.raw_slow_increment();
+        }
+
+        SyntaxObject(s) => {
+            s.0.raw_slow_increment();
+        }
+
+        Reference(r) => {
+            r.0.raw_slow_increment();
+        }
+
+        ListV(l) => {
+            l.inner_ptr_mut().0.raw_slow_increment();
+        }
+
+        Pair(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        Boxed(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        BigNum(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        BigRational(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        Complex(gc) => {
+            gc.0.raw_slow_increment();
+        }
+
+        ByteVector(bv) => {
+            bv.vec.0.raw_slow_increment();
+        }
+
+        _ => {
+            panic!("Calling increment ref count on a non pointer value");
+        }
+    }
+}
+
+#[cross_platform_fn]
+fn increment_ref_count_slow_closure(arg: Gc<ByteCodeLambda>) {
+    use SteelVal::*;
+
+    let mut arg = ManuallyDrop::new(arg);
+
+    arg.0.raw_slow_increment();
+}
+
+#[cross_platform_fn]
+fn drop_value_slow_decrement(arg: SteelVal) {
+    use SteelVal::*;
+
+    let mut arg = ManuallyDrop::new(arg);
+
+    match &mut *arg {
+        Closure(gc) => {
+            // Fast decrement
+            gc.0.raw_slow_decrement();
+        }
+
+        VectorV(v) => {
+            v.0 .0.raw_slow_decrement();
+        }
+
+        StringV(s) => {
+            s.0 .0.raw_slow_decrement();
+        }
+
+        SymbolV(s) => {
+            s.0 .0.raw_slow_decrement();
+        }
+
+        Custom(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        HashMapV(hm) => {
+            hm.0 .0.raw_slow_decrement();
+        }
+
+        HashSetV(hs) => {
+            hs.0 .0.raw_slow_decrement();
+        }
+
+        CustomStruct(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        PortV(gc) => {
+            gc.port.0.raw_slow_decrement();
+        }
+
+        IterV(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        ReducerV(r) => {
+            r.0.raw_slow_decrement();
+        }
+
+        StreamV(s) => {
+            s.0.raw_slow_decrement();
+        }
+
+        BoxedFunction(f) => {
+            f.0.raw_slow_decrement();
+        }
+
+        FutureFunc(f) => {
+            f.raw_slow_decrement();
+        }
+
+        FutureV(v) => {
+            v.0.raw_slow_decrement();
+        }
+
+        BoxedIterator(i) => {
+            i.0.raw_slow_decrement();
+        }
+
+        SyntaxObject(s) => {
+            s.0.raw_slow_decrement();
+        }
+
+        Reference(r) => {
+            r.0.raw_slow_decrement();
+        }
+
+        ListV(l) => {
+            l.inner_ptr_mut().0.raw_slow_decrement();
+        }
+
+        Pair(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        Boxed(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        BigNum(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        BigRational(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        Complex(gc) => {
+            gc.0.raw_slow_decrement();
+        }
+
+        ByteVector(bv) => {
+            bv.vec.0.raw_slow_decrement();
+        }
+
+        _ => {
+            panic!("Calling fast decrement post ref count on a non pointer value");
+        }
+    };
+}
+
+#[cross_platform_fn]
+fn drop_value_slow_decrement_closure(arg: Gc<ByteCodeLambda>) {
+    use SteelVal::*;
+    let mut arg = ManuallyDrop::new(arg);
+    arg.0.raw_slow_decrement();
+}
+
+#[cross_platform_fn]
 fn pop_value(ctx: *mut VmCore) -> SteelVal {
     unsafe { &mut *ctx }.thread.stack.pop().unwrap()
 }
@@ -420,11 +852,94 @@ fn list_ref_handler_c(ctx: *mut VmCore, list: SteelVal, index: SteelVal) -> Stee
 }
 
 #[cross_platform_fn]
+fn is_string_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
+    use crate::steel_vm::primitives::stringp;
+
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let value = &guard.thread.stack[offset + register];
+    SteelVal::BoolV(stringp(value))
+}
+
+// TODOO: Abstract these into a macro?
+#[cross_platform_fn]
+fn is_symbol_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
+    use crate::steel_vm::primitives::symbolp;
+
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let value = &guard.thread.stack[offset + register];
+    SteelVal::BoolV(symbolp(value))
+}
+
+#[cross_platform_fn]
+fn is_list_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let value = &guard.thread.stack[offset + register];
+    SteelVal::BoolV(listp(value))
+}
+
+#[cross_platform_fn]
 fn is_pair_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
     let guard = unsafe { &mut *ctx };
     let offset = guard.get_offset();
     let value = &guard.thread.stack[offset + register];
     SteelVal::BoolV(crate::primitives::lists::pair(value))
+}
+
+#[cross_platform_fn]
+fn is_void_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
+    use crate::steel_vm::primitives::voidp;
+
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let value = &guard.thread.stack[offset + register];
+    SteelVal::BoolV(voidp(value))
+}
+
+#[cross_platform_fn]
+fn is_pair_value(value: SteelVal) -> SteelVal {
+    SteelVal::BoolV(crate::primitives::lists::pair(&value))
+}
+
+#[cross_platform_fn]
+fn is_list_value(value: SteelVal) -> SteelVal {
+    SteelVal::BoolV(listp(&value))
+}
+
+#[cross_platform_fn]
+fn is_void_value(value: SteelVal) -> SteelVal {
+    use crate::steel_vm::primitives::voidp;
+
+    SteelVal::BoolV(voidp(&value))
+}
+
+#[cross_platform_fn]
+fn is_string_value(value: SteelVal) -> SteelVal {
+    use crate::steel_vm::primitives::stringp;
+
+    SteelVal::BoolV(stringp(&value))
+}
+
+#[cross_platform_fn]
+fn is_symbol_value(value: SteelVal) -> SteelVal {
+    use crate::steel_vm::primitives::symbolp;
+
+    SteelVal::BoolV(symbolp(&value))
+}
+
+#[cross_platform_fn]
+fn is_empty_c_reg(ctx: *mut VmCore, register: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let value = &guard.thread.stack[offset + register];
+    SteelVal::BoolV(crate::primitives::lists::is_empty(value))
+}
+
+#[cross_platform_fn]
+fn is_empty_value(value: SteelVal) -> SteelVal {
+    SteelVal::BoolV(crate::primitives::lists::is_empty(&value))
 }
 
 #[cross_platform_fn]
@@ -1488,7 +2003,6 @@ fn callglobal_handler_deopt_c(ctx: *mut VmCore) -> u8 {
 
 #[cross_platform_fn]
 fn extern_handle_pop(ctx: *mut VmCore, value: SteelVal) {
-    // println!("Calling pop from jit: {}", value);
     unsafe {
         let this = &mut *ctx;
         let res = this.handle_pop_pure_value(value);
@@ -1788,25 +2302,26 @@ fn extern_c_add_two_binop_register_both(ctx: *mut VmCore, reg1: usize, reg2: usi
 #[cross_platform_fn]
 fn extern_c_sub_two_int_reg(ctx: *mut VmCore, reg: usize, b: SteelVal) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
-    // let a = ManuallyDrop::new(a);
-    let rhs = if let SteelVal::IntV(i) = b {
-        i
+    // Lets try to avoid the drop glue getting generated here?
+    let b = std::mem::ManuallyDrop::new(b);
+    let rhs = if let SteelVal::IntV(i) = &*b {
+        *i
     } else {
-        panic!()
+        unsafe { unreachable_unchecked() }
     };
 
     let offset = ctx.get_offset();
     let a = &ctx.thread.stack[reg + offset];
 
     match a {
-        SteelVal::IntV(l) => match (*l).checked_sub(rhs) {
+        SteelVal::IntV(l) => match (*l).checked_sub(rhs as _) {
             Some(x) => SteelVal::IntV(x),
             None => {
                 let res = BigInt::from(*l) - rhs;
                 res.into_steelval().unwrap()
             }
         },
-        _ => match subtract_primitive(&[a.clone(), SteelVal::IntV(rhs)]) {
+        _ => match subtract_primitive(&[a.clone(), SteelVal::IntV(rhs as _)]) {
             Ok(v) => v,
             Err(e) => {
                 ctx.result = Some(Err(e));
@@ -1814,6 +2329,25 @@ fn extern_c_sub_two_int_reg(ctx: *mut VmCore, reg: usize, b: SteelVal) -> SteelV
                 SteelVal::Void
             }
         },
+    }
+}
+
+#[cross_platform_fn]
+fn extern_c_sub_two_reg(ctx: *mut VmCore, reg: usize, b: SteelVal) -> SteelVal {
+    use crate::primitives::numbers::sub_two;
+
+    let ctx = unsafe { &mut *ctx };
+
+    let offset = ctx.get_offset();
+    let a = &ctx.thread.stack[reg + offset];
+
+    match sub_two(a, &b) {
+        Ok(v) => v,
+        Err(e) => {
+            ctx.result = Some(Err(e));
+            ctx.is_native = false;
+            SteelVal::Void
+        }
     }
 }
 
@@ -1888,6 +2422,61 @@ fn extern_c_lt_two(_ctx: *mut VmCore, a: SteelVal, b: SteelVal) -> SteelVal {
 fn extern_c_lte_two_int(a: SteelVal, b: SteelVal) -> SteelVal {
     assert!(matches!(b, SteelVal::IntV(_)));
     SteelVal::BoolV(a <= b)
+}
+
+#[cross_platform_fn]
+fn extern_c_lte_register(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
+    use crate::primitives::numbers::realp;
+
+    let mut ctx = unsafe { &mut *ctx };
+    let offset = ctx.get_offset();
+    let a = &ctx.thread.stack[reg + offset];
+
+    if realp(a) && realp(&b) {
+        a <= &b
+    } else {
+        let e = SteelErr::new(
+            ErrorKind::TypeMismatch,
+            format!("expected real numbers, found: {} - {}", a, b),
+        );
+
+        unsafe {
+            let guard = &mut *ctx;
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+        }
+
+        false
+    }
+}
+
+#[cross_platform_fn]
+fn extern_c_lte_register_int(ctx: *mut VmCore, reg: usize, b: SteelVal) -> bool {
+    use crate::primitives::numbers::realp;
+
+    assert!(matches!(b, SteelVal::IntV(_)));
+    let mut ctx = unsafe { &mut *ctx };
+    let offset = ctx.get_offset();
+    let a = &ctx.thread.stack[reg + offset];
+
+    if realp(a) {
+        // Avoid the drop glue. We've already asserted that this is an integer
+        let b = ManuallyDrop::new(b);
+        a <= &b
+    } else {
+        let e = SteelErr::new(
+            ErrorKind::TypeMismatch,
+            format!("expected real numbers, found: {} and {}", a, b),
+        );
+
+        unsafe {
+            let guard = &mut *ctx;
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+        }
+
+        false
+    }
 }
 
 #[cross_platform_fn]
@@ -2391,7 +2980,7 @@ fn push_to_vm_stack_let_var(ctx: *mut VmCore, value: SteelVal) {
 fn push_to_vm_stack_two(ctx: *mut VmCore, value: SteelVal, value2: SteelVal) {
     unsafe {
         let guard = &mut *ctx;
-        guard.thread.stack.reserve_exact(2);
+        // guard.thread.stack.reserve_exact(2);
         guard.thread.stack.push(value);
         guard.thread.stack.push(value2);
     }
@@ -2736,8 +3325,11 @@ debug_stack_handlers!(
 fn list_handler_c(ctx: *mut VmCore<'_>, payload: usize) -> SteelVal {
     let ctx = unsafe { &mut *ctx };
     let last_index = ctx.thread.stack.len() - payload;
-    let remaining = ctx.thread.stack.split_off(last_index);
-    SteelVal::ListV(remaining.into())
+    // let remaining = ctx.thread.stack.split_off(last_index);
+
+    let remaining = ctx.thread.stack.drain(last_index..).collect();
+
+    SteelVal::ListV(remaining)
 }
 
 #[cross_platform_fn]
@@ -2747,7 +3339,13 @@ fn vec_handler_c(ctx: *mut VmCore<'_>, payload: usize) -> SteelVal {
     let len = payload / 2;
     let bytes = payload % 2 != 0;
 
-    let args = ctx.thread.stack.split_off(ctx.thread.stack.len() - len);
+    // let args = ctx.thread.stack.split_off(ctx.thread.stack.len() - len);
+
+    let args = ctx
+        .thread
+        .stack
+        .drain(ctx.thread.stack.len() - len..)
+        .collect::<Vec<_>>();
 
     let val = if bytes {
         let buffer: Vec<_> = args
@@ -4000,7 +4598,10 @@ macro_rules! make_call_global_function_deopt_no_arity {
 
                             if should_trampoline(ctx) {
                                 if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                                    #[cfg(debug_assertions)]
                                     let pop_count = ctx.pop_count;
+
+                                    #[cfg(debug_assertions)]
                                     let depth = ctx.thread.stack_frames.len();
 
                                     // println!("Calling function from context @ ip: {}", ctx.ip);
@@ -4027,8 +4628,12 @@ macro_rules! make_call_global_function_deopt_no_arity {
                                             // println!("{}", ctx.ip);
                                             // println!("{:?}", ctx.instructions[ctx.ip]);
                                         // }
-                                        debug_assert_eq!(ctx.pop_count, pop_count);
-                                        debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
+
+                                        #[cfg(debug_assertions)]
+                                        {
+                                            debug_assert_eq!(ctx.pop_count, pop_count);
+                                            debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
+                                        }
 
                                         // Don't deopt?
                                         Ok(ctx.thread.stack.pop().unwrap())
@@ -4138,6 +4743,153 @@ make_call_global_function_deopt_no_arity!(
         g,
         h
     )
+);
+
+macro_rules! make_call_self_function_deopt_no_arity {
+    ($(($name:tt, $($typ:ident),*)),*) => {
+
+        pub struct CallSelfNoArityFunctionDefinitions;
+
+        impl CallSelfNoArityFunctionDefinitions {
+            pub fn register(map: &mut crate::jit2::cgen::FunctionMap) {
+                $(
+                    #[cfg(target_os = "windows")]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "sysv64-unwind" fn(ctx: *mut VmCore, func: Gc<ByteCodeLambda>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+
+
+                    #[cfg(not(target_os = "windows"))]
+                    map.add_func(
+                        stringify!($name),
+                        $name as extern "C-unwind" fn(ctx: *mut VmCore,  func: Gc<ByteCodeLambda>, fallback_ip: usize, $($typ: SteelVal),*) -> SteelVal
+                    );
+                )*
+            }
+
+            pub fn arity_to_name(count: usize) -> Option<&'static str> {
+                $(
+                    {
+                        $(
+                            let $typ = 0usize;
+                        )*
+
+                        let arr: &[usize] = &[$($typ),*];
+
+                        if count == arr.len() {
+                            return Some(stringify!($name));
+                        }
+                    }
+                )*
+
+                None
+            }
+        }
+
+        $(
+            #[cross_platform_fn]
+            fn $name(
+                ctx: *mut VmCore,
+                func: Gc<ByteCodeLambda>,
+                fallback_ip: usize,
+                $($typ: SteelVal),*
+            ) -> SteelVal {
+                let ctx = unsafe { &mut *ctx };
+                let func = ManuallyDrop::new(func);
+
+                // Make it exist
+                let func = (&*func).clone();
+
+                let should_yield = !should_trampoline(ctx);
+
+                debug_assert!(ctx.is_native);
+
+                if should_yield {
+                    ctx.ip = fallback_ip;
+                    ctx.is_native = false;
+                } else {
+                    ctx.ip = fallback_ip;
+                }
+
+
+                fn inner_handle_global_function_call_with_args_no_arity(
+                    ctx: &mut VmCore,
+                    closure: Gc<ByteCodeLambda>,
+                    should_yield: bool,
+                    $($typ: SteelVal),*
+                ) -> Result<SteelVal> {
+                    // TODO: Consider reserving the amount?
+                    $(
+                        ctx.thread.stack.push($typ);
+                    )*
+
+                    if !should_yield {
+                        if let Some(func) = closure.0.super_instructions.as_ref().copied() {
+                            #[cfg(debug_assertions)]
+                            let pop_count = ctx.pop_count;
+
+                            #[cfg(debug_assertions)]
+                            let depth = ctx.thread.stack_frames.len();
+
+                            // Install the function, so that way we can just trampoline
+                            // without needing to spill the stack
+                            ctx.handle_function_call_closure_jit_no_arity(closure)
+                                .unwrap();
+
+
+                            (func)(ctx);
+
+                            if ctx.is_native {
+                                #[cfg(debug_assertions)]
+                                {
+                                    debug_assert_eq!(ctx.pop_count, pop_count);
+                                    debug_assert_eq!(ctx.thread.stack_frames.len(), depth);
+                                }
+
+                                // Don't deopt?
+                                Ok(ctx.thread.stack.pop().unwrap())
+                            } else {
+                                println!("HITTING THIS ELSE CASE");
+                                Ok(SteelVal::Void)
+                            }
+                        } else {
+                            // We're going to de-opt in this case - unless we intend to do some fun inlining business
+                            ctx.handle_function_call_closure_jit_no_arity(closure)?;
+                            Ok(SteelVal::Void)
+                        }
+                    } else {
+                        ctx.handle_function_call_closure_jit_no_arity(closure)?;
+                        Ok(SteelVal::Void)
+                    }
+                }
+
+                inner_handle_global_function_call_with_args_no_arity(ctx, func, should_yield, $($typ),*).unwrap()
+
+            }
+        )*
+    };
+}
+
+#[cross_platform_fn]
+fn setup_closure_call(ctx: *mut VmCore, closure: Gc<ByteCodeLambda>) -> SteelVal {
+    let mut ctx = unsafe { &mut *ctx };
+    let closure = ManuallyDrop::new(closure);
+    ctx.ip += 1;
+    ctx.handle_function_call_closure_jit_no_arity((&*closure).clone());
+    SteelVal::Void
+}
+
+make_call_self_function_deopt_no_arity!(
+    (call_self_function_deopt_0_no_arity,),
+    (call_self_function_deopt_1_no_arity, a),
+    (call_self_function_deopt_2_no_arity, a, b),
+    (call_self_function_deopt_3_no_arity, a, b, c),
+    (call_self_function_deopt_4_no_arity, a, b, c, d),
+    (call_self_function_deopt_5_no_arity, a, b, c, d, e),
+    (call_self_function_deopt_6_no_arity, a, b, c, d, e, f),
+    (call_self_function_deopt_7_no_arity, a, b, c, d, e, f, g),
+    (call_self_function_deopt_8_no_arity, a, b, c, d, e, f, g, h)
 );
 
 #[cross_platform_fn]
@@ -5290,7 +6042,7 @@ fn handle_pure_function(ctx: *mut VmCore, ip: usize, offset: usize) -> SteelVal 
         ctx.thread.function_interner.spans.insert(closure_id, spans);
 
         #[cfg(feature = "jit2")]
-        let constructed_lambda = jit::jit_compile_lambda(ctx, constructed_lambda);
+        let constructed_lambda = jit::jit_compile_lambda(ctx, constructed_lambda, None, None);
 
         let constructed_lambda = Gc::new(constructed_lambda);
 
@@ -5488,7 +6240,7 @@ fn handle_new_start_closure(ctx: *mut VmCore, ip: usize, offset: usize) -> Steel
         #[cfg(feature = "jit2")]
         let mut constructed_lambda =
             if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
-                jit::jit_compile_lambda(ctx, constructed_lambda)
+                jit::jit_compile_lambda(ctx, constructed_lambda, None, None)
             } else {
                 constructed_lambda
             };
@@ -5588,7 +6340,13 @@ fn vec_handler_impl(ctx: &mut VmCore) -> Result<Dispatch> {
     let len = payload / 2;
     let bytes = payload % 2 != 0;
 
-    let args = ctx.thread.stack.split_off(ctx.thread.stack.len() - len);
+    // let args = ctx.thread.stack.split_off(ctx.thread.stack.len() - len);
+
+    let args = ctx
+        .thread
+        .stack
+        .drain(ctx.thread.stack.len() - len..)
+        .collect::<Vec<_>>();
 
     let val = if bytes {
         let buffer: Vec<_> = args

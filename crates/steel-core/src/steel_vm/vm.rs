@@ -1,7 +1,7 @@
 use crate::compiler::compiler::Compiler;
 use crate::compiler::modules::fully_qualified_to_relative;
 use crate::compiler::passes::VisitorMutRefUnit;
-use crate::core::instructions::{pretty_print_dense_instructions, u24};
+use crate::core::instructions::u24;
 use crate::env::SharedVectorWrapper;
 use crate::gc::shared::{
     MutContainer, ShareableMut, Shared, StandardShared, StandardSharedMut, WeakShared,
@@ -115,7 +115,9 @@ const STACK_LIMIT: usize = 10000000;
 const _JIT_THRESHOLD: usize = 100;
 
 const _USE_SUPER_INSTRUCTIONS: bool = false;
-const CHECK_STACK_OVERFLOW: bool = true;
+
+// Don't check stack overflow?
+const CHECK_STACK_OVERFLOW: bool = false;
 
 #[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq)]
@@ -173,15 +175,12 @@ pub struct StackFrameAttachments {
 // TODO: We'll need to add these functions to the GC as well
 
 #[derive(Debug, Clone)]
+#[repr(C)]
 pub struct StackFrame {
-    sp: u32,
-
+    pub(crate) sp: u32,
+    pub(crate) ip: u32,
+    pub(crate) instructions: RootedInstructions,
     pub(crate) function: Gc<ByteCodeLambda>,
-
-    ip: u32,
-
-    instructions: RootedInstructions,
-
     pub(crate) attachments: Option<Box<StackFrameAttachments>>,
 }
 
@@ -216,7 +215,7 @@ fn check_sizes() {
 }
 
 thread_local! {
-    static THE_EMPTY_INSTRUCTION_SET: StandardShared<[DenseInstruction]> = StandardShared::from([]);
+    static THE_EMPTY_INSTRUCTION_SET: Shared<[DenseInstruction]> = Shared::from(vec![]);
 }
 
 impl StackFrame {
@@ -321,70 +320,6 @@ pub enum ThreadState {
     PausedAtSafepoint,
 }
 
-// Multiple buffers
-// / When each one fills, send it to the back
-// static BACKGROUND_DROPPER: LazyLock<DropBufferPool> = LazyLock::new(|| {
-//     let (forward_sender, forward_receiver) = crossbeam_channel::bounded::<Vec<_>>(6);
-//     let (backward_sender, backward_receiver) = crossbeam_channel::bounded(6);
-
-//     std::thread::spawn(move || {
-//         // Have many ready in the queue
-//         backward_sender.send(Vec::with_capacity(1024)).unwrap();
-//         backward_sender.send(Vec::with_capacity(1024)).unwrap();
-//         backward_sender.send(Vec::with_capacity(1024)).unwrap();
-//         backward_sender.send(Vec::with_capacity(1024)).unwrap();
-//         backward_sender.send(Vec::with_capacity(1024)).unwrap();
-
-//         for mut vec in forward_receiver {
-//             vec.clear();
-
-//             backward_sender.send(vec).unwrap()
-//         }
-//     });
-
-//     DropBufferPool {
-//         forward_sender,
-//         backward_receiver,
-//     }
-// });
-
-// struct DropBufferPool {
-//     forward_sender: Sender<Vec<SteelVal>>,
-//     backward_receiver: Receiver<Vec<SteelVal>>,
-// }
-
-// #[derive(Clone)]
-// pub(crate) struct DelayedDropper {
-//     buffer: Vec<SteelVal>,
-// }
-
-// impl DelayedDropper {
-//     // Attempt to just write to a local buffer
-//     // to avoid drops.
-//     fn new() -> Self {
-//         Self {
-//             buffer: Vec::with_capacity(1024),
-//         }
-//     }
-
-//     // Extend with a drain?
-//     pub fn push(&mut self, value: SteelVal) {
-//         // If we're going to reallocate,
-//         // request a new buffer from the back.
-//         if self.buffer.len() == 1024 {
-//             // Atomic swap with a background thread?
-
-//             BACKGROUND_DROPPER
-//                 .forward_sender
-//                 .send(core::mem::take(&mut self.buffer))
-//                 .unwrap();
-//             self.buffer = BACKGROUND_DROPPER.backward_receiver.recv().unwrap();
-//         } else {
-//             self.buffer.push(value);
-//         }
-//     }
-// }
-
 /// The thread execution context
 #[derive(Clone)]
 #[repr(C)]
@@ -394,7 +329,9 @@ pub struct SteelThread {
     // means we can get away with one environment that is
     // shared, but in reality this should just be
     pub(crate) global_env: Env,
-    pub(crate) stack: Vec<SteelVal>,
+    // pub(crate) stack: Vec<SteelVal>,
+    pub(crate) stack: steel_vec::Vec<SteelVal>,
+    pub(crate) stack_frames: steel_vec::Vec<StackFrame>,
 
     #[cfg(feature = "dynamic")]
     profiler: OpCodeOccurenceProfiler,
@@ -403,7 +340,6 @@ pub struct SteelThread {
     pub(crate) heap: Arc<parking_lot::Mutex<Heap>>,
     pub(crate) runtime_options: RunTimeOptions,
     pub(crate) current_frame: StackFrame,
-    pub(crate) stack_frames: Vec<StackFrame>,
     pub(crate) constant_map: ConstantMap,
     pub(crate) interrupted: Option<Arc<AtomicBool>>,
     pub(crate) synchronizer: Synchronizer,
@@ -768,7 +704,7 @@ impl SteelThread {
 
         SteelThread {
             global_env: Env::root(),
-            stack: Vec::with_capacity(128),
+            stack: steel_vec::Vec::with_capacity(128),
 
             #[cfg(feature = "dynamic")]
             profiler: OpCodeOccurenceProfiler::new(),
@@ -777,7 +713,7 @@ impl SteelThread {
             // _super_instructions: Vec::new(),
             heap: Arc::new(parking_lot::Mutex::new(Heap::new())),
             runtime_options: RunTimeOptions::new(),
-            stack_frames: Vec::with_capacity(128),
+            stack_frames: steel_vec::Vec::with_capacity(128),
             current_frame: StackFrame::main(),
             // Should probably just have this be Option<ConstantMap> - but then every time we look up
             // something we'll have to deal with the fact that its wrapped in an option. Another options
@@ -975,13 +911,7 @@ impl SteelThread {
         let result = instructions
             .iter()
             .zip(spans.iter())
-            .map(|x| {
-                self.execute(
-                    StandardShared::clone(x.0),
-                    constant_map.clone(),
-                    Shared::clone(x.1),
-                )
-            })
+            .map(|x| self.execute(Shared::clone(x.0), constant_map.clone(), Shared::clone(x.1)))
             .collect();
 
         // self.constant_map = DEFAULT_CONSTANT_MAP.with(|x| x.clone());
@@ -1127,7 +1057,7 @@ impl SteelThread {
 
     pub fn execute(
         &mut self,
-        instructions: StandardShared<[DenseInstruction]>,
+        instructions: Shared<[DenseInstruction]>,
         constant_map: ConstantMap,
         spans: Shared<[Span]>,
     ) -> Result<SteelVal> {
@@ -1142,7 +1072,7 @@ impl SteelThread {
         self.current_frame
             .set_function(Gc::new(ByteCodeLambda::rooted(keep_alive.clone())));
 
-        let raw_keep_alive = StandardShared::into_raw(keep_alive);
+        let raw_keep_alive = Shared::into_raw(keep_alive);
 
         // TODO: Figure out how to keep the first set of instructions around
         // during a continuation? Does it get allocated into something? If its the
@@ -1269,7 +1199,7 @@ pub struct OpenContinuationMark {
 
     // Captured at creation, everything on the stack
     // from the current frame
-    pub(crate) current_stack_values: Vec<SteelVal>,
+    pub(crate) current_stack_values: steel_vec::Vec<SteelVal>,
 
     ip: usize,
     sp: usize,
@@ -1472,6 +1402,7 @@ impl Continuation {
 }
 
 #[derive(Clone, Debug)]
+#[repr(C)]
 pub struct Continuation {
     // TODO: This _might_ need to be a weak reference. We'll see!
     pub(crate) inner: StandardSharedMut<ContinuationMark>,
@@ -1500,10 +1431,10 @@ impl WeakContinuation {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClosedContinuation {
-    pub(crate) stack: Vec<SteelVal>,
+    pub(crate) stack: steel_vec::Vec<SteelVal>,
     pub(crate) current_frame: StackFrame,
     instructions: RootedInstructions,
-    pub(crate) stack_frames: Vec<StackFrame>,
+    pub(crate) stack_frames: steel_vec::Vec<StackFrame>,
     ip: usize,
     sp: usize,
     pop_count: usize,
@@ -1546,95 +1477,17 @@ impl<'a> VmContext for VmCore<'a> {
     }
 }
 
-// TODO: Make dynamic block use this
-// enum FunctionBlock {
-//     Specialized(for<'r> fn(&'r mut VmCore<'_>) -> Result<()>),
-//     Unrolled(Rc<[for<'r> fn(&'r mut VmCore<'_>) -> Result<()>]>),
-// }
-
-// Construct a basic block for a series of instructions
-// Note: A call to either apply or call/cc should invalidate this, as it fundamentally
-// violates the principle of a basic block.
-// #[derive(Clone)]
-// pub struct DynamicBlock {
-//     basic_block: InstructionPattern,
-//     entry_inst: DenseInstruction,
-//     header_func: Option<for<'r> fn(&'r mut VmCore<'_>, usize) -> Result<()>>,
-//     handlers: Rc<[for<'r> fn(&'r mut VmCore<'_>) -> Result<()>]>,
-//     specialized: Option<for<'r> fn(&'r mut VmCore<'_>, usize) -> Result<()>>,
-// }
-
-// impl DynamicBlock {
-// fn call(&self, context: &mut VmCore<'_>) -> Result<()> {
-//     // println!("---- Entering dynamic block ----");
-//     // println!("{:#?}", self.basic_block);
-
-//     if let Some(specialized) = self.specialized {
-//         specialized(context, self.entry_inst.payload_size.to_usize())?;
-//     } else {
-//         if let Some(header) = self.header_func {
-//             // println!("Calling special entry block");
-//             header(context, self.entry_inst.payload_size.to_usize())?;
-//         }
-
-//         for func in self.handlers.iter() {
-//             func(context)?;
-//         }
-//     }
-
-//     Ok(())
-// }
-
-//     #[cfg(feature = "dynamic")]
-//     fn construct_basic_block(head: DenseInstruction, basic_block: InstructionPattern) -> Self {
-//         // TODO: Drop the first
-//         let mut handlers = basic_block.block.iter().peekable();
-//         // .map(|x| OP_CODE_TABLE[x.to_usize()]);
-//         // .collect();
-
-//         let mut header_func = None;
-
-//         log::debug!(target: "super-instructions", "{basic_block:#?}");
-
-//         if let Some(first) = handlers.peek() {
-//             header_func = op_code_requires_payload(first.0);
-//         }
-
-//         if header_func.is_some() {
-//             handlers.next();
-//         }
-
-//         let op_codes: Vec<_> = handlers.clone().copied().collect();
-
-//         let specialized = dynamic::DYNAMIC_SUPER_PATTERNS.get(&op_codes);
-
-//         if specialized.is_some() {
-//             println!("Found specialized function!");
-//         }
-
-//         let handlers = handlers.map(|x| OP_CODE_TABLE[x.0.to_usize()]).collect();
-
-//         Self {
-//             basic_block,
-//             handlers,
-//             entry_inst: head,
-//             header_func,
-//             // TODO: Come back and add the specialized ones back in
-//             specialized,
-//         }
-//     }
-// }
-
 #[repr(C)]
 pub struct VmCore<'a> {
     pub(crate) is_native: bool,
+    #[cfg(feature = "biased")]
+    pub(crate) thread_id: Option<steel_rc::ThreadId>,
     pub(crate) ip: usize,
+    // Can make this be a u32 now since
+    // we'll never have a stack that large
     pub(crate) sp: usize,
     pub(crate) thread: &'a mut SteelThread,
     pub(crate) instructions: RootedInstructions,
-    // TODO: Replace this with a thread local constant map!
-    // that way reads are fast - and any updates to it are
-    // broadcast from the shared constant map.
     pub(crate) constants: ConstantMap,
     pub(crate) pop_count: usize,
     pub(crate) depth: usize,
@@ -1644,8 +1497,6 @@ pub struct VmCore<'a> {
     pub(crate) result: Option<Result<SteelVal>>,
 }
 
-// TODO: Delete this entirely, and just have the run function live on top of the SteelThread.
-//
 impl<'a> VmCore<'a> {
     fn new_unchecked(
         instructions: RootedInstructions,
@@ -1655,6 +1506,8 @@ impl<'a> VmCore<'a> {
     ) -> VmCore<'a> {
         VmCore {
             instructions,
+            #[cfg(feature = "biased")]
+            thread_id: Some(steel_rc::ThreadId::current_thread()),
             constants,
             ip: 0,
             sp: 0,
@@ -1680,6 +1533,8 @@ impl<'a> VmCore<'a> {
 
         Ok(VmCore {
             instructions,
+            #[cfg(feature = "biased")]
+            thread_id: Some(steel_rc::ThreadId::current_thread()),
             constants,
             ip: 0,
             sp: 0,
@@ -1902,7 +1757,8 @@ impl<'a> VmCore<'a> {
                         .cloned()
                         .unwrap_or_else(|| self.thread.current_frame.clone()),
                     stack_frame_offset: self.thread.stack.len(),
-                    current_stack_values: self.thread.stack[offset..].to_vec(),
+                    // current_stack_values: self.thread.stack[offset..].to_vec(),
+                    current_stack_values: self.thread.stack[offset..].iter().cloned().collect(),
                     instructions: self.instructions.clone(),
                     ip: self.ip,
                     sp: self.sp,
@@ -2532,6 +2388,7 @@ impl<'a> VmCore<'a> {
         }
 
         loop {
+            // Maybe take this out?
             self.safepoint_or_interrupt()?;
 
             #[cfg(feature = "op-code-profiling")]
@@ -2554,28 +2411,6 @@ impl<'a> VmCore<'a> {
                 log::debug!(target: "super-instructions", "Found a hot pattern, creating super instruction...");
 
                 log::debug!(target: "super-instructions", "{:#?}", pat);
-
-                // if USE_SUPER_INSTRUCTIONS {
-                //     // Index of the starting opcode
-                //     let start = pat.pattern.start;
-
-                //     let id = self.thread.super_instructions.len();
-
-                //     let guard = self.thread.stack_frames.last_mut().unwrap();
-
-                //     // Next run should get the new sequence of opcodes
-                //     let (head, _) = guard.function.update_to_super_instruction(start, id);
-
-                //     let block = DynamicBlock::construct_basic_block(head, pat);
-
-                //     self.thread.super_instructions.push(Rc::new(block));
-                // }
-                // self.thread.super_instructions.push(Rc::new(|ctx| {
-                //     block.call(ctx);
-                // }))
-
-                // let
-                // }
             }
 
             // println!("{:?}", self.instructions[self.ip]);
@@ -2597,8 +2432,6 @@ impl<'a> VmCore<'a> {
 
             let instr = self.instructions[self.ip];
 
-            // dbg!(&instr);
-
             match instr {
                 #[cfg(feature = "jit2")]
                 DenseInstruction {
@@ -2611,10 +2444,10 @@ impl<'a> VmCore<'a> {
                     // the runtime do the thing now.
                     self.is_native = true;
 
-                    // println!(">> Entering");
-
-                    // #[cfg(debug_assertions)]
-                    // let stack_count = self.thread.stack_frames.len();
+                    #[cfg(feature = "biased")]
+                    {
+                        self.thread_id = Some(steel_rc::ThreadId::current_thread());
+                    }
 
                     self.thread
                         .stack_frames
@@ -2627,48 +2460,11 @@ impl<'a> VmCore<'a> {
 
                     self.is_native = false;
 
-                    // #[cfg(debug_assertions)]
-                    // if self.ip == 0 {
-                    //     assert_eq!(self.thread.stack_frames.len(), stack_count + 1);
-                    // } else {
-                    //     assert_eq!(self.thread.stack_frames.len(), stack_count);
-                    // }
-
-                    // pretty_print_dense_instructions(&self.instructions);
-
-                    // println!(
-                    //     "<< Exiting: {} - {:#?}",
-                    //     self.ip, self.instructions[self.ip]
-                    // );
-
-                    // println!("Stack: {:#?}", self.thread.stack);
-                    // println!("Current scope stack: {:?}", &self.thread.stack[self.sp..]);
-
-                    // if let Some(last) = self.thread.stack_frames.last().map(|x| x.function.clone())
-                    // {
-                    //     inspect(self, &[SteelVal::Closure(last.clone())]);
-                    // }
-
                     if let Some(res) = self.result.take() {
-                        // println!("Found result: {:?}", res);
-
                         return res;
                     }
                 }
 
-                // DenseInstruction {
-                //     op_code: OpCode::DynSuperInstruction,
-                //     payload_size,
-                //     ..
-                // } => {
-                //     self.cut_sequence();
-
-                //     // TODO: Store in a different spot? So that we can avoid cloning on every iteration?
-                //     let super_instruction =
-                //         { self.thread.super_instructions[payload_size.to_usize()].clone() };
-
-                //     super_instruction.call(self)?;
-                // }
                 DenseInstruction {
                     op_code: OpCode::POPN,
                     payload_size,
@@ -3032,7 +2828,7 @@ impl<'a> VmCore<'a> {
                     let right = self.thread.stack.pop().unwrap();
                     let left = self.thread.stack.pop().unwrap();
 
-                    let result = match handlers::add_handler_none_none(&left, &right) {
+                    let result = match add_handler_none_none(&left, &right) {
                         Ok(value) => value,
                         Err(e) => return Err(e.set_span_if_none(self.current_span())),
                     };
@@ -3818,7 +3614,13 @@ impl<'a> VmCore<'a> {
                     let len = payload / 2;
                     let bytes = payload % 2 != 0;
 
-                    let args = self.thread.stack.split_off(self.thread.stack.len() - len);
+                    // let args = self.thread.stack.split_off(self.thread.stack.len() - len);
+
+                    let args = self
+                        .thread
+                        .stack
+                        .drain(self.thread.stack.len() - len..)
+                        .collect::<Vec<_>>();
 
                     let val = if bytes {
                         let buffer: Vec<_> = args
@@ -3970,25 +3772,12 @@ impl<'a> VmCore<'a> {
 
         if should_continue {
             let last = last.unwrap();
-            // let last = unsafe { last.unwrap_unchecked() };
 
             let rollback_index = last.sp;
 
             self.close_continuation_marks(&last);
-
-            // println!("Stack at pop: {:#?}", self.thread.stack);
-
-            // let _ = self
-            //     .thread
-            //     .stack
-            //     .drain(rollback_index..self.thread.stack.len() - 1);
-
             self.thread.stack.truncate(rollback_index as _);
-
             self.thread.stack.push(value);
-
-            // println!("Stack after pop: {:#?}", self.thread.stack);
-            // println!("rollback index: {}", rollback_index);
 
             self.ip = last.ip as _;
             self.instructions = last.instructions;
@@ -3997,11 +3786,6 @@ impl<'a> VmCore<'a> {
 
             None
         } else {
-            // let ret_val = self.thread.stack.pop().ok_or_else(|| {
-            //     SteelErr::new(ErrorKind::Generic, "stack empty at pop".to_string())
-            //         .with_span(self.current_span())
-            // });
-
             let ret_val = Ok(value);
 
             let rollback_index = last
@@ -4051,16 +3835,6 @@ impl<'a> VmCore<'a> {
 
             // for value in other {
             //     self.thread.delayed_dropper.push(value);
-            // }
-
-            // TODO: Delay running the destructors until a safepoint?
-            // for value in values {
-            //     match value {
-            //         SteelVal::ListV(_) => {
-            //             DROP_THREAD.send(value).unwrap();
-            //         }
-            //         _ => {}
-            //     }
             // }
 
             self.ip = last.ip as _;
@@ -4163,22 +3937,6 @@ impl<'a> VmCore<'a> {
         let func = self.thread.global_env.repl_lookup_idx(index);
         self.handle_global_function_call_no_stack(func, payload_size)
     }
-
-    #[inline(always)]
-    fn handle_tail_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
-        let stack_func = self.thread.global_env.repl_lookup_idx(index);
-        self.ip += 1;
-        self.handle_tail_call(stack_func, payload_size)
-    }
-
-    // #[inline(always)]
-    // fn handle_tail_call_global(&mut self, index: usize, payload_size: usize) -> Result<()> {
-    //     let func = self.thread.global_env.repl_lookup_idx(index);
-    //     self.ip += 1;
-
-    //     // self.handle_tail_call(func, payload_size)
-
-    // }
 
     #[inline(always)]
     fn handle_push(&mut self, index: usize) -> Result<()> {
@@ -4393,22 +4151,41 @@ impl<'a> VmCore<'a> {
                 .spans
                 .insert(closure_id, spans);
 
+            let mut fake_lambda = ByteCodeLambda::default();
+            fake_lambda.id = closure_id;
+            fake_lambda.body_exp = constructed_lambda.body_exp.clone();
+
+            let mut slot = Gc::new(fake_lambda);
+
+            // Maybe slot:
+            let maybe_bind = self.instructions.get(forward_index + 1).and_then(|x| {
+                if matches!(x.op_code, OpCode::BIND) {
+                    Some(x.payload_size.to_usize())
+                } else {
+                    None
+                }
+            });
+
             #[cfg(feature = "jit2")]
             let constructed_lambda =
                 if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
-                    jit::jit_compile_lambda(self, constructed_lambda)
+                    jit::jit_compile_lambda(self, constructed_lambda, Some(&mut slot), maybe_bind)
                 } else {
                     constructed_lambda
                 };
 
-            let constructed_lambda = Gc::new(constructed_lambda);
+            // Explicitly make the old slot available, such that we can fuss
+            // with the new one while jit compiling.
+            unsafe {
+                *steel_rc::BiasedRc::get_mut_unchecked(&mut slot.0) = constructed_lambda;
+            }
 
             self.thread
                 .function_interner
                 .pure_function_interner
-                .insert(closure_id, Gc::clone(&constructed_lambda));
+                .insert(closure_id, Gc::clone(&slot));
 
-            constructed_lambda
+            slot
         };
 
         let value = SteelVal::Closure(constructed_lambda);
@@ -5088,6 +4865,8 @@ impl<'a> VmCore<'a> {
         Ok(())
     }
 
+    // TODO: We could also check if the frame is like, the existing one,
+    // and if the locals are empty, we could fast path? Reuse the frames here?
     #[inline(always)]
     fn handle_function_call_closure_jit_no_arity(
         &mut self,
@@ -5825,7 +5604,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
     let function_id = crate::compiler::code_gen::fresh_function_id();
     let function = Gc::new(ByteCodeLambda::new(
         function_id as _,
-        StandardShared::from(bytecode),
+        Shared::from(bytecode),
         0,
         false,
         CaptureVec::new(),
@@ -7291,27 +7070,6 @@ fn let_end_scope_handler_with_payload(ctx: &mut VmCore<'_>, beginning_scope: usi
     Ok(())
 }
 
-macro_rules! handler_inline_primitive {
-    ($ctx:expr, $name:tt) => {{
-        let payload_size = $ctx.instructions[$ctx.ip].payload_size.to_usize();
-        let last_index = $ctx.thread.stack.len() - payload_size;
-
-        let result = match $name(&mut $ctx.thread.stack[last_index..]) {
-            Ok(value) => value,
-            Err(e) => return Err(e.set_span_if_none($ctx.current_span())),
-        };
-
-        // This is the old way... lets see if the below way improves the speed
-        // $ctx.thread.stack.truncate(last_index);
-        // $ctx.thread.stack.push(result);
-
-        $ctx.thread.stack.truncate(last_index + 1);
-        *$ctx.thread.stack.last_mut().unwrap() = result;
-
-        $ctx.ip += 2;
-    }};
-}
-
 macro_rules! handler_inline_primitive_payload {
     ($ctx:expr, $name:tt, $payload_size: expr) => {{
         let last_index = $ctx.thread.stack.len() - $payload_size;
@@ -7444,8 +7202,11 @@ fn listref_handler(ctx: &mut VmCore<'_>) -> Result<()> {
 fn list_handler(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
     // handler_inline_primitive_payload!(ctx, new_list, payload);
     let last_index = ctx.thread.stack.len() - payload;
-    let remaining = ctx.thread.stack.split_off(last_index);
-    let list = SteelVal::ListV(remaining.into());
+    // let remaining = ctx.thread.stack.split_off(last_index);
+
+    let remaining = ctx.thread.stack.drain(last_index..).collect();
+
+    let list = SteelVal::ListV(remaining);
     ctx.thread.stack.push(list);
 
     ctx.ip += 2;
@@ -7482,84 +7243,18 @@ fn lte_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
 // OpCode::ALLOC
 fn alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
     panic!("Deprecated now - this shouldn't be hit");
-
-    /*
-
-    // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
-    let offset = ctx.get_offset();
-
-    let allocated_var = ctx.thread.heap.allocate(
-        ctx.thread.stack[offset].clone(), // TODO: Could actually move off of the stack entirely
-        ctx.thread.stack.iter(),
-        ctx.thread.stack_frames.iter().map(|x| x.function.as_ref()),
-        ctx.thread.global_env.roots(),
-    );
-
-    ctx.thread
-        .stack_frames
-        .last_mut()
-        .unwrap()
-        .function
-        .heap_allocated
-        .borrow_mut()
-        .push(allocated_var);
-
-    ctx.ip += 1;
-
-    Ok(())
-
-    */
 }
 
 // OpCode::READALLOC
 #[inline(always)]
 fn read_alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
     panic!("Deprecated - this shouldn't be hit")
-
-    /*
-    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
-
-    let value = ctx
-        .thread
-        .stack_frames
-        .last()
-        .unwrap()
-        .function
-        .heap_allocated()
-        .borrow()[payload_size]
-        .get();
-
-    ctx.thread.stack.push(value);
-    ctx.ip += 1;
-
-    Ok(())
-    */
 }
 
 // OpCode::SETALLOC
 #[inline(always)]
 fn set_alloc_handler(_ctx: &mut VmCore<'_>) -> Result<()> {
     panic!("Deprecated - this shouldn't be hit")
-
-    /*
-    let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
-    let value_to_assign = ctx.thread.stack.pop().unwrap();
-
-    let old_value = ctx
-        .thread
-        .stack_frames
-        .last()
-        .unwrap()
-        .function
-        .heap_allocated()
-        .borrow_mut()[payload_size]
-        .set(value_to_assign);
-
-    ctx.thread.stack.push(old_value);
-    ctx.ip += 1;
-
-    Ok(())
-    */
 }
 
 pub(super) fn lt_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
@@ -7577,582 +7272,7 @@ pub(super) fn gte_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Resul
     Ok(())
 }
 
-#[allow(unused)]
-mod handlers {
-
-    use super::*;
-
-    fn add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        handler_inline_primitive!(ctx, add_primitive);
-        Ok(())
-    }
-
-    fn binop_add_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        let last_index = ctx.thread.stack.len() - 2;
-
-        let right = ctx.thread.stack.pop().unwrap();
-        let left = ctx.thread.stack.last().unwrap();
-
-        let result = match handlers::add_handler_none_none(left, &right) {
-            Ok(value) => value,
-            Err(e) => return Err(e.set_span_if_none(ctx.current_span())),
-        };
-
-        *ctx.thread.stack.last_mut().unwrap() = result;
-
-        ctx.ip += 2;
-
-        Ok(())
-    }
-
-    // OpCode::READALLOC
-    #[inline(always)]
-    fn read_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
-        panic!("Deprecated - this shouldn't be hit")
-
-        /*
-        let value = ctx
-            .thread
-            .stack_frames
-            .last()
-            .unwrap()
-            .function
-            .heap_allocated()
-            .borrow()[payload_size]
-            .get();
-
-        ctx.thread.stack.push(value);
-        ctx.ip += 1;
-
-        Ok(())
-        */
-    }
-
-    fn specialized_lte0(ctx: &mut VmCore<'_>) -> Result<()> {
-        // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
-        let offset = ctx.get_offset();
-        let value = ctx.thread.stack[offset].clone();
-
-        let result = lte_binop(value, 2);
-        ctx.ip += 4;
-
-        let payload_size = ctx.instructions[ctx.ip].payload_size;
-        // change to truthy...
-        if result {
-            ctx.ip += 1;
-        } else {
-            ctx.ip = payload_size.to_usize();
-        }
-
-        Ok(())
-    }
-
-    fn specialized_sub02(ctx: &mut VmCore<'_>) -> Result<()> {
-        // let offset = ctx.stack_frames.last().map(|x| x.index).unwrap_or(0);
-        let offset = ctx.get_offset();
-        let value = ctx.thread.stack[offset].clone();
-
-        ctx.thread.stack.push(sub_binop(value, 2)?);
-        ctx.ip += 4;
-        Ok(())
-    }
-
-    pub fn lte_binop(l: SteelVal, r: isize) -> bool {
-        match l {
-            SteelVal::IntV(l) => l <= r,
-            _ => false,
-        }
-    }
-
-    pub fn sub_binop(l: SteelVal, r: isize) -> Result<SteelVal> {
-        match l {
-            SteelVal::IntV(l) => Ok(SteelVal::IntV(l - r)),
-            SteelVal::NumV(l) => Ok(SteelVal::NumV(l - r as f64)),
-            _ => stop!(TypeMismatch => "sub given wrong types"),
-        }
-    }
-
-    fn dummy(_: &mut VmCore<'_>) -> Result<()> {
-        panic!("Unimplemented op code handler!")
-    }
-
-    #[inline(always)]
-    fn handle_push_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
-        let value = ctx.thread.global_env.repl_lookup_idx(index);
-        ctx.ip += 1;
-        Ok(value)
-    }
-
-    #[inline(always)]
-    fn handle_local_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
-        let offset = ctx.get_offset();
-        let value = ctx.thread.stack[index + offset].clone();
-        ctx.ip += 1;
-        Ok(value)
-    }
-
-    #[inline(always)]
-    fn handle_read_captures_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
-        let value = ctx.thread.stack_frames.last().unwrap().function.captures()[index].clone();
-
-        ctx.ip += 1;
-        Ok(value)
-    }
-
-    #[inline(always)]
-    fn handle_move_local_no_stack(ctx: &mut VmCore<'_>, index: usize) -> Result<SteelVal> {
-        // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-        // let offset = ctx.stack_frames.last().unwrap().index;
-        let offset = ctx.get_offset();
-        let value = ctx.move_from_stack(index + offset);
-        ctx.ip += 1;
-        Ok(value)
-    }
-
-    #[inline(always)]
-    fn handle_move_local_0_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
-        // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-        // let offset = ctx.stack_frames.last().unwrap().index;
-        let offset = ctx.get_offset();
-        let value = ctx.move_from_stack(offset);
-        ctx.ip += 1;
-        Ok(value)
-    }
-
-    #[inline(always)]
-    fn handle_move_local_1_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
-        // let offset = self.stack_frames.last().map(|x| x.index).unwrap_or(0);
-        // let offset = ctx.stack_frames.last().unwrap().index;
-        let offset = ctx.get_offset();
-        let value = ctx.move_from_stack(offset + 1);
-        ctx.ip += 1;
-        Ok(value)
-    }
-
-    #[inline(always)]
-    pub fn handle_local_0_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
-        let offset = ctx.get_offset();
-        let value = ctx.thread.stack[offset].clone();
-        ctx.ip += 1;
-        Ok(value)
-    }
-
-    #[inline(always)]
-    pub fn handle_local_1_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
-        let offset = ctx.get_offset();
-        let value = ctx.thread.stack[offset + 1].clone();
-        ctx.ip += 1;
-        Ok(value)
-    }
-
-    #[inline(always)]
-    pub fn handle_local_2_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
-        let offset = ctx.get_offset();
-        let value = ctx.thread.stack[offset + 2].clone();
-        ctx.ip += 1;
-        Ok(value)
-    }
-
-    // OpCode::VOID
-    fn void_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        ctx.thread.stack.push(SteelVal::Void);
-        ctx.ip += 1;
-        Ok(())
-    }
-
-    // OpCode::PUSH
-    fn push_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        let index = ctx.instructions[ctx.ip].payload_size;
-        ctx.handle_push(index.to_usize())
-    }
-
-    // OpCode::PUSH
-    fn push_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-        ctx.handle_push(payload)
-    }
-
-    // OpCode::FUNC
-    fn func_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        let func = ctx.thread.stack.pop().unwrap();
-        let payload_size = ctx.instructions[ctx.ip].payload_size;
-        ctx.handle_function_call(func, payload_size.to_usize())
-    }
-
-    // OpCode::FUNC
-    fn func_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-        let func = ctx.thread.stack.pop().unwrap();
-        ctx.handle_function_call(func, payload)
-    }
-
-    // OpCode::BIND
-    fn bind_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        let index = ctx.instructions[ctx.ip].payload_size;
-        ctx.handle_bind(index.to_usize());
-        Ok(())
-    }
-
-    // OpCode::BIND
-    fn bind_handler_with_payload(ctx: &mut VmCore<'_>, index: usize) -> Result<()> {
-        ctx.handle_bind(index);
-        Ok(())
-    }
-
-    // OpCode::PUSHCONST
-    fn push_const_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        let payload_size = ctx.instructions[ctx.ip].payload_size;
-        let val = ctx.constants.get_value(payload_size.to_usize());
-        ctx.thread.stack.push(val);
-        ctx.ip += 1;
-        Ok(())
-    }
-
-    pub fn push_const_handler_no_stack(ctx: &mut VmCore<'_>) -> Result<SteelVal> {
-        let payload_size = ctx.instructions[ctx.ip].payload_size;
-        let val = ctx.constants.get_value(payload_size.to_usize());
-        ctx.ip += 1;
-        Ok(val)
-    }
-
-    // OpCode::PUSHCONST
-    fn push_const_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-        let val = ctx.constants.get_value(payload);
-        ctx.thread.stack.push(val);
-        ctx.ip += 1;
-        Ok(())
-    }
-
-    // OpCode::PANIC
-    fn panic_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        ctx.handle_panic(ctx.current_span())
-    }
-
-    // OpCode::SET
-    fn set_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        let index = ctx.instructions[ctx.ip].payload_size;
-        ctx.handle_set(index.to_usize())
-    }
-
-    // OpCode::SET
-    fn set_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-        ctx.handle_set(payload)
-    }
-
-    // OpCode::READLOCAL
-    #[inline(always)]
-    fn local_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        let index = ctx.instructions[ctx.ip].payload_size;
-        ctx.handle_local(index.to_usize())
-    }
-
-    // OpCode::READLOCAL
-    fn local_handler_with_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-        ctx.handle_local(payload)
-    }
-
-    // OpCode::MULT
-    fn multiply_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        handler_inline_primitive!(ctx, multiply_primitive);
-        Ok(())
-    }
-
-    // OpCode::MULT
-    fn multiply_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-        handler_inline_primitive_payload!(ctx, multiply_primitive, payload);
-        Ok(())
-    }
-
-    // OpCode::DIV
-    #[inline(always)]
-    fn division_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        handler_inline_primitive!(ctx, divide_primitive);
-        Ok(())
-    }
-
-    // OpCode::DIV
-    fn division_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-        handler_inline_primitive_payload!(ctx, divide_primitive, payload);
-        Ok(())
-    }
-
-    // OpCode::EQUAL
-    #[inline(always)]
-    fn equality_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        handler_inline_primitive!(ctx, equality_primitive);
-        Ok(())
-    }
-
-    // OpCode::EQUAL
-    fn equality_handler_payload(ctx: &mut VmCore<'_>, payload: usize) -> Result<()> {
-        handler_inline_primitive_payload!(ctx, equality_primitive, payload);
-        Ok(())
-    }
-
-    // OpCode::LTE
-    #[inline(always)]
-    fn lte_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        handler_inline_primitive!(ctx, lte_primitive);
-        Ok(())
-    }
-
-    // OpCode::SETALLOC
-    #[inline(always)]
-    fn set_alloc_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
-        panic!("Deprecated - this shouldn't be hit")
-        /*
-        let value_to_assign = ctx.thread.stack.pop().unwrap();
-
-        let old_value = ctx
-            .thread
-            .stack_frames
-            .last()
-            .unwrap()
-            .function
-            .heap_allocated()
-            .borrow_mut()[payload_size]
-            .set(value_to_assign);
-
-        ctx.thread.stack.push(old_value);
-        ctx.ip += 1;
-
-        Ok(())
-
-        */
-    }
-
-    // OpCode::NEWSCLOSURE
-    fn new_sclosure_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        let payload_size = ctx.instructions[ctx.ip].payload_size.to_usize();
-
-        ctx.handle_new_start_closure(payload_size)
-    }
-
-    // OpCode::NEWSCLOSURE
-    fn new_sclosure_handler_with_payload(ctx: &mut VmCore<'_>, payload_size: usize) -> Result<()> {
-        ctx.handle_new_start_closure(payload_size)
-    }
-
-    #[inline(always)]
-    fn jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        let payload_size = ctx.instructions[ctx.ip].payload_size;
-        ctx.ip = payload_size.to_usize();
-        Ok(())
-    }
-
-    #[inline(always)]
-    fn if_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        let payload_size = ctx.instructions[ctx.ip].payload_size;
-        // change to truthy...
-        if ctx.thread.stack.pop().unwrap().is_truthy() {
-            ctx.ip += 1;
-        } else {
-            ctx.ip = payload_size.to_usize();
-        }
-        Ok(())
-    }
-
-    #[inline(always)]
-    pub fn raw_if_handler(ctx: &mut VmCore<'_>, arg: SteelVal) {
-        let payload_size = ctx.instructions[ctx.ip].payload_size;
-        // change to truthy...
-        if arg.is_truthy() {
-            ctx.ip += 1;
-        } else {
-            ctx.ip = payload_size.to_usize();
-        }
-    }
-
-    #[inline(always)]
-    pub fn if_handler_with_bool(ctx: &mut VmCore<'_>, condition: bool) {
-        let payload_size = ctx.instructions[ctx.ip].payload_size;
-        // change to truthy...
-        if condition {
-            ctx.ip += 1;
-        } else {
-            ctx.ip = payload_size.to_usize();
-        }
-    }
-
-    #[inline(always)]
-    fn call_global_tail_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        let payload_size = ctx.instructions[ctx.ip].payload_size;
-        let next_inst = ctx.instructions[ctx.ip + 1];
-
-        ctx.handle_tail_call_global(payload_size.to_usize(), next_inst.payload_size.to_usize())
-    }
-
-    #[inline(always)]
-    fn tail_call_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        let payload_size = ctx.instructions[ctx.ip].payload_size;
-        let func = ctx.thread.stack.pop().unwrap();
-        ctx.handle_tail_call(func, payload_size.to_usize())
-    }
-
-    #[inline(always)]
-    fn tco_jump_handler(ctx: &mut VmCore<'_>) -> Result<()> {
-        // TODO: Handle multiple arity for TCO
-
-        let payload_size = ctx.instructions[ctx.ip].payload_size;
-
-        let current_arity = payload_size.to_usize();
-        let last_stack_frame = ctx.thread.stack_frames.last().unwrap();
-
-        ctx.instructions = last_stack_frame.function.body_exp();
-        ctx.sp = last_stack_frame.sp as _;
-
-        ctx.ip = 0;
-
-        let closure_arity = last_stack_frame.function.arity();
-
-        if current_arity != closure_arity {
-            stop!(ArityMismatch => format!("tco: function expected {closure_arity} arguments, found {current_arity}"); ctx.current_span());
-        }
-        let offset = ctx.sp;
-
-        let back = ctx.thread.stack.len() - current_arity;
-        let _ = ctx.thread.stack.drain(offset..back);
-
-        Ok(())
-    }
-
-    // #[inline(always)]
-    // fn pop_pure_handler(ctx: &mut VmCore<'_>) ->
-
-    // | OpCode::CALLGLOBALTAIL
-    // | OpCode::TAILCALL
-    // | OpCode::TCOJMP
-    // | OpCode::POPPURE
-
-    // MUL | SUB | DIV
-
-    #[inline(always)]
-    fn add_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
-        l + r
-    }
-
-    #[inline(always)]
-    fn add_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
-        l as f64 + r
-    }
-
-    #[inline(always)]
-    fn add_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
-        l + r as f64
-    }
-
-    #[inline(always)]
-    fn add_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
-        l + r
-    }
-
-    #[inline(always)]
-    fn sub_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
-        l - r
-    }
-
-    #[inline(always)]
-    fn sub_handler_int_none(_: &mut VmCore<'_>, l: isize, r: SteelVal) -> Result<SteelVal> {
-        match r {
-            SteelVal::IntV(n) => Ok(SteelVal::IntV(l - n)),
-            SteelVal::NumV(r) => Ok(SteelVal::NumV(l as f64 - r)),
-            _ => stop!(TypeMismatch => "sub expected a number, found: {}", r),
-        }
-    }
-
-    #[inline(always)]
-    fn sub_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<SteelVal> {
-        match l {
-            SteelVal::IntV(l) => Ok(SteelVal::IntV(l - r)),
-            SteelVal::NumV(l) => Ok(SteelVal::NumV(l - r as f64)),
-            _ => {
-                cold();
-                stop!(TypeMismatch => "sub expected a number, found: {}", l)
-            }
-        }
-    }
-
-    #[inline(always)]
-    fn sub_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
-        l as f64 - r
-    }
-
-    #[inline(always)]
-    fn sub_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
-        l - r as f64
-    }
-
-    #[inline(always)]
-    fn sub_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
-        l - r
-    }
-
-    #[inline(always)]
-    fn multiply_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
-        l * r
-    }
-
-    #[inline(always)]
-    fn multiply_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
-        l as f64 * r
-    }
-
-    #[inline(always)]
-    fn multiply_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
-        l * r as f64
-    }
-
-    #[inline(always)]
-    fn multiply_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
-        l * r
-    }
-
-    #[inline(always)]
-    fn multiply_handler_int_none(_: &mut VmCore<'_>, l: isize, r: SteelVal) -> Result<SteelVal> {
-        match r {
-            SteelVal::NumV(r) => Ok(SteelVal::NumV(l as f64 * r)),
-            SteelVal::IntV(n) => {
-                if let Some(res) = l.checked_mul(n) {
-                    Ok(SteelVal::IntV(res))
-                } else {
-                    let mut res = BigInt::from(l);
-                    res *= n;
-                    Ok(SteelVal::BigNum(Gc::new(res)))
-                }
-            }
-            _ => stop!(TypeMismatch => "multiply expected an number, found: {}", r),
-        }
-    }
-
-    #[inline(always)]
-    fn div_handler_int_int(_: &mut VmCore<'_>, l: isize, r: isize) -> isize {
-        l / r
-    }
-
-    #[inline(always)]
-    fn div_handler_int_float(_: &mut VmCore<'_>, l: isize, r: f64) -> f64 {
-        l as f64 / r
-    }
-
-    #[inline(always)]
-    fn div_handler_float_int(_: &mut VmCore<'_>, l: f64, r: isize) -> f64 {
-        l / r as f64
-    }
-
-    #[inline(always)]
-    fn div_handler_float_float(_: &mut VmCore<'_>, l: f64, r: f64) -> f64 {
-        l / r
-    }
-
-    #[inline(always)]
-    fn lte_handler_none_int(_: &mut VmCore<'_>, l: SteelVal, r: isize) -> Result<bool> {
-        match l {
-            SteelVal::IntV(l) => Ok(l <= r),
-            SteelVal::NumV(l) => Ok(l <= r as f64),
-            _ => stop!(TypeMismatch => "lte expected an number, found: {}", r),
-        }
-    }
-
-    #[inline(always)]
-    pub(crate) fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
-        add_two_fallible(l, r)
-    }
+#[inline(always)]
+pub(crate) fn add_handler_none_none(l: &SteelVal, r: &SteelVal) -> Result<SteelVal> {
+    add_two_fallible(l, r)
 }

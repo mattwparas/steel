@@ -6,9 +6,7 @@ use steel_gen::OpCode;
 
 use crate::compiler::code_gen::fresh_function_id;
 use crate::core::instructions::{u24, DenseInstruction};
-use crate::gc::shared::{
-    MappedScopedReadContainer, MutContainer, ScopedReadContainer, StandardShared,
-};
+use crate::gc::shared::{MappedScopedReadContainer, MutContainer, ScopedReadContainer};
 
 // #[cfg(not(feature = "triomphe"))]
 // use crate::gc::shared::ShareableMut;
@@ -348,7 +346,7 @@ pub(crate) fn generate_function(
 
     let lambda = ByteCodeLambda::new(
         fresh_function_id() as _,
-        StandardShared::from(instrs),
+        Shared::from(instrs),
         arity.to_usize().unwrap() - 1,
         false,
         CaptureVec::new(),
