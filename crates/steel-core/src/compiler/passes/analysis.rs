@@ -4150,21 +4150,17 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                                 }
                             }
 
-                            println!("Validated call to: {}", self.unbox_var);
-
                             return;
                         }
                     }
                 }
 
                 if let Some(rest) = l.args.get(1..) {
-                    println!("Original list: {}", l);
                     for arg in rest {
                         if let ExprKind::List(il) = arg {
                             if il.first_ident().copied() == Some(*UNBOX) {
                                 if il.second_ident().copied() == Some(self.unbox_var) {
                                     self.escapes = true;
-                                    println!("Escapes at: {}", l);
                                     return;
                                 }
                             }
@@ -4180,14 +4176,6 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
             ExprKind::Let(l) => self.visit_let(l),
             ExprKind::Vector(v) => self.visit_vector(v),
         }
-    }
-
-    fn visit_atom(&mut self, a: &'a Atom) {
-        // if let Some(identifier) = a.ident() {
-        //     if *identifier == self.unbox_var {
-        //         self.escapes = true;
-        //     }
-        // }
     }
 }
 
