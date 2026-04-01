@@ -4151,13 +4151,11 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
 
                 if let Some(rest) = l.args.get(1..) {
                     for arg in rest {
-                        if let ExprKind::List(l) = arg {
-                            if let Some(ExprKind::List(il)) = l.first() {
-                                if il.first_ident().copied() == Some(*UNBOX) {
-                                    if il.second_ident().copied() == Some(self.unbox_var) {
-                                        self.escapes = true;
-                                        return;
-                                    }
+                        if let ExprKind::List(il) = arg {
+                            if il.first_ident().copied() == Some(*UNBOX) {
+                                if il.second_ident().copied() == Some(self.unbox_var) {
+                                    self.escapes = true;
+                                    return;
                                 }
                             }
                         }
