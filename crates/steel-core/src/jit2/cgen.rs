@@ -841,6 +841,11 @@ impl Default for JIT {
         map.add_func("cons-handler-value", cons_handler_value as VmBinOp);
 
         map.add_func(
+            "cons-handler-value-register",
+            abi! { cons_handler_value_register as fn (*mut VmCore, SteelVal, usize) -> SteelVal },
+        );
+
+        map.add_func(
             "car-reg",
             abi! { car_handler_reg as fn(*mut VmCore, usize) -> SteelVal },
         );
@@ -3218,11 +3223,67 @@ impl FunctionTranslator<'_> {
 
                     self.func_ret_val(op, payload, 2, InferredType::Bool);
                 }
+
+                // TODO: Use the register here. Checking is null might be slightly more involved?
+                // Or rather, lets just use is-empty?
+                OpCode::NULL
+                    if matches!(
+                        self.shadow_stack.last(),
+                        Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
+                    ) =>
+                {
+                    let last = self.shadow_stack.pop().unwrap().into_index();
+                    let value = self.read_from_vm_stack(last);
+                    let result = self.check_null_no_drop(value);
+                    self.push(result, InferredType::UnboxedBool);
+
+                    self.ip += 2;
+                }
+
                 OpCode::NULL => {
                     self.func_ret_val_named("null-handler", 1, 2, InferredType::Bool);
                 }
+
+                // Cons handler value - lets optimize this
                 OpCode::CONS => {
-                    self.func_ret_val(op, 2, 2, InferredType::List);
+                    let args = self
+                        .shadow_stack
+                        .get(self.shadow_stack.len() - 2..)
+                        .unwrap();
+
+                    match args {
+                        // TODO: Finish this
+                        // &[MaybeStackValue::MutRegister(i) | MaybeStackValue::Register(i), MaybeStackValue::MutRegister(l)] =>
+                        // {
+                        //     todo!()
+                        // }
+
+                        // Probably
+                        &[MaybeStackValue::Value(_), MaybeStackValue::MutRegister(l)] => {
+                            let register = self.shadow_stack.pop().unwrap().into_index();
+                            let value = self
+                                .shadow_stack
+                                .pop()
+                                .unwrap()
+                                .into_value()
+                                .as_steelval(self);
+
+                            let register = self.builder.ins().iconst(types::I64, register as i64);
+
+                            let result = self.call_function_returns_value_args(
+                                "cons-handler-value-register",
+                                &[value, register],
+                            );
+                            // Check the inferred type, if we know of it
+                            self.push(result, InferredType::ListOrPair);
+                            self.ip += 2;
+                        }
+
+                        // Anything else, we'll move on
+                        _ => {
+                            self.func_ret_val(op, 2, 2, InferredType::List);
+                        }
+                    }
                 }
 
                 // Cdr reg no type check, should be faster
@@ -3544,6 +3605,51 @@ impl FunctionTranslator<'_> {
         self.depth -= 1;
 
         return true;
+    }
+
+    fn check_null_no_drop(&mut self, value: Value) -> Value {
+        // Encode this manually:
+        let tag = self.get_tag(value);
+
+        let list_tag = self.tag(23);
+
+        // Compare these tags:
+        // TODO: Also - we'll need to check the length of the list!
+        // this should be able to be done inline as well, we just have to load
+        // the index of the list.
+        let is_list = self.builder.ins().icmp(IntCC::Equal, tag, list_tag);
+
+        let pair_block = self.builder.create_block();
+        let not_pair_block = self.builder.create_block();
+        let merge_block = self.builder.create_block();
+        self.builder.append_block_param(merge_block, types::I8);
+
+        self.builder
+            .ins()
+            .brif(is_list, pair_block, &[], not_pair_block, &[]);
+
+        self.builder.switch_to_block(pair_block);
+        self.builder.seal_block(pair_block);
+
+        let pointer_value = self.unbox_value_to_pointer(value);
+        let length = self
+            .builder
+            .ins()
+            .load(types::I32, MemFlags::new(), pointer_value, 16);
+
+        let is_empty = self.builder.ins().icmp_imm(IntCC::Equal, length, 0);
+
+        self.builder.ins().jump(merge_block, &[is_empty]);
+
+        self.builder.switch_to_block(not_pair_block);
+        self.builder.seal_block(not_pair_block);
+
+        let false_value = self.builder.ins().iconst(types::I8, 0);
+        self.builder.ins().jump(merge_block, &[false_value]);
+
+        self.builder.switch_to_block(merge_block);
+        let result = self.builder.block_params(merge_block)[0];
+        result
     }
 
     fn register_index(&mut self, index: usize) -> Value {
@@ -3880,51 +3986,8 @@ impl FunctionTranslator<'_> {
                 // }
 
                 let value = stack_value.as_steelval(self);
-                // Encode this manually:
-                let tag = self.get_tag(value);
-
-                let list_tag = self.tag(23);
-
-                // Compare these tags:
-                // TODO: Also - we'll need to check the length of the list!
-                // this should be able to be done inline as well, we just have to load
-                // the index of the list.
-                let is_list = self.builder.ins().icmp(IntCC::Equal, tag, list_tag);
-
-                let pair_block = self.builder.create_block();
-                let not_pair_block = self.builder.create_block();
-                let merge_block = self.builder.create_block();
-                self.builder.append_block_param(merge_block, types::I8);
-
-                self.builder
-                    .ins()
-                    .brif(is_list, pair_block, &[], not_pair_block, &[]);
-
-                self.builder.switch_to_block(pair_block);
-                self.builder.seal_block(pair_block);
-
-                let pointer_value = self.unbox_value_to_pointer(value);
-                let length =
-                    self.builder
-                        .ins()
-                        .load(types::I32, MemFlags::new(), pointer_value, 16);
-
-                let is_empty = self.builder.ins().icmp_imm(IntCC::Equal, length, 0);
-
-                self.builder.ins().jump(merge_block, &[is_empty]);
-
-                self.builder.switch_to_block(not_pair_block);
-                self.builder.seal_block(not_pair_block);
-
-                let false_value = self.builder.ins().iconst(types::I8, 0);
-                self.builder.ins().jump(merge_block, &[false_value]);
-
-                self.builder.switch_to_block(merge_block);
-                let result = self.builder.block_params(merge_block)[0];
+                let result = self.check_null_no_drop(value);
                 self.push(result, InferredType::UnboxedBool);
-
-                // self.push(comparison, InferredType::UnboxedBool);
-
                 self.drop_tagged_value(value);
 
                 self.ip += 1;
@@ -4728,6 +4791,11 @@ impl FunctionTranslator<'_> {
     }
 
     fn pop_value_from_vm_stack(&mut self) -> Value {
+        let vm_ctx = self.get_ctx();
+        self.inline_pop_from_stack(vm_ctx)
+    }
+
+    fn pop_value_from_vm_stack_old(&mut self) -> Value {
         let sig = self.get_signature("pop-from-stack");
 
         let callee = self
@@ -4942,17 +5010,28 @@ impl FunctionTranslator<'_> {
 
         let args_off_the_stack = self.split_off(payload);
 
-        let local_callee = self.get_local_callee(name);
-        let ctx = self.get_ctx();
+        const USE_INLINE_TAIL_CALL: bool = true;
 
-        let arity = self
-            .builder
-            .ins()
-            .iconst(Type::int(16).unwrap(), payload as i64);
+        if USE_INLINE_TAIL_CALL {
+            let args = args_off_the_stack
+                .into_iter()
+                .map(|x| x.0)
+                .collect::<Vec<_>>();
 
-        let mut arg_values = vec![ctx, arity];
-        arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
-        let _call = self.builder.ins().call(local_callee, &arg_values);
+            self.inline_call_self_tail_call_no_arity_loop(payload as _, &args);
+        } else {
+            let local_callee = self.get_local_callee(name);
+            let ctx = self.get_ctx();
+
+            let arity = self
+                .builder
+                .ins()
+                .iconst(Type::int(16).unwrap(), payload as i64);
+
+            let mut arg_values = vec![ctx, arity];
+            arg_values.extend(args_off_the_stack.iter().map(|x| x.0));
+            let _call = self.builder.ins().call(local_callee, &arg_values);
+        }
 
         let test = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
 
@@ -4975,6 +5054,27 @@ impl FunctionTranslator<'_> {
 
         self.builder.switch_to_block(else_block);
         self.builder.seal_block(else_block);
+    }
+
+    // Make the call:
+    fn inline_call_self_tail_call_no_arity_loop(&mut self, arity: i64, args: &[Value]) {
+        let vm_ctx = self.get_ctx();
+        // Read from VM stack, write back, drop value.
+        // then, truncate
+        for (i, arg) in args.iter().enumerate() {
+            self.write_to_from_vm_stack(i as _, *arg);
+        }
+
+        let index = self.builder.ins().load(
+            types::I64,
+            MemFlags::trusted(),
+            vm_ctx,
+            offset_of!(VmCore, sp) as i32,
+        );
+
+        let index = self.builder.ins().iadd_imm(index, arity);
+
+        self.truncate_stack(vm_ctx, index, None);
     }
 
     fn _translate_tco_jmp_no_arity_without_spill(&mut self, payload: usize) {
@@ -6678,6 +6778,57 @@ impl FunctionTranslator<'_> {
             .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
 
         local_value
+    }
+
+    // TODO: Should flatten these ops when calling this multiple times!
+    fn write_to_from_vm_stack(&mut self, index: usize, value: Value) {
+        let stack_pointer_offset = offset_of!(VmCore, sp);
+        // Lets do the thing?
+
+        let ctx = self.get_ctx();
+        let sp = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            ctx,
+            stack_pointer_offset as i32,
+        );
+
+        let thread_offset = offset_of!(VmCore, thread);
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+        let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
+        let offset = self.builder.ins().imul_imm(local_offset, size);
+
+        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+        let local_value = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+
+        self.drop_tagged_value(local_value);
+
+        self.builder
+            .ins()
+            .store(MemFlags::trusted(), value, slot_ptr, 0);
     }
 
     // ctx.thread.stack_frames.len() < 100

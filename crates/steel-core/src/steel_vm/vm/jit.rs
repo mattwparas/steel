@@ -1197,6 +1197,35 @@ fn setbox_handler_c(ctx: *mut VmCore, arg: SteelVal, value: SteelVal) -> SteelVa
 }
 
 #[cross_platform_fn]
+fn cons_handler_value_register(ctx: *mut VmCore, mut arg: SteelVal, mut arg2: usize) -> SteelVal {
+    let guard = unsafe { &mut *ctx };
+    guard.ip += 2;
+
+    let offset = guard.get_offset();
+    let mut arg2 = &mut guard.thread.stack[offset + arg2];
+
+    // The problem here, is that arg2 is expecting
+    // a reference to the stack slot. If its _actually_
+    // the last value, then we'll have a clone of it.
+    //
+    // Otherwise, we might have a problem. We also need
+    // to be sure that we're not _reusing_ variables off
+    // of the stack here, and that their destructors are
+    // getting called after, if they exist.
+    match cons(&mut arg, &mut arg2) {
+        Ok(v) => v,
+        Err(e) => {
+            unsafe {
+                guard.result = Some(Err(e));
+                guard.is_native = false;
+            }
+
+            SteelVal::Void
+        }
+    }
+}
+
+#[cross_platform_fn]
 fn cons_handler_value(ctx: *mut VmCore, mut arg: SteelVal, mut arg2: SteelVal) -> SteelVal {
     // let mut arg = ManuallyDrop::new(arg);
     // let mut arg2 = ManuallyDrop::new(arg2);

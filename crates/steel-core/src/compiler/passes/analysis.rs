@@ -3790,7 +3790,6 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
             for mut escape_checker in found_escape_checkers {
                 if escape_checker.check_let(l) {
-                    println!("Escape checker: {}", escape_checker.unbox_var);
                     return;
                 }
             }
@@ -3828,10 +3827,6 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                             for (index, expr) in b.exprs.iter_mut().enumerate() {
                                 if let Some(found_escape_checker) = &mut found_escape_checker {
                                     if found_escape_checker.check(expr) {
-                                        println!(
-                                            "3831: Escape checker invalidated expression: {}",
-                                            expression
-                                        );
                                         return;
                                     }
                                 }
@@ -3859,7 +3854,6 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
                                                     // First, check the function:
                                                     if escape_checker.check(expression) {
-                                                        println!("3859: Escape checker invalidated expression: {}", expression);
                                                         return;
                                                     }
 
@@ -6866,14 +6860,11 @@ impl<'a> SemanticAnalysis<'a> {
     }
 
     pub fn lift_closures(&mut self) -> &mut Self {
-        self.exprs.pretty_print();
         let mut lifter = LiftClosuresToGlobalScope::new(&self.analysis);
         for expr in self.exprs.iter_mut() {
             lifter.visit(expr);
             lifter.found_funcs.clear();
         }
-
-        println!("Lifted functions: {}", lifter.lifted_functions.len());
 
         lifter.lifted_functions.append(&mut self.exprs);
         *self.exprs = lifter.lifted_functions;
