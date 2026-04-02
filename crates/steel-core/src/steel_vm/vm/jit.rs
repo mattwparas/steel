@@ -9,7 +9,7 @@ use super::VmCore;
 use crate::{
     gc::Gc,
     primitives::{
-        lists::{cdr_no_check, cons, list_ref},
+        lists::{cdr_no_check, cdr_no_check_two, cons, list_ref},
         numbers::add_two,
         vectors::{mut_vec_set, steel_mut_vec_set},
     },
@@ -1303,6 +1303,8 @@ fn cdr_handler_mut_reg(ctx: *mut VmCore, arg: usize) -> SteelVal {
 
     let offset = guard.get_offset();
     let mut arg = &mut guard.thread.stack[offset + arg];
+
+    // unsafe { cdr_no_check_two(&mut arg) };
 
     match cdr(&mut arg) {
         Ok(v) => v,

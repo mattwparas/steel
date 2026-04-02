@@ -836,6 +836,11 @@ impl Default for JIT {
             abi! { cdr_handler_mut_reg as fn(*mut VmCore, usize) -> SteelVal },
         );
 
+        // map.add_func(
+        //     "cdr-mut-reg",
+        //     abi! { cdr_handler_mut_reg as fn(*mut VmCore, usize) },
+        // );
+
         map.add_func(
             "cdr-reg-no-check",
             abi! { cdr_handler_reg_no_check as fn(*mut VmCore, usize) -> SteelVal },
@@ -3540,9 +3545,17 @@ impl FunctionTranslator<'_> {
                                 "cdr-mut-reg"
                             };
 
-                            let reg = self.register_index(reg);
-                            let res = self.call_function_returns_value_args(func, &[reg]);
+                            let ir_reg = self.register_index(reg);
+                            let res = self.call_function_returns_value_args(func, &[ir_reg]);
                             self.push(res, InferredType::Any);
+
+                            /*
+
+                            self.call_function_args_no_return(func, &[ir_reg]);
+                            self.shadow_push(MaybeStackValue::MutRegister(reg));
+
+                            */
+
                             self.check_deopt();
                             self.ip += 2;
                         }

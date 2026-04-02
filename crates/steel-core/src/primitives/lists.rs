@@ -711,6 +711,20 @@ pub(crate) fn cdr(arg: &mut SteelVal) -> Result<SteelVal> {
 }
 
 #[cfg(feature = "jit2")]
+pub(crate) unsafe fn cdr_no_check_two(arg: &mut SteelVal) {
+    match arg {
+        SteelVal::ListV(l) => {
+            l.rest_mut();
+        }
+
+        SteelVal::Pair(p) => *arg = p.cdr(),
+        _ => unsafe {
+            unreachable_unchecked();
+        },
+    }
+}
+
+#[cfg(feature = "jit2")]
 pub(crate) unsafe fn cdr_no_check(arg: &mut SteelVal) -> SteelVal {
     match core::mem::replace(arg, SteelVal::Void) {
         SteelVal::ListV(mut l) => {

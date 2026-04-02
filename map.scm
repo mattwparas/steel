@@ -33,7 +33,7 @@
 (define results (mutable-vector))
 
 (define (loop x)
-  (if (= x 100)
+  (if (= x 1000)
       void
       (begin
         (vector-push! results (map (lambda (x) (+ x 1)) r))

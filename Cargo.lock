@@ -2153,8 +2153,6 @@ dependencies = [
 [[package]]
 name = "im-lists"
 version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8490eb8daae746b8d5ba6f95d7aec634cd05cf687723ce62e4e3c6886f2a8030"
 dependencies = [
  "allocator-api2",
  "generic_singleton",
