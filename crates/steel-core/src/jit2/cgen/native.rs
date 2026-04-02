@@ -177,6 +177,10 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    // pub(super) fn reverse(&mut self) {
+    //     use MaybeStackValue::*;
+    // }
+
     pub(super) fn is_symbol(&mut self) {
         use MaybeStackValue::*;
 

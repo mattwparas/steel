@@ -636,6 +636,8 @@ impl Default for JIT {
 
         map.add_func2("drop-one", abi! { drop_one as fn(SteelVal) });
 
+        map.add_func2("#%clone-std-rc", abi! { clone_one as fn(SteelVal) });
+
         map.add_func2(
             "drop-value-post-fast-dec",
             abi! { drop_value_post_fast_decrement as fn(SteelVal) },
@@ -709,6 +711,11 @@ impl Default for JIT {
         map.add_func(
             "#%setup-closure",
             abi! { setup_closure_call as fn(*mut VmCore, Gc<ByteCodeLambda>) -> SteelVal },
+        );
+
+        map.add_func(
+            "#%setup-closure-arity",
+            abi! { setup_closure_call_arity as fn(*mut VmCore, Gc<ByteCodeLambda>, usize, usize) -> SteelVal },
         );
 
         CallSelfNoArityFunctionDefinitions::register(&mut map);
@@ -842,7 +849,7 @@ impl Default for JIT {
 
         map.add_func(
             "cons-handler-value-register",
-            abi! { cons_handler_value_register as fn (*mut VmCore, SteelVal, usize) -> SteelVal },
+            abi! { cons_handler_value_register as fn (*mut VmCore, SteelVal, usize) },
         );
 
         map.add_func(
@@ -2112,11 +2119,204 @@ impl FunctionTranslator<'_> {
                     let name = CallFunctionDefinitions::arity_to_name(arity);
                     self.ip += 1;
 
-                    if let Some(name) = name {
-                        let v = self.call_function(arity, name, false);
-                        self.push(v, InferredType::Any);
-                    } else {
-                        todo!("Implement spilled function call");
+                    const USE_INLINE_CALL_FUNC: bool = true;
+
+                    // TODO: @Matt
+                    // Lets do a hierarchical check. In the event this is a
+                    // closure, we can fast path calling the function ourselves
+                    // with the function calling prelude like what we use
+                    // otherwise.
+                    //
+                    // The only thing we're missing here is how to construct
+                    // a fat pointer from the closure itself. In this case,
+                    // I think we just have to pair the pointer to the data
+                    // + the length, and we'll be good to go.
+
+                    match self.shadow_stack.last() {
+                        // We can clone the value off the register in order
+                        // to push this value on to the stack. Once we pull
+                        // it off the register, we then run _clone_ on this,
+                        // to make sure that its accessible from the child.
+                        //
+                        // Then, we'll check that it has a super instruction
+                        // and that our depth isn't too large.
+                        Some(MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i))
+                            if USE_INLINE_CALL_FUNC =>
+                        {
+                            // Check the type:
+                            let func = self.read_from_vm_stack(*i);
+                            let is_closure = self.is_type(func, SteelVal::CLOSURE_TAG);
+                            // If it is a closure, we need to clone the value:
+
+                            // Okay, now that we've gotten that out of the way, we can
+                            // continue doing our thing:
+                            let typ = self.int;
+
+                            let old_stack = self.shadow_stack.clone();
+                            let old_map = self.value_to_local_map.clone();
+
+                            let res = self.converging_if(
+                                is_closure,
+                                |ctx| {
+                                    let vm_ctx = ctx.get_ctx();
+                                    let closure = ctx.unbox_value_to_pointer(func);
+
+                                    // Missing shadow stack pop!
+                                    ctx.shadow_stack.pop().unwrap();
+
+                                    // TODO: Clone / restore this for this branch,
+                                    // so the other branch can inherit the changes
+                                    let args_off_the_stack = ctx
+                                        .split_off(arity)
+                                        .into_iter()
+                                        .map(|x| x.0)
+                                        .collect::<Vec<_>>();
+
+                                    ctx.spill_stack();
+
+                                    let arity = args_off_the_stack.len();
+
+                                    // TODO: Figure out a way to swap these inline?
+                                    // Directly push these on to the stack.
+                                    for arg in &args_off_the_stack {
+                                        ctx.push_to_vm_stack_let_var_new(*arg);
+                                    }
+
+                                    let should_trampoline = ctx.check_should_trampoline(vm_ctx);
+
+                                    let super_instruction = ctx.builder.ins().load(
+                                        types::I64,
+                                        MemFlags::trusted(),
+                                        closure,
+                                        // Offset for the RC payload
+                                        16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
+                                    );
+
+                                    let super_instruction_exists = ctx.builder.ins().icmp_imm(
+                                        IntCC::NotEqual,
+                                        super_instruction,
+                                        0,
+                                    );
+
+                                    let should_continue = ctx
+                                        .builder
+                                        .ins()
+                                        .band(should_trampoline, super_instruction_exists);
+
+                                    let should_yield =
+                                        ctx.builder.ins().bxor_imm(should_continue, 1);
+                                    let fallback_ip = ctx.ip - 1;
+                                    // let fallback_ip = ctx.ip;
+                                    ctx.update_ip_native_if_yield(
+                                        vm_ctx,
+                                        should_yield,
+                                        fallback_ip + 1,
+                                    );
+
+                                    let res = ctx.converging_if(
+                                        should_continue,
+                                        |ctx| {
+                                            // Increment the ref count of the closure
+                                            ctx.increment_ref_count_closure(closure);
+
+                                            let body_exp_offset =
+                                                16 + offset_of!(ByteCodeLambda, body_exp) as i32;
+
+                                            let rcbox_ptr = ctx.builder.ins().load(
+                                                types::I64,
+                                                MemFlags::trusted(),
+                                                closure,
+                                                body_exp_offset,
+                                            );
+
+                                            let len = ctx.builder.ins().load(
+                                                types::I64,
+                                                MemFlags::trusted(),
+                                                closure,
+                                                body_exp_offset + 8,
+                                            );
+
+                                            let data_ptr =
+                                                ctx.builder.ins().iadd_imm(rcbox_ptr, 16);
+
+                                            let instr_fat_ptr =
+                                                ctx.builder.ins().iconcat(data_ptr, len);
+
+                                            ctx.push_stack_frame(
+                                                arity as _,
+                                                closure,
+                                                instr_fat_ptr,
+                                                fallback_ip,
+                                            );
+
+                                            // TODO: Abstract this to a function:
+                                            // Attempt to look up a value indirectly:
+                                            let sig_ref = ctx.create_jit_sig_ref();
+
+                                            ctx.builder.ins().call_indirect(
+                                                sig_ref,
+                                                super_instruction,
+                                                &[vm_ctx],
+                                            );
+
+                                            let is_still_native = ctx.builder.ins().load(
+                                                types::I8,
+                                                MemFlags::trusted(),
+                                                vm_ctx,
+                                                offset_of!(VmCore, is_native) as i32,
+                                            );
+
+                                            ctx.converging_if(
+                                                is_still_native,
+                                                |ctx| ctx.inline_pop_from_stack(vm_ctx),
+                                                |ctx| ctx.encode_void(),
+                                                typ,
+                                            )
+                                        },
+                                        |ctx| {
+                                            let arity =
+                                                ctx.builder.ins().iconst(types::I64, arity as i64);
+                                            let fallback_ip = ctx
+                                                .builder
+                                                .ins()
+                                                .iconst(types::I64, fallback_ip as i64);
+                                            // TODO: Set up the closure for multi arity?
+                                            ctx.call_function_returns_value_args(
+                                                "#%setup-closure-arity",
+                                                &[closure, arity, fallback_ip],
+                                            )
+                                        },
+                                        typ,
+                                    );
+
+                                    res
+                                },
+                                |ctx| {
+                                    ctx.shadow_stack = old_stack.clone();
+                                    ctx.value_to_local_map = old_map.clone();
+
+                                    if let Some(name) = name {
+                                        let v = ctx.call_function(arity, name, false);
+
+                                        v
+                                    } else {
+                                        todo!("Implement spilled function call");
+                                    }
+                                },
+                                typ,
+                            );
+
+                            self.push(res, InferredType::Any)
+                        }
+
+                        _ => {
+                            if let Some(name) = name {
+                                let v = self.call_function(arity, name, false);
+                                self.push(v, InferredType::Any);
+                            } else {
+                                todo!("Implement spilled function call");
+                            }
+                        }
                     }
 
                     self.check_deopt();
@@ -3270,12 +3470,20 @@ impl FunctionTranslator<'_> {
 
                             let register = self.builder.ins().iconst(types::I64, register as i64);
 
-                            let result = self.call_function_returns_value_args(
+                            // Just... leave it in place if it mutates the register.
+                            // We can lazily have the register move around.
+                            self.call_function_args_no_return(
                                 "cons-handler-value-register",
                                 &[value, register],
                             );
+
+                            let result = MaybeStackValue::MutRegister(l);
+
+                            // TODO: Make the type as inferred?
+
                             // Check the inferred type, if we know of it
-                            self.push(result, InferredType::ListOrPair);
+                            self.shadow_push(result);
+
                             self.ip += 2;
                         }
 
@@ -3748,7 +3956,7 @@ impl FunctionTranslator<'_> {
 
         self.builder.switch_to_block(special_rc_block);
         self.builder.seal_block(special_rc_block);
-        self.drop_biased_rc(value); // TL-biased decrement
+        self.drop_biased_rc(value);
         self.builder.ins().jump(drop_merge, &[]);
 
         self.builder.switch_to_block(drop_merge);
@@ -4515,6 +4723,8 @@ impl FunctionTranslator<'_> {
 
                         match item {
                             MaybeStackValue::Register(i) if *i == payload => {
+                                println!("Spilling {} from stack @ index {}", i, index);
+
                                 let (value, typ) = self.immutable_register_to_value(payload);
 
                                 self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
@@ -5008,7 +5218,15 @@ impl FunctionTranslator<'_> {
             }
         }
 
+        // println!("---- Getting to this split off step -----");
+        // println!(
+        //     "{:?}",
+        //     self.shadow_stack.get(self.shadow_stack.len() - payload..)
+        // );
+
         let args_off_the_stack = self.split_off(payload);
+
+        // println!("-----------------------------------------");
 
         const USE_INLINE_TAIL_CALL: bool = true;
 
@@ -5062,7 +5280,7 @@ impl FunctionTranslator<'_> {
         // Read from VM stack, write back, drop value.
         // then, truncate
         for (i, arg) in args.iter().enumerate() {
-            self.write_to_from_vm_stack(i as _, *arg);
+            self.write_to_vm_stack(i as _, *arg);
         }
 
         let index = self.builder.ins().load(
@@ -5846,25 +6064,38 @@ impl FunctionTranslator<'_> {
     // TODO: The issue seems to be that values are coming in out of order?
     // We should split off and generate the values in reverse order I believe.
     fn mut_register_to_value(&mut self, p: usize) -> (Value, InferredType) {
-        let (value, _) = match p {
-            0 => self.read_local_fixed_no_spill(OpCode::MOVEREADLOCAL0, p),
-            1 => self.read_local_fixed_no_spill(OpCode::MOVEREADLOCAL1, p),
-            2 => self.read_local_fixed_no_spill(OpCode::MOVEREADLOCAL2, p),
-            3 => self.read_local_fixed_no_spill(OpCode::MOVEREADLOCAL3, p),
-            _ => self.read_local_value_no_spill(OpCode::MOVEREADLOCAL, p),
-        };
+        // let (value, _) = match p {
+        //     0 => self.read_local_fixed_no_spill(OpCode::MOVEREADLOCAL0, p),
+        //     1 => self.read_local_fixed_no_spill(OpCode::MOVEREADLOCAL1, p),
+        //     2 => self.read_local_fixed_no_spill(OpCode::MOVEREADLOCAL2, p),
+        //     3 => self.read_local_fixed_no_spill(OpCode::MOVEREADLOCAL3, p),
+        //     _ => self.read_local_value_no_spill(OpCode::MOVEREADLOCAL, p),
+        // };
+
+        let value = self.remove_from_vm_stack(p);
 
         (value, InferredType::Any)
     }
 
+    // This is a little nicer, although it isn't amazing. Extra clones for no reason.
+    //
+    // For mutable registers, we can probably brand the values based on what operations
+    // are performed on them.
     fn immutable_register_to_value(&mut self, p: usize) -> (Value, InferredType) {
-        let (value, _) = match p {
-            0 => self.read_local_fixed_no_spill(OpCode::READLOCAL0, p),
-            1 => self.read_local_fixed_no_spill(OpCode::READLOCAL1, p),
-            2 => self.read_local_fixed_no_spill(OpCode::READLOCAL2, p),
-            3 => self.read_local_fixed_no_spill(OpCode::READLOCAL3, p),
-            _ => self.read_local_value_no_spill(OpCode::READLOCAL, p),
-        };
+        // let (value, _) = match p {
+        //     0 => self.read_local_fixed_no_spill(OpCode::READLOCAL0, p),
+        //     1 => self.read_local_fixed_no_spill(OpCode::READLOCAL1, p),
+        //     2 => self.read_local_fixed_no_spill(OpCode::READLOCAL2, p),
+        //     3 => self.read_local_fixed_no_spill(OpCode::READLOCAL3, p),
+        //     _ => self.read_local_value_no_spill(OpCode::READLOCAL, p),
+        // };
+
+        // println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Getting here");
+
+        let value = self.read_from_vm_stack(p);
+
+        // Increment the ref count for the value:
+        self.clone_value(value);
 
         (value, InferredType::Any)
     }
@@ -5990,6 +6221,7 @@ impl FunctionTranslator<'_> {
             .map(|x| match x {
                 MaybeStackValue::Value(stack_value) => MaybeStackValue::Value(stack_value),
                 MaybeStackValue::MutRegister(p) => {
+                    println!("mut register: {}", p);
                     let (value, _) = self.mut_register_to_value(p);
                     MaybeStackValue::Value(StackValue {
                         value,
@@ -5999,6 +6231,7 @@ impl FunctionTranslator<'_> {
                 }
                 MaybeStackValue::Register(p) => {
                     let (value, _) = self.immutable_register_to_value(p);
+                    println!("normal register: {}", p);
 
                     MaybeStackValue::Value(StackValue {
                         value,
@@ -6780,8 +7013,60 @@ impl FunctionTranslator<'_> {
         local_value
     }
 
+    fn remove_from_vm_stack(&mut self, index: usize) -> Value {
+        let stack_pointer_offset = offset_of!(VmCore, sp);
+        // Lets do the thing?
+
+        let ctx = self.get_ctx();
+        let sp = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            ctx,
+            stack_pointer_offset as i32,
+        );
+
+        let thread_offset = offset_of!(VmCore, thread);
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack);
+
+        let ptr_offset = steel_vec::Vec::<SteelVal>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+        let local_offset = self.builder.ins().iadd_imm(sp, index as i64);
+        let offset = self.builder.ins().imul_imm(local_offset, size);
+
+        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+        let local_value = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+
+        let value = self.encode_void();
+
+        self.builder
+            .ins()
+            .store(MemFlags::trusted(), value, slot_ptr, 0);
+
+        local_value
+    }
+
     // TODO: Should flatten these ops when calling this multiple times!
-    fn write_to_from_vm_stack(&mut self, index: usize, value: Value) {
+    fn write_to_vm_stack(&mut self, index: usize, value: Value) {
         let stack_pointer_offset = offset_of!(VmCore, sp);
         // Lets do the thing?
 
@@ -6907,12 +7192,12 @@ impl FunctionTranslator<'_> {
 
                 // ctx.call_function_no_return("#%debug-instructions-after");
 
-                let ip = ctx.builder.ins().load(
-                    types::I64,
-                    MemFlags::trusted(),
-                    vm_ctx,
-                    offset_of!(VmCore, ip) as i32,
-                );
+                // let ip = ctx.builder.ins().load(
+                //     types::I64,
+                //     MemFlags::trusted(),
+                //     vm_ctx,
+                //     offset_of!(VmCore, ip) as i32,
+                // );
 
                 // ctx.call_function_args_no_context("#%debug-value", &[ip]);
 
@@ -7430,6 +7715,78 @@ impl FunctionTranslator<'_> {
         );
     }
 
+    fn clone_value(&mut self, value: Value) {
+        let tag = self.get_tag(value);
+
+        let mask = self
+            .builder
+            .ins()
+            .iconst(types::I64, SteelVal::UNBOXED_MASK as i64);
+        let shifted = self.builder.ins().ushr(mask, tag);
+        let is_unboxed = self.builder.ins().band_imm(shifted, 1);
+
+        let unboxed_block = self.builder.create_block();
+        let needs_drop = self.builder.create_block();
+        let merge_block = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(is_unboxed, unboxed_block, &[], needs_drop, &[]);
+
+        // Unboxed, meaning there is nothing to do here
+        self.builder.switch_to_block(unboxed_block);
+        self.builder.seal_block(unboxed_block);
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(needs_drop);
+        self.builder.seal_block(needs_drop);
+
+        let std_mask = self
+            .builder
+            .ins()
+            .iconst(types::I64, SteelVal::STANDARD_RC_MASK as i64);
+        let std_shifted = self.builder.ins().ushr(std_mask, tag);
+        let is_standard_rc = self.builder.ins().band_imm(std_shifted, 1);
+
+        let standard_rc_block = self.builder.create_block();
+        let special_rc_block = self.builder.create_block();
+        let drop_merge = self.builder.create_block();
+
+        self.builder.ins().brif(
+            is_standard_rc,
+            standard_rc_block,
+            &[],
+            special_rc_block,
+            &[],
+        );
+
+        self.builder.switch_to_block(standard_rc_block);
+        self.builder.seal_block(standard_rc_block);
+        self.clone_rc_value(value); // straight RC decrement
+        self.builder.ins().jump(drop_merge, &[]);
+
+        self.builder.switch_to_block(special_rc_block);
+        self.builder.seal_block(special_rc_block);
+        self.clone_biased_rc(value);
+        self.builder.ins().jump(drop_merge, &[]);
+
+        self.builder.switch_to_block(drop_merge);
+        self.builder.seal_block(drop_merge);
+        self.builder.ins().jump(merge_block, &[]);
+
+        self.builder.switch_to_block(merge_block);
+        self.builder.seal_block(merge_block);
+    }
+
+    fn clone_rc_value(&mut self, value: Value) {
+        self.call_function_args_no_context("#%clone-std-rc", &[value]);
+    }
+
+    fn clone_biased_rc(&mut self, value: Value) {
+        let ptr = self.unbox_value_to_pointer(value);
+        self.increment_ref_count_closure(ptr);
+    }
+
     fn increment_ref_count_closure(&mut self, value: Value) {
         let is_thread_local = self.check_value_tl(value);
 
@@ -7448,6 +7805,7 @@ impl FunctionTranslator<'_> {
                 ctx.builder.ins().store(MemFlags::new(), add_one, value, 8);
             },
             |ctx| {
+                // TODO: @Matt - we can inline this as well!
                 // Slow path increment the counter
                 ctx.call_function_args_no_context("raw-slow-increment-closure", &[value]);
             },
@@ -7572,6 +7930,7 @@ impl FunctionTranslator<'_> {
 
                 // Instruction pointer:
 
+                /*
                 let ip = ctx.builder.ins().load(
                     types::I64,
                     MemFlags::trusted(),
@@ -7581,7 +7940,7 @@ impl FunctionTranslator<'_> {
 
                 // Reduce to 32 bits to store in the stack frame
                 let ip = ctx.builder.ins().ireduce(types::I32, ip);
-                // let ip_plus_one = ctx.builder.ins().iadd_imm(ip, 1);
+                */
 
                 let ip_plus_one = ctx
                     .builder
@@ -7920,51 +8279,20 @@ impl FunctionTranslator<'_> {
         let local_callee = self.get_local_callee(name);
         let _ = self.builder.ins().call(local_callee, &args);
     }
+
+    fn create_jit_sig_ref(&mut self) -> codegen::ir::SigRef {
+        let mut sig = self.module.make_signature();
+        let mut param = AbiParam::new(self.module.target_config().pointer_type());
+        param.purpose = ArgumentPurpose::VMContext;
+
+        // VmCore pointer
+        sig.params.push(param);
+
+        if cfg!(target_os = "windows") {
+            sig.call_conv = CallConv::SystemV;
+        }
+
+        let sig_ref = self.builder.import_signature(sig);
+        sig_ref
+    }
 }
-
-// TODO: When setting up special functions, we'll
-// do a different thing to create a function that we want
-// that looks more like fn(&mut VmCore, args: &[SteelVal])
-// fn declare_variables(
-//     int: types::Type,
-//     pointer: types::Type,
-//     builder: &mut FunctionBuilder,
-//     params: &[String],
-//     entry_block: Block,
-// ) -> HashMap<String, Variable> {
-//     let mut variables = HashMap::new();
-//     let mut index = 0;
-
-//     // Leave the first one in place to pass the context in.
-//     // {
-//     //     let ctx = builder.block_params(entry_block)[0];
-//     //     let var = declare_variable(pointer, builder, &mut variables, &mut index, "vm-ctx");
-//     //     builder.def_var(var, ctx);
-//     // }
-
-//     for (i, name) in params.iter().enumerate() {
-//         let val = builder.block_params(entry_block)[i + 1];
-//         let var = declare_variable(int, builder, &mut variables, &mut index, name);
-//         builder.def_var(var, val);
-//     }
-
-//     variables
-// }
-
-// Declare a single variable declaration.
-// fn declare_variable(
-//     int: types::Type,
-//     builder: &mut FunctionBuilder,
-//     variables: &mut HashMap<String, Variable>,
-//     index: &mut usize,
-//     name: &str,
-// ) -> Variable {
-//     if !variables.contains_key(name) {
-//         let variable = builder.declare_var(int);
-//         variables.insert(name.into(), variable.clone());
-//         *index += 1;
-//         variable
-//     } else {
-//         variables.get(name).unwrap().clone()
-//     }
-// }

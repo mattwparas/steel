@@ -363,6 +363,15 @@ fn drop_one(arg: SteelVal) {
 }
 
 #[cross_platform_fn]
+fn clone_one(arg: SteelVal) {
+    // Manually drop, means the destructor won't get called.
+    let arg = ManuallyDrop::new(arg);
+
+    // Clone it, don't call the destructor
+    std::mem::forget((&*arg).clone());
+}
+
+#[cross_platform_fn]
 fn drop_value_post_fast_decrement(arg: SteelVal) {
     use SteelVal::*;
 
@@ -1196,31 +1205,28 @@ fn setbox_handler_c(ctx: *mut VmCore, arg: SteelVal, value: SteelVal) -> SteelVa
     }
 }
 
+// TODO: Lets optimize this?
 #[cross_platform_fn]
-fn cons_handler_value_register(ctx: *mut VmCore, mut arg: SteelVal, mut arg2: usize) -> SteelVal {
+fn cons_handler_value_register(ctx: *mut VmCore, mut arg: SteelVal, mut arg2: usize) {
+    use crate::values::lists::Pair;
+
     let guard = unsafe { &mut *ctx };
     guard.ip += 2;
 
     let offset = guard.get_offset();
     let mut arg2 = &mut guard.thread.stack[offset + arg2];
 
-    // The problem here, is that arg2 is expecting
-    // a reference to the stack slot. If its _actually_
-    // the last value, then we'll have a clone of it.
-    //
-    // Otherwise, we might have a problem. We also need
-    // to be sure that we're not _reusing_ variables off
-    // of the stack here, and that their destructors are
-    // getting called after, if they exist.
-    match cons(&mut arg, &mut arg2) {
-        Ok(v) => v,
-        Err(e) => {
-            unsafe {
-                guard.result = Some(Err(e));
-                guard.is_native = false;
-            }
-
-            SteelVal::Void
+    // This might be faster?
+    match (arg, arg2) {
+        (left, SteelVal::ListV(right)) => {
+            // Leave it in place
+            right.cons_mut(left);
+        }
+        // Silly, but this then gives us a special "pair" that is different
+        // from a real bonafide list
+        (left, right) => {
+            let res = SteelVal::Pair(Gc::new(Pair::cons(left, right.clone())));
+            *right = res;
         }
     }
 }
@@ -2904,6 +2910,7 @@ fn handle_global_function_call_with_args(
         SteelVal::MutFunc(func) => func(args).map_err(|x| x.set_span_if_none(ctx.current_span())),
         SteelVal::Closure(closure) => {
             let arity = args.len();
+
             // Just put them all on the stack
             for val in args {
                 ctx.thread
@@ -4899,7 +4906,6 @@ macro_rules! make_call_self_function_deopt_no_arity {
                                 // Don't deopt?
                                 Ok(ctx.thread.stack.pop().unwrap())
                             } else {
-                                println!("HITTING THIS ELSE CASE");
                                 Ok(SteelVal::Void)
                             }
                         } else {
@@ -4929,6 +4935,22 @@ fn setup_closure_call(ctx: *mut VmCore, closure: Gc<ByteCodeLambda>) -> SteelVal
     SteelVal::Void
 }
 
+#[cross_platform_fn]
+fn setup_closure_call_arity(
+    ctx: *mut VmCore,
+    closure: Gc<ByteCodeLambda>,
+    arity: usize,
+    fallback_arity: usize,
+) -> SteelVal {
+    // println!("CALLING THIS THING");
+    let mut ctx = unsafe { &mut *ctx };
+    let closure = ManuallyDrop::new(closure);
+    // ctx.ip += 1;
+
+    ctx.ip = fallback_arity;
+    ctx.handle_function_call_closure_jit((&*closure).clone(), arity);
+    SteelVal::Void
+}
 make_call_self_function_deopt_no_arity!(
     (call_self_function_deopt_0_no_arity,),
     (call_self_function_deopt_1_no_arity, a),

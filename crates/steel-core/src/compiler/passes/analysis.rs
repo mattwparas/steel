@@ -19,7 +19,7 @@ use crate::{
 use quickscope::{ScopeMap, ScopeSet};
 use smallvec::SmallVec;
 use steel_parser::{
-    ast::{AstTools, Begin, PROTO_HASH_GET},
+    ast::{Begin, PROTO_HASH_GET},
     parser::SourceId,
     tokens::{IntLiteral, NumberLiteral, RealLiteral},
 };
@@ -2335,6 +2335,14 @@ where
 
             if let Some(semantic_info) = self.analysis.get(l.args[0].atom_syntax_object().unwrap())
             {
+                // if let Some(call_kind) = self.analysis.call_info.get(&l.syntax_object_id) {
+                //     if !matches!(
+                //         call_kind.kind,
+                //         CallKind::TailCall
+                //             | CallKind::SelfTailCall(_)
+                //             | CallKind::NoArityTailCall
+                //             | CallKind::NoAritySelfTailCall(_)
+                //     ) {
                 if semantic_info.kind == IdentifierStatus::Global {
                     if let Some(func) = self.map.get_mut(name) {
                         (func)(self.analysis, l);
@@ -2344,6 +2352,8 @@ where
                         (func)(self.analysis, l);
                     }
                 }
+                //     }
+                // }
             }
 
             for arg in &mut l.args[1..] {
