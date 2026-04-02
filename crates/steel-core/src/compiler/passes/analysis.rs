@@ -1192,6 +1192,29 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 CallKind::Normal
             };
 
+            if call_site_kind == CallKind::TailCall {
+                let mut local_ids: SmallVec<[_; 6]> = SmallVec::new();
+
+                for arg in &l.args[1..] {
+                    if let ExprKind::Atom(a) = arg {
+                        local_ids.push(a.syn.syntax_object_id);
+                    }
+                }
+
+                // Every time we hit a thing, lets just iterate the arguments, mark em.
+                for id in self
+                    .info
+                    .scope
+                    .iter()
+                    .filter_map(|x| x.1.last_used)
+                    .collect::<SmallVec<[_; 8]>>()
+                {
+                    if local_ids.contains(&id) {
+                        self.info.get_mut(&id).unwrap().last_usage = true;
+                    }
+                }
+            }
+
             let syntax_object = l.first().and_then(|x| x.atom_syntax_object());
 
             if let Some(func) = syntax_object {
