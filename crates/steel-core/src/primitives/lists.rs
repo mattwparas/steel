@@ -581,7 +581,6 @@ fn length(list: &List<SteelVal>) -> usize {
 fn reverse(arg: &mut SteelVal) -> Result<SteelVal> {
     let replaced = core::mem::replace(arg, SteelVal::Void);
     if let SteelVal::ListV(l) = replaced {
-        println!("Reverse count: {}", l.strong_count());
         Ok(SteelVal::ListV(l.reverse()))
     } else {
         stop!(TypeMismatch => "reverse expects a list, found: {}", replaced)

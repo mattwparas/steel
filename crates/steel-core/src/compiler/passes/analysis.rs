@@ -1192,6 +1192,31 @@ impl<'a> VisitorMutUnitRef<'a> for AnalysisPass<'a> {
                 CallKind::Normal
             };
 
+            if call_site_kind == CallKind::TailCall {
+                let mut local_ids: SmallVec<[_; 6]> = SmallVec::new();
+
+                for arg in &l.args[1..] {
+                    if let ExprKind::Atom(a) = arg {
+                        local_ids.push(a.syn.syntax_object_id);
+                    }
+                }
+
+                // Every time we hit a thing, lets just iterate the arguments, mark em.
+                for id in self
+                    .info
+                    .scope
+                    .iter()
+                    .filter_map(|x| x.1.last_used)
+                    .collect::<SmallVec<[_; 8]>>()
+                {
+                    if local_ids.contains(&id) {
+                        self.info.get_mut(&id).unwrap().last_usage = true;
+                    }
+                }
+
+                // Mark any arguments pass to this... as last usage?
+            }
+
             let syntax_object = l.first().and_then(|x| x.atom_syntax_object());
 
             if let Some(func) = syntax_object {
@@ -2335,14 +2360,6 @@ where
 
             if let Some(semantic_info) = self.analysis.get(l.args[0].atom_syntax_object().unwrap())
             {
-                // if let Some(call_kind) = self.analysis.call_info.get(&l.syntax_object_id) {
-                //     if !matches!(
-                //         call_kind.kind,
-                //         CallKind::TailCall
-                //             | CallKind::SelfTailCall(_)
-                //             | CallKind::NoArityTailCall
-                //             | CallKind::NoAritySelfTailCall(_)
-                //     ) {
                 if semantic_info.kind == IdentifierStatus::Global {
                     if let Some(func) = self.map.get_mut(name) {
                         (func)(self.analysis, l);
@@ -2352,8 +2369,6 @@ where
                         (func)(self.analysis, l);
                     }
                 }
-                //     }
-                // }
             }
 
             for arg in &mut l.args[1..] {
@@ -7543,6 +7558,33 @@ mod analysis_pass_tests {
         analysis.inline_function_call("fib").unwrap();
 
         analysis.exprs.pretty_print();
+    }
+
+    #[test]
+    fn last_usages_map() {
+        let script = r#"
+(define (map1 func accum lst)
+  (if (null? lst)
+      (reverse accum)
+
+      (map1 func (cons (func (car lst)) accum) (cdr lst))))
+        "#;
+
+        let mut exprs = Parser::parse(script).unwrap();
+        let mut analysis = SemanticAnalysis::new(&mut exprs);
+        analysis.populate_captures();
+
+        // analysis.
+
+        for var in analysis.last_usages() {
+            crate::rerrs::report_info(
+                ErrorKind::FreeIdentifier.to_error_code(),
+                "input.scm",
+                script,
+                format!("last usage"),
+                var.span,
+            );
+        }
     }
 
     #[test]

@@ -158,6 +158,7 @@ impl Default for ByteCodeLambda {
             body_exp: Vec::new().into(),
             contract: SharedMut::new(MutContainer::new(None)),
             captures: Default::default(),
+            #[cfg(feature = "jit2")]
             super_instructions: None,
         }
     }
