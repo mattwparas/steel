@@ -3440,6 +3440,14 @@ impl FunctionTranslator<'_> {
                     let last = self.shadow_stack.pop().unwrap().into_index();
                     let value = self.read_from_vm_stack(last);
                     let result = self.check_null_no_drop(value);
+
+                    // Okay, we're going to try branch on properties, and assert
+                    // type checks depending on which branch we take. If the test
+                    // condition has a property associated with it, then we go ahead
+                    // and take that on the then branch. Luckily, `and` conditions
+                    // lower to if statements, so we should really only have an
+                    // individual check on the condition.
+
                     self.push(result, InferredType::UnboxedBool);
 
                     self.ip += 2;
@@ -4736,8 +4744,6 @@ impl FunctionTranslator<'_> {
 
                         match item {
                             MaybeStackValue::Register(i) if *i == payload => {
-                                println!("Spilling {} from stack @ index {}", i, index);
-
                                 let (value, typ) = self.immutable_register_to_value(payload);
 
                                 self.shadow_stack[index] = MaybeStackValue::Value(StackValue {
@@ -6234,7 +6240,6 @@ impl FunctionTranslator<'_> {
             .map(|x| match x {
                 MaybeStackValue::Value(stack_value) => MaybeStackValue::Value(stack_value),
                 MaybeStackValue::MutRegister(p) => {
-                    println!("mut register: {}", p);
                     let (value, _) = self.mut_register_to_value(p);
                     MaybeStackValue::Value(StackValue {
                         value,
@@ -6244,8 +6249,6 @@ impl FunctionTranslator<'_> {
                 }
                 MaybeStackValue::Register(p) => {
                     let (value, _) = self.immutable_register_to_value(p);
-                    println!("normal register: {}", p);
-
                     MaybeStackValue::Value(StackValue {
                         value,
                         inferred_type: InferredType::Any,
@@ -6606,6 +6609,10 @@ impl FunctionTranslator<'_> {
         let let_stack = self.let_var_stack.clone();
         // let local_count = self.local_count;
         let frozen_stack = self.shadow_stack.clone();
+
+        let original_val_to_local = self.value_to_local_map.clone();
+        let original_local_to_val = self.local_to_value_map.clone();
+
         // let cloned_stack = self.cloned_stack;
         // let tco = self.tco;
 
@@ -6682,6 +6689,8 @@ impl FunctionTranslator<'_> {
 
         let then_stack = self.shadow_stack.clone();
         let then_let_stack = self.let_var_stack.clone();
+        let local_map = self.local_to_value_map.clone();
+        let value_to_local = self.value_to_local_map.clone();
 
         // Jump to the merge block, passing it the block return value.
         self.builder.ins().jump(merge_block, &[then_return]);
@@ -6703,8 +6712,12 @@ impl FunctionTranslator<'_> {
         self.if_stack.pop();
 
         self.tco = false;
+
+        // TODO: Also encode the local var map
         self.let_var_stack = let_stack;
         self.shadow_stack = frozen_stack;
+        self.local_to_value_map = original_local_to_val;
+        self.value_to_local_map = original_val_to_local;
 
         // Set the if bound for the else case as well
         self.if_bound = else_offset;
@@ -6826,6 +6839,8 @@ impl FunctionTranslator<'_> {
                 self.ip = saved_then_bound.unwrap();
                 self.shadow_stack = then_stack;
                 self.let_var_stack = then_let_stack;
+                self.local_to_value_map = local_map;
+                self.value_to_local_map = value_to_local;
 
                 let phi = self.builder.block_params(merge_block)[0];
 
