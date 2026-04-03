@@ -1646,6 +1646,8 @@ enum Properties {
     // and also this will successfully return without error.
     NonEmptyList,
 
+    Null,
+
     // Assuming coming in to this we didn't know the type,
     // after running an identity via something like `list?`,
     // then we can tag the value for use later on. This is helpful
@@ -1659,6 +1661,7 @@ enum Properties {
     CheckedString,
     CheckedList,
     CheckedPair,
+    CheckedNull(ValueOrRegister),
 }
 
 impl MaybeStackValue {
@@ -3447,6 +3450,11 @@ impl FunctionTranslator<'_> {
                     // and take that on the then branch. Luckily, `and` conditions
                     // lower to if statements, so we should really only have an
                     // individual check on the condition.
+
+                    self.properties.insert(
+                        ValueOrRegister::Value(result),
+                        Properties::CheckedNull(ValueOrRegister::Register(last)),
+                    );
 
                     self.push(result, InferredType::UnboxedBool);
 
@@ -6612,11 +6620,14 @@ impl FunctionTranslator<'_> {
 
         let original_val_to_local = self.value_to_local_map.clone();
         let original_local_to_val = self.local_to_value_map.clone();
+        let original_properties = self.properties.clone();
 
         // let cloned_stack = self.cloned_stack;
         // let tco = self.tco;
 
         self.if_stack.push(start);
+
+        self.check_then_properties(condition_value);
 
         self.stack_to_ssa();
 
@@ -6691,6 +6702,7 @@ impl FunctionTranslator<'_> {
         let then_let_stack = self.let_var_stack.clone();
         let local_map = self.local_to_value_map.clone();
         let value_to_local = self.value_to_local_map.clone();
+        let properties = self.properties.clone();
 
         // Jump to the merge block, passing it the block return value.
         self.builder.ins().jump(merge_block, &[then_return]);
@@ -6718,9 +6730,12 @@ impl FunctionTranslator<'_> {
         self.shadow_stack = frozen_stack;
         self.local_to_value_map = original_local_to_val;
         self.value_to_local_map = original_val_to_local;
+        self.properties = original_properties;
 
         // Set the if bound for the else case as well
         self.if_bound = else_offset;
+
+        self.check_else_properties(condition_value);
 
         self.stack_to_ssa();
 
@@ -6841,6 +6856,7 @@ impl FunctionTranslator<'_> {
                 self.let_var_stack = then_let_stack;
                 self.local_to_value_map = local_map;
                 self.value_to_local_map = value_to_local;
+                self.properties = properties;
 
                 let phi = self.builder.block_params(merge_block)[0];
 
@@ -6904,6 +6920,30 @@ impl FunctionTranslator<'_> {
         // self.builder.seal_block(merge_block);
 
         phi
+    }
+
+    fn check_else_properties(&mut self, condition_value: Value) {
+        match self
+            .properties
+            .get(&ValueOrRegister::Value(condition_value))
+        {
+            Some(Properties::CheckedNull(v)) => {
+                self.properties.insert(*v, Properties::NonEmptyList);
+            }
+            _ => {}
+        }
+    }
+
+    fn check_then_properties(&mut self, condition_value: Value) {
+        match self
+            .properties
+            .get(&ValueOrRegister::Value(condition_value))
+        {
+            Some(Properties::CheckedNull(v)) => {
+                self.properties.insert(*v, Properties::Null);
+            }
+            _ => {}
+        }
     }
 
     fn vm_pop_old(&mut self, value: Value) {
