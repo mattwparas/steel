@@ -35,7 +35,10 @@ use crate::{
         primitives::{steel_eq, steel_listp, steel_stringp, steel_symbolp, steel_voidp},
         vm::{jit::*, StackFrame, StackFrameAttachments, SteelThread, VmCore},
     },
-    values::functions::{ByteCodeLambda, RootedInstructions},
+    values::{
+        functions::{ByteCodeLambda, RootedInstructions},
+        lists::SteelList,
+    },
     SteelVal,
 };
 
@@ -845,9 +848,10 @@ impl Default for JIT {
             "cdr-reg-no-check",
             abi! { cdr_handler_reg_no_check as fn(*mut VmCore, usize) -> SteelVal },
         );
+
         map.add_func(
             "cdr-mut-reg-no-check",
-            abi! { cdr_handler_mut_reg_no_check as fn(*mut VmCore, usize) -> SteelVal },
+            abi! { cdr_handler_mut_reg_no_check as fn(*mut VmCore, usize) },
         );
 
         map.add_func("cons-handler-value", cons_handler_value as VmBinOp);
@@ -3546,31 +3550,26 @@ impl FunctionTranslator<'_> {
                         }
 
                         MaybeStackValue::MutRegister(reg) => {
-                            // let can_skip_bounds_check = matches!(
-                            //     self.properties.get(&ValueOrRegister::Register(reg)),
-                            //     Some(Properties::NonEmptyList)
-                            // );
+                            let can_skip_bounds_check = matches!(
+                                self.properties.get(&ValueOrRegister::Register(reg)),
+                                Some(Properties::NonEmptyList)
+                            );
 
-                            let can_skip_bounds_check = false;
+                            // let can_skip_bounds_check = false;
 
                             self.shadow_stack.pop();
-
-                            let func = if can_skip_bounds_check {
-                                "cdr-mut-reg-no-check"
-                            } else {
-                                "cdr-mut-reg"
-                            };
-
                             let ir_reg = self.register_index(reg);
-                            let res = self.call_function_returns_value_args(func, &[ir_reg]);
-                            self.push(res, InferredType::Any);
 
-                            /*
+                            if can_skip_bounds_check {
+                                let func = "cdr-mut-reg-no-check";
+                                self.call_function_args_no_return(func, &[ir_reg]);
+                                self.shadow_push(MaybeStackValue::MutRegister(reg));
+                            } else {
+                                let func = "cdr-mut-reg";
 
-                            self.call_function_args_no_return(func, &[ir_reg]);
-                            self.shadow_push(MaybeStackValue::MutRegister(reg));
-
-                            */
+                                let res = self.call_function_returns_value_args(func, &[ir_reg]);
+                                self.push(res, InferredType::Any);
+                            };
 
                             self.check_deopt();
                             self.ip += 2;
@@ -3653,18 +3652,27 @@ impl FunctionTranslator<'_> {
 
                     match self.shadow_stack.last().unwrap().clone() {
                         MaybeStackValue::MutRegister(reg) | MaybeStackValue::Register(reg) => {
-                            // let can_skip_bounds_check = matches!(
-                            //     self.properties.get(&ValueOrRegister::Register(reg)),
-                            //     Some(Properties::NonEmptyList)
-                            // );
+                            let can_skip_bounds_check = matches!(
+                                self.properties.get(&ValueOrRegister::Register(reg)),
+                                Some(Properties::NonEmptyList)
+                            );
 
-                            let can_skip_bounds_check = false;
+                            // let can_skip_bounds_check = false;
 
                             if can_skip_bounds_check {
                                 self.shadow_stack.pop();
+
+                                let value = self.read_from_vm_stack(reg);
+                                let res = self.unchecked_car(value);
+
+                                self.clone_value(res);
+
+                                /*
                                 let reg = self.register_index(reg);
                                 let res = self
                                     .call_function_returns_value_args("car-reg-unchecked", &[reg]);
+                                */
+
                                 self.push(res, InferredType::Any);
                                 self.ip += 2;
                             } else {
@@ -4188,6 +4196,53 @@ impl FunctionTranslator<'_> {
     // need the call if we have something like that
     fn drop_value(&mut self, value: Value) {
         self.call_function_args_no_context("drop-one", &[value]);
+    }
+
+    // First, check the tag:
+    fn unchecked_car(&mut self, value: Value) -> Value {
+        // let is_list = self.is_type(value, SteelVal::LIST_TAG);
+        let value = self.unbox_value_to_pointer(value);
+
+        // Lets figure out where car is:
+        let index = self
+            .builder
+            .ins()
+            .load(types::I32, MemFlags::trusted(), value, 16);
+
+        // Thats the index:
+        let shared_vector_ptr =
+            self.builder
+                .ins()
+                .load(types::I64, MemFlags::trusted(), value, 16 + 8 as i32);
+
+        let index = self.builder.ins().uextend(types::I64, index);
+
+        // Now get car:
+        // TODO:
+        // Header size is just gonna be 128
+        let header_size = SteelList::<SteelVal>::vector_header_size();
+
+        dbg!(header_size);
+
+        // self.elements.get(self.index as usize - 1)
+
+        let size: i64 = std::mem::size_of::<SteelVal>() as _;
+        // Okay so this might be wrong: But if we have the value at a certain
+        // location, then we'll need to find the offset of everything directly.
+        //
+        // The header size is
+        let real_slot = self.builder.ins().iadd_imm(index, -1);
+
+        let offset = self.builder.ins().imul_imm(real_slot, size);
+        let slot_ptr = self.builder.ins().iadd(shared_vector_ptr, offset);
+        let slot_ptr = self.builder.ins().iadd_imm(slot_ptr, header_size as i64);
+
+        let local_value = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+
+        local_value
     }
 
     fn is_empty(&mut self) {
@@ -5237,6 +5292,7 @@ impl FunctionTranslator<'_> {
                 }
             }
 
+            // TODO: Translate this back to being inlined!
             if amount_dropped != 0 {
                 return self.test_translate_tco_jmp_no_arity_loop_no_spill(
                     payload - amount_dropped,

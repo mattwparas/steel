@@ -1331,13 +1331,13 @@ fn cdr_handler_reg_no_check(ctx: *mut VmCore, arg: usize) -> SteelVal {
 }
 
 #[cross_platform_fn]
-fn cdr_handler_mut_reg_no_check(ctx: *mut VmCore, arg: usize) -> SteelVal {
+fn cdr_handler_mut_reg_no_check(ctx: *mut VmCore, arg: usize) {
     let guard = unsafe { &mut *ctx };
 
     let offset = guard.get_offset();
     let mut arg = &mut guard.thread.stack[offset + arg];
 
-    unsafe { cdr_no_check(&mut arg) }
+    unsafe { cdr_no_check_two(&mut arg) };
 }
 
 macro_rules! extern_c {
