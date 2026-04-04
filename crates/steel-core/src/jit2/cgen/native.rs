@@ -253,7 +253,7 @@ impl<'a> FunctionTranslator<'a> {
                     // Elide the call entirely if its a non empty list, or if
                     // we know that the value is something else at this point based
                     // on the inferred type.
-                    (Some(Properties::NonEmptyList), _) => {
+                    (Some(Properties::NonEmptyListOrPair), _) => {
                         self.shadow_stack.pop();
                         let res = self.builder.ins().iconst(types::I8, 0);
                         self.push(res, InferredType::UnboxedBool);

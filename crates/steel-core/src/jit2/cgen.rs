@@ -1643,12 +1643,98 @@ enum ValueOrRegister {
     Register(usize),
 }
 
+#[derive(Default, Clone)]
+struct PropertyMap {
+    // So we're going to do something like this.
+    props: HashMap<ValueOrRegister, Vec<Properties>>,
+}
+
+impl PropertyMap {
+    pub fn remove(&mut self, value: &ValueOrRegister) {
+        self.props.remove(value);
+    }
+
+    pub fn get(&self, value: &ValueOrRegister) -> Option<Properties> {
+        self.props.get(value).and_then(|x| {
+            if x.len() == 1 {
+                x.first().copied()
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn add_property(&mut self, value: ValueOrRegister, prop: Properties) {
+        if let Some(exists) = self.props.get_mut(&value) {
+            match prop {
+                Properties::NonEmptyListOrPair => {
+                    for p in exists {
+                        if let Properties::ProperList = p {
+                            *p = Properties::ProperNonEmptyList;
+                        }
+                    }
+                }
+                Properties::ProperList => {
+                    for p in exists {
+                        if let Properties::NonEmptyListOrPair = p {
+                            *p = Properties::ProperNonEmptyList;
+                        }
+                    }
+                }
+                _ => {
+                    // Coalesce properties on push. In the event there are properties
+                    // that are related, we should infer things about them here.
+                    exists.push(prop);
+                }
+            }
+        } else {
+            self.props.insert(value, vec![prop]);
+        }
+    }
+
+    pub fn infer_property_bool(&mut self, condition_value: Value, branch: bool) {
+        if let Some(props) = self.props.get(&ValueOrRegister::Value(condition_value)) {
+            for prop in props {
+                match prop {
+                    Properties::CheckedString(value_or_register) => {
+                        // todo
+                    }
+                    Properties::CheckedList(value_or_register) => {
+                        // todo
+                    }
+                    Properties::CheckedPair(value_or_register) => {
+                        // todo
+                    }
+                    Properties::CheckedNull(value_or_register) => {
+                        if branch {
+                            self.add_property(*value_or_register, Properties::Null);
+                        } else {
+                            // TODO: This isn't quite right. Just because null returned
+                            // #f does not mean its a non empty list. If its _anything_
+                            // but null, then it won't return true. So what we probably do is
+                            // just assert the exact opposite, which is that its _definitely_ not
+                            // a null list.
+                            self.add_property(*value_or_register, Properties::NonNull);
+                        }
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+}
+
+// TODO: Figure out a good way to align inferred type but also
+// additional properties.
 #[derive(Debug, Clone, Copy)]
 enum Properties {
     // If we can call car on this list successfully, downstream of this
     // then we're both going to be listed as a proper list type,
     // and also this will successfully return without error.
-    NonEmptyList,
+    NonEmptyListOrPair,
+
+    NonNull,
 
     Null,
 
@@ -1662,10 +1748,14 @@ enum Properties {
     // this is a conditional check, attached to a boolean or unboxed
     // boolean, stating that its possible that this value may be
     // true or false.
-    CheckedString,
-    CheckedList,
-    CheckedPair,
+    CheckedString(ValueOrRegister),
+    CheckedList(ValueOrRegister),
+    CheckedPair(ValueOrRegister),
     CheckedNull(ValueOrRegister),
+
+    ProperList,
+
+    ProperNonEmptyList,
 }
 
 impl MaybeStackValue {
@@ -1725,7 +1815,7 @@ struct FunctionTranslator<'a> {
     local_to_value_map: HashMap<usize, InferredType>,
 
     // This should probably be something more sophisticated, but for now it'll work.
-    properties: HashMap<ValueOrRegister, Properties>,
+    properties: PropertyMap,
 
     arity: u16,
     constants: &'a ConstantMap,
@@ -3454,8 +3544,7 @@ impl FunctionTranslator<'_> {
                     // and take that on the then branch. Luckily, `and` conditions
                     // lower to if statements, so we should really only have an
                     // individual check on the condition.
-
-                    self.properties.insert(
+                    self.properties.add_property(
                         ValueOrRegister::Value(result),
                         Properties::CheckedNull(ValueOrRegister::Register(last)),
                     );
@@ -3550,12 +3639,12 @@ impl FunctionTranslator<'_> {
                         }
 
                         MaybeStackValue::MutRegister(reg) => {
-                            let can_skip_bounds_check = matches!(
-                                self.properties.get(&ValueOrRegister::Register(reg)),
-                                Some(Properties::NonEmptyList)
-                            );
+                            // let can_skip_bounds_check = matches!(
+                            //     self.properties.get(&ValueOrRegister::Register(reg)),
+                            //     Some(Properties::NonEmptyList)
+                            // );
 
-                            // let can_skip_bounds_check = false;
+                            let can_skip_bounds_check = false;
 
                             self.shadow_stack.pop();
                             let ir_reg = self.register_index(reg);
@@ -3655,12 +3744,12 @@ impl FunctionTranslator<'_> {
                             // Don't think we can do this. When checking null?, we also want to check
                             // that the value is a list - if we assert its a list earlier, we can avoid
                             // a lot of checks.
-                            let can_skip_bounds_check = matches!(
-                                self.properties.get(&ValueOrRegister::Register(reg)),
-                                Some(Properties::NonEmptyList)
-                            );
+                            // let can_skip_bounds_check = matches!(
+                            //     self.properties.get(&ValueOrRegister::Register(reg)),
+                            //     Some(Properties::NonEmptyList)
+                            // );
 
-                            // let can_skip_bounds_check = false;
+                            let can_skip_bounds_check = false;
 
                             if can_skip_bounds_check {
                                 self.shadow_stack.pop();
@@ -4285,11 +4374,11 @@ impl FunctionTranslator<'_> {
 
                 self.ip += 1;
             }
+
             MutRegister(p) | Register(p) => {
                 let register = self.register_index(p);
                 self.shadow_stack.pop();
                 let res = self.call_function_returns_value_args("empty?", &[register]);
-
                 self.push(res, InferredType::Bool);
                 self.ip += 1;
             }
@@ -4375,21 +4464,37 @@ impl FunctionTranslator<'_> {
                 self.ip += 1;
             }
             MutRegister(p) | Register(p) => {
-                let register = self.register_index(p);
+                // let register = self.register_index(p);
 
                 match self.properties.get(&ValueOrRegister::Register(p)) {
                     // Elide the call entirely if its a non empty list. NOTE: We can't do this here.
-                    Some(Properties::NonEmptyList) if false => {
+                    // Some(Properties::NonEmptyList) if false => {
+                    //     self.shadow_stack.pop();
+                    //     let res = self.builder.ins().iconst(types::I8, 1);
+                    //     self.push(res, InferredType::UnboxedBool);
+                    //     self.ip += 1;
+                    // }
+
+                    // TODO: Figure out how to align the inferred types and properties
+                    // so that there is some semblance of structure
+                    Some(Properties::ProperList) => {
                         self.shadow_stack.pop();
                         let res = self.builder.ins().iconst(types::I8, 1);
                         self.push(res, InferredType::UnboxedBool);
                         self.ip += 1;
                     }
+
                     _ => {
                         self.shadow_stack.pop();
-                        let res = self.call_function_returns_value_args("list?", &[register]);
+                        // let res = self.call_function_returns_value_args("list?", &[register]);
+                        // self.push(res, InferredType::Bool);
 
-                        self.push(res, InferredType::Bool);
+                        let value = self.read_from_vm_stack(p);
+                        let is_list = self.is_type(value, SteelVal::LIST_TAG);
+                        self.push(is_list, InferredType::UnboxedBool);
+
+                        // Now, we also can attach the
+
                         self.ip += 1;
                     }
                 }
@@ -4508,14 +4613,14 @@ impl FunctionTranslator<'_> {
 
                 match self.properties.get(&ValueOrRegister::Register(p)) {
                     // Elide the call entirely if its a non empty list
-                    Some(Properties::NonEmptyList) if false => {
-                        println!("Found non empty list!");
+                    // Some(Properties::NonEmptyList) if false => {
+                    //     println!("Found non empty list!");
 
-                        self.shadow_stack.pop();
-                        let res = self.builder.ins().iconst(types::I8, 1);
-                        self.push(res, InferredType::UnboxedBool);
-                        self.ip += 1;
-                    }
+                    //     self.shadow_stack.pop();
+                    //     let res = self.builder.ins().iconst(types::I8, 1);
+                    //     self.push(res, InferredType::UnboxedBool);
+                    //     self.ip += 1;
+                    // }
                     _ => {
                         self.shadow_stack.pop();
                         let res = self.call_function_returns_value_args("pair?", &[register]);
@@ -7015,7 +7120,7 @@ impl FunctionTranslator<'_> {
             .get(&ValueOrRegister::Value(condition_value))
         {
             Some(Properties::CheckedNull(v)) => {
-                self.properties.insert(*v, Properties::NonEmptyList);
+                self.properties.add_property(v, Properties::NonNull);
             }
             _ => {}
         }
@@ -7027,7 +7132,7 @@ impl FunctionTranslator<'_> {
             .get(&ValueOrRegister::Value(condition_value))
         {
             Some(Properties::CheckedNull(v)) => {
-                self.properties.insert(*v, Properties::Null);
+                self.properties.add_property(v, Properties::Null);
             }
             _ => {}
         }
