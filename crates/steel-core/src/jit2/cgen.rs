@@ -3652,6 +3652,9 @@ impl FunctionTranslator<'_> {
 
                     match self.shadow_stack.last().unwrap().clone() {
                         MaybeStackValue::MutRegister(reg) | MaybeStackValue::Register(reg) => {
+                            // Don't think we can do this. When checking null?, we also want to check
+                            // that the value is a list - if we assert its a list earlier, we can avoid
+                            // a lot of checks.
                             let can_skip_bounds_check = matches!(
                                 self.properties.get(&ValueOrRegister::Register(reg)),
                                 Some(Properties::NonEmptyList)
@@ -4221,8 +4224,6 @@ impl FunctionTranslator<'_> {
         // TODO:
         // Header size is just gonna be 128
         let header_size = SteelList::<SteelVal>::vector_header_size();
-
-        dbg!(header_size);
 
         // self.elements.get(self.index as usize - 1)
 
@@ -5294,10 +5295,40 @@ impl FunctionTranslator<'_> {
 
             // TODO: Translate this back to being inlined!
             if amount_dropped != 0 {
-                return self.test_translate_tco_jmp_no_arity_loop_no_spill(
-                    payload - amount_dropped,
-                    payload,
-                );
+                // Original payload, is the original amount to call
+                let original_payload = payload;
+
+                // How many elements did we drop off
+                let payload = payload - amount_dropped;
+
+                // This is what we have left: so this will be the first n elements left
+                let args_off_the_stack = self.split_off(payload);
+
+                let args = args_off_the_stack
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<_>>();
+
+                self.inline_call_self_tail_call_no_arity_loop(original_payload as _, &args);
+
+                let test = self.builder.ins().iconst(Type::int(8).unwrap(), 1);
+
+                let else_block = self.builder.create_block();
+
+                let fake_entry_block = self.fake_entry_block.unwrap();
+
+                // Jump to the fake entry block.
+                //
+                // Construct a fake loop to otherwise jump back to the normal control
+                // flow?
+                self.builder
+                    .ins()
+                    .brif(test, fake_entry_block, &[], else_block, &[]);
+
+                self.builder.switch_to_block(else_block);
+                self.builder.seal_block(else_block);
+
+                return;
             }
         }
 
