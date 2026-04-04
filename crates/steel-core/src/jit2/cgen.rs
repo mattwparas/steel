@@ -7115,27 +7115,11 @@ impl FunctionTranslator<'_> {
     }
 
     fn check_else_properties(&mut self, condition_value: Value) {
-        match self
-            .properties
-            .get(&ValueOrRegister::Value(condition_value))
-        {
-            Some(Properties::CheckedNull(v)) => {
-                self.properties.add_property(v, Properties::NonNull);
-            }
-            _ => {}
-        }
+        self.properties.infer_property_bool(condition_value, false);
     }
 
     fn check_then_properties(&mut self, condition_value: Value) {
-        match self
-            .properties
-            .get(&ValueOrRegister::Value(condition_value))
-        {
-            Some(Properties::CheckedNull(v)) => {
-                self.properties.add_property(v, Properties::Null);
-            }
-            _ => {}
-        }
+        self.properties.infer_property_bool(condition_value, false);
     }
 
     fn vm_pop_old(&mut self, value: Value) {
