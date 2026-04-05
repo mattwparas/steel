@@ -798,3 +798,55 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 }
+
+/*
+fn emit_spinlock_inline(
+    builder: &mut FunctionBuilder,
+    lock_ptr: Value,
+) {
+    let ptr_type = builder.func.dfg.value_type(lock_ptr);
+    let spin_entry = builder.create_block();
+    let spin_wait  = builder.create_block();
+    let acquired   = builder.create_block();
+
+    builder.ins().jump(spin_entry, &[]);
+
+    // spin entry: attempt CAS
+    builder.switch_to_block(spin_entry);
+    let zero = builder.ins().iconst(types::I32, 0);
+    let one  = builder.ins().iconst(types::I32, 1);
+    let old  = builder.ins().atomic_cas(
+        MemFlags::trusted(),
+        lock_ptr, zero, one
+    );
+    let cas_ok = builder.ins().icmp(IntCC::Equal, old, zero);
+    builder.ins().brif(cas_ok, acquired, &[], spin_wait, &[]);
+
+    // spin wait: load until zero
+    builder.switch_to_block(spin_wait);
+    let val = builder.ins().atomic_load(
+        types::I32, MemFlags::trusted(), lock_ptr
+    );
+    let is_free = builder.ins().icmp(IntCC::Equal, val, zero);
+    builder.ins().brif(is_free, spin_entry, &[], spin_wait, &[]);
+
+    // --- acquired: proceed ---
+    builder.switch_to_block(acquired);
+    builder.seal_block(spin_entry);
+    builder.seal_block(spin_wait);
+    builder.seal_block(acquired);
+}
+
+fn emit_spinlock_unlock_inline(
+    builder: &mut FunctionBuilder,
+    lock_ptr: Value,
+) {
+    // atomic store 0 with Release ordering
+    builder.ins().atomic_store(
+        MemFlags::trusted(),
+        builder.ins().iconst(types::I32, 0),
+        lock_ptr,
+    );
+}
+
+*/

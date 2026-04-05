@@ -19,6 +19,8 @@ use std::{alloc, cmp, fmt, iter, mem, ptr};
 
 use std::hash::{Hash, Hasher};
 
+pub mod weak;
+
 thread_local! {
     /// Zero-sized thread-local variable to differentiate threads.
     static THREAD_MARKER: () = ();
