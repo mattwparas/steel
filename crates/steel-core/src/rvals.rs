@@ -1149,14 +1149,16 @@ pub fn from_serializable_value(
                         .into_iter()
                         .map(|x| from_serializable_value(ctx, x));
 
-                    let mut recycle: crate::values::recycler::Recycle<SmallVec<_>> =
-                        crate::values::recycler::Recycle::new();
+                    // let mut recycle: crate::values::recycler::Recycle<SmallVec<_>> =
+                    //     crate::values::recycler::Recycle::new();
+
+                    let mut vec = steel_vec::Vec::new();
 
                     for value in fields {
-                        recycle.push(value?);
+                        vec.push(value?);
                     }
 
-                    recycle
+                    vec
                 },
                 type_descriptor: s.type_descriptor,
             })))
@@ -1513,7 +1515,7 @@ pub fn into_serializable_value(
                     // Let values:
 
                     let guard = v.strong_ptr();
-                    let read_guard = guard.read();
+                    let read_guard = guard.lock();
 
                     let mut values = Vec::with_capacity(read_guard.value.len());
 

@@ -117,6 +117,7 @@ impl Properties {
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(transparent)]
 // Wrap the usize, store this and this only. We use this as an index into the VTable.
 pub struct StructTypeDescriptor(usize);
 
@@ -157,14 +158,17 @@ pub struct SerializableUserDefinedStruct {
     pub(crate) type_descriptor: StructTypeDescriptor,
 }
 
+// TODO: Consider using a BiasedRc<FatPointer<[T]>> directly,
+// with the type descriptor stored inside this, assuming
+// we could store the value in there. Otherwise, this is fine.
+//
+// Either that, or a shared vector directly could work.
 #[derive(Clone, Debug)]
+#[repr(C)]
 pub struct UserDefinedStruct {
-    // pub(crate) fields: Recycle<Vec<SteelVal>>,
-    pub(crate) fields: Recycle<SmallVec<[SteelVal; 4]>>,
-    // pub(crate) fields: SmallVec<[SteelVal; 4]>,
-
     // Type Descriptor. Use this as an index into the VTable to find anything that we need.
     pub(crate) type_descriptor: StructTypeDescriptor,
+    pub(crate) fields: steel_vec::Vec<SteelVal>,
 }
 
 impl UserDefinedStruct {
@@ -238,11 +242,11 @@ impl core::fmt::Display for UserDefinedStruct {
 impl UserDefinedStruct {
     fn new(type_descriptor: StructTypeDescriptor, raw_fields: &[SteelVal]) -> Self {
         // let mut fields: Recycle<Vec<_>> = Recycle::new();
-        let mut fields: Recycle<SmallVec<[SteelVal; 4]>> = Recycle::new();
+        // let mut fields: Recycle<SmallVec<[SteelVal; 4]>> = Recycle::new();
         // fields.extend_from_slice(raw_fields);
-        fields.extend(raw_fields.iter().cloned());
+        // fields.extend(raw_fields.iter().cloned());
 
-        // let fields = raw_fields.into_iter().cloned().collect();
+        let fields = raw_fields.into_iter().cloned().collect();
 
         Self {
             fields,
@@ -328,10 +332,10 @@ impl UserDefinedStruct {
         // let mut fields: Recycle<Vec<_>> = Recycle::new_with_capacity(rest.len());
         // fields.extend_from_slice(rest);
 
-        let mut fields: Recycle<SmallVec<[_; 4]>> = Recycle::new_with_capacity(rest.len());
-        fields.extend(rest.iter().cloned());
+        // let mut fields: Recycle<SmallVec<[_; 4]>> = Recycle::new_with_capacity(rest.len());
+        // fields.extend(rest.iter().cloned());
 
-        // let fields = rest.into_iter().cloned().collect();
+        let fields = rest.into_iter().cloned().collect();
 
         Self {
             fields,

@@ -2549,7 +2549,7 @@ fn extern_c_null_handler(a: SteelVal) -> SteelVal {
         SteelVal::VectorV(v) => v.is_empty(),
         SteelVal::MutableVector(v) => {
             let ptr = v.strong_ptr();
-            let guard = &ptr.read().value;
+            let guard = &ptr.lock().value;
             guard.is_empty()
         }
         _ => false,

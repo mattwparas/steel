@@ -13,6 +13,7 @@ use crate::rvals::cycles::BreadthFirstSearchSteelValReferenceVisitor2;
 #[cfg(feature = "sync")]
 use crate::rvals::SteelValPointer;
 
+use crate::values::lock::SpinLock;
 use crate::{
     compiler::map::SymbolMap,
     gc::{
@@ -551,10 +552,7 @@ impl SteelVal {
     }
 }
 
-type HeapValue = StandardSharedMut<HeapAllocated<SteelVal>>;
-type HeapVector = StandardSharedMut<HeapAllocated<Vec<SteelVal>>>;
-
-type HeapElement<T> = StandardSharedMut<HeapAllocated<T>>;
+type HeapElement<T> = StandardShared<SpinLock<HeapAllocated<T>>>;
 
 #[cfg(feature = "sync")]
 static MARKER: std::sync::LazyLock<ParallelMarker> = std::sync::LazyLock::new(ParallelMarker::new);
@@ -651,14 +649,14 @@ impl WillExecutor {
                     // the values.
                     SteelVal::MutableVector(heap_ref) => {
                         WeakShared::weak_count(&heap_ref.inner) == 1
-                            || !heap_ref.inner.upgrade().unwrap().read().is_reachable()
+                            || !heap_ref.inner.upgrade().unwrap().lock().is_reachable()
                     }
                     SteelVal::BoxedIterator(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::SyntaxObject(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::Boxed(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::HeapAllocated(heap_ref) => {
                         WeakShared::weak_count(&heap_ref.inner) == 1
-                            || !heap_ref.inner.upgrade().unwrap().read().is_reachable()
+                            || !heap_ref.inner.upgrade().unwrap().lock().is_reachable()
                     }
                     SteelVal::Reference(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::BigNum(gc) => Gc::strong_count(gc) == 1,
@@ -877,9 +875,9 @@ impl<T: HeapAble> Clone for FreeList<T> {
                 .elements
                 .iter()
                 .map(|x| {
-                    let guard = x.read();
+                    let guard = x.lock();
                     let inner = guard.value.clone();
-                    StandardShared::new(MutContainer::new(HeapAllocated {
+                    StandardShared::new(SpinLock::new(HeapAllocated {
                         reachable: guard.reachable,
                         finalizer: guard.finalizer,
                         value: inner,
@@ -911,7 +909,7 @@ fn basic_free_list_usage() {
     free_list.weak_collection();
 
     for var in &free_list.elements {
-        assert!(!var.read().is_reachable());
+        assert!(!var.lock().is_reachable());
     }
 }
 
@@ -928,11 +926,11 @@ fn free_list_continues_allocating_when_full() {
         .collect::<Vec<_>>();
 
     for var in &free_list.elements[0..count] {
-        assert!(var.read().is_reachable());
+        assert!(var.lock().is_reachable());
     }
 
     for var in &free_list.elements[count..] {
-        assert!(!var.read().is_reachable());
+        assert!(!var.lock().is_reachable());
     }
 
     drop(pointers);
@@ -940,7 +938,7 @@ fn free_list_continues_allocating_when_full() {
     free_list.weak_collection();
 
     for var in &free_list.elements {
-        assert!(!var.read().is_reachable());
+        assert!(!var.lock().is_reachable());
     }
 }
 
@@ -957,11 +955,11 @@ fn free_list_continues_allocating_in_the_middle() {
         .collect::<Vec<_>>();
 
     for var in &free_list.elements[0..count] {
-        assert!(var.read().is_reachable());
+        assert!(var.lock().is_reachable());
     }
 
     for var in &free_list.elements[count..] {
-        assert!(!var.read().is_reachable());
+        assert!(!var.lock().is_reachable());
     }
 
     let right_half = pointers.split_off(100);
@@ -973,7 +971,7 @@ fn free_list_continues_allocating_in_the_middle() {
     // Check that the first 100 elements are in fact, gone
 
     for var in &free_list.elements[0..100] {
-        assert!(!var.read().is_reachable());
+        assert!(!var.lock().is_reachable());
     }
 
     drop(right_half)
@@ -1012,7 +1010,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     fn recount(&mut self) {
         self.alloc_count = 0;
         for element in &mut self.elements {
-            let guard = element.read();
+            let guard = element.lock();
             if !guard.is_reachable() {
                 // Replace with an empty value... for now.
                 // Want to keep the memory counts down.
@@ -1054,7 +1052,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // be snatched on demand?
         self.elements.extend(
             core::iter::repeat_with(|| {
-                StandardShared::new(MutContainer::new(HeapAllocated::new(T::empty())))
+                StandardShared::new(SpinLock::new(HeapAllocated::new(T::empty())))
             })
             .take(current),
         );
@@ -1066,7 +1064,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
         #[cfg(debug_assertions)]
         {
-            assert!(!self.elements[self.cursor].read().is_reachable());
+            assert!(!self.elements[self.cursor].lock().is_reachable());
         }
     }
 
@@ -1080,7 +1078,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
 
         #[cfg(debug_assertions)]
         {
-            assert!(!self.elements[self.cursor].read().is_reachable());
+            assert!(!self.elements[self.cursor].lock().is_reachable());
         }
     }
 
@@ -1095,7 +1093,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         let guard = &mut self.elements[self.cursor];
 
         // Allocate into this field
-        let mut heap_guard = guard.write();
+        let mut heap_guard = guard.lock();
 
         // TODO: If the guard is registered with a will executor,
         // then we shouldn't mark this value as eligible to be
@@ -1112,7 +1110,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // Find where to assign the next slot optimistically?
         let next_slot = self.elements[self.cursor..]
             .iter()
-            .position(|x| !x.read().is_reachable());
+            .position(|x| !x.lock().is_reachable());
 
         if let Some(next_slot) = next_slot {
             self.cursor += next_slot;
@@ -1137,7 +1135,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
                 self.cursor = self
                     .elements
                     .iter()
-                    .position(|x| !x.read().is_reachable())
+                    .position(|x| !x.lock().is_reachable())
                     .unwrap();
 
                 // assert!(!self.elements[self.cursor].read().is_reachable());
@@ -1160,7 +1158,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
             // help. Allocations can now be genuinely reused since we're manipulating
             // what is inside the pointer
             if func(x) {
-                let mut guard = x.write();
+                let mut guard = x.lock();
 
                 if guard.reachable {
                     guard.reachable = false;
@@ -1182,13 +1180,13 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         let res = self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0);
         #[cfg(debug_assertions)]
         {
-            assert!(!self.elements[self.cursor].read().is_reachable());
+            assert!(!self.elements[self.cursor].lock().is_reachable());
         }
         res
     }
 
     fn mark_all_unreachable(&mut self) {
-        self.elements.iter_mut().for_each(|x| x.write().reset());
+        self.elements.iter_mut().for_each(|x| x.lock().reset());
     }
 
     // Compact every once in a while
@@ -1199,7 +1197,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
             sender.send(core::mem::take(&mut self.elements)).unwrap();
             self.elements = self.backward.as_ref().unwrap().recv().unwrap();
         } else {
-            self.elements.retain(|x| x.read().is_reachable());
+            self.elements.retain(|x| x.lock().is_reachable());
             self.elements.shrink_to_fit();
         }
 
@@ -1215,12 +1213,12 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         self.extend_heap();
         #[cfg(debug_assertions)]
         {
-            assert!(!self.elements[self.cursor].read().is_reachable());
+            assert!(!self.elements[self.cursor].lock().is_reachable());
         }
     }
 
     fn strong_collection(&mut self) -> usize {
-        self.collect_on_condition(|inner| !inner.read().is_reachable())
+        self.collect_on_condition(|inner| !inner.lock().is_reachable())
     }
 }
 
@@ -1497,7 +1495,7 @@ impl FreeList<Vec<SteelVal>> {
         // Find where to assign the next slot optimistically?
         let next_slot = self.elements[self.cursor..]
             .iter()
-            .position(|x| !x.read().is_reachable());
+            .position(|x| !x.lock().is_reachable());
 
         if let Some(next_slot) = next_slot {
             self.cursor += next_slot;
@@ -1522,7 +1520,7 @@ impl FreeList<Vec<SteelVal>> {
                 self.cursor = self
                     .elements
                     .iter()
-                    .position(|x| !x.read().is_reachable())
+                    .position(|x| !x.lock().is_reachable())
                     .unwrap();
 
                 // assert!(!self.elements[self.cursor].read().is_reachable());
@@ -1566,7 +1564,7 @@ fn spawn_background_dropper<T: HeapAble + Sync + Send + 'static>(
 
             // TODO: when compacting, keep values that have been registered with a will
             // executor.
-            current.retain(|x| x.read().is_reachable());
+            current.retain(|x| x.lock().is_reachable());
             current.shrink_to_fit();
         }
     });
@@ -1594,15 +1592,6 @@ pub struct Heap {
 unsafe impl Send for Heap {}
 #[cfg(feature = "sync")]
 unsafe impl Sync for Heap {}
-
-// Contiguous... no good? Perhaps a free list is actually better here?
-// Can reuse the allocations more effectively, and can compact where needed.
-struct MemorySpace {
-    memory: Vec<HeapValue>,
-    vectors: Vec<HeapVector>,
-}
-
-type MemoryBlock = (Vec<HeapValue>, Vec<HeapVector>);
 
 impl Heap {
     pub fn new() -> Self {
@@ -2172,13 +2161,15 @@ impl HeapAble for Vec<SteelVal> {
 
 #[derive(Clone, Debug)]
 pub struct HeapRef<T: HeapAble> {
-    pub(crate) inner: WeakShared<MutContainer<HeapAllocated<T>>>,
+    // TODO: Replace the inner value with a spin lock?
+    // Shouldn't really be possible to have this be an issue
+    pub(crate) inner: WeakShared<SpinLock<HeapAllocated<T>>>,
 }
 
 impl<T: HeapAble> HeapRef<T> {
     #[inline(always)]
     pub fn get(&self) -> T {
-        self.inner.upgrade().unwrap().read().value.clone()
+        self.inner.upgrade().unwrap().lock().value.clone()
     }
 
     /// Get the value if the pointer is still valid.
@@ -2203,13 +2194,13 @@ impl<T: HeapAble> HeapRef<T> {
             // Get the inner value on this, assuming we are calling
             // this just from the heap ref. Anywhere else, we'll want
             // to eliminate this?
-            Some(inner.read().value.clone())
+            Some(inner.lock().value.clone())
         }
     }
 
     pub fn borrow<O>(&self, thunk: impl FnOnce(&T) -> O) -> O {
         let value = self.inner.upgrade().unwrap();
-        let value = value.read();
+        let value = value.lock();
         thunk(&value.value)
     }
 
@@ -2220,7 +2211,7 @@ impl<T: HeapAble> HeapRef<T> {
     pub fn set(&mut self, value: T) -> T {
         let inner = self.inner.upgrade().unwrap();
 
-        let ret = { inner.read().value.clone() };
+        let ret = { inner.lock().value.clone() };
 
         inner.write().value = value;
         ret
@@ -2236,13 +2227,13 @@ impl<T: HeapAble> HeapRef<T> {
     pub(crate) fn set_interior_mut(&self, value: T) -> T {
         let inner = self.inner.upgrade().unwrap();
 
-        let ret = { inner.read().value.clone() };
+        let ret = { inner.lock().value.clone() };
 
         inner.write().value = value;
         ret
     }
 
-    pub(crate) fn strong_ptr(&self) -> StandardSharedMut<HeapAllocated<T>> {
+    pub(crate) fn strong_ptr(&self) -> StandardShared<SpinLock<HeapAllocated<T>>> {
         self.inner.upgrade().unwrap()
     }
 
@@ -2302,9 +2293,9 @@ pub struct MarkAndSweepContext<'a> {
 impl<'a> MarkAndSweepContext<'a> {
     pub(crate) fn mark_heap_reference(
         &mut self,
-        heap_ref: &StandardSharedMut<HeapAllocated<SteelVal>>,
+        heap_ref: &StandardShared<SpinLock<HeapAllocated<SteelVal>>>,
     ) {
-        if heap_ref.read().is_reachable() {
+        if heap_ref.lock().is_reachable() {
             return;
         }
 
@@ -2314,15 +2305,15 @@ impl<'a> MarkAndSweepContext<'a> {
 
         self.stats.memory_reached_count += 1;
 
-        self.push_back(heap_ref.read().value.clone());
+        self.push_back(heap_ref.lock().value.clone());
     }
 
     // Visit the heap vector, mark it as visited!
     pub(crate) fn mark_heap_vector(
         &mut self,
-        heap_vector: &StandardSharedMut<HeapAllocated<Vec<SteelVal>>>,
+        heap_vector: &StandardShared<SpinLock<HeapAllocated<Vec<SteelVal>>>>,
     ) {
-        if heap_vector.read().is_reachable() {
+        if heap_vector.lock().is_reachable() {
             return;
         }
 
@@ -2332,7 +2323,7 @@ impl<'a> MarkAndSweepContext<'a> {
 
         self.stats.vector_reached_count += 1;
 
-        for value in heap_vector.read().value.iter() {
+        for value in heap_vector.lock().value.iter() {
             self.push_back(value.clone());
         }
     }
@@ -2370,9 +2361,9 @@ pub struct MarkAndSweepContextRefQueue<'a> {
 impl<'a> MarkAndSweepContextRefQueue<'a> {
     pub(crate) fn mark_heap_reference(
         &mut self,
-        heap_ref: &StandardSharedMut<HeapAllocated<SteelVal>>,
+        heap_ref: &StandardShared<SpinLock<HeapAllocated<SteelVal>>>,
     ) {
-        if heap_ref.read().is_reachable() {
+        if heap_ref.lock().is_reachable() {
             return;
         }
 
@@ -2382,15 +2373,15 @@ impl<'a> MarkAndSweepContextRefQueue<'a> {
 
         self.stats.memory_reached_count += 1;
 
-        self.push_back(&heap_ref.read().value);
+        self.push_back(&heap_ref.lock().value);
     }
 
     // Visit the heap vector, mark it as visited!
     pub(crate) fn mark_heap_vector(
         &mut self,
-        heap_vector: &StandardSharedMut<HeapAllocated<Vec<SteelVal>>>,
+        heap_vector: &StandardShared<SpinLock<HeapAllocated<Vec<SteelVal>>>>,
     ) {
-        if heap_vector.read().is_reachable() {
+        if heap_vector.lock().is_reachable() {
             return;
         }
 
@@ -2400,7 +2391,7 @@ impl<'a> MarkAndSweepContextRefQueue<'a> {
 
         self.stats.vector_reached_count += 1;
 
-        for value in heap_vector.read().value.iter() {
+        for value in heap_vector.lock().value.iter() {
             self.push_back(value);
         }
     }

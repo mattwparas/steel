@@ -11,9 +11,8 @@ use crate::{
     SteelVal,
 };
 
-// TODO:
-// Builtin immutable pairs
 #[derive(Clone, Hash)]
+#[repr(C)]
 pub struct Pair {
     pub(crate) car: SteelVal,
     pub(crate) cdr: SteelVal,

@@ -648,7 +648,7 @@ fn mutable_vector_to_string(vec: &HeapRef<Vec<SteelVal>>) -> Result<SteelVal> {
     let guard = vec.strong_ptr();
     let mut buf = String::new();
 
-    for maybe_char in guard.read().value.iter() {
+    for maybe_char in guard.lock().value.iter() {
         if let SteelVal::CharV(c) = maybe_char {
             buf.push(*c);
         } else {
@@ -772,7 +772,7 @@ pub fn mut_vector_copy(
             if HeapRef::ptr_eq(src, dest) {
                 let (src_start, src_end) = {
                     let ptr = src.strong_ptr();
-                    let src_guard = &ptr.read().value;
+                    let src_guard = &ptr.lock().value;
                     bounds_mut(rest, "vector-copy!", 5, src_guard)?
                 };
 
@@ -798,7 +798,7 @@ pub fn mut_vector_copy(
             } else {
                 // Source range
                 let ptr = src.strong_ptr();
-                let src_guard = &ptr.read().value;
+                let src_guard = &ptr.lock().value;
                 let (src_start, src_end) = bounds_mut(rest, "vector-copy!", 5, src_guard)?;
 
                 let dest_ptr = dest.strong_ptr();
@@ -899,7 +899,7 @@ pub fn mut_vec_to_list(
     rest: RestArgsIter<'_, isize>,
 ) -> Result<SteelVal> {
     let ptr = vec.strong_ptr();
-    let guard = &ptr.read().value;
+    let guard = &ptr.lock().value;
 
     let (start, end) = bounds_mut(rest, "mutable-vector->list", 3, guard)?;
 
@@ -921,7 +921,7 @@ pub fn mut_vec_to_list(
 /// ```
 #[steel_derive::function(name = "mut-vec-len")]
 pub fn mut_vec_length(vec: &HeapRef<Vec<SteelVal>>) -> SteelVal {
-    SteelVal::IntV(vec.inner.upgrade().unwrap().read().value.len() as isize)
+    SteelVal::IntV(vec.inner.upgrade().unwrap().lock().value.len() as isize)
 }
 
 /// Sets the value at a specified index in a mutable vector.
@@ -1217,7 +1217,7 @@ pub fn vec_ref(vec: &SteelVal, idx: &SteelVal) -> Result<SteelVal> {
                 // then we can avoid the lookup cost since we won't be in a safepoint.
 
                 let ptr = v.strong_ptr();
-                let guard = &ptr.read().value;
+                let guard = &ptr.lock().value;
 
                 // TODO: Not sure if we can really do this. When entering vec_ref
                 // its possible the values are frozen.
@@ -1392,7 +1392,7 @@ pub fn list_vec_null(args: &[SteelVal]) -> Result<SteelVal> {
         SteelVal::VectorV(v) => v.is_empty(),
         SteelVal::MutableVector(v) => {
             let ptr = v.strong_ptr();
-            let guard = &ptr.read().value;
+            let guard = &ptr.lock().value;
             guard.is_empty()
         }
         _ => false,

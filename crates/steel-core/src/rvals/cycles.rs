@@ -341,7 +341,7 @@ impl CycleDetector {
                     } else {
                         write!(f, "#(")?;
                         let guard = v.inner.upgrade().unwrap();
-                        let guard = guard.read();
+                        let guard = guard.lock();
 
                         let mut iter = guard.value.iter().peekable();
 
@@ -357,7 +357,7 @@ impl CycleDetector {
                 FormatType::TopLevel => {
                     write!(f, "#(")?;
                     let guard = v.inner.upgrade().unwrap();
-                    let guard = guard.read();
+                    let guard = guard.lock();
 
                     let mut iter = guard.value.iter().peekable();
 

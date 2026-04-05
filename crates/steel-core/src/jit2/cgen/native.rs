@@ -5,6 +5,513 @@ impl<'a> FunctionTranslator<'a> {
         self.shadow_stack.last().unwrap().clone()
     }
 
+    // Check the tags, see if they're equal, etc.
+    pub(super) fn value_equals_binop(&mut self) {
+        todo!()
+    }
+
+    pub(super) fn char_equals(&mut self, arity: usize) {
+        let name = CallPrimitiveFixedDefinitions::arity_to_name(arity).unwrap();
+
+        let args = self
+            .shadow_stack
+            .get(self.shadow_stack.len() - arity..)
+            .unwrap()
+            .to_vec();
+
+        // dbg!(args);
+
+        // attempt to move forward with it
+        let additional_args = self.split_off(arity);
+
+        // dbg!(&additional_args);
+
+        // let f = crate::primitives::ports::read_char_single
+        //     as fn(SteelVal) -> Result<SteelVal, crate::SteelErr>;
+        //
+
+        let all_chars = additional_args.iter().all(|x| x.1 == InferredType::Char);
+
+        if all_chars && false {
+            // println!("Found all characters, applying equality");
+            // Just... compare for equality?
+
+            let left = additional_args[0].0;
+            let right = additional_args[1].0;
+
+            let left = self.unbox_value(left);
+            let right = self.unbox_value(right);
+
+            let left = self.builder.ins().ireduce(types::I8, left);
+            let right = self.builder.ins().ireduce(types::I8, right);
+
+            let comparison = self.builder.ins().icmp(IntCC::Equal, left, right);
+            let res = self.builder.ins().uextend(types::I64, comparison);
+            let boolean = self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+            self.push(boolean, InferredType::Bool);
+            self.ip += 1;
+
+            // No need to check deopt here, we're good.
+        } else {
+            let function = self.builder.ins().iconst(
+                self.module.target_config().pointer_type(),
+                crate::primitives::strings::char_equals_binop as *const () as i64,
+            );
+
+            let fallback_ip = self
+                .builder
+                .ins()
+                .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+            let mut args = vec![function, fallback_ip];
+
+            args.extend(additional_args.into_iter().map(|x| x.0));
+
+            let result = self.call_function_returns_value_args(name, &args);
+            self.push(result, InferredType::Bool);
+            self.ip += 1;
+            self.check_deopt();
+        }
+    }
+
+    pub(super) fn vector_set(&mut self) {
+        use MaybeStackValue::*;
+
+        let args = self
+            .shadow_stack
+            .get(self.shadow_stack.len() - 3..)
+            .unwrap();
+
+        match args {
+            &[MutRegister(v) | Register(v), MutRegister(i) | Register(i), MutRegister(a) | Register(a)] =>
+            {
+                let vector = self.register_index(v);
+                let index = self.register_index(i);
+                let value = self.register_index(a);
+
+                // Pop them off
+                self.shadow_stack.pop();
+                self.shadow_stack.pop();
+                self.shadow_stack.pop();
+
+                let res = self
+                    .call_function_returns_value_args("vector-set-reg-3", &[vector, index, value]);
+
+                self.push(res, InferredType::Any);
+
+                self.ip += 1;
+                self.check_deopt();
+            }
+
+            &[MutRegister(v) | Register(v), MutRegister(i) | Register(i), Value(_)] => {
+                let vector = self.register_index(v);
+                let index = self.register_index(i);
+                let value = self.shadow_pop();
+
+                // Pop them off
+                self.shadow_stack.pop();
+                self.shadow_stack.pop();
+
+                let res = self.call_function_returns_value_args(
+                    "vector-set-reg-2",
+                    &[vector, index, value.0],
+                );
+
+                self.push(res, InferredType::Any);
+                self.ip += 1;
+                self.check_deopt();
+            }
+            &[MutRegister(v) | Register(v), Value(_), Value(_)] => {
+                let value = self.shadow_pop();
+                let index = self.shadow_pop();
+                let vector = self.register_index(v);
+                self.shadow_stack.pop();
+
+                let res = self.call_function_returns_value_args(
+                    "vector-set-reg-1",
+                    &[vector, index.0, value.0],
+                );
+
+                self.push(res, InferredType::Any);
+                self.ip += 1;
+                self.check_deopt();
+            }
+
+            // Spill all by value
+            _ => {
+                let args = self
+                    .split_off(3)
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<_>>();
+
+                let res = self.call_function_returns_value_args("vector-set-args", &args);
+
+                self.push(res, InferredType::Any);
+                self.ip += 1;
+                self.check_deopt();
+            }
+        }
+    }
+
+    pub(super) fn eq(&mut self) {
+        use MaybeStackValue::*;
+
+        let args = self
+            .shadow_stack
+            .get(self.shadow_stack.len() - 2..)
+            .unwrap();
+
+        match args {
+            // Okay, so for constants, we can wait to actually reify them
+            &[MutRegister(v) | Register(v), MutRegister(i) | Register(i)] => {
+                let left = self.register_index(v);
+                let right = self.register_index(i);
+
+                // Pop them off
+                self.shadow_stack.pop();
+                self.shadow_stack.pop();
+
+                let res = self.call_function_returns_value_args("eq?-reg-2", &[left, right]);
+
+                self.push(res, InferredType::UnboxedBool);
+                self.ip += 1;
+            }
+
+            &[MutRegister(v) | Register(v), Value(_)] => {
+                let left = self.register_index(v);
+                let right = self.shadow_pop();
+
+                // Pop them off
+                self.shadow_stack.pop();
+
+                let res = self.call_function_returns_value_args("eq?-reg-1", &[left, right.0]);
+
+                self.push(res, InferredType::UnboxedBool);
+                self.ip += 1;
+            }
+
+            // Spill all by value
+            _ => {
+                let args = self
+                    .split_off(2)
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<_>>();
+
+                let res = self.call_function_returns_value_args_no_context("eq?-args", &args);
+
+                self.push(res, InferredType::UnboxedBool);
+                self.ip += 1;
+            }
+        }
+    }
+
+    pub(super) fn is_pair(&mut self) {
+        use MaybeStackValue::*;
+
+        let last = self.shadow_stack.last().unwrap().clone();
+
+        match last {
+            // TODO: Encode the result of the evaluation into the
+            // branching - if this is used in the test position
+            // of an if statement, we should encode the type checking
+            // through.
+            Value(stack_value) => {
+                // TODO: Still need to invoke drop on this thing though!
+                self.shadow_stack.pop();
+                // If we've already inferrred this type as a pair,
+                // we can skip the code generation for checking the tags
+                // and actually invoking the function since we know
+                // it will be a pair.
+                // match stack_value.inferred_type {
+                //     InferredType::List | InferredType::Pair | InferredType::ListOrPair if false => {
+                //         let res = self.builder.ins().iconst(types::I64, 1);
+
+                //         let boolean =
+                //             self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+
+                //         // TODO: Also - we'll need to check the length of the list!
+                //         // this should be able to be done inline as well, we just have to load
+                //         // the index of the list.
+                //         self.push(boolean, InferredType::Bool);
+                //         self.ip += 1;
+
+                //         self.drop_tagged_value(stack_value.value);
+
+                //         return;
+                //     }
+
+                //     _ => {}
+                // }
+
+                let value = stack_value.as_steelval(self);
+
+                // Encode this manually:
+                let tag = self.get_tag(value);
+
+                let mut switch = Switch::new();
+                let pair_block = self.builder.create_block();
+                let list_block = self.builder.create_block();
+                let else_block = self.builder.create_block();
+                let merge_block = self.builder.create_block();
+                self.builder.append_block_param(merge_block, types::I8);
+
+                switch.set_entry(SteelVal::LIST_TAG as _, list_block);
+                switch.set_entry(SteelVal::PAIR_TAG as _, pair_block);
+
+                switch.emit(&mut self.builder, tag, else_block);
+                {
+                    // Is a pair
+                    self.builder.switch_to_block(pair_block);
+                    self.builder.seal_block(pair_block);
+                    let true_val = self.builder.ins().iconst(types::I8, 1);
+                    self.builder.ins().jump(merge_block, &[true_val]);
+                }
+
+                {
+                    // Is a list
+                    self.builder.switch_to_block(list_block);
+                    self.builder.seal_block(list_block);
+
+                    let value = self.unbox_value_to_pointer(value);
+
+                    // Its not a pair if its an empty list
+                    let length = self
+                        .builder
+                        .ins()
+                        .load(types::I32, MemFlags::new(), value, 16);
+
+                    let not_empty = self.builder.ins().icmp_imm(IntCC::NotEqual, length, 0);
+
+                    self.builder.ins().jump(merge_block, &[not_empty]);
+                }
+
+                {
+                    // Else case, not a list or pair
+                    self.builder.switch_to_block(else_block);
+                    self.builder.seal_block(else_block);
+                    let false_val = self.builder.ins().iconst(types::I8, 0);
+                    self.builder.ins().jump(merge_block, &[false_val]);
+                }
+
+                {
+                    self.builder.switch_to_block(merge_block);
+                    self.builder.seal_block(merge_block);
+                    let result = self.builder.block_params(merge_block)[0];
+                    self.push(result, InferredType::UnboxedBool);
+                }
+
+                self.drop_tagged_value(value);
+
+                self.ip += 1;
+            }
+            MutRegister(p) | Register(p) => {
+                let register = self.register_index(p);
+
+                match self.properties.get(&ValueOrRegister::Register(p)) {
+                    // Elide the call entirely if its a non empty list
+                    // Some(Properties::NonEmptyList) if false => {
+                    //     println!("Found non empty list!");
+
+                    //     self.shadow_stack.pop();
+                    //     let res = self.builder.ins().iconst(types::I8, 1);
+                    //     self.push(res, InferredType::UnboxedBool);
+                    //     self.ip += 1;
+                    // }
+                    _ => {
+                        self.shadow_stack.pop();
+                        let res = self.call_function_returns_value_args("pair?", &[register]);
+
+                        self.push(res, InferredType::Bool);
+                        self.ip += 1;
+                    }
+                }
+            }
+
+            // Depending on what the constant is, we can do this evaluation here
+            // Constant(constant_value) => todo!(),
+            _ => {
+                // TODO: Check the inferred type here as well, maybe do unboxed bools
+                let (value, inferred_type) = self.shadow_pop();
+                let res = self.call_function_returns_value_args_no_context("pair?-value", &[value]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+        }
+    }
+
+    pub(super) fn is_list(&mut self) {
+        use MaybeStackValue::*;
+
+        let last = self.shadow_stack.last().unwrap().clone();
+
+        match last {
+            Value(stack_value) => {
+                self.shadow_stack.pop();
+                let value = stack_value.as_steelval(self);
+                let is_list = self.is_type(value, SteelVal::LIST_TAG);
+                self.drop_tagged_value(value);
+                self.push(is_list, InferredType::UnboxedBool);
+                self.ip += 1;
+            }
+            MutRegister(p) | Register(p) => {
+                // let register = self.register_index(p);
+
+                match self.properties.get(&ValueOrRegister::Register(p)) {
+                    // Elide the call entirely if its a non empty list. NOTE: We can't do this here.
+                    // Some(Properties::NonEmptyList) if false => {
+                    //     self.shadow_stack.pop();
+                    //     let res = self.builder.ins().iconst(types::I8, 1);
+                    //     self.push(res, InferredType::UnboxedBool);
+                    //     self.ip += 1;
+                    // }
+
+                    // TODO: Figure out how to align the inferred types and properties
+                    // so that there is some semblance of structure
+                    Some(Properties::ProperList) => {
+                        self.shadow_stack.pop();
+                        let res = self.builder.ins().iconst(types::I8, 1);
+                        self.push(res, InferredType::UnboxedBool);
+                        self.ip += 1;
+                    }
+
+                    _ => {
+                        self.shadow_stack.pop();
+                        // let res = self.call_function_returns_value_args("list?", &[register]);
+                        // self.push(res, InferredType::Bool);
+
+                        let value = self.read_from_vm_stack(p);
+                        let is_list = self.is_type(value, SteelVal::LIST_TAG);
+
+                        // Mark that this was a list
+                        self.properties.add_property(
+                            ValueOrRegister::Value(is_list),
+                            Properties::CheckedList(ValueOrRegister::Register(p)),
+                        );
+
+                        self.push(is_list, InferredType::UnboxedBool);
+
+                        // Now, we also can attach the
+
+                        self.ip += 1;
+                    }
+                }
+            }
+            Constant(constant_value) => {
+                let (value, inferred_type) = self.shadow_pop();
+                let res = self.call_function_returns_value_args_no_context("list?-value", &[value]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+        }
+    }
+
+    pub(super) fn is_string(&mut self) {
+        use MaybeStackValue::*;
+
+        let last = self.shadow_stack.last().unwrap().clone();
+
+        match last {
+            Value(stack_value) => {
+                self.shadow_stack.pop();
+                let value = stack_value.as_steelval(self);
+                let is_list = self.is_type(value, SteelVal::STRING_TAG);
+                self.drop_tagged_value(value);
+                self.push(is_list, InferredType::UnboxedBool);
+                self.ip += 1;
+            }
+            MutRegister(p) | Register(p) => {
+                let register = self.register_index(p);
+
+                match self.local_to_value_map.get(&p) {
+                    // Elide the call entirely if its a non empty list
+                    Some(InferredType::String) => {
+                        self.shadow_stack.pop();
+                        let res = self.builder.ins().iconst(types::I8, 1);
+                        self.push(res, InferredType::UnboxedBool);
+                        self.ip += 1;
+                    }
+                    _ => {
+                        self.shadow_stack.pop();
+                        let res = self.call_function_returns_value_args("string?", &[register]);
+
+                        self.push(res, InferredType::Bool);
+                        self.ip += 1;
+                    }
+                }
+            }
+            Constant(constant_value) => {
+                let (value, inferred_type) = self.shadow_pop();
+                let res =
+                    self.call_function_returns_value_args_no_context("string?-value", &[value]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+        }
+    }
+
+    pub(super) fn is_empty(&mut self) {
+        use MaybeStackValue::*;
+
+        let last = self.shadow_stack.last().unwrap().clone();
+
+        match last {
+            // TODO: Encode the result of the evaluation into the
+            // branching - if this is used in the test position
+            // of an if statement, we should encode the type checking
+            // through.
+            Value(stack_value) => {
+                self.shadow_stack.pop();
+                // If we've already inferrred this type as a pair,
+                // we can skip the code generation for checking the tags
+                // and actually invoking the function since we know
+                // it will be a pair.
+                // match stack_value.inferred_type {
+                //     InferredType::List | InferredType::Pair | InferredType::ListOrPair if false => {
+                //         let res = self.builder.ins().iconst(types::I64, 1);
+                //         let boolean =
+                //             self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+                //         // TODO: Also - we'll need to check the length of the list!
+                //         // this should be able to be done inline as well, we just have to load
+                //         // the index of the list.
+                //         self.push(boolean, InferredType::Bool);
+                //         self.ip += 1;
+                //         self.drop_tagged_value(stack_value.value);
+                //         return;
+                //     }
+                //     _ => {}
+                // }
+
+                let value = stack_value.as_steelval(self);
+                let result = self.check_null_no_drop(value);
+                self.push(result, InferredType::UnboxedBool);
+                self.drop_tagged_value(value);
+
+                self.ip += 1;
+            }
+
+            MutRegister(p) | Register(p) => {
+                let register = self.register_index(p);
+                self.shadow_stack.pop();
+                let res = self.call_function_returns_value_args("empty?", &[register]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+
+            // Depending on what the constant is, we can do this evaluation here
+            // Constant(constant_value) => todo!(),
+            _ => {
+                // TODO: Check the inferred type here as well, maybe do unboxed bools
+                let (value, inferred_type) = self.shadow_pop();
+                let res =
+                    self.call_function_returns_value_args_no_context("empty?-value", &[value]);
+                self.push(res, InferredType::Bool);
+                self.ip += 1;
+            }
+        }
+    }
+
     pub(super) fn converging_if_no_else_no_value(
         &mut self,
         test_condition: Value,

@@ -35,6 +35,13 @@
         (vector-push! results (map (lambda (x) (+ x 1)) r))
         (loop (+ x 1)))))
 
+(define (loop x)
+  (if (= x 1000)
+      void
+      (begin
+        (set! results (cons (map (lambda (x) (+ x 1)) r) results))
+        (loop (+ x 1)))))
+
 (provide run)
 (define (run)
   (loop 0))
