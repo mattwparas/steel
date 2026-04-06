@@ -552,7 +552,7 @@ impl SteelVal {
     }
 }
 
-type HeapElement<T> = StandardShared<SpinLock<HeapAllocated<T>>>;
+type HeapElement<T> = steel_rc::weak::Arc<SpinLock<HeapAllocated<T>>>;
 
 #[cfg(feature = "sync")]
 static MARKER: std::sync::LazyLock<ParallelMarker> = std::sync::LazyLock::new(ParallelMarker::new);
@@ -648,14 +648,14 @@ impl WillExecutor {
                     // In theory, if this is a weak value, this can be the thing to check
                     // the values.
                     SteelVal::MutableVector(heap_ref) => {
-                        WeakShared::weak_count(&heap_ref.inner) == 1
+                        steel_rc::weak::Weak::weak_count(&heap_ref.inner) == 1
                             || !heap_ref.inner.upgrade().unwrap().lock().is_reachable()
                     }
                     SteelVal::BoxedIterator(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::SyntaxObject(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::Boxed(gc) => Gc::strong_count(gc) == 1,
                     SteelVal::HeapAllocated(heap_ref) => {
-                        WeakShared::weak_count(&heap_ref.inner) == 1
+                        steel_rc::weak::Weak::weak_count(&heap_ref.inner) == 1
                             || !heap_ref.inner.upgrade().unwrap().lock().is_reachable()
                     }
                     SteelVal::Reference(gc) => Gc::strong_count(gc) == 1,
@@ -877,7 +877,7 @@ impl<T: HeapAble> Clone for FreeList<T> {
                 .map(|x| {
                     let guard = x.lock();
                     let inner = guard.value.clone();
-                    StandardShared::new(SpinLock::new(HeapAllocated {
+                    steel_rc::weak::Arc::new(SpinLock::new(HeapAllocated {
                         reachable: guard.reachable,
                         finalizer: guard.finalizer,
                         value: inner,
@@ -1052,7 +1052,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         // be snatched on demand?
         self.elements.extend(
             core::iter::repeat_with(|| {
-                StandardShared::new(SpinLock::new(HeapAllocated::new(T::empty())))
+                steel_rc::weak::Arc::new(SpinLock::new(HeapAllocated::new(T::empty())))
             })
             .take(current),
         );
@@ -1101,7 +1101,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
         heap_guard.value = value;
 
         heap_guard.reachable = true;
-        let weak_ptr = StandardShared::downgrade(guard);
+        let weak_ptr = steel_rc::weak::Arc::downgrade(guard);
         drop(heap_guard);
 
         // self.elements[self.cursor] = pointer;
@@ -1177,7 +1177,7 @@ impl<T: HeapAble + Sync + Send + 'static> FreeList<T> {
     // Full weak collection
     fn weak_collection(&mut self) -> usize {
         // Just mark them to be dead
-        let res = self.collect_on_condition(|inner| StandardShared::weak_count(inner) == 0);
+        let res = self.collect_on_condition(|inner| steel_rc::weak::Arc::weak_count(inner) == 0);
         #[cfg(debug_assertions)]
         {
             assert!(!self.elements[self.cursor].lock().is_reachable());
@@ -1486,7 +1486,7 @@ impl FreeList<Vec<SteelVal>> {
         heap_guard.value.shrink_to_fit();
 
         heap_guard.reachable = true;
-        let weak_ptr = StandardShared::downgrade(guard);
+        let weak_ptr = steel_rc::weak::Arc::downgrade(guard);
         drop(heap_guard);
 
         // self.elements[self.cursor] = pointer;
@@ -2163,7 +2163,7 @@ impl HeapAble for Vec<SteelVal> {
 pub struct HeapRef<T: HeapAble> {
     // TODO: Replace the inner value with a spin lock?
     // Shouldn't really be possible to have this be an issue
-    pub(crate) inner: WeakShared<SpinLock<HeapAllocated<T>>>,
+    pub(crate) inner: steel_rc::weak::Weak<SpinLock<HeapAllocated<T>>>,
 }
 
 impl<T: HeapAble> HeapRef<T> {
@@ -2178,7 +2178,7 @@ impl<T: HeapAble> HeapRef<T> {
         let inner = self.inner.upgrade()?;
 
         // Check if this thing is reachable? How?
-        if StandardShared::weak_count(&inner) == 1 {
+        if steel_rc::weak::Arc::weak_count(&inner) == 1 {
             // We can go ahead and nuke this since we're
             // the only things pointing to it
             let mut value = inner.write();
@@ -2233,12 +2233,12 @@ impl<T: HeapAble> HeapRef<T> {
         ret
     }
 
-    pub(crate) fn strong_ptr(&self) -> StandardShared<SpinLock<HeapAllocated<T>>> {
+    pub(crate) fn strong_ptr(&self) -> steel_rc::weak::Arc<SpinLock<HeapAllocated<T>>> {
         self.inner.upgrade().unwrap()
     }
 
     pub(crate) fn ptr_eq(&self, other: &Self) -> bool {
-        WeakShared::ptr_eq(&self.inner, &other.inner)
+        steel_rc::weak::Weak::ptr_eq(&self.inner, &other.inner)
     }
 }
 
@@ -2293,7 +2293,7 @@ pub struct MarkAndSweepContext<'a> {
 impl<'a> MarkAndSweepContext<'a> {
     pub(crate) fn mark_heap_reference(
         &mut self,
-        heap_ref: &StandardShared<SpinLock<HeapAllocated<SteelVal>>>,
+        heap_ref: &steel_rc::weak::Arc<SpinLock<HeapAllocated<SteelVal>>>,
     ) {
         if heap_ref.lock().is_reachable() {
             return;
@@ -2311,7 +2311,7 @@ impl<'a> MarkAndSweepContext<'a> {
     // Visit the heap vector, mark it as visited!
     pub(crate) fn mark_heap_vector(
         &mut self,
-        heap_vector: &StandardShared<SpinLock<HeapAllocated<Vec<SteelVal>>>>,
+        heap_vector: &steel_rc::weak::Arc<SpinLock<HeapAllocated<Vec<SteelVal>>>>,
     ) {
         if heap_vector.lock().is_reachable() {
             return;
@@ -2361,7 +2361,7 @@ pub struct MarkAndSweepContextRefQueue<'a> {
 impl<'a> MarkAndSweepContextRefQueue<'a> {
     pub(crate) fn mark_heap_reference(
         &mut self,
-        heap_ref: &StandardShared<SpinLock<HeapAllocated<SteelVal>>>,
+        heap_ref: &steel_rc::weak::Arc<SpinLock<HeapAllocated<SteelVal>>>,
     ) {
         if heap_ref.lock().is_reachable() {
             return;
@@ -2379,7 +2379,7 @@ impl<'a> MarkAndSweepContextRefQueue<'a> {
     // Visit the heap vector, mark it as visited!
     pub(crate) fn mark_heap_vector(
         &mut self,
-        heap_vector: &StandardShared<SpinLock<HeapAllocated<Vec<SteelVal>>>>,
+        heap_vector: &steel_rc::weak::Arc<SpinLock<HeapAllocated<Vec<SteelVal>>>>,
     ) {
         if heap_vector.lock().is_reachable() {
             return;

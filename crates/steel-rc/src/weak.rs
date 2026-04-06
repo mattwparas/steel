@@ -47,6 +47,10 @@ impl<T> Arc<T> {
         }
     }
 
+    pub fn as_ptr(&self) -> *const T {
+        self.ptr.as_ptr() as _
+    }
+
     pub fn try_unwrap(this: Self) -> Result<T, Self> {
         if this
             .inner()
@@ -156,6 +160,10 @@ impl<T: ?Sized> Weak<T> {
         unsafe { self.ptr.as_ref() }
     }
 
+    pub fn as_ptr(&self) -> *const T {
+        self.ptr.as_ptr() as _
+    }
+
     pub fn upgrade(&self) -> Option<Arc<T>> {
         let mut cur = self.inner().strong.load(Ordering::Relaxed);
         loop {
@@ -178,6 +186,22 @@ impl<T: ?Sized> Weak<T> {
 
     pub fn strong_count(&self) -> usize {
         self.inner().strong.load(Ordering::Relaxed)
+    }
+
+    pub fn weak_count(&self) -> usize {
+        let inner = self.inner();
+        let weak = inner.weak.load(Ordering::Acquire);
+        let strong = inner.strong.load(Ordering::Relaxed);
+        if strong == 0 {
+            0
+        } else {
+            // Since we observed that there was at least one strong pointer
+            // after reading the weak count, we know that the implicit weak
+            // reference (present whenever any strong references are alive)
+            // was still around when we observed the weak count, and can
+            // therefore safely subtract it.
+            weak - 1
+        }
     }
 
     pub fn ptr_eq(a: &Self, b: &Self) -> bool {
