@@ -30,13 +30,20 @@ unsafe impl<T: ?Sized + Send + Sync> Sync for Weak<T> {}
 
 impl<T> Arc<T> {
     pub fn new(data: T) -> Self {
-        let inner = Box::new(ArcInner {
-            strong: AtomicUsize::new(1),
-            weak: AtomicUsize::new(1),
-            data,
-        });
-        Arc {
-            ptr: NonNull::from(Box::leak(inner)),
+        let layout = Layout::new::<ArcInner<T>>();
+        let ptr = unsafe { alloc::alloc(layout) as *mut ArcInner<T> };
+        if ptr.is_null() {
+            alloc::handle_alloc_error(layout);
+        }
+        unsafe {
+            ptr.write(ArcInner {
+                strong: AtomicUsize::new(1),
+                weak: AtomicUsize::new(1),
+                data,
+            });
+            Arc {
+                ptr: NonNull::new_unchecked(ptr),
+            }
         }
     }
 
@@ -197,8 +204,10 @@ impl<T: ?Sized> Drop for Weak<T> {
         atomic::fence(Ordering::Acquire);
 
         unsafe {
-            let layout = Layout::for_value(self.ptr.as_ref());
-            alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
+            alloc::dealloc(
+                self.ptr.as_ptr() as *mut u8,
+                Layout::for_value(self.ptr.as_ref()),
+            );
         }
     }
 }
