@@ -799,6 +799,14 @@ impl<'a> FunctionTranslator<'a> {
     }
 }
 
+// TODO: Use this now for anything that is boxed:
+// i.e. Vectors and boxes
+//
+// Box get / unbox should now be inlineable.
+// Vector ref / set should now be inlineable (once we swap the vector implementation)
+// to the custom one.
+//
+// Struct refs should now be inlineable.
 fn emit_spinlock_inline(builder: &mut FunctionBuilder, lock_ptr: Value) {
     let spin_entry = builder.create_block();
     let spin_wait = builder.create_block();
