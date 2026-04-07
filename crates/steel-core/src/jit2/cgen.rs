@@ -3717,11 +3717,24 @@ impl FunctionTranslator<'_> {
                     self.func_ret_val(op, 2, 2, InferredType::Any);
                 }
                 OpCode::UNBOX => {
-                    if let Some(last) = self.shadow_stack.last().copied() {
-                        self.shadow_mark_local_type_from_var(last, InferredType::Box);
-                    }
+                    let last = self.shadow_stack.last().copied().unwrap();
 
-                    self.func_ret_val(op, 1, 2, InferredType::Any);
+                    self.shadow_mark_local_type_from_var(last, InferredType::Box);
+
+                    match last {
+                        MaybeStackValue::MutRegister(i) | MaybeStackValue::Register(i) => {
+                            self.shadow_stack.pop();
+                            let value = self.read_from_vm_stack(i);
+                            let res = self.unbox_value_checked_register(value);
+
+                            self.ip += 2;
+                            self.push(res, InferredType::Any);
+                        }
+
+                        _ => {
+                            self.func_ret_val(op, 1, 2, InferredType::Any);
+                        }
+                    }
                 }
                 OpCode::ADDREGISTER => todo!(),
                 OpCode::SUBREGISTER => todo!(),
@@ -4137,7 +4150,7 @@ impl FunctionTranslator<'_> {
 
         // Now get car:
         // TODO:
-        // Header size is just gonna be 128
+        // Header size is just gonna be 16
         let header_size = SteelList::<SteelVal>::vector_header_size();
 
         // self.elements.get(self.index as usize - 1)
@@ -4676,7 +4689,9 @@ impl FunctionTranslator<'_> {
         let ctx = self.get_ctx();
         let id = func.id;
 
+        /* TODO: Add this back!!
         let _ = steel_rc::BiasedRc::into_raw(func.body_exp.clone());
+        */
 
         let instr_fat_ptr = func.body_exp();
         let instr_fat_ptr = self.create_i128(unsafe { std::mem::transmute(instr_fat_ptr) });

@@ -12,7 +12,7 @@ struct ArcInner<T: ?Sized> {
     data: T,
 }
 
-#[repr(C)]
+#[repr(transparent)]
 pub struct Arc<T: ?Sized> {
     ptr: NonNull<ArcInner<T>>,
 }

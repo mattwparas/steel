@@ -54,7 +54,7 @@ pub(crate) fn jit_compile_lambda(
     // Save the entry instruction in the event we end up serializing this
     // later.
     func.header = Some(instructions[0].op_code);
-    func.body_exp = Shared::from(instructions);
+    func.body_exp = InstructionPointer::from(instructions);
 
     if let Some(self_slot) = self_slot.as_mut() {
         unsafe {
@@ -140,7 +140,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                     let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
                     instructions[0].op_code = OpCode::DynSuperInstruction;
 
-                    func.body_exp = Shared::from(instructions);
+                    func.body_exp = InstructionPointer::from(instructions);
 
                     let return_func = Gc::new(func);
                     ctx.thread
@@ -207,7 +207,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
         let mut instructions = func.body_exp.iter().copied().collect::<Vec<_>>();
         instructions[0].op_code = OpCode::DynSuperInstruction;
 
-        func.body_exp = Shared::from(instructions);
+        func.body_exp = InstructionPointer::from(instructions);
 
         let return_func = Gc::new(func);
         ctx.thread

@@ -1,6 +1,9 @@
+use core::mem::offset_of;
 use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
+// TODO: @Matt
+// This needs to have a proper mutex backing?
 #[repr(C)]
 #[derive(Debug)]
 pub struct SpinLock<T> {
@@ -17,6 +20,10 @@ impl<T> SpinLock<T> {
             locked: AtomicU32::new(0),
             data: UnsafeCell::new(val),
         }
+    }
+
+    pub const fn data_offset() -> usize {
+        offset_of!(SpinLock<T>, data)
     }
 
     pub fn write(&self) -> SpinGuard<'_, T> {

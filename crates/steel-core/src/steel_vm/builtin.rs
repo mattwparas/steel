@@ -16,6 +16,7 @@ use crate::gc::shared::ShareableMut;
 
 use crate::gc::{Shared, SharedMut};
 use crate::rvals::SteelString;
+use crate::steel_vm::vm::InstructionPointer;
 use crate::values::functions::{ByteCodeLambda, CaptureVec};
 use crate::values::HashMap;
 use crate::{
@@ -346,7 +347,7 @@ pub(crate) fn generate_function(
 
     let lambda = ByteCodeLambda::new(
         fresh_function_id() as _,
-        Shared::from(instrs),
+        InstructionPointer::from(instrs),
         arity.to_usize().unwrap() - 1,
         false,
         CaptureVec::new(),

@@ -28,7 +28,7 @@ use crate::{
     },
     steel_vm::{
         register_fn::SendSyncStatic,
-        vm::{BlockMetadata, BlockPattern, BuiltInSignature},
+        vm::{BlockMetadata, BlockPattern, BuiltInSignature, InstructionPointer},
     },
     SteelErr, SteelVal,
 };
@@ -124,13 +124,12 @@ pub struct ByteCodeLambda {
     // #[cfg(not(feature = "dynamic"))]
     // pub(crate) body_exp: StandardShared<[DenseInstruction]>,
     #[cfg(not(feature = "dynamic"))]
-    pub(crate) body_exp: Shared<[DenseInstruction]>,
+    pub(crate) body_exp: InstructionPointer<[DenseInstruction]>,
 
     #[cfg(feature = "dynamic")]
     call_count: Cell<usize>,
 
-    // Store... some amount inline?
-    // pub(crate) captures: Vec<SteelVal>,
+    // TODO: Make this a vector which can be access from the JIT.
     pub(crate) captures: CaptureVec,
 
     // pub(crate) captures: Box<[SteelVal]>
@@ -213,7 +212,7 @@ pub struct RootedInstructions {
     #[cfg(feature = "rooted-instructions")]
     pub(crate) inner: *const [DenseInstruction],
     #[cfg(not(feature = "rooted-instructions"))]
-    pub(crate) inner: Shared<[DenseInstruction]>,
+    pub(crate) inner: InstructionPointer<[DenseInstruction]>,
 }
 
 #[cfg(feature = "rooted-instructions")]
@@ -224,10 +223,10 @@ unsafe impl Send for RootedInstructions {}
 unsafe impl Sync for RootedInstructions {}
 
 impl RootedInstructions {
-    pub fn new(instructions: Shared<[DenseInstruction]>) -> Self {
+    pub fn new(instructions: InstructionPointer<[DenseInstruction]>) -> Self {
         Self {
             #[cfg(feature = "rooted-instructions")]
-            inner: Shared::as_ptr(&instructions),
+            inner: InstructionPointer::as_ptr(&instructions),
             #[cfg(not(feature = "rooted-instructions"))]
             inner: instructions,
         }
@@ -257,7 +256,7 @@ impl core::ops::Deref for RootedInstructions {
 impl ByteCodeLambda {
     pub fn new(
         id: u32,
-        body_exp: Shared<[DenseInstruction]>,
+        body_exp: InstructionPointer<[DenseInstruction]>,
         arity: usize,
         is_multi_arity: bool,
         captures: CaptureVec,
@@ -377,7 +376,7 @@ impl ByteCodeLambda {
         ))
     }
 
-    pub fn rooted(instructions: Shared<[DenseInstruction]>) -> ByteCodeLambda {
+    pub fn rooted(instructions: InstructionPointer<[DenseInstruction]>) -> ByteCodeLambda {
         Self::new(
             SyntaxObjectId::fresh().into(),
             instructions,
@@ -416,26 +415,14 @@ impl ByteCodeLambda {
 
         #[cfg(not(feature = "rooted-instructions"))]
         return RootedInstructions {
-            inner: Shared::clone(&self.body_exp),
+            inner: InstructionPointer::clone(&self.body_exp),
         };
 
         #[cfg(feature = "rooted-instructions")]
         return RootedInstructions {
-            inner: Shared::as_ptr(&self.body_exp),
+            inner: InstructionPointer::as_ptr(&self.body_exp),
         };
     }
-
-    pub fn body_mut_exp(&mut self) -> Shared<[DenseInstruction]> {
-        #[cfg(feature = "dynamic")]
-        return Shared::clone(self.body_exp.get_mut());
-
-        #[cfg(not(feature = "dynamic"))]
-        Shared::clone(&self.body_exp)
-    }
-
-    // pub fn spans(&self) -> Rc<[Span]> {
-    //     Rc::clone(&self.spans)
-    // }
 
     // Get the starting index in the instruction set, and the new ID to associate with this
     // super instruction set.

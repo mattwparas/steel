@@ -1,3 +1,5 @@
+use crate::values::lock::SpinLock;
+
 use super::*;
 
 impl<'a> FunctionTranslator<'a> {
@@ -796,6 +798,69 @@ impl<'a> FunctionTranslator<'a> {
                 self.ip += 1;
             }
         }
+    }
+
+    // Given a value, unbox it. This assumes this is coming from a register, so
+    // we don't clone it in the happy path case where it is in fact a box.
+    pub(super) fn unbox_value_checked_register(&mut self, value: Value) -> Value {
+        println!("inline unbox value");
+        // TODO: Check that this is actually a box!
+        let is_box = self.is_type(value, SteelVal::HEAP_REF_VALUE_TAG);
+        let typ = self.int;
+
+        self.converging_if(
+            is_box,
+            |ctx| {
+                // Lets upgrade the pointer first. Otherwise, we're doomed since the
+                // value could not be around during the process. We can probably
+                // relax this constraint because we won't be in a safepoint during unboxing
+                // now. But, considering we could be in an embedded environment, we could
+                // have some rogue values around.
+                let ptr = ctx.unbox_value_to_pointer(value);
+
+                // The data lives at an offset of 16 from the pointer
+                const OFFSET: i64 = 16;
+
+                let lock_pointer = ctx.builder.ins().iadd_imm(ptr, OFFSET);
+
+                let data = ctx.with_spinlock(lock_pointer, |ctx| {
+                    let data = ctx.builder.ins().load(
+                        types::I128,
+                        MemFlags::trusted(),
+                        lock_pointer,
+                        SpinLock::<SteelVal>::data_offset() as i32,
+                    );
+
+                    ctx.clone_value(data);
+
+                    data
+                });
+
+                data
+            },
+            |ctx| {
+                // Slow path, check deopt too
+                ctx.clone_value(value);
+                let res = ctx.call_function_returns_value_args("unbox-handler", &[value]);
+                ctx.check_deopt();
+                res
+            },
+            typ,
+        )
+    }
+
+    // TODO: Replace the spin lock with an actual mutex implementation,
+    // eventually.
+    pub(super) fn with_spinlock<O>(
+        &mut self,
+        lock_pointer: Value,
+        thunk: impl FnOnce(&mut Self) -> O,
+    ) -> O {
+        emit_spinlock_inline(&mut self.builder, lock_pointer);
+        let res = thunk(self);
+        emit_spinlock_unlock_inline(&mut self.builder, lock_pointer);
+
+        res
     }
 }
 

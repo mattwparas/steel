@@ -112,12 +112,15 @@ pub fn unlikely(b: bool) -> bool {
 }
 
 const STACK_LIMIT: usize = 10000000;
-const _JIT_THRESHOLD: usize = 100;
-
-const _USE_SUPER_INSTRUCTIONS: bool = false;
 
 // Don't check stack overflow?
 const CHECK_STACK_OVERFLOW: bool = false;
+
+pub type Stack<T> = steel_vec::Vec<T>;
+pub type InstructionPointer<T> = steel_rc::BiasedRc<T>;
+
+// pub type Stack<T> = Vec<T>;
+// pub type InstructionPointer<T> = StandardShared<T>;
 
 #[repr(C)]
 #[derive(Clone, Debug, Copy, PartialEq)]
@@ -215,7 +218,7 @@ fn check_sizes() {
 }
 
 thread_local! {
-    static THE_EMPTY_INSTRUCTION_SET: Shared<[DenseInstruction]> = Shared::from(vec![]);
+    static THE_EMPTY_INSTRUCTION_SET: InstructionPointer<[DenseInstruction]> = InstructionPointer::from(vec![]);
 }
 
 impl StackFrame {
@@ -330,8 +333,8 @@ pub struct SteelThread {
     // shared, but in reality this should just be
     pub(crate) global_env: Env,
     // pub(crate) stack: Vec<SteelVal>,
-    pub(crate) stack: steel_vec::Vec<SteelVal>,
-    pub(crate) stack_frames: steel_vec::Vec<StackFrame>,
+    pub(crate) stack: Stack<SteelVal>,
+    pub(crate) stack_frames: Stack<StackFrame>,
 
     #[cfg(feature = "dynamic")]
     profiler: OpCodeOccurenceProfiler,
@@ -704,7 +707,7 @@ impl SteelThread {
 
         SteelThread {
             global_env: Env::root(),
-            stack: steel_vec::Vec::with_capacity(128),
+            stack: Stack::with_capacity(128),
 
             #[cfg(feature = "dynamic")]
             profiler: OpCodeOccurenceProfiler::new(),
@@ -713,7 +716,7 @@ impl SteelThread {
             // _super_instructions: Vec::new(),
             heap: Arc::new(parking_lot::Mutex::new(Heap::new())),
             runtime_options: RunTimeOptions::new(),
-            stack_frames: steel_vec::Vec::with_capacity(128),
+            stack_frames: Stack::with_capacity(128),
             current_frame: StackFrame::main(),
             // Should probably just have this be Option<ConstantMap> - but then every time we look up
             // something we'll have to deal with the fact that its wrapped in an option. Another options
@@ -911,7 +914,13 @@ impl SteelThread {
         let result = instructions
             .iter()
             .zip(spans.iter())
-            .map(|x| self.execute(Shared::clone(x.0), constant_map.clone(), Shared::clone(x.1)))
+            .map(|x| {
+                self.execute(
+                    InstructionPointer::clone(x.0),
+                    constant_map.clone(),
+                    Shared::clone(x.1),
+                )
+            })
             .collect();
 
         // self.constant_map = DEFAULT_CONSTANT_MAP.with(|x| x.clone());
@@ -1057,7 +1066,7 @@ impl SteelThread {
 
     pub fn execute(
         &mut self,
-        instructions: Shared<[DenseInstruction]>,
+        instructions: InstructionPointer<[DenseInstruction]>,
         constant_map: ConstantMap,
         spans: Shared<[Span]>,
     ) -> Result<SteelVal> {
@@ -1072,7 +1081,7 @@ impl SteelThread {
         self.current_frame
             .set_function(Gc::new(ByteCodeLambda::rooted(keep_alive.clone())));
 
-        let raw_keep_alive = Shared::into_raw(keep_alive);
+        let raw_keep_alive = InstructionPointer::into_raw(keep_alive);
 
         // TODO: Figure out how to keep the first set of instructions around
         // during a continuation? Does it get allocated into something? If its the
@@ -1199,7 +1208,7 @@ pub struct OpenContinuationMark {
 
     // Captured at creation, everything on the stack
     // from the current frame
-    pub(crate) current_stack_values: steel_vec::Vec<SteelVal>,
+    pub(crate) current_stack_values: Stack<SteelVal>,
 
     ip: usize,
     sp: usize,
@@ -1431,10 +1440,10 @@ impl WeakContinuation {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClosedContinuation {
-    pub(crate) stack: steel_vec::Vec<SteelVal>,
+    pub(crate) stack: Stack<SteelVal>,
     pub(crate) current_frame: StackFrame,
     instructions: RootedInstructions,
-    pub(crate) stack_frames: steel_vec::Vec<StackFrame>,
+    pub(crate) stack_frames: Stack<StackFrame>,
     ip: usize,
     sp: usize,
     pop_count: usize,
@@ -5607,7 +5616,7 @@ fn eval_program(program: crate::compiler::program::Executable, ctx: &mut VmCore)
     let function_id = crate::compiler::code_gen::fresh_function_id();
     let function = Gc::new(ByteCodeLambda::new(
         function_id as _,
-        Shared::from(bytecode),
+        InstructionPointer::from(bytecode),
         0,
         false,
         CaptureVec::new(),

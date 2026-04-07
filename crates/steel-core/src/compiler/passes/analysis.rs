@@ -4196,6 +4196,16 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
             ExprKind::Vector(v) => self.visit_vector(v),
         }
     }
+
+    // TODO: @Matt: We need to resolve this, and add better tests around
+    // how this actually works!
+    fn visit_atom(&mut self, a: &'a Atom) {
+        if let Some(identifier) = a.ident() {
+            if *identifier == self.unbox_var {
+                self.escapes = true;
+            }
+        }
+    }
 }
 
 impl<'a> VisitorMutRefUnit for LiftClosuresToGlobalScope<'a> {

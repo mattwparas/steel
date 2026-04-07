@@ -110,7 +110,12 @@ mod call_cc_tests {
         (start-threads)
         "#;
 
-        vm.compile_and_run_raw_program(contents).unwrap();
+        let res = vm.compile_and_run_raw_program(contents);
+
+        if let Err(e) = res {
+            vm.raise_error(e);
+            panic!();
+        }
 
         assert_eq!(vm.extract::<isize>("counter").unwrap(), -1);
     }
