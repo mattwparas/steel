@@ -2591,6 +2591,8 @@ impl FunctionTranslator<'_> {
 
                     return false;
                 }
+                // TODO: This is ripe for inlining, assuming the value
+                // is 1. immutable and 2. A primitive.
                 OpCode::CALLGLOBALTAIL
                 | OpCode::CALLGLOBALTAILNOARITY
                 | OpCode::CALLPRIMITIVETAIL => {
