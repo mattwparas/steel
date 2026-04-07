@@ -4381,13 +4381,22 @@ impl FunctionTranslator<'_> {
 
         let name = CallGlobalFunctionDefinitions::arity_to_name(arity);
 
+        /*
+
         let maybe_global = self._globals.get(function_index).cloned();
         if let Some(maybe_global) = maybe_global {
             if let Some(spec) = create_struct_spec(maybe_global) {
                 // TODO: This is where we inline the calls for struct
                 // functions
+                if let Some((value, typ)) =
+                    self.inline_struct_call_no_drop(spec, arity, function_index)
+                {
+                    self.push(value, typ);
+                    return;
+                }
             }
         }
+        */
 
         if let Some(name) = name {
             let result = self.call_global_function(arity, name, function_index, false);

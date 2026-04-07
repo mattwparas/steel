@@ -149,6 +149,10 @@ impl StructTypeDescriptor {
     fn fields(&self) -> SteelVal {
         STATIC_VTABLE.read().entries[self.0].properties[&STATIC_FIELDS_KEY].clone()
     }
+
+    pub fn key(&self) -> usize {
+        self.0
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
