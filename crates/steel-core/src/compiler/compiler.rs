@@ -1408,6 +1408,8 @@ impl Compiler {
         // This might have to run later?
         semantic.lower_rest_arguments();
 
+        dbg!(semantic.non_mutated_globals());
+
         self.analysis = semantic.into_analysis();
         self.analysis.shrink_capacity();
 

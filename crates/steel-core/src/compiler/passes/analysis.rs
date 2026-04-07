@@ -7067,6 +7067,54 @@ impl<'a> SemanticAnalysis<'a> {
             }
         });
     }
+
+    pub fn non_mutated_globals(&mut self) -> Vec<InternedString> {
+        // Attempt to figure out which globals... aren't mutated?
+        // Such that we can then grab the values
+        let mut names = Vec::new();
+
+        for expr in self.exprs.iter() {
+            match expr {
+                ExprKind::Define(d) => {
+                    let name = if let Some(name) = d.name.atom_syntax_object() {
+                        name
+                    } else {
+                        continue;
+                    };
+
+                    if let Some(analysis) = self.analysis.get(name) {
+                        if !analysis.set_bang {
+                            let name = d.name.atom_identifier().unwrap();
+                            names.push(*name);
+                        }
+                    }
+                }
+
+                ExprKind::Begin(b) => {
+                    for expr in b.exprs.iter() {
+                        if let ExprKind::Define(d) = expr {
+                            let name = if let Some(name) = d.name.atom_syntax_object() {
+                                name
+                            } else {
+                                continue;
+                            };
+
+                            if let Some(analysis) = self.analysis.get(name) {
+                                if !analysis.set_bang {
+                                    let name = d.name.atom_identifier().unwrap();
+                                    names.push(*name);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                _ => {}
+            }
+        }
+
+        names
+    }
 }
 
 #[cfg(test)]

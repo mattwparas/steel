@@ -3,7 +3,7 @@ use std::cell::UnsafeCell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 // TODO: @Matt
-// This needs to have a proper mutex backing?
+// This needs to have a proper mutex backing.
 #[repr(C)]
 #[derive(Debug)]
 pub struct SpinLock<T> {
