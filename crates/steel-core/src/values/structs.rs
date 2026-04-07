@@ -245,15 +245,20 @@ impl core::fmt::Display for UserDefinedStruct {
 
 impl UserDefinedStruct {
     fn new(type_descriptor: StructTypeDescriptor, raw_fields: &[SteelVal]) -> Self {
-        // let mut fields: Recycle<Vec<_>> = Recycle::new();
-        // let mut fields: Recycle<SmallVec<[SteelVal; 4]>> = Recycle::new();
-        // fields.extend_from_slice(raw_fields);
-        // fields.extend(raw_fields.iter().cloned());
-
         let fields = raw_fields.into_iter().cloned().collect();
 
         Self {
             fields,
+            type_descriptor,
+        }
+    }
+
+    pub fn new_iter(
+        type_descriptor: StructTypeDescriptor,
+        args: impl Iterator<Item = SteelVal>,
+    ) -> Self {
+        Self {
+            fields: args.collect(),
             type_descriptor,
         }
     }
@@ -410,8 +415,6 @@ impl UserDefinedStruct {
                 stop!(ArityMismatch => error_message);
             }
 
-            // Definitely use interned symbols for these. Otherwise we're going to be doing A LOT of
-            // arc cloning, and we don't want that.
             let new_struct = UserDefinedStruct::new(type_descriptor, args);
 
             Ok(SteelVal::CustomStruct(Gc::new(new_struct)))

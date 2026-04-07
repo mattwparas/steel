@@ -875,7 +875,33 @@ impl<'a> FunctionTranslator<'a> {
         let args = self.shadow_stack.get(self.shadow_stack.len() - arity..)?;
 
         match spec.typ {
-            // crate::values::structs::StructFunctionType::Constructor => todo!(),
+            // TODO: We need to include the arity checks properly! The constructor / spec should be able to include
+            // it and then we can make this happen properly with avoiding the checks for the arity!
+            StructFunctionType::Constructor
+                if CallStructConstructorsDefinitions::arity_to_name(arity).is_some() =>
+            {
+                // Fetch the name, then split off the args, and then do the thing.
+                let name = CallStructConstructorsDefinitions::arity_to_name(arity).unwrap();
+
+                let mut args = self
+                    .split_off(arity)
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<_>>();
+
+                let descriptor = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, spec.descriptor.key() as i64);
+
+                args.insert(0, descriptor);
+
+                let res = self.call_function_returns_value_args_no_context(name, &args);
+
+                self.ip += 1;
+
+                Some((res, InferredType::Any))
+            }
             // crate::values::structs::StructFunctionType::Predicate => todo!(),
             // crate::values::structs::StructFunctionType::GetterProto => todo!(),
 

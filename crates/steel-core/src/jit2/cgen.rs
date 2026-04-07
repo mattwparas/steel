@@ -722,6 +722,8 @@ impl Default for JIT {
             abi! { setup_closure_call_arity as fn(*mut VmCore, Gc<ByteCodeLambda>, usize, usize) -> SteelVal },
         );
 
+        CallStructConstructorsDefinitions::register(&mut map);
+
         CallSelfNoArityFunctionDefinitions::register(&mut map);
 
         CallGlobalFunctionDefinitions::register(&mut map);
@@ -4037,7 +4039,68 @@ impl FunctionTranslator<'_> {
 
     fn drop_biased_rc(&mut self, tagged_value: Value) {
         let value = self.unbox_value_to_pointer(tagged_value);
-        self.drop_biased_rc_unboxed_closure(value);
+
+        let is_thread_local = self.check_value_tl(value);
+
+        let yes_tl = self.builder.create_block();
+        let no_tl = self.builder.create_block();
+        let total_merge = self.builder.create_block();
+
+        self.builder
+            .ins()
+            .brif(is_thread_local, yes_tl, &[], no_tl, &[]);
+
+        self.builder.switch_to_block(yes_tl);
+        self.builder.seal_block(yes_tl);
+
+        {
+            let local_count =
+                self.builder
+                    .ins()
+                    .load(Type::int(32).unwrap(), MemFlags::new(), value, 8);
+
+            let sub_one = self.builder.ins().iadd_imm(local_count, -1);
+
+            self.builder.ins().store(MemFlags::new(), sub_one, value, 8);
+
+            let yes_drop = self.builder.create_block();
+            let merge_block = self.builder.create_block();
+
+            let should_continue = self
+                .builder
+                .ins()
+                .icmp_imm(IntCC::SignedGreaterThan, sub_one, 0);
+
+            self.builder
+                .ins()
+                .brif(should_continue, merge_block, &[], yes_drop, &[]);
+
+            self.builder.switch_to_block(yes_drop);
+            self.builder.seal_block(yes_drop);
+
+            // Use the generic drop that dispatches on the SteelVal tag.
+            self.call_function_args_no_context("drop-value-post-fast-dec", &[tagged_value]);
+
+            self.builder.ins().jump(merge_block, &[]);
+
+            self.builder.switch_to_block(merge_block);
+            self.builder.seal_block(merge_block);
+
+            self.builder.ins().jump(total_merge, &[]);
+        }
+
+        {
+            self.builder.switch_to_block(no_tl);
+            self.builder.seal_block(no_tl);
+
+            // Generic slow dec that dispatches on the SteelVal tag.
+            self.call_function_args_no_context("drop-value-slow-dec", &[tagged_value]);
+
+            self.builder.ins().jump(total_merge, &[]);
+        }
+
+        self.builder.switch_to_block(total_merge);
+        self.builder.seal_block(total_merge);
     }
 
     fn drop_biased_rc_unboxed_closure(&mut self, value: Value) {
@@ -4381,8 +4444,6 @@ impl FunctionTranslator<'_> {
 
         let name = CallGlobalFunctionDefinitions::arity_to_name(arity);
 
-        /*
-
         let maybe_global = self._globals.get(function_index).cloned();
         if let Some(maybe_global) = maybe_global {
             if let Some(spec) = create_struct_spec(maybe_global) {
@@ -4396,7 +4457,6 @@ impl FunctionTranslator<'_> {
                 }
             }
         }
-        */
 
         if let Some(name) = name {
             let result = self.call_global_function(arity, name, function_index, false);
