@@ -4078,7 +4078,6 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(yes_drop);
             self.builder.seal_block(yes_drop);
 
-            // Use the generic drop that dispatches on the SteelVal tag.
             self.call_function_args_no_context("drop-value-post-fast-dec", &[tagged_value]);
 
             self.builder.ins().jump(merge_block, &[]);
@@ -4093,7 +4092,6 @@ impl FunctionTranslator<'_> {
             self.builder.switch_to_block(no_tl);
             self.builder.seal_block(no_tl);
 
-            // Generic slow dec that dispatches on the SteelVal tag.
             self.call_function_args_no_context("drop-value-slow-dec", &[tagged_value]);
 
             self.builder.ins().jump(total_merge, &[]);
