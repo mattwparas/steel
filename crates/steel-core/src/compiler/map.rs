@@ -88,6 +88,9 @@ pub struct SymbolMap {
     // can be locked during the entire duration of the compilation
     // process
     pub(crate) free_list: FreeList,
+
+    pub(crate) non_mutable: Vec<InternedString>,
+    pub(crate) reified_non_mutable: HashSet<usize>,
 }
 
 impl Default for SymbolMap {
@@ -107,6 +110,8 @@ impl SymbolMap {
                 epoch: 1,
                 ..Default::default()
             },
+            non_mutable: Vec::new(),
+            reified_non_mutable: HashSet::new(),
         }
     }
 
@@ -116,6 +121,10 @@ impl SymbolMap {
 
     pub fn map(&self) -> &FxHashMap<InternedString, usize> {
         &self.map
+    }
+
+    pub fn set_non_mutable(&mut self, value: Vec<InternedString>) {
+        self.non_mutable = value;
     }
 
     pub fn len(&self) -> usize {

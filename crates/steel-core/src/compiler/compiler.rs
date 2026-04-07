@@ -35,10 +35,7 @@ use std::{
 
 use rustc_hash::{FxBuildHasher, FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
-use steel_parser::{
-    ast::{AstTools, PROVIDE},
-    span::Span,
-};
+use steel_parser::{ast::PROVIDE, span::Span};
 
 use crate::rvals::{Result, SteelVal};
 
@@ -445,6 +442,8 @@ pub struct Compiler {
     // want to have the compiler share everything with the runtime.
     pub(crate) sources: Sources,
     pub(crate) builtin_modules: ModuleContainer,
+
+    pub(crate) non_mutable_globals: HashSet<usize>,
 }
 
 pub struct SerializableCompiler {
@@ -629,6 +628,7 @@ impl Compiler {
             search_dirs,
             sources,
             builtin_modules,
+            non_mutable_globals: HashSet::new(),
         }
     }
 
@@ -659,6 +659,7 @@ impl Compiler {
             search_dirs,
             sources,
             builtin_modules,
+            non_mutable_globals: HashSet::new(),
         }
     }
 
@@ -1408,7 +1409,13 @@ impl Compiler {
         // This might have to run later?
         semantic.lower_rest_arguments();
 
-        dbg!(semantic.non_mutated_globals());
+        // Process the fixed values in the compiler
+
+        #[cfg(feature = "jit2")]
+        {
+            let non_mutable_globals = semantic.non_mutated_globals();
+            self.symbol_map.set_non_mutable(non_mutable_globals);
+        }
 
         self.analysis = semantic.into_analysis();
         self.analysis.shrink_capacity();
@@ -1476,6 +1483,12 @@ impl Compiler {
             self.constant_map.clone(),
             "0.1.0".to_string(),
         );
+
+        // TODO: This isn't great, but its a good way for us to keep track of extra
+        // information getting moved across the bytecode. We also could encode this
+        // on the bytecode instructions themselves before they're converted into
+        // dense instructions.
+        raw_program.non_mutable_symbols = std::mem::take(&mut self.symbol_map.non_mutable);
 
         // Make sure to apply the peephole optimizations
         raw_program.apply_optimizations();
