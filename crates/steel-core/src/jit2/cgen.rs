@@ -2669,6 +2669,26 @@ impl FunctionTranslator<'_> {
 
                     let func = self._globals.get(function_index).cloned();
 
+                    // TODO: For calling struct operations, then we'll
+                    // just call the thing, and we can move on to the pop
+                    // I think.
+                    let maybe_global = self._globals.get(function_index).cloned();
+                    if let Some(maybe_global) = maybe_global {
+                        if let Some(spec) = create_struct_spec(maybe_global) {
+                            // TODO: This is where we inline the calls for struct
+                            // functions
+                            if let Some((value, typ)) =
+                                self.inline_struct_call_no_drop(spec, arity, function_index)
+                            {
+                                println!("Compiling the tail call for structs");
+                                self.inline_handle_pop(value);
+                                self.depth -= 1;
+                                self.ip = self.instructions.len() + 1;
+                                return false;
+                            }
+                        }
+                    }
+
                     // Call direct, by hard coding this, and we're gonna check that the
                     // instructions exist already...
                     if USE_INLINE_GLOBAL_TAIL_CALL && matches!(func, Some(SteelVal::Closure(_))) {

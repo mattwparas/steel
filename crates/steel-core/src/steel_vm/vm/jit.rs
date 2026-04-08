@@ -2703,9 +2703,13 @@ fn new_callglobal_tail_handler_deopt_test(
 
     match handle_global_tail_call_deopt_with_args(ctx, func, args) {
         Ok(v) => {
+            // Okay, so this is the case where we're _done_ in the existing
+            // function. When called in this position though, we end up
+            // deopting, even though in theory we really don't need to deopt
+            // since we could just keep going (I think...)
             if !should_yield {
                 extern_handle_pop(ctx, v);
-                ctx.is_native = false;
+                // ctx.is_native = false;
                 return SteelVal::Void;
             }
 
