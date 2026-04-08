@@ -3880,20 +3880,14 @@ impl FunctionTranslator<'_> {
 
                         let comparison = self.builder.ins().band(comparison, is_bool);
                         let res = self.builder.ins().uextend(types::I64, comparison);
-                        // let boolean =
-                        //     self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+
+                        // Make sure to drop this before we're done in the event its not
+                        // a boolean.
+                        self.drop_tagged_value(test);
+
                         self.push(res, InferredType::UnboxedBool);
                         self.ip += 2;
-
-                        // self.func_ret_val(op, 1, 2, InferredType::Bool);
                     }
-
-                    // let res = self.builder.ins().uextend(types::I64, comparison);
-                    // let boolean =
-                    //     self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
-
-                    // Do the thing.
-                    // self.func_ret_val(op, 1, 2, InferredType::Bool);
                 }
                 OpCode::Apply => todo!(),
                 OpCode::LOADINT0POP => todo!(),
