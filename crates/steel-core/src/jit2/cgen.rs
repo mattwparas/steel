@@ -4,7 +4,7 @@
 
 mod native;
 
-use core::mem::offset_of;
+use core::{mem::offset_of, ptr::NonNull};
 use cranelift::{
     codegen::ir::{ArgumentPurpose, FuncRef, GlobalValue, StackSlot, Type},
     frontend::Switch,
@@ -1157,7 +1157,7 @@ fn discriminant(value: &SteelVal) -> u8 {
 
 #[derive(Copy, Clone, Debug)]
 #[repr(transparent)]
-pub struct JitFnPointer(*const u8);
+pub struct JitFnPointer(NonNull<u8>);
 
 unsafe impl Send for JitFnPointer {}
 unsafe impl Sync for JitFnPointer {}
@@ -1190,7 +1190,7 @@ unsafe fn compile_bytecode(
     // is safe to be called.
     // let code_fn = core::mem::transmute::<*const u8, fn(&mut VmCore)>(code_ptr);
 
-    let code_fn = JitFnPointer(code_ptr);
+    let code_fn = JitFnPointer(NonNull::new_unchecked(code_ptr.cast_mut()));
 
     Ok(code_fn)
 }
