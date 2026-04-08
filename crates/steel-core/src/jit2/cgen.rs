@@ -2593,6 +2593,17 @@ impl FunctionTranslator<'_> {
                 }
                 // TODO: This is ripe for inlining, assuming the value
                 // is 1. immutable and 2. A primitive.
+                //
+                // Okay so what we need to do here, is actually inline a return_call_indirect
+                // in order to actually make the proper tail call, in the case that this is
+                // a closure. So, the easiest way to do that, would be to:
+                //
+                // 1. First check that this is a closure,
+                // 2. Check that it has a super instruction
+                // 3. If it is, then we do the tail call business where we spill
+                //    everything to the VM stack, and then reuse the stack frame.
+                // 4. Make the indirect tail call, and then we're done with the
+                //    control flow.
                 OpCode::CALLGLOBALTAIL
                 | OpCode::CALLGLOBALTAILNOARITY
                 | OpCode::CALLPRIMITIVETAIL => {
@@ -2600,37 +2611,47 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
 
-                    let name = CallGlobalTailFunctionDefinitions::arity_to_name(arity);
-                    // let name = None;
+                    const USE_INLINE_GLOBAL_TAIL_CALL: bool = false;
 
-                    if let Some(name) = name {
-                        // TODO: We need to spill the local variables here!
-                        // This function pushes back on to the stack, and then we should just
-                        // return since we're done now.
-                        let v = self.call_global_function(arity, name, function_index, true);
-
-                        self.push(v, InferredType::Any);
+                    if USE_INLINE_GLOBAL_TAIL_CALL {
+                        return self.inline_global_tail_call(function_index, arity);
                     } else {
-                        // @matt: 1/3/26
-                        // TODO: There is a bug with this function!
-                        let name = "call-global-tail-spilled";
+                        let name = CallGlobalTailFunctionDefinitions::arity_to_name(arity);
+                        // let name = None;
 
-                        // TODO: We need to spill the local variables here!
-                        let v =
-                            self.call_global_function_spilled(arity, name, function_index, true);
+                        if let Some(name) = name {
+                            // TODO: We need to spill the local variables here!
+                            // This function pushes back on to the stack, and then we should just
+                            // return since we're done now.
+                            let v = self.call_global_function(arity, name, function_index, true);
 
-                        self.push(v, InferredType::Any)
+                            self.push(v, InferredType::Any);
+                        } else {
+                            // @matt: 1/3/26
+                            // TODO: There is a bug with this function!
+                            let name = "call-global-tail-spilled";
+
+                            // TODO: We need to spill the local variables here!
+                            let v = self.call_global_function_spilled(
+                                arity,
+                                name,
+                                function_index,
+                                true,
+                            );
+
+                            self.push(v, InferredType::Any)
+                        }
+
+                        self.check_deopt();
+
+                        self.ip = self.instructions.len() + 1;
+
+                        // println!("------------------------> Returning");
+
+                        self.depth -= 1;
+
+                        return false;
                     }
-
-                    self.check_deopt();
-
-                    self.ip = self.instructions.len() + 1;
-
-                    // println!("------------------------> Returning");
-
-                    self.depth -= 1;
-
-                    return false;
                 }
                 OpCode::CALLGLOBALNOARITY => {
                     // First - find the index that we have to lookup.
@@ -4849,6 +4870,10 @@ impl FunctionTranslator<'_> {
         let call = self.builder.ins().call(local_callee, &arg_values);
         let result = self.builder.inst_results(call)[0];
         result
+    }
+
+    fn inline_global_tail_call(&mut self, function_index: usize, arity: usize) -> bool {
+        todo!()
     }
 
     fn call_global_function(

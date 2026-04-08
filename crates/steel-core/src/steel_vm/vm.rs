@@ -4469,9 +4469,6 @@ impl<'a> VmCore<'a> {
 
         self.adjust_stack_for_multi_arity(&closure, payload_size, &mut new_arity)?;
 
-        // TODO: Try to figure out if we need to close this frame
-        // self.close_continuation_marks(self.thread.stack_frames.last().unwrap());
-
         let last = self.thread.stack_frames.last_mut().unwrap();
 
         let offset = last.sp as _;
@@ -4480,16 +4477,7 @@ impl<'a> VmCore<'a> {
         // take the last arity off the stack, go back and replace those in order
         let back = self.thread.stack.len() - new_arity;
 
-        // println!("{}..{}", offset, back);
-        // println!("{:?}", self.thread.stack);
-        // println!("{}..{}", offset, back);
-        // println!("{:?}", self.thread.stack);
-
         let _ = self.thread.stack.drain(offset..back);
-
-        // TODO: Perhaps add call to minor collection here?
-        // Could be a good way to avoid running the whole mark and sweep,
-        // since values will have left the scope by now.
 
         self.instructions = closure.body_exp();
 
