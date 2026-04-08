@@ -38,7 +38,7 @@ use crate::{
     values::{
         functions::{ByteCodeLambda, RootedInstructions},
         lists::SteelList,
-        structs::create_struct_spec,
+        structs::{create_struct_spec, StructTypeDescriptor},
     },
     SteelVal,
 };
@@ -425,6 +425,8 @@ impl Default for JIT {
             .unwrap();
 
         flag_builder.set("opt_level", "speed").unwrap();
+
+        flag_builder.set("preserve_frame_pointers", "true").unwrap();
 
         let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
             panic!("host machine is not supported: {}", msg);
@@ -1519,6 +1521,9 @@ pub enum InferredType {
     String,
 
     Symbol,
+
+    // TODO: See if we can lift this out, as it inflates the size
+    Struct(StructTypeDescriptor),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -2065,27 +2070,6 @@ impl FunctionTranslator<'_> {
                     self.spill_cloned_stack();
                     self.vm_pop(value);
                     self.ip = self.instructions.len() + 1;
-
-                    /*
-
-                    let last = self.stack.last().unwrap();
-
-                    assert!(!last.spilled);
-
-                    // Push the remaining value back on to the stack.
-                    let value = self.pop();
-
-                    for value in self.stack.clone() {
-                        if !value.spilled {
-                            self.push_to_vm_stack(value.value);
-                        }
-                    }
-
-                    self.vm_pop(value.0);
-                    self.ip = self.instructions.len() + 1;
-
-                    */
-
                     self.depth -= 1;
 
                     return false;
@@ -3882,10 +3866,10 @@ impl FunctionTranslator<'_> {
                         let comparison =
                             self.builder.ins().icmp_imm(IntCC::Equal, test_condition, 0);
 
-                        let res = self.builder.ins().uextend(types::I64, comparison);
+                        // let  = self.builder.ins().uextend(types::I64, comparison);
                         // let boolean =
                         //     self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
-                        self.push(res, InferredType::UnboxedBool);
+                        self.push(comparison, InferredType::UnboxedBool);
                         self.ip += 2;
                     } else {
                         let (test, _) = self.shadow_pop();
@@ -3894,18 +3878,19 @@ impl FunctionTranslator<'_> {
 
                         let is_bool = self.is_type(test, SteelVal::BOOL_TAG);
                         let payload = self.unbox_value(test);
+
                         let test_condition = self.builder.ins().ireduce(types::I8, payload);
                         let comparison =
                             self.builder.ins().icmp_imm(IntCC::Equal, test_condition, 0);
 
                         let comparison = self.builder.ins().band(comparison, is_bool);
-                        let res = self.builder.ins().uextend(types::I64, comparison);
+                        // let res = self.builder.ins().uextend(types::I64, comparison);
 
                         // Make sure to drop this before we're done in the event its not
                         // a boolean.
                         self.drop_tagged_value(test);
 
-                        self.push(res, InferredType::UnboxedBool);
+                        self.push(comparison, InferredType::UnboxedBool);
                         self.ip += 2;
                     }
                 }

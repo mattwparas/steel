@@ -116,7 +116,7 @@ impl Properties {
     }
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 #[repr(transparent)]
 // Wrap the usize, store this and this only. We use this as an index into the VTable.
 pub struct StructTypeDescriptor(usize);

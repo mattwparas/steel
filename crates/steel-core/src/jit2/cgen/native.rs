@@ -608,12 +608,6 @@ impl<'a> FunctionTranslator<'a> {
         result
     }
 
-    fn get_tag_and_payload(&mut self, value: Value) -> (Value, Value) {
-        let (lo, hi) = self.builder.ins().isplit(value);
-        let tag = self.builder.ins().ireduce(types::I8, lo);
-        (tag, hi)
-    }
-
     // TODO: Implement binop add directly. Assume naively that the values are probably integers,
     // and then implement the checked addition. We can branch for addition for ints / floats, anything else
     // should fall through to the generic case.
@@ -917,104 +911,46 @@ impl<'a> FunctionTranslator<'a> {
                 // Reference to the struct pointer on the stack itself
                 let struct_ref = self.read_from_vm_stack(struct_arg_index);
 
+                // Check the inferred type:
+                let maybe_inferred_type = self
+                    .properties
+                    .get(&ValueOrRegister::Register(struct_arg_index));
+
+                if let Some(Properties::InferredType(InferredType::Struct(desc))) =
+                    maybe_inferred_type
+                {
+                    if spec.descriptor == desc {
+                        self.shadow_stack.pop();
+                        let struct_ref_ptr = self.unbox_value_to_pointer(struct_ref);
+                        let res = fast_path_struct_matches(struct_arg_index, struct_ref_ptr, self);
+
+                        return Some((res, InferredType::Any));
+                    }
+                }
                 let is_struct = self.is_type(struct_ref, SteelVal::STRUCT_TAG);
                 let typ = self.int;
+
+                let old_ip = self.ip;
+                let stack = self.shadow_stack.clone();
+
+                // Add the property
+                self.properties.add_property(
+                    ValueOrRegister::Register(struct_arg_index),
+                    Properties::InferredType(InferredType::Struct(spec.descriptor)),
+                );
 
                 let res = self.converging_if(
                     is_struct,
                     |ctx| {
-                        // Check the descriptor first
-                        let descriptor = spec.descriptor.key();
-
-                        let struct_ref_ptr = ctx.unbox_value_to_pointer(struct_ref);
-
-                        let descriptor_on_stack = ctx.builder.ins().load(
-                            types::I64,
-                            MemFlags::trusted(),
-                            struct_ref_ptr,
-                            16,
-                        );
-
-                        let struct_matches = ctx.builder.ins().icmp_imm(
-                            IntCC::Equal,
-                            descriptor_on_stack,
-                            descriptor as i64,
-                        );
-
-                        let last = ctx.shadow_stack.pop().unwrap();
-
-                        let res = ctx.converging_if(
-                            struct_matches,
-                            |ctx| {
-                                // TODO: Not a shared vector! Just a normal vector!
-                                let vector_ptr = ctx.builder.ins().load(
-                                    types::I64,
-                                    MemFlags::trusted(),
-                                    struct_ref_ptr,
-                                    16 + 8 as i32,
-                                );
-
-                                let size: i64 = std::mem::size_of::<SteelVal>() as _;
-
-                                let offset = (i as i64 * size);
-
-                                let slot_ptr = ctx.builder.ins().iadd_imm(vector_ptr, offset);
-
-                                let local_value = ctx.builder.ins().load(
-                                    types::I128,
-                                    MemFlags::trusted(),
-                                    slot_ptr,
-                                    0,
-                                );
-
-                                // Clone whatever comes out of this
-                                ctx.clone_value(local_value);
-
-                                // TODO: @Matt clean up these ip advances
-                                ctx.ip += 1;
-
-                                local_value
-                            },
-                            |ctx| {
-                                // Undo the above branch:
-                                ctx.ip -= 1;
-                                // Re push the value back on
-                                ctx.shadow_stack.push(last);
-                                // Slow path. Just call the function directly
-                                let name = CallGlobalFunctionDefinitions::arity_to_name(arity);
-
-                                if let Some(name) = name {
-                                    let result = ctx.call_global_function(
-                                        arity,
-                                        name,
-                                        function_index,
-                                        false,
-                                    );
-                                    ctx.check_deopt();
-
-                                    // Assuming this worked, we'll want to push this result on to the stack.
-                                    result
-                                } else {
-                                    let name = "call-global-spilled";
-
-                                    let v = ctx.call_global_function_spilled(
-                                        arity,
-                                        name,
-                                        function_index,
-                                        false,
-                                    );
-                                    ctx.check_deopt();
-
-                                    v
-                                }
-                            },
-                            typ,
-                        );
-
-                        res
+                        inline_struct_getter(&spec, arity, function_index, i, struct_ref, typ, ctx)
                     },
-                    // Just return false here, since its not a thing that we need
-                    |ctx| ctx.encode_false(),
+                    // TODO: This should share the same branch with the false code?
+                    // Basically, we're raising an error
+                    move |ctx| {
+                        ctx.ip = old_ip;
+                        ctx.shadow_stack = stack.clone();
+                        slow_path_struct_getter(arity, function_index, ctx)
+                    },
                     typ,
                 );
 
@@ -1024,6 +960,105 @@ impl<'a> FunctionTranslator<'a> {
                 return None;
             }
         }
+    }
+}
+
+fn inline_struct_getter(
+    spec: &StructConstructorRefSpec,
+    arity: usize,
+    function_index: usize,
+    i: usize,
+    struct_ref: Value,
+    typ: Type,
+    ctx: &mut FunctionTranslator,
+) -> Value {
+    // Check the descriptor first
+    let descriptor = spec.descriptor.key();
+
+    let struct_ref_ptr = ctx.unbox_value_to_pointer(struct_ref);
+
+    let descriptor_on_stack =
+        ctx.builder
+            .ins()
+            .load(types::I64, MemFlags::trusted(), struct_ref_ptr, 16);
+
+    let struct_matches =
+        ctx.builder
+            .ins()
+            .icmp_imm(IntCC::Equal, descriptor_on_stack, descriptor as i64);
+
+    let last = ctx.shadow_stack.pop().unwrap();
+
+    let res = ctx.converging_if(
+        struct_matches,
+        |ctx| fast_path_struct_matches(i, struct_ref_ptr, ctx),
+        |ctx| {
+            // Undo the above branch:
+            ctx.ip -= 1;
+            // Re push the value back on
+            ctx.shadow_stack.push(last);
+            slow_path_struct_getter(arity, function_index, ctx)
+        },
+        typ,
+    );
+
+    res
+}
+
+fn fast_path_struct_matches(
+    i: usize,
+    struct_ref_ptr: Value,
+    ctx: &mut FunctionTranslator<'_>,
+) -> Value {
+    // TODO: Not a shared vector! Just a normal vector!
+    let vector_ptr = ctx.builder.ins().load(
+        types::I64,
+        MemFlags::trusted(),
+        struct_ref_ptr,
+        16 + 8 as i32,
+    );
+
+    let size: i64 = std::mem::size_of::<SteelVal>() as _;
+
+    let offset = (i as i64 * size);
+
+    let slot_ptr = ctx.builder.ins().iadd_imm(vector_ptr, offset);
+
+    let local_value = ctx
+        .builder
+        .ins()
+        .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+
+    // Clone whatever comes out of this
+    ctx.clone_value(local_value);
+
+    // TODO: @Matt clean up these ip advances
+    ctx.ip += 1;
+
+    local_value
+}
+
+fn slow_path_struct_getter(
+    arity: usize,
+    function_index: usize,
+    ctx: &mut FunctionTranslator<'_>,
+) -> Value {
+    // Slow path. Just call the function directly
+    let name = CallGlobalFunctionDefinitions::arity_to_name(arity);
+
+    if let Some(name) = name {
+        let result = ctx.call_global_function(arity, name, function_index, false);
+        ctx.check_deopt();
+
+        // Assuming this worked, we'll want to push this result on to the stack.
+        result
+    } else {
+        let name = "call-global-spilled";
+
+        let v = ctx.call_global_function_spilled(arity, name, function_index, false);
+        ctx.check_deopt();
+
+        v
     }
 }
 
