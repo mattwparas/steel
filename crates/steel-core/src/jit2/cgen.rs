@@ -3859,19 +3859,33 @@ impl FunctionTranslator<'_> {
                         // exactly, then we're done.
                         let payload = self.unbox_value(test);
                         let test_condition = self.builder.ins().ireduce(types::I8, payload);
-                        let false_value = self.builder.ins().iconst(types::I8, 0);
                         let comparison =
-                            self.builder
-                                .ins()
-                                .icmp(IntCC::Equal, test_condition, false_value);
+                            self.builder.ins().icmp_imm(IntCC::Equal, test_condition, 0);
 
                         let res = self.builder.ins().uextend(types::I64, comparison);
-                        let boolean =
-                            self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
-                        self.push(boolean, InferredType::Bool);
+                        // let boolean =
+                        //     self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+                        self.push(res, InferredType::UnboxedBool);
                         self.ip += 2;
                     } else {
-                        self.func_ret_val(op, 1, 2, InferredType::Bool);
+                        let (test, _) = self.shadow_pop();
+                        // If this matches SteelVal::BoolV(false)
+                        // exactly, then we're done.
+
+                        let is_bool = self.is_type(test, SteelVal::BOOL_TAG);
+                        let payload = self.unbox_value(test);
+                        let test_condition = self.builder.ins().ireduce(types::I8, payload);
+                        let comparison =
+                            self.builder.ins().icmp_imm(IntCC::Equal, test_condition, 0);
+
+                        let comparison = self.builder.ins().band(comparison, is_bool);
+                        let res = self.builder.ins().uextend(types::I64, comparison);
+                        // let boolean =
+                        //     self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
+                        self.push(res, InferredType::UnboxedBool);
+                        self.ip += 2;
+
+                        // self.func_ret_val(op, 1, 2, InferredType::Bool);
                     }
 
                     // let res = self.builder.ins().uextend(types::I64, comparison);
@@ -4515,20 +4529,14 @@ impl FunctionTranslator<'_> {
                 _ => panic!(),
             }
         } else {
+            /*
             // TODO: change this up
-            // let value = if payload < 9 {
-            //     let value =
-            //         self.call_function_returns_value_args(op_to_name_payload(op, payload), &[]);
-            //     value
-            // } else {
             let index = self
                 .builder
                 .ins()
                 .iconst(Type::int(64).unwrap(), payload as i64);
             let value =
                 self.call_function_returns_value_args(op_to_name_payload(op, payload), &[index]);
-            //     value
-            // };
 
             self.value_to_local_map.insert(value, payload);
 
@@ -4542,6 +4550,16 @@ impl FunctionTranslator<'_> {
             MaybeStackValue::Value(StackValue {
                 value,
                 inferred_type,
+                spilled: false,
+            })
+            */
+
+            let value = self.read_from_vm_stack(payload);
+            self.clone_value(value);
+
+            MaybeStackValue::Value(StackValue {
+                value,
+                inferred_type: InferredType::Any,
                 spilled: false,
             })
         }
