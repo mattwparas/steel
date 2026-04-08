@@ -1155,6 +1155,13 @@ fn discriminant(value: &SteelVal) -> u8 {
     unsafe { *<*const _>::from(value).cast::<u8>() }
 }
 
+#[derive(Copy, Clone, Debug)]
+#[repr(transparent)]
+pub struct JitFnPointer(*const u8);
+
+unsafe impl Send for JitFnPointer {}
+unsafe impl Sync for JitFnPointer {}
+
 // Compile the bytecode assuming that things... work okay?
 unsafe fn compile_bytecode(
     jit: &mut JIT,
@@ -1165,7 +1172,7 @@ unsafe fn compile_bytecode(
     constants: &ConstantMap,
     function_index: Option<usize>,
     slot: Option<&Gc<ByteCodeLambda>>,
-) -> Result<fn(&mut VmCore), String> {
+) -> Result<JitFnPointer, String> {
     // Pass the string to the JIT, and it returns a raw pointer to machine code.
     // TODO: We'll want to do two different functions.
     // One which interfaces with the VM, and another which can be called directly
@@ -1181,7 +1188,10 @@ unsafe fn compile_bytecode(
     // Cast the raw pointer to a typed function pointer. This is unsafe, because
     // this is the critical point where you have to trust that the generated code
     // is safe to be called.
-    let code_fn = core::mem::transmute::<*const u8, fn(&mut VmCore)>(code_ptr);
+    // let code_fn = core::mem::transmute::<*const u8, fn(&mut VmCore)>(code_ptr);
+
+    let code_fn = JitFnPointer(code_ptr);
+
     Ok(code_fn)
 }
 
@@ -1195,7 +1205,7 @@ impl JIT {
         constants: &ConstantMap,
         function_index: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
-    ) -> Result<fn(&mut VmCore), String> {
+    ) -> Result<JitFnPointer, String> {
         unsafe {
             compile_bytecode(
                 self,
@@ -1212,6 +1222,51 @@ impl JIT {
 }
 
 impl JIT {
+    // Use this to get the trampoline, and then our new entrypoint from
+    // the rust VM is a trampoline into the tail call world.
+    pub fn compile_trampoline(&mut self) -> *const u8 {
+        let ptr_ty = self.module.target_config().pointer_type();
+
+        // Outer signature: C ABI, takes (vm_ctx, target)
+        let mut outer_sig = self.module.make_signature();
+        let mut vm_param = AbiParam::new(ptr_ty);
+        vm_param.purpose = ArgumentPurpose::VMContext;
+        outer_sig.params.push(vm_param);
+        outer_sig.params.push(AbiParam::new(ptr_ty));
+
+        let mut inner_sig = self.module.make_signature();
+        let mut vm_param = AbiParam::new(ptr_ty);
+        vm_param.purpose = ArgumentPurpose::VMContext;
+        inner_sig.params.push(vm_param);
+        inner_sig.call_conv = CallConv::Tail;
+
+        let func_id = self
+            .module
+            .declare_function("jit_trampoline", Linkage::Local, &outer_sig)
+            .unwrap();
+
+        self.ctx.func.signature = outer_sig;
+        let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+        let block = builder.create_block();
+        builder.append_block_params_for_function_params(block);
+        builder.switch_to_block(block);
+
+        let vm_ctx = builder.block_params(block)[0];
+        let target = builder.block_params(block)[1];
+
+        let sig_ref = builder.import_signature(inner_sig);
+        builder.ins().call_indirect(sig_ref, target, &[vm_ctx]);
+        builder.ins().return_(&[]);
+
+        builder.seal_all_blocks();
+        builder.finalize();
+
+        self.module.define_function(func_id, &mut self.ctx).unwrap();
+        self.module.clear_context(&mut self.ctx);
+        self.module.finalize_definitions().unwrap();
+        self.module.get_finalized_function(func_id)
+    }
+
     // Tier 1 JIT.
     // Tier 2 jit should be a little bit more advanced:
     // We should be able to compile straight into a function pointer
@@ -1313,54 +1368,9 @@ impl JIT {
         self.module.clear_context(&mut self.ctx);
         self.module.finalize_definitions().unwrap();
 
+        let code = self.module.get_finalized_function(inner_id);
+
         // Set up the trampoline
-
-        let mut tramp_param = AbiParam::new(pointer);
-        tramp_param.purpose = ArgumentPurpose::VMContext;
-        self.ctx.func.signature.params.push(tramp_param);
-
-        let tramp_id = self
-            .module
-            .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
-            .map_err(|e| e.to_string())?;
-
-        {
-            let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
-
-            let block = builder.create_block();
-            builder.append_block_params_for_function_params(block);
-            builder.switch_to_block(block);
-            builder.seal_block(block);
-
-            let vm_ctx_val = builder.block_params(block)[0];
-            let mut inner_sig = self.module.make_signature();
-            inner_sig.call_conv = CallConv::Tail;
-            let mut inner_param = AbiParam::new(pointer);
-            inner_param.purpose = ArgumentPurpose::VMContext;
-            inner_sig.params.push(inner_param);
-
-            let inner_callee = self
-                .module
-                .declare_function(&inner_name, Linkage::Local, &inner_sig)
-                .map_err(|e| e.to_string())?;
-            let inner_func_ref = self.module.declare_func_in_func(inner_callee, builder.func);
-
-            builder.ins().call(inner_func_ref, &[vm_ctx_val]);
-            builder.ins().return_(&[]);
-            builder.finalize();
-        }
-
-        self.module
-            .define_function(tramp_id, &mut self.ctx)
-            .map_err(|e| {
-                self.module.clear_context(&mut self.ctx);
-                e.to_string()
-            })?;
-
-        self.module.clear_context(&mut self.ctx);
-        self.module.finalize_definitions().unwrap();
-
-        let code = self.module.get_finalized_function(tramp_id);
 
         Ok(code)
     }
@@ -2257,6 +2267,8 @@ impl FunctionTranslator<'_> {
 
                                     let should_trampoline = ctx.check_should_trampoline(vm_ctx);
 
+                                    // TODO: This is not going to work here. Instead, we need to load
+                                    // the id of the instruction.
                                     let super_instruction = ctx.builder.ins().load(
                                         types::I64,
                                         MemFlags::trusted(),
@@ -2326,6 +2338,14 @@ impl FunctionTranslator<'_> {
                                             // Attempt to look up a value indirectly:
                                             let sig_ref = ctx.create_jit_sig_ref();
 
+                                            // TODO: This is gonna be a problem now.
+                                            // Assuming we're not storing both on there.
+                                            //
+                                            // TODO: Add another field on functions for
+                                            // the non trampoline function, or generically
+                                            // call the trampoline function (i.e. have one
+                                            // trampoline that we can pass by value to the
+                                            // tail calling convention code.)
                                             ctx.builder.ins().call_indirect(
                                                 sig_ref,
                                                 super_instruction,
@@ -4523,31 +4543,6 @@ impl FunctionTranslator<'_> {
                 _ => panic!(),
             }
         } else {
-            /*
-            // TODO: change this up
-            let index = self
-                .builder
-                .ins()
-                .iconst(Type::int(64).unwrap(), payload as i64);
-            let value =
-                self.call_function_returns_value_args(op_to_name_payload(op, payload), &[index]);
-
-            self.value_to_local_map.insert(value, payload);
-
-            let inferred_type = if let Some(inferred_type) = self.local_to_value_map.get(&payload) {
-                *inferred_type
-            } else {
-                InferredType::Any
-            };
-
-            // TODO: Should this advance the ip here as well?
-            MaybeStackValue::Value(StackValue {
-                value,
-                inferred_type,
-                spilled: false,
-            })
-            */
-
             let value = self.read_from_vm_stack(payload);
             self.clone_value(value);
 
@@ -7485,9 +7480,7 @@ impl FunctionTranslator<'_> {
         // VmCore pointer
         sig.params.push(param);
 
-        if cfg!(target_os = "windows") {
-            sig.call_conv = CallConv::SystemV;
-        }
+        sig.call_conv = CallConv::Tail;
 
         let sig_ref = self.builder.import_signature(sig);
         sig_ref

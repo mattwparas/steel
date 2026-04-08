@@ -11,6 +11,8 @@ use std::{
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "jit2")]
+use crate::jit2::cgen::JitFnPointer;
 use crate::{
     compiler::code_gen::fresh_function_id,
     core::{
@@ -144,7 +146,7 @@ pub struct ByteCodeLambda {
     contract: MutContainer<Option<Gc<UserDefinedStruct>>>,
 
     #[cfg(feature = "jit2")]
-    pub(crate) super_instructions: Option<fn(&mut crate::steel_vm::vm::VmCore)>,
+    pub(crate) super_instructions: Option<JitFnPointer>,
 }
 
 impl Default for ByteCodeLambda {

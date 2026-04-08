@@ -2936,7 +2936,9 @@ fn handle_global_function_call_with_args(
                     ctx.handle_function_call_closure_jit(closure.clone(), arity)
                         .unwrap();
 
-                    (func)(ctx);
+                    let tramp = ctx.thread.trampoline;
+
+                    (tramp)(ctx, func);
 
                     if ctx.is_native {
                         // if ctx.pop_count != pop_count {
@@ -4209,7 +4211,9 @@ macro_rules! make_call_global_function_deopt_no_arity {
                                     ctx.handle_function_call_closure_jit_no_arity(closure.clone())
                                         .unwrap();
 
-                                    (func)(ctx);
+                                    let tramp = ctx.thread.trampoline;
+
+                                    (tramp)(ctx, func);
 
                                     if ctx.is_native {
                                         // if ctx.pop_count != pop_count {
@@ -4430,8 +4434,9 @@ macro_rules! make_call_self_function_deopt_no_arity {
                             ctx.handle_function_call_closure_jit_no_arity(closure)
                                 .unwrap();
 
+                            let tramp = ctx.thread.trampoline;
 
-                            (func)(ctx);
+                            (tramp)(ctx, func);
 
                             if ctx.is_native {
                                 #[cfg(debug_assertions)]
@@ -4561,7 +4566,9 @@ fn call_global_function_deopt_no_arity_spilled(
                         ctx.handle_function_call_closure_jit_no_arity(closure)
                             .unwrap();
 
-                        (func)(ctx);
+                        let tramp = ctx.thread.trampoline;
+
+                        (tramp)(ctx, func);
 
                         if ctx.is_native {
                             debug_assert_eq!(ctx.pop_count, pop_count);
@@ -4675,7 +4682,9 @@ fn call_global_function_deopt_spilled(
                         ctx.handle_function_call_closure_jit(closure, arity)
                             .unwrap();
 
-                        (func)(ctx);
+                        let tramp = ctx.thread.trampoline;
+
+                        (tramp)(ctx, func);
 
                         if ctx.is_native {
                             debug_assert_eq!(ctx.pop_count, pop_count);

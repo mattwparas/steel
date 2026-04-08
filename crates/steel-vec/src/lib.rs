@@ -45,6 +45,32 @@ impl<T> RawVec<T> {
         Self { ptr, cap: new_cap }
     }
 
+    fn reserve_exact(&mut self, len: usize, additional: usize) {
+        assert!(mem::size_of::<T>() != 0, "capacity overflow");
+
+        let required = len.checked_add(additional).expect("capacity overflow");
+        if required <= self.cap {
+            return;
+        }
+
+        let new_cap = required;
+        let new_layout = Layout::array::<T>(new_cap).expect("Allocation too large");
+
+        let new_ptr = if self.cap == 0 {
+            unsafe { alloc::alloc(new_layout) }
+        } else {
+            let old_layout = Layout::array::<T>(self.cap).unwrap();
+            let old_ptr = self.ptr.as_ptr() as *mut u8;
+            unsafe { alloc::realloc(old_ptr, old_layout, new_layout.size()) }
+        };
+
+        self.ptr = match NonNull::new(new_ptr as *mut T) {
+            Some(p) => p,
+            None => alloc::handle_alloc_error(new_layout),
+        };
+        self.cap = new_cap;
+    }
+
     fn grow(&mut self) {
         // since we set the capacity to usize::MAX when T has size 0,
         // getting to here necessarily means the Vec is overfull.
@@ -149,6 +175,10 @@ impl<T> Vec<T> {
 
     pub fn grow_capacity(&mut self) {
         self.buf.grow();
+    }
+
+    pub fn reserve_exact(&mut self, additional: usize) {
+        self.buf.reserve_exact(self.len, additional);
     }
 
     pub fn with_capacity(cap: usize) -> Self {
@@ -531,11 +561,10 @@ impl<T> Extend<T> for Vec<T> {
         I: IntoIterator<Item = T>,
     {
         let iter = iter.into_iter();
-        // let hint = iter.size_hint().0;
-        // TODO: @matt - add the reserve implementation here!
-        // if hint > 0 {
-        //     self.reserve(hint);
-        // }
+        let hint = iter.size_hint().0;
+        if hint > 0 {
+            self.reserve_exact(hint);
+        }
         for x in iter {
             self.push(x);
         }

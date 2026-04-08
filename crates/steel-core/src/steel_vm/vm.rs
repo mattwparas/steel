@@ -7,6 +7,8 @@ use crate::gc::shared::{
     MutContainer, ShareableMut, Shared, StandardShared, StandardSharedMut, WeakShared,
     WeakSharedMut,
 };
+#[cfg(feature = "jit2")]
+use crate::jit2::cgen::JitFnPointer;
 use crate::parser::expand_visitor::GlobalMap;
 use crate::parser::expander::BindingKind;
 use crate::parser::kernel::{
@@ -360,6 +362,9 @@ pub struct SteelThread {
     pub(crate) jit: Arc<Mutex<crate::jit2::cgen::JIT>>,
 
     pub(crate) module_context: Vec<SteelString>,
+
+    #[cfg(feature = "jit2")]
+    pub(crate) trampoline: fn(&mut VmCore, JitFnPointer),
 }
 
 #[derive(Clone)]
@@ -705,6 +710,11 @@ impl SteelThread {
             handle,
         });
 
+        #[cfg(feature = "jit2")]
+        let mut jit = crate::jit2::cgen::JIT::default();
+        #[cfg(feature = "jit2")]
+        let trampoline = unsafe { std::mem::transmute(jit.compile_trampoline()) };
+
         SteelThread {
             global_env: Env::root(),
             stack: Stack::with_capacity(128),
@@ -737,7 +747,9 @@ impl SteelThread {
             #[cfg(feature = "jit2")]
             jit: Arc::new(Mutex::new(crate::jit2::cgen::JIT::default())),
             module_context: Vec::new(),
-            // delayed_dropper: DelayedDropper::new(),
+
+            #[cfg(feature = "jit2")]
+            trampoline,
         }
     }
 
@@ -2458,14 +2470,19 @@ impl<'a> VmCore<'a> {
                         self.thread_id = Some(steel_rc::ThreadId::current_thread());
                     }
 
-                    self.thread
+                    let tramp = self.thread.trampoline;
+
+                    let fn_ptr = self
+                        .thread
                         .stack_frames
                         .last()
                         .unwrap()
                         .function
                         .super_instructions
                         .as_ref()
-                        .unwrap()(self);
+                        .unwrap();
+
+                    (tramp)(self, *fn_ptr);
 
                     self.is_native = false;
 
