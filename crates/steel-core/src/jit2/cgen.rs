@@ -2613,43 +2613,29 @@ impl FunctionTranslator<'_> {
 
                     const USE_INLINE_GLOBAL_TAIL_CALL: bool = false;
 
-                    if USE_INLINE_GLOBAL_TAIL_CALL {
-                        return self.inline_global_tail_call(function_index, arity);
-                    } else {
-                        let name = CallGlobalTailFunctionDefinitions::arity_to_name(arity);
-                        // let name = None;
+                    let func = self._globals.get(function_index).cloned();
 
-                        if let Some(name) = name {
-                            // TODO: We need to spill the local variables here!
-                            // This function pushes back on to the stack, and then we should just
-                            // return since we're done now.
-                            let v = self.call_global_function(arity, name, function_index, true);
-
-                            self.push(v, InferredType::Any);
+                    // Call direct, by hard coding this, and we're gonna check that the
+                    // instructions exist already...
+                    if USE_INLINE_GLOBAL_TAIL_CALL && matches!(func, Some(SteelVal::Closure(_))) {
+                        let function = if let Some(SteelVal::Closure(v)) = func {
+                            v
                         } else {
-                            // @matt: 1/3/26
-                            // TODO: There is a bug with this function!
-                            let name = "call-global-tail-spilled";
+                            unreachable!();
+                        };
 
-                            // TODO: We need to spill the local variables here!
-                            let v = self.call_global_function_spilled(
-                                arity,
-                                name,
-                                function_index,
-                                true,
-                            );
-
-                            self.push(v, InferredType::Any)
+                        // Take this fast path if the super instructions already exists.
+                        // Then we can do a direct call.
+                        if function.super_instructions.is_some() {
+                            self.inline_global_tail_call(function_index, arity, function);
+                            self.ip = self.instructions.len() + 1;
+                        } else {
+                            self.slow_path_deopt_tail_call(function_index, arity);
                         }
 
-                        self.check_deopt();
-
-                        self.ip = self.instructions.len() + 1;
-
-                        // println!("------------------------> Returning");
-
-                        self.depth -= 1;
-
+                        return false;
+                    } else {
+                        self.slow_path_deopt_tail_call(function_index, arity);
                         return false;
                     }
                 }
@@ -3896,6 +3882,35 @@ impl FunctionTranslator<'_> {
         return true;
     }
 
+    fn slow_path_deopt_tail_call(&mut self, function_index: usize, arity: usize) {
+        let name = CallGlobalTailFunctionDefinitions::arity_to_name(arity);
+        // let name = None;
+
+        if let Some(name) = name {
+            // TODO: We need to spill the local variables here!
+            // This function pushes back on to the stack, and then we should just
+            // return since we're done now.
+            let v = self.call_global_function(arity, name, function_index, true);
+
+            self.push(v, InferredType::Any);
+        } else {
+            // @matt: 1/3/26
+            // TODO: There is a bug with this function!
+            let name = "call-global-tail-spilled";
+
+            // TODO: We need to spill the local variables here!
+            let v = self.call_global_function_spilled(arity, name, function_index, true);
+
+            self.push(v, InferredType::Any)
+        }
+
+        self.check_deopt();
+
+        self.ip = self.instructions.len() + 1;
+
+        self.depth -= 1;
+    }
+
     fn check_null_no_drop(&mut self, value: Value) -> Value {
         // Encode this manually:
         let tag = self.get_tag(value);
@@ -4872,8 +4887,71 @@ impl FunctionTranslator<'_> {
         result
     }
 
-    fn inline_global_tail_call(&mut self, function_index: usize, arity: usize) -> bool {
-        todo!()
+    // TODO: Assert that this is immutable. We can avoid looking it up.
+    // First things first - worst case always is to just bail out and fall back
+    // to the existing behavior.
+    fn inline_global_tail_call(
+        &mut self,
+        function_index: usize,
+        arity: usize,
+        func: Gc<ByteCodeLambda>,
+    ) {
+        // First things first, we first get the args off. Worst case, we'll spill
+        // these back on to the args
+        let args = self
+            .split_off(arity)
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<_>>();
+
+        let vm_ctx = self.get_ctx();
+        let id = func.id;
+
+        // TODO: Consider if we need to spill the whole stack here. We could also
+        // just call drop, but writing the values to the stack will help us drop
+        // them.
+        self.spill_cloned_stack();
+
+        let instr_fat_ptr = func.body_exp();
+        let instr_fat_ptr = self.create_i128(unsafe { std::mem::transmute(instr_fat_ptr) });
+
+        func.clone().into_raw();
+
+        // Horrendous crimes, but we'll allow it. We'll also leak the instructions...
+        let lookup_index = self.builder.ins().iconst(Type::int(64).unwrap(), unsafe {
+            std::mem::transmute::<Gc<ByteCodeLambda>, i64>(func)
+        });
+
+        // Not sure if we're gonna need this?
+        let fallback_ip = self.ip;
+
+        self.ip += 1;
+
+        self.increment_ref_count_closure(lookup_index);
+
+        // Pass this through
+        self.update_last_stackframe(vm_ctx, instr_fat_ptr, lookup_index);
+
+        let offset = self.read_last_sp(vm_ctx, None);
+
+        // Then, truncate the stack back to where we were before:
+        self.truncate_stack(vm_ctx, offset, None);
+
+        for arg in args {
+            self.push_to_vm_stack(arg);
+        }
+
+        // Implement the body of `new_handle_tail_call_closure` here
+
+        // TODO: Adjust the stack frame!
+        let jit_func = self.get_jit_func(id);
+
+        // New args now that we've spilled everything
+        let args = [vm_ctx];
+
+        println!("Emitting tail call");
+
+        self.builder.ins().return_call(jit_func, &args);
     }
 
     fn call_global_function(
@@ -6454,6 +6532,78 @@ impl FunctionTranslator<'_> {
     // Whether we should continue running:
     fn pop_count_should_continue(&mut self, pop_count: Value) -> Value {
         self.builder.ins().icmp_imm(IntCC::NotEqual, pop_count, 0)
+    }
+
+    fn update_last_stackframe(&mut self, vm_ctx: Value, fat_ptr: Value, function: Value) -> Value {
+        let thread_offset = offset_of!(VmCore, thread);
+
+        // This represents the first part of the thread
+        let thread_pointer = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            vm_ctx,
+            thread_offset as i32,
+        );
+
+        // Stack offset:
+        let stack_offset = offset_of!(SteelThread, stack_frames);
+        let len_offset = steel_vec::Vec::<StackFrame>::len_offset();
+
+        let stack_length = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + len_offset) as i32,
+        );
+
+        // Last thing
+        let new_length = self.builder.ins().iadd_imm(stack_length, -1);
+
+        let ptr_offset = steel_vec::Vec::<StackFrame>::buf_offset();
+
+        let buf_ptr = self.builder.ins().load(
+            Type::int(64).unwrap(),
+            MemFlags::trusted(),
+            thread_pointer,
+            (stack_offset + ptr_offset) as i32,
+        );
+
+        let size: i64 = std::mem::size_of::<StackFrame>() as _;
+        let offset = self.builder.ins().imul_imm(new_length, size);
+        let slot_ptr = self.builder.ins().iadd(buf_ptr, offset);
+
+        // Load the stack frame. We're going to use this later.
+        let value = self.builder.ins().load(
+            types::I32,
+            MemFlags::trusted(),
+            slot_ptr,
+            offset_of!(StackFrame, sp) as i32,
+        );
+
+        //
+        let old_function = self.builder.ins().load(
+            types::I64,
+            MemFlags::trusted(),
+            slot_ptr,
+            offset_of!(StackFrame, function) as i32,
+        );
+
+        self.drop_biased_rc_unboxed_closure(old_function);
+
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            fat_ptr,
+            slot_ptr,
+            offset_of!(StackFrame, instructions) as i32,
+        );
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            fat_ptr,
+            function,
+            offset_of!(StackFrame, function) as i32,
+        );
+
+        self.builder.ins().uextend(types::I64, value)
     }
 
     // TODO:
