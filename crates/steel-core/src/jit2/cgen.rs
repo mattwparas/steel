@@ -1264,16 +1264,23 @@ impl JIT {
         param.purpose = ArgumentPurpose::VMContext;
 
         self.ctx.func.signature.params.push(param);
+        self.ctx.func.signature.call_conv = CallConv::Tail;
 
-        let id = self
+        let inner_name = format!("{}_inner", name);
+        let inner_id = self
             .module
-            .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
+            .declare_function(&inner_name, Linkage::Local, &self.ctx.func.signature)
             .map_err(|e| e.to_string())?;
+
+        // let id = self
+        //     .module
+        //     .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
+        //     .map_err(|e| e.to_string())?;
 
         // Then, translate the AST nodes into Cranelift IR.
         self.translate(
-            name,
-            id,
+            inner_name.clone(),
+            inner_id,
             arity,
             params,
             stmts,
@@ -1291,7 +1298,7 @@ impl JIT {
         }
 
         self.module
-            .define_function(id, &mut self.ctx)
+            .define_function(inner_id, &mut self.ctx)
             .map_err(|e| {
                 eprintln!("error in defining function: {}", e);
                 self.module.clear_context(&mut self.ctx);
@@ -1306,7 +1313,54 @@ impl JIT {
         self.module.clear_context(&mut self.ctx);
         self.module.finalize_definitions().unwrap();
 
-        let code = self.module.get_finalized_function(id);
+        // Set up the trampoline
+
+        let mut tramp_param = AbiParam::new(pointer);
+        tramp_param.purpose = ArgumentPurpose::VMContext;
+        self.ctx.func.signature.params.push(tramp_param);
+
+        let tramp_id = self
+            .module
+            .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
+            .map_err(|e| e.to_string())?;
+
+        {
+            let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
+
+            let block = builder.create_block();
+            builder.append_block_params_for_function_params(block);
+            builder.switch_to_block(block);
+            builder.seal_block(block);
+
+            let vm_ctx_val = builder.block_params(block)[0];
+            let mut inner_sig = self.module.make_signature();
+            inner_sig.call_conv = CallConv::Tail;
+            let mut inner_param = AbiParam::new(pointer);
+            inner_param.purpose = ArgumentPurpose::VMContext;
+            inner_sig.params.push(inner_param);
+
+            let inner_callee = self
+                .module
+                .declare_function(&inner_name, Linkage::Local, &inner_sig)
+                .map_err(|e| e.to_string())?;
+            let inner_func_ref = self.module.declare_func_in_func(inner_callee, builder.func);
+
+            builder.ins().call(inner_func_ref, &[vm_ctx_val]);
+            builder.ins().return_(&[]);
+            builder.finalize();
+        }
+
+        self.module
+            .define_function(tramp_id, &mut self.ctx)
+            .map_err(|e| {
+                self.module.clear_context(&mut self.ctx);
+                e.to_string()
+            })?;
+
+        self.module.clear_context(&mut self.ctx);
+        self.module.finalize_definitions().unwrap();
+
+        let code = self.module.get_finalized_function(tramp_id);
 
         Ok(code)
     }
@@ -2611,7 +2665,7 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
 
-                    const USE_INLINE_GLOBAL_TAIL_CALL: bool = false;
+                    const USE_INLINE_GLOBAL_TAIL_CALL: bool = true;
 
                     let func = self._globals.get(function_index).cloned();
 
@@ -2629,6 +2683,7 @@ impl FunctionTranslator<'_> {
                         if function.super_instructions.is_some() {
                             self.inline_global_tail_call(function_index, arity, function);
                             self.ip = self.instructions.len() + 1;
+                            self.depth -= 1;
                         } else {
                             self.slow_path_deopt_tail_call(function_index, arity);
                         }
@@ -4949,9 +5004,18 @@ impl FunctionTranslator<'_> {
         // New args now that we've spilled everything
         let args = [vm_ctx];
 
-        println!("Emitting tail call");
+        let zero = self.builder.ins().iconst(types::I64, 0);
+
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            zero,
+            vm_ctx,
+            offset_of!(VmCore, ip) as i32,
+        );
 
         self.builder.ins().return_call(jit_func, &args);
+        let cold_block = self.builder.create_block();
+        self.builder.switch_to_block(cold_block);
     }
 
     fn call_global_function(
@@ -6598,8 +6662,8 @@ impl FunctionTranslator<'_> {
         );
         self.builder.ins().store(
             MemFlags::trusted(),
-            fat_ptr,
             function,
+            slot_ptr,
             offset_of!(StackFrame, function) as i32,
         );
 
@@ -7321,7 +7385,9 @@ impl FunctionTranslator<'_> {
             sig.call_conv = CallConv::SystemV;
         }
 
-        let name = id.to_string();
+        sig.call_conv = CallConv::Tail;
+
+        let name = format!("{}_inner", id);
 
         let callee = self
             .module
