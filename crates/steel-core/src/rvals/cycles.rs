@@ -1,4 +1,5 @@
 use crate::gc::shared::{MutableContainer, ShareableMut};
+use crate::steel_vm::builtin::{get_builtin_function_name, get_mutable_function_name};
 use crate::steel_vm::{builtin::get_function_name, vm::Continuation, vm::ContinuationMark};
 use crate::values::lists::Pair;
 use num_bigint::BigInt;
@@ -206,6 +207,21 @@ impl CycleDetector {
                     write!(f, "#<function>")
                 }
             }
+            MutFunc(func) => {
+                if let Some(name) = get_mutable_function_name(*func) {
+                    write!(f, "#<function:{}>", name.name)
+                } else {
+                    write!(f, "#<function>")
+                }
+            }
+
+            BuiltIn(func) => {
+                if let Some(name) = get_builtin_function_name(*func) {
+                    write!(f, "#<function:{}>", name.name)
+                } else {
+                    write!(f, "#<function>")
+                }
+            }
             Void => write!(f, "#<void>"),
             SymbolV(s) => write!(f, "{s}"),
             VectorV(lst) => {
@@ -331,8 +347,6 @@ impl CycleDetector {
                 }
             },
             // write!(f, "#<list {:?}>", l),
-            MutFunc(_) => write!(f, "#<function>"),
-            BuiltIn(_) => write!(f, "#<function>"),
             ReducerV(_) => write!(f, "#<reducer>"),
             MutableVector(v) => match format_type {
                 FormatType::Normal => {

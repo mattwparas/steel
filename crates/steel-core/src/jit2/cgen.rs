@@ -25,7 +25,7 @@ use crate::{
     core::instructions::{pretty_print_dense_instructions, DenseInstruction},
     gc::Gc,
     primitives::{
-        lists::{steel_is_empty, steel_pair},
+        lists::{steel_cdr, steel_is_empty, steel_pair},
         ports::{eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char},
         strings::{char_equals_binop, steel_char_equals},
         vectors::steel_mut_vec_set,
@@ -1175,23 +1175,7 @@ unsafe fn compile_bytecode(
     function_index: Option<usize>,
     slot: Option<&Gc<ByteCodeLambda>>,
 ) -> Result<JitFnPointer, String> {
-    // Pass the string to the JIT, and it returns a raw pointer to machine code.
-    // TODO: We'll want to do two different functions.
-    // One which interfaces with the VM, and another which can be called directly
-    // without going through the VM.
-    //
-    // That way we can have direct calls for tail calls and for recursive calls which
-    // aren't tail calls.
-    //
-    // The only difference I believe will be the signature, and we'll have to
-    // take the parameters into account in this case - they won't come from the VM
-    // stack but will instead come from the native stack.
     let code_ptr = jit.compile(name, arity, code, globals, constants, function_index, slot)?;
-    // Cast the raw pointer to a typed function pointer. This is unsafe, because
-    // this is the critical point where you have to trust that the generated code
-    // is safe to be called.
-    // let code_fn = core::mem::transmute::<*const u8, fn(&mut VmCore)>(code_ptr);
-
     let code_fn = JitFnPointer(NonNull::new_unchecked(code_ptr.cast_mut()));
 
     Ok(code_fn)
@@ -2678,6 +2662,28 @@ impl FunctionTranslator<'_> {
                     // I think.
                     let maybe_global = self._globals.get(function_index).cloned();
                     if let Some(maybe_global) = maybe_global {
+                        // Check if this is a mut func, handle it accordingly
+                        println!("Call global tail: {}", maybe_global);
+
+                        match maybe_global {
+                            SteelVal::MutFunc(_) => {
+                                println!("Found mutable function")
+                            }
+                            SteelVal::FuncV(_) => {
+                                println!("Found normal function")
+                            }
+
+                            SteelVal::BoxedFunction(_) => {
+                                println!("Found boxed function")
+                            }
+
+                            SteelVal::BuiltIn(_) => {
+                                println!("Found built in")
+                            }
+
+                            _ => {}
+                        }
+
                         if let Some(spec) = create_struct_spec(maybe_global) {
                             // TODO: This is where we inline the calls for struct
                             // functions

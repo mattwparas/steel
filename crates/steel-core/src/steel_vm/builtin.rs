@@ -189,6 +189,44 @@ pub fn get_function_name(function: FunctionSignature) -> Option<FunctionSignatur
     }
 }
 
+pub fn get_mutable_function_name(
+    function: MutFunctionSignature,
+) -> Option<FunctionSignatureMetadata> {
+    #[cfg(feature = "sync")]
+    {
+        STATIC_FUNCTION_TABLE
+            .read()
+            .get(&BuiltInFunctionType::Mutable(function))
+            .cloned()
+    }
+    #[cfg(not(feature = "sync"))]
+    {
+        FUNCTION_TABLE.with(|x| {
+            x.borrow()
+                .get(&BuiltInFunctionType::Mutable(function))
+                .cloned()
+        })
+    }
+}
+
+pub fn get_builtin_function_name(function: BuiltInSignature) -> Option<FunctionSignatureMetadata> {
+    #[cfg(feature = "sync")]
+    {
+        STATIC_FUNCTION_TABLE
+            .read()
+            .get(&BuiltInFunctionType::Context(function))
+            .cloned()
+    }
+    #[cfg(not(feature = "sync"))]
+    {
+        FUNCTION_TABLE.with(|x| {
+            x.borrow()
+                .get(&BuiltInFunctionType::Context(function))
+                .cloned()
+        })
+    }
+}
+
 pub fn get_function_metadata(function: BuiltInFunctionType) -> Option<FunctionSignatureMetadata> {
     #[cfg(feature = "sync")]
     {
