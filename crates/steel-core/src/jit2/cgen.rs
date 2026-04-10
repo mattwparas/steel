@@ -6,7 +6,7 @@ mod native;
 
 use core::{mem::offset_of, ptr::NonNull};
 use cranelift::{
-    codegen::ir::{ArgumentPurpose, FuncRef, GlobalValue, StackSlot, Type},
+    codegen::ir::{ArgumentPurpose, BlockArg, FuncRef, GlobalValue, StackSlot, Type},
     frontend::Switch,
     prelude::{isa::CallConv, *},
 };
@@ -1228,7 +1228,8 @@ impl JIT {
 
         let func_id = self
             .module
-            .declare_function("jit_trampoline", Linkage::Local, &outer_sig)
+            // .declare_function("jit_trampoline", Linkage::Local, &outer_sig)
+            .declare_function("jit_trampoline", Linkage::Export, &outer_sig)
             .unwrap();
 
         self.ctx.func.signature = outer_sig;
@@ -1310,7 +1311,8 @@ impl JIT {
         let inner_name = format!("{}_inner", name);
         let inner_id = self
             .module
-            .declare_function(&inner_name, Linkage::Local, &self.ctx.func.signature)
+            // .declare_function(&inner_name, Linkage::Local, &self.ctx.func.signature)
+            .declare_function(&inner_name, Linkage::Export, &self.ctx.func.signature)
             .map_err(|e| e.to_string())?;
 
         // let id = self
@@ -2170,7 +2172,7 @@ impl FunctionTranslator<'_> {
                     let name = CallFunctionDefinitions::arity_to_name(arity);
                     self.ip += 1;
 
-                    const USE_INLINE_CALL_FUNC: bool = true;
+                    const USE_INLINE_CALL_FUNC: bool = false;
 
                     // TODO: @Matt
                     // Lets do a hierarchical check. In the event this is a
@@ -2653,7 +2655,7 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
 
-                    const USE_INLINE_GLOBAL_TAIL_CALL: bool = true;
+                    const USE_INLINE_GLOBAL_TAIL_CALL: bool = false;
 
                     let func = self._globals.get(function_index).cloned();
 
@@ -2684,6 +2686,8 @@ impl FunctionTranslator<'_> {
                             _ => {}
                         }
 
+                        // TODO: @Matt -> This is the issue, something is
+                        // wrong with the way I'm reading this, or doing something.
                         if let Some(spec) = create_struct_spec(maybe_global) {
                             // TODO: This is where we inline the calls for struct
                             // functions
@@ -2760,7 +2764,7 @@ impl FunctionTranslator<'_> {
                         && self._globals.get(payload).is_none()
                         && self.function_context == Some(function_index)
                     {
-                        const USE_EXPERIMENTAL_CALL: bool = true;
+                        const USE_EXPERIMENTAL_CALL: bool = false;
 
                         if USE_EXPERIMENTAL_CALL {
                             let slot = self.slot.unwrap().clone();
@@ -4037,13 +4041,17 @@ impl FunctionTranslator<'_> {
 
         let is_empty = self.builder.ins().icmp_imm(IntCC::Equal, length, 0);
 
-        self.builder.ins().jump(merge_block, &[is_empty]);
+        self.builder
+            .ins()
+            .jump(merge_block, &[BlockArg::Value(is_empty)]);
 
         self.builder.switch_to_block(not_pair_block);
         self.builder.seal_block(not_pair_block);
 
         let false_value = self.builder.ins().iconst(types::I8, 0);
-        self.builder.ins().jump(merge_block, &[false_value]);
+        self.builder
+            .ins()
+            .jump(merge_block, &[BlockArg::Value(false_value)]);
 
         self.builder.switch_to_block(merge_block);
         let result = self.builder.block_params(merge_block)[0];
@@ -4756,7 +4764,7 @@ impl FunctionTranslator<'_> {
 
         // println!("-----------------------------------------");
 
-        const USE_INLINE_TAIL_CALL: bool = true;
+        const USE_INLINE_TAIL_CALL: bool = false;
 
         if USE_INLINE_TAIL_CALL {
             let args = args_off_the_stack
@@ -5003,7 +5011,14 @@ impl FunctionTranslator<'_> {
         self.increment_ref_count_closure(lookup_index);
 
         // Pass this through
-        self.update_last_stackframe(vm_ctx, instr_fat_ptr, lookup_index);
+        self.update_last_stackframe(vm_ctx, lookup_index);
+
+        self.builder.ins().store(
+            MemFlags::trusted(),
+            instr_fat_ptr,
+            vm_ctx,
+            offset_of!(VmCore, instructions) as i32,
+        );
 
         let offset = self.read_last_sp(vm_ctx, None);
 
@@ -5839,7 +5854,7 @@ impl FunctionTranslator<'_> {
             // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
             // self.create_i128(encode(SteelVal::IntV(12345)))
 
-            self.encode_integer(12345)
+            BlockArg::Value(self.encode_integer(12345))
             // BlockArg::Value(
             //     self.maybe_shadow_pop()
             //         .map(|x| {
@@ -5854,7 +5869,7 @@ impl FunctionTranslator<'_> {
         } else {
             // BlockArg::Value(self.create_i128(encode(SteelVal::Void)))
             // BlockArg::Value(self.shadow_pop().0)
-            self.shadow_pop().0
+            BlockArg::Value(self.shadow_pop().0)
         };
 
         let then_stack = self.shadow_stack.clone();
@@ -5921,36 +5936,9 @@ impl FunctionTranslator<'_> {
 
         // Returned, therefore we don't need to do anything.
         let else_return = if else_out_of_bounds {
-            // BlockArg::Value(self.create_i128(encode(SteelVal::IntV(12345))))
-
-            self.encode_integer(12345)
-
-            // BlockArg::Value(
-            //     self.maybe_shadow_pop()
-            //         .map(|x| {
-            //             // assert!(!x.spilled);
-            //             let value = x.0;
-            //             self.value_to_local_map.remove(&value);
-            //             value
-            //         })
-            //         // .unwrap(),
-            //         .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
-            // )
+            BlockArg::Value(self.encode_integer(12345))
         } else {
-            // BlockArg::Value(self.create_i128(encode(SteelVal::Void)))
-            // BlockArg::Value(self.shadow_pop().0)
-            self.shadow_pop().0
-            // BlockArg::Value(
-            //     self.maybe_shadow_pop()
-            //         .map(|x| {
-            //             // assert!(!x.spilled);
-            //             let value = x.0;
-            //             self.value_to_local_map.remove(&value);
-            //             value
-            //         })
-            //         // .unwrap(),
-            //         .unwrap_or_else(|| self.create_i128(encode(SteelVal::Void))),
-            // )
+            BlockArg::Value(self.shadow_pop().0)
         };
 
         let phi = match (then_out_of_bounds, else_out_of_bounds) {
@@ -6401,7 +6389,7 @@ impl FunctionTranslator<'_> {
 
             self.builder.append_block_param(loop_header, types::I64); // i
 
-            let zero = self.builder.ins().iconst(types::I64, 0);
+            let zero = BlockArg::Value(self.builder.ins().iconst(types::I64, 0));
             self.builder.ins().jump(loop_header, &[zero]);
 
             self.builder.switch_to_block(loop_header);
@@ -6430,7 +6418,7 @@ impl FunctionTranslator<'_> {
                 .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
             self.drop_tagged_value(val);
 
-            let i_next = self.builder.ins().iadd_imm(i, 1);
+            let i_next = BlockArg::Value(self.builder.ins().iadd_imm(i, 1));
             self.builder.ins().jump(loop_header, &[i_next]);
 
             self.builder.seal_block(loop_header);
@@ -6616,7 +6604,7 @@ impl FunctionTranslator<'_> {
         self.builder.ins().icmp_imm(IntCC::NotEqual, pop_count, 0)
     }
 
-    fn update_last_stackframe(&mut self, vm_ctx: Value, fat_ptr: Value, function: Value) -> Value {
+    fn update_last_stackframe(&mut self, vm_ctx: Value, function: Value) -> Value {
         let thread_offset = offset_of!(VmCore, thread);
 
         // This represents the first part of the thread
@@ -6672,12 +6660,6 @@ impl FunctionTranslator<'_> {
 
         self.drop_biased_rc_unboxed_closure(old_function);
 
-        self.builder.ins().store(
-            MemFlags::trusted(),
-            fat_ptr,
-            slot_ptr,
-            offset_of!(StackFrame, instructions) as i32,
-        );
         self.builder.ins().store(
             MemFlags::trusted(),
             function,

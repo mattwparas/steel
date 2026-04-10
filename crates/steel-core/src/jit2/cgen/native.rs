@@ -270,7 +270,7 @@ impl<'a> FunctionTranslator<'a> {
                     // Is a pair
                     self.builder.switch_to_block(pair_block);
                     self.builder.seal_block(pair_block);
-                    let true_val = self.builder.ins().iconst(types::I8, 1);
+                    let true_val = BlockArg::Value(self.builder.ins().iconst(types::I8, 1));
                     self.builder.ins().jump(merge_block, &[true_val]);
                 }
 
@@ -287,7 +287,8 @@ impl<'a> FunctionTranslator<'a> {
                         .ins()
                         .load(types::I32, MemFlags::new(), value, 16);
 
-                    let not_empty = self.builder.ins().icmp_imm(IntCC::NotEqual, length, 0);
+                    let not_empty =
+                        BlockArg::Value(self.builder.ins().icmp_imm(IntCC::NotEqual, length, 0));
 
                     self.builder.ins().jump(merge_block, &[not_empty]);
                 }
@@ -296,7 +297,7 @@ impl<'a> FunctionTranslator<'a> {
                     // Else case, not a list or pair
                     self.builder.switch_to_block(else_block);
                     self.builder.seal_block(else_block);
-                    let false_val = self.builder.ins().iconst(types::I8, 0);
+                    let false_val = BlockArg::Value(self.builder.ins().iconst(types::I8, 0));
                     self.builder.ins().jump(merge_block, &[false_val]);
                 }
 
@@ -592,14 +593,14 @@ impl<'a> FunctionTranslator<'a> {
         self.builder.switch_to_block(then_block);
         self.builder.seal_block(then_block);
 
-        let res = then(self);
+        let res = BlockArg::Value(then(self));
 
         self.builder.ins().jump(merge_block, &[res]);
 
         self.builder.switch_to_block(else_block);
         self.builder.seal_block(else_block);
 
-        let then_res = else_thunk(self);
+        let then_res = BlockArg::Value(else_thunk(self));
         self.builder.ins().jump(merge_block, &[then_res]);
         self.builder.switch_to_block(merge_block);
 

@@ -1,7 +1,7 @@
 use crate::compiler::compiler::Compiler;
 use crate::compiler::modules::fully_qualified_to_relative;
 use crate::compiler::passes::VisitorMutRefUnit;
-use crate::core::instructions::u24;
+use crate::core::instructions::{pretty_print_dense_instructions, u24};
 use crate::env::SharedVectorWrapper;
 use crate::gc::shared::{
     MutContainer, ShareableMut, Shared, StandardShared, StandardSharedMut, WeakShared,

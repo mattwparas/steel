@@ -5744,6 +5744,7 @@ fn handle_new_start_closure(ctx: *mut VmCore, ip: usize, offset: usize) -> Steel
                     captures.push(value);
                 }
                 (l, _) => {
+                    pretty_print_dense_instructions(&ctx.instructions);
                     panic!(
                         "Something went wrong in closure construction!, found: {:?} @ {}",
                         l, ctx.ip,
