@@ -43,6 +43,14 @@ use crate::{
     SteelVal,
 };
 
+// Various optimizations that we've added one by one.
+// Its important that we get this right
+const INLINE_STRUCT_FUNCTION_CALLS: bool = false;
+const USE_INLINE_CALL_FUNC: bool = false;
+const USE_INLINE_GLOBAL_TAIL_CALL: bool = false;
+const USE_EXPERIMENTAL_CALL: bool = false;
+const USE_INLINE_TAIL_CALL: bool = false;
+
 /// The basic JIT class.
 pub struct JIT {
     /// The function builder context, which is reused across multiple
@@ -2172,8 +2180,6 @@ impl FunctionTranslator<'_> {
                     let name = CallFunctionDefinitions::arity_to_name(arity);
                     self.ip += 1;
 
-                    const USE_INLINE_CALL_FUNC: bool = false;
-
                     // TODO: @Matt
                     // Lets do a hierarchical check. In the event this is a
                     // closure, we can fast path calling the function ourselves
@@ -2655,8 +2661,6 @@ impl FunctionTranslator<'_> {
                     self.ip += 1;
                     let arity = self.instructions[self.ip].payload_size.to_usize();
 
-                    const USE_INLINE_GLOBAL_TAIL_CALL: bool = false;
-
                     let func = self._globals.get(function_index).cloned();
 
                     // TODO: For calling struct operations, then we'll
@@ -2685,8 +2689,6 @@ impl FunctionTranslator<'_> {
 
                             _ => {}
                         }
-
-                        const INLINE_STRUCT_FUNCTION_CALLS: bool = true;
 
                         if INLINE_STRUCT_FUNCTION_CALLS {
                             // TODO: @Matt -> This is the issue, something is
@@ -2771,8 +2773,6 @@ impl FunctionTranslator<'_> {
                         && self._globals.get(payload).is_none()
                         && self.function_context == Some(function_index)
                     {
-                        const USE_EXPERIMENTAL_CALL: bool = false;
-
                         if USE_EXPERIMENTAL_CALL {
                             let slot = self.slot.unwrap().clone();
 
@@ -4568,16 +4568,18 @@ impl FunctionTranslator<'_> {
 
         let name = CallGlobalFunctionDefinitions::arity_to_name(arity);
 
-        let maybe_global = self._globals.get(function_index).cloned();
-        if let Some(maybe_global) = maybe_global {
-            if let Some(spec) = create_struct_spec(maybe_global) {
-                // TODO: This is where we inline the calls for struct
-                // functions
-                if let Some((value, typ)) =
-                    self.inline_struct_call_no_drop(spec, arity, function_index)
-                {
-                    self.push(value, typ);
-                    return;
+        if INLINE_STRUCT_FUNCTION_CALLS {
+            let maybe_global = self._globals.get(function_index).cloned();
+            if let Some(maybe_global) = maybe_global {
+                if let Some(spec) = create_struct_spec(maybe_global) {
+                    // TODO: This is where we inline the calls for struct
+                    // functions
+                    if let Some((value, typ)) =
+                        self.inline_struct_call_no_drop(spec, arity, function_index)
+                    {
+                        self.push(value, typ);
+                        return;
+                    }
                 }
             }
         }
@@ -4770,8 +4772,6 @@ impl FunctionTranslator<'_> {
         let args_off_the_stack = self.split_off(payload);
 
         // println!("-----------------------------------------");
-
-        const USE_INLINE_TAIL_CALL: bool = false;
 
         if USE_INLINE_TAIL_CALL {
             let args = args_off_the_stack
