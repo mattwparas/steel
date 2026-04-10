@@ -2686,19 +2686,26 @@ impl FunctionTranslator<'_> {
                             _ => {}
                         }
 
-                        // TODO: @Matt -> This is the issue, something is
-                        // wrong with the way I'm reading this, or doing something.
-                        if let Some(spec) = create_struct_spec(maybe_global) {
-                            // TODO: This is where we inline the calls for struct
-                            // functions
-                            if let Some((value, typ)) =
-                                self.inline_struct_call_no_drop(spec, arity, function_index)
-                            {
-                                println!("Compiling the tail call for structs");
-                                self.inline_handle_pop(value);
-                                self.depth -= 1;
-                                self.ip = self.instructions.len() + 1;
-                                return false;
+                        const INLINE_STRUCT_FUNCTION_CALLS: bool = true;
+
+                        if INLINE_STRUCT_FUNCTION_CALLS {
+                            // TODO: @Matt -> This is the issue, something is
+                            // wrong with the way I'm reading this, or doing something.
+                            if let Some(spec) = create_struct_spec(maybe_global) {
+                                // TODO: This is where we inline the calls for struct
+                                // functions
+                                if let Some((value, typ)) =
+                                    self.inline_struct_call_no_drop(spec, arity, function_index)
+                                {
+                                    println!("Compiling the tail call for structs");
+                                    // self.inline_handle_pop(value);
+
+                                    self.push(value, InferredType::Any);
+
+                                    self.depth -= 1;
+                                    self.ip = self.instructions.len() + 1;
+                                    return false;
+                                }
                             }
                         }
                     }
