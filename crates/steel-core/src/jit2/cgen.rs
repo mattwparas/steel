@@ -3056,6 +3056,8 @@ impl FunctionTranslator<'_> {
 
                 // TODO: Depending on the inferred type, we can save a lot of
                 // operations here.
+                //
+                // TODO: Add floats
                 OpCode::SUB
                     if payload == 2
                         && matches!(
@@ -3116,6 +3118,7 @@ impl FunctionTranslator<'_> {
                     self.ip += 2;
                 }
 
+                // TODO: Handle floats as well, just like the above.
                 OpCode::SUB
                     if payload == 2
                         && matches!(
