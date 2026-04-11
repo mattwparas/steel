@@ -46,11 +46,13 @@ use crate::{
 // Various optimizations that we've added one by one.
 // Its important that we get this right
 const INLINE_STRUCT_FUNCTION_CALLS: bool = true;
-const INLINE_STRUCT_FUNCTION_TAIL_CALLS: bool = false;
-const USE_INLINE_CALL_FUNC: bool = false;
-const USE_INLINE_GLOBAL_TAIL_CALL: bool = false;
-const USE_EXPERIMENTAL_CALL: bool = false;
-const USE_INLINE_TAIL_CALL: bool = false;
+const INLINE_STRUCT_FUNCTION_TAIL_CALLS: bool = true;
+
+const USE_INLINE_CALL_FUNC: bool = true;
+const USE_INLINE_GLOBAL_TAIL_CALL: bool = true;
+
+const USE_EXPERIMENTAL_CALL: bool = true;
+const USE_INLINE_TAIL_CALL: bool = true;
 
 /// The basic JIT class.
 pub struct JIT {
@@ -2702,8 +2704,12 @@ impl FunctionTranslator<'_> {
                                 {
                                     self.spill_cloned_stack();
                                     self.inline_handle_pop(value);
+
                                     // Can we do this?
                                     self.builder.ins().return_(&[]);
+
+                                    let cold_block = self.builder.create_block();
+                                    self.builder.switch_to_block(cold_block);
 
                                     self.depth -= 1;
                                     self.ip = self.instructions.len() + 1;
@@ -5004,6 +5010,8 @@ impl FunctionTranslator<'_> {
         let instr_fat_ptr = func.body_exp();
         let instr_fat_ptr = self.create_i128(unsafe { std::mem::transmute(instr_fat_ptr) });
 
+        let jit_func_addr = func.super_instructions.unwrap().0.as_ptr() as u64;
+
         func.clone().into_raw();
 
         // Horrendous crimes, but we'll allow it. We'll also leak the instructions...
@@ -5039,9 +5047,6 @@ impl FunctionTranslator<'_> {
 
         // Implement the body of `new_handle_tail_call_closure` here
 
-        // TODO: Adjust the stack frame!
-        let jit_func = self.get_jit_func(id);
-
         // New args now that we've spilled everything
         let args = [vm_ctx];
 
@@ -5054,7 +5059,19 @@ impl FunctionTranslator<'_> {
             offset_of!(VmCore, ip) as i32,
         );
 
+        const USE_RETURN_CALL_INDIRECT: bool = true;
+
+        // Do:
+        let sig_ref = self.create_jit_sig_ref(); // build just the signature, no FuncRef
+        let func_ptr = self.builder.ins().iconst(types::I64, jit_func_addr as i64);
+        self.builder
+            .ins()
+            .return_call_indirect(sig_ref, func_ptr, &args);
+
+        /*
+        let jit_func = self.get_jit_func(id);
         self.builder.ins().return_call(jit_func, &args);
+        */
         let cold_block = self.builder.create_block();
         self.builder.switch_to_block(cold_block);
     }
