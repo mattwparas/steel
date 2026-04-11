@@ -45,7 +45,8 @@ use crate::{
 
 // Various optimizations that we've added one by one.
 // Its important that we get this right
-const INLINE_STRUCT_FUNCTION_CALLS: bool = false;
+const INLINE_STRUCT_FUNCTION_CALLS: bool = true;
+const INLINE_STRUCT_FUNCTION_TAIL_CALLS: bool = false;
 const USE_INLINE_CALL_FUNC: bool = false;
 const USE_INLINE_GLOBAL_TAIL_CALL: bool = false;
 const USE_EXPERIMENTAL_CALL: bool = false;
@@ -2690,7 +2691,7 @@ impl FunctionTranslator<'_> {
                             _ => {}
                         }
 
-                        if INLINE_STRUCT_FUNCTION_CALLS {
+                        if INLINE_STRUCT_FUNCTION_TAIL_CALLS {
                             // TODO: @Matt -> This is the issue, something is
                             // wrong with the way I'm reading this, or doing something.
                             if let Some(spec) = create_struct_spec(maybe_global) {
@@ -2699,10 +2700,10 @@ impl FunctionTranslator<'_> {
                                 if let Some((value, typ)) =
                                     self.inline_struct_call_no_drop(spec, arity, function_index)
                                 {
-                                    println!("Compiling the tail call for structs");
-                                    // self.inline_handle_pop(value);
-
-                                    self.push(value, InferredType::Any);
+                                    self.spill_cloned_stack();
+                                    self.inline_handle_pop(value);
+                                    // Can we do this?
+                                    self.builder.ins().return_(&[]);
 
                                     self.depth -= 1;
                                     self.ip = self.instructions.len() + 1;

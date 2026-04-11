@@ -1,6 +1,6 @@
 use crate::values::{
     lock::SpinLock,
-    structs::{StructConstructorRefSpec, StructFunctionType},
+    structs::{StructConstructorRefSpec, StructFunctionType, UserDefinedStruct},
 };
 
 use super::*;
@@ -917,28 +917,43 @@ impl<'a> FunctionTranslator<'a> {
                     .properties
                     .get(&ValueOrRegister::Register(struct_arg_index));
 
+                // Only fast path on immutable registers?
+                // if matches!(self.shadow_stack.last(), Some(MaybeStackValue::Register(_))) {
                 if let Some(Properties::InferredType(InferredType::Struct(desc))) =
                     maybe_inferred_type
                 {
                     if spec.descriptor == desc {
-                        self.shadow_stack.pop();
+                        let last_kind = self.shadow_stack.pop().unwrap();
                         let struct_ref_ptr = self.unbox_value_to_pointer(struct_ref);
-                        let res = fast_path_struct_matches(struct_arg_index, struct_ref_ptr, self);
+                        let res = fast_path_struct_matches(i, struct_ref_ptr, self);
+
+                        match last_kind {
+                            // Move the value out, call drop on it
+                            MaybeStackValue::MutRegister(i) => {
+                                let void = self.encode_void();
+                                self.write_to_vm_stack(i, void);
+                            }
+                            // Otherwise, we're fine?
+                            MaybeStackValue::Register(_) => {
+                                // Add the property
+                                self.properties.add_property(
+                                    ValueOrRegister::Register(struct_arg_index),
+                                    Properties::InferredType(InferredType::Struct(spec.descriptor)),
+                                );
+                            }
+                            _ => unreachable!(),
+                        }
 
                         return Some((res, InferredType::Any));
                     }
                 }
+                // }
+
                 let is_struct = self.is_type(struct_ref, SteelVal::STRUCT_TAG);
                 let typ = self.int;
 
                 let old_ip = self.ip;
                 let stack = self.shadow_stack.clone();
-
-                // Add the property
-                self.properties.add_property(
-                    ValueOrRegister::Register(struct_arg_index),
-                    Properties::InferredType(InferredType::Struct(spec.descriptor)),
-                );
 
                 let res = self.converging_if(
                     is_struct,
@@ -978,10 +993,12 @@ fn inline_struct_getter(
 
     let struct_ref_ptr = ctx.unbox_value_to_pointer(struct_ref);
 
-    let descriptor_on_stack =
-        ctx.builder
-            .ins()
-            .load(types::I64, MemFlags::trusted(), struct_ref_ptr, 16);
+    let descriptor_on_stack = ctx.builder.ins().load(
+        types::I64,
+        MemFlags::trusted(),
+        struct_ref_ptr,
+        offset_of!(UserDefinedStruct, type_descriptor) as i32,
+    );
 
     let struct_matches =
         ctx.builder
@@ -1011,12 +1028,14 @@ fn fast_path_struct_matches(
     struct_ref_ptr: Value,
     ctx: &mut FunctionTranslator<'_>,
 ) -> Value {
-    // TODO: Not a shared vector! Just a normal vector!
+    // UserDefinedStruct stores a steel_vec::Vec<SteelVal> directly, so read the
+    // raw element pointer from the nested Vec layout rather than using the old
+    // shared-vector offsets.
     let vector_ptr = ctx.builder.ins().load(
         types::I64,
         MemFlags::trusted(),
         struct_ref_ptr,
-        16 + 8 as i32,
+        (offset_of!(UserDefinedStruct, fields) + steel_vec::Vec::<SteelVal>::buf_offset()) as i32,
     );
 
     let size: i64 = std::mem::size_of::<SteelVal>() as _;
