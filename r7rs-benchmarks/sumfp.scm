@@ -1,5 +1,7 @@
 (require "common.scm")
 
+;; TODO: Get this to optimize down properly. With
+;; proper closure lifting, this should work correctly?
 (define (run n)
   (let loop ([i n]
              [sum 0.])
@@ -20,6 +22,8 @@
                         (lambda (result) (equal? result output)))))
 
 (with-input-from-file "r7rs-benchmarks/inputs/sumfp.input" run-benchmark)
+
+(provide run)
 
 ; (define (run-benchmark)
 ;   (let* ([count 10]

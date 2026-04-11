@@ -3774,7 +3774,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                 for expr in b.exprs.iter_mut() {
                                     if let Some(found_escape_checker) = &mut found_escape_checker {
                                         if found_escape_checker.check(expr) {
-                                            // println!("Function escapes, returning...");
+                                            println!("1. Function escapes, returning...");
                                             return;
                                         }
                                     }
@@ -3792,7 +3792,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
                                                     if original_func_name == *name {
                                                         found_escape_checker = Some(
-                                                            CheckIdentifierOnlyOccursInUnboxCallPosition::new(original_func_name)
+                                                            CheckIdentifierOnlyOccursInUnboxCallPosition::new_with_func(original_func_name, *function_name)
                                                         );
 
                                                         original_func_names
@@ -3815,6 +3815,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
 
             for mut escape_checker in found_escape_checkers {
                 if escape_checker.check_let(l) {
+                    println!("4. Function escapes, returning...");
                     return;
                 }
             }
@@ -3852,6 +3853,7 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                             for (index, expr) in b.exprs.iter_mut().enumerate() {
                                 if let Some(found_escape_checker) = &mut found_escape_checker {
                                     if found_escape_checker.check(expr) {
+                                        println!("2. Function escapes, returning...");
                                         return;
                                     }
                                 }
@@ -3874,11 +3876,16 @@ impl<'a> LiftClosuresToGlobalScope<'a> {
                                                         .push((outer_index, inner_index));
 
                                                     let mut escape_checker = CheckIdentifierOnlyOccursInUnboxCallPosition {
-                                                        unbox_var: original_func_name, escapes: false,
+                                                        unbox_var: original_func_name,
+                                                        escapes: false,
+                                                        func_name: Some(*function_name),
                                                     };
 
                                                     // First, check the function:
                                                     if escape_checker.check(expression) {
+                                                        println!(
+                                                            "3. Function escapes, returning..."
+                                                        );
                                                         return;
                                                     }
 
@@ -4116,6 +4123,7 @@ impl VisitorMutRefUnit for ReplaceUnboxExpressions {
 
 struct CheckIdentifierOnlyOccursInUnboxCallPosition {
     unbox_var: InternedString,
+    func_name: Option<InternedString>,
     escapes: bool,
 }
 
@@ -4123,6 +4131,15 @@ impl CheckIdentifierOnlyOccursInUnboxCallPosition {
     fn new(unbox_var: InternedString) -> Self {
         Self {
             unbox_var,
+            func_name: None,
+            escapes: false,
+        }
+    }
+
+    fn new_with_func(unbox_var: InternedString, func_name: InternedString) -> Self {
+        Self {
+            unbox_var,
+            func_name: Some(func_name),
             escapes: false,
         }
     }
@@ -4180,9 +4197,20 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
                             if il.first_ident().copied() == Some(*UNBOX) {
                                 if il.second_ident().copied() == Some(self.unbox_var) {
                                     self.escapes = true;
+                                    println!("Escapes = true: {}", l);
                                     return;
                                 }
                             }
+                        }
+                    }
+                }
+
+                if let Some(function_name) = self.func_name {
+                    if l.first_ident().copied() == Some(*SETBOX) {
+                        if l.third_ident().copied() == Some(function_name)
+                            && l.second_ident().copied() == Some(self.unbox_var)
+                        {
+                            return;
                         }
                     }
                 }
@@ -4202,6 +4230,7 @@ impl<'a> VisitorMutUnitRef<'a> for CheckIdentifierOnlyOccursInUnboxCallPosition 
     fn visit_atom(&mut self, a: &'a Atom) {
         if let Some(identifier) = a.ident() {
             if *identifier == self.unbox_var {
+                println!("Escapes = true: {}", a);
                 self.escapes = true;
             }
         }

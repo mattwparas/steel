@@ -4695,8 +4695,6 @@ impl FunctionTranslator<'_> {
     }
 
     fn translate_tco_jmp_no_arity_loop_no_spill(&mut self, payload: usize) {
-        let name = CallSelfTailCallNoArityLoopDefinitions::arity_to_name(payload).unwrap();
-
         // let mut args_off_the_stack = self
         //     .stack
         //     .drain(self.stack.len() - payload..)
@@ -4788,6 +4786,7 @@ impl FunctionTranslator<'_> {
 
             self.inline_call_self_tail_call_no_arity_loop(payload as _, &args);
         } else {
+            let name = CallSelfTailCallNoArityLoopDefinitions::arity_to_name(payload).unwrap();
             let local_callee = self.get_local_callee(name);
             let ctx = self.get_ctx();
 
@@ -5598,6 +5597,11 @@ impl FunctionTranslator<'_> {
                 let constant = self.constants.get_value(payload);
 
                 match &constant {
+                    SteelVal::NumV(n) => {
+                        println!("Getting here");
+                        (self.encode_float(*n), InferredType::Float)
+                    }
+                    SteelVal::IntV(i) => (self.encode_integer(*i as _), InferredType::Int),
                     // SteelVal::BoolV(_) => (self.create_i128(encode(constant)), InferredType::Bool),
                     // SteelVal::IntV(_) => (self.create_i128(encode(constant)), InferredType::Int),
                     // SteelVal::CharV(_) => (self.create_i128(encode(constant)), InferredType::Char),
@@ -5694,6 +5698,12 @@ impl FunctionTranslator<'_> {
         let res = self.builder.ins().iconst(Type::int(64).unwrap(), 1);
         let boolean = self.encode_value(discriminant(&SteelVal::BoolV(true)) as i64, res);
         boolean
+    }
+
+    fn encode_float(&mut self, float: f64) -> Value {
+        let res = self.builder.ins().f64const(float);
+        let as_int = self.builder.ins().bitcast(types::I64, MemFlags::new(), res);
+        self.encode_value(discriminant(&SteelVal::NumV(float)) as i64, as_int)
     }
 
     fn encode_false(&mut self) -> Value {
