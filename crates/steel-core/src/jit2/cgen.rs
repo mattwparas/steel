@@ -1027,6 +1027,13 @@ impl Default for JIT {
         );
 
         map.add_func_hint(
+            "sub-binop-float-reg",
+            abi! { extern_c_sub_two_float_reg
+            as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
+            InferredType::Number,
+        );
+
+        map.add_func_hint(
             "sub-binop-reg",
             abi! { extern_c_sub_two_reg
             as fn(*mut VmCore, usize, SteelVal) -> SteelVal },
@@ -3114,6 +3121,59 @@ impl FunctionTranslator<'_> {
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::Number);
+
+                    self.ip += 2;
+                }
+
+                OpCode::SUB
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[
+                                MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
+                                MaybeStackValue::Value(StackValue {
+                                    inferred_type: InferredType::Float,
+                                    ..
+                                })
+                            ])
+                        ) =>
+                {
+                    let value = self.shadow_stack.pop().unwrap().into_value();
+                    let register_index = self.shadow_stack.pop().unwrap().into_index();
+
+                    // Do the shift here, in an effort to avoid passing more stuff?
+                    let value = value.as_steelval(self);
+
+                    let local_value = self.read_from_vm_stack(register_index);
+                    let is_float = self.is_type(local_value, SteelVal::FLOAT_TAG);
+
+                    let sp = |ctx: &mut Self| {
+                        let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
+                        let args = [register, value];
+                        let result =
+                            ctx.call_function_returns_value_args("sub-binop-float-reg", &args);
+
+                        result
+                    };
+
+                    let result = self.converging_if(
+                        is_float,
+                        |ctx| {
+                            // If its an int, then we'll do checked subtraction:
+                            let lhs = ctx.unbox_value_to_float(local_value);
+                            let rhs = ctx.unbox_value_to_float(value);
+                            let subbed = ctx.builder.ins().fsub(lhs, rhs);
+                            ctx.encode_float_value(subbed)
+                        },
+                        sp,
+                        types::I128,
+                    );
+
+                    // let args = [register, value];
+                    // let result = self.call_function_returns_value_args("sub-binop-int-reg", &args);
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::Float);
 
                     self.ip += 2;
                 }
@@ -5703,6 +5763,14 @@ impl FunctionTranslator<'_> {
         boolean
     }
 
+    fn encode_float_value(&mut self, value: Value) -> Value {
+        let as_int = self
+            .builder
+            .ins()
+            .bitcast(types::I64, MemFlags::new(), value);
+        self.encode_value(SteelVal::FLOAT_TAG as _, as_int)
+    }
+
     fn encode_float(&mut self, float: f64) -> Value {
         let res = self.builder.ins().f64const(float);
         let as_int = self.builder.ins().bitcast(types::I64, MemFlags::new(), res);
@@ -5740,6 +5808,16 @@ impl FunctionTranslator<'_> {
         let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
         let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
         self.builder.ins().ireduce(types::I64, encoded_rhs)
+    }
+
+    fn unbox_value_to_float(&mut self, value: Value) -> Value {
+        let amount_to_shift = self.builder.ins().iconst(types::I64, 64);
+        let encoded_rhs = self.builder.ins().sshr(value, amount_to_shift);
+        let shrunk = self.builder.ins().ireduce(types::I64, encoded_rhs);
+
+        self.builder
+            .ins()
+            .bitcast(types::F64, MemFlags::new(), shrunk)
     }
 
     fn get_tag(&mut self, value: Value) -> Value {
