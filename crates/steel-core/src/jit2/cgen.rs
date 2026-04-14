@@ -1616,10 +1616,15 @@ impl ConstantValue {
             // TODO: We can probably infer the type here though, since we know
             // what the type is based on the values coming in
             ConstantValue::Index(p) => (ctx.push_const_index(p), InferredType::Any),
+
+            ConstantValue::Int(i) => (ctx.encode_integer(i as _), InferredType::Int),
+
             _ => {
                 // let value = ctx.create_i128(encode(self.as_steelval()));
-                let value = ctx.encode_void();
-                (value, self.as_typ())
+                // let value = ctx.encode_void();
+                // (value, self.as_typ())
+
+                panic!()
             }
         }
     }
@@ -1795,19 +1800,29 @@ impl MaybeStackValue {
         }
     }
 
-    fn into_value(self) -> StackValue {
-        if let Self::Value(v) = self {
-            v
-        } else {
-            panic!()
+    fn into_value(self, ctx: &mut FunctionTranslator) -> StackValue {
+        self.as_value(ctx).unwrap()
+    }
+
+    fn into_constant_int(self, ctx: &mut FunctionTranslator) -> Option<isize> {
+        match self {
+            Self::Constant(ConstantValue::Int(i)) => Some(i),
+            _ => None,
         }
     }
 
-    fn as_value(self) -> Option<StackValue> {
-        if let Self::Value(v) = self {
-            Some(v)
-        } else {
-            None
+    fn as_value(self, ctx: &mut FunctionTranslator) -> Option<StackValue> {
+        match self {
+            Self::Value(v) => Some(v),
+            Self::Constant(c) => {
+                let (v, ty) = c.to_value(ctx);
+                Some(StackValue {
+                    value: v,
+                    inferred_type: ty,
+                    spilled: false,
+                })
+            }
+            _ => None,
         }
     }
 }
@@ -2141,7 +2156,11 @@ impl FunctionTranslator<'_> {
 
                         // self.push(res, InferredType::Any);
                     } else {
-                        let last_ref = self.shadow_stack.last().and_then(|x| x.as_value());
+                        let last_ref = self
+                            .shadow_stack
+                            .last()
+                            .copied()
+                            .and_then(|x| x.as_value(self));
 
                         if last_ref.map(|x| x.inferred_type) == Some(InferredType::UnboxedBool) {
                             let false_instr = self.instructions[self.ip].payload_size;
@@ -2565,17 +2584,29 @@ impl FunctionTranslator<'_> {
                     // let value = self.create_i128(encode(constant));
                     let value = self.encode_false();
                     self.ip += 1;
-                    // self.advance_ip();
                     self.push(value, InferredType::Any);
                 }
-                OpCode::LOADINT0 | OpCode::LOADINT1 | OpCode::LOADINT2 => {
-                    let payload = self.instructions[self.ip].payload_size.to_usize();
-                    // self.advance_ip();
-                    let value = self.call_func_or_immediate(op, payload);
+
+                // Handle inferred type with constants as well?
+                OpCode::LOADINT0 => {
                     self.ip += 1;
-                    self.push(value, InferredType::Int);
+                    self.shadow_push(MaybeStackValue::Constant(ConstantValue::Int(0)));
+                }
+                OpCode::LOADINT1 => {
+                    self.ip += 1;
+                    self.shadow_push(MaybeStackValue::Constant(ConstantValue::Int(1)));
+                }
+                OpCode::LOADINT2 => {
+                    self.ip += 1;
+                    self.shadow_push(MaybeStackValue::Constant(ConstantValue::Int(2)));
                 }
 
+                // OpCode::LOADINT0 | OpCode::LOADINT1 | OpCode::LOADINT2 => {
+                //     let payload = self.instructions[self.ip].payload_size.to_usize();
+                //     let value = self.call_func_or_immediate(op, payload);
+                //     self.ip += 1;
+                //     self.push(value, InferredType::Int);
+                // }
                 OpCode::LetVar => {
                     self.ip += 1;
 
@@ -3091,11 +3122,11 @@ impl FunctionTranslator<'_> {
                                 MaybeStackValue::Value(StackValue {
                                     inferred_type: InferredType::Int,
                                     ..
-                                })
+                                }) | MaybeStackValue::Constant(ConstantValue::Int(_))
                             ])
                         ) =>
                 {
-                    let value = self.shadow_stack.pop().unwrap().into_value();
+                    let value = self.shadow_stack.pop().unwrap().into_value(self);
                     let register_index = self.shadow_stack.pop().unwrap().into_index();
 
                     // Do the shift here, in an effort to avoid passing more stuff?
@@ -3155,7 +3186,7 @@ impl FunctionTranslator<'_> {
                             ])
                         ) =>
                 {
-                    let value = self.shadow_stack.pop().unwrap().into_value();
+                    let value = self.shadow_stack.pop().unwrap().into_value(self);
                     let register_index = self.shadow_stack.pop().unwrap().into_index();
 
                     // Do the shift here, in an effort to avoid passing more stuff?
@@ -3206,7 +3237,7 @@ impl FunctionTranslator<'_> {
                             ])
                         ) =>
                 {
-                    let value = self.shadow_stack.pop().unwrap().into_value();
+                    let value = self.shadow_stack.pop().unwrap().into_value(self);
                     let register = self.shadow_stack.pop().unwrap().into_index();
 
                     let register = self.builder.ins().iconst(types::I64, register as i64);
@@ -3257,7 +3288,7 @@ impl FunctionTranslator<'_> {
                             ])
                         ) =>
                 {
-                    let value = self.shadow_stack.pop().unwrap().into_value();
+                    let value = self.shadow_stack.pop().unwrap().into_value(self);
 
                     let value_as_steelval = value.as_steelval(self);
 
@@ -3396,6 +3427,7 @@ impl FunctionTranslator<'_> {
 
                 OpCode::LT
                     if payload == 2
+                        // Okay this could be an int, or not an int
                         && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
                             == Some(InferredType::Int)
                         && matches!(
@@ -3414,7 +3446,21 @@ impl FunctionTranslator<'_> {
                         }
                     }
 
-                    let rhs_int = self.shadow_stack.pop().unwrap().into_value();
+                    enum Either {
+                        Value(Value),
+                        Int(i64),
+                    }
+
+                    let rhs_int = self
+                        .shadow_stack
+                        .pop()
+                        .map(|x| match x {
+                            MaybeStackValue::Value(v) => Either::Value(v.value),
+                            MaybeStackValue::Constant(ConstantValue::Int(i)) => Either::Int(i as _),
+                            _ => panic!(),
+                        })
+                        .unwrap();
+
                     let register_l = self.shadow_stack.pop().unwrap().into_index();
 
                     // Happy path, lets check the type of the lhs. If its an integer tag, then we can go ahead and do the thing.
@@ -3428,16 +3474,32 @@ impl FunctionTranslator<'_> {
                         |ctx| {
                             // Just do less than or equal on the value:
                             let lhs = ctx.unbox_value_to_pointer(local_value);
-                            let rhs = ctx.unbox_value_to_pointer(rhs_int.value);
 
-                            let res = ctx.builder.ins().icmp(IntCC::SignedLessThan, lhs, rhs);
+                            let res = match rhs_int {
+                                Either::Value(value) => {
+                                    let rhs = ctx.unbox_value_to_pointer(value);
+                                    let res =
+                                        ctx.builder.ins().icmp(IntCC::SignedLessThan, lhs, rhs);
+
+                                    res
+                                }
+                                Either::Int(i) => {
+                                    ctx.builder.ins().icmp_imm(IntCC::SignedLessThan, lhs, i)
+                                }
+                            };
 
                             res
                         },
                         |ctx| {
                             let register_l =
                                 ctx.builder.ins().iconst(types::I64, register_l as i64);
-                            let args = [register_l, rhs_int.value];
+
+                            let rhs_value = match rhs_int {
+                                Either::Value(value) => value,
+                                Either::Int(i) => ctx.encode_integer(i),
+                            };
+
+                            let args = [register_l, rhs_value];
                             let result =
                                 ctx.call_function_returns_value_args("lt-register-int", &args);
                             ctx.check_deopt();
@@ -3501,7 +3563,7 @@ impl FunctionTranslator<'_> {
                         }
                     }
 
-                    let rhs_int = self.shadow_stack.pop().unwrap().into_value();
+                    let rhs_int = self.shadow_stack.pop().unwrap().into_value(self);
                     let register_l = self.shadow_stack.pop().unwrap().into_index();
 
                     // Happy path, lets check the type of the lhs. If its an integer tag, then we can go ahead and do the thing.
@@ -3568,7 +3630,7 @@ impl FunctionTranslator<'_> {
                         }
                     }
 
-                    let rhs_int = self.shadow_stack.pop().unwrap().into_value();
+                    let rhs_int = self.shadow_stack.pop().unwrap().into_value(self);
                     let register_l = self.shadow_stack.pop().unwrap().into_index();
 
                     let register_l = self.builder.ins().iconst(types::I64, register_l as i64);
@@ -3620,7 +3682,7 @@ impl FunctionTranslator<'_> {
                     // otherwise.
 
                     // This will be our constant value:
-                    let last = self.shadow_stack.pop().unwrap().into_value();
+                    let last = self.shadow_stack.pop().unwrap().into_value(self);
 
                     // This is now our register; this is where the values will live.
                     let register = self.shadow_stack.pop().unwrap().into_index();
@@ -3756,7 +3818,7 @@ impl FunctionTranslator<'_> {
                                 .shadow_stack
                                 .pop()
                                 .unwrap()
-                                .into_value()
+                                .into_value(self)
                                 .as_steelval(self);
 
                             let register = self.builder.ins().iconst(types::I64, register as i64);
@@ -4018,7 +4080,11 @@ impl FunctionTranslator<'_> {
 
                 // TODO: This should pretty much be able to be inlined entirely?
                 OpCode::NOT => {
-                    let last_ref = self.shadow_stack.last().and_then(|x| x.as_value());
+                    let last_ref = self
+                        .shadow_stack
+                        .last()
+                        .copied()
+                        .and_then(|x| x.as_value(self));
 
                     if last_ref.map(|x| x.inferred_type) == Some(InferredType::UnboxedBool) {
                         let test = last_ref.unwrap().value;
@@ -5417,7 +5483,7 @@ impl FunctionTranslator<'_> {
         }
 
         if spilled {
-            let value = self.shadow_stack[index].into_value();
+            let value = self.shadow_stack[index].into_value(self);
             let steelval = value.as_steelval(self);
             // self.push_to_vm_stack_spill(steelval);
 
