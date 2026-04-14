@@ -1062,6 +1062,12 @@ impl Default for JIT {
             InferredType::UnboxedBool,
         );
 
+        map.add_func_hint(
+            "lt-register-int",
+            abi! { extern_c_lt_register_int as fn(*mut VmCore, usize, SteelVal) -> bool },
+            InferredType::UnboxedBool,
+        );
+
         map.add_func_hint2(
             "lt-binop-int",
             extern_c_lt_two_int as BinOp,
@@ -1804,6 +1810,17 @@ impl MaybeStackValue {
             None
         }
     }
+}
+
+// TODO: Start using this during branching. It can be replaced
+// with immutable data structures to save on allocations if it
+// becomes cumbersome with all the cloning.
+struct TranslationState {
+    shadow_stack: Vec<MaybeStackValue>,
+    value_to_local_map: HashMap<Value, usize>,
+    local_to_value_map: HashMap<usize, InferredType>,
+    properties: PropertyMap,
+    let_var_stack: Vec<usize>,
 }
 
 /// A collection of state used for translating from toy-language AST nodes
@@ -3320,17 +3337,21 @@ impl FunctionTranslator<'_> {
                     let register_r = self.shadow_stack.pop().unwrap().into_index();
                     let register_l = self.shadow_stack.pop().unwrap().into_index();
 
-                    // dbg!(self.local_to_value_map.get(&register_r));
-                    // dbg!(self.local_to_value_map.get(&register_l));
+                    // // dbg!(self.local_to_value_map.get(&register_r));
+                    // // dbg!(self.local_to_value_map.get(&register_l));
 
-                    let register_r = self.builder.ins().iconst(types::I64, register_r as i64);
-                    let register_l = self.builder.ins().iconst(types::I64, register_l as i64);
+                    // let register_r = self.builder.ins().iconst(types::I64, register_r as i64);
+                    // let register_l = self.builder.ins().iconst(types::I64, register_l as i64);
 
-                    let args = [register_l, register_r];
-                    let result = self.call_function_returns_value_args("add-binop-reg-2", &args);
+                    // let args = [register_l, register_r];
+                    // let result = self.call_function_returns_value_args("add-binop-reg-2", &args);
 
-                    // Check the inferred type, if we know of it
-                    self.push(result, InferredType::Number);
+                    // // Check the inferred type, if we know of it
+                    // self.push(result, InferredType::Number);
+
+                    let (res, t) = self.binop_add_value_register(register_l, register_r);
+
+                    self.push(res, t);
 
                     self.ip += 2;
                 }
@@ -3371,6 +3392,71 @@ impl FunctionTranslator<'_> {
                     // Call the func
                     self.func_ret_val(op, payload, 2, InferredType::Number);
                     self.check_deopt();
+                }
+
+                OpCode::LT
+                    if payload == 2
+                        && self.shadow_stack.last().and_then(|x| self.inferred_type(x))
+                            == Some(InferredType::Int)
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2),
+                            Some(MaybeStackValue::Register(_) | MaybeStackValue::MutRegister(_))
+                        ) =>
+                {
+                    if payload == 2 {
+                        for arg in self
+                            .shadow_stack
+                            .get(self.shadow_stack.len() - payload..)
+                            .unwrap()
+                            .to_vec()
+                        {
+                            self.shadow_mark_local_type_from_var(arg, InferredType::Number);
+                        }
+                    }
+
+                    let rhs_int = self.shadow_stack.pop().unwrap().into_value();
+                    let register_l = self.shadow_stack.pop().unwrap().into_index();
+
+                    // Happy path, lets check the type of the lhs. If its an integer tag, then we can go ahead and do the thing.
+                    // Otherwise, we'll bail and fall through:
+
+                    let local_value = self.read_from_vm_stack(register_l);
+                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
+
+                    let result = self.converging_if(
+                        is_int,
+                        |ctx| {
+                            // Just do less than or equal on the value:
+                            let lhs = ctx.unbox_value_to_pointer(local_value);
+                            let rhs = ctx.unbox_value_to_pointer(rhs_int.value);
+
+                            let res = ctx.builder.ins().icmp(IntCC::SignedLessThan, lhs, rhs);
+
+                            res
+                        },
+                        |ctx| {
+                            let register_l =
+                                ctx.builder.ins().iconst(types::I64, register_l as i64);
+                            let args = [register_l, rhs_int.value];
+                            let result =
+                                ctx.call_function_returns_value_args("lt-register-int", &args);
+                            ctx.check_deopt();
+
+                            result
+                        },
+                        types::I8,
+                    );
+
+                    // dbg!(self.local_to_value_map.get(&register_r));
+                    // dbg!(self.local_to_value_map.get(&register_l));
+
+                    // let local_value = self.read_from_vm_stack(register_l);
+                    // self.call_function_args_no_context("#%debug-steel-value", &[local_value]);
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::UnboxedBool);
+
+                    self.ip += 2;
                 }
 
                 OpCode::LT

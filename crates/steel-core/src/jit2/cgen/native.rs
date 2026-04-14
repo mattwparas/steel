@@ -684,6 +684,64 @@ impl<'a> FunctionTranslator<'a> {
         }
     }
 
+    pub(super) fn binop_add_value_register(
+        &mut self,
+        left: usize,
+        right: usize,
+    ) -> (Value, InferredType) {
+        let lv = self.read_from_vm_stack(left);
+        let rv = self.read_from_vm_stack(right);
+
+        let left_is_int = self.is_type(lv, SteelVal::INT_TAG);
+        let right_is_int = self.is_type(rv, SteelVal::INT_TAG);
+        let both_int = self.builder.ins().band(left_is_int, right_is_int);
+
+        let sp = |ctx: &mut Self| {
+            let register_r = ctx.builder.ins().iconst(types::I64, right as i64);
+            let register_l = ctx.builder.ins().iconst(types::I64, left as i64);
+
+            let args = [register_l, register_r];
+            let result = ctx.call_function_returns_value_args("add-binop-reg-2", &args);
+
+            result
+        };
+
+        let typ = self.int;
+
+        let res = self.converging_if(
+            both_int,
+            |ctx| {
+                // This is pointer sized, we're good to shrink it down
+                // to a pointer. both have to be int tag, otherwise we fall back to
+                // a function, and we'll return the usual
+                let left_payload = ctx.unbox_value_to_pointer(lv);
+                let right_payload = ctx.unbox_value_to_pointer(rv);
+
+                // Add the values, did they overflow?
+                let (added, overflow_flag) =
+                    ctx.builder.ins().sadd_overflow(left_payload, right_payload);
+
+                ctx.converging_if(
+                    overflow_flag,
+                    sp,
+                    |ctx| {
+                        // Happy path, just return the boxed integer value.
+                        ctx.encode_value(SteelVal::INT_TAG as _, added)
+                    },
+                    typ,
+                )
+            },
+            |ctx| {
+                let res = sp(ctx);
+                ctx.check_deopt();
+                res
+            },
+            typ,
+        );
+
+        (res, InferredType::Number)
+    }
+
     // pub(super) fn reverse(&mut self) {
     //     use MaybeStackValue::*;
     // }
