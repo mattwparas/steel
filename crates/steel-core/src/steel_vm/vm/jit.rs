@@ -2089,6 +2089,22 @@ fn num_equal_value(ctx: *mut VmCore, left: SteelVal, right: SteelVal) -> SteelVa
 }
 
 #[cross_platform_fn]
+fn num_equal_value_bool(ctx: *mut VmCore, left: SteelVal, right: SteelVal) -> bool {
+    // println!("GETTING TO NUM EQUAL VALUE: {} - {}", left, right,);
+    let guard = unsafe { &mut *ctx };
+
+    // dbg!(&guard.thread.stack);
+
+    // unsafe { &mut *ctx }.ip += 2;
+
+    if let Ok(SteelVal::BoolV(b)) = number_equality(&left, &right) {
+        b
+    } else {
+        unreachable!()
+    }
+}
+
+#[cross_platform_fn]
 fn num_equal_int(left: SteelVal, right: SteelVal) -> SteelVal {
     // println!("GETTING TO NUM EQUAL VALUE: {} - {}", left, right,);
     // unsafe { &mut *ctx }.ip += 2;
@@ -2106,7 +2122,6 @@ fn num_equal_int(left: SteelVal, right: SteelVal) -> SteelVal {
 fn num_equal_int_register(ctx: *mut VmCore, i: usize, right: SteelVal) -> bool {
     assert!(matches!(right, SteelVal::IntV(_) | SteelVal::BigNum(_)));
     let ctx = unsafe { &mut *ctx };
-
     let offset = ctx.get_offset();
     let left = &ctx.thread.stack[i + offset];
 
@@ -2125,6 +2140,19 @@ fn num_equal_int_register(ctx: *mut VmCore, i: usize, right: SteelVal) -> bool {
 #[cross_platform_fn]
 fn equal_binop(_ctx: *mut VmCore, left: SteelVal, right: SteelVal) -> SteelVal {
     SteelVal::BoolV(left == right)
+}
+
+#[cross_platform_fn]
+fn equal_binop_bool(_ctx: *mut VmCore, left: SteelVal, right: SteelVal) -> bool {
+    left == right
+}
+
+#[cross_platform_fn]
+fn equal_binop_register_bool(ctx: *mut VmCore, i: usize, right: SteelVal) -> bool {
+    let ctx = unsafe { &mut *ctx };
+    let offset = ctx.get_offset();
+    let left = &ctx.thread.stack[i + offset];
+    left == &right
 }
 
 #[cross_platform_fn]

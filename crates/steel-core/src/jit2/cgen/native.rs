@@ -858,8 +858,11 @@ impl<'a> FunctionTranslator<'a> {
 
     // Given a value, unbox it. This assumes this is coming from a register, so
     // we don't clone it in the happy path case where it is in fact a box.
-    pub(super) fn unbox_value_checked_register(&mut self, value: Value) -> Value {
-        println!("inline unbox value");
+    pub(super) fn unbox_value_checked_register(
+        &mut self,
+        value: Value,
+        should_drop: bool,
+    ) -> Value {
         // TODO: Check that this is actually a box!
         let is_box = self.is_type(value, SteelVal::HEAP_REF_VALUE_TAG);
         let typ = self.int;
@@ -891,6 +894,10 @@ impl<'a> FunctionTranslator<'a> {
 
                     data
                 });
+
+                if should_drop {
+                    ctx.drop_value(value);
+                }
 
                 data
             },

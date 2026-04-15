@@ -621,6 +621,11 @@ impl Default for JIT {
             abi! { num_equal_value as fn(*mut VmCore, SteelVal, SteelVal) -> SteelVal },
         );
 
+        map.add_func(
+            "num-equal-value-bool",
+            abi! { num_equal_value_bool as fn(*mut VmCore, SteelVal, SteelVal) -> bool },
+        );
+
         map.add_func2(
             "num-equal-int",
             abi! { num_equal_int as fn(SteelVal, SteelVal) -> SteelVal },
@@ -632,8 +637,13 @@ impl Default for JIT {
         );
 
         map.add_func(
-            "equal-binop",
-            abi! { equal_binop as fn(*mut VmCore, SteelVal, SteelVal) -> SteelVal },
+            "equal-binop-bool",
+            abi! { equal_binop_bool as fn(*mut VmCore, SteelVal, SteelVal) -> bool },
+        );
+
+        map.add_func(
+            "equal-binop-register-bool",
+            abi! { equal_binop_register_bool as fn(*mut VmCore, usize, SteelVal) -> bool },
         );
 
         map.add_func(
@@ -1205,6 +1215,21 @@ unsafe fn compile_bytecode(
     Ok(code_fn)
 }
 
+// Write an entry to `/tmp/perf-<pid>.map` so that perf can resolve function addresses
+// to names in flamegraphs with the format: `<start_hex> <size_hex> <name>`
+fn write_perf_map_entry(addr: *const u8, size: usize, name: &str) {
+    use std::io::Write;
+    let pid = std::process::id();
+    let path = format!("/tmp/perf-{}.map", pid);
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = writeln!(file, "{:x} {:x} {}", addr as usize, size, name);
+    }
+}
+
 impl JIT {
     pub fn compile_bytecode(
         &mut self,
@@ -1377,12 +1402,20 @@ impl JIT {
         //     println!("{}", asm);
         // }
 
+        // This is for perf
+        let code_size = self
+            .ctx
+            .compiled_code()
+            .map(|cc| cc.code_buffer().len())
+            .unwrap_or(0);
+
         self.module.clear_context(&mut self.ctx);
         self.module.finalize_definitions().unwrap();
 
         let code = self.module.get_finalized_function(inner_id);
 
-        // Set up the trampoline
+        // Lets figure out... what we need here
+        write_perf_map_entry(code, code_size, &inner_name);
 
         Ok(code)
     }
@@ -1985,8 +2018,9 @@ fn op_to_name_payload(op: OpCode, payload: usize) -> &'static str {
         (OpCode::NOT, _) => "not-value",
 
         // TODO!()
-        (OpCode::NUMEQUAL, 2) => "num-equal-value",
-        (OpCode::EQUAL2, _) => "equal-binop",
+        (OpCode::NUMEQUAL, 2) => "num-equal-value-bool",
+        (OpCode::EQUAL2, _) => "equal-binop-bool",
+        (OpCode::EQUAL, _) => "equal-binop-bool",
 
         (OpCode::CAR, _) => "car-handler-value",
         (OpCode::CDR, _) => "cdr-handler-value",
@@ -2270,178 +2304,13 @@ impl FunctionTranslator<'_> {
                         {
                             // Check the type:
                             let func = self.read_from_vm_stack(*i);
-                            let is_closure = self.is_type(func, SteelVal::CLOSURE_TAG);
-                            // If it is a closure, we need to clone the value:
+                            self.inline_call_func(arity, name, func, true);
+                        }
 
-                            // Okay, now that we've gotten that out of the way, we can
-                            // continue doing our thing:
-                            let typ = self.int;
-
-                            let old_stack = self.shadow_stack.clone();
-                            let old_map = self.value_to_local_map.clone();
-
-                            let res = self.converging_if(
-                                is_closure,
-                                |ctx| {
-                                    let vm_ctx = ctx.get_ctx();
-                                    let closure = ctx.unbox_value_to_pointer(func);
-
-                                    // Missing shadow stack pop!
-                                    ctx.shadow_stack.pop().unwrap();
-
-                                    // TODO: Clone / restore this for this branch,
-                                    // so the other branch can inherit the changes
-                                    let args_off_the_stack = ctx
-                                        .split_off(arity)
-                                        .into_iter()
-                                        .map(|x| x.0)
-                                        .collect::<Vec<_>>();
-
-                                    ctx.spill_stack();
-
-                                    let arity = args_off_the_stack.len();
-
-                                    // TODO: Figure out a way to swap these inline?
-                                    // Directly push these on to the stack.
-                                    for arg in &args_off_the_stack {
-                                        ctx.push_to_vm_stack_let_var_new(*arg);
-                                    }
-
-                                    let should_trampoline = ctx.check_should_trampoline(vm_ctx);
-
-                                    // TODO: This is not going to work here. Instead, we need to load
-                                    // the id of the instruction.
-                                    let super_instruction = ctx.builder.ins().load(
-                                        types::I64,
-                                        MemFlags::trusted(),
-                                        closure,
-                                        // Offset for the RC payload
-                                        16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
-                                    );
-
-                                    let super_instruction_exists = ctx.builder.ins().icmp_imm(
-                                        IntCC::NotEqual,
-                                        super_instruction,
-                                        0,
-                                    );
-
-                                    let should_continue = ctx
-                                        .builder
-                                        .ins()
-                                        .band(should_trampoline, super_instruction_exists);
-
-                                    let should_yield =
-                                        ctx.builder.ins().bxor_imm(should_continue, 1);
-                                    let fallback_ip = ctx.ip - 1;
-                                    // let fallback_ip = ctx.ip;
-                                    ctx.update_ip_native_if_yield(
-                                        vm_ctx,
-                                        should_yield,
-                                        fallback_ip + 1,
-                                    );
-
-                                    let res = ctx.converging_if(
-                                        should_continue,
-                                        |ctx| {
-                                            // Increment the ref count of the closure
-                                            ctx.increment_ref_count_closure(closure);
-
-                                            let body_exp_offset =
-                                                16 + offset_of!(ByteCodeLambda, body_exp) as i32;
-
-                                            let rcbox_ptr = ctx.builder.ins().load(
-                                                types::I64,
-                                                MemFlags::trusted(),
-                                                closure,
-                                                body_exp_offset,
-                                            );
-
-                                            let len = ctx.builder.ins().load(
-                                                types::I64,
-                                                MemFlags::trusted(),
-                                                closure,
-                                                body_exp_offset + 8,
-                                            );
-
-                                            let data_ptr =
-                                                ctx.builder.ins().iadd_imm(rcbox_ptr, 16);
-
-                                            let instr_fat_ptr =
-                                                ctx.builder.ins().iconcat(data_ptr, len);
-
-                                            ctx.push_stack_frame(
-                                                arity as _,
-                                                closure,
-                                                instr_fat_ptr,
-                                                fallback_ip,
-                                            );
-
-                                            // TODO: Abstract this to a function:
-                                            // Attempt to look up a value indirectly:
-                                            let sig_ref = ctx.create_jit_sig_ref();
-
-                                            // TODO: This is gonna be a problem now.
-                                            // Assuming we're not storing both on there.
-                                            //
-                                            // TODO: Add another field on functions for
-                                            // the non trampoline function, or generically
-                                            // call the trampoline function (i.e. have one
-                                            // trampoline that we can pass by value to the
-                                            // tail calling convention code.)
-                                            ctx.builder.ins().call_indirect(
-                                                sig_ref,
-                                                super_instruction,
-                                                &[vm_ctx],
-                                            );
-
-                                            let is_still_native = ctx.builder.ins().load(
-                                                types::I8,
-                                                MemFlags::trusted(),
-                                                vm_ctx,
-                                                offset_of!(VmCore, is_native) as i32,
-                                            );
-
-                                            ctx.converging_if(
-                                                is_still_native,
-                                                |ctx| ctx.inline_pop_from_stack(vm_ctx),
-                                                |ctx| ctx.encode_void(),
-                                                typ,
-                                            )
-                                        },
-                                        |ctx| {
-                                            let arity =
-                                                ctx.builder.ins().iconst(types::I64, arity as i64);
-                                            let fallback_ip = ctx
-                                                .builder
-                                                .ins()
-                                                .iconst(types::I64, fallback_ip as i64);
-                                            // TODO: Set up the closure for multi arity?
-                                            ctx.call_function_returns_value_args(
-                                                "#%setup-closure-arity",
-                                                &[closure, arity, fallback_ip],
-                                            )
-                                        },
-                                        typ,
-                                    );
-
-                                    res
-                                },
-                                |ctx| {
-                                    ctx.shadow_stack = old_stack.clone();
-                                    ctx.value_to_local_map = old_map.clone();
-
-                                    if let Some(name) = name {
-                                        let v = ctx.call_function(arity, name, false);
-
-                                        v
-                                    } else {
-                                        todo!("Implement spilled function call");
-                                    }
-                                },
-                                typ,
-                            );
-
-                            self.push(res, InferredType::Any)
+                        Some(MaybeStackValue::Value(StackValue { value, .. }))
+                            if USE_INLINE_CALL_FUNC =>
+                        {
+                            self.inline_call_func(arity, name, *value, false);
                         }
 
                         _ => {
@@ -3868,9 +3737,47 @@ impl FunctionTranslator<'_> {
                     self.func_ret_val(op, payload, 2, InferredType::Bool);
                 }
 
+                // Inlining equality... figure out a way to make this faster
+                // without needing to make a call. So for this, we'll just do
+                // pointer equality fast paths?
+                OpCode::EQUAL2 => {
+                    let args = self
+                        .shadow_stack
+                        .get(self.shadow_stack.len() - 2..)
+                        .unwrap();
+
+                    // self.func_ret_val(op, payload, 2, InferredType::Bool);
+
+                    match args {
+                        &[MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i), MaybeStackValue::Value(v)]
+                        | &[MaybeStackValue::Value(v), MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i)] =>
+                        {
+                            self.shadow_stack.pop();
+                            self.shadow_stack.pop();
+
+                            let register_index = self.builder.ins().iconst(types::I64, i as i64);
+
+                            let res = self.call_function_returns_value_args(
+                                "equal-binop-register-bool",
+                                &[register_index, v.value],
+                            );
+
+                            // TODO: Somewhere, I'm not calling unboxed bool to_value properly!
+                            self.push(res, InferredType::UnboxedBool);
+
+                            self.ip += 2;
+                        }
+
+                        _ => {
+                            self.func_ret_val(op, payload, 2, InferredType::Bool);
+                        }
+                    };
+                }
+
+                // Lets inline equal2
                 OpCode::EQUAL | OpCode::NUMEQUAL | OpCode::EQUAL2 => {
                     // println!("Generating code for equal");
-                    self.func_ret_val(op, payload, 2, InferredType::Bool);
+                    self.func_ret_val(op, payload, 2, InferredType::UnboxedBool);
                 }
 
                 // TODO: Use the register here. Checking is null might be slightly more involved?
@@ -3967,6 +3874,11 @@ impl FunctionTranslator<'_> {
                             //     self.properties.get(&ValueOrRegister::Register(reg)),
                             //     Some(Properties::NonEmptyList)
                             // );
+
+                            self.properties.add_property(
+                                ValueOrRegister::Register(reg),
+                                Properties::NonEmptyListOrPair,
+                            );
 
                             let can_skip_bounds_check = false;
 
@@ -4096,40 +4008,76 @@ impl FunctionTranslator<'_> {
                             //     Some(Properties::NonEmptyList)
                             // );
 
-                            let can_skip_bounds_check = false;
+                            // dbg!(self.properties.get(&ValueOrRegister::Register(reg)));
 
-                            if can_skip_bounds_check {
-                                self.shadow_stack.pop();
+                            match self.properties.get(&ValueOrRegister::Register(reg)) {
+                                Some(Properties::NonNull) => {
+                                    self.shadow_stack.pop();
+                                    let value = self.read_from_vm_stack(reg);
 
-                                let value = self.read_from_vm_stack(reg);
-                                let res = self.unchecked_car(value);
+                                    let typ = self.int;
 
-                                self.clone_value(res);
+                                    let is_list = self.is_type(value, SteelVal::LIST_TAG);
 
-                                /*
-                                let reg = self.register_index(reg);
-                                let res = self
-                                    .call_function_returns_value_args("car-reg-unchecked", &[reg]);
-                                */
+                                    let res = self.converging_if(
+                                        is_list,
+                                        |ctx| ctx.unchecked_car(value),
+                                        |ctx| {
+                                            let is_pair = ctx.is_type(value, SteelVal::PAIR_TAG);
 
-                                self.push(res, InferredType::Any);
-                                self.ip += 2;
-                            } else {
-                                // If its a non empty list, the next time we use it, we can skip bounds
-                                // checks since we know that it has a cdr.
-                                // self.properties.insert(
-                                //     ValueOrRegister::Register(reg),
-                                //     Properties::NonEmptyList,
-                                // );
+                                            ctx.converging_if(
+                                                is_pair,
+                                                // Inline car for a pair:
+                                                |ctx| ctx.inline_pair_car(value),
+                                                |ctx| {
+                                                    let reg = ctx.register_index(reg);
+                                                    let res = ctx.call_function_returns_value_args(
+                                                        "car-reg",
+                                                        &[reg],
+                                                    );
 
-                                self.shadow_stack.pop();
-                                let reg = self.register_index(reg);
-                                let res = self.call_function_returns_value_args("car-reg", &[reg]);
-                                self.push(res, InferredType::Any);
-                                self.ip += 2;
+                                                    res
+                                                },
+                                                typ,
+                                            )
+                                        },
+                                        typ,
+                                    );
+
+                                    self.properties.add_property(
+                                        ValueOrRegister::Register(reg),
+                                        Properties::NonEmptyListOrPair,
+                                    );
+
+                                    // If this is a
+                                    self.clone_value(res);
+
+                                    self.push(res, InferredType::Any);
+                                    self.ip += 2;
+                                }
+
+                                Some(Properties::ProperNonEmptyList) => {
+                                    self.shadow_stack.pop();
+
+                                    let value = self.read_from_vm_stack(reg);
+                                    let res = self.unchecked_car(value);
+
+                                    self.clone_value(res);
+
+                                    self.push(res, InferredType::Any);
+                                    self.ip += 2;
+                                }
+
+                                _ => {
+                                    self.shadow_stack.pop();
+                                    let reg = self.register_index(reg);
+                                    let res =
+                                        self.call_function_returns_value_args("car-reg", &[reg]);
+                                    self.push(res, InferredType::Any);
+                                    self.ip += 2;
+                                    self.check_deopt();
+                                }
                             }
-
-                            self.check_deopt();
                         }
 
                         _ => {
@@ -4159,8 +4107,15 @@ impl FunctionTranslator<'_> {
                         MaybeStackValue::MutRegister(i) | MaybeStackValue::Register(i) => {
                             self.shadow_stack.pop();
                             let value = self.read_from_vm_stack(i);
-                            let res = self.unbox_value_checked_register(value);
+                            let res = self.unbox_value_checked_register(value, false);
 
+                            self.ip += 2;
+                            self.push(res, InferredType::Any);
+                        }
+
+                        MaybeStackValue::Value(StackValue { value, .. }) => {
+                            self.shadow_stack.pop();
+                            let res = self.unbox_value_checked_register(value, true);
                             self.ip += 2;
                             self.push(res, InferredType::Any);
                         }
@@ -4315,6 +4270,169 @@ impl FunctionTranslator<'_> {
         self.depth -= 1;
 
         return true;
+    }
+
+    fn inline_call_func(
+        &mut self,
+        arity: usize,
+        name: Option<&str>,
+        func: Value,
+        should_clone: bool,
+    ) {
+        let is_closure = self.is_type(func, SteelVal::CLOSURE_TAG);
+        // If it is a closure, we need to clone the value:
+
+        // Okay, now that we've gotten that out of the way, we can
+        // continue doing our thing:
+        let typ = self.int;
+
+        let old_stack = self.shadow_stack.clone();
+        let old_map = self.value_to_local_map.clone();
+
+        let res = self.converging_if(
+            is_closure,
+            |ctx| {
+                let vm_ctx = ctx.get_ctx();
+                let closure = ctx.unbox_value_to_pointer(func);
+
+                // Missing shadow stack pop!
+                ctx.shadow_stack.pop().unwrap();
+
+                // TODO: Clone / restore this for this branch,
+                // so the other branch can inherit the changes
+                let args_off_the_stack = ctx
+                    .split_off(arity)
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<_>>();
+
+                ctx.spill_stack();
+
+                let arity = args_off_the_stack.len();
+
+                // TODO: Figure out a way to swap these inline?
+                // Directly push these on to the stack.
+                for arg in &args_off_the_stack {
+                    ctx.push_to_vm_stack_let_var_new(*arg);
+                }
+
+                let should_trampoline = ctx.check_should_trampoline(vm_ctx);
+
+                // TODO: This is not going to work here. Instead, we need to load
+                // the id of the instruction.
+                let super_instruction = ctx.builder.ins().load(
+                    types::I64,
+                    MemFlags::trusted(),
+                    closure,
+                    // Offset for the RC payload
+                    16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
+                );
+
+                let super_instruction_exists =
+                    ctx.builder
+                        .ins()
+                        .icmp_imm(IntCC::NotEqual, super_instruction, 0);
+
+                let should_continue = ctx
+                    .builder
+                    .ins()
+                    .band(should_trampoline, super_instruction_exists);
+
+                let should_yield = ctx.builder.ins().bxor_imm(should_continue, 1);
+                let fallback_ip = ctx.ip - 1;
+                // let fallback_ip = ctx.ip;
+                ctx.update_ip_native_if_yield(vm_ctx, should_yield, fallback_ip + 1);
+
+                let res = ctx.converging_if(
+                    should_continue,
+                    |ctx| {
+                        if should_clone {
+                            // Increment the ref count of the closure
+                            ctx.increment_ref_count_closure(closure);
+                        }
+
+                        let body_exp_offset = 16 + offset_of!(ByteCodeLambda, body_exp) as i32;
+
+                        let rcbox_ptr = ctx.builder.ins().load(
+                            types::I64,
+                            MemFlags::trusted(),
+                            closure,
+                            body_exp_offset,
+                        );
+
+                        let len = ctx.builder.ins().load(
+                            types::I64,
+                            MemFlags::trusted(),
+                            closure,
+                            body_exp_offset + 8,
+                        );
+
+                        let data_ptr = ctx.builder.ins().iadd_imm(rcbox_ptr, 16);
+
+                        let instr_fat_ptr = ctx.builder.ins().iconcat(data_ptr, len);
+
+                        ctx.push_stack_frame(arity as _, closure, instr_fat_ptr, fallback_ip);
+
+                        // TODO: Abstract this to a function:
+                        // Attempt to look up a value indirectly:
+                        let sig_ref = ctx.create_jit_sig_ref();
+
+                        // TODO: This is gonna be a problem now.
+                        // Assuming we're not storing both on there.
+                        //
+                        // TODO: Add another field on functions for
+                        // the non trampoline function, or generically
+                        // call the trampoline function (i.e. have one
+                        // trampoline that we can pass by value to the
+                        // tail calling convention code.)
+                        ctx.builder
+                            .ins()
+                            .call_indirect(sig_ref, super_instruction, &[vm_ctx]);
+
+                        let is_still_native = ctx.builder.ins().load(
+                            types::I8,
+                            MemFlags::trusted(),
+                            vm_ctx,
+                            offset_of!(VmCore, is_native) as i32,
+                        );
+
+                        ctx.converging_if(
+                            is_still_native,
+                            |ctx| ctx.inline_pop_from_stack(vm_ctx),
+                            |ctx| ctx.encode_void(),
+                            typ,
+                        )
+                    },
+                    |ctx| {
+                        let arity = ctx.builder.ins().iconst(types::I64, arity as i64);
+                        let fallback_ip = ctx.builder.ins().iconst(types::I64, fallback_ip as i64);
+                        // TODO: Set up the closure for multi arity?
+                        ctx.call_function_returns_value_args(
+                            "#%setup-closure-arity",
+                            &[closure, arity, fallback_ip],
+                        )
+                    },
+                    typ,
+                );
+
+                res
+            },
+            |ctx| {
+                ctx.shadow_stack = old_stack.clone();
+                ctx.value_to_local_map = old_map.clone();
+
+                if let Some(name) = name {
+                    let v = ctx.call_function(arity, name, false);
+
+                    v
+                } else {
+                    todo!("Implement spilled function call");
+                }
+            },
+            typ,
+        );
+
+        self.push(res, InferredType::Any)
     }
 
     fn slow_path_deopt_tail_call(&mut self, function_index: usize, arity: usize) {
@@ -4666,6 +4784,16 @@ impl FunctionTranslator<'_> {
     // need the call if we have something like that
     fn drop_value(&mut self, value: Value) {
         self.call_function_args_no_context("drop-one", &[value]);
+    }
+
+    fn inline_pair_car(&mut self, value: Value) -> Value {
+        let value = self.unbox_value_to_pointer(value);
+        let car = self
+            .builder
+            .ins()
+            .load(types::I128, MemFlags::trusted(), value, 16);
+
+        car
     }
 
     // First, check the tag:
