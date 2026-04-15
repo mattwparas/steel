@@ -4002,6 +4002,31 @@ impl<'a> VmCore<'a> {
 
     // How many captures?
     fn handle_read_captures(&mut self, index: usize) -> Result<()> {
+        // println!(
+        //     "Reading capture: super instruction: {} - multi arity: {} - contains pure func: {}",
+        //     self.thread
+        //         .stack_frames
+        //         .last()
+        //         .unwrap()
+        //         .function
+        //         .super_instructions
+        //         .is_some(),
+        //     self.thread
+        //         .stack_frames
+        //         .last()
+        //         .unwrap()
+        //         .function
+        //         .is_multi_arity,
+        //     self.thread
+        //         .stack_frames
+        //         .last()
+        //         .unwrap()
+        //         .function
+        //         .body_exp
+        //         .iter()
+        //         .any(|x| matches!(x.op_code, OpCode::PUREFUNC))
+        // );
+
         let value = self.thread.stack_frames.last().unwrap().function.captures()[index].clone();
         self.thread.stack.push(value);
         self.ip += 1;
@@ -4393,6 +4418,14 @@ impl<'a> VmCore<'a> {
                 is_multi_arity,
                 CaptureVec::new(),
             );
+
+            #[cfg(feature = "jit2")]
+            let mut constructed_lambda =
+                if std::env::var("STEEL_JIT").as_ref().map(|x| x.as_str()) != Ok("false") {
+                    jit::jit_compile_lambda(self, constructed_lambda, None, None)
+                } else {
+                    constructed_lambda
+                };
 
             self.thread
                 .function_interner

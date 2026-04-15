@@ -108,13 +108,14 @@
   (lambda (proc lst)
     (if (null? lst)
         #t
-        (letrec ([drudge
-                  (lambda (lst)
-                    ; (let ([rest (cdr lst)])
-                    ;   (if (null? rest) (proc (car lst)) (and (proc (car lst)) (drudge rest)))))])
-                    (if (cdr-null? lst)
-                        (proc (car lst))
-                        (and (proc (car lst)) (drudge (cdr lst)))))])
+        (letrec ([drudge (lambda (lst)
+                           (let ([rest (cdr lst)])
+                             (if (null? rest)
+                                 (proc (car lst))
+                                 (and (proc (car lst)) (drudge rest)))))])
+          ; (if (cdr-null? lst)
+          ;     (proc (car lst))
+          ;     (and (proc (car lst)) (drudge (cdr lst)))))])
           (drudge lst)))))
 
 (define (maps-1 source target pas new)

@@ -5,11 +5,10 @@
 ;; better type inference / understanding
 ;; how to avoid the dispatching cost.
 (define (run n)
-  ;; If the value is not a reference type, can we avoid
-  ;; spilling it to the stack? i.e. if its a known
-  ;; boolean / or number type, with only one usage, should
-  ;; we just avoid spilling to the stack and instead
-  ;; keep everything as numbers?
+  ;; Okay so the key here,
+  ;; is that we should be able to eliminate the underflow
+  ;; check since i will stop before it gets to 0. This is a tricky
+  ;; optimization though.
   (let loop ([i n]
              [sum 0])
     (if (< i 0)

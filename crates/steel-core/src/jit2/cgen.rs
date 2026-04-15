@@ -30,7 +30,7 @@ use crate::{
         strings::{char_equals_binop, steel_char_equals},
         vectors::steel_mut_vec_set,
     },
-    rvals::FunctionSignature,
+    rvals::{FunctionSignature, SteelString},
     steel_vm::{
         primitives::{steel_eq, steel_listp, steel_stringp, steel_symbolp, steel_voidp},
         vm::{jit::*, StackFrame, StackFrameAttachments, SteelThread, VmCore},
@@ -1747,6 +1747,17 @@ impl PropertyMap {
                         }
                         break;
                     }
+                    Properties::ConditionLessThan(value_or_register, integer) => {
+                        if branch {
+                            self.add_property(*value_or_register, Properties::LessThan(*integer));
+                        } else {
+                            self.add_property(
+                                *value_or_register,
+                                Properties::GreaterThan(*integer),
+                            );
+                        }
+                        break;
+                    }
                     _ => {}
                 }
             }
@@ -1789,6 +1800,15 @@ enum Properties {
     ProperNonEmptyList,
 
     InferredType(InferredType),
+
+    // Encode the property that this thing
+    // is a certain range.
+    ConditionGreaterThan(ValueOrRegister, i64),
+    ConditionLessThan(ValueOrRegister, i64),
+
+    // Realized encoding of the above
+    GreaterThan(i64),
+    LessThan(i64),
 }
 
 impl MaybeStackValue {
@@ -3109,6 +3129,91 @@ impl FunctionTranslator<'_> {
                     // self.call_end_scope_handler_new(payload, amt);
                 }
 
+                // TODO: Generalize this to any immediate!
+                OpCode::SUB
+                    if payload == 2
+                        && matches!(
+                            self.shadow_stack.get(self.shadow_stack.len() - 2..),
+                            Some(&[
+                                MaybeStackValue::MutRegister(_) | MaybeStackValue::Register(_),
+                                MaybeStackValue::Constant(ConstantValue::Int(1))
+                            ])
+                        ) =>
+                {
+                    let constant_value = self.shadow_stack.pop();
+                    let register_index = self.shadow_stack.pop().unwrap().into_index();
+
+                    let local_value = self.read_from_vm_stack(register_index);
+                    let is_int = self.is_type(local_value, SteelVal::INT_TAG);
+
+                    let sp = |ctx: &mut Self| {
+                        let register = ctx.builder.ins().iconst(types::I64, register_index as i64);
+                        let value = ctx.encode_integer(1);
+                        let args = [register, value];
+                        let result =
+                            ctx.call_function_returns_value_args("sub-binop-int-reg", &args);
+
+                        result
+                    };
+
+                    let result = self.converging_if(
+                        is_int,
+                        |ctx| {
+                            if let Some(Properties::GreaterThan(v)) = ctx
+                                .properties
+                                .get(&ValueOrRegister::Register(register_index))
+                            {
+                                if v >= 0 {
+                                    // If its an int, then we'll do checked subtraction:
+                                    let lhs = ctx.unbox_value_to_pointer(local_value);
+
+                                    let subbed = ctx.builder.ins().iadd_imm(lhs, -1);
+                                    ctx.encode_value(SteelVal::INT_TAG as _, subbed)
+                                } else {
+                                    let lhs = ctx.unbox_value_to_pointer(local_value);
+                                    let value =
+                                        constant_value.unwrap().into_value(ctx).as_steelval(ctx);
+                                    let rhs = ctx.unbox_value_to_pointer(value);
+
+                                    let (subbed, overflow_flag) =
+                                        ctx.builder.ins().ssub_overflow(lhs, rhs);
+
+                                    ctx.converging_if(
+                                        overflow_flag,
+                                        sp,
+                                        |ctx| ctx.encode_value(SteelVal::INT_TAG as _, subbed),
+                                        types::I128,
+                                    )
+                                }
+                            } else {
+                                let lhs = ctx.unbox_value_to_pointer(local_value);
+                                let value =
+                                    constant_value.unwrap().into_value(ctx).as_steelval(ctx);
+                                let rhs = ctx.unbox_value_to_pointer(value);
+
+                                let (subbed, overflow_flag) =
+                                    ctx.builder.ins().ssub_overflow(lhs, rhs);
+
+                                ctx.converging_if(
+                                    overflow_flag,
+                                    sp,
+                                    |ctx| ctx.encode_value(SteelVal::INT_TAG as _, subbed),
+                                    types::I128,
+                                )
+                            }
+
+                            // // If its an int, then we'll do checked subtraction:
+                        },
+                        sp,
+                        types::I128,
+                    );
+
+                    // Check the inferred type, if we know of it
+                    self.push(result, InferredType::Number);
+
+                    self.ip += 2;
+                }
+
                 // TODO: Depending on the inferred type, we can save a lot of
                 // operations here.
                 //
@@ -3484,6 +3589,7 @@ impl FunctionTranslator<'_> {
                                     res
                                 }
                                 Either::Int(i) => {
+                                    // Lets encode the property here then?
                                     ctx.builder.ins().icmp_imm(IntCC::SignedLessThan, lhs, i)
                                 }
                             };
@@ -3509,11 +3615,13 @@ impl FunctionTranslator<'_> {
                         types::I8,
                     );
 
-                    // dbg!(self.local_to_value_map.get(&register_r));
-                    // dbg!(self.local_to_value_map.get(&register_l));
-
-                    // let local_value = self.read_from_vm_stack(register_l);
-                    // self.call_function_args_no_context("#%debug-steel-value", &[local_value]);
+                    // Encoding the property here
+                    if let Either::Int(i) = rhs_int {
+                        self.properties.add_property(
+                            ValueOrRegister::Value(result),
+                            Properties::ConditionLessThan(ValueOrRegister::Register(register_l), i),
+                        );
+                    }
 
                     // Check the inferred type, if we know of it
                     self.push(result, InferredType::UnboxedBool);
@@ -5812,11 +5920,47 @@ impl FunctionTranslator<'_> {
                 let constant = self.constants.get_value(payload);
 
                 match &constant {
-                    SteelVal::NumV(n) => {
-                        println!("Getting here");
-                        (self.encode_float(*n), InferredType::Float)
-                    }
+                    SteelVal::NumV(n) => (self.encode_float(*n), InferredType::Float),
                     SteelVal::IntV(i) => (self.encode_integer(*i as _), InferredType::Int),
+
+                    // Leak the constant, and then just push it up instead
+                    SteelVal::SymbolV(c) => {
+                        let value = c.clone();
+
+                        // Leak the value?
+                        value.0.into_raw();
+
+                        let as_ptr: i64 =
+                            unsafe { std::mem::transmute::<SteelString, _>(c.clone()) };
+
+                        let value = self.builder.ins().iconst(types::I64, as_ptr);
+
+                        // Clone it
+                        self.increment_ref_count_closure(value);
+
+                        (
+                            self.encode_value(SteelVal::SYMBOL_TAG as _, value),
+                            InferredType::Symbol,
+                        )
+                    }
+
+                    SteelVal::ListV(c) => {
+                        let value = c.clone();
+
+                        let as_ptr: usize = unsafe {
+                            std::mem::transmute::<crate::values::lists::List<_>, _>(c.clone())
+                        };
+
+                        let value = self.builder.ins().iconst(types::I64, as_ptr as i64);
+
+                        self.increment_ref_count_closure(value);
+
+                        (
+                            self.encode_value(SteelVal::LIST_TAG as _, value),
+                            InferredType::List,
+                        )
+                    }
+
                     // SteelVal::BoolV(_) => (self.create_i128(encode(constant)), InferredType::Bool),
                     // SteelVal::IntV(_) => (self.create_i128(encode(constant)), InferredType::Int),
                     // SteelVal::CharV(_) => (self.create_i128(encode(constant)), InferredType::Char),
@@ -7199,6 +7343,13 @@ impl FunctionTranslator<'_> {
     /// Clone a biased rc value
     fn clone_biased_rc(&mut self, value: Value) {
         let ptr = self.unbox_value_to_pointer(value);
+
+        // TODO: @Matt
+        // DO NOT MERGE THIS THIS WAY, ITS BROKEN
+        // THIS NEEDS TO USE THE TAG OR ELSE IT WILL DIE
+        // WHEN GOING ACROSS THE BOUNDARY. WE HAVE TO REPLACE
+        // raw-slow-increment-closure with a proper inlined
+        // call so that we can operate agnostically
         self.increment_ref_count_closure(ptr);
     }
 
@@ -7222,7 +7373,7 @@ impl FunctionTranslator<'_> {
             },
             |ctx| {
                 // TODO: @Matt - we can inline this as well!
-                // Slow path increment the counter
+                // Slow path increment the counter - this needs to be more generic
                 ctx.call_function_args_no_context("raw-slow-increment-closure", &[value]);
             },
         );

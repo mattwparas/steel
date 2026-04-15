@@ -2097,7 +2097,7 @@ impl SteelVal {
 // }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[repr(C)]
+#[repr(transparent)]
 pub struct SteelString(pub(crate) Gc<String>);
 
 impl Deref for SteelString {
