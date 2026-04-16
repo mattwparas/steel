@@ -19,13 +19,14 @@ use std::{
 };
 use steel_derive::cross_platform_fn;
 use steel_gen::{opcode::OPCODES_ARRAY, OpCode};
+use steel_parser::interner::InternedString;
 
 use crate::{
     compiler::constants::ConstantMap,
     core::instructions::{pretty_print_dense_instructions, DenseInstruction},
     gc::Gc,
     primitives::{
-        lists::{steel_cdr, steel_is_empty, steel_pair},
+        lists::{steel_cdr, steel_is_empty, steel_list_contains, steel_pair},
         ports::{eof_objectp_jit, read_char_single_ref, steel_eof_objectp, steel_read_char},
         strings::{char_equals_binop, steel_char_equals},
         vectors::steel_mut_vec_set,
@@ -37,7 +38,7 @@ use crate::{
     },
     values::{
         functions::{ByteCodeLambda, RootedInstructions},
-        lists::SteelList,
+        lists::{List, SteelList},
         structs::{create_struct_spec, StructTypeDescriptor},
     },
     SteelVal,
@@ -51,8 +52,12 @@ const INLINE_STRUCT_FUNCTION_TAIL_CALLS: bool = true;
 const USE_INLINE_CALL_FUNC: bool = true;
 const USE_INLINE_GLOBAL_TAIL_CALL: bool = true;
 
+const USE_INLINE_LOCAL_TAIL_CALL: bool = true;
+
 const USE_EXPERIMENTAL_CALL: bool = true;
 const USE_INLINE_TAIL_CALL: bool = true;
+
+const USE_INLINE_CALL_GLOBAL: bool = false;
 
 /// The basic JIT class.
 pub struct JIT {
@@ -73,6 +78,8 @@ pub struct JIT {
     module: JITModule,
 
     function_map: OwnedFunctionMap,
+
+    names: HashMap<u32, String>,
 }
 
 pub struct FunctionMap<'a> {
@@ -951,6 +958,16 @@ impl Default for JIT {
         );
 
         map.add_func(
+            "list-contains-reg",
+            abi! { list_contains_reg as fn(ctx: *mut VmCore, usize, List<SteelVal>) -> bool },
+        );
+
+        map.add_func(
+            "list-contains-value",
+            abi! { list_contains_value as fn(ctx: *mut VmCore, SteelVal, SteelVal) -> bool },
+        );
+
+        map.add_func(
             "eq?-reg-2",
             abi! { eq_reg_2 as fn(ctx: *mut VmCore, usize, usize) -> bool },
         );
@@ -1180,6 +1197,7 @@ impl Default for JIT {
             data_description: DataDescription::new(),
             module,
             function_map,
+            names: Default::default(),
         }
     }
 }
@@ -1208,8 +1226,18 @@ unsafe fn compile_bytecode(
     constants: &ConstantMap,
     function_index: Option<usize>,
     slot: Option<&Gc<ByteCodeLambda>>,
+    top_level_name: Option<InternedString>,
 ) -> Result<JitFnPointer, String> {
-    let code_ptr = jit.compile(name, arity, code, globals, constants, function_index, slot)?;
+    let code_ptr = jit.compile(
+        name,
+        arity,
+        code,
+        globals,
+        constants,
+        function_index,
+        slot,
+        top_level_name,
+    )?;
     let code_fn = JitFnPointer(NonNull::new_unchecked(code_ptr.cast_mut()));
 
     Ok(code_fn)
@@ -1240,6 +1268,7 @@ impl JIT {
         constants: &ConstantMap,
         function_index: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
+        top_level_name: Option<InternedString>,
     ) -> Result<JitFnPointer, String> {
         unsafe {
             compile_bytecode(
@@ -1251,6 +1280,7 @@ impl JIT {
                 constants,
                 function_index,
                 slot,
+                top_level_name,
             )
         }
     }
@@ -1335,10 +1365,21 @@ impl JIT {
         constants: &ConstantMap,
         function_index: Option<usize>,
         slot: Option<&Gc<ByteCodeLambda>>,
+        top_level_name: Option<InternedString>,
     ) -> Result<*const u8, String> {
+        let inner_name = if let Some(top_level_name) = top_level_name {
+            format!("{}_{}_inner", top_level_name, name)
+        } else {
+            // Store the name
+            format!("{}_inner", name)
+        };
+
+        self.names
+            .insert(str::parse::<u32>(&name).unwrap(), inner_name.clone());
+
         // self.ctx.set_disasm(true);
 
-        if let Some(data) = self.module.get_name(&name) {
+        if let Some(data) = self.module.get_name(&inner_name) {
             match data {
                 cranelift_module::FuncOrDataId::Func(func_id) => {
                     return Ok(self.module.get_finalized_function(func_id));
@@ -1357,10 +1398,8 @@ impl JIT {
         self.ctx.func.signature.params.push(param);
         self.ctx.func.signature.call_conv = CallConv::Tail;
 
-        let inner_name = format!("{}_inner", name);
         let inner_id = self
             .module
-            // .declare_function(&inner_name, Linkage::Local, &self.ctx.func.signature)
             .declare_function(&inner_name, Linkage::Export, &self.ctx.func.signature)
             .map_err(|e| e.to_string())?;
 
@@ -1496,6 +1535,7 @@ impl JIT {
             vm_context,
             slot,
             function_context,
+            names: &self.names,
         };
 
         trans.stack_to_ssa();
@@ -1952,6 +1992,8 @@ struct FunctionTranslator<'a> {
     // generators: LazyInstructionGenerators,
     slot: Option<&'a Gc<ByteCodeLambda>>,
     function_context: Option<usize>,
+
+    names: &'a HashMap<u32, String>,
 }
 
 pub fn split_big(a: i128) -> [i64; 2] {
@@ -2332,18 +2374,133 @@ impl FunctionTranslator<'_> {
                     let name = CallFunctionTailDefinitions::arity_to_name(arity);
                     self.ip += 1;
 
-                    if let Some(name) = name {
-                        let v = self.call_function(arity, name, true);
-                        self.push(v, InferredType::Any);
-                    } else {
-                        todo!("Implement spilled function call");
+                    match self.shadow_stack.last().copied() {
+                        Some(MaybeStackValue::MutRegister(i)) if USE_INLINE_LOCAL_TAIL_CALL => {
+                            // Remove the register argument
+                            self.shadow_stack.pop();
+
+                            // We don't need to clone, because we've just read it from the stack.
+                            let value = self.remove_from_vm_stack(i);
+
+                            let is_closure = self.is_type(value, SteelVal::CLOSURE_TAG);
+
+                            // Capture what the stack is before hand, we'll need this
+                            let old_stack = self.shadow_stack.clone();
+
+                            self.converging_if_no_value(
+                                is_closure,
+                                |ctx| {
+                                    let closure = ctx.unbox_value_to_pointer(value);
+                                    ctx.inline_local_tail_call(arity, closure, value);
+                                },
+                                |ctx| {
+                                    ctx.shadow_stack = old_stack.clone();
+
+                                    // Lets call the function:
+                                    if let Some(name) = name {
+                                        let v =
+                                            ctx.call_function_with_func(arity, name, true, value);
+                                        ctx.push(v, InferredType::Any);
+                                    } else {
+                                        todo!("Implement spilled function call bail out case");
+                                    }
+                                },
+                            );
+
+                            self.ip = self.instructions.len() + 1;
+                            self.check_deopt();
+                            self.depth -= 1;
+                        }
+
+                        Some(MaybeStackValue::Value(StackValue { value, .. }))
+                            if USE_INLINE_LOCAL_TAIL_CALL =>
+                        {
+                            // Remove the register argument
+                            self.shadow_stack.pop();
+
+                            let is_closure = self.is_type(value, SteelVal::CLOSURE_TAG);
+
+                            // Capture what the stack is before hand, we'll need this
+                            let old_stack = self.shadow_stack.clone();
+
+                            self.converging_if_no_value(
+                                is_closure,
+                                |ctx| {
+                                    let closure = ctx.unbox_value_to_pointer(value);
+                                    ctx.inline_local_tail_call(arity, closure, value);
+                                },
+                                |ctx| {
+                                    ctx.shadow_stack = old_stack.clone();
+
+                                    // Lets call the function:
+                                    if let Some(name) = name {
+                                        let v =
+                                            ctx.call_function_with_func(arity, name, true, value);
+                                        ctx.push(v, InferredType::Any);
+                                    } else {
+                                        todo!("Implement spilled function call bail out case");
+                                    }
+                                },
+                            );
+
+                            self.ip = self.instructions.len() + 1;
+                            self.check_deopt();
+                            self.depth -= 1;
+                        }
+
+                        Some(MaybeStackValue::Register(i)) if USE_INLINE_LOCAL_TAIL_CALL => {
+                            // Remove the register argument
+                            self.shadow_stack.pop();
+
+                            // We don't need to clone, because we've just read it from the stack.
+                            let value = self.read_from_vm_stack(i);
+
+                            let is_closure = self.is_type(value, SteelVal::CLOSURE_TAG);
+
+                            // Capture what the stack is before hand, we'll need this
+                            let old_stack = self.shadow_stack.clone();
+
+                            self.converging_if_no_value(
+                                is_closure,
+                                |ctx| {
+                                    let closure = ctx.unbox_value_to_pointer(value);
+                                    ctx.increment_ref_count_closure(closure);
+                                    ctx.inline_local_tail_call(arity, closure, value);
+                                },
+                                |ctx| {
+                                    ctx.shadow_stack = old_stack.clone();
+                                    ctx.clone_value(value);
+                                    // Lets call the function:
+                                    if let Some(name) = name {
+                                        let v =
+                                            ctx.call_function_with_func(arity, name, true, value);
+                                        ctx.push(v, InferredType::Any);
+                                    } else {
+                                        todo!("Implement spilled function call bail out case");
+                                    }
+                                },
+                            );
+
+                            self.ip = self.instructions.len() + 1;
+                            self.check_deopt();
+                            self.depth -= 1;
+                        }
+
+                        _ => {
+                            if let Some(name) = name {
+                                let v = self.call_function(arity, name, true);
+                                self.push(v, InferredType::Any);
+                            } else {
+                                todo!("Implement spilled function call");
+                            }
+
+                            self.ip = self.instructions.len() + 1;
+
+                            self.check_deopt();
+
+                            self.depth -= 1;
+                        }
                     }
-
-                    self.ip = self.instructions.len() + 1;
-
-                    self.check_deopt();
-
-                    self.depth -= 1;
 
                     return false;
                 }
@@ -2616,26 +2773,26 @@ impl FunctionTranslator<'_> {
                     let maybe_global = self._globals.get(function_index).cloned();
                     if let Some(maybe_global) = maybe_global {
                         // Check if this is a mut func, handle it accordingly
-                        println!("Call global tail: {}", maybe_global);
+                        // println!("Call global tail: {}", maybe_global);
 
-                        match maybe_global {
-                            SteelVal::MutFunc(_) => {
-                                println!("Found mutable function")
-                            }
-                            SteelVal::FuncV(_) => {
-                                println!("Found normal function")
-                            }
+                        // match maybe_global {
+                        //     SteelVal::MutFunc(_) => {
+                        //         println!("Found mutable function")
+                        //     }
+                        //     SteelVal::FuncV(_) => {
+                        //         println!("Found normal function")
+                        //     }
 
-                            SteelVal::BoxedFunction(_) => {
-                                println!("Found boxed function")
-                            }
+                        //     SteelVal::BoxedFunction(_) => {
+                        //         println!("Found boxed function")
+                        //     }
 
-                            SteelVal::BuiltIn(_) => {
-                                println!("Found built in")
-                            }
+                        //     SteelVal::BuiltIn(_) => {
+                        //         println!("Found built in")
+                        //     }
 
-                            _ => {}
-                        }
+                        //     _ => {}
+                        // }
 
                         if INLINE_STRUCT_FUNCTION_TAIL_CALLS {
                             // TODO: @Matt -> This is the issue, something is
@@ -2675,7 +2832,7 @@ impl FunctionTranslator<'_> {
                         // Take this fast path if the super instructions already exists.
                         // Then we can do a direct call.
                         if function.super_instructions.is_some() {
-                            self.inline_global_tail_call(function_index, arity, function);
+                            self.inline_global_tail_call(arity, function);
                             self.ip = self.instructions.len() + 1;
                             self.depth -= 1;
                         } else {
@@ -2742,6 +2899,10 @@ impl FunctionTranslator<'_> {
                             // Assuming this worked, we'll want to push this result on to the stack.
                             self.push(result, InferredType::Any);
                         }
+                    }
+                    // TODO: inline the call global here!
+                    if USE_INLINE_CALL_GLOBAL {
+                        todo!()
                     } else if let Some(name) = name {
                         let result = self.call_global_function(arity, name, function_index, false);
 
@@ -2824,6 +2985,12 @@ impl FunctionTranslator<'_> {
 
                                 f if f == steel_pair as FunctionSignature && arity == 1 => {
                                     self.is_pair()
+                                }
+
+                                f if f == steel_list_contains as FunctionSignature
+                                    && arity == 2 =>
+                                {
+                                    self.list_contains()
                                 }
 
                                 f if f == steel_is_empty as FunctionSignature && arity == 1 => {
@@ -3769,7 +3936,7 @@ impl FunctionTranslator<'_> {
                         }
 
                         _ => {
-                            self.func_ret_val(op, payload, 2, InferredType::Bool);
+                            self.func_ret_val(op, payload, 2, InferredType::UnboxedBool);
                         }
                     };
                 }
@@ -4068,7 +4235,7 @@ impl FunctionTranslator<'_> {
                                     self.ip += 2;
                                 }
 
-                                _ => {
+                                _ if false => {
                                     self.shadow_stack.pop();
                                     let reg = self.register_index(reg);
                                     let res =
@@ -4076,6 +4243,52 @@ impl FunctionTranslator<'_> {
                                     self.push(res, InferredType::Any);
                                     self.ip += 2;
                                     self.check_deopt();
+                                }
+
+                                _ => {
+                                    self.shadow_stack.pop();
+                                    let value = self.read_from_vm_stack(reg);
+
+                                    let typ = self.int;
+
+                                    let is_list = self.is_type(value, SteelVal::LIST_TAG);
+
+                                    let res = self.converging_if(
+                                        is_list,
+                                        |ctx| ctx.checked_car(value, reg),
+                                        |ctx| {
+                                            let is_pair = ctx.is_type(value, SteelVal::PAIR_TAG);
+
+                                            ctx.converging_if(
+                                                is_pair,
+                                                // Inline car for a pair:
+                                                |ctx| ctx.inline_pair_car(value),
+                                                |ctx| {
+                                                    let reg = ctx.register_index(reg);
+                                                    let res = ctx.call_function_returns_value_args(
+                                                        "car-reg",
+                                                        &[reg],
+                                                    );
+                                                    ctx.check_deopt();
+
+                                                    res
+                                                },
+                                                typ,
+                                            )
+                                        },
+                                        typ,
+                                    );
+
+                                    self.properties.add_property(
+                                        ValueOrRegister::Register(reg),
+                                        Properties::NonEmptyListOrPair,
+                                    );
+
+                                    // If this is a
+                                    self.clone_value(res);
+
+                                    self.push(res, InferredType::Any);
+                                    self.ip += 2;
                                 }
                             }
                         }
@@ -4272,6 +4485,8 @@ impl FunctionTranslator<'_> {
         return true;
     }
 
+    // TODO: We have to include the arity check as well!
+    // Otherwise, we're going to have a problem.
     fn inline_call_func(
         &mut self,
         arity: usize,
@@ -4841,6 +5056,67 @@ impl FunctionTranslator<'_> {
         local_value
     }
 
+    fn checked_car(&mut self, original_value: Value, reg: usize) -> Value {
+        // let is_list = self.is_type(value, SteelVal::LIST_TAG);
+        let value = self.unbox_value_to_pointer(original_value);
+
+        // Lets figure out where car is:
+        let index = self
+            .builder
+            .ins()
+            .load(types::I32, MemFlags::trusted(), value, 16);
+
+        // Thats the index:
+        let shared_vector_ptr =
+            self.builder
+                .ins()
+                .load(types::I64, MemFlags::trusted(), value, 16 + 8 as i32);
+
+        let index = self.builder.ins().uextend(types::I64, index);
+
+        let is_empty = self.builder.ins().icmp_imm(IntCC::Equal, index, 0);
+
+        let typ = self.int;
+
+        self.converging_if(
+            is_empty,
+            |ctx| {
+                // Now get car:
+                // TODO:
+                // Header size is just gonna be 16
+                let header_size = SteelList::<SteelVal>::vector_header_size();
+
+                // self.elements.get(self.index as usize - 1)
+
+                let size: i64 = std::mem::size_of::<SteelVal>() as _;
+                // Okay so this might be wrong: But if we have the value at a certain
+                // location, then we'll need to find the offset of everything directly.
+                //
+                // The header size is
+                let real_slot = ctx.builder.ins().iadd_imm(index, -1);
+
+                let offset = ctx.builder.ins().imul_imm(real_slot, size);
+                let slot_ptr = ctx.builder.ins().iadd(shared_vector_ptr, offset);
+                let slot_ptr = ctx.builder.ins().iadd_imm(slot_ptr, header_size as i64);
+
+                let local_value =
+                    ctx.builder
+                        .ins()
+                        .load(types::I128, MemFlags::trusted(), slot_ptr, 0);
+
+                local_value
+            },
+            |ctx| {
+                // Slow path!
+                let reg = ctx.register_index(reg);
+                let res = ctx.call_function_returns_value_args("car-reg", &[reg]);
+                ctx.check_deopt();
+                res
+            },
+            typ,
+        )
+    }
+
     fn is_type(&mut self, value: Value, check_tag: u8) -> Value {
         let tag = self.get_tag(value);
         self.builder
@@ -5296,14 +5572,6 @@ impl FunctionTranslator<'_> {
     }
 
     fn call_function(&mut self, arity: usize, name: &str, tail: bool) -> Value {
-        // let sig = self.get_signature(name);
-
-        // let callee = self
-        //     .module
-        //     .declare_function(&name, Linkage::Import, &sig)
-        //     .expect("problem declaring function");
-        // let local_callee = self.module.declare_func_in_func(callee, self.builder.func);
-
         let local_callee = self.get_local_callee(name);
 
         let ctx = self.get_ctx();
@@ -5325,6 +5593,69 @@ impl FunctionTranslator<'_> {
         // );
 
         arg_values.extend(self.split_off(arity).into_iter().map(|x| x.0));
+
+        if tail {
+            self.spill_cloned_stack();
+        } else {
+            self.spill_stack();
+        }
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+    }
+
+    fn call_function_with_func(
+        &mut self,
+        arity: usize,
+        name: &str,
+        tail: bool,
+        func: Value,
+    ) -> Value {
+        let local_callee = self.get_local_callee(name);
+
+        let ctx = self.get_ctx();
+
+        let fallback_ip = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+        let mut arg_values = vec![ctx, func, fallback_ip];
+
+        arg_values.extend(self.split_off(arity).into_iter().map(|x| x.0));
+
+        if tail {
+            self.spill_cloned_stack();
+        } else {
+            self.spill_stack();
+        }
+
+        let call = self.builder.ins().call(local_callee, &arg_values);
+        let result = self.builder.inst_results(call)[0];
+        result
+    }
+
+    fn call_function_with_func_with_args(
+        &mut self,
+        arity: usize,
+        name: &str,
+        tail: bool,
+        func: Value,
+        args: Vec<Value>,
+    ) -> Value {
+        let local_callee = self.get_local_callee(name);
+
+        let ctx = self.get_ctx();
+
+        let fallback_ip = self
+            .builder
+            .ins()
+            .iconst(Type::int(64).unwrap(), self.ip as i64);
+
+        let mut arg_values = vec![ctx, func, fallback_ip];
+
+        arg_values.extend(args);
 
         if tail {
             self.spill_cloned_stack();
@@ -5435,12 +5766,7 @@ impl FunctionTranslator<'_> {
     // TODO: Assert that this is immutable. We can avoid looking it up.
     // First things first - worst case always is to just bail out and fall back
     // to the existing behavior.
-    fn inline_global_tail_call(
-        &mut self,
-        function_index: usize,
-        arity: usize,
-        func: Gc<ByteCodeLambda>,
-    ) {
+    fn inline_global_tail_call(&mut self, arity: usize, func: Gc<ByteCodeLambda>) {
         // First things first, we first get the args off. Worst case, we'll spill
         // these back on to the args
         let args = self
@@ -5509,21 +5835,132 @@ impl FunctionTranslator<'_> {
             offset_of!(VmCore, ip) as i32,
         );
 
-        const USE_RETURN_CALL_INDIRECT: bool = true;
-
-        // Do:
-        let sig_ref = self.create_jit_sig_ref(); // build just the signature, no FuncRef
+        let sig_ref = self.create_jit_sig_ref();
         let func_ptr = self.builder.ins().iconst(types::I64, jit_func_addr as i64);
         self.builder
             .ins()
             .return_call_indirect(sig_ref, func_ptr, &args);
 
-        /*
-        let jit_func = self.get_jit_func(id);
-        self.builder.ins().return_call(jit_func, &args);
-        */
         let cold_block = self.builder.create_block();
         self.builder.switch_to_block(cold_block);
+    }
+
+    fn inline_local_tail_call(&mut self, arity: usize, closure: Value, original: Value) {
+        // First things first, we first get the args off. Worst case, we'll spill
+        // these back on to the args
+        let args = self
+            .split_off(arity)
+            .into_iter()
+            .map(|x| x.0)
+            .collect::<Vec<_>>();
+
+        let vm_ctx = self.get_ctx();
+
+        // TODO: This is not going to work here. Instead, we need to load
+        // the id of the instruction.
+        let super_instruction = self.builder.ins().load(
+            types::I64,
+            MemFlags::trusted(),
+            closure,
+            // Offset for the RC payload
+            16 + offset_of!(ByteCodeLambda, super_instructions) as i32,
+        );
+
+        let super_instruction_exists =
+            self.builder
+                .ins()
+                .icmp_imm(IntCC::NotEqual, super_instruction, 0);
+
+        self.spill_cloned_stack();
+
+        // TODO: Check if super instruction exists here:
+
+        self.converging_if_no_value(
+            super_instruction_exists,
+            |ctx| {
+                let body_exp_offset = 16 + offset_of!(ByteCodeLambda, body_exp) as i32;
+
+                let rcbox_ptr = ctx.builder.ins().load(
+                    types::I64,
+                    MemFlags::trusted(),
+                    closure,
+                    body_exp_offset,
+                );
+
+                let len = ctx.builder.ins().load(
+                    types::I64,
+                    MemFlags::trusted(),
+                    closure,
+                    body_exp_offset + 8,
+                );
+
+                let data_ptr = ctx.builder.ins().iadd_imm(rcbox_ptr, 16);
+
+                let instr_fat_ptr = ctx.builder.ins().iconcat(data_ptr, len);
+
+                // Not sure if we're gonna need this?
+                let fallback_ip = ctx.ip;
+
+                ctx.ip += 1;
+
+                // Pass this through
+                ctx.update_last_stackframe(vm_ctx, closure);
+
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    instr_fat_ptr,
+                    vm_ctx,
+                    offset_of!(VmCore, instructions) as i32,
+                );
+
+                let offset = ctx.read_last_sp(vm_ctx, None);
+
+                // Then, truncate the stack back to where we were before:
+                ctx.truncate_stack(vm_ctx, offset, None);
+
+                for arg in &args {
+                    ctx.push_to_vm_stack(*arg);
+                }
+
+                // Implement the body of `new_handle_tail_call_closure` here
+
+                // New args now that we've spilled everything
+                let args = [vm_ctx];
+
+                let zero = ctx.builder.ins().iconst(types::I64, 0);
+
+                ctx.builder.ins().store(
+                    MemFlags::trusted(),
+                    zero,
+                    vm_ctx,
+                    offset_of!(VmCore, ip) as i32,
+                );
+
+                let sig_ref = ctx.create_jit_sig_ref();
+                ctx.builder
+                    .ins()
+                    .return_call_indirect(sig_ref, super_instruction, &args);
+
+                let cold_block = ctx.builder.create_block();
+                ctx.builder.switch_to_block(cold_block);
+            },
+            |ctx| {
+                let name = CallFunctionTailDefinitions::arity_to_name(arity);
+
+                if let Some(name) = name {
+                    let v = ctx.call_function_with_func_with_args(
+                        arity,
+                        name,
+                        true,
+                        original,
+                        args.clone(),
+                    );
+                    ctx.push(v, InferredType::Any);
+                } else {
+                    todo!("Implement spilled function call bail out case");
+                }
+            },
+        );
     }
 
     fn call_global_function(
@@ -7934,7 +8371,11 @@ impl FunctionTranslator<'_> {
 
         sig.call_conv = CallConv::Tail;
 
-        let name = format!("{}_inner", id);
+        let name = self
+            .names
+            .get(&id)
+            .cloned()
+            .unwrap_or_else(|| format!("{}_inner", id));
 
         let callee = self
             .module

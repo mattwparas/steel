@@ -9,7 +9,7 @@ use super::VmCore;
 use crate::{
     gc::Gc,
     primitives::{
-        lists::{cdr_no_check, cdr_no_check_two, cons, list_ref},
+        lists::{cdr_no_check, cdr_no_check_two, cons, list_ref, steel_list_contains},
         numbers::add_two,
         vectors::{mut_vec_set, steel_mut_vec_set},
     },
@@ -37,14 +37,17 @@ pub(crate) fn jit_compile_lambda(
         .iter()
         .any(|x| matches!(x.op_code, OpCode::PUREFUNC))
     {
+        println!("Skipping compiling because of pure funcs: {}", func.id);
         return func;
     }
 
     if ctx.thread.compiler.read().kernel.is_none() {
+        println!("Skipping compiling because of the kernel: {}", func.id);
         return func;
     }
 
     if func.is_multi_arity {
+        println!("Skipping compiling because it is multi arity: {}", func.id);
         return func;
     }
 
@@ -66,6 +69,18 @@ pub(crate) fn jit_compile_lambda(
 
     // inspect_impl(ctx, &[SteelVal::Closure(Gc::new(func.clone()))]);
 
+    let fn_ptr_name = maybe_index.and_then(|x| {
+        ctx.thread
+            .compiler
+            .read()
+            .symbol_map
+            .values()
+            .get(x)
+            .copied()
+    });
+
+    dbg!(fn_ptr_name);
+
     // let mut inner = func.unwrap();
     let fn_pointer = ctx.thread.jit.lock().unwrap().compile_bytecode(
         name,
@@ -75,6 +90,7 @@ pub(crate) fn jit_compile_lambda(
         &ctx.thread.constant_map,
         maybe_index,
         self_slot.map(|x| &*x),
+        fn_ptr_name,
     );
 
     let fn_pointer = if let Ok(fn_pointer) = fn_pointer {
@@ -130,6 +146,7 @@ pub(crate) fn jit_compile_two(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Res
                             &func.body_exp,
                             &ctx.thread.global_env.roots(),
                             &ctx.thread.constant_map,
+                            None,
                             None,
                             None,
                         )
@@ -198,6 +215,7 @@ pub(crate) fn jit_compile(ctx: &mut VmCore, args: &[SteelVal]) -> Option<Result<
                 &ctx.thread.global_env.roots(),
                 &ctx.thread.constant_map,
                 function_name,
+                None,
                 None,
             )
             .unwrap();
@@ -1081,6 +1099,38 @@ fn vector_set_handler_register_one(
 
             SteelVal::Void
         }
+    }
+}
+
+#[cross_platform_fn]
+fn list_contains_reg(ctx: *mut VmCore, reg: usize, lst: List<SteelVal>) -> bool {
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let value = &guard.thread.stack[reg + offset];
+
+    for item in lst.iter() {
+        if value == item {
+            return true;
+        }
+    }
+
+    false
+}
+
+#[cross_platform_fn]
+fn list_contains_value(ctx: *mut VmCore, value: SteelVal, lst: SteelVal) -> bool {
+    let guard = unsafe { &mut *ctx };
+
+    match steel_list_contains(&[value, lst]) {
+        Ok(SteelVal::BoolV(b)) => b,
+        Err(e) => {
+            guard.result = Some(Err(e));
+            guard.is_native = false;
+
+            false
+        }
+
+        _ => unreachable!(),
     }
 }
 

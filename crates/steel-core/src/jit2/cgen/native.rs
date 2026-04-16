@@ -183,6 +183,42 @@ impl<'a> FunctionTranslator<'a> {
                 self.ip += 1;
             }
 
+            &[MutRegister(v) | Register(v), Value(StackValue {
+                value,
+                inferred_type: InferredType::Symbol,
+                ..
+            })] => {
+                let right = self.shadow_pop();
+
+                // Pop them off
+                self.shadow_stack.pop();
+
+                // If they're the same type, just compare the bytes. Don't do a lookup.
+
+                let left_value = self.read_from_vm_stack(v);
+                let is_symbol = self.is_type(left_value, SteelVal::SYMBOL_TAG);
+
+                let res = self.converging_if(
+                    is_symbol,
+                    |ctx| {
+                        let lvalue = ctx.unbox_value_to_pointer(left_value);
+                        let rvalue = ctx.unbox_value_to_pointer(right.0);
+
+                        // Just compare the two values directly since we're looking
+                        // at the pointers.
+                        ctx.builder.ins().icmp(IntCC::Equal, lvalue, rvalue)
+                    },
+                    |ctx| {
+                        let left = ctx.register_index(v);
+                        ctx.call_function_returns_value_args("eq?-reg-1", &[left, right.0])
+                    },
+                    types::I8,
+                );
+
+                self.push(res, InferredType::UnboxedBool);
+                self.ip += 1;
+            }
+
             &[MutRegister(v) | Register(v), Value(_)] => {
                 let left = self.register_index(v);
                 let right = self.shadow_pop();
@@ -207,6 +243,48 @@ impl<'a> FunctionTranslator<'a> {
                 let res = self.call_function_returns_value_args_no_context("eq?-args", &args);
 
                 self.push(res, InferredType::UnboxedBool);
+                self.ip += 1;
+            }
+        }
+    }
+
+    pub(super) fn list_contains(&mut self) {
+        use MaybeStackValue::*;
+
+        let args = self
+            .shadow_stack
+            .get(self.shadow_stack.len() - 2..)
+            .unwrap();
+
+        match args {
+            // List contains the value
+            &[Register(reg), Value(StackValue {
+                value,
+                inferred_type: InferredType::List,
+                ..
+            })] => {
+                let left = self.register_index(reg);
+                let right = self.shadow_pop().0;
+                let list = self.unbox_value_to_pointer(right);
+                self.shadow_pop();
+                let res = self.call_function_returns_value_args("list-contains-reg", &[left, list]);
+                self.push(res, InferredType::UnboxedBool);
+
+                self.ip += 1;
+            }
+            _ => {
+                let args = self
+                    .split_off(2)
+                    .into_iter()
+                    .map(|x| x.0)
+                    .collect::<Vec<_>>();
+
+                let res = self.call_function_returns_value_args("list-contains-value", &args);
+
+                self.check_deopt();
+
+                self.push(res, InferredType::UnboxedBool);
+
                 self.ip += 1;
             }
         }

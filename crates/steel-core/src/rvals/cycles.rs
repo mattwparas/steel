@@ -1067,15 +1067,17 @@ impl<'a> BreadthFirstSearchSteelValVisitor for IterativeDropHandler<'a> {
         // println!("list: {:?}", list);
 
         if list.strong_count() == 1 {
-            for value in list.draining_iterator() {
-                // println!(
-                // "PUSHING BACK VALUE - queue size: {}",
-                // self.drop_buffer.len()
-                // );
+            if let Some(iter) = list.draining_iterator() {
+                for value in iter {
+                    // println!(
+                    // "PUSHING BACK VALUE - queue size: {}",
+                    // self.drop_buffer.len()
+                    // );
 
-                // println!("enqueueing: {}", value);
+                    // println!("enqueueing: {}", value);
 
-                self.push_back(value);
+                    self.push_back(value);
+                }
             }
         }
     }

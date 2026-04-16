@@ -1,4 +1,5 @@
 use core::cmp::Ordering;
+use core::sync::atomic::AtomicU64;
 #[cfg(feature = "jit2")]
 use std::hint::unreachable_unchecked;
 

@@ -17,16 +17,16 @@
 ; (define (map func lst)
 ;   (map-inner func '() lst))
 
-(define (iterator-map iter func accum)
-  (define next-value (iter-next! iter))
-  (if (eq? next-value #%iterator-finished)
-      (reverse accum)
-      (iterator-map iter func (cons (func next-value) accum))))
+; (define (iterator-map iter func accum)
+;   (define next-value (iter-next! iter))
+;   (if (eq? next-value #%iterator-finished)
+;       (reverse accum)
+;       (iterator-map iter func (cons (func next-value) accum))))
 
-(define (map func lst)
-  (define iterator (value->iterator lst))
-  ;; Walk the list, and do something with it
-  (iterator-map iterator func '()))
+; (define (map func lst)
+;   (define iterator (value->iterator lst))
+;   ;; Walk the list, and do something with it
+;   (iterator-map iterator func '()))
 
 ;; Given a comparison routine that returns one of
 ;;       less
@@ -130,6 +130,14 @@
                           (map-and (lambda (t2) (memq (tcmp t2 t) '(more equal))) more)))
                    ; (lattice->elements target)))))
                    (car target)))))
+
+(define (map function list1)
+  (define (map1 func accum lst)
+    (if (null? lst)
+        (reverse accum)
+        (map1 func (cons (func (car lst)) accum) (cdr lst))))
+
+  (map1 function '() list1))
 
 (define (maps-rest source target pas rest to-1 to-collect)
   (if (null? rest)
