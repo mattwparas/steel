@@ -2901,7 +2901,7 @@ impl FunctionTranslator<'_> {
                         }
                     }
                     // TODO: inline the call global here!
-                    if USE_INLINE_CALL_GLOBAL {
+                    else if USE_INLINE_CALL_GLOBAL {
                         todo!()
                     } else if let Some(name) = name {
                         let result = self.call_global_function(arity, name, function_index, false);
