@@ -57,7 +57,7 @@ const USE_INLINE_LOCAL_TAIL_CALL: bool = true;
 const USE_EXPERIMENTAL_CALL: bool = true;
 const USE_INLINE_TAIL_CALL: bool = true;
 
-const USE_INLINE_CALL_GLOBAL: bool = false;
+const USE_INLINE_CALL_GLOBAL: bool = true;
 
 /// The basic JIT class.
 pub struct JIT {
@@ -2884,11 +2884,7 @@ impl FunctionTranslator<'_> {
                         if USE_EXPERIMENTAL_CALL {
                             let slot = self.slot.unwrap().clone();
 
-                            let result = self.call_self_function_experimental(
-                                arity,
-                                self_name.unwrap(),
-                                slot,
-                            );
+                            let result = self.call_self_function_experimental(arity, slot);
 
                             self.push(result, InferredType::Any);
                         } else {
@@ -2901,8 +2897,22 @@ impl FunctionTranslator<'_> {
                         }
                     }
                     // TODO: inline the call global here!
-                    else if USE_INLINE_CALL_GLOBAL {
-                        todo!()
+                    else if USE_INLINE_CALL_GLOBAL
+                        && matches!(self._globals.get(payload), Some(SteelVal::Closure(_)))
+                    {
+                        // TODO: Insert guard for whether this is mutable or not!
+                        // Inline the call to this global, assuming its not mutable
+
+                        let func = if let SteelVal::Closure(c) = self._globals.get(payload).unwrap()
+                        {
+                            c.clone()
+                        } else {
+                            panic!();
+                        };
+
+                        let result = self.call_self_function_experimental(arity, func);
+
+                        self.push(result, InferredType::Any);
                     } else if let Some(name) = name {
                         let result = self.call_global_function(arity, name, function_index, false);
 
@@ -4037,10 +4047,10 @@ impl FunctionTranslator<'_> {
 
                     match self.shadow_stack.last().unwrap().clone() {
                         MaybeStackValue::Register(reg) => {
-                            // let can_skip_bounds_check = matches!(
-                            //     self.properties.get(&ValueOrRegister::Register(reg)),
-                            //     Some(Properties::NonEmptyList)
-                            // );
+                            let can_skip_bounds_check = matches!(
+                                self.properties.get(&ValueOrRegister::Register(reg)),
+                                Some(Properties::ProperNonEmptyList)
+                            );
 
                             self.properties.add_property(
                                 ValueOrRegister::Register(reg),
@@ -4065,12 +4075,12 @@ impl FunctionTranslator<'_> {
                         }
 
                         MaybeStackValue::MutRegister(reg) => {
-                            // let can_skip_bounds_check = matches!(
-                            //     self.properties.get(&ValueOrRegister::Register(reg)),
-                            //     Some(Properties::NonEmptyList)
-                            // );
+                            let can_skip_bounds_check = matches!(
+                                self.properties.get(&ValueOrRegister::Register(reg)),
+                                Some(Properties::ProperNonEmptyList)
+                            );
 
-                            let can_skip_bounds_check = false;
+                            // let can_skip_bounds_check = false;
 
                             self.shadow_stack.pop();
                             let ir_reg = self.register_index(reg);
@@ -5668,12 +5678,7 @@ impl FunctionTranslator<'_> {
         result
     }
 
-    fn call_self_function_experimental(
-        &mut self,
-        arity: usize,
-        name: &str,
-        func: Gc<ByteCodeLambda>,
-    ) -> Value {
+    fn call_self_function_experimental(&mut self, arity: usize, func: Gc<ByteCodeLambda>) -> Value {
         // let local_callee = self.get_local_callee(name);
 
         let ctx = self.get_ctx();

@@ -73,11 +73,7 @@
       (lambda (ac lst)
         (if (null? lst)
             (xreverse! ac)
-            (select-a (let ([head (car lst)])
-                        (if (test head)
-                            (cons head ac)
-                            ac))
-                      (cdr lst)))))
+            (select-a (let ([head (car lst)]) (if (test head) (cons head ac) ac)) (cdr lst)))))
     (select-a '() lst)))
 
 ; (define xreverse!
@@ -96,11 +92,7 @@
       (lambda (ac lst)
         (if (null? lst)
             (xreverse! ac)
-            (select-a (let ([head (car lst)])
-                        (if (test head)
-                            (cons (func head) ac)
-                            ac))
-                      (cdr lst)))))
+            (select-a (let ([head (car lst)]) (if (test head) (cons (func head) ac) ac)) (cdr lst)))))
     (select-a '() lst)))
 
 ;; This version of map-and tail-recurses on the last test.
@@ -108,11 +100,10 @@
   (lambda (proc lst)
     (if (null? lst)
         #t
-        (letrec ([drudge (lambda (lst)
-                           (let ([rest (cdr lst)])
-                             (if (null? rest)
-                                 (proc (car lst))
-                                 (and (proc (car lst)) (drudge rest)))))])
+        (letrec ([drudge
+                  (lambda (lst)
+                    (let ([rest (cdr lst)])
+                      (if (null? rest) (proc (car lst)) (and (proc (car lst)) (drudge rest)))))])
           ; (if (cdr-null? lst)
           ;     (proc (car lst))
           ;     (and (proc (car lst)) (drudge (cdr lst)))))])
@@ -126,6 +117,18 @@
     (let ([less (select-map (lambda (p) (eq? 'less (scmp (car p) new))) cdr pas)]
           [more (select-map (lambda (p) (eq? 'more (scmp (car p) new))) cdr pas)])
       (zulu-select (lambda (t)
+                     ;; TODO: Make sure memq w/ constant lists gets optimized in some way.
+                     ;; Right now, we'll end up allocated more than we need to.
+                     ;;
+                     ;; Equal with a constant should be _much_ faster. We can probably
+                     ;; just hard code the address in there, without passing it directly
+                     ;; and avoid a bunch of the lookups.
+                     ;;
+                     ;; Lookups with symbols might be faster to inline an eq? check
+                     ;; before hand if it is a known symbol statically. Then we just
+                     ;; need to check the value before hand. We also don't need to clone
+                     ;; the value immediately, since we know it'll escape, we just need
+                     ;; the address?
                      (and (map-and (lambda (t2) (memq (tcmp t2 t) '(less equal))) less)
                           (map-and (lambda (t2) (memq (tcmp t2 t) '(more equal))) more)))
                    ; (lattice->elements target)))))
@@ -133,9 +136,7 @@
 
 (define (map function list1)
   (define (map1 func accum lst)
-    (if (null? lst)
-        (reverse accum)
-        (map1 func (cons (func (car lst)) accum) (cdr lst))))
+    (if (null? lst) (reverse accum) (map1 func (cons (func (car lst)) accum) (cdr lst))))
 
   (map1 function '() list1))
 
@@ -164,9 +165,7 @@
   (maps-rest source target '() (car source) (lambda (x) 1) sum))
 
 (define (sum lst)
-  (if (null? lst)
-      0
-      (+ (car lst) (sum (cdr lst)))))
+  (if (null? lst) 0 (+ (car lst) (sum (cdr lst)))))
 
 (define (run k)
   (let* ([l2 (make-lattice '(low high)
