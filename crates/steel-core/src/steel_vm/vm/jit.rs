@@ -1034,6 +1034,14 @@ fn eq_reg_2(ctx: *mut VmCore, left: usize, right: usize) -> bool {
 }
 
 #[cross_platform_fn]
+fn symbol_equal_no_drop(left: SteelString, right: SteelString) -> bool {
+    let res = left == right;
+    std::mem::forget(left);
+    std::mem::forget(right);
+    res
+}
+
+#[cross_platform_fn]
 fn eq_reg_1(ctx: *mut VmCore, left: usize, right: SteelVal) -> bool {
     let guard = unsafe { &mut *ctx };
     let offset = guard.get_offset();
@@ -1113,6 +1121,23 @@ fn list_contains_reg(ctx: *mut VmCore, reg: usize, lst: List<SteelVal>) -> bool 
             return true;
         }
     }
+
+    false
+}
+
+#[cross_platform_fn]
+fn list_contains_reg_constant(ctx: *mut VmCore, reg: usize, lst: List<SteelVal>) -> bool {
+    let guard = unsafe { &mut *ctx };
+    let offset = guard.get_offset();
+    let value = &guard.thread.stack[reg + offset];
+
+    for item in lst.iter() {
+        if value == item {
+            return true;
+        }
+    }
+
+    std::mem::forget(lst);
 
     false
 }

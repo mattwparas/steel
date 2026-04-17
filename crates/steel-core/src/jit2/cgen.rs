@@ -963,6 +963,11 @@ impl Default for JIT {
         );
 
         map.add_func(
+            "list-contains-reg-constant",
+            abi! { list_contains_reg_constant as fn(ctx: *mut VmCore, usize, List<SteelVal>) -> bool },
+        );
+
+        map.add_func(
             "list-contains-value",
             abi! { list_contains_value as fn(ctx: *mut VmCore, SteelVal, SteelVal) -> bool },
         );
@@ -975,6 +980,11 @@ impl Default for JIT {
         map.add_func(
             "eq?-reg-1",
             abi! { eq_reg_1 as fn(ctx: *mut VmCore, usize, SteelVal) -> bool },
+        );
+
+        map.add_func2(
+            "symbol-equal?-no-drop",
+            abi! { symbol_equal_no_drop as fn(SteelString, SteelString) -> bool },
         );
 
         map.add_func2(
@@ -1643,6 +1653,10 @@ enum ConstantValue {
 
     Float(f64),
 
+    List(usize),
+
+    Symbol(usize),
+
     // HeapConstant
     Index(usize),
 }
@@ -1656,24 +1670,6 @@ struct StackFrameRepr {
 }
 
 impl ConstantValue {
-    fn as_steelval(self) -> SteelVal {
-        match self {
-            ConstantValue::Int(i) => SteelVal::IntV(i),
-            ConstantValue::Bool(b) => SteelVal::BoolV(b),
-            ConstantValue::Char(c) => SteelVal::CharV(c),
-            ConstantValue::Float(f) => SteelVal::NumV(f),
-            ConstantValue::Index(_) => panic!(),
-        }
-    }
-
-    fn into_index(self) -> usize {
-        if let Self::Index(i) = self {
-            i
-        } else {
-            panic!()
-        }
-    }
-
     fn as_typ(self) -> InferredType {
         match self {
             ConstantValue::Int(_) => InferredType::Int,
@@ -1681,6 +1677,8 @@ impl ConstantValue {
             ConstantValue::Char(_) => InferredType::Char,
             ConstantValue::Float(_) => InferredType::Number,
             ConstantValue::Index(_) => InferredType::Any,
+            ConstantValue::Symbol(_) => InferredType::Symbol,
+            ConstantValue::List(_) => InferredType::List,
         }
     }
 
@@ -1691,6 +1689,20 @@ impl ConstantValue {
             ConstantValue::Index(p) => (ctx.push_const_index(p), InferredType::Any),
 
             ConstantValue::Int(i) => (ctx.encode_integer(i as _), InferredType::Int),
+
+            ConstantValue::Float(n) => (ctx.encode_float(n), InferredType::Float),
+
+            ConstantValue::Char(c) => (ctx.encode_char(c), InferredType::Char),
+
+            ConstantValue::Symbol(i) => {
+                let constant = ctx.constants.get_value(i);
+                ctx.constant_to_value(i, constant)
+            }
+
+            ConstantValue::List(i) => {
+                let constant = ctx.constants.get_value(i);
+                ctx.constant_to_value(i, constant)
+            }
 
             _ => {
                 // let value = ctx.create_i128(encode(self.as_steelval()));
@@ -2613,9 +2625,22 @@ impl FunctionTranslator<'_> {
                 }
                 OpCode::PUSHCONST => {
                     let payload = self.instructions[self.ip].payload_size.to_usize();
-                    let (value, typ) = self.get_const(op, payload);
+                    // let (value, typ) = self.get_const(op, payload);
+
+                    let constant = self.constants.get(payload);
+
+                    let encoded = match constant {
+                        SteelVal::NumV(n) => ConstantValue::Float(n),
+                        SteelVal::IntV(i) => ConstantValue::Int(i),
+                        SteelVal::BoolV(b) => ConstantValue::Bool(b),
+                        SteelVal::CharV(c) => ConstantValue::Char(c),
+                        SteelVal::ListV(_) => ConstantValue::List(payload),
+                        SteelVal::SymbolV(_) => ConstantValue::Symbol(payload),
+                        _ => ConstantValue::Index(payload),
+                    };
+
+                    self.shadow_push(MaybeStackValue::Constant(encoded));
                     self.ip += 1;
-                    self.push(value, typ);
                 }
                 OpCode::TRUE => {
                     let constant = SteelVal::BoolV(true);
@@ -3937,6 +3962,83 @@ impl FunctionTranslator<'_> {
                             let res = self.call_function_returns_value_args(
                                 "equal-binop-register-bool",
                                 &[register_index, v.value],
+                            );
+
+                            self.push(res, InferredType::UnboxedBool);
+
+                            self.ip += 2;
+                        }
+
+                        &[MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i), MaybeStackValue::Constant(ConstantValue::Symbol(v))]
+                        | &[MaybeStackValue::Constant(ConstantValue::Symbol(v)), MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i)] =>
+                        {
+                            self.shadow_stack.pop();
+                            self.shadow_stack.pop();
+
+                            let constant = self.constants.get(v);
+                            let SteelVal::SymbolV(s) = constant else {
+                                panic!()
+                            };
+
+                            let as_ptr: i64 =
+                                unsafe { std::mem::transmute::<SteelString, _>(s.clone()) };
+                            let value = self.builder.ins().iconst(types::I64, as_ptr);
+
+                            // If they're the same type, just compare the bytes. Don't do a lookup.
+                            let left_value = self.read_from_vm_stack(i);
+                            let is_symbol = self.is_type(left_value, SteelVal::SYMBOL_TAG);
+                            // Get the left value
+                            let lvalue = self.unbox_value_to_pointer(left_value);
+
+                            let res = self.converging_if(
+                                is_symbol,
+                                |ctx| {
+                                    let rvalue = value;
+
+                                    // Just compare the two values directly since we're looking
+                                    // at the pointers.
+                                    let test = ctx.builder.ins().icmp(IntCC::Equal, lvalue, rvalue);
+
+                                    ctx.converging_if(
+                                        test,
+                                        |ctx| ctx.builder.ins().iconst(types::I8, 1),
+                                        |ctx| {
+                                            ctx.call_function_returns_value_args_no_context(
+                                                "symbol-equal?-no-drop",
+                                                &[lvalue, value],
+                                            )
+                                        },
+                                        types::I8,
+                                    )
+                                },
+                                |ctx| ctx.builder.ins().iconst(types::I8, 0),
+                                types::I8,
+                            );
+
+                            self.push(res, InferredType::UnboxedBool);
+
+                            self.ip += 2;
+                        }
+
+                        // Register + Constant,
+                        // we might be able to say they're not equal
+                        // right off the bat based on inferred types, but
+                        // for now we're going to continue moving on. If the constant
+                        // is a symbol, we can inline an eq call before falling back to
+                        // equality with symbols.
+                        &[MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i), MaybeStackValue::Constant(v)]
+                        | &[MaybeStackValue::Constant(v), MaybeStackValue::Register(i) | MaybeStackValue::MutRegister(i)] =>
+                        {
+                            self.shadow_stack.pop();
+                            self.shadow_stack.pop();
+
+                            let register_index = self.builder.ins().iconst(types::I64, i as i64);
+
+                            let value = v.to_value(self);
+
+                            let res = self.call_function_returns_value_args(
+                                "equal-binop-register-bool",
+                                &[register_index, value.0],
                             );
 
                             // TODO: Somewhere, I'm not calling unboxed bool to_value properly!
@@ -6488,59 +6590,60 @@ impl FunctionTranslator<'_> {
                 // what we're dealing with.
 
                 let constant = self.constants.get_value(payload);
-
-                match &constant {
-                    SteelVal::NumV(n) => (self.encode_float(*n), InferredType::Float),
-                    SteelVal::IntV(i) => (self.encode_integer(*i as _), InferredType::Int),
-
-                    // Leak the constant, and then just push it up instead
-                    SteelVal::SymbolV(c) => {
-                        let value = c.clone();
-
-                        // Leak the value?
-                        value.0.into_raw();
-
-                        let as_ptr: i64 =
-                            unsafe { std::mem::transmute::<SteelString, _>(c.clone()) };
-
-                        let value = self.builder.ins().iconst(types::I64, as_ptr);
-
-                        // Clone it
-                        self.increment_ref_count_closure(value);
-
-                        (
-                            self.encode_value(SteelVal::SYMBOL_TAG as _, value),
-                            InferredType::Symbol,
-                        )
-                    }
-
-                    SteelVal::ListV(c) => {
-                        let value = c.clone();
-
-                        let as_ptr: usize = unsafe {
-                            std::mem::transmute::<crate::values::lists::List<_>, _>(c.clone())
-                        };
-
-                        let value = self.builder.ins().iconst(types::I64, as_ptr as i64);
-
-                        self.increment_ref_count_closure(value);
-
-                        (
-                            self.encode_value(SteelVal::LIST_TAG as _, value),
-                            InferredType::List,
-                        )
-                    }
-
-                    // SteelVal::BoolV(_) => (self.create_i128(encode(constant)), InferredType::Bool),
-                    // SteelVal::IntV(_) => (self.create_i128(encode(constant)), InferredType::Int),
-                    // SteelVal::CharV(_) => (self.create_i128(encode(constant)), InferredType::Char),
-                    _ => (self.push_const_index(payload), InferredType::Any),
-                }
+                self.constant_to_value(payload, constant)
             }
             _ => (
                 self.call_function_returns_value(op_to_name_payload(op1, payload)),
                 InferredType::Any,
             ),
+        }
+    }
+
+    fn constant_to_value(&mut self, payload: usize, constant: SteelVal) -> (Value, InferredType) {
+        match &constant {
+            SteelVal::NumV(n) => (self.encode_float(*n), InferredType::Float),
+            SteelVal::IntV(i) => (self.encode_integer(*i as _), InferredType::Int),
+
+            // Leak the constant, and then just push it up instead
+            SteelVal::SymbolV(c) => {
+                let value = c.clone();
+
+                // Leak the value?
+                value.0.into_raw();
+
+                let as_ptr: i64 = unsafe { std::mem::transmute::<SteelString, _>(c.clone()) };
+
+                let value = self.builder.ins().iconst(types::I64, as_ptr);
+
+                // Clone it
+                self.increment_ref_count_closure(value);
+
+                (
+                    self.encode_value(SteelVal::SYMBOL_TAG as _, value),
+                    InferredType::Symbol,
+                )
+            }
+
+            SteelVal::ListV(c) => {
+                let value = c.clone();
+
+                let as_ptr: usize =
+                    unsafe { std::mem::transmute::<crate::values::lists::List<_>, _>(c.clone()) };
+
+                let value = self.builder.ins().iconst(types::I64, as_ptr as i64);
+
+                self.increment_ref_count_closure(value);
+
+                (
+                    self.encode_value(SteelVal::LIST_TAG as _, value),
+                    InferredType::List,
+                )
+            }
+
+            // SteelVal::BoolV(_) => (self.create_i128(encode(constant)), InferredType::Bool),
+            // SteelVal::IntV(_) => (self.create_i128(encode(constant)), InferredType::Int),
+            // SteelVal::CharV(_) => (self.create_i128(encode(constant)), InferredType::Char),
+            _ => (self.push_const_index(payload), InferredType::Any),
         }
     }
 
@@ -6660,6 +6763,12 @@ impl FunctionTranslator<'_> {
             .ins()
             .iconst(Type::int(64).unwrap(), integer as i64);
         let integer = self.encode_value(discriminant(&SteelVal::IntV(0)) as i64, res);
+        integer
+    }
+
+    fn encode_char(&mut self, c: char) -> Value {
+        let res = self.builder.ins().iconst(Type::int(64).unwrap(), c as i64);
+        let integer = self.encode_value(SteelVal::CHAR_TAG as _, res);
         integer
     }
 

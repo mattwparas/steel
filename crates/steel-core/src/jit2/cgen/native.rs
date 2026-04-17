@@ -209,8 +209,50 @@ impl<'a> FunctionTranslator<'a> {
                         ctx.builder.ins().icmp(IntCC::Equal, lvalue, rvalue)
                     },
                     |ctx| {
-                        let left = ctx.register_index(v);
-                        ctx.call_function_returns_value_args("eq?-reg-1", &[left, right.0])
+                        // let left = ctx.register_index(v);
+                        // ctx.call_function_returns_value_args("eq?-reg-1", &[left, right.0])
+                        ctx.builder.ins().iconst(types::I8, 0)
+                    },
+                    types::I8,
+                );
+
+                self.push(res, InferredType::UnboxedBool);
+                self.ip += 1;
+            }
+
+            &[MutRegister(v) | Register(v), Constant(ConstantValue::Symbol(i))] => {
+                let _ = self.shadow_stack.pop();
+
+                // Pop them off
+                self.shadow_stack.pop();
+
+                let constant = self.constants.get(i);
+                let SteelVal::SymbolV(s) = constant else {
+                    panic!()
+                };
+
+                let as_ptr: i64 = unsafe { std::mem::transmute::<SteelString, _>(s.clone()) };
+                let value = self.builder.ins().iconst(types::I64, as_ptr);
+
+                // If they're the same type, just compare the bytes. Don't do a lookup.
+                let left_value = self.read_from_vm_stack(v);
+                let is_symbol = self.is_type(left_value, SteelVal::SYMBOL_TAG);
+
+                let res = self.converging_if(
+                    is_symbol,
+                    |ctx| {
+                        let lvalue = ctx.unbox_value_to_pointer(left_value);
+                        let rvalue = value;
+
+                        // Just compare the two values directly since we're looking
+                        // at the pointers.
+                        ctx.builder.ins().icmp(IntCC::Equal, lvalue, rvalue)
+                    },
+                    |ctx| {
+                        // let left = ctx.register_index(v);
+                        // ctx.call_function_returns_value_args("eq?-reg-1", &[left, right.0])
+
+                        ctx.builder.ins().iconst(types::I8, 0)
                     },
                     types::I8,
                 );
@@ -272,6 +314,33 @@ impl<'a> FunctionTranslator<'a> {
 
                 self.ip += 1;
             }
+
+            &[Register(reg), Constant(ConstantValue::List(l))] => {
+                let left = self.register_index(reg);
+
+                // Get the list, don't drop it - leak it, but we don't need to drop it.
+                let _ = self.shadow_pop().0;
+                self.shadow_pop();
+
+                let value = self.constants.get(l);
+                let SteelVal::ListV(value) = value else {
+                    panic!()
+                };
+                let as_ptr: usize = unsafe {
+                    std::mem::transmute::<crate::values::lists::List<_>, _>(value.clone())
+                };
+
+                let value_ptr = self.builder.ins().iconst(types::I64, as_ptr as i64);
+
+                let res = self.call_function_returns_value_args(
+                    "list-contains-reg-constant",
+                    &[left, value_ptr],
+                );
+                self.push(res, InferredType::UnboxedBool);
+
+                self.ip += 1;
+            }
+
             _ => {
                 let args = self
                     .split_off(2)
